@@ -81,6 +81,17 @@ codex mcp add asset-manager \
 CODEX_GENERATED_IMAGES_DIR=/custom/codex/generated_images node asset-manager/server.mjs
 ```
 
+## 可选：Cowart 外部画布集成
+
+Cowart 作为独立安装的 Codex 插件使用，不属于本仓库，也不会被提交到 Build Week 仓库。它用于把已归档的素材在可视化画布中继续编排。
+
+- 说 **“启动素材管理”**：启动本地素材库，并在 Codex 内置浏览器中打开；如明确要求，也可在系统浏览器打开 `http://127.0.0.1:43517/`。
+- 说 **“启动画布”**：打开 Cowart 的原生 Codex widget。
+- 说 **“在浏览器打开画布”**：才使用 Cowart 的本地浏览器开发模式。
+- 说 **“把当前素材插入画布”**：Codex 先调用 `asset_get`，再调用 Cowart 的 `insert_cowart_image`。
+
+画布运行数据固定保存到仓库外部的 `~/.codex/cowart-data/asset-manager/`，避免第三方画布数据进入项目或 Git 提交。首次安装或升级 Cowart 后，请新开一个 Codex 任务以加载它的 MCP 工具。
+
 ## 数据结构
 
 ```text
