@@ -23,7 +23,6 @@ const els = {
   categoryList: document.querySelector("#categoryList"),
   styleList: document.querySelector("#styleList"),
   addGroupBtn: document.querySelector("#addGroupBtn"),
-  syncCowartBtn: document.querySelector("#syncCowartBtn"),
   newAssetBtn: document.querySelector("#newAssetBtn"),
   importModal: document.querySelector("#importModal"),
   closeImportModal: document.querySelector("#closeImportModal"),
@@ -341,18 +340,6 @@ function bindEvents() {
     });
   }
 
-  if (els.syncCowartBtn) {
-    els.syncCowartBtn.addEventListener("click", async () => {
-      await runAction(async () => {
-        showToast("同步 Cowart 中...");
-        const result = await api("/api/assets/sync-cowart", { method: "POST", body: { projectId: state.project } });
-        showToast(`导入 ${result.imported.length}，跳过 ${result.skipped.length}`, "success");
-        await loadStats();
-        await loadAssets();
-      });
-    });
-  }
-
   if (els.newAssetBtn) {
     els.newAssetBtn.addEventListener("click", () => {
       if (els.importModal) els.importModal.classList.add("open");
@@ -507,7 +494,7 @@ function renderGrid() {
           <polyline points="21 15 16 10 5 21"/>
         </svg>
         <p>没有素材</p>
-        <span>点「同步 Cowart 图片」开始导入</span>
+        <span>点「导入图片」把新素材归档到本地库</span>
       </div>`;
     return;
   }
@@ -706,19 +693,6 @@ function renderDetail() {
         </svg>
         复制路径
       </button>
-      <button class="action-btn secondary" data-action="insert-canvas">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="18" height="18" rx="2"/>
-          <line x1="3" y1="9" x2="21" y2="9"/>
-          <line x1="9" y1="21" x2="9" y2="9"/>
-        </svg>
-        放到画布
-        <select class="placement-select" data-placement style="margin-left:4px;font-size:10px;height:20px;width:56px;border:1px solid var(--border);border-radius:4px;background:var(--surface);">
-          <option value="right">右</option>
-          <option value="below">下</option>
-          <option value="center">中</option>
-        </select>
-      </button>
       <button class="action-btn secondary" data-action="regenerate">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
@@ -866,20 +840,6 @@ function bindDetailEvents(asset) {
       });
     });
   }
-
-  panel.querySelector('[data-action="insert-canvas"]').addEventListener("click", async (e) => {
-    await runAction(async () => {
-      // 获取选中的位置
-      const placementSelect = e.currentTarget.querySelector('[data-placement]');
-      const placement = placementSelect ? placementSelect.value : "right";
-      showToast("插入画布中...");
-      const result = await api("/api/assets/canvas-insert", {
-        method: "POST",
-        body: { projectId: asset.project_id, assetId: asset.id, placement }
-      });
-      showToast(`已放到画布：${result.canvas.shapeId}`, "success");
-    });
-  });
 
   panel.querySelector('[data-action="regenerate"]').addEventListener("click", async () => {
     await runAction(async () => {

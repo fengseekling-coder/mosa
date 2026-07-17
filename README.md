@@ -4,11 +4,10 @@
 
 > An offline-first asset manager for Codex-generated images: preserve the image, prompt recipe, provenance, and reuse path in one local library.
 
-- 把 Codex/Cowart 生成图片复制进素材库。
+- 把 Codex 生成图片复制进素材库。
 - 为每张图片保存 full prompt、skill、style、比例、业务字段和版本关系。
 - 在 Web UI 中搜索、查看、复制 prompt。
-- 把素材重新插入现有 Cowart 画布。
-- 通过 MCP 工具让 Codex 后续直接调用 `asset_create`、`asset_list`、`asset_get` 和 `canvas_insert_asset`。
+- 通过 MCP 工具让 Codex 后续直接调用 `asset_create`、`asset_list` 和 `asset_get`。
 
 ## 快速开始
 
@@ -33,11 +32,10 @@ npm test
 ## 当前 MVP 使用流
 
 1. 打开 Web App。
-2. 点“同步 Cowart 图片”，把现有 Cowart 画布图片复制进素材库。
+2. 生成图片后，让 Codex 调用 `asset_create` 自动归档。
 3. 点任意图片，在右侧补写或修改 prompt、skill、style、ratio、theme 和 business fields。
 4. 点“复制 prompt”去 GPT/Codex 复现。
-5. 点“放到画布”把素材重新插入 Cowart。
-6. 点“同配方再生成”复制一段可直接发给 Codex 的再生成指令。
+5. 点“同配方再生成”复制一段可直接发给 Codex 的再生成指令。
 
 Codex 生成新图后，可以通过 Web UI 的“导入本地图片”保存，也可以通过 MCP 的 `asset_create` 写入。
 
@@ -119,7 +117,6 @@ node asset-manager/mcp/server.mjs
 - `asset_get`
 - `asset_update_metadata`
 - `asset_attach_prompt`
-- `canvas_insert_asset`
 
 ## API 例子
 
@@ -155,7 +152,6 @@ curl -sS -X POST http://127.0.0.1:43517/api/assets/create \
 - 第一版只用本地文件，不使用数据库。
 - “自动截获网页版 GPT 真实 prompt”还没有做，需要后续浏览器扩展或 GPT 侧导出能力。
 - “用同配方再生成”现在先复制 Codex 指令，不直接调用图像模型。
-- “放到画布”会优先走正在运行的 Cowart API；Cowart 没运行时会直接写入画布 JSON，刷新 Cowart 后可见。
 
 ## Build Week 演示清单
 

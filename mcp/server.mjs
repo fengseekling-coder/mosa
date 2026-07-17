@@ -12,7 +12,6 @@ const TOOL_ASSET_LIST = "asset_list";
 const TOOL_ASSET_GET = "asset_get";
 const TOOL_ASSET_UPDATE_METADATA = "asset_update_metadata";
 const TOOL_ASSET_ATTACH_PROMPT = "asset_attach_prompt";
-const TOOL_CANVAS_INSERT_ASSET = "canvas_insert_asset";
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -94,16 +93,6 @@ function toolDefinitions() {
         additionalProperties: false
       }
     },
-    {
-      name: TOOL_CANVAS_INSERT_ASSET,
-      description: "Insert a saved asset image into the existing Cowart canvas.",
-      inputSchema: {
-        type: "object",
-        properties: { projectId: { type: "string" }, assetId: { type: "string" }, cowartUrl: { type: "string" } },
-        required: ["assetId"],
-        additionalProperties: false
-      }
-    }
   ];
 }
 
@@ -135,11 +124,6 @@ async function handleToolCall(id, params) {
     sendResult(id, { content: [{ type: "text", text: `Attached prompt to ${asset.id}` }], structuredContent: { asset } });
     return;
   }
-  if (params?.name === TOOL_CANVAS_INSERT_ASSET) {
-    const result = await store.insertAssetIntoCowart(args);
-    sendResult(id, { content: [{ type: "text", text: `Inserted ${result.canvas.shapeId} into ${result.canvas.pageId}` }], structuredContent: result });
-    return;
-  }
   sendError(id, -32602, `Unknown tool: ${params?.name || ""}`);
 }
 
@@ -150,7 +134,7 @@ async function handleRequest(message) {
       protocolVersion: params?.protocolVersion || "2025-11-25",
       capabilities: { tools: {} },
       serverInfo: { name: "GPT Asset Manager MCP", version: "0.1.0" },
-      instructions: "Save generated images with full prompts and recipe metadata. Images from Codex's default ~/.codex/generated_images task folders are accepted and their source path is recorded. List/retrieve assets and insert saved assets into Cowart."
+      instructions: "Save generated images with full prompts and recipe metadata. Images from Codex's default ~/.codex/generated_images task folders are accepted and their source path is recorded. List and retrieve saved assets for reuse."
     });
     return;
   }

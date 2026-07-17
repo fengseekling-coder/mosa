@@ -124,18 +124,6 @@ async function handleApi(req, res, url) {
     return;
   }
 
-  if (req.method === "POST" && url.pathname === "/api/assets/sync-cowart") {
-    const body = await readJson(req);
-    sendJson(res, 200, await store.syncCowartAssets(body.projectId || "default"));
-    return;
-  }
-
-  if (req.method === "POST" && url.pathname === "/api/assets/canvas-insert") {
-    const body = await readJson(req);
-    sendJson(res, 200, await store.insertAssetIntoCowart(body));
-    return;
-  }
-
   const assetMatch = /^\/api\/assets\/([^/]+)\/([^/]+)$/.exec(url.pathname);
   if (assetMatch && req.method === "GET") {
     sendJson(res, 200, { asset: await store.getAsset(assetMatch[1], assetMatch[2]) });
