@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Asset Manager</title>
-    <link rel="stylesheet" href="/styles.css?v=8" />
+    <link rel="stylesheet" href="/styles.css?v=9" />
   </head>
   <body>
 
@@ -135,6 +135,14 @@
               <span class="nav-item-text">最近一周</span>
               <span class="nav-count" id="countRecent">-</span>
             </li>
+            <li class="nav-item" data-filter="codex">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m12 3-1.7 5.3L5 10l5.3 1.7L12 17l1.7-5.3L19 10l-5.3-1.7L12 3Z"/>
+                <path d="m19 16-.7 2.3L16 19l2.3.7L19 22l.7-2.3L22 19l-2.3-.7L19 16Z"/>
+              </svg>
+              <span class="nav-item-text">Codex 生成</span>
+              <span class="nav-count" id="countCodex">-</span>
+            </li>
           </ul>
         </nav>
 
@@ -208,6 +216,15 @@
             <span class="status-badge" id="statusText">Ready</span>
           </div>
         </header>
+        <section class="demo-flow" id="demoFlow" aria-label="Build Week 演示流程">
+          <div class="demo-flow-label">Build Week Demo</div>
+          <ol class="demo-flow-steps">
+            <li class="demo-step" data-demo-step="1"><span>1</span>Codex 生成</li>
+            <li class="demo-step" data-demo-step="2"><span>2</span>MCP 自动归档</li>
+            <li class="demo-step" data-demo-step="3"><span>3</span>搜索、查看 Prompt、复用</li>
+          </ol>
+          <p class="demo-flow-provenance" id="demoFlowProvenance">选择 Codex 素材，查看自动归档来源。</p>
+        </section>
         <section class="grid" id="assetGrid"></section>
       </main>
 

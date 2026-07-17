@@ -110,6 +110,7 @@ async function handleApi(req, res, url) {
         group: url.searchParams.get("group") || "",
         category: url.searchParams.get("category") || "",
         style: url.searchParams.get("style") || "",
+        source: url.searchParams.get("source") || "",
         favorite: url.searchParams.get("favorite") === "1",
         recent: url.searchParams.get("recent") === "1"
       })

@@ -38,6 +38,15 @@ test("imports a Codex default generated image and preserves its provenance", asy
   const storedMetadata = JSON.parse(await readFile(join(managerDir, "assets", "default", "metadata", "codex-fixture.json"), "utf8"));
   assert.equal(storedMetadata.source.path, sourcePath);
   assert.equal(storedMetadata.prompt, "A verified Codex test image");
+
+  const localImagesDir = join(projectRoot, "generated-images");
+  const localPath = join(localImagesDir, "local.png");
+  await mkdir(localImagesDir, { recursive: true });
+  await writeFile(localPath, "local fixture image", "utf8");
+  await store.createAsset({ assetId: "local-fixture", imagePath: localPath });
+
+  const codexOnly = await store.listAssets({ projectId: "default", source: "codex-generated" });
+  assert.deepEqual(codexOnly.map((item) => item.id), ["codex-fixture"]);
 });
 
 test("continues to reject image paths outside approved source roots", async (t) => {

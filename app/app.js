@@ -7,7 +7,7 @@ const state = {
   query: "",
   // 当前筛选
   filter: { type: "all", value: "" },
-  groups: { total: 0, favorites: 0, recent: 0, groups: [], categories: [], styles: [] },
+  groups: { total: 0, favorites: 0, recent: 0, codex: 0, groups: [], categories: [], styles: [] },
   libraryPath: "",
   codexImagesDir: ""
 };
@@ -44,6 +44,8 @@ const els = {
   statusText: document.querySelector("#statusText"),
   assetGrid: document.querySelector("#assetGrid"),
   detailPanel: document.querySelector("#detailPanel"),
+  demoFlow: document.querySelector("#demoFlow"),
+  demoFlowProvenance: document.querySelector("#demoFlowProvenance"),
   toastContainer: document.querySelector("#toastContainer")
 };
 
@@ -177,6 +179,7 @@ async function loadStats() {
   const styleMap = new Map();
   let favorites = 0;
   let recent = 0;
+  let codex = 0;
 
   for (const a of assets) {
     // 收藏：rating > 0 或 favorite 标记为 true
@@ -185,6 +188,7 @@ async function loadStats() {
       const age = now - new Date(a.created_at).getTime();
       if (age < ONE_WEEK) recent++;
     }
+    if (a.source?.type === "codex-generated") codex++;
     if (a.group)  groupMap.set(a.group,    (groupMap.get(a.group)    || 0) + 1);
     if (a.category) categoryMap.set(a.category, (categoryMap.get(a.category) || 0) + 1);
     if (a.style)  styleMap.set(a.style,    (styleMap.get(a.style)    || 0) + 1);
@@ -194,6 +198,7 @@ async function loadStats() {
     total: assets.length,
     favorites,
     recent,
+    codex,
     groups:    [...groupMap.entries()].sort((a, b) => b[1] - a[1]),
     categories: [...categoryMap.entries()].sort((a, b) => b[1] - a[1]),
     styles:    [...styleMap.entries()].sort((a, b) => b[1] - a[1])
@@ -210,6 +215,7 @@ async function loadAssets() {
 
   if (state.filter.type === "favorite") params.set("favorite", "1");
   else if (state.filter.type === "recent") params.set("recent", "1");
+  else if (state.filter.type === "codex") params.set("source", "codex-generated");
   else if (state.filter.type === "group") params.set("group", state.filter.value);
   else if (state.filter.type === "category") params.set("category", state.filter.value);
   else if (state.filter.type === "style") params.set("style", state.filter.value);
@@ -226,6 +232,7 @@ function updateViewTitle() {
     all: "全部",
     favorite: "收藏",
     recent: "最近一周",
+    codex: "Codex 生成",
     group: state.filter.value,
     category: state.filter.value,
     style: state.filter.value
@@ -430,6 +437,7 @@ function renderQuickFilters() {
   els.quickFilters.querySelector("[data-filter=all] .nav-count").textContent = s.total;
   els.quickFilters.querySelector("[data-filter=favorite] .nav-count").textContent = s.favorites;
   els.quickFilters.querySelector("[data-filter=recent] .nav-count").textContent = s.recent;
+  els.quickFilters.querySelector("[data-filter=codex] .nav-count").textContent = s.codex;
 }
 
 function renderGroupList() {
@@ -506,8 +514,10 @@ function renderGrid() {
 
   els.assetGrid.innerHTML = state.assets.map(asset => {
     const title = asset.theme || asset.asset || asset.id;
+    const isCodexAsset = asset.source?.type === "codex-generated";
     return `<article class="asset-card${asset.id === state.selectedId ? " selected" : ""}" data-id="${escapeHtml(asset.id)}">
       <img class="thumb" src="${asset.image_url}" alt="${escapeHtml(title)}" loading="lazy" />
+      ${isCodexAsset ? '<span class="asset-source-badge">Codex</span>' : ""}
       <div class="card-overlay">
         <div class="card-overlay-title">${escapeHtml(title)}</div>
         <button class="card-quick-copy" data-copy="${escapeHtml(asset.prompt || "")}" title="复制 prompt">
@@ -545,6 +555,7 @@ function renderGrid() {
 function renderDetail() {
   // 如果没有素材或没有选中项，显示空状态
   if (!state.assets || state.assets.length === 0) {
+    renderDemoFlow(null);
     els.detailPanel.innerHTML = `
       <div class="detail-empty">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -560,6 +571,7 @@ function renderDetail() {
 
   const asset = state.assets.find(a => a.id === state.selectedId) || state.assets[0];
   if (!asset) {
+    renderDemoFlow(null);
     els.detailPanel.innerHTML = `
       <div class="detail-empty">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -638,16 +650,27 @@ function renderDetail() {
     : `<div class="biz-fields-box" style="color:var(--ink-3);font-style:italic">暂无业务字段</div>`;
 
   const source = asset.source || {};
-  const sourceRows = [
-    ["Type", source.type],
-    ["Original path", source.path],
-    ["Codex task", source.codex_task_id],
-    ["Tool", source.generation_tool],
-    ["Model", source.model]
-  ].filter(([, value]) => value !== undefined && value !== null && value !== "");
+  const isCodexAsset = source.type === "codex-generated";
+  const sourceRows = (isCodexAsset
+    ? [
+        ["类型", source.type],
+        ["任务 ID", source.codex_task_id],
+        ["模型", source.model],
+        ["生成工具", source.generation_tool],
+        ["原始路径", source.path]
+      ]
+    : [
+        ["Type", source.type],
+        ["Original path", source.path],
+        ["Codex task", source.codex_task_id],
+        ["Tool", source.generation_tool],
+        ["Model", source.model]
+      ])
+    .filter(([, value]) => value !== undefined && value !== null && value !== "");
   const sourceHtml = sourceRows.length
     ? `<div class="meta-table">${sourceRows.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${escapeHtml(key)}</span><span class="meta-val source-value">${escapeHtml(value)}</span></div>`).join("")}</div>`
     : `<div class="biz-fields-box" style="color:var(--ink-3);font-style:italic">暂无来源信息</div>`;
+  const codexOriginalPath = isCodexAsset ? formatCodexOriginalPath(source) : "";
 
   // Rating editor - 使用安全的 rating 值
   const safeRating = Math.min(5, Math.max(0, Math.round(asset.rating || 0)));
@@ -732,6 +755,7 @@ function renderDetail() {
     <div class="section">
       <div class="section-head">
         <h4>Source</h4>
+        ${isCodexAsset && codexOriginalPath ? '<button class="source-copy-btn" type="button" data-action="copy-codex-path">复制 Codex 原始路径</button>' : ""}
       </div>
       ${sourceHtml}
     </div>
@@ -813,6 +837,7 @@ function renderDetail() {
   `;
 
   bindDetailEvents(asset);
+  renderDemoFlow(asset);
 }
 
 function bindDetailEvents(asset) {
@@ -831,6 +856,16 @@ function bindDetailEvents(asset) {
       showToast("图片路径已复制", "success");
     });
   });
+
+  const copyCodexPathButton = panel.querySelector('[data-action="copy-codex-path"]');
+  if (copyCodexPathButton) {
+    copyCodexPathButton.addEventListener("click", async () => {
+      await runAction(async () => {
+        await navigator.clipboard.writeText(formatCodexOriginalPath(asset.source));
+        showToast("Codex 原始路径已复制", "success");
+      });
+    });
+  }
 
   panel.querySelector('[data-action="insert-canvas"]').addEventListener("click", async (e) => {
     await runAction(async () => {
@@ -942,6 +977,46 @@ function debounce(fn, delay) {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), delay);
   };
+}
+
+function renderDemoFlow(asset) {
+  if (!els.demoFlow || !els.demoFlowProvenance) return;
+
+  const source = asset?.source || {};
+  const isCodexAsset = source.type === "codex-generated";
+  els.demoFlow.classList.toggle("is-codex-selected", isCodexAsset);
+  els.demoFlow.querySelectorAll("[data-demo-step]").forEach((step) => {
+    const stepNumber = Number(step.dataset.demoStep);
+    step.classList.toggle("is-highlighted", isCodexAsset && stepNumber >= 2);
+  });
+
+  if (!isCodexAsset) {
+    els.demoFlowProvenance.textContent = "选择 Codex 素材，查看 MCP 自动归档的来源信息。";
+    return;
+  }
+
+  const provenance = [
+    source.codex_task_id ? `任务 ${source.codex_task_id}` : "任务 ID 未记录",
+    source.model || "模型未记录",
+    source.generation_tool || "生成工具未记录"
+  ];
+  els.demoFlowProvenance.textContent = `已选中 Codex 素材：${provenance.join(" · ")}。MCP 已自动归档，可搜索、查看 Prompt 并复用。`;
+}
+
+function formatCodexOriginalPath(source = {}) {
+  const relativePath = String(source.codex_relative_path || "").replace(/^\/+/, "");
+  if (relativePath) return `~/.codex/generated_images/${relativePath}`;
+
+  const originalPath = String(source.path || "");
+  const generatedRoot = String(source.codex_generated_images_root || state.codexImagesDir || "").replace(/\/+$/, "");
+  if (generatedRoot && originalPath.startsWith(`${generatedRoot}/`)) {
+    return `~/.codex/generated_images/${originalPath.slice(generatedRoot.length + 1)}`;
+  }
+
+  return originalPath.replace(
+    /^(?:\/Users\/[^/]+|\/home\/[^/]+)\/\.codex\/generated_images\//,
+    "~/.codex/generated_images/"
+  );
 }
 
 function escapeHtml(value) {
