@@ -1,0 +1,31 @@
+{
+  "id": "sciFiTheme06",
+  "project_id": "default",
+  "asset": "sciFiTheme06.png",
+  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/sciFiTheme06.png",
+  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/sciFiTheme06.md",
+  "prompt": "",
+  "skill": "",
+  "style": "",
+  "ratio": "941:1672",
+  "business_fields": {},
+  "theme": "retro-futurist-premium",
+  "tags": [
+    "retro-futurist-premium"
+  ],
+  "favorite": false,
+  "archived": false,
+  "parent_asset_id": null,
+  "version_change": "",
+  "child_asset_ids": [],
+  "created_at": "2026-07-08T16:11:49.240Z",
+  "updated_at": "2026-07-08T16:11:49.240Z",
+  "source": {
+    "type": "cowart-page-asset",
+    "path": "/Users/azhuilab/codex_aigc/canvas/pages/page/assets/06-retro-futurist-premium.png",
+    "copied_at": "2026-07-08T16:11:49.240Z",
+    "cowart_asset_id": "asset:sciFiTheme06",
+    "cowart_shape_id": "shape:sciFiTheme06"
+  },
+  "thumb_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/thumbs/sciFiTheme06.png"
+}

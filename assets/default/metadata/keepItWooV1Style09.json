@@ -1,0 +1,50 @@
+{
+  "id": "keepItWooV1Style09",
+  "project_id": "default",
+  "asset": "keepItWooV1Style09.png",
+  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/keepItWooV1Style09.png",
+  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/keepItWooV1Style09.md",
+  "prompt": "# 复古弥散渐变 cover prompt\n\nYou are a top-tier cover art director, typography designer, and image-generation prompt director.\n\nCreate one single custom vertical cover for a physical 102 cm wide × 208 cm high panel. Preserve the exact portrait aspect ratio 51:104. Use exactly one selected visual style: 复古弥散渐变 / retro-diffuse-gradient. The style is the organizing language of the whole cover, not a filter.\n\n## Input\n\n- Content mode: editorial-cover\n- Title/topic: KEEP IT WOO\n- A-layer main title: KEEP IT WOO\n- B-layer complete title: KEEP IT WOO\n- Subtitle: none\n- Language: English\n- Platform/use: large-format entrance cover and spatial poster\n- Aspect ratio: 51:104 portrait, based on 102 × 208 cm\n- Visual subject: one perfectly circular futuristic holographic gate with clearly separated structural layers, opening symmetrically along a vertical center seam\n- Mood: futuristic, ceremonial, precise, controlled, premium\n- Visual metaphor: an encrypted circular threshold recognizes the viewer and begins to open—an “open sesame” moment\n- Required verbatim display copy: KEEP IT WOO\n- Audience: visitors entering an immersive space, exhibition, or premium technology environment\n- Input Image 1 role: content and opening-gesture reference only; borrow the centered circular access mechanism and imminent doorway movement, not the person, hallway, photograph, or exact design\n- Input Image 2 role: circular vector-construction reference only; borrow ring hierarchy, broken arcs, ticks, blocks, and readable spacing, not its exact artwork or colors\n\n## Cover Objective\n\nThe first glance must identify the title and one circular opening mechanism. The second glance must reveal clear layers, a central split, and the selected style’s material or spatial logic. Keep all non-text visual structure left-right symmetrical; typography may break symmetry. Details must remain clearly distinguishable at large format.\n\n## Style Application\n\nForm one floating pearlescent sculpture from 6-14 translucent milky membranes and soft lamellar ribbons. Coral, pink, violet, and cool blue light must travel only along folds and edges in a pale atmospheric field.\n\n## Composition\n\nFold the membranes into one circular shell with a calm central opening. The left and right membrane stacks peel apart like an opening gate. KEEP IT and WOO are embossed or cut into the facing membrane edges so the text belongs to the material.\n\nKeep the main circular mechanism front-facing and geometrically true, not an ellipse. Leave production-safe margins. Use one visual center, one metaphor, and no competing secondary scene.\n\n## Image–Text Relationship\n\nThe exact phrase “KEEP IT WOO” must appear once and must be physically integrated into the selected style’s subject or material. It may become a structural band, wall, panel, cutout, membrane, block construction, architectural sign, printed strip, or connected identity module as specified above. Do not place it as an unrelated caption. Spell it exactly: K-E-E-P, space, I-T, space, W-O-O.\n\n## Typography\n\nUse a bold, clean sans-serif typeface, uppercase, with complete readable letterforms. Do not misspell, duplicate, mirror, crop, over-distort, or replace characters. Do not add any other readable slogan, logo, brand name, or filler copy.\n\n## Color, Material, and Texture\n\nMilky white, pearl gray, restrained coral-pink, violet, and cool-blue edge light on pale gray.\n\nEvery material, texture, line, shadow, and color decision must visibly belong to 复古弥散渐变.\n\n## Negative Constraints\n\nAvoid cheap rainbow gradient, bokeh, flat blurry color cloud, chrome, hard plastic, glass blob, generic 3D logo. Also avoid missing title, unreadable title, unrelated decoration, generic PPT or course-cover layout, e-commerce advertisement, watermark, contact sheet, grid of options, and multiple final designs.\n\n## Final Standard\n\nGenerate only one finished image. It must be a complete 复古弥散渐变 interpretation of the same KEEP IT WOO circular-opening brief, clearly distinct from all other styles while preserving the exact content, tall ratio, integrated title, and opening metaphor.",
+  "skill": "punk-cover",
+  "style": "retro-diffuse-gradient",
+  "ratio": "51:104",
+  "business_fields": {
+    "title": "KEEP IT WOO",
+    "task_collection": "keep-it-woo-task-output-62",
+    "series": "V1",
+    "version": "V1 final",
+    "output_type": "final",
+    "style_index": 9,
+    "style_name_zh": "复古弥散渐变",
+    "physical_size_cm": "102 × 208",
+    "aspect_ratio": "51:104"
+  },
+  "theme": "keep-it-woo-v1-retro-diffuse-gradient",
+  "tags": [
+    "KEEP IT WOO",
+    "V1",
+    "final",
+    "retro-diffuse-gradient",
+    "复古弥散渐变",
+    "task-output-62"
+  ],
+  "favorite": false,
+  "archived": false,
+  "group": "KEEP IT WOO · 21 Styles V1",
+  "category": "concept",
+  "rating": 0,
+  "parent_asset_id": null,
+  "version_change": "",
+  "child_asset_ids": [],
+  "created_at": "2026-07-12T22:57:59.760Z",
+  "updated_at": "2026-07-13T21:37:53.145Z",
+  "source": {
+    "type": "asset-manager-preserved-copy",
+    "path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/keepItWooV1Style09.png",
+    "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/keepItWooV1Style09.md",
+    "task_collection": "keep-it-woo-task-output-62",
+    "original_source_deleted": true,
+    "preserved_at": "2026-07-13T21:37:53.145Z"
+  },
+  "thumb_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/thumbs/keepItWooV1Style09.png"
+}

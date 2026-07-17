@@ -1,0 +1,49 @@
+{
+  "id": "keepItWooEarlyHolographicV7Svg",
+  "project_id": "default",
+  "asset": "keepItWooEarlyHolographicV7Svg.svg",
+  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/keepItWooEarlyHolographicV7Svg.svg",
+  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/keepItWooEarlyHolographicV7Svg.md",
+  "prompt": "# 黑白极简概念文字融合圆环 SVG — V7\n\nCreate one editable SVG master for a physical panel measuring exactly 102 cm × 208 cm, aspect ratio 51:104.\n\nSelected style: 黑白极简概念 / black-white-minimal-concept.\n\n## Input\n\n- Content mode: editorial-cover\n- Title/topic: KEEP IT WOO\n- Complete title: KEEP IT WOO\n- Subtitle: none\n- Language: English\n- Platform: custom large-format panel\n- Use case: editable vector cover and entrance graphic\n- Visual subject: one dominant multi-layer circular HUD mechanism whose central mechanical band physically carries the title, split by a narrow opening seam\n- Mood: precise, restrained, futuristic, technical, premium\n- Visual metaphor: a circular encrypted system beginning to open from its center\n- Required verbatim display copy: KEEP IT WOO\n- Reference hierarchy: use reference 2 for fine-line restraint and whitespace; references 10 and 11 for broken-ring structure; reference 13 for localized density and radial contrast\n- Banned elements: literal door frame, topological waves, long multi-rail architecture, empty logo ring, game dashboard, colored neon, lightning icon, random fake data, person, room, watermark\n\n## Composition\n\nUse one true circle as the absolute visual center. Build it from eight functional layers: sparse outer ticks, broken halo arcs, wide structural segments, calibration blocks, a fine tick track, thin inner rings, a quiet aperture, and a tapered central opening seam. Each layer must have a different stroke weight, density, and rhythm so the mechanism feels designed rather than repeated.\n\nMaintain strict left-right symmetry for every non-text element by drawing one left half and mirroring it. Keep detail dense only in selected ring zones. Preserve large black gaps and a clean central void. Remove the full architectural frame used in V5.\n\n## Typography and Element Integration\n\nRender “KEEP IT WOO” exactly once in an ultra-bold contemporary sans-serif. Do not place it in a separate title area. Build one horizontal mechanical reading band through the center of the main circular mechanism. The band must be part of the gate geometry, with curved ends following the circle and thin calibration edges connecting back into the surrounding rings.\n\nPlace “KEEP IT” on the left opening panel and “WOO” on the right opening panel. The central gate seam becomes the natural word space between them. Surrounding rings must terminate, dim, or pass behind this reading band so the words feel embedded in the mechanism rather than pasted on top. Preserve full legibility and do not distort the letterforms.\n\n## Style Application\n\nUse deep carbon black, graphite, pale silver, and warm off-white only. Preserve the selected style's precise grid, title legibility, near-monochrome restraint, strong negative space, and one dominant metaphor. Translate fine thread and particle detail into ordered vector ticks, arcs, dots, and blocks. Avoid generic flat concentric circles by giving every layer a structural role and by creating a visible opening gesture.\n\n## Final Standard\n\nThe SVG must remain fully editable and use exact 102 cm × 208 cm physical dimensions. It must look closer to a refined technical circular composition than a door illustration or game HUD. All details must remain individually readable at large format. The phrase KEEP IT WOO must remain complete and accurate while functioning as a structural component of the central opening mechanism.",
+  "skill": "punk-cover",
+  "style": "black-white-minimal-concept",
+  "ratio": "51:104",
+  "business_fields": {
+    "title": "KEEP IT WOO",
+    "task_collection": "keep-it-woo-task-output-62",
+    "series": "Early Holographic Gate",
+    "version": "V7 SVG",
+    "output_type": "svg-master",
+    "style_name_zh": "黑白极简概念",
+    "original_file": "keep-it-woo-holographic-gate/cover-v7.svg"
+  },
+  "theme": "keep-it-woo-early-holographic-v7-svg",
+  "tags": [
+    "KEEP IT WOO",
+    "task-output-62",
+    "early-iteration",
+    "Early Holographic Gate",
+    "svg-master",
+    "black-white-minimal-concept"
+  ],
+  "favorite": false,
+  "archived": false,
+  "group": "KEEP IT WOO · Early Holographic Gate",
+  "category": "concept",
+  "rating": 0,
+  "parent_asset_id": null,
+  "version_change": "",
+  "child_asset_ids": [],
+  "created_at": "2026-07-12T22:30:25.250Z",
+  "updated_at": "2026-07-13T21:37:53.145Z",
+  "source": {
+    "type": "asset-manager-preserved-copy",
+    "path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/keepItWooEarlyHolographicV7Svg.svg",
+    "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/keepItWooEarlyHolographicV7Svg.md",
+    "task_collection": "keep-it-woo-task-output-62",
+    "original_file": "keep-it-woo-holographic-gate/cover-v7.svg",
+    "original_source_deleted": true,
+    "preserved_at": "2026-07-13T21:37:53.145Z"
+  },
+  "thumb_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/thumbs/keepItWooEarlyHolographicV7Svg.svg"
+}

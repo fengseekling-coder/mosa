@@ -1,0 +1,49 @@
+{
+  "id": "keepItWooEarlyHolographicV2",
+  "project_id": "default",
+  "asset": "keepItWooEarlyHolographicV2.png",
+  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/keepItWooEarlyHolographicV2.png",
+  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/keepItWooEarlyHolographicV2.md",
+  "prompt": "# 黑白极简概念矢量版 cover prompt — V2\n\nYou are a top-tier cover art director, vector graphic designer, editorial typography designer, and futuristic wayfinding-system designer.\n\nEdit Image 1 into one single refined vector-style vertical cover for a physical format measuring 102 cm wide × 208 cm high. Preserve the exact portrait ratio 51:104 and the existing tall composition. Image 2 is a visual reference only for the clean sci-fi access-panel vocabulary: segmented circular arcs, calibrated dots, bold white line rails, modular door graphics, and the feeling of a sealed mechanism about to open.\n\nUse exactly one selected cover style: 黑白极简概念 / black-white-minimal-concept. Keep its black-white restraint, sharp grid, large negative space, precise typography, and singular visual metaphor, but follow the user's latest instruction by translating all sci-fi detail into clean, crisp, deliberately simplified 2D vector elements rather than dense particle mesh or realistic rendering.\n\n## Input\n\n- Use case: style-transfer edit of a custom vertical sci-fi editorial cover / installation-panel graphic.\n- Content mode: editorial-cover.\n- Main title and complete title: KEEP IT WOO.\n- Required verbatim display copy: KEEP IT WOO.\n- Aspect ratio: 51:104 portrait, derived from 102 cm × 208 cm.\n- Language: English.\n- Visual subject: one perfectly circular vector sci-fi access seal, divided vertically into mirrored left and right halves, with a narrow central opening gap.\n- Mood: cold, minimal, precise, futuristic, ceremonial, controlled.\n- Visual metaphor: an encrypted circular seal has recognized the viewer and is beginning to part like an “open sesame” gate.\n- Image 1 role: edit target. Preserve its overall tall layout, large central circular portal, vertical opening seam, black-and-white palette, lower title zone, and strict bilateral symmetry of non-text elements.\n- Image 2 role: reference only. Borrow the readable vector construction language of clean arcs, dots, blocks, line rails, and a centered access graphic. Do not include the person, photographed hallway, literal doorway, perspective, or environment.\n\n## Primary Change\n\nChange only the visual construction style from dense generative particle/wire mesh into clean vector element design.\n\nRemove the tangled filaments, noisy particles, photographic glow bloom, volumetric depth, metallic reflections, glass texture, realistic light scattering, and organic data-web texture from Image 1.\n\nReplace them with a disciplined, Illustrator-like 2D vector system made from:\n\n- perfectly smooth circular paths;\n- 6–9 clearly separated concentric arc bands with generous spacing;\n- alternating solid arc segments and empty gaps;\n- rounded bars, calibrated dots, short radial ticks, narrow rectangular modules, and thin technical leader lines;\n- a small clean central activation symbol or aperture;\n- mirrored side rails and minimal corner brackets;\n- consistent stroke families: hairline, medium, and bold only;\n- crisp white and light-gray fills on a deep matte-black ground;\n- no raster-like texture inside the vector elements.\n\nEvery element must have a clean boundary and be visually separable from adjacent elements. The viewer should be able to identify each ring, arc segment, dot sequence, tick, block, and guide line instantly. Use fewer, better-organized shapes instead of thousands of tiny details.\n\n## Cover Composition\n\n- Keep the extremely tall 51:104 portrait canvas.\n- Keep a large true circle, not an ellipse, slightly above center and occupying about 62% of canvas width.\n- Preserve strict left-right bilateral symmetry for every non-text element.\n- Split the circular system on the vertical axis into two mirrored halves with a slim black opening gap. Offset the two halves outward by a subtle amount so the mechanism visibly feels as if it has just started to open.\n- Use one thin white centerline extending above and below the circle, with a few restrained node marks.\n- Organize the circle into clear functional layers from outside to inside:\n  1. sparse outer calibration arc;\n  2. bold segmented access ring;\n  3. dot-and-tick ring;\n  4. medium segmented data ring;\n  5. thin continuous guide ring;\n  6. small central lock aperture.\n- Add restrained mirrored vertical circuit rails near the left and right edges, built from 90-degree and 45-degree vector turns, short bars, and tiny square nodes.\n- Keep the upper background spacious and the lower title field calm.\n- Do not place any dense detail behind the title.\n- Keep wide production-safe margins around the title and portal.\n\n## Style Application\n\nPreserve the selected 黑白极简概念 anchors through near-monochrome restraint, a singular monumental metaphor, sharp grid alignment, generous negative space, exact technical spacing, and typography that shares one coordinate system with the portal.\n\nFor this user-directed vector revision, interpret “topological sculpture” as a controlled vector topology: layered paths, precisely spaced arc bands, modular nodes, negative-space channels, and a single opening seam. Do not revert to ordinary decorative concentric circles; give each circular band a distinct structural function, rhythm, weight, and opening pattern. The circle must feel designed as an access mechanism, not pasted as a target icon.\n\n## Image–Text Relationship\n\nKeep “KEEP IT WOO” in the lower third as one asymmetrical typographic block aligned to the portal grid. Typography is the only element allowed to break left-right symmetry.\n\nDo not treat the title as a separate caption: align its left edge, line breaks, and vertical rhythm to a major portal tangent or side rail. Preserve ample black negative space around it.\n\n## Typography\n\n- Render exactly: “KEEP IT WOO”.\n- Spell exactly: K-E-E-P, space, I-T, space, W-O-O.\n- Use uppercase ultra-bold geometric sans-serif or heavy grotesk.\n- Keep the wording on three clean lines: KEEP / IT / WOO, unless a two-line arrangement is needed for better balance.\n- Use solid white vector-like letterforms with sharp edges and no texture.\n- Do not misspell, repeat, mirror, outline, warp, crop, or add extra words.\n- No other readable text, logo, or brand name.\n\n## Color and Rendering\n\nUse only flat black, white, and two or three neutral gray values. Optional glow must be extremely restrained: a narrow white halo no wider than the stroke itself. Prefer solid shapes and clean negative space over light effects.\n\nThe result should look like a premium screen-printed vector poster, futuristic wayfinding graphic, or precisely constructed Illustrator artwork: front-facing, flat, scalable in appearance, razor-sharp, and free from photographic realism.\n\n## Preserve Invariants\n\nPreserve the 51:104 portrait ratio, overall tall layout, black background, one large circular access gate, central opening seam, strict bilateral symmetry of non-text elements, lower title zone, and exact readable wording “KEEP IT WOO”. Change only the element language and material treatment to clean vector graphics.\n\n## Avoid\n\nAvoid dense generative mesh, particle cloud, spiderweb lines, noisy micro-detail, photorealism, 3D metal, glass, depth-of-field, room, hallway, person, door photograph, smoke, bloom, lens flare, gradients inside individual vector elements, colorful neon, blue-purple cyberpunk light, generic dashboard screenshot, crowded UI, tiny unreadable labels, ordinary target icon, Bauhaus collage, excessive rings, inconsistent stroke widths, uneven spacing, hand-drawn lines, extra text, logos, watermarks, grids of alternatives, contact sheets, and mockup scenes.\n\n## Final Standard\n\nGenerate only one final image. It must read immediately as a clean vector-element design: one monumental circular sci-fi seal built from distinct arcs, blocks, dots, ticks, and technical rails; a visible symmetric opening gesture; strong black-white contrast; a precise uncluttered system; and the title “KEEP IT WOO” rendered exactly once in bold sans-serif type.",
+  "skill": "punk-cover",
+  "style": "black-white-minimal-concept",
+  "ratio": "51:104",
+  "business_fields": {
+    "title": "KEEP IT WOO",
+    "task_collection": "keep-it-woo-task-output-62",
+    "series": "Early Holographic Gate",
+    "version": "V2",
+    "output_type": "raster-final",
+    "style_name_zh": "黑白极简概念",
+    "original_file": "keep-it-woo-holographic-gate/cover-v2.png"
+  },
+  "theme": "keep-it-woo-early-holographic-v2",
+  "tags": [
+    "KEEP IT WOO",
+    "task-output-62",
+    "early-iteration",
+    "Early Holographic Gate",
+    "raster-final",
+    "black-white-minimal-concept"
+  ],
+  "favorite": false,
+  "archived": false,
+  "group": "KEEP IT WOO · Early Holographic Gate",
+  "category": "concept",
+  "rating": 0,
+  "parent_asset_id": null,
+  "version_change": "",
+  "child_asset_ids": [],
+  "created_at": "2026-07-12T21:19:45.019Z",
+  "updated_at": "2026-07-13T21:37:53.145Z",
+  "source": {
+    "type": "asset-manager-preserved-copy",
+    "path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/keepItWooEarlyHolographicV2.png",
+    "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/keepItWooEarlyHolographicV2.md",
+    "task_collection": "keep-it-woo-task-output-62",
+    "original_file": "keep-it-woo-holographic-gate/cover-v2.png",
+    "original_source_deleted": true,
+    "preserved_at": "2026-07-13T21:37:53.145Z"
+  },
+  "thumb_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/thumbs/keepItWooEarlyHolographicV2.png"
+}

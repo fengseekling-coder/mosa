@@ -1,0 +1,31 @@
+{
+  "id": "sciFiTheme08",
+  "project_id": "default",
+  "asset": "sciFiTheme08.png",
+  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/sciFiTheme08.png",
+  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/sciFiTheme08.md",
+  "prompt": "",
+  "skill": "",
+  "style": "",
+  "ratio": "941:1672",
+  "business_fields": {},
+  "theme": "lunar-duty-free-terminal",
+  "tags": [
+    "lunar-duty-free-terminal"
+  ],
+  "favorite": false,
+  "archived": false,
+  "parent_asset_id": null,
+  "version_change": "",
+  "child_asset_ids": [],
+  "created_at": "2026-07-08T16:11:49.250Z",
+  "updated_at": "2026-07-08T16:11:49.250Z",
+  "source": {
+    "type": "cowart-page-asset",
+    "path": "/Users/azhuilab/codex_aigc/canvas/pages/page/assets/08-lunar-duty-free-terminal.png",
+    "copied_at": "2026-07-08T16:11:49.250Z",
+    "cowart_asset_id": "asset:sciFiTheme08",
+    "cowart_shape_id": "shape:sciFiTheme08"
+  },
+  "thumb_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/thumbs/sciFiTheme08.png"
+}

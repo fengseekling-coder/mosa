@@ -1,0 +1,29 @@
+{
+  "id": "318977665Edited",
+  "project_id": "default",
+  "asset": "318977665Edited.png",
+  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/318977665Edited.png",
+  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/318977665Edited.md",
+  "prompt": "",
+  "skill": "",
+  "style": "",
+  "ratio": "941:1672",
+  "business_fields": {},
+  "theme": "asset-318977665-edited",
+  "tags": [],
+  "favorite": false,
+  "archived": false,
+  "parent_asset_id": null,
+  "version_change": "",
+  "child_asset_ids": [],
+  "created_at": "2026-07-08T16:11:49.188Z",
+  "updated_at": "2026-07-08T16:11:49.188Z",
+  "source": {
+    "type": "cowart-page-asset",
+    "path": "/Users/azhuilab/codex_aigc/canvas/pages/page/assets/asset-318977665-edited.png",
+    "copied_at": "2026-07-08T16:11:49.188Z",
+    "cowart_asset_id": "asset:318977665Edited",
+    "cowart_shape_id": "shape:asset318977665Edited"
+  },
+  "thumb_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/thumbs/318977665Edited.png"
+}

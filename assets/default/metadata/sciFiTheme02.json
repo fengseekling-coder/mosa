@@ -1,0 +1,31 @@
+{
+  "id": "sciFiTheme02",
+  "project_id": "default",
+  "asset": "sciFiTheme02.png",
+  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/sciFiTheme02.png",
+  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/sciFiTheme02.md",
+  "prompt": "",
+  "skill": "",
+  "style": "",
+  "ratio": "941:1672",
+  "business_fields": {},
+  "theme": "cyberpunk-retail-showcase",
+  "tags": [
+    "cyberpunk-retail-showcase"
+  ],
+  "favorite": false,
+  "archived": false,
+  "parent_asset_id": null,
+  "version_change": "",
+  "child_asset_ids": [],
+  "created_at": "2026-07-08T16:11:49.222Z",
+  "updated_at": "2026-07-08T16:11:49.222Z",
+  "source": {
+    "type": "cowart-page-asset",
+    "path": "/Users/azhuilab/codex_aigc/canvas/pages/page/assets/02-cyberpunk-retail-showcase.png",
+    "copied_at": "2026-07-08T16:11:49.222Z",
+    "cowart_asset_id": "asset:sciFiTheme02",
+    "cowart_shape_id": "shape:sciFiTheme02"
+  },
+  "thumb_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/thumbs/sciFiTheme02.png"
+}

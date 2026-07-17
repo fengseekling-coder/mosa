@@ -1,0 +1,48 @@
+{
+  "id": "keepItWooV1ContactSheet",
+  "project_id": "default",
+  "asset": "keepItWooV1ContactSheet.png",
+  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/keepItWooV1ContactSheet.png",
+  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/keepItWooV1ContactSheet.md",
+  "prompt": "# KEEP IT WOO V1 contact sheet\n\nThis overview sheet was composed locally from the 21 V1 KEEP IT WOO cover outputs created in this task.\nIt is a derived catalog image rather than a separately generated model image, so it does not have an independent image-generation prompt.\nUse the full prompt attached to each corresponding style asset when reproducing an individual cover.",
+  "skill": "punk-cover",
+  "style": "contact-sheet",
+  "ratio": "523:1641",
+  "business_fields": {
+    "title": "KEEP IT WOO",
+    "task_collection": "keep-it-woo-task-output-62",
+    "series": "V1",
+    "version": "V1 overview",
+    "output_type": "contact-sheet",
+    "style_name_zh": "V1 联系表",
+    "physical_size_cm": "overview sheet",
+    "aspect_ratio": "523:1641"
+  },
+  "theme": "keep-it-woo-v1-contact-sheet",
+  "tags": [
+    "KEEP IT WOO",
+    "V1",
+    "contact-sheet",
+    "V1 联系表",
+    "task-output-62"
+  ],
+  "favorite": false,
+  "archived": false,
+  "group": "KEEP IT WOO · Contact Sheets",
+  "category": "concept",
+  "rating": 0,
+  "parent_asset_id": null,
+  "version_change": "",
+  "child_asset_ids": [],
+  "created_at": "2026-07-12T23:12:54.646Z",
+  "updated_at": "2026-07-13T21:37:53.145Z",
+  "source": {
+    "type": "asset-manager-preserved-copy",
+    "path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/keepItWooV1ContactSheet.png",
+    "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/keepItWooV1ContactSheet.md",
+    "task_collection": "keep-it-woo-task-output-62",
+    "original_source_deleted": true,
+    "preserved_at": "2026-07-13T21:37:53.145Z"
+  },
+  "thumb_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/thumbs/keepItWooV1ContactSheet.png"
+}

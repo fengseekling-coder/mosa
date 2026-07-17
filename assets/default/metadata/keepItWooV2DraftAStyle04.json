@@ -1,0 +1,50 @@
+{
+  "id": "keepItWooV2DraftAStyle04",
+  "project_id": "default",
+  "asset": "keepItWooV2DraftAStyle04.png",
+  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/keepItWooV2DraftAStyle04.png",
+  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/keepItWooV2DraftAStyle04.md",
+  "prompt": "# 方块世界 KEEP IT WOO cover prompt — V2\n\nYou are a top-tier cover art director, experimental typographer, spatial graphic designer, and image-generation prompt director.\n\nCreate one single custom vertical cover for a physical 102 cm wide × 208 cm high panel. Preserve the exact portrait aspect ratio 51:104. Use exactly one selected visual style: 方块世界 / block-world. The style must organize the subject, typography, material, space, and metaphor as one system.\n\n## Input\n\n- Content mode: editorial-cover\n- Title/topic: KEEP IT WOO\n- A-layer main visual title: KEEP IT WOO\n- B-layer complete title: KEEP IT WOO\n- Subtitle: none\n- Language: English\n- Use: large-format entrance cover and spatial poster\n- Aspect ratio: 51:104 portrait, based on 102 × 208 cm\n- Visual subject: one complete continuous circular futuristic activation mechanism with a round inner aperture\n- Mood: futuristic, ceremonial, precise, controlled, premium\n- Visual metaphor: an encrypted circular threshold recognizes the viewer and unlocks from within—an “open sesame” moment expressed by an iris, rotation, radial retraction, and revealed depth\n- Required verbatim display copy: KEEP IT WOO\n- Audience: visitors entering an immersive space, exhibition, or premium technology environment\n- Reference Image 1 role: ring hierarchy and disciplined spacing only; use concentric arcs, ticks, blocks, and radial layers without copying its artwork\n- Reference Image 2 role: advanced asymmetrical circular information density and integrated graphic rhythm only; do not copy symbols or text\n- Reference Image 3 role: vector ring segmentation and energetic detail only; do not copy its exact construction\n\n## Non-Negotiable Structural Correction\n\nThe main circular mechanism must remain a single intact 360-degree object. The outer circumference is visually continuous and closed.\n\nDo not divide the image or circle down the middle. Do not use a vertical gap, central seam, bright center bar, split axis, twin door leaves, mirrored panels, butterfly opening, two opposing halves, or left-versus-right gate composition. Do not align small ring gaps into a hidden vertical split. No line, ray, bar, gap, chain of nodes, or repeated alignment may run continuously from 12 to 6 o'clock through the center or from the top edge to the bottom edge. The center must not be visually bisected, even by a thin calibration axis.\n\nExpress “opening” only inside the intact circle: inner iris blades retract radially or tangentially; concentric rings rotate out of phase; a circular aperture reveals luminous depth; localized ring segments may shift around the circumference. The result reads as one activated round instrument, not a pair of doors.\n\n## Style Application\n\nCreate one navigable voxel world organized around a complete circular portal built from concentric block rings. The opening is a round inner iris retracting block by block into the unbroken outer ring, with a path leading directly through the revealed aperture.\n\n## Composition\n\nUse one dominant circular visual center, positioned for the tall 51:104 format with production-safe margins. Keep non-text balance radial or left-right balanced, but never reveal a dividing axis. Build clear hierarchy across outer shell, intermediate ring bands, inner iris, and circular depth. Every layer must remain separately legible at large format.\n\n## Typography–Element Fusion\n\nBuild KEEP IT WOO as structural voxel architecture inside the same ring: letter strokes become radial buttresses, stairs, and arc modules; counters are traversable holes. The two O letters are actual concentric portal tunnels, and the remaining letters lock into the circular terrain rather than forming a signboard. Place KEEP on the upper arc, IT once only near 3 o’clock, and WOO on the lower arc; the 9 o’clock side contains voxel machinery only. Never mirror or duplicate IT.\n\nThe exact phrase “KEEP IT WOO” must appear once, in correct reading order, and remain readable from a distance. Design custom uppercase bold sans-serif or style-native letterforms; do not use a stock-font default appearance.\n\nTypography must perform at least three structural jobs:\n\n1. Letter strokes replace or complete real arc segments, tracks, membranes, beams, paths, or material layers.\n2. Letter counters and negative spaces become functional openings, nodes, or apertures.\n3. Stroke terminals extend into ticks, connectors, trajectories, folds, shadows, or physical construction details.\n\nTreat the two O letters as essential circular machinery, not ordinary printed O glyphs. Treat IT as a lock, trigger, calibration junction, or directional notch. Removing the title must make the circular mechanism structurally incomplete.\n\nDo not merely bend a stock font along a circular path. At least half of every glyph boundary must be generated by existing ring edges, material gaps, apertures, stroke-density changes, structural modules, or shared negative space. Avoid clean raised letters floating on top of the mechanism. If the style is dimensional, the letters must be flush, interlocked, load-bearing, carved, woven, assembled, or fabricated as part of the object.\n\nAbsolutely no horizontal title bar, rectangular plaque, pill label, caption strip, masthead block, text box, separate sign, or words pasted over the image. Do not put KEEP IT on one side and WOO on the other side. Do not center a normal straight headline across the circle.\n\nSpell the title exactly once: K-E-E-P, space, I-T, space, W-O-O. No other readable words, numbers, logos, or filler copy.\n\n## Color, Material, and Texture\n\nObsidian, white quartz, cyan energy blocks, and small controlled warm orange markers.\n\nEvery material, texture, line, shadow, and color decision must visibly belong to 方块世界.\n\n## Negative Constraints\n\nAvoid pasted pixel title, rectangular nameplate, childish sticker UI, two doors, vertical split. Also avoid generic sci-fi doorway, generic HUD wallpaper, ordinary font layout, separate image and text layers, unrelated decoration, watermark, contact sheet, multiple options, and multiple final designs.\n\n## Final Standard\n\nGenerate only one finished image. First glance: one premium intact circular activation mechanism and the exact title. Second glance: letterforms are discovered as structural components of the ring. The work must feel custom-designed, typographically authored, and impossible to separate into “graphic” plus “text.”",
+  "skill": "punk-cover",
+  "style": "block-world",
+  "ratio": "51:104",
+  "business_fields": {
+    "title": "KEEP IT WOO",
+    "task_collection": "keep-it-woo-task-output-62",
+    "series": "V2",
+    "version": "V2 Draft A",
+    "output_type": "draft-a",
+    "style_index": 4,
+    "style_name_zh": "方块世界",
+    "physical_size_cm": "102 × 208",
+    "aspect_ratio": "51:104"
+  },
+  "theme": "keep-it-woo-v2-draft-a-block-world",
+  "tags": [
+    "KEEP IT WOO",
+    "V2",
+    "draft-a",
+    "block-world",
+    "方块世界",
+    "task-output-62"
+  ],
+  "favorite": false,
+  "archived": false,
+  "group": "KEEP IT WOO · V2 Draft A",
+  "category": "concept",
+  "rating": 0,
+  "parent_asset_id": null,
+  "version_change": "Draft A retained before final selection",
+  "child_asset_ids": [],
+  "created_at": "2026-07-13T12:56:31.855Z",
+  "updated_at": "2026-07-13T21:37:53.145Z",
+  "source": {
+    "type": "asset-manager-preserved-copy",
+    "path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/keepItWooV2DraftAStyle04.png",
+    "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/keepItWooV2DraftAStyle04.md",
+    "task_collection": "keep-it-woo-task-output-62",
+    "original_source_deleted": true,
+    "preserved_at": "2026-07-13T21:37:53.145Z"
+  },
+  "thumb_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/thumbs/keepItWooV2DraftAStyle04.png"
+}

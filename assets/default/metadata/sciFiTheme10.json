@@ -1,0 +1,31 @@
+{
+  "id": "sciFiTheme10",
+  "project_id": "default",
+  "asset": "sciFiTheme10.png",
+  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/sciFiTheme10.png",
+  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/sciFiTheme10.md",
+  "prompt": "",
+  "skill": "",
+  "style": "",
+  "ratio": "941:1672",
+  "business_fields": {},
+  "theme": "deep-space-vip-lounge",
+  "tags": [
+    "deep-space-vip-lounge"
+  ],
+  "favorite": false,
+  "archived": false,
+  "parent_asset_id": null,
+  "version_change": "",
+  "child_asset_ids": [],
+  "created_at": "2026-07-08T16:11:49.257Z",
+  "updated_at": "2026-07-08T16:11:49.257Z",
+  "source": {
+    "type": "cowart-page-asset",
+    "path": "/Users/azhuilab/codex_aigc/canvas/pages/page/assets/10-deep-space-vip-lounge.png",
+    "copied_at": "2026-07-08T16:11:49.257Z",
+    "cowart_asset_id": "asset:sciFiTheme10",
+    "cowart_shape_id": "shape:sciFiTheme10"
+  },
+  "thumb_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/thumbs/sciFiTheme10.png"
+}

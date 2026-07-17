@@ -1,0 +1,82 @@
+---
+asset_id: keepItWooV2DraftAStyle09
+skill: punk-cover
+style: retro-diffuse-gradient
+ratio: 51:104
+theme: keep-it-woo-v2-draft-a-retro-diffuse-gradient
+---
+
+# 复古弥散渐变 KEEP IT WOO cover prompt — V2
+
+You are a top-tier cover art director, experimental typographer, spatial graphic designer, and image-generation prompt director.
+
+Create one single custom vertical cover for a physical 102 cm wide × 208 cm high panel. Preserve the exact portrait aspect ratio 51:104. Use exactly one selected visual style: 复古弥散渐变 / retro-diffuse-gradient. The style must organize the subject, typography, material, space, and metaphor as one system.
+
+## Input
+
+- Content mode: editorial-cover
+- Title/topic: KEEP IT WOO
+- A-layer main visual title: KEEP IT WOO
+- B-layer complete title: KEEP IT WOO
+- Subtitle: none
+- Language: English
+- Use: large-format entrance cover and spatial poster
+- Aspect ratio: 51:104 portrait, based on 102 × 208 cm
+- Visual subject: one complete continuous circular futuristic activation mechanism with a round inner aperture
+- Mood: futuristic, ceremonial, precise, controlled, premium
+- Visual metaphor: an encrypted circular threshold recognizes the viewer and unlocks from within—an “open sesame” moment expressed by an iris, rotation, radial retraction, and revealed depth
+- Required verbatim display copy: KEEP IT WOO
+- Audience: visitors entering an immersive space, exhibition, or premium technology environment
+- Reference Image 1 role: ring hierarchy and disciplined spacing only; use concentric arcs, ticks, blocks, and radial layers without copying its artwork
+- Reference Image 2 role: advanced asymmetrical circular information density and integrated graphic rhythm only; do not copy symbols or text
+- Reference Image 3 role: vector ring segmentation and energetic detail only; do not copy its exact construction
+
+## Non-Negotiable Structural Correction
+
+The main circular mechanism must remain a single intact 360-degree object. The outer circumference is visually continuous and closed.
+
+Do not divide the image or circle down the middle. Do not use a vertical gap, central seam, bright center bar, split axis, twin door leaves, mirrored panels, butterfly opening, two opposing halves, or left-versus-right gate composition. Do not align small ring gaps into a hidden vertical split. No line, ray, bar, gap, chain of nodes, or repeated alignment may run continuously from 12 to 6 o'clock through the center or from the top edge to the bottom edge. The center must not be visually bisected, even by a thin calibration axis.
+
+Express “opening” only inside the intact circle: inner iris blades retract radially or tangentially; concentric rings rotate out of phase; a circular aperture reveals luminous depth; localized ring segments may shift around the circumference. The result reads as one activated round instrument, not a pair of doors.
+
+## Style Application
+
+Form one coherent circular shell from 6-14 translucent pearlescent membranes and soft lamellar ribbons. The outer shell remains unbroken while inner membrane layers curl backward around a luminous round aperture, suggesting a silent organic iris opening.
+
+## Composition
+
+Use one dominant circular visual center, positioned for the tall 51:104 format with production-safe margins. Keep non-text balance radial or left-right balanced, but never reveal a dividing axis. Build clear hierarchy across outer shell, intermediate ring bands, inner iris, and circular depth. Every layer must remain separately legible at large format.
+
+## Typography–Element Fusion
+
+Emboss and extrude KEEP IT WOO directly from the membrane folds. Letter strokes continue as lamellar edges; negative spaces become transparent openings through the material. The two O letters are nested membrane loops that constitute the aperture, not printed typography. Use one deliberately asymmetric reading route: KEEP on the upper arc, IT once only near 3 o’clock, and WOO on the lower arc; the 9 o’clock position contains membrane geometry only. Never mirror or duplicate IT.
+
+The exact phrase “KEEP IT WOO” must appear once, in correct reading order, and remain readable from a distance. Design custom uppercase bold sans-serif or style-native letterforms; do not use a stock-font default appearance.
+
+Typography must perform at least three structural jobs:
+
+1. Letter strokes replace or complete real arc segments, tracks, membranes, beams, paths, or material layers.
+2. Letter counters and negative spaces become functional openings, nodes, or apertures.
+3. Stroke terminals extend into ticks, connectors, trajectories, folds, shadows, or physical construction details.
+
+Treat the two O letters as essential circular machinery, not ordinary printed O glyphs. Treat IT as a lock, trigger, calibration junction, or directional notch. Removing the title must make the circular mechanism structurally incomplete.
+
+Do not merely bend a stock font along a circular path. At least half of every glyph boundary must be generated by existing ring edges, material gaps, apertures, stroke-density changes, structural modules, or shared negative space. Avoid clean raised letters floating on top of the mechanism. If the style is dimensional, the letters must be flush, interlocked, load-bearing, carved, woven, assembled, or fabricated as part of the object.
+
+Absolutely no horizontal title bar, rectangular plaque, pill label, caption strip, masthead block, text box, separate sign, or words pasted over the image. Do not put KEEP IT on one side and WOO on the other side. Do not center a normal straight headline across the circle.
+
+Spell the title exactly once: K-E-E-P, space, I-T, space, W-O-O. No other readable words, numbers, logos, or filler copy.
+
+## Color, Material, and Texture
+
+Milky white, pearl gray, restrained coral-pink, violet, and cool-blue edge light on pale gray.
+
+Every material, texture, line, shadow, and color decision must visibly belong to 复古弥散渐变.
+
+## Negative Constraints
+
+Avoid title printed on top, pill label, rainbow gradient, glass logo, two-part shell, center slit. Also avoid generic sci-fi doorway, generic HUD wallpaper, ordinary font layout, separate image and text layers, unrelated decoration, watermark, contact sheet, multiple options, and multiple final designs.
+
+## Final Standard
+
+Generate only one finished image. First glance: one premium intact circular activation mechanism and the exact title. Second glance: letterforms are discovered as structural components of the ring. The work must feel custom-designed, typographically authored, and impossible to separate into “graphic” plus “text.”

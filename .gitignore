@@ -1,0 +1,8 @@
+node_modules/
+.DS_Store
+.env
+.env.*
+!.env.example
+npm-debug.log*
+*.bak-*
+assets/*/thumbs/

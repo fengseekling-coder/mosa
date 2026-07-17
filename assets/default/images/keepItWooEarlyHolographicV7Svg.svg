@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+  width="102cm" height="208cm" viewBox="0 0 1020 2080" role="img" aria-labelledby="title desc">
+  <title id="title">KEEP IT WOO — integrated precision circular gate</title>
+  <desc id="desc">Editable black and silver vector composition with the title embedded into the opening mechanism.</desc>
+
+  <defs>
+    <linearGradient id="bg6" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#050608"/>
+      <stop offset="0.5" stop-color="#0a0c10"/>
+      <stop offset="1" stop-color="#030405"/>
+    </linearGradient>
+    <linearGradient id="band6" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1b2027" stop-opacity="0.22"/>
+      <stop offset="0.58" stop-color="#59636f" stop-opacity="0.74"/>
+      <stop offset="1" stop-color="#dce1e6" stop-opacity="0.2"/>
+    </linearGradient>
+    <radialGradient id="void6" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#000000"/>
+      <stop offset="0.82" stop-color="#020305"/>
+      <stop offset="1" stop-color="#12161c"/>
+    </radialGradient>
+    <filter id="pinGlow6" x="-400%" y="-400%" width="800%" height="800%">
+      <feGaussianBlur stdDeviation="2.8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="leftHalf6">
+      <rect x="58" y="570" width="430" height="960"/>
+    </clipPath>
+
+    <!-- One functional half; the right side is its exact mirror. -->
+    <g id="ringHalf6" clip-path="url(#leftHalf6)">
+      <!-- Layer 1: sparse outer indexing. -->
+      <circle cx="510" cy="1050" r="432" fill="none" stroke="#c7ced6" stroke-opacity="0.66"
+        stroke-width="1.1" stroke-dasharray="1.5 8.8"/>
+      <circle cx="510" cy="1050" r="421" fill="none" stroke="#707a86" stroke-width="0.7"
+        stroke-dasharray="112 18 34 12 198 32 58 16" stroke-dashoffset="41"/>
+
+      <!-- Layer 2: broken outer halo arcs with intentionally unequal spans. -->
+      <circle cx="510" cy="1050" r="405" fill="none" stroke="#e5e9ed" stroke-width="3.2"
+        stroke-dasharray="168 18 54 12 226 34 86 20" stroke-dashoffset="107"/>
+      <circle cx="510" cy="1050" r="392" fill="none" stroke="#89939e" stroke-opacity="0.76" stroke-width="1.15"
+        stroke-dasharray="44 13 126 25 24 10 203 39" stroke-dashoffset="33"/>
+
+      <!-- Layer 3: wide structural modules, separated by quiet black space. -->
+      <circle cx="510" cy="1050" r="371" fill="none" stroke="url(#band6)" stroke-width="24"
+        stroke-dasharray="116 24 48 15 78 43 156 28" stroke-dashoffset="62"/>
+      <circle cx="510" cy="1050" r="354" fill="none" stroke="#eff1f3" stroke-opacity="0.82" stroke-width="4.5"
+        stroke-dasharray="73 18 174 42 31 12 115 27" stroke-dashoffset="96"/>
+
+      <!-- Layer 4: fine calibration track. -->
+      <circle cx="510" cy="1050" r="335" fill="none" stroke="#d7dde3" stroke-opacity="0.62"
+        stroke-width="1.3" stroke-dasharray="2 6.8"/>
+      <circle cx="510" cy="1050" r="324" fill="none" stroke="#5c6672" stroke-width="0.8"
+        stroke-dasharray="18 8 64 14 9 6 97 24" stroke-dashoffset="19"/>
+
+      <!-- Layer 5: grouped medium arcs. -->
+      <circle cx="510" cy="1050" r="302" fill="none" stroke="#c7ced5" stroke-width="8.5"
+        stroke-dasharray="68 18 28 11 131 37 44 14" stroke-dashoffset="71"/>
+      <circle cx="510" cy="1050" r="287" fill="none" stroke="#7b8590" stroke-width="1"
+        stroke-dasharray="154 24 38 12 92 28" stroke-dashoffset="44"/>
+
+      <!-- Layer 6: dense local tick band, not a full dashboard. -->
+      <circle cx="510" cy="1050" r="267" fill="none" stroke="#eceff2" stroke-opacity="0.9"
+        stroke-width="5" stroke-dasharray="3.2 8.2" stroke-dashoffset="2"/>
+      <circle cx="510" cy="1050" r="249" fill="none" stroke="#9da7b2" stroke-width="1.2"
+        stroke-dasharray="81 16 24 9 119 33" stroke-dashoffset="58"/>
+
+      <!-- Layer 7: quiet inner mechanics. -->
+      <circle cx="510" cy="1050" r="222" fill="none" stroke="#e4e8ec" stroke-width="2.2"
+        stroke-dasharray="118 22 39 11 73 18" stroke-dashoffset="32"/>
+      <circle cx="510" cy="1050" r="202" fill="none" stroke="#68727d" stroke-width="0.8"
+        stroke-dasharray="1.4 7.2"/>
+      <circle cx="510" cy="1050" r="181" fill="none" stroke="#cfd5db" stroke-width="6.2"
+        stroke-dasharray="57 14 103 26 31 11" stroke-dashoffset="77"/>
+      <circle cx="510" cy="1050" r="160" fill="none" stroke="#7c8691" stroke-width="0.85"
+        stroke-dasharray="84 16 22 8 61 19"/>
+
+      <!-- Calibration blocks inspired by the reference's outlined modules. -->
+      <g fill="#101319" stroke="#d8dde3" stroke-width="1">
+        <rect x="501" y="684" width="18" height="34" transform="rotate(-26 510 1050)"/>
+        <rect x="501" y="684" width="18" height="34" transform="rotate(-47 510 1050)"/>
+        <rect x="501" y="684" width="18" height="34" transform="rotate(-69 510 1050)"/>
+        <rect x="501" y="1382" width="18" height="34" transform="rotate(26 510 1050)"/>
+        <rect x="501" y="1382" width="18" height="34" transform="rotate(47 510 1050)"/>
+        <rect x="501" y="1382" width="18" height="34" transform="rotate(69 510 1050)"/>
+      </g>
+
+      <!-- Localized radial intensity, taken from reference 13 but kept restrained. -->
+      <g stroke="#eef0f2" stroke-width="1.15">
+        <line x1="510" y1="619" x2="510" y2="574" transform="rotate(-31 510 1050)"/>
+        <line x1="510" y1="619" x2="510" y2="566" transform="rotate(-35 510 1050)"/>
+        <line x1="510" y1="619" x2="510" y2="579" transform="rotate(-39 510 1050)"/>
+        <line x1="510" y1="619" x2="510" y2="558" transform="rotate(-43 510 1050)"/>
+        <line x1="510" y1="619" x2="510" y2="574" transform="rotate(-47 510 1050)"/>
+        <line x1="510" y1="619" x2="510" y2="566" transform="rotate(-51 510 1050)"/>
+        <line x1="510" y1="619" x2="510" y2="580" transform="rotate(-55 510 1050)"/>
+        <line x1="510" y1="1481" x2="510" y2="1526" transform="rotate(31 510 1050)"/>
+        <line x1="510" y1="1481" x2="510" y2="1534" transform="rotate(35 510 1050)"/>
+        <line x1="510" y1="1481" x2="510" y2="1521" transform="rotate(39 510 1050)"/>
+        <line x1="510" y1="1481" x2="510" y2="1542" transform="rotate(43 510 1050)"/>
+        <line x1="510" y1="1481" x2="510" y2="1526" transform="rotate(47 510 1050)"/>
+      </g>
+
+      <!-- Sparse dots create precision without fake microcopy. -->
+      <g fill="#f2f4f6">
+        <circle cx="510" cy="624" r="3.4" transform="rotate(-18 510 1050)"/>
+        <circle cx="510" cy="624" r="2.1" transform="rotate(-22 510 1050)"/>
+        <circle cx="510" cy="624" r="1.4" transform="rotate(-25 510 1050)"/>
+        <circle cx="510" cy="624" r="3.4" transform="rotate(-86 510 1050)"/>
+        <circle cx="510" cy="1476" r="3.4" transform="rotate(18 510 1050)"/>
+        <circle cx="510" cy="1476" r="2.1" transform="rotate(22 510 1050)"/>
+        <circle cx="510" cy="1476" r="1.4" transform="rotate(25 510 1050)"/>
+      </g>
+
+      <!-- A few leader paths break the circular regularity. -->
+      <g fill="none" stroke="#aeb7c1" stroke-width="0.85">
+        <path d="M166 803H112L87 778"/>
+        <path d="M118 1050H72"/>
+        <path d="M166 1297H112L87 1322"/>
+      </g>
+      <circle cx="112" cy="803" r="3" fill="#e8ebee"/>
+      <circle cx="112" cy="1297" r="3" fill="#e8ebee"/>
+    </g>
+  </defs>
+
+  <rect width="1020" height="2080" fill="url(#bg6)"/>
+
+  <!-- A single axial datum leads toward the embedded title band. -->
+  <path d="M510 116V571" stroke="#77818c" stroke-width="0.75"/>
+  <circle cx="510" cy="178" r="3.4" fill="#eef1f3"/>
+  <circle cx="510" cy="558" r="3.4" fill="#eef1f3"/>
+  <path d="M510 1529V1872" stroke="#5e6873" stroke-width="0.75"/>
+  <circle cx="510" cy="1728" r="3.4" fill="#eef1f3"/>
+
+  <!-- Small symmetric side datums only; no architectural frame. -->
+  <g fill="none" stroke="#5f6974" stroke-width="0.75">
+    <path d="M82 865H132"/><path d="M82 1235H132"/>
+    <path d="M938 865H888"/><path d="M938 1235H888"/>
+  </g>
+  <g fill="#dce1e5">
+    <circle cx="82" cy="865" r="2.6"/><circle cx="82" cy="1235" r="2.6"/>
+    <circle cx="938" cy="865" r="2.6"/><circle cx="938" cy="1235" r="2.6"/>
+  </g>
+
+  <!-- One left mechanism and its exact mirror, shifted apart to imply opening. -->
+  <use xlink:href="#ringHalf6" transform="translate(-8 0)"/>
+  <use xlink:href="#ringHalf6" transform="translate(1028 0) scale(-1 1)"/>
+
+  <!-- Quiet central aperture. -->
+  <circle cx="510" cy="1050" r="132" fill="url(#void6)" stroke="#a6afb9" stroke-width="0.85"/>
+  <circle cx="510" cy="1050" r="116" fill="none" stroke="#eef0f2" stroke-width="1.7"/>
+  <circle cx="510" cy="1050" r="101" fill="none" stroke="#69737e" stroke-width="0.8"
+    stroke-dasharray="92 18 44 12"/>
+
+  <!-- The title is embedded into two mirrored mechanical reading plates. -->
+  <g id="integratedTitleBand">
+    <path d="M480 956H142C116 975 104 1008 104 1050C104 1092 116 1125 142 1144H480Z"
+      fill="#06080b" fill-opacity="0.92" stroke="#8f99a4" stroke-width="0.9"/>
+    <path d="M540 956H878C904 975 916 1008 916 1050C916 1092 904 1125 878 1144H540Z"
+      fill="#06080b" fill-opacity="0.92" stroke="#8f99a4" stroke-width="0.9"/>
+    <path d="M132 978H462" fill="none" stroke="#68727d" stroke-width="0.7"/>
+    <path d="M132 1122H462" fill="none" stroke="#68727d" stroke-width="0.7"/>
+    <path d="M888 978H558" fill="none" stroke="#68727d" stroke-width="0.7"/>
+    <path d="M888 1122H558" fill="none" stroke="#68727d" stroke-width="0.7"/>
+    <g fill="#dce1e5">
+      <rect x="120" y="974" width="18" height="2.5"/><rect x="120" y="1120" width="18" height="2.5"/>
+      <rect x="882" y="974" width="18" height="2.5"/><rect x="882" y="1120" width="18" height="2.5"/>
+    </g>
+    <text x="470" y="1084" text-anchor="end" fill="#f2f0eb"
+      font-family="Arial Narrow, Helvetica Neue, Helvetica, Arial, sans-serif"
+      font-size="82" font-weight="800" letter-spacing="-2">KEEP IT</text>
+    <text x="550" y="1084" fill="#f2f0eb"
+      font-family="Arial Narrow, Helvetica Neue, Helvetica, Arial, sans-serif"
+      font-size="82" font-weight="800" letter-spacing="-2">WOO</text>
+  </g>
+
+  <!-- A tapered black cut produces a readable opening rather than a logo. -->
+  <path d="M491 601H529V842L548 1050L529 1258V1499H491V1258L472 1050L491 842Z"
+    fill="#010203"/>
+  <path d="M491 601V842L472 1050L491 1258V1499" fill="none" stroke="#e5e9ed" stroke-width="1.2"/>
+  <path d="M529 601V842L548 1050L529 1258V1499" fill="none" stroke="#e5e9ed" stroke-width="1.2"/>
+  <path d="M500 622V850L486 1050L500 1250V1478" fill="none" stroke="#68727d" stroke-width="0.7"/>
+  <path d="M520 622V850L534 1050L520 1250V1478" fill="none" stroke="#68727d" stroke-width="0.7"/>
+  <circle cx="510" cy="1050" r="3.2" fill="#ffffff" filter="url(#pinGlow6)"/>
+
+  <!-- Minimal lower closure. -->
+  <path d="M92 1932H456L480 1908" fill="none" stroke="#424b55" stroke-width="0.65"/>
+  <path d="M928 1932H564L540 1908" fill="none" stroke="#424b55" stroke-width="0.65"/>
+</svg>

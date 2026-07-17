@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+  width="102cm" height="208cm" viewBox="0 0 1020 2080" role="img"
+  aria-labelledby="title desc">
+  <title id="title">KEEP IT WOO — circular holographic gate</title>
+  <desc id="desc">Editable black, graphite and silver vector artwork for a 102 by 208 centimeter architectural panel.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#050608"/>
+      <stop offset="0.46" stop-color="#0a0d12"/>
+      <stop offset="1" stop-color="#030405"/>
+    </linearGradient>
+    <linearGradient id="frameFill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#171c23" stop-opacity="0.15"/>
+      <stop offset="0.62" stop-color="#252b34" stop-opacity="0.68"/>
+      <stop offset="1" stop-color="#0b0e13" stop-opacity="0.1"/>
+    </linearGradient>
+    <linearGradient id="bladeFill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#11151b" stop-opacity="0.58"/>
+      <stop offset="0.54" stop-color="#343b45" stop-opacity="0.76"/>
+      <stop offset="1" stop-color="#8c96a3" stop-opacity="0.16"/>
+    </linearGradient>
+    <linearGradient id="seamGlow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#aeb8c4" stop-opacity="0"/>
+      <stop offset="0.46" stop-color="#e7ebef" stop-opacity="0.26"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.62"/>
+      <stop offset="0.54" stop-color="#e7ebef" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="#aeb8c4" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="void" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#000000"/>
+      <stop offset="0.76" stop-color="#020305"/>
+      <stop offset="1" stop-color="#11161c"/>
+    </radialGradient>
+    <filter id="microGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="portalClip">
+      <circle cx="510" cy="1035" r="382"/>
+    </clipPath>
+    <clipPath id="leftPortalClip">
+      <path d="M128 653H488V1417H128Z"/>
+    </clipPath>
+
+    <!-- The left architectural system is mirrored exactly to create the right side. -->
+    <g id="frameLeft">
+      <path d="M54 54V398L91 438V647L52 690V1385L92 1428V1642L55 1682V2028"
+        fill="none" stroke="#dce1e7" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"/>
+      <path d="M78 54V387L116 428V633L82 675V1400L117 1442V1655L80 1694V2028"
+        fill="none" stroke="#727c88" stroke-width="0.9"/>
+      <path d="M108 112V461L140 494V663L108 706V1368L140 1411V1577L108 1611V1968"
+        fill="none" stroke="#bec6cf" stroke-opacity="0.68" stroke-width="1.35"/>
+      <path d="M54 398L91 438V647L52 690V1385L92 1428V1642L55 1682V1482L17 1440V636L54 596Z"
+        fill="url(#frameFill)" stroke="#8e98a5" stroke-opacity="0.5" stroke-width="0.75"/>
+      <path d="M140 494H190L218 522" fill="none" stroke="#d9dee5" stroke-width="1.1"/>
+      <path d="M140 1577H190L218 1549" fill="none" stroke="#d9dee5" stroke-width="1.1"/>
+      <path d="M108 706H154" fill="none" stroke="#616b77" stroke-width="0.8"/>
+      <path d="M108 1368H154" fill="none" stroke="#616b77" stroke-width="0.8"/>
+      <circle cx="108" cy="706" r="3" fill="#e8ebef"/>
+      <circle cx="108" cy="1368" r="3" fill="#e8ebef"/>
+      <g fill="#d7dde4">
+        <rect x="69" y="520" width="8" height="2"/><rect x="69" y="531" width="5" height="2"/>
+        <rect x="69" y="542" width="8" height="2"/><rect x="69" y="553" width="5" height="2"/>
+        <rect x="69" y="1517" width="8" height="2"/><rect x="69" y="1528" width="5" height="2"/>
+        <rect x="69" y="1539" width="8" height="2"/><rect x="69" y="1550" width="5" height="2"/>
+      </g>
+    </g>
+
+    <!-- One gate leaf, mirrored for exact bilateral symmetry. -->
+    <g id="gateLeft">
+      <path d="M480 660
+        A382 382 0 0 0 128 1035
+        A382 382 0 0 0 480 1410
+        L480 1305
+        A278 278 0 0 1 232 1035
+        A278 278 0 0 1 480 765Z"
+        fill="url(#bladeFill)" stroke="#c5ccd4" stroke-width="1.35"/>
+      <path d="M458 694
+        A350 350 0 0 0 160 1035
+        A350 350 0 0 0 458 1376"
+        fill="none" stroke="#eef0f2" stroke-opacity="0.72" stroke-width="2.1"/>
+      <path d="M439 738
+        A306 306 0 0 0 204 1035
+        A306 306 0 0 0 439 1332"
+        fill="none" stroke="#7e8894" stroke-width="1.1"/>
+      <path d="M418 786
+        A258 258 0 0 0 252 1035
+        A258 258 0 0 0 418 1284"
+        fill="none" stroke="#d2d8de" stroke-opacity="0.8" stroke-width="0.9"/>
+
+      <!-- Three architectural sector cuts establish scale without creating a loading ring. -->
+      <path d="M190 815L271 858L300 891" fill="none" stroke="#68727d" stroke-width="1"/>
+      <path d="M139 1035H253" fill="none" stroke="#aeb6c0" stroke-width="1.15"/>
+      <path d="M190 1255L271 1212L300 1179" fill="none" stroke="#68727d" stroke-width="1"/>
+
+      <!-- Sparse optical overlays; these are planes, not stock HUD segments. -->
+      <path d="M211 752A338 338 0 0 0 211 1318" fill="none" stroke="#eef0f3" stroke-opacity="0.2" stroke-width="18"/>
+      <path d="M247 776A302 302 0 0 0 247 1294" fill="none" stroke="#929ca7" stroke-opacity="0.16" stroke-width="11"/>
+      <path d="M285 814A250 250 0 0 0 285 1256" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="7"/>
+
+      <!-- Topological contour membrane: continuous, ordered and individually readable. -->
+      <g fill="none" stroke="#b7c0ca" stroke-opacity="0.62" stroke-width="0.72">
+        <path d="M480 777C441 785 432 825 406 858C366 909 294 919 253 947C218 971 207 1000 207 1035"/>
+        <path d="M480 791C443 799 435 837 409 870C369 920 303 931 264 956C229 979 218 1005 218 1035"/>
+        <path d="M480 806C446 813 438 849 412 881C374 928 313 941 276 965C243 986 231 1010 231 1035"/>
+        <path d="M480 821C448 828 441 861 415 892C379 936 323 951 289 974C258 994 245 1015 245 1035"/>
+        <path d="M480 836C451 843 444 874 419 903C385 943 335 960 302 983C274 1002 260 1019 260 1035"/>
+        <path d="M480 852C453 858 447 886 423 914C391 951 346 970 316 992C290 1010 276 1023 276 1035"/>
+        <path d="M480 868C456 874 450 898 427 925C397 959 358 979 330 1001C307 1018 292 1027 292 1035"/>
+        <path d="M480 885C459 890 453 911 431 936C404 967 370 989 345 1010C324 1026 309 1031 309 1035"/>
+        <path d="M480 902C462 907 456 923 436 947C411 975 382 998 360 1019C342 1034 326 1035 326 1035"/>
+        <path d="M480 920C465 924 459 936 441 958C418 983 394 1008 376 1028C360 1041 344 1038 344 1035"/>
+      </g>
+      <g transform="translate(0 2070) scale(1 -1)" fill="none" stroke="#b7c0ca" stroke-opacity="0.62" stroke-width="0.72">
+        <path d="M480 777C441 785 432 825 406 858C366 909 294 919 253 947C218 971 207 1000 207 1035"/>
+        <path d="M480 791C443 799 435 837 409 870C369 920 303 931 264 956C229 979 218 1005 218 1035"/>
+        <path d="M480 806C446 813 438 849 412 881C374 928 313 941 276 965C243 986 231 1010 231 1035"/>
+        <path d="M480 821C448 828 441 861 415 892C379 936 323 951 289 974C258 994 245 1015 245 1035"/>
+        <path d="M480 836C451 843 444 874 419 903C385 943 335 960 302 983C274 1002 260 1019 260 1035"/>
+        <path d="M480 852C453 858 447 886 423 914C391 951 346 970 316 992C290 1010 276 1023 276 1035"/>
+        <path d="M480 868C456 874 450 898 427 925C397 959 358 979 330 1001C307 1018 292 1027 292 1035"/>
+        <path d="M480 885C459 890 453 911 431 936C404 967 370 989 345 1010C324 1026 309 1031 309 1035"/>
+        <path d="M480 902C462 907 456 923 436 947C411 975 382 998 360 1019C342 1034 326 1035 326 1035"/>
+        <path d="M480 920C465 924 459 936 441 958C418 983 394 1008 376 1028C360 1041 344 1038 344 1035"/>
+      </g>
+
+      <!-- Calibration nodes are grouped, not distributed as a generic dashboard. -->
+      <g fill="#e7ebef">
+        <circle cx="228" cy="842" r="3.1"/><circle cx="239" cy="835" r="2"/><circle cx="250" cy="829" r="1.4"/>
+        <circle cx="177" cy="1035" r="3.1"/><circle cx="188" cy="1035" r="2"/><circle cx="199" cy="1035" r="1.4"/>
+        <circle cx="228" cy="1228" r="3.1"/><circle cx="239" cy="1235" r="2"/><circle cx="250" cy="1241" r="1.4"/>
+      </g>
+      <g fill="#8e98a4">
+        <rect x="317" y="731" width="22" height="2"/><rect x="347" y="719" width="10" height="2"/>
+        <rect x="317" y="1337" width="22" height="2"/><rect x="347" y="1349" width="10" height="2"/>
+      </g>
+    </g>
+  </defs>
+
+  <rect width="1020" height="2080" fill="url(#bg)"/>
+
+  <!-- Quiet registration field. -->
+  <path d="M510 70V204" stroke="#67717c" stroke-width="0.8"/>
+  <path d="M510 1876V2010" stroke="#67717c" stroke-width="0.8"/>
+  <circle cx="510" cy="188" r="3.2" fill="#e8ebee"/>
+  <circle cx="510" cy="1892" r="3.2" fill="#e8ebee"/>
+
+  <!-- Full-height architectural boundary. -->
+  <use xlink:href="#frameLeft"/>
+  <use xlink:href="#frameLeft" transform="translate(1020 0) scale(-1 1)"/>
+
+  <!-- Editorial title system; text is intentionally allowed to break symmetry. -->
+  <g id="typography">
+    <text x="126" y="302" fill="#f0eee9"
+      font-family="Arial Narrow, Helvetica Neue, Helvetica, Arial, sans-serif"
+      font-size="86" font-weight="800" letter-spacing="-2.4">KEEP IT WOO</text>
+    <path d="M126 329H462" stroke="#d8dde3" stroke-width="1.15"/>
+    <rect x="126" y="342" width="22" height="3" fill="#f0eee9"/>
+  </g>
+
+  <!-- Central seam establishes the opening before the circular detail appears. -->
+  <rect x="486" y="344" width="48" height="1492" fill="url(#seamGlow)" opacity="0.42"/>
+  <path d="M487 344V630C487 704 478 748 470 789V1281C478 1322 487 1366 487 1440V1836"
+    fill="none" stroke="#dfe4e9" stroke-width="1.5"/>
+  <path d="M533 344V630C533 704 542 748 550 789V1281C542 1322 533 1366 533 1440V1836"
+    fill="none" stroke="#dfe4e9" stroke-width="1.5"/>
+  <path d="M500 356V641C500 711 491 754 484 797V1273C491 1316 500 1359 500 1429V1824"
+    fill="none" stroke="#727c87" stroke-width="0.75"/>
+  <path d="M520 356V641C520 711 529 754 536 797V1273C529 1316 520 1359 520 1429V1824"
+    fill="none" stroke="#727c87" stroke-width="0.75"/>
+
+  <!-- Portal field, built from one designed half and its exact mirror. -->
+  <g clip-path="url(#portalClip)">
+    <use xlink:href="#gateLeft"/>
+    <use xlink:href="#gateLeft" transform="translate(1020 0) scale(-1 1)"/>
+  </g>
+
+  <!-- Outer optical contours. -->
+  <circle cx="510" cy="1035" r="391" fill="none" stroke="#e4e8ec" stroke-width="0.85" stroke-dasharray="486 34 162 34 486 34 162 34"/>
+  <circle cx="510" cy="1035" r="375" fill="none" stroke="#6d7782" stroke-width="0.7" stroke-dasharray="232 18 475 18 232 18 475 18"/>
+
+  <!-- Deep inner aperture and its registration system. -->
+  <circle cx="510" cy="1035" r="128" fill="url(#void)" stroke="#9ca6b1" stroke-width="0.8"/>
+  <circle cx="510" cy="1035" r="112" fill="none" stroke="#eef0f2" stroke-width="1.5"/>
+  <circle cx="510" cy="1035" r="96" fill="none" stroke="#59636f" stroke-width="0.75" stroke-dasharray="92 18 58 18"/>
+  <g fill="#050608" stroke="#eef0f2" stroke-width="1.2">
+    <circle cx="510" cy="923" r="4.5"/><circle cx="510" cy="1147" r="4.5"/>
+    <circle cx="398" cy="1035" r="4.5"/><circle cx="622" cy="1035" r="4.5"/>
+  </g>
+  <g stroke="#cfd5dc" stroke-width="0.8">
+    <path d="M510 908V888"/><path d="M510 1162V1182"/>
+    <path d="M383 1035H363"/><path d="M637 1035H657"/>
+  </g>
+
+  <!-- The black cut is redrawn last so the two halves visibly slide apart. -->
+  <path d="M488 650H532V817L548 866V1204L532 1253V1420H488V1253L472 1204V866L488 817Z"
+    fill="#020305"/>
+  <path d="M488 650V817L472 866V1204L488 1253V1420" fill="none" stroke="#e7ebef" stroke-width="1.3"/>
+  <path d="M532 650V817L548 866V1204L532 1253V1420" fill="none" stroke="#e7ebef" stroke-width="1.3"/>
+  <circle cx="510" cy="1035" r="3.6" fill="#ffffff" filter="url(#microGlow)"/>
+
+  <!-- Bottom closure without decorative text. -->
+  <path d="M108 1968H442L470 1940" fill="none" stroke="#59636e" stroke-width="0.75"/>
+  <path d="M912 1968H578L550 1940" fill="none" stroke="#59636e" stroke-width="0.75"/>
+</svg>

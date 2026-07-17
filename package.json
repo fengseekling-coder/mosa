@@ -1,0 +1,14 @@
+{
+  "name": "gpt-asset-manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "mcp": "node mcp/server.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "sharp": "^0.35.3"
+  }
+}

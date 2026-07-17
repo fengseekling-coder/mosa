@@ -1,0 +1,117 @@
+---
+asset_id: keepItWooEarlyHolographicV3
+skill: punk-cover
+style: black-white-minimal-concept
+ratio: 51:104
+theme: keep-it-woo-early-holographic-v3
+---
+
+# 黑白极简概念高级矢量版 cover prompt — V3
+
+You are a world-class editorial art director, luxury spatial-identity designer, precision vector illustrator, and typography director.
+
+Create one single premium redesign of Image 1 for a 102 cm wide × 208 cm high physical panel. Preserve the exact 51:104 portrait ratio. Image 1 is the edit target. Image 2 is a conceptual reference only for the centered circular access-door idea and the feeling of an imminent opening; do not copy its person, room, door frame, perspective, or photographic treatment.
+
+Use exactly one selected cover style: 黑白极简概念 / black-white-minimal-concept. Interpret it with museum-grade restraint, black–graphite–silver tonality, a single monumental circular metaphor, precise grid logic, high title legibility, and generous negative space. Follow the user's latest vector requirement: the result must look like bespoke, perfectly constructed vector artwork, not particle art, 3D rendering, or a generic HUD.
+
+## Input
+
+- Content mode: editorial-cover.
+- Platform/use: custom vertical installation graphic and editorial cover.
+- Aspect ratio: 51:104 portrait, derived from 102 × 208 cm.
+- Title/topic: KEEP IT WOO.
+- Required verbatim display copy: KEEP IT WOO.
+- A-layer title: KEEP IT WOO.
+- B-layer complete title: KEEP IT WOO.
+- C-layer subtitle: none.
+- Language: English.
+- Visual subject: one perfectly circular, bilateral, precision-engineered vector threshold formed by two refined crescent gate leaves opening around a dark central void.
+- Mood: quiet luxury, cold confidence, ceremonial anticipation, exactness, intelligence, future without spectacle.
+- Visual metaphor: a sealed circular system has recognized the viewer and silently begun to part—an elegant “open sesame” moment.
+- Audience: visitors to a premium immersive space, design exhibition, luxury technology installation, or experimental editorial project.
+- Banned elements: generic sci-fi HUD, dashboard, game UI, thick segmented loading ring, lightning icon, central logo, circuit-board frame, decorative corner brackets, excessive ticks, dense particles, tangled filaments, photographic glow, neon, 3D metal, glass, room, person, extra text, watermark.
+
+## Diagnosis and Redesign Intent
+
+The current Image 1 feels generic because it uses too many concentric bands, repeated white blocks, decorative side circuits, a lightning icon, and an oversized crowded title. Replace that stock HUD language with a singular proprietary visual system.
+
+Reduce visible elements by at least 60%. Sophistication must come from proportion, alignment, stroke hierarchy, negative space, and subtle tonal contrast—not from more detail.
+
+## Primary Visual Object
+
+Build one true circular object, front-facing and orthographic, placed slightly above the vertical center. Its overall diameter should be approximately 60% of canvas width. It must remain unmistakably circular, but it should not look like a target, radar, clock, or loading indicator.
+
+Construct the portal from only these three structural layers:
+
+1. Outer gate leaves: two broad mirrored crescent forms, one on each side of the vertical axis. Each crescent is built from a matte graphite-gray vector field with one razor-sharp silver outer contour and one inner cut edge. Their inner edges pull away from the center by a narrow, elegant black gap, clearly suggesting that the gate is opening.
+2. Precision inner ring: one continuous ultra-thin silver circle interrupted only at the central vertical opening. Add exactly four restrained registration nodes at the cardinal directions. No repeated blocks.
+3. Calibration constellation: a sparse set of 12–18 tiny silver dots and short hairline marks, rhythmically placed with wide spacing. They should feel engineered and intentional, not decorative.
+
+Inside the central void, show only deep black negative space and one extremely small silver activation point. No lightning bolt, icon, logo, symbol, sphere, lens, or target mark.
+
+Introduce subtle vector topology within each crescent using only 5–7 fine contour paths that follow the curvature and converge toward the opening seam. These paths must be widely spaced, smooth, clean, and individually readable. They provide sophistication and depth while remaining clearly vector-based. Do not use particle clouds or tangled mesh.
+
+## Opening Gesture
+
+The opening motion must be visible through pure geometry:
+
+- a narrow vertical black void through the circle;
+- the two crescent leaves shifted outward by a small equal amount;
+- the inner contour paths bending slightly toward the gap;
+- one thin axial datum line extending above and below the portal, broken at the central void;
+- a delicate increase in silver brightness only along the two facing inner edges.
+
+The effect should be silent and ceremonial, like a precision aperture unlocking, not explosive or mechanical.
+
+## Composition and Spatial System
+
+- Exact tall 51:104 portrait canvas.
+- Strict bilateral symmetry for all non-text elements.
+- Place the portal center at approximately 43% of canvas height.
+- Maintain a large uninterrupted black field above, around, and below the portal.
+- Remove the decorative circuit border and all corner brackets from Image 1.
+- Allow only two faint vertical datum lines near the far left and far right margins, each no longer than one-third of the canvas height. These lines must be hairline gray at low contrast and may include only one tiny square node.
+- Use a strict central axis and a hidden modular grid. Do not visibly fill the background with a grid.
+- Leave the lower 25% calm for typography.
+- Keep all content within production-safe margins.
+
+The reading order must be: title, circular opening form, central black gap, delicate contour detail. At first glance it is an editorial poster; at second glance it reveals an engineered portal.
+
+## Typography
+
+Render the title exactly once and verbatim: “KEEP IT WOO”. Spell it K-E-E-P, space, I-T, space, W-O-O.
+
+Use a custom-looking ultra-bold neo-grotesk or geometric sans serif, uppercase, with disciplined tight kerning and clean terminals. No outline, glow, texture, distortion, italics, or techno-display gimmicks.
+
+Place the title as a two-line block in the lower-left quadrant:
+
+KEEP
+IT WOO
+
+Align the title's left edge to the left tangent of the circular portal. Make the second line slightly shorter, preserving deliberate asymmetry. The complete block should occupy roughly 36%–42% of the canvas width, with generous black space around it. Do not let it touch the bottom edge or side frame. Typography is the only element allowed to break bilateral symmetry.
+
+Use warm white or pale silver for the type, not pure glowing white. Make the letterforms crisp and fully readable. No other readable copy, numbers, technical labels, fake data, logo, or watermark.
+
+## Color, Material, and Finish
+
+Use exactly five tonal values: near-black background, deep graphite, medium graphite, pale silver, and warm off-white. No hue accents.
+
+The background is a deep matte black field with an almost imperceptible vertical tonal transition. Vector shapes use solid graphite fills and ultra-clean silver strokes. Add only a very subtle paper or anodized-surface grain over the entire artwork at low intensity; never place texture inside individual shapes in a way that destroys their vector clarity.
+
+No bloom, volumetric light, lens flare, chromatic aberration, glossy 3D shading, metallic reflections, or photorealistic surface. The premium effect must come from nuanced gray separation, hairline precision, and balance.
+
+## Image–Text Relationship
+
+The portal and title must belong to one editorial grid. The title block aligns to the portal's left tangent and the baseline of “IT WOO” aligns to the lower termination of the axial datum line. The title does not overlap the portal and does not behave like a caption pasted below it.
+
+## Preserve Invariants
+
+Preserve the 51:104 ratio, one central true circle, vertical opening gesture, strict symmetry of non-text elements, black-white-gray palette, lower title zone, and exact title “KEEP IT WOO”. Change the existing generic HUD composition into a much quieter, more proprietary, museum-grade vector design.
+
+## Negative Constraints
+
+Do not use more than three structural circular layers. Do not use thick white segmented rings, loading bars, repeated rectangular wedges, radial dashboards, radar screens, interface panels, game UI, cockpit graphics, electrical icons, lightning symbols, center logos, side circuit frames, corner brackets, fake codes, random microtype, glowing borders, bright neon, blue or purple, gradients inside shapes, 3D bevels, chrome, glass, smoke, particles, dense wire mesh, tangled topology, excessive detail, decorative symmetry for its own sake, generic poster templates, advertisement layouts, people, hallways, physical door photography, extra words, misspelled title, duplicated title, logos, or watermarks.
+
+## Final Standard
+
+Generate only one final image. The result must feel custom-designed, expensive, quiet, and immediately usable as a premium large-format spatial graphic. It should resemble a collectible vector exhibition poster or high-end architectural identity piece—not a sci-fi game HUD. The circular opening metaphor must remain clear, every line and shape must be individually legible, negative space must dominate, and “KEEP IT WOO” must appear exactly once in refined bold sans-serif typography.

@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Asset Manager</title>
+    <link rel="stylesheet" href="/styles.css?v=8" />
+  </head>
+  <body>
+
+    <!-- Toast container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Import modal -->
+    <div class="modal-overlay" id="importModal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>导入新素材</h3>
+          <button class="modal-close" id="closeImportModal">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <label class="field">
+            <span>Image Path</span>
+            <input id="imagePathInput" placeholder="~/.codex/generated_images/&lt;task-id&gt;/&lt;image&gt;.png" />
+            <small class="field-hint" id="codexSourceHint">默认读取 Codex 生图目录</small>
+          </label>
+          <label class="field">
+            <span>Prompt</span>
+            <textarea id="promptInput" rows="4" placeholder="full prompt here..."></textarea>
+          </label>
+          <div class="two">
+            <label class="field">
+              <span>Skill</span>
+              <input id="skillInput" placeholder="punk-cover" />
+            </label>
+            <label class="field">
+              <span>Style</span>
+              <input id="styleInput" placeholder="cyberpunk" />
+            </label>
+          </div>
+          <div class="two">
+            <label class="field">
+              <span>Ratio</span>
+              <input id="ratioInput" placeholder="9:16" />
+            </label>
+            <label class="field">
+              <span>Theme</span>
+              <input id="themeInput" placeholder="orbital-luxury-vault" />
+            </label>
+          </div>
+          <div class="two">
+            <label class="field">
+              <span>Group</span>
+              <input id="groupInput" placeholder="sci-fi" />
+            </label>
+            <label class="field">
+              <span>Category</span>
+              <select id="categoryInput">
+                <option value="">-</option>
+                <option value="product">product</option>
+                <option value="concept">concept</option>
+                <option value="texture">texture</option>
+                <option value="reference">reference</option>
+                <option value="other">other</option>
+              </select>
+            </label>
+          </div>
+          <label class="field">
+            <span>Business Fields JSON</span>
+            <textarea id="businessInput" rows="3" placeholder='{"product":"...","price":"..."}'></textarea>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="cancelImportBtn">取消</button>
+          <button class="btn-primary" id="saveAssetBtn">保存素材</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="shell">
+
+      <!-- ══════ Sidebar ══════ -->
+      <aside class="sidebar">
+
+        <!-- Brand -->
+        <div class="brand">
+          <div class="brand-mark">
+            <svg width="24" height="24" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="2" y="3" width="10" height="16" rx="2" fill="currentColor" opacity="0.9"/>
+              <rect x="7" y="3" width="10" height="16" rx="2" fill="currentColor" opacity="0.55"/>
+              <rect x="4" y="21" width="20" height="4" rx="1.5" fill="currentColor" opacity="0.7"/>
+            </svg>
+          </div>
+          <div class="brand-info">
+            <h1>Asset Manager</h1>
+            <p>本地素材管理</p>
+          </div>
+        </div>
+
+        <!-- Search -->
+        <div class="search-bar">
+          <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input id="searchInput" type="search" placeholder="搜索 prompt / style / theme..." />
+        </div>
+
+        <!-- Quick Filters -->
+        <nav class="nav-section">
+          <div class="nav-label"><span>快捷筛选</span></div>
+          <ul class="nav-list" id="quickFilters">
+            <li class="nav-item active" data-filter="all">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+              </svg>
+              <span class="nav-item-text">全部</span>
+              <span class="nav-count" id="countAll">-</span>
+            </li>
+            <li class="nav-item" data-filter="favorite">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+              </svg>
+              <span class="nav-item-text">收藏</span>
+              <span class="nav-count" id="countFav">-</span>
+            </li>
+            <li class="nav-item" data-filter="recent">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <span class="nav-item-text">最近一周</span>
+              <span class="nav-count" id="countRecent">-</span>
+            </li>
+          </ul>
+        </nav>
+
+        <!-- Groups -->
+        <nav class="nav-section">
+          <div class="nav-label">
+            <span>分组</span>
+            <button class="add-group-btn" id="addGroupBtn" title="新建分组">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            </button>
+          </div>
+          <ul class="nav-list" id="groupList"></ul>
+        </nav>
+
+        <!-- Categories -->
+        <nav class="nav-section">
+          <div class="nav-label"><span>分类</span></div>
+          <ul class="nav-list" id="categoryList"></ul>
+        </nav>
+
+        <!-- Styles -->
+        <nav class="nav-section">
+          <div class="nav-label"><span>Style</span></div>
+          <ul class="nav-list" id="styleList"></ul>
+        </nav>
+
+        <!-- Library path -->
+        <div class="sidebar-footer">
+          <div class="library-path" id="libraryPath" title="在 Finder 中打开">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 17V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2z"/>
+              <circle cx="12" cy="12" r="1"/>
+            </svg>
+            <span class="path-text" id="libraryPathText">加载中...</span>
+            <button class="open-btn" id="openFolderBtn">打开</button>
+          </div>
+          <div class="project-select-row">
+            <select id="projectSelect">
+              <option value="default">default</option>
+            </select>
+          </div>
+          <div class="sidebar-actions">
+            <button class="btn-primary" id="syncCowartBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+              同步 Cowart
+            </button>
+            <button class="btn-secondary" id="newAssetBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              导入图片
+            </button>
+          </div>
+        </div>
+
+      </aside>
+
+      <!-- ══════ Main: Asset Grid ══════ -->
+      <main class="library">
+        <header class="topbar">
+          <div class="topbar-left">
+            <h2 id="viewTitle">全部</h2>
+            <p id="assetCount">0 assets</p>
+          </div>
+          <div class="topbar-right">
+            <span class="status-badge" id="statusText">Ready</span>
+          </div>
+        </header>
+        <section class="grid" id="assetGrid"></section>
+      </main>
+
+      <!-- ══════ Right: Detail Panel ══════ -->
+      <aside class="detail" id="detailPanel">
+        <div class="detail-empty">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <polyline points="21 15 16 10 5 21"/>
+          </svg>
+          <p>选择一张图片查看配方</p>
+          <span>Click any asset in the grid</span>
+        </div>
+      </aside>
+
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
