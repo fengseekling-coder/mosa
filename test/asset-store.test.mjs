@@ -65,3 +65,29 @@ test("continues to reject image paths outside approved source roots", async (t) 
 
   await assert.rejects(store.createAsset({ imagePath: outsidePath }), /Refusing to import outside the project roots/);
 });
+
+test("imports Cowart page assets from the configured external canvas directory", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "asset-manager-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const canvasDir = join(root, "cowart-data", "asset-manager");
+  const sourcePath = join(canvasDir, "pages", "page", "assets", "cowart-bear.png");
+  await mkdir(join(canvasDir, "pages", "page", "assets"), { recursive: true });
+  await writeFile(sourcePath, "fixture Cowart image", "utf8");
+
+  const store = createAssetStore({
+    projectRoot,
+    managerDir: join(projectRoot, "asset-manager"),
+    cowartCanvasDir: canvasDir
+  });
+  const asset = await store.createAsset({
+    assetId: "cowart-bear",
+    imagePath: sourcePath,
+    sourceType: "cowart-generated"
+  });
+
+  assert.equal(asset.source.type, "cowart-generated");
+  assert.equal(asset.source.path, sourcePath);
+  assert.match(asset.image_path, /asset-manager\/assets\/default\/images\/cowart-bear\.png$/);
+});

@@ -8,6 +8,7 @@
 - 为每张图片保存 full prompt、skill、style、比例、业务字段和版本关系。
 - 在 Web UI 中搜索、查看、复制 prompt。
 - 通过 MCP 工具让 Codex 后续直接调用 `asset_create`、`asset_list` 和 `asset_get`。
+- 支持将 Cowart 画布的页面图片从受限外部目录 `~/.codex/cowart-data/asset-manager/pages/` 导入素材库；不会开放任意仓库外路径。
 
 ## 快速开始
 
