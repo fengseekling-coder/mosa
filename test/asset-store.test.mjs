@@ -49,6 +49,28 @@ test("imports a Codex default generated image and preserves its provenance", asy
   assert.deepEqual(codexOnly.map((item) => item.id), ["codex-fixture"]);
 });
 
+test("persists manually created groups, including empty groups", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const store = createAssetStore({ projectRoot, managerDir });
+  await store.createGroup({ projectId: "default", name: "  Inspiration   board " });
+
+  let stats = await store.listGroups("default");
+  assert.deepEqual(stats.groups, [["Inspiration board", 0]]);
+  await assert.rejects(store.createGroup({ projectId: "default", name: "inspiration board" }), /Group already exists/);
+
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, "fixture image", "utf8");
+  await store.createAsset({ assetId: "grouped-fixture", imagePath: sourcePath, group: "Inspiration board" });
+
+  stats = await createAssetStore({ projectRoot, managerDir }).listGroups("default");
+  assert.deepEqual(stats.groups, [["Inspiration board", 1]]);
+});
+
 test("continues to reject image paths outside approved source roots", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
   t.after(() => rm(root, { recursive: true, force: true }));

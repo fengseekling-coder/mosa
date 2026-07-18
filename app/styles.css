@@ -59,6 +59,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .nav-count { color: var(--ink-tertiary); font-size: 11px; font-variant-numeric: tabular-nums; }
 .nav-item.active { color: var(--accent-deep); background: var(--accent-soft); font-weight: 680; }
 .nav-item.active .nav-count { color: var(--accent-deep); }
+.add-group-button { display: flex; width: calc(100% - 20px); min-width: 0; align-items: center; gap: 10px; margin: 4px 10px 3px; padding: 8px 0; border: 0; color: var(--accent-deep); background: transparent; cursor: pointer; font-size: 12px; font-weight: 650; text-align: left; }
+.add-group-button svg { flex: 0 0 auto; opacity: .82; }
+.add-group-button:hover { color: var(--accent); }
+.sidebar-group-list { display: grid; gap: 1px; padding: 0; margin: 0 8px; list-style: none; }
+.sidebar-group-list .nav-item { padding-top: 7px; padding-bottom: 7px; }
+.sidebar-group-list .nav-item svg { opacity: .55; }
 .settings-trigger { display: flex; align-items: center; gap: 9px; width: 100%; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-secondary); background: var(--surface); cursor: pointer; font-size: 12px; text-align: left; }
 .settings-trigger:hover { color: var(--ink); border-color: var(--line-strong); }
 .filter-dot { width: 6px; height: 6px; margin-left: 1px; border-radius: 50%; background: var(--accent); }
@@ -186,6 +192,7 @@ input::placeholder, textarea::placeholder { color: var(--ink-tertiary); }
 .modal-overlay { position: fixed; z-index: 100; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; background: rgba(22,22,20,.28); backdrop-filter: blur(7px); }
 .modal-overlay.open { display: flex; }
 .modal-card { display: flex; width: 526px; max-width: 100%; max-height: min(760px, 88vh); flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 24px 72px rgba(10,10,9,.26); }
+.group-modal-card { width: 386px; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 17px 18px; border-bottom: 1px solid var(--line); }
 .modal-header h3 { margin-top: 1px; font-size: 18px; letter-spacing: -.025em; }
 .modal-body { overflow: auto; padding: 18px; }

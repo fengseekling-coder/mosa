@@ -18,10 +18,15 @@ test("keeps the import flow keyboard-accessible", async () => {
   assert.match(html, /data-i18n-aria-label="closeImport"/);
   assert.match(html, /data-i18n-aria-label="closePreview"/);
   assert.match(html, /<button class="nav-item active"/);
+  assert.match(html, /id="addGroupBtn"/);
+  assert.match(html, /id="groupModal"/);
+  assert.match(html, /aria-labelledby="groupModalTitle" tabindex="-1"/);
   assert.match(app, /class="asset-card-select" type="button"/);
   assert.doesNotMatch(app, /card-overlay|asset-source-badge/);
   assert.match(html, /id="assetCount" role="status" aria-live="polite"/);
   assert.match(app, /function trapImportModalFocus\(event\)/);
+  assert.match(app, /function trapGroupModalFocus\(event\)/);
+  assert.match(app, /async function saveGroup\(\)/);
   assert.match(app, /function openImagePreview\(id, trigger\)/);
   assert.match(app, /function fitImagePreview\(\)/);
   assert.match(app, /Math\.min\(availableWidth \/ image\.naturalWidth, availableHeight \/ image\.naturalHeight\)/);

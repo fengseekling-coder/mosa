@@ -73,6 +73,14 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/groups") {
+    const body = await readJson(req);
+    sendJson(res, 201, {
+      group: await store.createGroup(body)
+    });
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/library-path") {
     const projectId = url.searchParams.get("project") || "default";
     sendJson(res, 200, {

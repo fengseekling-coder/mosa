@@ -43,6 +43,24 @@
       </div>
     </div>
 
+    <div class="modal-overlay" id="groupModal" aria-hidden="true">
+      <div class="modal-card group-modal-card" role="dialog" aria-modal="true" aria-labelledby="groupModalTitle" tabindex="-1">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow" data-i18n="groups">分组</p>
+            <h3 id="groupModalTitle" data-i18n="createGroup">添加分组</h3>
+          </div>
+          <button class="icon-button" id="closeGroupModal" type="button" data-i18n-aria-label="closeGroup" aria-label="关闭添加分组窗口">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <label class="field"><span data-i18n="groupName">分组名称</span><input id="groupNameInput" data-i18n-placeholder="groupNamePlaceholder" placeholder="例如：灵感参考" maxlength="80" /></label>
+        </div>
+        <div class="modal-footer"><button class="btn-secondary" id="cancelGroupBtn" type="button" data-i18n="cancel">取消</button><button class="btn-primary" id="saveGroupBtn" type="button" data-i18n="createGroup">添加分组</button></div>
+      </div>
+    </div>
+
     <div class="image-preview-modal" id="imagePreviewModal" role="dialog" aria-modal="true" aria-labelledby="imagePreviewTitle" hidden>
       <div class="image-preview-card" tabindex="-1">
         <div class="image-preview-header"><p class="eyebrow" data-i18n="viewFullImage">查看大图</p><button class="icon-button" id="closeImagePreview" type="button" data-i18n-aria-label="closePreview" aria-label="关闭大图预览"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
@@ -66,6 +84,8 @@
             <li><button class="nav-item" data-filter="favorite" type="button" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg><span class="nav-item-text" data-i18n="favorites">收藏</span><span class="nav-count" id="countFav">—</span></button></li>
             <li><button class="nav-item" data-filter="recent" type="button" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="nav-item-text" data-i18n="recent">最近</span><span class="nav-count" id="countRecent">—</span></button></li>
           </ul>
+          <button class="add-group-button" id="addGroupBtn" type="button" data-i18n-aria-label="addGroup" aria-label="添加分组"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="addGroup">添加分组</span></button>
+          <ul class="sidebar-group-list" id="sidebarGroupList" data-i18n-aria-label="groups" aria-label="分组"></ul>
         </nav>
 
         <div class="sidebar-spacer"></div>
