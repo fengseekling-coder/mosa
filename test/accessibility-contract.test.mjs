@@ -13,14 +13,14 @@ test("keeps the import flow keyboard-accessible", async () => {
   ]);
 
   assert.match(html, /role="dialog" aria-modal="true" aria-labelledby="importModalTitle"/);
-  assert.match(html, /aria-label="关闭导入素材窗口"/);
+  assert.match(html, /data-i18n-aria-label="closeImport"/);
   assert.match(html, /<button class="nav-item active"/);
   assert.match(app, /class="asset-card-select" type="button"/);
   assert.match(html, /id="assetCount" role="status" aria-live="polite"/);
   assert.match(app, /function trapImportModalFocus\(event\)/);
   assert.match(app, /event\.key === "Escape"/);
   assert.match(css, /button:focus-visible/);
-  assert.match(css, /@media \(max-width: 640px\)/);
+  assert.match(css, /@media \(max-width: 700px\)/);
 });
 
 test("keeps the gallery source-aware and the inspector optional", async () => {
@@ -29,13 +29,29 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
     readFile(resolve(root, "app/app.js"), "utf8"),
   ]);
 
-  assert.match(html, /data-filter="cowart"/);
-  assert.match(html, /id="detailToggle"[^>]*aria-controls="detailPanel"/);
+  assert.match(html, /id="filterPanel"/);
+  assert.match(html, /class="toolbar-filter" id="filterToggle"/);
   assert.match(app, /source", "cowart-generated"/);
   assert.match(app, /function setDetailOpen\(open\)/);
   assert.match(app, /state\.detailOpen = Boolean\(open\)/);
   assert.match(app, /function updateSelectedCard\(\)/);
   assert.match(app, /updateSelectedCard\(\);/);
-  assert.match(app, /const showHomeIntro = state\.filter\.type === "all" && !state\.query/);
-  assert.match(app, /els\.demoFlow\.hidden = !showHomeIntro/);
+  assert.match(app, /function renderFilterPanel\(\)/);
+  assert.match(app, /function positionFilterPanel\(\)/);
+  assert.match(app, /\["cowart", t\("filterCowart"\)/);
+});
+
+test("uses a single language chosen from system, Chinese, or English", async () => {
+  const [html, app] = await Promise.all([
+    readFile(resolve(root, "app/index.html"), "utf8"),
+    readFile(resolve(root, "app/app.js"), "utf8"),
+  ]);
+
+  assert.match(html, /data-locale="system"/);
+  assert.match(html, /data-locale="zh"/);
+  assert.match(html, /data-locale="en"/);
+  assert.match(app, /safeStorageGet\("mosa\.ui-language"\)/);
+  assert.match(app, /function resolveLocale\(value\)/);
+  assert.match(app, /function applyLanguage\(\)/);
+  assert.match(app, /document\.documentElement\.lang/);
 });

@@ -1,61 +1,30 @@
-// ── State ─────────────────────────────────────────────────────────────────────
-const state = {
-  project: "default",
-  projects: [],
-  assets: [],
-  selectedId: null,
-  detailOpen: false,
-  query: "",
-  // 当前筛选
-  filter: { type: "all", value: "" },
-  groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [] },
-  libraryPath: "",
-  codexImagesDir: "",
-  modalReturnFocus: null,
+const translations = {
+  zh: {
+    appTitle: "MOSA — 创作资产库", brandSubtitle: "创作资产库", library: "素材库", allAssets: "全部素材", favorites: "收藏", recent: "最近", refine: "筛选", findAssets: "查找素材", clearFilters: "清除筛选", source: "来源", groups: "分组", categories: "分类", styles: "风格", settings: "设置", language: "语言", systemLanguage: "跟随系统", chinese: "中文", english: "英文", project: "项目", openLibrary: "打开素材库", importAsset: "导入素材", importEyebrow: "素材库", importTitle: "导入素材", closeImport: "关闭导入窗口", imagePath: "图片路径", imagePathPlaceholder: "图片的本地绝对路径", prompt: "提示词", promptPlaceholder: "完整提示词", skill: "技能", style: "风格", ratio: "比例", theme: "主题", group: "分组", category: "分类", businessFields: "业务字段 JSON", none: "—", categoryProduct: "产品", categoryConcept: "概念", categoryTexture: "纹理", categoryReference: "参考", categoryOther: "其他", cancel: "取消", saveAsset: "保存素材", assetList: "素材列表", assetInspector: "素材检视器", noAssets: "还没有素材", noAssetsHint: "导入第一张图片，开始建立可复用的创作资产库。", noSelection: "选择一张素材", noSelectionHint: "在画廊中选择图片即可查看提示词与配方。", close: "关闭", copyPrompt: "复制提示词", copyPath: "复制路径", regenerate: "同配方再生成", recipe: "配方", sourceInfo: "来源信息", editMetadata: "编辑元数据", saveRecipe: "保存配方", imageLocation: "图片路径", notRecorded: "未记录", noDetails: "暂无附加信息", sourceCodex: "Codex", sourceCowart: "Cowart", sourceManual: "手动导入", sourceLabel: "来源", taskId: "任务 ID", model: "模型", generationTool: "生成工具", originalPath: "原始路径", canvasObject: "画布对象", pageAsset: "页面素材", canvasNote: "画布说明", canvasEdited: "批注编辑结果", canvasImage: "画布图片", rating: "评分", copyOriginalPath: "复制原始路径", saved: "已保存", saving: "正在保存…", copySuccess: "提示词已复制", pathCopied: "图片路径已复制", originalPathCopied: "原始路径已复制", instructionCopied: "再生成指令已复制", openInFinder: "已在 Finder 中打开", failedToOpen: "无法打开：", imagePathRequired: "请填写图片路径", invalidJson: "业务字段 JSON 格式错误", savedAsset: "素材已保存", recipeSaved: "配方已保存", groupSaved: "已移至分组：", groupFailed: "设置分组失败：", statusReady: "就绪", statusBridgeOff: "Cowart 自动归档未启用", statusBridgeError: "Cowart 自动归档出现错误", statusBridgeEnabled: "Cowart 自动归档已启用", statusBridgeImported: "Cowart 已归档 {count} 项", assetsCount: "{count} 项", filterAll: "全部", filterCodex: "Codex", filterCowart: "Cowart", noGroups: "暂无分组", noCategories: "暂无分类", noStyles: "暂无风格", languageChanged: "语言已更新", searchPlaceholder: "搜索素材、提示词或风格", generatedInstruction: "请用相同配方再生成一张图片，并保存到 MOSA："
+  },
+  en: {
+    appTitle: "MOSA — Creative Asset Library", brandSubtitle: "Creative asset library", library: "Library", allAssets: "All assets", favorites: "Favorites", recent: "Recent", refine: "Filter", findAssets: "Find assets", clearFilters: "Clear filters", source: "Source", groups: "Collections", categories: "Categories", styles: "Styles", settings: "Settings", language: "Language", systemLanguage: "Use system language", chinese: "Chinese", english: "English", project: "Project", openLibrary: "Open library folder", importAsset: "Import asset", importEyebrow: "LIBRARY", importTitle: "Import asset", closeImport: "Close import", imagePath: "Image path", imagePathPlaceholder: "Absolute path to the local image", prompt: "Prompt", promptPlaceholder: "Full prompt", skill: "Skill", style: "Style", ratio: "Ratio", theme: "Theme", group: "Collection", category: "Category", businessFields: "Business fields JSON", none: "—", categoryProduct: "Product", categoryConcept: "Concept", categoryTexture: "Texture", categoryReference: "Reference", categoryOther: "Other", cancel: "Cancel", saveAsset: "Save asset", assetList: "Asset list", assetInspector: "Asset inspector", noAssets: "No assets yet", noAssetsHint: "Import your first image to start a reusable creative library.", noSelection: "Select an asset", noSelectionHint: "Choose an image in the gallery to view its prompt and recipe.", close: "Close", copyPrompt: "Copy prompt", copyPath: "Copy path", regenerate: "Regenerate", recipe: "Recipe", sourceInfo: "Source", editMetadata: "Edit metadata", saveRecipe: "Save recipe", imageLocation: "Image path", notRecorded: "Not recorded", noDetails: "No additional details", sourceCodex: "Codex", sourceCowart: "Cowart", sourceManual: "Manual import", sourceLabel: "Source", taskId: "Task ID", model: "Model", generationTool: "Generation tool", originalPath: "Original path", canvasObject: "Canvas object", pageAsset: "Page asset", canvasNote: "Canvas note", canvasEdited: "Annotated edit", canvasImage: "Canvas image", rating: "Rating", copyOriginalPath: "Copy original path", saved: "Saved", saving: "Saving…", copySuccess: "Prompt copied", pathCopied: "Image path copied", originalPathCopied: "Original path copied", instructionCopied: "Regeneration instruction copied", openInFinder: "Opened in Finder", failedToOpen: "Unable to open: ", imagePathRequired: "Enter an image path", invalidJson: "Business fields JSON is invalid", savedAsset: "Asset saved", recipeSaved: "Recipe saved", groupSaved: "Moved to collection: ", groupFailed: "Unable to update collection: ", statusReady: "Ready", statusBridgeOff: "Cowart auto-archive is off", statusBridgeError: "Cowart auto-archive has an error", statusBridgeEnabled: "Cowart auto-archive is on", statusBridgeImported: "Cowart archived {count} items", assetsCount: "{count} assets", filterAll: "All", filterCodex: "Codex", filterCowart: "Cowart", noGroups: "No collections", noCategories: "No categories", noStyles: "No styles", languageChanged: "Language updated", searchPlaceholder: "Search assets, prompts, or styles", generatedInstruction: "Regenerate this image with the same recipe and save it to MOSA:"
+  }
 };
 
-// ── Elements ───────────────────────────────────────────────────────────────────
+const preference = safeStorageGet("mosa.ui-language") || "system";
+const state = {
+  project: "default", projects: [], assets: [], selectedId: null, detailOpen: false, query: "",
+  filter: { type: "all", value: "" }, groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [] },
+  libraryPath: "", codexImagesDir: "", modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference)
+};
+
 const els = {
-  projectSelect: document.querySelector("#projectSelect"),
-  searchInput: document.querySelector("#searchInput"),
-  libraryPathText: document.querySelector("#libraryPathText"),
-  openFolderBtn: document.querySelector("#openFolderBtn"),
-  quickFilters: document.querySelector("#quickFilters"),
-  groupList: document.querySelector("#groupList"),
-  categoryList: document.querySelector("#categoryList"),
-  styleList: document.querySelector("#styleList"),
-  addGroupBtn: document.querySelector("#addGroupBtn"),
-  newAssetBtn: document.querySelector("#newAssetBtn"),
-  importModal: document.querySelector("#importModal"),
-  closeImportModal: document.querySelector("#closeImportModal"),
-  cancelImportBtn: document.querySelector("#cancelImportBtn"),
-  imagePathInput: document.querySelector("#imagePathInput"),
-  codexSourceHint: document.querySelector("#codexSourceHint"),
-  promptInput: document.querySelector("#promptInput"),
-  skillInput: document.querySelector("#skillInput"),
-  styleInput: document.querySelector("#styleInput"),
-  ratioInput: document.querySelector("#ratioInput"),
-  themeInput: document.querySelector("#themeInput"),
-  groupInput: document.querySelector("#groupInput"),
-  categoryInput: document.querySelector("#categoryInput"),
-  businessInput: document.querySelector("#businessInput"),
-  saveAssetBtn: document.querySelector("#saveAssetBtn"),
-  viewTitle: document.querySelector("#viewTitle"),
-  assetCount: document.querySelector("#assetCount"),
-  statusText: document.querySelector("#statusText"),
-  appShell: document.querySelector("#appShell"),
-  detailToggle: document.querySelector("#detailToggle"),
-  newAssetTopBtn: document.querySelector("#newAssetTopBtn"),
-  assetGrid: document.querySelector("#assetGrid"),
-  detailPanel: document.querySelector("#detailPanel"),
-  demoFlow: document.querySelector("#demoFlow"),
-  demoFlowProvenance: document.querySelector("#demoFlowProvenance"),
-  toastContainer: document.querySelector("#toastContainer")
+  projectSelect: document.querySelector("#projectSelect"), searchInput: document.querySelector("#searchInput"), openFolderBtn: document.querySelector("#openFolderBtn"), quickFilters: document.querySelector("#quickFilters"),
+  filterToggle: document.querySelector("#filterToggle"), filterPanel: document.querySelector("#filterPanel"), filterDot: document.querySelector("#filterDot"), clearFiltersBtn: document.querySelector("#clearFiltersBtn"), sourceFilters: document.querySelector("#sourceFilters"), groupList: document.querySelector("#groupList"), categoryList: document.querySelector("#categoryList"), styleList: document.querySelector("#styleList"),
+  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), imagePathInput: document.querySelector("#imagePathInput"), codexSourceHint: document.querySelector("#codexSourceHint"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
+  viewTitle: document.querySelector("#viewTitle"), assetCount: document.querySelector("#assetCount"), statusText: document.querySelector("#statusText"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer")
 };
 
 init();
 
 async function init() {
+  applyLanguage();
   bindEvents();
   await loadProjects();
   await loadStats();
@@ -66,1070 +35,335 @@ async function init() {
   bindKeyboardNav();
 }
 
-// 键盘上下导航
+function resolveLocale(value) {
+  if (value === "zh" || value === "en") return value;
+  return /^zh/i.test(navigator.language || "") ? "zh" : "en";
+}
+
+function t(key, variables = {}) {
+  const template = translations[state.locale]?.[key] ?? translations.en[key] ?? key;
+  return template.replace(/\{(\w+)\}/g, (_, name) => String(variables[name] ?? ""));
+}
+
+function applyLanguage() {
+  state.locale = resolveLocale(state.languagePreference);
+  document.documentElement.lang = state.locale === "zh" ? "zh-CN" : "en";
+  document.title = t("appTitle");
+  document.querySelectorAll("[data-i18n]").forEach((node) => { node.textContent = t(node.dataset.i18n); });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => { node.placeholder = t(node.dataset.i18nPlaceholder); });
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((node) => { node.setAttribute("aria-label", t(node.dataset.i18nAriaLabel)); });
+  document.querySelectorAll("[data-i18n-title]").forEach((node) => { node.title = t(node.dataset.i18nTitle); });
+  updateCodexHint();
+  renderSettingsMenu();
+  renderQuickFilters();
+  renderFilterPanel();
+  updateViewTitle();
+  renderGrid();
+  if (state.detailOpen) renderDetail();
+}
+
+function renderSettingsMenu() {
+  if (!els.settingsMenu) return;
+  const choices = [
+    ["system", `${t("systemLanguage")} · ${resolveLocale("system") === "zh" ? t("chinese") : t("english")}`],
+    ["zh", t("chinese")], ["en", t("english")]
+  ];
+  els.settingsMenu.innerHTML = `<p>${t("language")}</p>${choices.map(([value, label]) => `<button type="button" data-locale="${value}" aria-pressed="${state.languagePreference === value}">${escapeHtml(label)}<span>${state.languagePreference === value ? "✓" : ""}</span></button>`).join("")}`;
+}
+
 function bindKeyboardNav() {
-  document.addEventListener("keydown", (e) => {
-    if (els.importModal?.classList.contains("open")) return;
+  document.addEventListener("keydown", (event) => {
+    if (els.importModal?.classList.contains("open") || event.target.matches("input, textarea, select")) return;
     if (!state.assets.length) return;
-    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-
-    const currentIndex = state.assets.findIndex(a => a.id === state.selectedId);
-
-    if (e.key === "ArrowUp" && currentIndex > 0) {
-      state.selectedId = state.assets[currentIndex - 1].id;
-      setDetailOpen(true);
-      updateSelectedCard();
-      scrollToSelected();
-    } else if (e.key === "ArrowDown" && currentIndex < state.assets.length - 1) {
-      state.selectedId = state.assets[currentIndex + 1].id;
-      setDetailOpen(true);
-      updateSelectedCard();
-      scrollToSelected();
-    }
+    const index = state.assets.findIndex((asset) => asset.id === state.selectedId);
+    if (event.key === "ArrowUp" && index > 0) selectAsset(state.assets[index - 1].id, true);
+    if (event.key === "ArrowDown" && index < state.assets.length - 1) selectAsset(state.assets[index + 1].id, true);
   });
 }
 
-function scrollToSelected() {
-  const selectedCard = els.assetGrid.querySelector(".asset-card.selected");
-  if (selectedCard) {
-    selectedCard.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
-}
-
-// ── Toast Notifications ───────────────────────────────────────────────────────
-let _toastTimer = null;
-
+let toastTimer = null;
 function showToast(message, type = "default") {
-  const container = els.toastContainer;
-  if (!container) return;
-
-  // Remove any existing toast
-  const existing = container.querySelector(".toast");
-  if (existing) existing.remove();
-  if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
-
-  const iconSvg = type === "success"
-    ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
-    : type === "error"
-    ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`
-    : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
-
+  if (!els.toastContainer) return;
+  els.toastContainer.querySelector(".toast")?.remove();
+  clearTimeout(toastTimer);
   const toast = document.createElement("div");
   toast.className = `toast ${type}`;
-  toast.innerHTML = `
-    <span class="toast-icon ${type}">${iconSvg}</span>
-    <span class="toast-text">${escapeHtml(message)}</span>
-  `;
-  container.appendChild(toast);
-
-  _toastTimer = setTimeout(() => {
-    toast.classList.add("fading");
-    setTimeout(() => toast.remove(), 160);
-  }, 2200);
+  toast.textContent = message;
+  els.toastContainer.appendChild(toast);
+  toastTimer = setTimeout(() => { toast.classList.add("fading"); setTimeout(() => toast.remove(), 180); }, 2200);
 }
 
-// ── API ────────────────────────────────────────────────────────────────────────
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    method: options.method || "GET",
-    headers: options.body ? { "content-type": "application/json" } : undefined,
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
-  const text = await response.text();
+  const response = await fetch(path, { method: options.method || "GET", headers: options.body ? { "content-type": "application/json" } : undefined, body: options.body ? JSON.stringify(options.body) : undefined });
+  const raw = await response.text();
   let payload = {};
-  try {
-    payload = text ? JSON.parse(text) : {};
-  } catch (e) {
-    // 非 JSON 响应，尝试提取错误信息
-    if (!response.ok) throw new Error(response.statusText);
-    return {};
-  }
+  try { payload = raw ? JSON.parse(raw) : {}; } catch { if (!response.ok) throw new Error(response.statusText); }
   if (!response.ok) throw new Error(payload.error || response.statusText);
   return payload;
 }
 
 async function loadProjects() {
   const result = await api("/api/projects");
-  state.projects = result.projects;
+  state.projects = result.projects || [];
   if (els.projectSelect) {
-    els.projectSelect.innerHTML = state.projects
-      .map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`)
-      .join("");
+    els.projectSelect.innerHTML = state.projects.map((project) => `<option value="${escapeHtml(project)}">${escapeHtml(project)}</option>`).join("");
     els.projectSelect.value = state.project;
   }
 }
 
 async function loadStats() {
-  // Load library path
   try {
-    const p = await api(`/api/library-path?project=${encodeURIComponent(state.project)}`);
-    state.libraryPath = p.path;
-    state.codexImagesDir = p.codexGeneratedImagesDir || "";
-    els.libraryPathText.textContent = p.path;
-    if (state.codexImagesDir && els.imagePathInput) {
-      els.imagePathInput.placeholder = `${state.codexImagesDir}/<task-id>/<image>.png`;
-    }
-    if (state.codexImagesDir && els.codexSourceHint) {
-      els.codexSourceHint.textContent = `默认读取 Codex 生图目录：${state.codexImagesDir}`;
-    }
-  } catch {
-    els.libraryPathText.textContent = "—";
-  }
-
-  // Build stats client-side from the full unfiltered asset list
+    const library = await api(`/api/library-path?project=${encodeURIComponent(state.project)}`);
+    state.libraryPath = library.path || "";
+    state.codexImagesDir = library.codexGeneratedImagesDir || "";
+    updateCodexHint();
+  } catch { state.libraryPath = ""; }
   const result = await api(`/api/assets?project=${encodeURIComponent(state.project)}`);
   const assets = result.assets || [];
-  const now = Date.now();
-  const ONE_WEEK = 7 * 24 * 60 * 60 * 1000;
-
-  const groupMap = new Map();
-  const categoryMap = new Map();
-  const styleMap = new Map();
-  let favorites = 0;
-  let recent = 0;
-  let codex = 0;
-  let cowart = 0;
-
-  for (const a of assets) {
-    // 收藏：rating > 0 或 favorite 标记为 true
-    if (a.rating > 0 || a.favorite) favorites++;
-    if (a.created_at) {
-      const age = now - new Date(a.created_at).getTime();
-      if (age < ONE_WEEK) recent++;
-    }
-    if (a.source?.type === "codex-generated") codex++;
-    if (a.source?.type === "cowart-generated") cowart++;
-    if (a.group)  groupMap.set(a.group,    (groupMap.get(a.group)    || 0) + 1);
-    if (a.category) categoryMap.set(a.category, (categoryMap.get(a.category) || 0) + 1);
-    if (a.style)  styleMap.set(a.style,    (styleMap.get(a.style)    || 0) + 1);
+  const oneWeek = 7 * 24 * 60 * 60 * 1000;
+  const groups = new Map(), categories = new Map(), styles = new Map();
+  let favorites = 0, recent = 0, codex = 0, cowart = 0;
+  for (const asset of assets) {
+    if (asset.rating > 0 || asset.favorite) favorites += 1;
+    if (asset.created_at && Date.now() - new Date(asset.created_at).getTime() < oneWeek) recent += 1;
+    if (asset.source?.type === "codex-generated") codex += 1;
+    if (asset.source?.type === "cowart-generated") cowart += 1;
+    tally(groups, asset.group); tally(categories, asset.category); tally(styles, asset.style);
   }
-
-  state.groups = {
-    total: assets.length,
-    favorites,
-    recent,
-    codex,
-    cowart,
-    groups:    [...groupMap.entries()].sort((a, b) => b[1] - a[1]),
-    categories: [...categoryMap.entries()].sort((a, b) => b[1] - a[1]),
-    styles:    [...styleMap.entries()].sort((a, b) => b[1] - a[1])
-  };
-
+  state.groups = { total: assets.length, favorites, recent, codex, cowart, groups: sortCounts(groups), categories: sortCounts(categories), styles: sortCounts(styles) };
   renderQuickFilters();
-  renderGroupList();
-  renderCategoryList();
-  renderStyleList();
+  renderFilterPanel();
 }
+
+function tally(map, value) { if (value) map.set(value, (map.get(value) || 0) + 1); }
+function sortCounts(map) { return [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])); }
 
 async function loadAssets() {
   const params = new URLSearchParams({ project: state.project, q: state.query });
-
   if (state.filter.type === "favorite") params.set("favorite", "1");
   else if (state.filter.type === "recent") params.set("recent", "1");
   else if (state.filter.type === "codex") params.set("source", "codex-generated");
   else if (state.filter.type === "cowart") params.set("source", "cowart-generated");
-  else if (state.filter.type === "group") params.set("group", state.filter.value);
-  else if (state.filter.type === "category") params.set("category", state.filter.value);
-  else if (state.filter.type === "style") params.set("style", state.filter.value);
-
+  else if (["group", "category", "style"].includes(state.filter.type)) params.set(state.filter.type, state.filter.value);
   const result = await api(`/api/assets?${params}`);
-  state.assets = result.assets;
-  if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)) {
-    state.selectedId = null;
-  }
+  state.assets = result.assets || [];
+  if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)) state.selectedId = null;
   renderGrid();
-  if (state.detailOpen) renderDetail();
-  else renderDemoFlow(null);
   updateViewTitle();
+  if (state.detailOpen) renderDetail();
 }
 
 async function refreshCowartBridgeStatus() {
   try {
-    const result = await api("/api/cowart-bridge");
-    const bridge = result.bridge;
-    if (!bridge?.enabled) return setStatus("Cowart bridge off");
-    if (bridge.lastError) return setStatus("Cowart bridge error");
-    if (bridge.lastImportedAt) return setStatus(`Cowart 已自动归档 ${bridge.totalImported}`);
-    setStatus("Cowart 自动归档已启用");
-  } catch {
-    setStatus("Ready");
-  }
+    const { bridge } = await api("/api/cowart-bridge");
+    if (!bridge?.enabled) return setStatus(t("statusBridgeOff"));
+    if (bridge.lastError) return setStatus(t("statusBridgeError"));
+    return setStatus(bridge.lastImportedAt ? t("statusBridgeImported", { count: bridge.totalImported }) : t("statusBridgeEnabled"));
+  } catch { setStatus(t("statusReady")); }
+}
+
+function updateCodexHint() {
+  if (!els.codexSourceHint) return;
+  if (state.codexImagesDir) {
+    els.imagePathInput.placeholder = `${state.codexImagesDir}/<task-id>/<image>.png`;
+    els.codexSourceHint.textContent = `${t("sourceCodex")} · ${state.codexImagesDir}`;
+  } else els.codexSourceHint.textContent = "";
 }
 
 function updateViewTitle() {
-  const titles = {
-    all: "全部",
-    favorite: "收藏",
-    recent: "最近一周",
-    codex: "Codex 生成",
-    cowart: "Cowart 画布",
-    group: state.filter.value,
-    category: state.filter.value,
-    style: state.filter.value
-  };
-  els.viewTitle.textContent = titles[state.filter.type] || state.filter.value;
-  els.assetCount.textContent = `${state.assets.length} assets`;
+  const titles = { all: t("allAssets"), favorite: t("favorites"), recent: t("recent"), codex: t("filterCodex"), cowart: t("filterCowart") };
+  els.viewTitle.textContent = titles[state.filter.type] || state.filter.value || t("allAssets");
+  els.assetCount.textContent = t("assetsCount", { count: state.assets.length });
+  const filtered = state.filter.type !== "all" || Boolean(state.query);
+  els.filterDot.hidden = !filtered;
 }
 
-// ── Events ─────────────────────────────────────────────────────────────────────
 function bindEvents() {
-  if (els.projectSelect) {
-    els.projectSelect.addEventListener("change", async () => {
-      state.project = els.projectSelect.value;
-      state.selectedId = null;
-      state.filter = { type: "all", value: "" };
-      await loadStats();
-      await loadAssets();
-    });
-  }
-
-  if (els.searchInput) {
-    els.searchInput.addEventListener("input", debounce(async () => {
-      state.query = els.searchInput.value;
-      await loadAssets();
-    }, 180));
-  }
-
-  if (els.openFolderBtn) {
-    els.openFolderBtn.addEventListener("click", async () => {
-      if (!state.libraryPath) return;
-      try {
-        await api("/api/open-folder", { method: "POST", body: { path: state.libraryPath } });
-        showToast("已在 Finder 中打开", "success");
-      } catch (e) {
-        showToast("打开失败: " + e.message, "error");
-      }
-    });
-  }
-
-  if (els.detailToggle) {
-    els.detailToggle.addEventListener("click", () => {
-      setDetailOpen(!state.detailOpen);
-    });
-  }
-
-  if (els.newAssetTopBtn) {
-    els.newAssetTopBtn.addEventListener("click", () => {
-      openImportModal();
-    });
-  }
-
-  if (els.quickFilters) {
-    els.quickFilters.addEventListener("click", e => {
-      const li = e.target.closest(".nav-item");
-      if (!li || !li.dataset.filter) return;
-      state.filter = { type: li.dataset.filter, value: "" };
-      state.selectedId = null;
-      renderQuickFilters();
-      loadAssets();
-    });
-  }
-
-  if (els.groupList) {
-    els.groupList.addEventListener("click", e => {
-      const li = e.target.closest(".nav-item[data-group]");
-      if (!li) return;
-      state.filter = { type: "group", value: li.dataset.group };
-      state.selectedId = null;
-      renderGroupList();
-      loadAssets();
-    });
-  }
-
-  if (els.addGroupBtn) {
-    els.addGroupBtn.addEventListener("click", () => {
-      const existing = els.groupList.querySelector(".nav-item[data-new]");
-      if (existing) return;
-      const input = document.createElement("input");
-      input.className = "new-group-input";
-      input.placeholder = "分组名，回车确认";
-      input.addEventListener("keydown", async (e) => {
-        if (e.key === "Enter") {
-          const val = input.value.trim();
-          if (val) await assignGroupToSelected(val);
-          renderGroupList();
-        }
-        if (e.key === "Escape") renderGroupList();
-      });
-      input.addEventListener("blur", () => renderGroupList());
-      const item = document.createElement("li");
-      item.className = "nav-item";
-      item.dataset.new = "1";
-      item.appendChild(input);
-      els.groupList.prepend(item);
-      input.focus();
-    });
-  }
-
-  if (els.categoryList) {
-    els.categoryList.addEventListener("click", e => {
-      const li = e.target.closest(".nav-item[data-category]");
-      if (!li) return;
-      state.filter = { type: "category", value: li.dataset.category };
-      state.selectedId = null;
-      renderCategoryList();
-      loadAssets();
-    });
-  }
-
-  if (els.styleList) {
-    els.styleList.addEventListener("click", e => {
-      const li = e.target.closest(".nav-item[data-style]");
-      if (!li) return;
-      state.filter = { type: "style", value: li.dataset.style };
-      state.selectedId = null;
-      renderStyleList();
-      loadAssets();
-    });
-  }
-
-  if (els.newAssetBtn) {
-    els.newAssetBtn.addEventListener("click", () => {
-      openImportModal();
-    });
-  }
-
-  if (els.closeImportModal) {
-    els.closeImportModal.addEventListener("click", () => {
-      closeImportModal();
-    });
-  }
-
-  if (els.cancelImportBtn) {
-    els.cancelImportBtn.addEventListener("click", () => {
-      closeImportModal();
-    });
-  }
-
-  // Close modal on overlay click
-  if (els.importModal) {
-    els.importModal.addEventListener("click", (e) => {
-      if (e.target === els.importModal) closeImportModal();
-    });
-  }
-
+  els.projectSelect?.addEventListener("change", async () => {
+    state.project = els.projectSelect.value; state.selectedId = null; state.filter = { type: "all", value: "" }; state.query = ""; els.searchInput.value = "";
+    await loadStats(); await loadAssets();
+  });
+  els.searchInput?.addEventListener("input", debounce(async () => { state.query = els.searchInput.value; await loadAssets(); }, 180));
+  els.openFolderBtn?.addEventListener("click", async () => runAction(async () => { if (!state.libraryPath) return; await api("/api/open-folder", { method: "POST", body: { path: state.libraryPath } }); showToast(t("openInFinder"), "success"); }));
+  els.newAssetTopBtn?.addEventListener("click", openImportModal);
+  els.quickFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) setFilter(button.dataset.filter); });
+  els.filterToggle?.addEventListener("click", () => togglePanel(els.filterPanel, els.filterToggle));
+  els.clearFiltersBtn?.addEventListener("click", () => { state.query = ""; els.searchInput.value = ""; setFilter("all"); });
+  els.sourceFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) setFilter(button.dataset.filter); });
+  [els.groupList, els.categoryList, els.styleList].forEach((list) => list?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) setFilter(button.dataset.filter, button.dataset.value); }));
+  els.settingsToggle?.addEventListener("click", () => togglePanel(els.settingsMenu, els.settingsToggle));
+  els.settingsMenu?.addEventListener("click", (event) => { const button = event.target.closest("[data-locale]"); if (button) setLanguage(button.dataset.locale); });
+  els.closeImportModal?.addEventListener("click", closeImportModal);
+  els.cancelImportBtn?.addEventListener("click", closeImportModal);
+  els.importModal?.addEventListener("click", (event) => { if (event.target === els.importModal) closeImportModal(); });
+  els.saveAssetBtn?.addEventListener("click", saveAsset);
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest("#filterToggle") && !event.target.closest("#filterPanel")) closePanel(els.filterPanel, els.filterToggle);
+    if (!event.target.closest(".settings-wrap")) closePanel(els.settingsMenu, els.settingsToggle);
+  });
+  window.addEventListener("resize", () => { if (!els.filterPanel?.hidden) positionFilterPanel(); });
   document.addEventListener("keydown", trapImportModalFocus);
-
-  if (els.saveAssetBtn) {
-    els.saveAssetBtn.addEventListener("click", async () => {
-      await runAction(async () => {
-        // 验证必填字段
-        if (!els.imagePathInput.value.trim()) {
-          throw new Error("请填写图片路径");
-        }
-        showToast("保存素材中...");
-        let businessFields = {};
-        if (els.businessInput.value.trim()) {
-          try { businessFields = JSON.parse(els.businessInput.value); }
-          catch { throw new Error("Business Fields JSON 格式错误"); }
-        }
-        const result = await api("/api/assets/create", {
-          method: "POST",
-          body: {
-            projectId: state.project,
-            imagePath: els.imagePathInput.value,
-            prompt: els.promptInput.value,
-            skill: els.skillInput.value,
-            style: els.styleInput.value,
-            ratio: els.ratioInput.value,
-            theme: els.themeInput.value,
-            group: els.groupInput.value,
-            category: els.categoryInput.value,
-            business_fields: businessFields
-          }
-        });
-        state.selectedId = result.asset.id;
-        showToast(`已保存 ${result.asset.id}`, "success");
-        if (els.importModal) {
-          closeImportModal();
-          // Clear form
-          els.imagePathInput.value = "";
-          els.promptInput.value = "";
-          els.skillInput.value = "";
-          els.styleInput.value = "";
-          els.ratioInput.value = "";
-          els.themeInput.value = "";
-          els.groupInput.value = "";
-          els.categoryInput.value = "";
-          els.businessInput.value = "";
-        }
-        await loadStats();
-        await loadAssets();
-      });
-    });
-  }
 }
 
-// ── Sidebar Rendering ──────────────────────────────────────────────────────────
+function setLanguage(value) {
+  state.languagePreference = value;
+  safeStorageSet("mosa.ui-language", value);
+  applyLanguage();
+  showToast(t("languageChanged"), "success");
+}
+
+function setFilter(type, value = "") {
+  state.filter = { type, value };
+  state.selectedId = null;
+  renderQuickFilters(); renderFilterPanel(); loadAssets();
+}
+
+function togglePanel(panel, trigger) {
+  if (!panel) return;
+  const willOpen = panel.hidden;
+  closePanel(els.filterPanel, els.filterToggle); closePanel(els.settingsMenu, els.settingsToggle);
+  panel.hidden = !willOpen;
+  if (willOpen && panel === els.filterPanel) positionFilterPanel();
+  trigger?.setAttribute("aria-expanded", String(willOpen));
+}
+function closePanel(panel, trigger) { if (!panel) return; panel.hidden = true; trigger?.setAttribute("aria-expanded", "false"); }
+
+function positionFilterPanel() {
+  if (!els.filterPanel || !els.filterToggle) return;
+  const trigger = els.filterToggle.getBoundingClientRect();
+  const padding = 12;
+  const panelWidth = Math.min(286, window.innerWidth - padding * 2);
+  const top = Math.min(trigger.bottom + 8, Math.max(padding, window.innerHeight - 480));
+  const left = Math.max(padding, Math.min(trigger.right - panelWidth, window.innerWidth - panelWidth - padding));
+  els.filterPanel.style.setProperty("--filter-panel-top", `${top}px`);
+  els.filterPanel.style.setProperty("--filter-panel-left", `${left}px`);
+  els.filterPanel.style.setProperty("--filter-panel-right", "auto");
+}
+
+async function saveAsset() {
+  await runAction(async () => {
+    if (!els.imagePathInput.value.trim()) throw new Error(t("imagePathRequired"));
+    let businessFields = {};
+    if (els.businessInput.value.trim()) { try { businessFields = JSON.parse(els.businessInput.value); } catch { throw new Error(t("invalidJson")); } }
+    showToast(t("saving"));
+    const result = await api("/api/assets/create", { method: "POST", body: { projectId: state.project, imagePath: els.imagePathInput.value, prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, ratio: els.ratioInput.value, theme: els.themeInput.value, group: els.groupInput.value, category: els.categoryInput.value, business_fields: businessFields } });
+    state.selectedId = result.asset.id;
+    clearImportForm(); closeImportModal(); showToast(`${t("savedAsset")} · ${result.asset.id}`, "success");
+    await loadStats(); await loadAssets();
+  });
+}
+
+function clearImportForm() { [els.imagePathInput, els.promptInput, els.skillInput, els.styleInput, els.ratioInput, els.themeInput, els.groupInput, els.businessInput].forEach((input) => { input.value = ""; }); els.categoryInput.value = ""; }
+
 function renderQuickFilters() {
-  els.quickFilters.querySelectorAll(".nav-item").forEach(li => {
-    const active = li.dataset.filter === state.filter.type;
-    li.classList.toggle("active", active);
-    li.setAttribute("aria-pressed", String(active));
-  });
-  const s = state.groups;
-  els.quickFilters.querySelector("[data-filter=all] .nav-count").textContent = s.total;
-  els.quickFilters.querySelector("[data-filter=favorite] .nav-count").textContent = s.favorites;
-  els.quickFilters.querySelector("[data-filter=recent] .nav-count").textContent = s.recent;
-  els.quickFilters.querySelector("[data-filter=codex] .nav-count").textContent = s.codex;
-  els.quickFilters.querySelector("[data-filter=cowart] .nav-count").textContent = s.cowart;
+  if (!els.quickFilters) return;
+  const counts = { all: state.groups.total, favorite: state.groups.favorites, recent: state.groups.recent };
+  els.quickFilters.querySelectorAll("[data-filter]").forEach((button) => { const active = button.dataset.filter === state.filter.type; button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active)); button.querySelector(".nav-count").textContent = counts[button.dataset.filter] ?? "—"; });
 }
 
-function renderGroupList() {
-  if (state.groups.groups.length === 0) {
-    els.groupList.innerHTML = `<li class="nav-empty">暂无分组</li>`;
-    return;
-  }
-  els.groupList.innerHTML = state.groups.groups.map(([name, count]) => {
-    const active = state.filter.type === "group" && state.filter.value === name;
-    return `<li><button class="nav-item${active ? " active" : ""}" data-group="${escapeHtml(name)}" type="button" aria-pressed="${active}">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-      </svg>
-      <span class="nav-item-text">${escapeHtml(name)}</span>
-      <span class="nav-count">${count}</span>
-    </button></li>`;
-  }).join("");
+function renderFilterPanel() {
+  if (!els.sourceFilters) return;
+  const sources = [["all", t("filterAll"), state.groups.total], ["codex", t("filterCodex"), state.groups.codex], ["cowart", t("filterCowart"), state.groups.cowart]];
+  els.sourceFilters.innerHTML = sources.map(([type, label, count]) => `<button class="filter-pill${state.filter.type === type ? " active" : ""}" data-filter="${type}" type="button" aria-pressed="${state.filter.type === type}">${escapeHtml(label)} <span>${count}</span></button>`).join("");
+  renderFilterList(els.groupList, state.groups.groups, "group", t("noGroups"));
+  renderFilterList(els.categoryList, state.groups.categories, "category", t("noCategories"));
+  renderFilterList(els.styleList, state.groups.styles, "style", t("noStyles"));
 }
 
-function renderCategoryList() {
-  if (state.groups.categories.length === 0) {
-    els.categoryList.innerHTML = `<li class="nav-empty">暂无分类</li>`;
-    return;
-  }
-  els.categoryList.innerHTML = state.groups.categories.map(([name, count]) => {
-    const active = state.filter.type === "category" && state.filter.value === name;
-    return `<li><button class="nav-item${active ? " active" : ""}" data-category="${escapeHtml(name)}" type="button" aria-pressed="${active}">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
-        <line x1="7" y1="7" x2="7.01" y2="7"/>
-      </svg>
-      <span class="nav-item-text">${escapeHtml(name)}</span>
-      <span class="nav-count">${count}</span>
-    </button></li>`;
-  }).join("");
+function renderFilterList(element, values, type, emptyText) {
+  if (!element) return;
+  if (!values.length) { element.innerHTML = `<li class="filter-empty">${escapeHtml(emptyText)}</li>`; return; }
+  element.innerHTML = values.map(([name, count]) => `<li><button class="filter-list-item${state.filter.type === type && state.filter.value === name ? " active" : ""}" data-filter="${type}" data-value="${escapeHtml(name)}" type="button" aria-pressed="${state.filter.type === type && state.filter.value === name}"><span>${escapeHtml(name)}</span><span>${count}</span></button></li>`).join("");
 }
 
-function renderStyleList() {
-  if (state.groups.styles.length === 0) {
-    els.styleList.innerHTML = `<li class="nav-empty">暂无</li>`;
-    return;
-  }
-  els.styleList.innerHTML = state.groups.styles.map(([name, count]) => {
-    const active = state.filter.type === "style" && state.filter.value === name;
-    return `<li><button class="nav-item${active ? " active" : ""}" data-style="${escapeHtml(name)}" type="button" aria-pressed="${active}">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="13.5" cy="6.5" r="0.5" fill="currentColor"/>
-        <circle cx="17.5" cy="10.5" r="0.5" fill="currentColor"/>
-        <circle cx="8.5" cy="7.5" r="0.5" fill="currentColor"/>
-        <circle cx="6.5" cy="12.5" r="0.5" fill="currentColor"/>
-        <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>
-      </svg>
-      <span class="nav-item-text">${escapeHtml(name)}</span>
-      <span class="nav-count">${count}</span>
-    </button></li>`;
-  }).join("");
-}
-
-// ── Grid Rendering ─────────────────────────────────────────────────────────────
 let masonryResizeObserver = null;
-
-function layoutMasonry() {
-  els.assetGrid.querySelectorAll(".asset-card").forEach((card) => {
-    const selectable = card.querySelector(".asset-card-select");
-    const cardHeight = selectable?.getBoundingClientRect().height || 0;
-    if (!cardHeight) return;
-    card.style.gridRowEnd = `span ${Math.ceil((cardHeight + 8) / 16)}`;
-  });
-}
-
+function layoutMasonry() { els.assetGrid?.querySelectorAll(".asset-card").forEach((card) => { const height = card.querySelector(".asset-card-select")?.getBoundingClientRect().height || 0; if (height) card.style.gridRowEnd = `span ${Math.ceil((height + 8) / 16)}`; }); }
 function setupMasonryLayout() {
-  const grid = els.assetGrid;
-  if (!grid) return;
-
-  const scheduleLayout = () => requestAnimationFrame(layoutMasonry);
-  grid.querySelectorAll(".thumb").forEach((image) => {
-    image.addEventListener("load", scheduleLayout, { once: true });
-  });
-  scheduleLayout();
-
+  const grid = els.assetGrid; if (!grid) return;
+  const schedule = () => requestAnimationFrame(layoutMasonry);
+  grid.querySelectorAll(".thumb").forEach((image) => image.addEventListener("load", schedule, { once: true })); schedule();
   masonryResizeObserver?.disconnect();
-  if ("ResizeObserver" in window) {
-    masonryResizeObserver = new ResizeObserver(scheduleLayout);
-    masonryResizeObserver.observe(grid);
-  }
+  if ("ResizeObserver" in window) { masonryResizeObserver = new ResizeObserver(schedule); masonryResizeObserver.observe(grid); }
 }
 
 function renderGrid() {
-  if (state.assets.length === 0) {
-    els.assetGrid.innerHTML = `
-      <div class="empty-state">
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="18" height="18" rx="2"/>
-          <circle cx="8.5" cy="8.5" r="1.5"/>
-          <polyline points="21 15 16 10 5 21"/>
-        </svg>
-        <p>没有素材</p>
-        <span>点「导入图片」把新素材归档到本地库</span>
-      </div>`;
+  if (!els.assetGrid) return;
+  if (!state.assets.length) {
+    els.assetGrid.innerHTML = `<div class="empty-state"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t("noAssets")}</p><span>${t("noAssetsHint")}</span></div>`;
     return;
   }
-
-  els.assetGrid.innerHTML = state.assets.map(asset => {
-    const title = asset.theme || asset.asset || asset.id;
-    const isCodexAsset = asset.source?.type === "codex-generated";
-    const isCowartAsset = asset.source?.type === "cowart-generated";
-    const selected = asset.id === state.selectedId;
-    return `<article class="asset-card${selected ? " selected" : ""}" data-id="${escapeHtml(asset.id)}">
-      <button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="查看素材：${escapeHtml(title)}">
-        <img class="thumb" src="${asset.image_url}" alt="${escapeHtml(title)}" loading="lazy" />
-        <div class="card-overlay">
-          <div class="card-overlay-title">${escapeHtml(title)}</div>
-        </div>
-      </button>
-      ${isCodexAsset ? '<span class="asset-source-badge">Codex</span>' : isCowartAsset ? '<span class="asset-source-badge">Cowart</span>' : ""}
-      <button class="card-quick-copy" type="button" data-copy="${escapeHtml(asset.prompt || "")}" title="复制 prompt" aria-label="复制 ${escapeHtml(title)} 的 Prompt">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2 2v1"/>
-        </svg>
-      </button>
-    </article>`;
+  els.assetGrid.innerHTML = state.assets.map((asset) => {
+    const title = asset.theme || asset.asset || asset.id; const selected = asset.id === state.selectedId; const source = sourceName(asset.source);
+    return `<article class="asset-card${selected ? " selected" : ""}" data-id="${escapeHtml(asset.id)}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(title)}"><img class="thumb" src="${asset.image_url}" alt="${escapeHtml(title)}" loading="lazy" /><span class="card-overlay"><span>${escapeHtml(title)}</span></span></button>${asset.source?.type ? `<span class="asset-source-badge">${escapeHtml(source)}</span>` : ""}<button class="card-quick-copy" type="button" data-copy="${escapeHtml(asset.prompt || "")}" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button></article>`;
   }).join("");
-
   setupMasonryLayout();
-
-  els.assetGrid.querySelectorAll(".asset-card-select").forEach(button => {
-    button.addEventListener("click", () => {
-      const card = button.closest(".asset-card");
-      if (!card) return;
-      state.selectedId = card.dataset.id;
-      setDetailOpen(true);
-      updateSelectedCard();
-    });
-  });
-
-  // Quick-copy button: copy prompt
-  els.assetGrid.querySelectorAll(".card-quick-copy").forEach(btn => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const prompt = btn.dataset.copy || "";
-      navigator.clipboard.writeText(prompt).then(() => {
-        showToast("Prompt 已复制", "success");
-      });
-    });
-  });
+  els.assetGrid.querySelectorAll(".asset-card-select").forEach((button) => button.addEventListener("click", () => selectAsset(button.closest(".asset-card")?.dataset.id)));
+  els.assetGrid.querySelectorAll(".card-quick-copy").forEach((button) => button.addEventListener("click", async (event) => { event.stopPropagation(); await runAction(async () => { await navigator.clipboard.writeText(button.dataset.copy || ""); showToast(t("copySuccess"), "success"); }); }));
 }
 
-function updateSelectedCard() {
-  els.assetGrid.querySelectorAll(".asset-card").forEach((card) => {
-    const selected = card.dataset.id === state.selectedId;
-    card.classList.toggle("selected", selected);
-    card.querySelector(".asset-card-select")?.setAttribute("aria-pressed", String(selected));
-  });
+function selectAsset(id, shouldScroll = false) {
+  if (!id) return; state.selectedId = id; setDetailOpen(true); updateSelectedCard();
+  if (shouldScroll) els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
+function updateSelectedCard() { els.assetGrid?.querySelectorAll(".asset-card").forEach((card) => { const selected = card.dataset.id === state.selectedId; card.classList.toggle("selected", selected); card.querySelector(".asset-card-select")?.setAttribute("aria-pressed", String(selected)); }); }
 function setDetailOpen(open) {
-  state.detailOpen = Boolean(open);
-  els.appShell?.classList.toggle("details-open", state.detailOpen);
-  els.detailPanel?.setAttribute("aria-hidden", String(!state.detailOpen));
-  if (els.detailToggle) {
-    els.detailToggle.setAttribute("aria-expanded", String(state.detailOpen));
-    els.detailToggle.textContent = state.detailOpen ? "收起检视器" : "打开检视器";
-  }
+  state.detailOpen = Boolean(open); els.appShell?.classList.toggle("details-open", state.detailOpen); els.detailPanel?.setAttribute("aria-hidden", String(!state.detailOpen));
   if (state.detailOpen) renderDetail();
-  else renderDemoFlow(null);
 }
 
-function openImportModal() {
-  if (!els.importModal) return;
-  state.modalReturnFocus = document.activeElement;
-  els.importModal.classList.add("open");
-  els.importModal.setAttribute("aria-hidden", "false");
-  requestAnimationFrame(() => els.imagePathInput?.focus());
-}
-
-function closeImportModal() {
-  if (!els.importModal) return;
-  els.importModal.classList.remove("open");
-  els.importModal.setAttribute("aria-hidden", "true");
-  if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus();
-  state.modalReturnFocus = null;
-}
-
+function openImportModal() { state.modalReturnFocus = document.activeElement; els.importModal?.classList.add("open"); els.importModal?.setAttribute("aria-hidden", "false"); requestAnimationFrame(() => els.imagePathInput?.focus()); }
+function closeImportModal() { els.importModal?.classList.remove("open"); els.importModal?.setAttribute("aria-hidden", "true"); if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus(); state.modalReturnFocus = null; }
 function trapImportModalFocus(event) {
   if (!els.importModal?.classList.contains("open")) return;
-  if (event.key === "Escape") {
-    event.preventDefault();
-    closeImportModal();
-    return;
-  }
+  if (event.key === "Escape") { event.preventDefault(); closeImportModal(); return; }
   if (event.key !== "Tab") return;
-
-  const focusable = [...els.importModal.querySelectorAll("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")]
-    .filter((element) => !element.hasAttribute("hidden"));
-  if (!focusable.length) return;
-  const currentIndex = focusable.indexOf(document.activeElement);
-  const nextIndex = event.shiftKey
-    ? (currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1)
-    : (currentIndex === focusable.length - 1 ? 0 : currentIndex + 1);
-  event.preventDefault();
-  focusable[nextIndex].focus();
+  const focusable = [...els.importModal.querySelectorAll("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((element) => !element.hasAttribute("hidden"));
+  if (!focusable.length) return; const current = focusable.indexOf(document.activeElement); const next = event.shiftKey ? (current <= 0 ? focusable.length - 1 : current - 1) : (current === focusable.length - 1 ? 0 : current + 1); event.preventDefault(); focusable[next].focus();
 }
 
-// ── Detail Panel ───────────────────────────────────────────────────────────────
 function renderDetail() {
-  // 如果没有素材或没有选中项，显示空状态
-  if (!state.assets || state.assets.length === 0) {
-    renderDemoFlow(null);
-    els.detailPanel.innerHTML = `
-      <div class="detail-empty">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="18" height="18" rx="2"/>
-          <circle cx="8.5" cy="8.5" r="1.5"/>
-          <polyline points="21 15 16 10 5 21"/>
-        </svg>
-        <p>没有素材</p>
-        <span>点击「导入图片」开始添加</span>
-      </div>`;
-    return;
-  }
-
-  const asset = state.assets.find(a => a.id === state.selectedId);
-  if (!asset) {
-    renderDemoFlow(null);
-    els.detailPanel.innerHTML = `
-      <div class="detail-empty">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="18" height="18" rx="2"/>
-          <circle cx="8.5" cy="8.5" r="1.5"/>
-          <polyline points="21 15 16 10 5 21"/>
-        </svg>
-        <p>选择一张图片查看配方</p>
-        <span>Click any asset in the grid</span>
-      </div>`;
-    return;
-  }
-
-  state.selectedId = asset.id;
-  // 确保 rating 在 0-5 范围内
-  const rating = Math.min(5, Math.max(0, Math.round(asset.rating || 0)));
-  const stars = "★".repeat(rating) + "☆".repeat(5 - rating);
-
-  // Build metadata rows
-  const metaRows = [
-    { key: "Skill",     val: asset.skill,     chip: true },
-    { key: "Style",     val: asset.style,     chip: true },
-    { key: "Ratio",     val: asset.ratio,     chip: false },
-    { key: "Theme",     val: asset.theme,     chip: false },
-    { key: "Group",     val: asset.group,     chip: true },
-    { key: "Category",  val: asset.category,  chip: true },
-    { key: "Rating",    val: asset.rating ? `${asset.rating}/5` : null, chip: false, stars: true },
-  ].filter(row => row.val !== undefined && row.val !== null && row.val !== "");
-
-  const metaTableHtml = metaRows.map(row => {
-    if (row.stars) {
-      return `<div class="meta-row">
-        <span class="meta-key">${escapeHtml(row.key)}</span>
-        <span class="meta-val">
-          <span class="rating-stars">${stars}</span>
-        </span>
-      </div>`;
-    }
-    if (row.chip && row.val) {
-      return `<div class="meta-row">
-        <span class="meta-key">${escapeHtml(row.key)}</span>
-        <span class="meta-val chip-inline"><span class="chip">${escapeHtml(row.val)}</span></span>
-      </div>`;
-    }
-    return `<div class="meta-row">
-      <span class="meta-key">${escapeHtml(row.key)}</span>
-      <span class="meta-val">${escapeHtml(row.val)}</span>
-    </div>`;
-  }).join("");
-
-  // Always show empty-state placeholders for unset fields
-  const alwaysShow = [
-    { key: "Skill",    val: asset.skill,    chip: true },
-    { key: "Style",    val: asset.style,    chip: true },
-    { key: "Ratio",    val: asset.ratio,    chip: false },
-    { key: "Theme",    val: asset.theme,    chip: false },
-    { key: "Group",    val: asset.group,    chip: true },
-    { key: "Category", val: asset.category, chip: true },
-  ];
-  const filledKeys = new Set(alwaysShow.filter(r => r.val).map(r => r.key));
-  const missingRows = alwaysShow
-    .filter(r => !r.val)
-    .map(row => `<div class="meta-row">
-      <span class="meta-key">${escapeHtml(row.key)}</span>
-      <span class="meta-val empty">—</span>
-    </div>`)
-    .join("");
-
-  const fullMetaHtml = metaTableHtml + missingRows;
-
-  // Business fields
-  const bizFields = asset.business_fields || {};
-  const hasBizFields = Object.keys(bizFields).length > 0;
-  const bizHtml = hasBizFields
-    ? `<div class="biz-fields-box">${escapeHtml(JSON.stringify(bizFields, null, 2))}</div>`
-    : `<div class="biz-fields-box" style="color:var(--ink-3);font-style:italic">暂无业务字段</div>`;
-
-  const source = asset.source || {};
-  const isCodexAsset = source.type === "codex-generated";
-  const isCowartAsset = source.type === "cowart-generated";
-  const sourceType = isCodexAsset ? "Codex 生成" : isCowartAsset ? "Cowart 画布" : (source.type || "手动导入");
-  const sourceRows = (isCodexAsset
-    ? [
-        ["来源", sourceType],
-        ["任务 ID", source.codex_task_id],
-        ["模型", source.model],
-        ["生成工具", source.generation_tool],
-        ["原始路径", source.path]
-      ]
-    : isCowartAsset
-      ? [
-          ["来源", sourceType],
-          ["画布对象", source.cowart_shape_id],
-          ["页面资产", source.cowart_asset_id],
-          ["画布描述", source.cowart_annotation_source_shape_id ? "批注编辑结果" : "画布图片"],
-          ["原始路径", source.path]
-        ]
-    : [
-        ["来源", sourceType],
-        ["原始路径", source.path],
-        ["Codex 任务", source.codex_task_id],
-        ["生成工具", source.generation_tool],
-        ["模型", source.model]
-      ])
-    .filter(([, value]) => value !== undefined && value !== null && value !== "");
-  const sourceHtml = sourceRows.length
-    ? `<div class="meta-table">${sourceRows.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${escapeHtml(key)}</span><span class="meta-val source-value">${escapeHtml(value)}</span></div>`).join("")}</div>`
-    : `<div class="biz-fields-box" style="color:var(--ink-3);font-style:italic">暂无来源信息</div>`;
-  const codexOriginalPath = isCodexAsset ? formatCodexOriginalPath(source) : "";
-
-  // Rating editor - 使用安全的 rating 值
-  const safeRating = Math.min(5, Math.max(0, Math.round(asset.rating || 0)));
-  const ratingEditorHtml = [1,2,3,4,5].map(n =>
-    `<button type="button" data-val="${n}" class="${n <= safeRating ? "on" : ""}">${n <= safeRating ? "★" : "☆"}</button>`
-  ).join("");
-
-  // Group datalist
-  const groupDatalist = state.groups.groups.map(([n]) => `<option value="${escapeHtml(n)}">`).join("");
-
-  els.detailPanel.innerHTML = `
-    <div class="detail-studio-bar">
-      <span>素材检视器</span>
-      <button class="detail-close" type="button" data-action="close-detail">收起</button>
-    </div>
-    <div class="detail-image-wrap">
-      <img class="detail-image" src="${asset.image_url}" alt="${escapeHtml(asset.theme || asset.id)}" />
-    </div>
-    <div class="detail-head">
-      <h3>${escapeHtml(asset.theme || asset.asset || asset.id)}</h3>
-      <div class="detail-meta">${escapeHtml(asset.id)} · ${escapeHtml(asset.created_at || "").slice(0, 10)}</div>
-    </div>
-
-    <!-- Action bar -->
-    <div class="detail-actions">
-      <button class="action-btn primary" data-action="copy-prompt">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-        </svg>
-        复制 Prompt
-      </button>
-      <button class="action-btn secondary" data-action="copy-path">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-        </svg>
-        复制路径
-      </button>
-      <button class="action-btn secondary" data-action="regenerate">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-        </svg>
-        同配方再生成
-      </button>
-    </div>
-
-    <!-- Prompt -->
-    <div class="section">
-      <div class="section-head">
-        <h4>Prompt</h4>
-      </div>
-      <div class="prompt-box">${asset.prompt ? escapeHtml(asset.prompt) : '<span style="color:var(--ink-3);font-style:italic">未记录 prompt</span>'}</div>
-    </div>
-
-    <!-- Metadata table -->
-    <div class="section">
-      <div class="section-head">
-        <h4>Recipe</h4>
-      </div>
-      <div class="meta-table">${fullMetaHtml}</div>
-    </div>
-
-    <!-- Business fields -->
-    <div class="section">
-      <div class="section-head">
-        <h4>Business Fields</h4>
-      </div>
-      ${bizHtml}
-    </div>
-
-    <div class="section">
-      <div class="section-head">
-        <h4>Source</h4>
-        ${isCodexAsset && codexOriginalPath ? '<button class="source-copy-btn" type="button" data-action="copy-codex-path">复制 Codex 原始路径</button>' : ""}
-      </div>
-      ${sourceHtml}
-    </div>
-
-    <!-- Edit form -->
-    <div class="section">
-      <div class="section-head">
-        <h4>编辑配方</h4>
-      </div>
-      <div class="detail-fields">
-        <label class="field">
-          <span>Prompt</span>
-          <textarea data-edit="prompt" rows="5">${escapeHtml(asset.prompt || "")}</textarea>
-        </label>
-        <div class="two">
-          <label class="field">
-            <span>Skill</span>
-            <input data-edit="skill" value="${escapeHtml(asset.skill || "")}" />
-          </label>
-          <label class="field">
-            <span>Style</span>
-            <input data-edit="style" value="${escapeHtml(asset.style || "")}" />
-          </label>
-        </div>
-        <div class="two">
-          <label class="field">
-            <span>Ratio</span>
-            <input data-edit="ratio" value="${escapeHtml(asset.ratio || "")}" />
-          </label>
-          <label class="field">
-            <span>Theme</span>
-            <input data-edit="theme" value="${escapeHtml(asset.theme || "")}" />
-          </label>
-        </div>
-        <div class="two">
-          <label class="field">
-            <span>Group</span>
-            <input data-edit="group" value="${escapeHtml(asset.group || "")}" list="groupSuggestionsEdit" placeholder="点击设为分组" />
-            <datalist id="groupSuggestionsEdit">${groupDatalist}</datalist>
-          </label>
-          <label class="field">
-            <span>Category</span>
-            <select data-edit="category">
-              <option value="">—</option>
-              ${["product","concept","texture","reference","other"].map(c =>
-                `<option value="${c}"${asset.category === c ? " selected" : ""}>${c}</option>`
-              ).join("")}
-            </select>
-          </label>
-        </div>
-        <div class="field">
-          <span>Rating</span>
-          <div class="rating-edit" data-edit="rating">
-            ${ratingEditorHtml}
-          </div>
-        </div>
-        <label class="field">
-          <span>Business Fields JSON</span>
-          <textarea data-edit="business_fields" rows="3">${escapeHtml(JSON.stringify(asset.business_fields || {}, null, 2))}</textarea>
-        </label>
-        <button class="save-recipe-btn" data-action="save-recipe">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-            <polyline points="17 21 17 13 7 13 7 21"/>
-            <polyline points="7 3 7 8 15 8"/>
-          </svg>
-          保存配方
-        </button>
-      </div>
-    </div>
-
-    <!-- Image path -->
-    <div class="section">
-      <div class="section-head">
-        <h4>Image Path</h4>
-      </div>
-      <div class="path-box">${escapeHtml(asset.image_path)}</div>
-    </div>
-  `;
-
+  if (!els.detailPanel) return;
+  const asset = state.assets.find((item) => item.id === state.selectedId);
+  if (!asset) { els.detailPanel.innerHTML = `<div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t(state.assets.length ? "noSelection" : "noAssets")}</p><span>${t(state.assets.length ? "noSelectionHint" : "noAssetsHint")}</span></div>`; return; }
+  const source = asset.source || {}; const rating = Math.min(5, Math.max(0, Math.round(asset.rating || 0))); const groupOptions = state.groups.groups.map(([name]) => `<option value="${escapeHtml(name)}"></option>`).join("");
+  const metadata = [["skill", asset.skill], ["style", asset.style], ["ratio", asset.ratio], ["theme", asset.theme], ["group", asset.group], ["category", asset.category], ["rating", asset.rating ? `${asset.rating}/5` : ""]].filter(([, value]) => value !== undefined && value !== null && value !== "");
+  const sourceRows = buildSourceRows(source).filter(([, value]) => value !== undefined && value !== null && value !== "");
+  els.detailPanel.innerHTML = `<div class="detail-studio-bar"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail">${t("close")}</button></div><div class="detail-image-wrap"><img class="detail-image" src="${asset.image_url}" alt="${escapeHtml(asset.theme || asset.id)}" /></div><div class="detail-head"><h3>${escapeHtml(asset.theme || asset.asset || asset.id)}</h3><p>${escapeHtml(asset.id)} · ${formatDate(asset.created_at)}</p></div><div class="detail-actions"><button class="action-btn primary" data-action="copy-prompt">${t("copyPrompt")}</button><button class="action-btn secondary" data-action="regenerate">${t("regenerate")}</button><button class="action-btn secondary" data-action="copy-path">${t("copyPath")}</button></div><section class="section"><div class="section-head"><h4>${t("prompt")}</h4></div><div class="prompt-box">${asset.prompt ? escapeHtml(asset.prompt) : `<span class="empty-copy">${t("notRecorded")}</span>`}</div></section><section class="section"><div class="section-head"><h4>${t("recipe")}</h4></div>${metadata.length ? `<div class="meta-table">${metadata.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val">${key === "rating" ? `<span class="rating-stars">${"★".repeat(rating)}${"☆".repeat(5 - rating)}</span>` : escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</section><details class="detail-disclosure"><summary>${t("sourceInfo")}</summary><div class="disclosure-content">${sourceRows.length ? `<div class="meta-table">${sourceRows.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val source-value">${escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("editMetadata")}</summary><div class="disclosure-content detail-fields"><label class="field"><span>${t("prompt")}</span><textarea data-edit="prompt" rows="5">${escapeHtml(asset.prompt || "")}</textarea></label><div class="two"><label class="field"><span>${t("skill")}</span><input data-edit="skill" value="${escapeHtml(asset.skill || "")}" /></label><label class="field"><span>${t("style")}</span><input data-edit="style" value="${escapeHtml(asset.style || "")}" /></label></div><div class="two"><label class="field"><span>${t("ratio")}</span><input data-edit="ratio" value="${escapeHtml(asset.ratio || "")}" /></label><label class="field"><span>${t("theme")}</span><input data-edit="theme" value="${escapeHtml(asset.theme || "")}" /></label></div><div class="two"><label class="field"><span>${t("group")}</span><input data-edit="group" value="${escapeHtml(asset.group || "")}" list="groupSuggestionsEdit" /><datalist id="groupSuggestionsEdit">${groupOptions}</datalist></label><label class="field"><span>${t("category")}</span><select data-edit="category"><option value="">${t("none")}</option>${categoryOptions(asset.category)}</select></label></div><label class="field"><span>${t("rating")}</span><div class="rating-edit" data-edit="rating">${[1,2,3,4,5].map((number) => `<button type="button" data-val="${number}" class="${number <= rating ? "on" : ""}">${number <= rating ? "★" : "☆"}</button>`).join("")}</div></label><label class="field"><span>${t("businessFields")}</span><textarea data-edit="business_fields" rows="3">${escapeHtml(JSON.stringify(asset.business_fields || {}, null, 2))}</textarea></label><button class="save-recipe-btn" data-action="save-recipe">${t("saveRecipe")}</button></div></details><details class="detail-disclosure"><summary>${t("imageLocation")}</summary><div class="disclosure-content"><div class="path-box">${escapeHtml(asset.image_path)}</div></div></details>`;
   bindDetailEvents(asset);
-  renderDemoFlow(asset);
 }
+
+function categoryOptions(selected) { return ["product", "concept", "texture", "reference", "other"].map((value) => `<option value="${value}"${selected === value ? " selected" : ""}>${t(`category${value[0].toUpperCase()}${value.slice(1)}`)}</option>`).join(""); }
+function buildSourceRows(source) {
+  if (source.type === "codex-generated") return [["sourceLabel", sourceName(source)], ["taskId", source.codex_task_id], ["model", source.model], ["generationTool", source.generation_tool], ["originalPath", source.path]];
+  if (source.type === "cowart-generated") return [["sourceLabel", sourceName(source)], ["canvasObject", source.cowart_shape_id], ["pageAsset", source.cowart_asset_id], ["canvasNote", source.cowart_annotation_source_shape_id ? t("canvasEdited") : t("canvasImage")], ["originalPath", source.path]];
+  return [["sourceLabel", sourceName(source)], ["originalPath", source.path], ["taskId", source.codex_task_id], ["generationTool", source.generation_tool], ["model", source.model]];
+}
+function sourceName(source = {}) { return source.type === "codex-generated" ? t("sourceCodex") : source.type === "cowart-generated" ? t("sourceCowart") : t("sourceManual"); }
 
 function bindDetailEvents(asset) {
   const panel = els.detailPanel;
-
-  panel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => {
-    setDetailOpen(false);
-  });
-
-  panel.querySelector('[data-action="copy-prompt"]').addEventListener("click", async () => {
-    await runAction(async () => {
-      await navigator.clipboard.writeText(asset.prompt || "");
-      showToast("Prompt 已复制", "success");
-    });
-  });
-
-  panel.querySelector('[data-action="copy-path"]').addEventListener("click", async () => {
-    await runAction(async () => {
-      await navigator.clipboard.writeText(asset.image_path);
-      showToast("图片路径已复制", "success");
-    });
-  });
-
-  const copyCodexPathButton = panel.querySelector('[data-action="copy-codex-path"]');
-  if (copyCodexPathButton) {
-    copyCodexPathButton.addEventListener("click", async () => {
-      await runAction(async () => {
-        await navigator.clipboard.writeText(formatCodexOriginalPath(asset.source));
-        showToast("Codex 原始路径已复制", "success");
-      });
-    });
-  }
-
-  panel.querySelector('[data-action="regenerate"]').addEventListener("click", async () => {
-    await runAction(async () => {
-      const instruction = [
-        "请用同配方再生成一版图片，并保存到 MOSA：",
-        "",
-        `asset_id: ${asset.id}`,
-        `skill: ${asset.skill}`,
-        `style: ${asset.style}`,
-        `ratio: ${asset.ratio}`,
-        `theme: ${asset.theme}`,
-        `group: ${asset.group}`,
-        `category: ${asset.category}`,
-        `business_fields: ${JSON.stringify(asset.business_fields || {})}`,
-        "",
-        asset.prompt || ""
-      ].join("\n");
-      await navigator.clipboard.writeText(instruction);
-      showToast("再生成指令已复制", "success");
-    });
-  });
-
-  // Rating editor
-  panel.querySelectorAll('[data-edit="rating"] button').forEach(btn => {
-    btn.addEventListener("click", () => {
-      const val = parseInt(btn.dataset.val, 10);
-      panel.querySelectorAll('[data-edit="rating"] button').forEach(b => {
-        b.classList.toggle("on", parseInt(b.dataset.val, 10) <= val);
-        b.textContent = parseInt(b.dataset.val, 10) <= val ? "★" : "☆";
-      });
-    });
-  });
-
-  // Save recipe
-  panel.querySelector('[data-action="save-recipe"]').addEventListener("click", async () => {
-    await runAction(async () => {
-      const ratingVal = [...panel.querySelectorAll('[data-edit="rating"] button.on')].length;
-      const businessText = panel.querySelector('[data-edit="business_fields"]').value;
-      const patch = {
-        prompt: panel.querySelector('[data-edit="prompt"]').value,
-        skill: panel.querySelector('[data-edit="skill"]').value,
-        style: panel.querySelector('[data-edit="style"]').value,
-        ratio: panel.querySelector('[data-edit="ratio"]').value,
-        theme: panel.querySelector('[data-edit="theme"]').value,
-        group: panel.querySelector('[data-edit="group"]').value,
-        category: panel.querySelector('[data-edit="category"]').value,
-        rating: ratingVal,
-        business_fields: businessText.trim() ? JSON.parse(businessText) : {}
-      };
-      const result = await api(
-        `/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}`,
-        { method: "PATCH", body: patch }
-      );
-      state.selectedId = result.asset.id;
-      showToast("配方已保存", "success");
-      await loadStats();
-      await loadAssets();
-    });
-  });
+  panel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => setDetailOpen(false));
+  panel.querySelector('[data-action="copy-prompt"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(asset.prompt || ""); showToast(t("copySuccess"), "success"); }));
+  panel.querySelector('[data-action="copy-path"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(asset.image_path); showToast(t("pathCopied"), "success"); }));
+  panel.querySelector('[data-action="regenerate"]')?.addEventListener("click", () => runAction(async () => {
+    const instruction = [t("generatedInstruction"), "", `asset_id: ${asset.id}`, `skill: ${asset.skill || ""}`, `style: ${asset.style || ""}`, `ratio: ${asset.ratio || ""}`, `theme: ${asset.theme || ""}`, `group: ${asset.group || ""}`, `category: ${asset.category || ""}`, `business_fields: ${JSON.stringify(asset.business_fields || {})}`, "", asset.prompt || ""].join("\n");
+    await navigator.clipboard.writeText(instruction); showToast(t("instructionCopied"), "success");
+  }));
+  panel.querySelectorAll('[data-edit="rating"] button').forEach((button) => button.addEventListener("click", () => { const value = Number(button.dataset.val); panel.querySelectorAll('[data-edit="rating"] button').forEach((star) => { const on = Number(star.dataset.val) <= value; star.classList.toggle("on", on); star.textContent = on ? "★" : "☆"; }); }));
+  panel.querySelector('[data-action="save-recipe"]')?.addEventListener("click", () => runAction(async () => {
+    const businessText = panel.querySelector('[data-edit="business_fields"]').value;
+    let businessFields = {}; try { businessFields = businessText.trim() ? JSON.parse(businessText) : {}; } catch { throw new Error(t("invalidJson")); }
+    const patch = { prompt: panel.querySelector('[data-edit="prompt"]').value, skill: panel.querySelector('[data-edit="skill"]').value, style: panel.querySelector('[data-edit="style"]').value, ratio: panel.querySelector('[data-edit="ratio"]').value, theme: panel.querySelector('[data-edit="theme"]').value, group: panel.querySelector('[data-edit="group"]').value, category: panel.querySelector('[data-edit="category"]').value, rating: panel.querySelectorAll('[data-edit="rating"] button.on').length, business_fields: businessFields };
+    const result = await api(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}`, { method: "PATCH", body: patch });
+    state.selectedId = result.asset.id; showToast(t("recipeSaved"), "success"); await loadStats(); await loadAssets();
+  }));
 }
 
-// ── Group Assignment ───────────────────────────────────────────────────────────
-async function assignGroupToSelected(groupName) {
-  const asset = state.assets.find(a => a.id === state.selectedId);
-  if (!asset) return;
-  try {
-    await api(
-      `/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}`,
-      { method: "PATCH", body: { group: groupName } }
-    );
-    await loadStats();
-    await loadAssets();
-    showToast(`已设为分组: ${groupName}`, "success");
-  } catch (e) {
-    showToast("设置分组失败: " + e.message, "error");
-  }
-}
-
-// ── Utilities ──────────────────────────────────────────────────────────────────
-function setStatus(text) {
-  if (els.statusText) els.statusText.textContent = text;
-}
-
-async function runAction(fn) {
-  try {
-    await fn();
-  } catch (error) {
-    showToast(error.message, "error");
-  }
-}
-
-function debounce(fn, delay) {
-  let timer = null;
-  return (...args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn(...args), delay);
-  };
-}
-
-function renderDemoFlow() {
-  if (!els.demoFlow || !els.demoFlowProvenance) return;
-
-  const showHomeIntro = state.filter.type === "all" && !state.query;
-  els.demoFlow.hidden = !showHomeIntro;
-  if (!showHomeIntro) return;
-
-  els.demoFlow.classList.remove("is-source-selected");
-  els.demoFlow.querySelectorAll("[data-demo-step]").forEach((step) => {
-    step.classList.remove("is-highlighted");
-  });
-  els.demoFlowProvenance.textContent = "图片、Prompt 与来源信息均保存在当前项目本地。";
-}
-
-function formatCodexOriginalPath(source = {}) {
-  const relativePath = String(source.codex_relative_path || "").replace(/^\/+/, "");
-  if (relativePath) return `~/.codex/generated_images/${relativePath}`;
-
-  const originalPath = String(source.path || "");
-  const generatedRoot = String(source.codex_generated_images_root || state.codexImagesDir || "").replace(/\/+$/, "");
-  if (generatedRoot && originalPath.startsWith(`${generatedRoot}/`)) {
-    return `~/.codex/generated_images/${originalPath.slice(generatedRoot.length + 1)}`;
-  }
-
-  return originalPath.replace(
-    /^(?:\/Users\/[^/]+|\/home\/[^/]+)\/\.codex\/generated_images\//,
-    "~/.codex/generated_images/"
-  );
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+function formatDate(value) { if (!value) return ""; try { return new Intl.DateTimeFormat(state.locale === "zh" ? "zh-CN" : "en", { year: "numeric", month: "short", day: "numeric" }).format(new Date(value)); } catch { return String(value).slice(0, 10); } }
+function setStatus(value) { if (els.statusText) els.statusText.textContent = value; }
+async function runAction(action) { try { await action(); } catch (error) { showToast(error.message, "error"); } }
+function debounce(fn, delay) { let timer; return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); }; }
+function escapeHtml(value) { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
+function safeStorageGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
+function safeStorageSet(key, value) { try { localStorage.setItem(key, value); } catch {} }
