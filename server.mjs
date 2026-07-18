@@ -3,14 +3,17 @@ import { readFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssetStore, mimeTypeForFile } from "./lib/asset-store.mjs";
+import { createCowartAssetBridge } from "./lib/cowart-bridge.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const projectRoot = resolve(process.env.ASSET_MANAGER_PROJECT_DIR || join(managerDir, ".."));
 const port = Number(process.env.ASSET_MANAGER_PORT || 43517);
 const store = createAssetStore({ projectRoot, managerDir });
+const cowartBridge = createCowartAssetBridge({ store, canvasDir: store.cowartCanvasDir });
 const appDir = join(managerDir, "app");
 
 await store.ensureProject("default");
+await cowartBridge.start();
 
 const server = createServer(async (req, res) => {
   try {
@@ -49,6 +52,11 @@ server.listen(port, "127.0.0.1", () => {
 });
 
 async function handleApi(req, res, url) {
+  if (req.method === "GET" && url.pathname === "/api/cowart-bridge") {
+    sendJson(res, 200, { bridge: cowartBridge.status() });
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/projects") {
     sendJson(res, 200, { projects: await store.listProjects() });
     return;

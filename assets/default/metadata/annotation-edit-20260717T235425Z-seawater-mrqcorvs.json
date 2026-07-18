@@ -1,0 +1,46 @@
+{
+  "id": "annotation-edit-20260717T235425Z-seawater-mrqcorvs",
+  "project_id": "default",
+  "asset": "annotation-edit-20260717T235425Z-seawater-mrqcorvs.png",
+  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/annotation-edit-20260717T235425Z-seawater-mrqcorvs.png",
+  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/annotation-edit-20260717T235425Z-seawater-mrqcorvs.md",
+  "prompt": "按 Cowart 标注修改：海水背景的小熊",
+  "skill": "Cowart automatic bridge",
+  "style": "",
+  "ratio": "1:1",
+  "business_fields": {
+    "auto_archived": true,
+    "prompt_status": "Cowart canvas only provides alt text; attach the original generation prompt when available."
+  },
+  "theme": "按 Cowart 标注修改：海水背景的小熊",
+  "tags": [],
+  "favorite": false,
+  "archived": false,
+  "group": "",
+  "category": "",
+  "rating": 0,
+  "parent_asset_id": null,
+  "version_change": "",
+  "child_asset_ids": [],
+  "created_at": "2026-07-18T12:36:05.034Z",
+  "updated_at": "2026-07-18T12:36:05.034Z",
+  "source": {
+    "type": "cowart-generated",
+    "path": "/Users/azhuilab/.codex/cowart-data/asset-manager/pages/page/assets/annotation-edit-20260717T235425Z-seawater.png",
+    "copied_at": "2026-07-18T12:36:05.034Z",
+    "generation_tool": "cowart",
+    "cowart_canvas_dir": "/Users/azhuilab/.codex/cowart-data/asset-manager",
+    "cowart_page_id": "page:page",
+    "cowart_page_asset_path": "/Users/azhuilab/.codex/cowart-data/asset-manager/pages/page/assets/annotation-edit-20260717T235425Z-seawater.png",
+    "cowart_page_asset_url": "/page-assets/page/annotation-edit-20260717T235425Z-seawater.png",
+    "cowart_asset_id": "asset:annotation-edit-20260717T235425Z-seawater",
+    "cowart_shape_id": "shape:annotation-edit-20260717T235425Z-seawater",
+    "cowart_shape_meta": {
+      "cowartGeneratedFromAnnotationEdit": true,
+      "cowartAnnotationSourceShapeId": "shape:exec-60d21816-122f-4aee-84bb-d320e087a5eb",
+      "cowartAnnotationScreenshot": "annotation-edit-20260717T235425Z.png"
+    },
+    "replaced_ai_image_holder": "shape:exec-60d21816-122f-4aee-84bb-d320e087a5eb",
+    "prompt_status": "canvas-alt-text-only"
+  }
+}

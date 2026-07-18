@@ -8,7 +8,7 @@
 - 为每张图片保存 full prompt、skill、style、比例、业务字段和版本关系。
 - 在 Web UI 中搜索、查看、复制 prompt。
 - 通过 MCP 工具让 Codex 后续直接调用 `asset_create`、`asset_list` 和 `asset_get`。
-- 支持将 Cowart 画布的页面图片从受限外部目录 `~/.codex/cowart-data/asset-manager/pages/` 导入素材库；不会开放任意仓库外路径。
+- 内置 Cowart 桥接器：素材管理器启动时会监听并去重归档其配置画布目录中的新页面图片；不需要改 Cowart 插件。
 
 ## 快速开始
 
@@ -37,6 +37,8 @@ npm test
 3. 点任意图片，在右侧补写或修改 prompt、skill、style、ratio、theme 和 business fields。
 4. 点“复制 prompt”去 GPT/Codex 复现。
 5. 点“同配方再生成”复制一段可直接发给 Codex 的再生成指令。
+
+Cowart 画布的生成、AI 图片框替换和标注编辑都会由素材管理器侧的桥接器自动归档。桥接器只读取本项目的 `~/.codex/cowart-data/asset-manager/pages/`，以 Cowart 快照中的页面资产路径去重，不会扫描任意外部目录；文件事件未送达时，每两秒会重试一次同一受限目录的同步。Cowart 快照不保存完整生成 Prompt，因此自动归档时会保留画布描述并明确标为待补全；原始 Prompt 可在详情页后补。
 
 Codex 生成新图后，可以通过 Web UI 的“导入本地图片”保存，也可以通过 MCP 的 `asset_create` 写入。
 

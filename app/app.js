@@ -55,6 +55,8 @@ async function init() {
   await loadProjects();
   await loadStats();
   await loadAssets();
+  await refreshCowartBridgeStatus();
+  setInterval(refreshCowartBridgeStatus, 5000);
   bindKeyboardNav();
 }
 
@@ -224,6 +226,19 @@ async function loadAssets() {
   renderGrid();
   renderDetail();
   updateViewTitle();
+}
+
+async function refreshCowartBridgeStatus() {
+  try {
+    const result = await api("/api/cowart-bridge");
+    const bridge = result.bridge;
+    if (!bridge?.enabled) return setStatus("Cowart bridge off");
+    if (bridge.lastError) return setStatus("Cowart bridge error");
+    if (bridge.lastImportedAt) return setStatus(`Cowart 已自动归档 ${bridge.totalImported}`);
+    setStatus("Cowart 自动归档已启用");
+  } catch {
+    setStatus("Ready");
+  }
 }
 
 function updateViewTitle() {
@@ -502,9 +517,10 @@ function renderGrid() {
   els.assetGrid.innerHTML = state.assets.map(asset => {
     const title = asset.theme || asset.asset || asset.id;
     const isCodexAsset = asset.source?.type === "codex-generated";
+    const isCowartAsset = asset.source?.type === "cowart-generated";
     return `<article class="asset-card${asset.id === state.selectedId ? " selected" : ""}" data-id="${escapeHtml(asset.id)}">
       <img class="thumb" src="${asset.image_url}" alt="${escapeHtml(title)}" loading="lazy" />
-      ${isCodexAsset ? '<span class="asset-source-badge">Codex</span>' : ""}
+      ${isCodexAsset ? '<span class="asset-source-badge">Codex</span>' : isCowartAsset ? '<span class="asset-source-badge">Cowart</span>' : ""}
       <div class="card-overlay">
         <div class="card-overlay-title">${escapeHtml(title)}</div>
         <button class="card-quick-copy" data-copy="${escapeHtml(asset.prompt || "")}" title="复制 prompt">
