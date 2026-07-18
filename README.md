@@ -1,56 +1,44 @@
-# GPT Asset Manager
+# Codex Asset Manager
 
-本地优先的 GPT/Codex 生成素材管理器。第一版目标是跑通最小闭环：
+本地优先的 Codex 图片素材库：把可复用的图片、完整 Prompt、生成上下文和来源信息保存在同一个项目中，并提供 Web 搜索、编辑与复用入口。
 
-> An offline-first asset manager for Codex-generated images: preserve the image, prompt recipe, provenance, and reuse path in one local library.
+> Codex images enter through MCP; Cowart canvas images enter through a project-scoped bridge. Both are stored locally and remain traceable.
 
-- 把 Codex 生成图片复制进素材库。
-- 为每张图片保存 full prompt、skill、style、比例、业务字段和版本关系。
-- 在 Web UI 中搜索、查看、复制 prompt。
-- 通过 MCP 工具让 Codex 后续直接调用 `asset_create`、`asset_list` 和 `asset_get`。
-- 内置 Cowart 桥接器：素材管理器启动时会监听并去重归档其配置画布目录中的新页面图片；不需要改 Cowart 插件。
+## 它如何归档图片
+
+| 来源 | 归档方式 | 保存的信息 | 需要的前提 |
+| --- | --- | --- | --- |
+| Codex 生图 | Codex 调用 MCP `asset_create`，把实际图片路径复制入库 | 完整 Prompt、模型、任务 ID、原始路径、配方字段 | 注册 Asset Manager MCP，并让生成任务调用该工具 |
+| Cowart 画布 | 素材管理器服务读取已保存的 Cowart 画布快照，自动同步新页面图片 | 图片、画布描述、尺寸、画布对象与页面资产来源 | 服务保持运行；Cowart 使用本项目配置的画布目录 |
+
+这不是“安装 Codex 后全局扫描所有图片或所有画布”。Codex 路径是 MCP 工具驱动的；Cowart 路径只监听当前项目配置的画布目录。这样的边界能避免误收其他项目或个人文件。
 
 ## 快速开始
 
+前提：已安装 Node.js 与 npm。若要使用生成归档，还需要 Codex Desktop；Cowart 归档则额外需要已安装 Cowart 插件。
+
 ```bash
-cd asset-manager
+cd /absolute/path/to/asset-manager
 npm ci
 npm start
 ```
 
-打开：
+打开 <http://127.0.0.1:43517>。
 
-```text
-http://127.0.0.1:43517
-```
+服务运行期间，Cowart 桥接器也会同时启动。请保持这个终端或将服务交给你自己的进程管理方式；停止 `npm start` 后，Cowart 自动归档也会停止。
 
-运行自动化验证：
+基础验证：
 
 ```bash
 npm test
+curl -sS http://127.0.0.1:43517/api/cowart-bridge
 ```
 
-## 当前 MVP 使用流
+状态接口中 `enabled`、`watching` 和 `polling` 都为 `true`，表示 Cowart 自动归档已启用。`polling` 是文件系统没有传递变更事件时的 2 秒兜底同步。
 
-1. 打开 Web App。
-2. 生成图片后，让 Codex 调用 `asset_create` 自动归档。
-3. 点任意图片，在右侧补写或修改 prompt、skill、style、ratio、theme 和 business fields。
-4. 点“复制 prompt”去 GPT/Codex 复现。
-5. 点“同配方再生成”复制一段可直接发给 Codex 的再生成指令。
+## 一次性连接 Codex MCP
 
-Cowart 画布的生成、AI 图片框替换和标注编辑都会由素材管理器侧的桥接器自动归档。桥接器只读取本项目的 `~/.codex/cowart-data/asset-manager/pages/`，以 Cowart 快照中的页面资产路径去重，不会扫描任意外部目录；文件事件未送达时，每两秒会重试一次同一受限目录的同步。Cowart 快照不保存完整生成 Prompt，因此自动归档时会保留画布描述并明确标为待补全；原始 Prompt 可在详情页后补。
-
-Codex 生成新图后，可以通过 Web UI 的“导入本地图片”保存，也可以通过 MCP 的 `asset_create` 写入。
-
-## Codex + MCP 闭环
-
-本项目的核心演示流程是：
-
-```text
-Codex 生成图片 → asset_create → 本地图片/Prompt/JSON 入库 → Web 搜索与复用
-```
-
-在 Codex 中注册 MCP（将两个绝对路径替换为你的本机路径）：
+在终端注册 MCP。将路径替换成自己的绝对路径：
 
 ```bash
 codex mcp add asset-manager \
@@ -58,73 +46,92 @@ codex mcp add asset-manager \
   -- node /absolute/path/to/asset-manager/mcp/server.mjs
 ```
 
-注册后新开一个 Codex 任务。生成图片后，要求 Codex 调用 `asset_create`，并传入图像工具返回的实际 `imagePath`、完整 Prompt、配方字段与可用的生成上下文，例如 `generation_tool`、`model`、`codex_session_id`。
+注册后新开一个 Codex 任务，使 MCP 工具加载完成。图片生成后，任务应调用 `asset_create` 并传入图像工具返回的实际 `imagePath`；同一次调用还可以传入完整 `prompt`、`generation_tool`、`model` 与 `codex_session_id`。
 
-`asset_create` 会自动识别 Codex 默认生图目录，并将以下来源信息写入元数据：
+`asset_create` 会将文件复制到素材库，并保存：
 
-- `source.type: "codex-generated"`
-- Codex 原始图片路径与任务目录 ID
-- `generation_tool`、`model`、`codex_session_id`（若调用方提供）
+- 原始图片路径和 Codex 任务目录 ID；
+- 完整 Prompt 与配方字段；
+- `generation_tool`、`model`、`codex_session_id` 等可用的生成上下文；
+- 库内副本，避免 Codex 临时运行目录变化后素材丢失。
 
-它不会通过网页抓取 Prompt；完整 Prompt 必须由生成该图片的 Codex 任务传入，避免不可验证的猜测。
-
-## Codex 默认生图来源
-
-素材管理器默认允许从 Codex Desktop 的生图目录读取图片：
+Codex 默认允许的来源目录是：
 
 ```text
 ~/.codex/generated_images/<task-id>/<image>.png
 ```
 
-导入时会把图片复制进本项目的素材库，并在 `source` 元数据中保留 Codex 原始路径、任务 ID 和相对路径；库内图片、Prompt 与 JSON 元数据仍保存在本项目中，避免 Codex 运行目录变化导致素材丢失。
+当前版本不会扫描这整个目录来猜测 Prompt；只有通过 `asset_create` 提交的图片才会以 Codex 来源归档。这样完整 Prompt 的来源是可验证的。
 
-如需覆盖默认来源目录，可在启动前设置：
+## Cowart 自动归档
 
-```bash
-CODEX_GENERATED_IMAGES_DIR=/custom/codex/generated_images node asset-manager/server.mjs
+启动素材管理器后，内置桥接器会监听以下项目级目录：
+
+```text
+~/.codex/cowart-data/asset-manager/pages/
 ```
 
-## 可选：Cowart 外部画布集成
+Cowart 在这个目录保存画布后，新生成的图片、AI 图片框替换结果和批注编辑结果都会自动入库。桥接器以 Cowart 画布快照中的页面资产路径去重；从素材管理器插回画布的图片会携带来源 ID，桥接器会跳过它，避免重复归档。
 
-Cowart 作为独立安装的 Codex 插件使用，不属于本仓库，也不会被提交到 Build Week 仓库。它用于把已归档的素材在可视化画布中继续编排。
+Cowart 快照仅提供画布描述（alt text），不保存完整生图 Prompt。因此 Cowart 自动归档的素材会明确标记为 `canvas-alt-text-only`；需要完整 Prompt 时，可在详情页后补或从原生成任务补录。
 
-- 说 **“启动素材管理”**：启动本地素材库，并在 Codex 内置浏览器中打开；如明确要求，也可在系统浏览器打开 `http://127.0.0.1:43517/`。
-- 说 **“启动画布”**：打开 Cowart 的原生 Codex widget。
-- 说 **“在浏览器打开画布”**：才使用 Cowart 的本地浏览器开发模式。
-- 说 **“把当前素材插入画布”**：Codex 先调用 `asset_get`，再调用 Cowart 的 `insert_cowart_image`。
+常用的 Codex 工作流：
 
-画布运行数据固定保存到仓库外部的 `~/.codex/cowart-data/asset-manager/`，避免第三方画布数据进入项目或 Git 提交。首次安装或升级 Cowart 后，请新开一个 Codex 任务以加载它的 MCP 工具。
+- **“启动素材管理”**：运行本地素材库并打开 Web App。
+- **“启动画布”**：打开 Cowart 的原生 Codex 画布。
+- **“把当前素材插入画布”**：先通过 `asset_get` 读取素材，再插入 Cowart，并携带 Asset Manager 来源 ID 防重。
 
-## 数据结构
+Cowart 是外部 Codex 插件，运行数据刻意保存在仓库外，不会被复制或提交进本项目。首次安装或升级 Cowart 后，请新开一个 Codex 任务以加载其 MCP 工具。
+
+### 使用其他 Cowart 画布目录
+
+默认桥接目录名为 `asset-manager`。若你的 Cowart 画布使用其他外部目录，请在启动服务时显式指定同一个目录：
+
+```bash
+COWART_ASSET_MANAGER_CANVAS_DIR=/absolute/path/to/cowart-data/my-project npm start
+```
+
+素材管理器只会监听这个指定目录，不会自动监听机器上的其他 Cowart 项目。
+
+## 最短端到端验证
+
+1. 运行 `npm start`，打开 Web App。
+2. 确认 Codex MCP 已注册后，新开一个 Codex 任务。
+3. 生成一张图片，并由任务调用 `asset_create`；在 Web 中搜索新 Asset ID，确认完整 Prompt、模型和原始路径。
+4. 打开同一项目的 Cowart 画布，生成、替换或批注编辑一张图片并保存画布。
+5. 等待最多 2 秒，回到 Web 查看带有 **Cowart** 来源标记的新素材；也可访问 `/api/cowart-bridge` 查看同步状态。
+6. 将一张库内素材插回画布，确认素材总数没有因同一文件再次增加。
+
+## 可配置项
+
+| 环境变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `ASSET_MANAGER_PROJECT_DIR` | 素材管理器目录的父目录 | 工作区根目录，用于确定项目上下文 |
+| `ASSET_MANAGER_PORT` | `43517` | Web 服务本地端口 |
+| `CODEX_GENERATED_IMAGES_DIR` | `~/.codex/generated_images` | 允许 `asset_create` 读取的 Codex 图片来源根目录 |
+| `COWART_ASSET_MANAGER_CANVAS_DIR` | `~/.codex/cowart-data/asset-manager` | Cowart 项目画布数据目录，也是自动归档的唯一监听范围 |
+
+## 本地数据结构
 
 ```text
 asset-manager/
 ├── assets/
 │   └── default/
-│       ├── images/
-│       ├── prompts/
-│       └── metadata/
-├── app/
-├── lib/
-└── mcp/
+│       ├── images/       # 素材库图片副本
+│       ├── prompts/      # 可编辑的 Prompt 文本
+│       └── metadata/     # JSON 元数据与来源信息
+├── app/                  # 本地 Web UI
+├── lib/                  # 素材存储与 Cowart 桥接器
+└── mcp/                  # Codex MCP 服务
 ```
 
-每张素材会保存：
+Cowart 运行数据不在仓库中：
 
 ```text
-images/<asset-id>.png
-metadata/<asset-id>.json
-prompts/<asset-id>.md
+~/.codex/cowart-data/asset-manager/
 ```
 
-## MCP
-
-```bash
-cd /Users/azhuilab/codex_aigc
-node asset-manager/mcp/server.mjs
-```
-
-当前工具：
+## MCP 工具
 
 - `asset_create`
 - `asset_list`
@@ -132,45 +139,25 @@ node asset-manager/mcp/server.mjs
 - `asset_update_metadata`
 - `asset_attach_prompt`
 
-## API 例子
+可以直接在仓库父目录运行 MCP 服务进行本地调试：
 
 ```bash
-curl -sS http://127.0.0.1:43517/api/assets?project=default
-```
-
-```bash
-curl -sS -X POST http://127.0.0.1:43517/api/assets/create \
-  -H 'content-type: application/json' \
-  -d '{
-    "projectId": "default",
-    "imagePath": "/Users/azhuilab/.codex/generated_images/<task-id>/<image>.png",
-    "prompt": "full prompt here",
-    "skill": "punk-cover",
-    "style": "black-white-gray-avant-geometry",
-    "ratio": "9:16",
-    "theme": "orbital-luxury-vault",
-    "source": {
-      "generation_tool": "imagegen",
-      "model": "gpt-5.6",
-      "codex_session_id": "optional-session-id"
-    },
-    "business_fields": {
-      "product": "Hennessy V.S.O.P / Martell Noblige",
-      "price": "¥10,880"
-    }
-  }'
+cd /absolute/path/to/your/workspace
+node asset-manager/mcp/server.mjs
 ```
 
 ## 当前边界
 
-- 第一版只用本地文件，不使用数据库。
-- “自动截获网页版 GPT 真实 prompt”还没有做，需要后续浏览器扩展或 GPT 侧导出能力。
-- “用同配方再生成”现在先复制 Codex 指令，不直接调用图像模型。
+- 数据以本地文件保存，第一版不使用数据库或云同步。
+- Codex 图片归档依赖 MCP `asset_create`，不是桌面级图片监控。
+- Cowart 自动归档依赖素材管理器服务运行，并且只覆盖配置的一个画布目录。
+- Cowart 自动归档保留画布描述，不具备完整 Prompt；原始 Prompt 需要从生成任务补录。
+- “同配方再生成”当前复制 Codex 指令，不直接调用图像模型。
 
 ## Build Week 演示清单
 
-1. 在新 Codex 任务中生成一张图。
-2. 展示 Codex 调用 `asset_create`，而不是网页手动导入。
-3. 在 Web 中搜索新 Asset ID，打开详情页展示完整 Prompt、配方和 Source。
-4. 复制 Prompt 或使用“同配方再生成”展示可复用性。
-5. 在提交前记录主构建任务的 `/feedback` Session ID，并在项目说明中说明 Codex 与 GPT-5.6 如何完成这条闭环。
+1. 展示 Codex 生成图片并调用 `asset_create`，证明完整 Prompt 与来源入库。
+2. 展示 Cowart 中生成或编辑图片后，无需额外入库指令即出现在素材库。
+3. 在 Web 中搜索素材，打开详情页展示 Prompt、配方和来源。
+4. 将库内素材插入 Cowart，展示去重保护与可复用性。
+5. 提交前记录主构建任务的 `/feedback` Session ID，并在项目描述中说明 Codex 与 GPT-5.6 如何完成闭环。
