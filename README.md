@@ -4,16 +4,16 @@
 
 > **Every visual, in context.** 让每一张图，都有来处，也有下一次。
 
-> Codex images enter through MCP; Cowart canvas images enter through a project-scoped bridge. Both are stored locally and remain traceable.
+> Codex images and Cowart canvas images are both monitored locally and remain traceable.
 
 ## 它如何归档图片
 
 | 来源 | 归档方式 | 保存的信息 | 需要的前提 |
 | --- | --- | --- | --- |
-| Codex 生图 | Codex 调用 MCP `asset_create`，把实际图片路径复制入库 | 完整 Prompt、模型、任务 ID、原始路径、配方字段 | 注册 MOSA MCP，并让生成任务调用该工具 |
+| Codex 生图 | 监听 `~/.codex/generated_images/`，优先以硬链接入库 | 任务 ID、原始路径、时间、文件哈希、尺寸与可用的任务提示词 | 素材管理器服务保持运行 |
 | Cowart 画布 | 素材管理器服务读取已保存的 Cowart 画布快照，自动同步新页面图片 | 图片、画布描述、尺寸、画布对象与页面资产来源 | 服务保持运行；Cowart 使用本项目配置的画布目录 |
 
-这不是“安装 Codex 后全局扫描所有图片或所有画布”。Codex 路径是 MCP 工具驱动的；Cowart 路径只监听当前项目配置的画布目录。这样的边界能避免误收其他项目或个人文件。
+Codex 自动归档的范围仅限 Codex 标准生成目录，不会扫描用户的 Downloads、桌面或其他本地图片。Cowart 仍只监听当前项目配置的画布目录。
 
 ## 快速开始
 
@@ -27,16 +27,17 @@ npm start
 
 打开 <http://127.0.0.1:43517>。
 
-服务运行期间，Cowart 桥接器也会同时启动。请保持这个终端或将服务交给你自己的进程管理方式；停止 `npm start` 后，Cowart 自动归档也会停止。
+服务运行期间，Codex 与 Cowart 桥接器会同时启动。请保持这个终端或将服务交给你自己的进程管理方式；停止 `npm start` 后，两种自动归档都会停止。
 
 基础验证：
 
 ```bash
 npm test
 curl -sS http://127.0.0.1:43517/api/cowart-bridge
+curl -sS http://127.0.0.1:43517/api/codex-bridge
 ```
 
-状态接口中 `enabled`、`watching` 和 `polling` 都为 `true`，表示 Cowart 自动归档已启用。`polling` 是文件系统没有传递变更事件时的 2 秒兜底同步。
+两个状态接口中的 `enabled`、`watching` 和 `polling` 都为 `true`，表示自动归档已启用。`polling` 是文件系统没有传递变更事件时的兜底同步。
 
 ## 一次性连接 Codex MCP
 
@@ -63,7 +64,13 @@ Codex 默认允许的来源目录是：
 ~/.codex/generated_images/<task-id>/<image>.png
 ```
 
-当前版本不会扫描这整个目录来猜测 Prompt；只有通过 `asset_create` 提交的图片才会以 Codex 来源归档。这样完整 Prompt 的来源是可验证的。
+服务会在启动时校对该目录，并持续监听新增图片。对于每张图片，桥接器会读取其同任务的本地 Codex 会话记录，保存最后一条用户提示词；会话记录不可用时素材仍会入库，并以 `prompt_status: not-available` 明确标注。Codex 图片与 MOSA 库目录位于同一文件系统时，MOSA 使用硬链接，因此两个路径可用但磁盘只占一份图片数据；跨磁盘时自动降级为副本。通过 `asset_create` 手动保存时，可补充完整的模型、配方和修订提示词。
+
+已有的复制式 Codex 素材可执行一次安全迁移：脚本会先核验两端哈希一致，再以原子替换方式转成硬链接，不会删除 Codex 原路径。
+
+```bash
+node scripts/migrate-codex-hardlinks.mjs
+```
 
 ## Cowart 自动归档
 
@@ -98,8 +105,8 @@ COWART_MOSA_CANVAS_DIR=/absolute/path/to/cowart-data/my-project npm start
 ## 最短端到端验证
 
 1. 运行 `npm start`，打开 Web App。
-2. 确认 Codex MCP 已注册后，新开一个 Codex 任务。
-3. 生成一张图片，并由任务调用 `asset_create`；在 Web 中搜索新 Asset ID，确认完整 Prompt、模型和原始路径。
+2. 新开任意 Codex 任务（不需要关联 MOSA 项目）。
+3. 生成一张图片；在 Web 中等待最多 3 秒，确认出现 **Codex** 来源的新素材、任务 ID、原始路径与提示词状态。
 4. 打开同一项目的 Cowart 画布，生成、替换或批注编辑一张图片并保存画布。
 5. 等待最多 2 秒，回到 Web 查看带有 **Cowart** 来源标记的新素材；也可访问 `/api/cowart-bridge` 查看同步状态。
 6. 将一张库内素材插回画布，确认素材总数没有因同一文件再次增加。
@@ -111,6 +118,7 @@ COWART_MOSA_CANVAS_DIR=/absolute/path/to/cowart-data/my-project npm start
 | `MOSA_PROJECT_DIR` | MOSA 目录的父目录 | 工作区根目录，用于确定项目上下文 |
 | `MOSA_PORT` | `43517` | Web 服务本地端口 |
 | `CODEX_GENERATED_IMAGES_DIR` | `~/.codex/generated_images` | 允许 `asset_create` 读取的 Codex 图片来源根目录 |
+| `CODEX_SESSIONS_DIR` | `~/.codex/sessions` | 用于读取对应 Codex 任务提示词的会话记录根目录 |
 | `COWART_MOSA_CANVAS_DIR` | `~/.codex/cowart-data/mosa` | Cowart 项目画布数据目录，也是自动归档的唯一监听范围 |
 
 ## 本地数据结构

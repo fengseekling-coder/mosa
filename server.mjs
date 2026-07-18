@@ -3,6 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssetStore, mimeTypeForFile } from "./lib/asset-store.mjs";
+import { createCodexImageBridge } from "./lib/codex-image-bridge.mjs";
 import { createCowartAssetBridge } from "./lib/cowart-bridge.mjs";
 import { isAllowedLocalOrigin, resolveAllowedFolderPath } from "./lib/server-security.mjs";
 
@@ -11,10 +12,16 @@ const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || join(managerDir, "..
 const port = Number(process.env.MOSA_PORT || 43517);
 const store = createAssetStore({ projectRoot, managerDir });
 const cowartBridge = createCowartAssetBridge({ store, canvasDir: store.cowartCanvasDir });
+const codexBridge = createCodexImageBridge({
+  store,
+  imagesDir: store.codexImagesDir,
+  sessionsDir: process.env.CODEX_SESSIONS_DIR,
+});
 const appDir = join(managerDir, "app");
 
 await store.ensureProject("default");
 await cowartBridge.start();
+await codexBridge.start();
 
 const server = createServer(async (req, res) => {
   try {
@@ -58,6 +65,16 @@ server.listen(port, "127.0.0.1", () => {
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/cowart-bridge") {
     sendJson(res, 200, { bridge: cowartBridge.status() });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/codex-bridge") {
+    sendJson(res, 200, { bridge: codexBridge.status() });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/bridges") {
+    sendJson(res, 200, { codex: codexBridge.status(), cowart: cowartBridge.status() });
     return;
   }
 

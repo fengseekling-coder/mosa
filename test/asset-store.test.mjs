@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -33,11 +33,23 @@ test("imports a Codex default generated image and preserves its provenance", asy
   assert.equal(asset.source.codex_relative_path, `${taskId}/generated.png`);
   assert.equal(asset.source.generation_tool, "imagegen");
   assert.equal(asset.source.model, "gpt-5.6");
+  assert.equal(asset.source.storage_mode, "hard-link");
   assert.match(asset.image_path, /mosa\/assets\/default\/images\/codex-fixture\.png$/);
+  const [sourceStat, libraryStat] = await Promise.all([stat(sourcePath), stat(asset.image_path)]);
+  assert.equal(sourceStat.ino, libraryStat.ino);
 
   const storedMetadata = JSON.parse(await readFile(join(managerDir, "assets", "default", "metadata", "codex-fixture.json"), "utf8"));
   assert.equal(storedMetadata.source.path, sourcePath);
   assert.equal(storedMetadata.prompt, "A verified Codex test image");
+
+  // Existing copy-based Codex entries can be converted safely after checking
+  // both paths still contain identical bytes.
+  await unlink(asset.image_path);
+  await copyFile(sourcePath, asset.image_path);
+  const migration = await store.migrateCodexAssetsToHardLinks("default");
+  assert.deepEqual(migration.migrated, ["codex-fixture"]);
+  const [relinkedSourceStat, relinkedLibraryStat] = await Promise.all([stat(sourcePath), stat(asset.image_path)]);
+  assert.equal(relinkedSourceStat.ino, relinkedLibraryStat.ino);
 
   const localImagesDir = join(projectRoot, "generated-images");
   const localPath = join(localImagesDir, "local.png");
