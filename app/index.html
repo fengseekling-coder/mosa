@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MOSA — 创作资产库</title>
-    <link rel="stylesheet" href="/styles.css?v=11" />
+    <link rel="stylesheet" href="/styles.css?v=15" />
   </head>
   <body>
     <div class="toast-container" id="toastContainer" aria-live="polite"></div>
@@ -43,6 +43,14 @@
       </div>
     </div>
 
+    <div class="image-preview-modal" id="imagePreviewModal" role="dialog" aria-modal="true" aria-labelledby="imagePreviewTitle" hidden>
+      <div class="image-preview-card" tabindex="-1">
+        <div class="image-preview-header"><p class="eyebrow" data-i18n="viewFullImage">查看大图</p><button class="icon-button" id="closeImagePreview" type="button" data-i18n-aria-label="closePreview" aria-label="关闭大图预览"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+        <div class="image-preview-stage" id="imagePreviewStage"><img id="imagePreviewImage" alt="" /></div>
+        <h3 id="imagePreviewTitle"></h3>
+      </div>
+    </div>
+
     <div class="shell" id="appShell">
       <aside class="sidebar" aria-label="MOSA">
         <div class="brand">
@@ -62,10 +70,12 @@
 
         <div class="sidebar-spacer"></div>
         <div class="sidebar-footer">
-          <div class="workspace-row"><label class="visually-hidden" for="projectSelect" data-i18n="project">项目</label><select id="projectSelect"><option value="default">default</option></select><button class="icon-button quiet" id="openFolderBtn" type="button" data-i18n-title="openLibrary" data-i18n-aria-label="openLibrary" title="打开素材库" aria-label="打开素材库"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg></button></div>
           <div class="settings-wrap">
             <button class="settings-trigger" id="settingsToggle" type="button" aria-expanded="false" aria-controls="settingsMenu"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06-2.15 2.15-.06-.06A1.7 1.7 0 0 0 15.72 18a1.7 1.7 0 0 0-1.02 1.55V20h-3v-.45A1.7 1.7 0 0 0 10.68 18a1.7 1.7 0 0 0-1.87 1.02l-.06.06-2.15-2.15.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.02H5v-3h.45A1.7 1.7 0 0 0 7 9.96a1.7 1.7 0 0 0-1.02-1.87l-.06-.06 2.15-2.15.06.06A1.7 1.7 0 0 0 10 6.28a1.7 1.7 0 0 0 1.02-1.55V4.3h3v.45A1.7 1.7 0 0 0 15.04 6.3a1.7 1.7 0 0 0 1.87-1.02l.06-.06 2.15 2.15-.06.06A1.7 1.7 0 0 0 18.72 9.3a1.7 1.7 0 0 0 1.55 1.02h.45v3h-.45A1.7 1.7 0 0 0 19.4 15Z"/></svg><span data-i18n="settings">设置</span></button>
-            <div class="settings-menu" id="settingsMenu" hidden><p data-i18n="language">语言</p><button type="button" data-locale="system"></button><button type="button" data-locale="zh"></button><button type="button" data-locale="en"></button></div>
+            <div class="settings-menu" id="settingsMenu" hidden>
+              <section class="settings-section"><p data-i18n="project">项目</p><div class="settings-project-row"><label class="visually-hidden" for="projectSelect" data-i18n="project">项目</label><select id="projectSelect"><option value="default">default</option></select><button class="icon-button quiet" id="openFolderBtn" type="button" data-i18n-title="openLibrary" data-i18n-aria-label="openLibrary" title="打开素材库" aria-label="打开素材库"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg></button></div></section>
+              <section class="settings-section"><p data-i18n="language">语言</p><button type="button" data-locale="system"></button><button type="button" data-locale="zh"></button><button type="button" data-locale="en"></button></section>
+            </div>
           </div>
         </div>
       </aside>

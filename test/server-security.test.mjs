@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { isAllowedLocalOrigin, resolveAllowedFolderPath } from "../lib/server-security.mjs";
 
 test("allows only same-origin browser requests", () => {
@@ -17,4 +19,9 @@ test("resolves only allowed Finder paths", () => {
   assert.equal(resolveAllowedFolderPath("/workspace-other", allowedPaths), null);
   assert.equal(resolveAllowedFolderPath("/workspace/mosa/../secret", allowedPaths), null);
   assert.equal(resolveAllowedFolderPath("", allowedPaths), null);
+});
+
+test("keeps copied library images available to both gallery and inspector", async () => {
+  const server = await readFile(resolve(import.meta.dirname, "..", "server.mjs"), "utf8");
+  assert.match(server, /Cache-Control", "public, max-age=31536000, immutable"/);
 });

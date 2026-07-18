@@ -169,6 +169,9 @@ async function handleLibrary(res, url) {
   const fileName = decodeURIComponent(match[2]);
   res.statusCode = 200;
   res.setHeader("content-type", mimeTypeForFile(fileName));
+  // Library images are copied under unique asset filenames and never mutate in place.
+  // Keep a loaded gallery thumbnail available for the inspector without another network round trip.
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
   store.assetReadStream(decodeURIComponent(match[1]), fileName).pipe(res);
 }
 

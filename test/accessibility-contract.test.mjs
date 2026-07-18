@@ -13,13 +13,25 @@ test("keeps the import flow keyboard-accessible", async () => {
   ]);
 
   assert.match(html, /role="dialog" aria-modal="true" aria-labelledby="importModalTitle"/);
+  assert.match(html, /id="imagePreviewModal" role="dialog" aria-modal="true" aria-labelledby="imagePreviewTitle"/);
+  assert.match(html, /id="imagePreviewStage"/);
   assert.match(html, /data-i18n-aria-label="closeImport"/);
+  assert.match(html, /data-i18n-aria-label="closePreview"/);
   assert.match(html, /<button class="nav-item active"/);
   assert.match(app, /class="asset-card-select" type="button"/);
+  assert.doesNotMatch(app, /card-overlay|asset-source-badge/);
   assert.match(html, /id="assetCount" role="status" aria-live="polite"/);
   assert.match(app, /function trapImportModalFocus\(event\)/);
+  assert.match(app, /function openImagePreview\(id, trigger\)/);
+  assert.match(app, /function fitImagePreview\(\)/);
+  assert.match(app, /Math\.min\(availableWidth \/ image\.naturalWidth, availableHeight \/ image\.naturalHeight\)/);
+  assert.match(app, /imagePreviewStage\?\.addEventListener\("click", \(event\) => \{ if \(event\.target === els\.imagePreviewStage\) closeImagePreview\(\); \}\)/);
+  assert.match(app, /function trapImagePreviewFocus\(event\)/);
+  assert.match(app, /dblclick/);
   assert.match(app, /event\.key === "Escape"/);
   assert.match(css, /button:focus-visible/);
+  assert.match(css, /\.image-preview-stage img \{[^}]*max-width: none;[^}]*max-height: none;/);
+  assert.match(css, /\.image-preview-stage \{[^}]*padding: clamp\(24px, 5vw, 88px\);/);
   assert.match(css, /@media \(max-width: 700px\)/);
 });
 
@@ -53,5 +65,9 @@ test("uses a single language chosen from system, Chinese, or English", async () 
   assert.match(app, /safeStorageGet\("mosa\.ui-language"\)/);
   assert.match(app, /function resolveLocale\(value\)/);
   assert.match(app, /function applyLanguage\(\)/);
+  assert.match(app, /data-project-select/);
+  assert.match(app, /data-open-library/);
+  assert.match(app, /data-language-menu/);
+  assert.match(app, /function positionLanguageMenu\(\)/);
   assert.match(app, /document\.documentElement\.lang/);
 });
