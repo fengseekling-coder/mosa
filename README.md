@@ -131,6 +131,18 @@ Cowart 运行数据不在仓库中：
 ~/.codex/cowart-data/asset-manager/
 ```
 
+### Git 与本地素材
+
+素材库的运行期图片、Prompt 与元数据保存在本地 `assets/<project>/` 下，但新的归档记录默认被 `.gitignore` 忽略，避免每次 Codex 或 Cowart 生成图片都弄脏工作区。仓库中已经跟踪的素材仅作为演示样例；如果要把某个新素材作为正式样例提交，请确认不含敏感内容后显式执行：
+
+```bash
+git add -f assets/default/images/<asset>.png \
+  assets/default/prompts/<asset>.md \
+  assets/default/metadata/<asset>.json
+```
+
+本地 HTTP 服务只接受同源浏览器请求，不应通过远程网页、反向代理或公网端口暴露。
+
 ## MCP 工具
 
 - `asset_create`

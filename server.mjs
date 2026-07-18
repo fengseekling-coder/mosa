@@ -1,9 +1,10 @@
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssetStore, mimeTypeForFile } from "./lib/asset-store.mjs";
 import { createCowartAssetBridge } from "./lib/cowart-bridge.mjs";
+import { isAllowedLocalOrigin, resolveAllowedFolderPath } from "./lib/server-security.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const projectRoot = resolve(process.env.ASSET_MANAGER_PROJECT_DIR || join(managerDir, ".."));
@@ -17,12 +18,15 @@ await cowartBridge.start();
 
 const server = createServer(async (req, res) => {
   try {
-    // 添加 CORS 头，允许本地开发
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
 
-    // 处理 CORS 预检请求
+    if (!isAllowedLocalOrigin(req.headers.origin, port)) {
+      sendJson(res, 403, { error: "Cross-origin requests are not allowed." });
+      return;
+    }
+
+    // The app is same-origin; do not grant cross-origin preflight access.
     if (req.method === "OPTIONS") {
       res.statusCode = 204;
       res.end();
@@ -80,28 +84,36 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/open-folder") {
     const body = await readJson(req);
-    // 白名单验证：只允许打开已知的项目目录
+    const projects = await store.listProjects();
     const allowedPaths = [
-      store.projectRoot,
       store.managerDir,
-      ...store.listProjects().then(projects => projects.map(p => store.projectDir(p))).catch(() => [])
+      ...projects.map((projectId) => store.projectDir(projectId)),
     ].filter(Boolean);
+    const folderPath = resolveAllowedFolderPath(body.path, allowedPaths);
 
-    const isAllowed = allowedPaths.some(allowed => {
-      try {
-        const normalized = path.resolve(body.path);
-        return normalized === path.resolve(allowed) || normalized.startsWith(path.resolve(allowed) + path.sep);
-      } catch { return false; }
-    });
-
-    if (!isAllowed) {
+    if (!folderPath) {
       sendJson(res, 403, { error: "Path not allowed" });
+      return;
+    }
+
+    let folderStat;
+    try {
+      folderStat = await stat(folderPath);
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        sendJson(res, 404, { error: "Path does not exist" });
+        return;
+      }
+      throw error;
+    }
+    if (!folderStat.isDirectory()) {
+      sendJson(res, 400, { error: "Path is not a directory" });
       return;
     }
 
     try {
       const { spawn } = await import("node:child_process");
-      const child = spawn("open", [body.path], { stdio: "ignore" });
+      const child = spawn("open", [folderPath], { stdio: "ignore" });
       child.unref();
       sendJson(res, 200, { ok: true });
     } catch (err) {

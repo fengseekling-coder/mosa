@@ -8,8 +8,5 @@
     "mcp": "node mcp/server.mjs",
     "test": "node --test",
     "verify:codex": "node scripts/verify-codex-asset.mjs"
-  },
-  "dependencies": {
-    "sharp": "^0.35.3"
   }
 }

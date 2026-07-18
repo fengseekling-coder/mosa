@@ -12,11 +12,11 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <!-- Import modal -->
-    <div class="modal-overlay" id="importModal">
-      <div class="modal-card">
+    <div class="modal-overlay" id="importModal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="importModalTitle" tabindex="-1">
         <div class="modal-header">
-          <h3>导入新素材</h3>
-          <button class="modal-close" id="closeImportModal">
+          <h3 id="importModalTitle">导入新素材</h3>
+          <button class="modal-close" id="closeImportModal" type="button" aria-label="关闭导入素材窗口">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
@@ -75,8 +75,8 @@
           </label>
         </div>
         <div class="modal-footer">
-          <button class="btn-secondary" id="cancelImportBtn">取消</button>
-          <button class="btn-primary" id="saveAssetBtn">保存素材</button>
+          <button class="btn-secondary" id="cancelImportBtn" type="button">取消</button>
+          <button class="btn-primary" id="saveAssetBtn" type="button">保存素材</button>
         </div>
       </div>
     </div>
@@ -113,36 +113,36 @@
         <nav class="nav-section">
           <div class="nav-label"><span>快捷筛选</span></div>
           <ul class="nav-list" id="quickFilters">
-            <li class="nav-item active" data-filter="all">
+            <li><button class="nav-item active" data-filter="all" type="button" aria-pressed="true">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
                 <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
               </svg>
               <span class="nav-item-text">全部</span>
               <span class="nav-count" id="countAll">-</span>
-            </li>
-            <li class="nav-item" data-filter="favorite">
+            </button></li>
+            <li><button class="nav-item" data-filter="favorite" type="button" aria-pressed="false">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
               </svg>
               <span class="nav-item-text">收藏</span>
               <span class="nav-count" id="countFav">-</span>
-            </li>
-            <li class="nav-item" data-filter="recent">
+            </button></li>
+            <li><button class="nav-item" data-filter="recent" type="button" aria-pressed="false">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
               </svg>
               <span class="nav-item-text">最近一周</span>
               <span class="nav-count" id="countRecent">-</span>
-            </li>
-            <li class="nav-item" data-filter="codex">
+            </button></li>
+            <li><button class="nav-item" data-filter="codex" type="button" aria-pressed="false">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="m12 3-1.7 5.3L5 10l5.3 1.7L12 17l1.7-5.3L19 10l-5.3-1.7L12 3Z"/>
                 <path d="m19 16-.7 2.3L16 19l2.3.7L19 22l.7-2.3L22 19l-2.3-.7L19 16Z"/>
               </svg>
               <span class="nav-item-text">Codex 生成</span>
               <span class="nav-count" id="countCodex">-</span>
-            </li>
+            </button></li>
           </ul>
         </nav>
 
@@ -150,7 +150,7 @@
         <nav class="nav-section">
           <div class="nav-label">
             <span>分组</span>
-            <button class="add-group-btn" id="addGroupBtn" title="新建分组">
+            <button class="add-group-btn" id="addGroupBtn" type="button" title="新建分组" aria-label="新建分组">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
@@ -179,7 +179,7 @@
               <circle cx="12" cy="12" r="1"/>
             </svg>
             <span class="path-text" id="libraryPathText">加载中...</span>
-            <button class="open-btn" id="openFolderBtn">打开</button>
+            <button class="open-btn" id="openFolderBtn" type="button">打开</button>
           </div>
           <div class="project-select-row">
             <select id="projectSelect">
@@ -187,7 +187,7 @@
             </select>
           </div>
           <div class="sidebar-actions">
-            <button class="btn-secondary" id="newAssetBtn">
+            <button class="btn-secondary" id="newAssetBtn" type="button">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
@@ -203,10 +203,10 @@
         <header class="topbar">
           <div class="topbar-left">
             <h2 id="viewTitle">全部</h2>
-            <p id="assetCount">0 assets</p>
+            <p id="assetCount" role="status" aria-live="polite">0 assets</p>
           </div>
           <div class="topbar-right">
-            <span class="status-badge" id="statusText">Ready</span>
+            <span class="status-badge" id="statusText" role="status" aria-live="polite">Ready</span>
           </div>
         </header>
         <section class="demo-flow" id="demoFlow" aria-label="Build Week 演示流程">
@@ -218,7 +218,7 @@
           </ol>
           <p class="demo-flow-provenance" id="demoFlowProvenance">选择 Codex 素材，查看自动归档来源。</p>
         </section>
-        <section class="grid" id="assetGrid"></section>
+        <section class="grid" id="assetGrid" aria-label="素材列表"></section>
       </main>
 
       <!-- ══════ Right: Detail Panel ══════ -->

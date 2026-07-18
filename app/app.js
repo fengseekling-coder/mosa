@@ -9,7 +9,8 @@ const state = {
   filter: { type: "all", value: "" },
   groups: { total: 0, favorites: 0, recent: 0, codex: 0, groups: [], categories: [], styles: [] },
   libraryPath: "",
-  codexImagesDir: ""
+  codexImagesDir: "",
+  modalReturnFocus: null,
 };
 
 // ── Elements ───────────────────────────────────────────────────────────────────
@@ -63,6 +64,7 @@ async function init() {
 // 键盘上下导航
 function bindKeyboardNav() {
   document.addEventListener("keydown", (e) => {
+    if (els.importModal?.classList.contains("open")) return;
     if (!state.assets.length) return;
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
 
@@ -357,28 +359,30 @@ function bindEvents() {
 
   if (els.newAssetBtn) {
     els.newAssetBtn.addEventListener("click", () => {
-      if (els.importModal) els.importModal.classList.add("open");
+      openImportModal();
     });
   }
 
   if (els.closeImportModal) {
     els.closeImportModal.addEventListener("click", () => {
-      if (els.importModal) els.importModal.classList.remove("open");
+      closeImportModal();
     });
   }
 
   if (els.cancelImportBtn) {
     els.cancelImportBtn.addEventListener("click", () => {
-      if (els.importModal) els.importModal.classList.remove("open");
+      closeImportModal();
     });
   }
 
   // Close modal on overlay click
   if (els.importModal) {
     els.importModal.addEventListener("click", (e) => {
-      if (e.target === els.importModal) els.importModal.classList.remove("open");
+      if (e.target === els.importModal) closeImportModal();
     });
   }
+
+  document.addEventListener("keydown", trapImportModalFocus);
 
   if (els.saveAssetBtn) {
     els.saveAssetBtn.addEventListener("click", async () => {
@@ -411,7 +415,7 @@ function bindEvents() {
         state.selectedId = result.asset.id;
         showToast(`已保存 ${result.asset.id}`, "success");
         if (els.importModal) {
-          els.importModal.classList.remove("open");
+          closeImportModal();
           // Clear form
           els.imagePathInput.value = "";
           els.promptInput.value = "";
@@ -433,7 +437,9 @@ function bindEvents() {
 // ── Sidebar Rendering ──────────────────────────────────────────────────────────
 function renderQuickFilters() {
   els.quickFilters.querySelectorAll(".nav-item").forEach(li => {
-    li.classList.toggle("active", li.dataset.filter === state.filter.type);
+    const active = li.dataset.filter === state.filter.type;
+    li.classList.toggle("active", active);
+    li.setAttribute("aria-pressed", String(active));
   });
   const s = state.groups;
   els.quickFilters.querySelector("[data-filter=all] .nav-count").textContent = s.total;
@@ -449,13 +455,13 @@ function renderGroupList() {
   }
   els.groupList.innerHTML = state.groups.groups.map(([name, count]) => {
     const active = state.filter.type === "group" && state.filter.value === name;
-    return `<li class="nav-item${active ? " active" : ""}" data-group="${escapeHtml(name)}">
+    return `<li><button class="nav-item${active ? " active" : ""}" data-group="${escapeHtml(name)}" type="button" aria-pressed="${active}">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
       </svg>
       <span class="nav-item-text">${escapeHtml(name)}</span>
       <span class="nav-count">${count}</span>
-    </li>`;
+    </button></li>`;
   }).join("");
 }
 
@@ -466,14 +472,14 @@ function renderCategoryList() {
   }
   els.categoryList.innerHTML = state.groups.categories.map(([name, count]) => {
     const active = state.filter.type === "category" && state.filter.value === name;
-    return `<li class="nav-item${active ? " active" : ""}" data-category="${escapeHtml(name)}">
+    return `<li><button class="nav-item${active ? " active" : ""}" data-category="${escapeHtml(name)}" type="button" aria-pressed="${active}">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
         <line x1="7" y1="7" x2="7.01" y2="7"/>
       </svg>
       <span class="nav-item-text">${escapeHtml(name)}</span>
       <span class="nav-count">${count}</span>
-    </li>`;
+    </button></li>`;
   }).join("");
 }
 
@@ -484,7 +490,7 @@ function renderStyleList() {
   }
   els.styleList.innerHTML = state.groups.styles.map(([name, count]) => {
     const active = state.filter.type === "style" && state.filter.value === name;
-    return `<li class="nav-item${active ? " active" : ""}" data-style="${escapeHtml(name)}">
+    return `<li><button class="nav-item${active ? " active" : ""}" data-style="${escapeHtml(name)}" type="button" aria-pressed="${active}">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="13.5" cy="6.5" r="0.5" fill="currentColor"/>
         <circle cx="17.5" cy="10.5" r="0.5" fill="currentColor"/>
@@ -494,7 +500,7 @@ function renderStyleList() {
       </svg>
       <span class="nav-item-text">${escapeHtml(name)}</span>
       <span class="nav-count">${count}</span>
-    </li>`;
+    </button></li>`;
   }).join("");
 }
 
@@ -518,24 +524,28 @@ function renderGrid() {
     const title = asset.theme || asset.asset || asset.id;
     const isCodexAsset = asset.source?.type === "codex-generated";
     const isCowartAsset = asset.source?.type === "cowart-generated";
-    return `<article class="asset-card${asset.id === state.selectedId ? " selected" : ""}" data-id="${escapeHtml(asset.id)}">
-      <img class="thumb" src="${asset.image_url}" alt="${escapeHtml(title)}" loading="lazy" />
+    const selected = asset.id === state.selectedId;
+    return `<article class="asset-card${selected ? " selected" : ""}" data-id="${escapeHtml(asset.id)}">
+      <button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="查看素材：${escapeHtml(title)}">
+        <img class="thumb" src="${asset.image_url}" alt="${escapeHtml(title)}" loading="lazy" />
+        <div class="card-overlay">
+          <div class="card-overlay-title">${escapeHtml(title)}</div>
+        </div>
+      </button>
       ${isCodexAsset ? '<span class="asset-source-badge">Codex</span>' : isCowartAsset ? '<span class="asset-source-badge">Cowart</span>' : ""}
-      <div class="card-overlay">
-        <div class="card-overlay-title">${escapeHtml(title)}</div>
-        <button class="card-quick-copy" data-copy="${escapeHtml(asset.prompt || "")}" title="复制 prompt">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-          </svg>
-        </button>
-      </div>
+      <button class="card-quick-copy" type="button" data-copy="${escapeHtml(asset.prompt || "")}" title="复制 prompt" aria-label="复制 ${escapeHtml(title)} 的 Prompt">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2 2v1"/>
+        </svg>
+      </button>
     </article>`;
   }).join("");
 
-  els.assetGrid.querySelectorAll(".asset-card").forEach(card => {
-    card.addEventListener("click", (e) => {
-      if (e.target.closest(".card-quick-copy")) return;
+  els.assetGrid.querySelectorAll(".asset-card-select").forEach(button => {
+    button.addEventListener("click", () => {
+      const card = button.closest(".asset-card");
+      if (!card) return;
       state.selectedId = card.dataset.id;
       renderGrid();
       renderDetail();
@@ -552,6 +562,42 @@ function renderGrid() {
       });
     });
   });
+}
+
+function openImportModal() {
+  if (!els.importModal) return;
+  state.modalReturnFocus = document.activeElement;
+  els.importModal.classList.add("open");
+  els.importModal.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => els.imagePathInput?.focus());
+}
+
+function closeImportModal() {
+  if (!els.importModal) return;
+  els.importModal.classList.remove("open");
+  els.importModal.setAttribute("aria-hidden", "true");
+  if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus();
+  state.modalReturnFocus = null;
+}
+
+function trapImportModalFocus(event) {
+  if (!els.importModal?.classList.contains("open")) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeImportModal();
+    return;
+  }
+  if (event.key !== "Tab") return;
+
+  const focusable = [...els.importModal.querySelectorAll("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")]
+    .filter((element) => !element.hasAttribute("hidden"));
+  if (!focusable.length) return;
+  const currentIndex = focusable.indexOf(document.activeElement);
+  const nextIndex = event.shiftKey
+    ? (currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1)
+    : (currentIndex === focusable.length - 1 ? 0 : currentIndex + 1);
+  event.preventDefault();
+  focusable[nextIndex].focus();
 }
 
 // ── Detail Panel ───────────────────────────────────────────────────────────────
