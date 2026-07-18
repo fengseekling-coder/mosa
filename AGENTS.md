@@ -1,20 +1,20 @@
-# Asset Manager Project Instructions
+# MOSA Project Instructions
 
 ## Project boundary
 
 - This repository is the user's only Build Week project. Keep all product code, assets, tests, and Git commits inside this directory.
 - Cowart is an externally installed Codex plugin at `/Users/azhuilab/plugins/cowart`; never vendor, clone, or copy its code into this repository.
-- Cowart runtime data belongs outside this repository at `/Users/azhuilab/.codex/cowart-data/asset-manager`.
+- Cowart runtime data belongs outside this repository at `/Users/azhuilab/.codex/cowart-data/mosa`.
 
 ## Natural-language launch commands
 
-- When the user says **“启动素材管理”**, start or reuse the local Asset Manager on `http://127.0.0.1:43517/`. Open it in Codex's in-app browser by default; open it in the system browser when the user explicitly asks for a local browser.
+- When the user says **“启动 MOSA”**, start or reuse the local MOSA library on `http://127.0.0.1:43517/`. Open it in Codex's in-app browser by default; open it in the system browser when the user explicitly asks for a local browser.
 - When the user says **“启动画布”**, use Cowart's `render_cowart_canvas_widget` MCP tool in a fresh Codex task with:
 
   ```json
   {
-    "projectDir": "/Users/azhuilab/codex_aigc/asset-manager",
-    "canvasDir": "/Users/azhuilab/.codex/cowart-data/asset-manager"
+    "projectDir": "/Users/azhuilab/codex_aigc/mosa",
+    "canvasDir": "/Users/azhuilab/.codex/cowart-data/mosa"
   }
   ```
 
@@ -23,13 +23,13 @@
 
 ## Asset-to-canvas integration
 
-- When the user asks to put a saved Asset Manager image on the Cowart canvas, first retrieve the asset through `asset_get`.
-- Then call Cowart's `insert_cowart_image` with the asset's `image_path`, the same `projectDir`, and the external `canvasDir` above. Pass the source Asset Manager ID in `assetMeta.assetManagerAssetId` so the Cowart bridge does not archive that same image a second time.
+- When the user asks to put a saved MOSA image on the Cowart canvas, first retrieve the asset through `asset_get`.
+- Then call Cowart's `insert_cowart_image` with the asset's `image_path`, the same `projectDir`, and the external `canvasDir` above. Pass the source MOSA ID in `assetMeta.mosaAssetId` so the Cowart bridge does not archive that same image a second time.
 - Do not create a `canvas/` folder inside this repository. It is ignored as a safety net.
 
 ## Cowart-to-library automatic registration
 
-- Asset Manager starts a project-scoped Cowart bridge with the web server. It watches only `/Users/azhuilab/.codex/cowart-data/asset-manager/pages/`, reconciles saved page assets against Cowart snapshots, and archives new generated or edited images automatically.
+- MOSA starts a project-scoped Cowart bridge with the web server. It watches only `/Users/azhuilab/.codex/cowart-data/mosa/pages/`, reconciles saved page assets against Cowart snapshots, and archives new generated or edited images automatically.
 - The bridge is the source of truth for auto-archival. It covers Cowart image generation, AI-holder replacement, and annotation editing without changing the Cowart plugin or requiring the creating task to call `asset_create`.
-- It deduplicates by the exact Cowart page-asset path. The bridge skips images whose Cowart asset metadata identifies an existing Asset Manager asset.
+- It deduplicates by the exact Cowart page-asset path. The bridge skips images whose Cowart asset metadata identifies an existing MOSA asset.
 - Cowart snapshots expose an image description but not the full generation prompt. Auto-archived records therefore label their Prompt as canvas alt text; attach the original full prompt later when it is available.

@@ -6,13 +6,13 @@ import test from "node:test";
 import { createAssetStore } from "../lib/asset-store.mjs";
 import { createCowartAssetBridge, reconcileCowartAssets } from "../lib/cowart-bridge.mjs";
 
-test("archives Cowart page assets once and keeps manager-origin images out", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "asset-manager-"));
+test("archives Cowart page assets once and keeps MOSA-origin images out", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
   const projectRoot = join(root, "project");
-  const managerDir = join(projectRoot, "asset-manager");
-  const canvasDir = join(root, "cowart-data", "asset-manager");
+  const managerDir = join(projectRoot, "mosa");
+  const canvasDir = join(root, "cowart-data", "mosa");
   const pageAssetsDir = join(canvasDir, "pages", "page", "assets");
   await mkdir(pageAssetsDir, { recursive: true });
   await writeFile(join(pageAssetsDir, "bear.png"), "fixture Cowart image", "utf8");
@@ -21,7 +21,7 @@ test("archives Cowart page assets once and keeps manager-origin images out", asy
     store: {
       "asset:bear": { id: "asset:bear", typeName: "asset", type: "image", props: { name: "bear.png", src: "/page-assets/page/bear.png" }, meta: {} },
       "shape:bear": { id: "shape:bear", typeName: "shape", type: "image", props: { assetId: "asset:bear", w: 2160, h: 2160, altText: "草原背景的小熊" }, meta: { cowartGeneratedForAiImageHolder: "shape:holder", cowartAnnotationSourceShapeId: "shape:source" } },
-      "asset:from-library": { id: "asset:from-library", typeName: "asset", type: "image", props: { name: "from-library.png", src: "/page-assets/page/from-library.png" }, meta: { assetManagerAssetId: "existing-library-asset" } },
+      "asset:from-library": { id: "asset:from-library", typeName: "asset", type: "image", props: { name: "from-library.png", src: "/page-assets/page/from-library.png" }, meta: { mosaAssetId: "existing-library-asset" } },
     },
   }), "utf8");
 
@@ -40,12 +40,12 @@ test("archives Cowart page assets once and keeps manager-origin images out", asy
 });
 
 test("watches a Cowart page directory and archives a later image", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "asset-manager-"));
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
   const projectRoot = join(root, "project");
-  const managerDir = join(projectRoot, "asset-manager");
-  const canvasDir = join(root, "cowart-data", "asset-manager");
+  const managerDir = join(projectRoot, "mosa");
+  const canvasDir = join(root, "cowart-data", "mosa");
   const pageDir = join(canvasDir, "pages", "page");
   const pageAssetsDir = join(pageDir, "assets");
   await mkdir(pageAssetsDir, { recursive: true });

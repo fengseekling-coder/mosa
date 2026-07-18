@@ -6,7 +6,7 @@ import test from "node:test";
 import { createAssetStore } from "../lib/asset-store.mjs";
 
 test("imports a Codex default generated image and preserves its provenance", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "asset-manager-"));
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
   const codexImagesDir = join(root, ".codex", "generated_images");
@@ -16,7 +16,7 @@ test("imports a Codex default generated image and preserves its provenance", asy
   await writeFile(sourcePath, "fixture image", "utf8");
 
   const projectRoot = join(root, "project");
-  const managerDir = join(projectRoot, "asset-manager");
+  const managerDir = join(projectRoot, "mosa");
   const store = createAssetStore({ projectRoot, managerDir, codexImagesDir });
   const asset = await store.createAsset({
     projectId: "default",
@@ -33,7 +33,7 @@ test("imports a Codex default generated image and preserves its provenance", asy
   assert.equal(asset.source.codex_relative_path, `${taskId}/generated.png`);
   assert.equal(asset.source.generation_tool, "imagegen");
   assert.equal(asset.source.model, "gpt-5.6");
-  assert.match(asset.image_path, /asset-manager\/assets\/default\/images\/codex-fixture\.png$/);
+  assert.match(asset.image_path, /mosa\/assets\/default\/images\/codex-fixture\.png$/);
 
   const storedMetadata = JSON.parse(await readFile(join(managerDir, "assets", "default", "metadata", "codex-fixture.json"), "utf8"));
   assert.equal(storedMetadata.source.path, sourcePath);
@@ -50,7 +50,7 @@ test("imports a Codex default generated image and preserves its provenance", asy
 });
 
 test("continues to reject image paths outside approved source roots", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "asset-manager-"));
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
   const outsidePath = join(root, "outside", "not-allowed.png");
@@ -59,7 +59,7 @@ test("continues to reject image paths outside approved source roots", async (t) 
 
   const store = createAssetStore({
     projectRoot: join(root, "project"),
-    managerDir: join(root, "project", "asset-manager"),
+    managerDir: join(root, "project", "mosa"),
     codexImagesDir: join(root, ".codex", "generated_images")
   });
 
@@ -67,18 +67,18 @@ test("continues to reject image paths outside approved source roots", async (t) 
 });
 
 test("imports Cowart page assets from the configured external canvas directory", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "asset-manager-"));
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
   const projectRoot = join(root, "project");
-  const canvasDir = join(root, "cowart-data", "asset-manager");
+  const canvasDir = join(root, "cowart-data", "mosa");
   const sourcePath = join(canvasDir, "pages", "page", "assets", "cowart-bear.png");
   await mkdir(join(canvasDir, "pages", "page", "assets"), { recursive: true });
   await writeFile(sourcePath, "fixture Cowart image", "utf8");
 
   const store = createAssetStore({
     projectRoot,
-    managerDir: join(projectRoot, "asset-manager"),
+    managerDir: join(projectRoot, "mosa"),
     cowartCanvasDir: canvasDir
   });
   const asset = await store.createAsset({
@@ -89,5 +89,5 @@ test("imports Cowart page assets from the configured external canvas directory",
 
   assert.equal(asset.source.type, "cowart-generated");
   assert.equal(asset.source.path, sourcePath);
-  assert.match(asset.image_path, /asset-manager\/assets\/default\/images\/cowart-bear\.png$/);
+  assert.match(asset.image_path, /mosa\/assets\/default\/images\/cowart-bear\.png$/);
 });

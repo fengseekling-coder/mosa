@@ -2,8 +2,8 @@
   "id": "318977665Original",
   "project_id": "default",
   "asset": "318977665Original.png",
-  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/318977665Original.png",
-  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/318977665Original.md",
+  "image_path": "/Users/azhuilab/codex_aigc/mosa/assets/default/images/318977665Original.png",
+  "prompt_path": "/Users/azhuilab/codex_aigc/mosa/assets/default/prompts/318977665Original.md",
   "prompt": "",
   "skill": "",
   "style": "",
@@ -25,5 +25,5 @@
     "cowart_asset_id": "asset:318977665Original",
     "cowart_shape_id": "shape:asset318977665Original"
   },
-  "thumb_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/thumbs/318977665Original.png"
+  "thumb_path": "/Users/azhuilab/codex_aigc/mosa/assets/default/thumbs/318977665Original.png"
 }

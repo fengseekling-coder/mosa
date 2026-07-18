@@ -2,8 +2,8 @@
   "id": "exec-60d21816-122f-4aee-84bb-d320e087a5eb-mrpkadzl",
   "project_id": "default",
   "asset": "exec-60d21816-122f-4aee-84bb-d320e087a5eb-mrpkadzl.png",
-  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/exec-60d21816-122f-4aee-84bb-d320e087a5eb-mrpkadzl.png",
-  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/exec-60d21816-122f-4aee-84bb-d320e087a5eb-mrpkadzl.md",
+  "image_path": "/Users/azhuilab/codex_aigc/mosa/assets/default/images/exec-60d21816-122f-4aee-84bb-d320e087a5eb-mrpkadzl.png",
+  "prompt_path": "/Users/azhuilab/codex_aigc/mosa/assets/default/prompts/exec-60d21816-122f-4aee-84bb-d320e087a5eb-mrpkadzl.md",
   "prompt": "茶卡盐湖背景的小熊",
   "skill": "Cowart",
   "style": "AI 插画",
@@ -23,10 +23,10 @@
   "updated_at": "2026-07-17T23:21:04.596Z",
   "source": {
     "type": "cowart-generated",
-    "path": "/Users/azhuilab/.codex/cowart-data/asset-manager/pages/page/assets/exec-60d21816-122f-4aee-84bb-d320e087a5eb.png",
+    "path": "/Users/azhuilab/.codex/cowart-data/mosa/pages/page/assets/exec-60d21816-122f-4aee-84bb-d320e087a5eb.png",
     "copied_at": "2026-07-17T23:21:04.596Z",
     "generation_tool": "cowart",
-    "cowart_canvas_dir": "/Users/azhuilab/.codex/cowart-data/asset-manager",
+    "cowart_canvas_dir": "/Users/azhuilab/.codex/cowart-data/mosa",
     "cowart_shape_id": "shape:exec-60d21816-122f-4aee-84bb-d320e087a5eb",
     "replaced_ai_image_holder": "shape:EYUFLab4a4HKIigmbwRGJ"
   }

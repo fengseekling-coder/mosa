@@ -2,8 +2,8 @@
   "id": "sciFiTheme06",
   "project_id": "default",
   "asset": "sciFiTheme06.png",
-  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/sciFiTheme06.png",
-  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/sciFiTheme06.md",
+  "image_path": "/Users/azhuilab/codex_aigc/mosa/assets/default/images/sciFiTheme06.png",
+  "prompt_path": "/Users/azhuilab/codex_aigc/mosa/assets/default/prompts/sciFiTheme06.md",
   "prompt": "",
   "skill": "",
   "style": "",
@@ -27,5 +27,5 @@
     "cowart_asset_id": "asset:sciFiTheme06",
     "cowart_shape_id": "shape:sciFiTheme06"
   },
-  "thumb_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/thumbs/sciFiTheme06.png"
+  "thumb_path": "/Users/azhuilab/codex_aigc/mosa/assets/default/thumbs/sciFiTheme06.png"
 }

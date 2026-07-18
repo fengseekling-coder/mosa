@@ -7,8 +7,8 @@ import { createCowartAssetBridge } from "./lib/cowart-bridge.mjs";
 import { isAllowedLocalOrigin, resolveAllowedFolderPath } from "./lib/server-security.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
-const projectRoot = resolve(process.env.ASSET_MANAGER_PROJECT_DIR || join(managerDir, ".."));
-const port = Number(process.env.ASSET_MANAGER_PORT || 43517);
+const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || join(managerDir, ".."));
+const port = Number(process.env.MOSA_PORT || 43517);
 const store = createAssetStore({ projectRoot, managerDir });
 const cowartBridge = createCowartAssetBridge({ store, canvasDir: store.cowartCanvasDir });
 const appDir = join(managerDir, "app");
@@ -52,7 +52,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`GPT Asset Manager: http://127.0.0.1:${port}`);
+  console.log(`MOSA: http://127.0.0.1:${port}`);
 });
 
 async function handleApi(req, res, url) {

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createAssetStore } from "../lib/asset-store.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const projectRoot = resolve(process.env.ASSET_MANAGER_PROJECT_DIR || process.cwd());
+const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || process.cwd());
 const store = createAssetStore({ projectRoot, managerDir });
 
 const TOOL_ASSET_CREATE = "asset_create";
@@ -29,7 +29,7 @@ function toolDefinitions() {
   return [
     {
       name: TOOL_ASSET_CREATE,
-      description: "Copy a generated image into the GPT Asset Manager library and save prompt recipe metadata. Codex's default ~/.codex/generated_images task folders are supported and recorded as the source.",
+      description: "Copy a generated image into the MOSA library and save prompt recipe metadata. Codex's default ~/.codex/generated_images task folders are supported and recorded as the source.",
       inputSchema: {
         type: "object",
         properties: {
@@ -56,7 +56,7 @@ function toolDefinitions() {
     },
     {
       name: TOOL_ASSET_LIST,
-      description: "List saved GPT Asset Manager assets for a project, optionally filtered by search text.",
+      description: "List saved MOSA assets for a project, optionally filtered by search text.",
       inputSchema: {
         type: "object",
         properties: { projectId: { type: "string" }, query: { type: "string" } },
@@ -133,7 +133,7 @@ async function handleRequest(message) {
     sendResult(id, {
       protocolVersion: params?.protocolVersion || "2025-11-25",
       capabilities: { tools: {} },
-      serverInfo: { name: "GPT Asset Manager MCP", version: "0.1.0" },
+      serverInfo: { name: "MOSA MCP", version: "0.1.0" },
       instructions: "Save generated images with full prompts and recipe metadata. Images from Codex's default ~/.codex/generated_images task folders are accepted and their source path is recorded. List and retrieve saved assets for reuse."
     });
     return;

@@ -11,10 +11,10 @@ test("allows only same-origin browser requests", () => {
 });
 
 test("resolves only allowed Finder paths", () => {
-  const allowedPaths = ["/workspace/asset-manager", "/workspace/asset-manager/assets/default"];
-  assert.equal(resolveAllowedFolderPath("/workspace/asset-manager/assets/default", allowedPaths), "/workspace/asset-manager/assets/default");
-  assert.equal(resolveAllowedFolderPath("/workspace/asset-manager/assets/default/images", allowedPaths), "/workspace/asset-manager/assets/default/images");
+  const allowedPaths = ["/workspace/mosa", "/workspace/mosa/assets/default"];
+  assert.equal(resolveAllowedFolderPath("/workspace/mosa/assets/default", allowedPaths), "/workspace/mosa/assets/default");
+  assert.equal(resolveAllowedFolderPath("/workspace/mosa/assets/default/images", allowedPaths), "/workspace/mosa/assets/default/images");
   assert.equal(resolveAllowedFolderPath("/workspace-other", allowedPaths), null);
-  assert.equal(resolveAllowedFolderPath("/workspace/asset-manager/../secret", allowedPaths), null);
+  assert.equal(resolveAllowedFolderPath("/workspace/mosa/../secret", allowedPaths), null);
   assert.equal(resolveAllowedFolderPath("", allowedPaths), null);
 });

@@ -2,8 +2,8 @@
   "id": "keepItWooEarlyHolographicV5Svg",
   "project_id": "default",
   "asset": "keepItWooEarlyHolographicV5Svg.svg",
-  "image_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/keepItWooEarlyHolographicV5Svg.svg",
-  "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/keepItWooEarlyHolographicV5Svg.md",
+  "image_path": "/Users/azhuilab/codex_aigc/mosa/assets/default/images/keepItWooEarlyHolographicV5Svg.svg",
+  "prompt_path": "/Users/azhuilab/codex_aigc/mosa/assets/default/prompts/keepItWooEarlyHolographicV5Svg.md",
   "prompt": "# 黑白极简概念 SVG 矢量母版 — V5\n\nCreate one editable SVG master artwork for a custom 102 cm × 208 cm architectural panel, exact aspect ratio 51:104.\n\nSelected style: 黑白极简概念 / black-white-minimal-concept.\n\n## Input\n\n- Content mode: editorial-cover\n- Title/topic: KEEP IT WOO\n- Main title: KEEP IT WOO\n- Complete title: KEEP IT WOO\n- Subtitle: none\n- Language: English\n- Platform: large-format architectural panel\n- Use case: editable vector entrance graphic\n- Visual subject: a perfect circular holographic gate embedded in a tall architectural field, split into two mirrored opening halves\n- Mood: cold, precise, ceremonial, futuristic, restrained\n- Visual metaphor: a circular encrypted threshold silently beginning to open\n- Required verbatim display copy: KEEP IT WOO\n- Banned elements: stock HUD, game dashboard, logo-like empty ring, lightning icon, random fake data, colored neon, photorealistic room, person, smoke, watermark\n\n## Objective\n\nBuild the result as deterministic SVG geometry rather than a raster image pretending to be vector. Every circle, contour, panel, frame rail, seam, dot, and text object must remain editable. Preserve exact bilateral symmetry for every non-text element by defining the left structure once and mirroring it for the right side.\n\nThe composition must have three clear scales:\n\n1. A full-height architectural boundary that establishes the 102 × 208 cm door/panel scale.\n2. One dominant circular gate mechanism with multiple readable vector layers.\n3. A narrow vertical opening seam that splits the circle and continues through the tall field.\n\n## Composition\n\n- Exact SVG dimensions: width 102cm, height 208cm, viewBox 0 0 1020 2080.\n- Deep carbon-black background with a restrained graphite gradient.\n- Place the circular mechanism at the optical center, slightly above mid-height.\n- Build the circle from structural crescent panels, fine contour membranes, restrained calibration arcs, sparse nodes, a precise inner aperture, and a deep central void.\n- The two halves separate around a narrow vertical black channel to communicate “open sesame”.\n- Use long negative-space runs above and below the circle.\n- Do not create a generic target, loading ring, logo, or game interface.\n\n## Style Application\n\nTranslate the 黑白极简概念 style into crisp vector form:\n\n- black, graphite, silver, and warm white only;\n- fine topological contour paths that bend and compress toward the central opening;\n- large negative space and a sharp architectural grid;\n- three controlled stroke weights;\n- subtle transparent graphite layers instead of photorealistic glass or glow;\n- one dominant circular metaphor rather than many unrelated interface parts.\n\n## Typography\n\nRender exactly “KEEP IT WOO” once, in uppercase ultra-bold sans-serif type. Place it as a single editorial line in the upper field and connect its baseline to the architectural seam/grid. Do not place the title as a bottom-left stack. Do not repeat, distort, outline, glow, or misspell it.\n\n## Color and Material\n\nUse a deep carbon-black background, two graphite levels, pale silver hairlines, and warm off-white typography. Depth comes from vector opacity, overlapping planes, line density, and negative-space cuts. Keep light effects minimal and fully vector-based.\n\n## Final Standard\n\nThe finished SVG must feel like a commissioned large-format spatial graphic: complex but legible, symmetrical but not generic, futuristic without game-UI clichés, and technically suitable for continued editing. The title must remain complete and readable, and all important geometry must stay inside production-safe margins.",
   "skill": "punk-cover",
   "style": "black-white-minimal-concept",
@@ -37,13 +37,13 @@
   "created_at": "2026-07-12T21:36:44.041Z",
   "updated_at": "2026-07-13T21:37:53.145Z",
   "source": {
-    "type": "asset-manager-preserved-copy",
-    "path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/images/keepItWooEarlyHolographicV5Svg.svg",
-    "prompt_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/prompts/keepItWooEarlyHolographicV5Svg.md",
+    "type": "mosa-preserved-copy",
+    "path": "/Users/azhuilab/codex_aigc/mosa/assets/default/images/keepItWooEarlyHolographicV5Svg.svg",
+    "prompt_path": "/Users/azhuilab/codex_aigc/mosa/assets/default/prompts/keepItWooEarlyHolographicV5Svg.md",
     "task_collection": "keep-it-woo-task-output-62",
     "original_file": "keep-it-woo-holographic-gate/cover-v5.svg",
     "original_source_deleted": true,
     "preserved_at": "2026-07-13T21:37:53.145Z"
   },
-  "thumb_path": "/Users/azhuilab/codex_aigc/asset-manager/assets/default/thumbs/keepItWooEarlyHolographicV5Svg.svg"
+  "thumb_path": "/Users/azhuilab/codex_aigc/mosa/assets/default/thumbs/keepItWooEarlyHolographicV5Svg.svg"
 }

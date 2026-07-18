@@ -22,3 +22,20 @@ test("keeps the import flow keyboard-accessible", async () => {
   assert.match(css, /button:focus-visible/);
   assert.match(css, /@media \(max-width: 640px\)/);
 });
+
+test("keeps the gallery source-aware and the inspector optional", async () => {
+  const [html, app] = await Promise.all([
+    readFile(resolve(root, "app/index.html"), "utf8"),
+    readFile(resolve(root, "app/app.js"), "utf8"),
+  ]);
+
+  assert.match(html, /data-filter="cowart"/);
+  assert.match(html, /id="detailToggle"[^>]*aria-controls="detailPanel"/);
+  assert.match(app, /source", "cowart-generated"/);
+  assert.match(app, /function setDetailOpen\(open\)/);
+  assert.match(app, /state\.detailOpen = Boolean\(open\)/);
+  assert.match(app, /function updateSelectedCard\(\)/);
+  assert.match(app, /updateSelectedCard\(\);/);
+  assert.match(app, /const showHomeIntro = state\.filter\.type === "all" && !state\.query/);
+  assert.match(app, /els\.demoFlow\.hidden = !showHomeIntro/);
+});

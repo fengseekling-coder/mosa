@@ -4,10 +4,11 @@ const state = {
   projects: [],
   assets: [],
   selectedId: null,
+  detailOpen: false,
   query: "",
   // 当前筛选
   filter: { type: "all", value: "" },
-  groups: { total: 0, favorites: 0, recent: 0, codex: 0, groups: [], categories: [], styles: [] },
+  groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [] },
   libraryPath: "",
   codexImagesDir: "",
   modalReturnFocus: null,
@@ -42,6 +43,9 @@ const els = {
   viewTitle: document.querySelector("#viewTitle"),
   assetCount: document.querySelector("#assetCount"),
   statusText: document.querySelector("#statusText"),
+  appShell: document.querySelector("#appShell"),
+  detailToggle: document.querySelector("#detailToggle"),
+  newAssetTopBtn: document.querySelector("#newAssetTopBtn"),
   assetGrid: document.querySelector("#assetGrid"),
   detailPanel: document.querySelector("#detailPanel"),
   demoFlow: document.querySelector("#demoFlow"),
@@ -56,6 +60,7 @@ async function init() {
   await loadProjects();
   await loadStats();
   await loadAssets();
+  setDetailOpen(false);
   await refreshCowartBridgeStatus();
   setInterval(refreshCowartBridgeStatus, 5000);
   bindKeyboardNav();
@@ -72,13 +77,13 @@ function bindKeyboardNav() {
 
     if (e.key === "ArrowUp" && currentIndex > 0) {
       state.selectedId = state.assets[currentIndex - 1].id;
-      renderGrid();
-      renderDetail();
+      setDetailOpen(true);
+      updateSelectedCard();
       scrollToSelected();
     } else if (e.key === "ArrowDown" && currentIndex < state.assets.length - 1) {
       state.selectedId = state.assets[currentIndex + 1].id;
-      renderGrid();
-      renderDetail();
+      setDetailOpen(true);
+      updateSelectedCard();
       scrollToSelected();
     }
   });
@@ -183,6 +188,7 @@ async function loadStats() {
   let favorites = 0;
   let recent = 0;
   let codex = 0;
+  let cowart = 0;
 
   for (const a of assets) {
     // 收藏：rating > 0 或 favorite 标记为 true
@@ -192,6 +198,7 @@ async function loadStats() {
       if (age < ONE_WEEK) recent++;
     }
     if (a.source?.type === "codex-generated") codex++;
+    if (a.source?.type === "cowart-generated") cowart++;
     if (a.group)  groupMap.set(a.group,    (groupMap.get(a.group)    || 0) + 1);
     if (a.category) categoryMap.set(a.category, (categoryMap.get(a.category) || 0) + 1);
     if (a.style)  styleMap.set(a.style,    (styleMap.get(a.style)    || 0) + 1);
@@ -202,6 +209,7 @@ async function loadStats() {
     favorites,
     recent,
     codex,
+    cowart,
     groups:    [...groupMap.entries()].sort((a, b) => b[1] - a[1]),
     categories: [...categoryMap.entries()].sort((a, b) => b[1] - a[1]),
     styles:    [...styleMap.entries()].sort((a, b) => b[1] - a[1])
@@ -219,14 +227,19 @@ async function loadAssets() {
   if (state.filter.type === "favorite") params.set("favorite", "1");
   else if (state.filter.type === "recent") params.set("recent", "1");
   else if (state.filter.type === "codex") params.set("source", "codex-generated");
+  else if (state.filter.type === "cowart") params.set("source", "cowart-generated");
   else if (state.filter.type === "group") params.set("group", state.filter.value);
   else if (state.filter.type === "category") params.set("category", state.filter.value);
   else if (state.filter.type === "style") params.set("style", state.filter.value);
 
   const result = await api(`/api/assets?${params}`);
   state.assets = result.assets;
+  if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)) {
+    state.selectedId = null;
+  }
   renderGrid();
-  renderDetail();
+  if (state.detailOpen) renderDetail();
+  else renderDemoFlow(null);
   updateViewTitle();
 }
 
@@ -249,6 +262,7 @@ function updateViewTitle() {
     favorite: "收藏",
     recent: "最近一周",
     codex: "Codex 生成",
+    cowart: "Cowart 画布",
     group: state.filter.value,
     category: state.filter.value,
     style: state.filter.value
@@ -285,6 +299,18 @@ function bindEvents() {
       } catch (e) {
         showToast("打开失败: " + e.message, "error");
       }
+    });
+  }
+
+  if (els.detailToggle) {
+    els.detailToggle.addEventListener("click", () => {
+      setDetailOpen(!state.detailOpen);
+    });
+  }
+
+  if (els.newAssetTopBtn) {
+    els.newAssetTopBtn.addEventListener("click", () => {
+      openImportModal();
     });
   }
 
@@ -446,6 +472,7 @@ function renderQuickFilters() {
   els.quickFilters.querySelector("[data-filter=favorite] .nav-count").textContent = s.favorites;
   els.quickFilters.querySelector("[data-filter=recent] .nav-count").textContent = s.recent;
   els.quickFilters.querySelector("[data-filter=codex] .nav-count").textContent = s.codex;
+  els.quickFilters.querySelector("[data-filter=cowart] .nav-count").textContent = s.cowart;
 }
 
 function renderGroupList() {
@@ -505,6 +532,34 @@ function renderStyleList() {
 }
 
 // ── Grid Rendering ─────────────────────────────────────────────────────────────
+let masonryResizeObserver = null;
+
+function layoutMasonry() {
+  els.assetGrid.querySelectorAll(".asset-card").forEach((card) => {
+    const selectable = card.querySelector(".asset-card-select");
+    const cardHeight = selectable?.getBoundingClientRect().height || 0;
+    if (!cardHeight) return;
+    card.style.gridRowEnd = `span ${Math.ceil((cardHeight + 8) / 16)}`;
+  });
+}
+
+function setupMasonryLayout() {
+  const grid = els.assetGrid;
+  if (!grid) return;
+
+  const scheduleLayout = () => requestAnimationFrame(layoutMasonry);
+  grid.querySelectorAll(".thumb").forEach((image) => {
+    image.addEventListener("load", scheduleLayout, { once: true });
+  });
+  scheduleLayout();
+
+  masonryResizeObserver?.disconnect();
+  if ("ResizeObserver" in window) {
+    masonryResizeObserver = new ResizeObserver(scheduleLayout);
+    masonryResizeObserver.observe(grid);
+  }
+}
+
 function renderGrid() {
   if (state.assets.length === 0) {
     els.assetGrid.innerHTML = `
@@ -542,13 +597,15 @@ function renderGrid() {
     </article>`;
   }).join("");
 
+  setupMasonryLayout();
+
   els.assetGrid.querySelectorAll(".asset-card-select").forEach(button => {
     button.addEventListener("click", () => {
       const card = button.closest(".asset-card");
       if (!card) return;
       state.selectedId = card.dataset.id;
-      renderGrid();
-      renderDetail();
+      setDetailOpen(true);
+      updateSelectedCard();
     });
   });
 
@@ -562,6 +619,26 @@ function renderGrid() {
       });
     });
   });
+}
+
+function updateSelectedCard() {
+  els.assetGrid.querySelectorAll(".asset-card").forEach((card) => {
+    const selected = card.dataset.id === state.selectedId;
+    card.classList.toggle("selected", selected);
+    card.querySelector(".asset-card-select")?.setAttribute("aria-pressed", String(selected));
+  });
+}
+
+function setDetailOpen(open) {
+  state.detailOpen = Boolean(open);
+  els.appShell?.classList.toggle("details-open", state.detailOpen);
+  els.detailPanel?.setAttribute("aria-hidden", String(!state.detailOpen));
+  if (els.detailToggle) {
+    els.detailToggle.setAttribute("aria-expanded", String(state.detailOpen));
+    els.detailToggle.textContent = state.detailOpen ? "收起检视器" : "打开检视器";
+  }
+  if (state.detailOpen) renderDetail();
+  else renderDemoFlow(null);
 }
 
 function openImportModal() {
@@ -618,7 +695,7 @@ function renderDetail() {
     return;
   }
 
-  const asset = state.assets.find(a => a.id === state.selectedId) || state.assets[0];
+  const asset = state.assets.find(a => a.id === state.selectedId);
   if (!asset) {
     renderDemoFlow(null);
     els.detailPanel.innerHTML = `
@@ -700,20 +777,30 @@ function renderDetail() {
 
   const source = asset.source || {};
   const isCodexAsset = source.type === "codex-generated";
+  const isCowartAsset = source.type === "cowart-generated";
+  const sourceType = isCodexAsset ? "Codex 生成" : isCowartAsset ? "Cowart 画布" : (source.type || "手动导入");
   const sourceRows = (isCodexAsset
     ? [
-        ["类型", source.type],
+        ["来源", sourceType],
         ["任务 ID", source.codex_task_id],
         ["模型", source.model],
         ["生成工具", source.generation_tool],
         ["原始路径", source.path]
       ]
+    : isCowartAsset
+      ? [
+          ["来源", sourceType],
+          ["画布对象", source.cowart_shape_id],
+          ["页面资产", source.cowart_asset_id],
+          ["画布描述", source.cowart_annotation_source_shape_id ? "批注编辑结果" : "画布图片"],
+          ["原始路径", source.path]
+        ]
     : [
-        ["Type", source.type],
-        ["Original path", source.path],
-        ["Codex task", source.codex_task_id],
-        ["Tool", source.generation_tool],
-        ["Model", source.model]
+        ["来源", sourceType],
+        ["原始路径", source.path],
+        ["Codex 任务", source.codex_task_id],
+        ["生成工具", source.generation_tool],
+        ["模型", source.model]
       ])
     .filter(([, value]) => value !== undefined && value !== null && value !== "");
   const sourceHtml = sourceRows.length
@@ -731,6 +818,10 @@ function renderDetail() {
   const groupDatalist = state.groups.groups.map(([n]) => `<option value="${escapeHtml(n)}">`).join("");
 
   els.detailPanel.innerHTML = `
+    <div class="detail-studio-bar">
+      <span>素材检视器</span>
+      <button class="detail-close" type="button" data-action="close-detail">收起</button>
+    </div>
     <div class="detail-image-wrap">
       <img class="detail-image" src="${asset.image_url}" alt="${escapeHtml(asset.theme || asset.id)}" />
     </div>
@@ -879,6 +970,10 @@ function renderDetail() {
 function bindDetailEvents(asset) {
   const panel = els.detailPanel;
 
+  panel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => {
+    setDetailOpen(false);
+  });
+
   panel.querySelector('[data-action="copy-prompt"]').addEventListener("click", async () => {
     await runAction(async () => {
       await navigator.clipboard.writeText(asset.prompt || "");
@@ -906,7 +1001,7 @@ function bindDetailEvents(asset) {
   panel.querySelector('[data-action="regenerate"]').addEventListener("click", async () => {
     await runAction(async () => {
       const instruction = [
-        "请用同配方再生成一版图片，并保存到 GPT Asset Manager：",
+        "请用同配方再生成一版图片，并保存到 MOSA：",
         "",
         `asset_id: ${asset.id}`,
         `skill: ${asset.skill}`,
@@ -1001,28 +1096,18 @@ function debounce(fn, delay) {
   };
 }
 
-function renderDemoFlow(asset) {
+function renderDemoFlow() {
   if (!els.demoFlow || !els.demoFlowProvenance) return;
 
-  const source = asset?.source || {};
-  const isCodexAsset = source.type === "codex-generated";
-  els.demoFlow.classList.toggle("is-codex-selected", isCodexAsset);
+  const showHomeIntro = state.filter.type === "all" && !state.query;
+  els.demoFlow.hidden = !showHomeIntro;
+  if (!showHomeIntro) return;
+
+  els.demoFlow.classList.remove("is-source-selected");
   els.demoFlow.querySelectorAll("[data-demo-step]").forEach((step) => {
-    const stepNumber = Number(step.dataset.demoStep);
-    step.classList.toggle("is-highlighted", isCodexAsset && stepNumber >= 2);
+    step.classList.remove("is-highlighted");
   });
-
-  if (!isCodexAsset) {
-    els.demoFlowProvenance.textContent = "选择 Codex 素材，查看 MCP 自动归档的来源信息。";
-    return;
-  }
-
-  const provenance = [
-    source.codex_task_id ? `任务 ${source.codex_task_id}` : "任务 ID 未记录",
-    source.model || "模型未记录",
-    source.generation_tool || "生成工具未记录"
-  ];
-  els.demoFlowProvenance.textContent = `已选中 Codex 素材：${provenance.join(" · ")}。MCP 已自动归档，可搜索、查看 Prompt 并复用。`;
+  els.demoFlowProvenance.textContent = "图片、Prompt 与来源信息均保存在当前项目本地。";
 }
 
 function formatCodexOriginalPath(source = {}) {
