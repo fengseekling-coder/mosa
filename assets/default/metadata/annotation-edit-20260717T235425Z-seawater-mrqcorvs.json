@@ -35,12 +35,13 @@
     "cowart_page_asset_url": "/page-assets/page/annotation-edit-20260717T235425Z-seawater.png",
     "cowart_asset_id": "asset:annotation-edit-20260717T235425Z-seawater",
     "cowart_shape_id": "shape:annotation-edit-20260717T235425Z-seawater",
+    "cowart_annotation_source_shape_id": "shape:exec-60d21816-122f-4aee-84bb-d320e087a5eb",
     "cowart_shape_meta": {
       "cowartGeneratedFromAnnotationEdit": true,
       "cowartAnnotationSourceShapeId": "shape:exec-60d21816-122f-4aee-84bb-d320e087a5eb",
       "cowartAnnotationScreenshot": "annotation-edit-20260717T235425Z.png"
     },
-    "replaced_ai_image_holder": "shape:exec-60d21816-122f-4aee-84bb-d320e087a5eb",
+    "replaced_ai_image_holder": null,
     "prompt_status": "canvas-alt-text-only"
   }
 }

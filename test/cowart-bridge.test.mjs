@@ -20,7 +20,7 @@ test("archives Cowart page assets once and keeps manager-origin images out", asy
   await writeFile(join(canvasDir, "pages", "page", "cowart-canvas.json"), JSON.stringify({
     store: {
       "asset:bear": { id: "asset:bear", typeName: "asset", type: "image", props: { name: "bear.png", src: "/page-assets/page/bear.png" }, meta: {} },
-      "shape:bear": { id: "shape:bear", typeName: "shape", type: "image", props: { assetId: "asset:bear", w: 2160, h: 2160, altText: "草原背景的小熊" }, meta: { cowartGeneratedForAiImageHolder: "shape:holder" } },
+      "shape:bear": { id: "shape:bear", typeName: "shape", type: "image", props: { assetId: "asset:bear", w: 2160, h: 2160, altText: "草原背景的小熊" }, meta: { cowartGeneratedForAiImageHolder: "shape:holder", cowartAnnotationSourceShapeId: "shape:source" } },
       "asset:from-library": { id: "asset:from-library", typeName: "asset", type: "image", props: { name: "from-library.png", src: "/page-assets/page/from-library.png" }, meta: { assetManagerAssetId: "existing-library-asset" } },
     },
   }), "utf8");
@@ -31,6 +31,7 @@ test("archives Cowart page assets once and keeps manager-origin images out", asy
   assert.equal(first.skipped.length, 1);
   assert.equal(first.imported[0].source.cowart_shape_id, "shape:bear");
   assert.equal(first.imported[0].source.replaced_ai_image_holder, "shape:holder");
+  assert.equal(first.imported[0].source.cowart_annotation_source_shape_id, "shape:source");
   assert.equal(first.imported[0].ratio, "1:1");
 
   const second = await reconcileCowartAssets({ store, canvasDir });
