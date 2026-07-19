@@ -45,14 +45,6 @@ curl -sS http://127.0.0.1:43517/api/codex-bridge
 
 <img src="docs/screenshots/mosa-overview-2026-07-19.png" alt="MOSA 完整运行界面" width="1000" />
 
-**素材墙（局部）**
-
-<img src="docs/screenshots/library-gallery-2026-07-19.png" alt="MOSA 素材墙" width="720" />
-
-**素材检视器**
-
-<img src="docs/screenshots/asset-inspector-2026-07-19.png" alt="MOSA 素材检视器" width="300" />
-
 ## 更新记录
 
 近期更新见 [CHANGELOG.md](CHANGELOG.md)。每次更新均记录日期与简短说明。
