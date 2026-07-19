@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdtemp, mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -83,6 +83,24 @@ test("persists manually created groups, including empty groups", async (t) => {
   assert.deepEqual(stats.groups, [["Inspiration board", 1]]);
 });
 
+test("keeps concurrent group creations from independent store instances", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const firstStore = createAssetStore({ projectRoot, managerDir });
+  const secondStore = createAssetStore({ projectRoot, managerDir });
+
+  await Promise.all([
+    firstStore.createGroup({ projectId: "default", name: "alpha" }),
+    secondStore.createGroup({ projectId: "default", name: "beta" }),
+  ]);
+
+  const stats = await firstStore.listGroups("default");
+  assert.deepEqual(stats.groups, [["alpha", 0], ["beta", 0]]);
+});
+
 test("continues to reject image paths outside approved source roots", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -98,6 +116,41 @@ test("continues to reject image paths outside approved source roots", async (t) 
   });
 
   await assert.rejects(store.createAsset({ imagePath: outsidePath }), /Refusing to import outside the project roots/);
+});
+
+test("rejects symbolic links even when their link path is inside an approved root", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const outsidePath = join(root, "outside", "secret.txt");
+  const linkedImagePath = join(projectRoot, "generated-images", "linked.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await mkdir(join(root, "outside"), { recursive: true });
+  await writeFile(outsidePath, "not an image", "utf8");
+  await symlink(outsidePath, linkedImagePath);
+
+  const store = createAssetStore({ projectRoot, managerDir });
+  await assert.rejects(store.createAsset({ imagePath: linkedImagePath }), /Refusing to import symbolic links/);
+});
+
+test("rejects a regular file reached through a symbolic-link directory", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const outsideDir = join(root, "outside");
+  const linkedDir = join(projectRoot, "generated-images", "linked");
+  const linkedImagePath = join(linkedDir, "escape.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await mkdir(outsideDir, { recursive: true });
+  await writeFile(join(outsideDir, "escape.png"), "not an image", "utf8");
+  await symlink(outsideDir, linkedDir);
+
+  const store = createAssetStore({ projectRoot, managerDir });
+  await assert.rejects(store.createAsset({ imagePath: linkedImagePath }), /Refusing to import outside the project roots/);
 });
 
 test("imports Cowart page assets from the configured external canvas directory", async (t) => {

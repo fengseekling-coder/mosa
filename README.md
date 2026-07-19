@@ -6,6 +6,14 @@
 
 > Codex images and Cowart canvas images are both monitored locally and remain traceable.
 
+## Built with Codex and GPT-5.6
+
+MOSA was built through iterative Codex sessions using GPT-5.6-terra. GPT-5.6 shaped the local-first product boundary, provenance model, end-to-end demo path, and successive interface and reliability refinements. Codex then turned those decisions into the Node service, MCP tools, web interface, Codex image archiver, and Cowart bridge; it also ran focused tests and verification passes that informed follow-up fixes.
+
+The Build Week implementation history is visible in the repository's dated commits: Codex image provenance, the MCP workflow, Cowart synchronization, source-aware metadata, hard-link archival, and UI refinements were developed as separate, reviewable changes. A real Codex image-generation run was used to verify that MOSA preserves the generated image, complete prompt, task context, `imagegen` tool attribution, and `gpt-5.6-terra` model metadata.
+
+The resulting product closes the loop for visual work: create in Codex or Cowart, preserve the image with its prompt and provenance, find it again in MOSA, and reuse it on the Cowart canvas without duplicating its record.
+
 ## 它如何归档图片
 
 | 来源 | 归档方式 | 保存的信息 | 需要的前提 |
@@ -181,7 +189,7 @@ node mosa/mcp/server.mjs
 ## 当前边界
 
 - 数据以本地文件保存，第一版不使用数据库或云同步。
-- Codex 图片归档依赖 MCP `asset_create`，不是桌面级图片监控。
+- Codex 图片归档在素材管理器服务运行时自动监听标准生成目录；MCP `asset_create` 可用于显式保存和补充生成元数据。
 - Cowart 自动归档依赖素材管理器服务运行，并且只覆盖配置的一个画布目录。
 - Cowart 自动归档保留画布描述，不具备完整 Prompt；原始 Prompt 需要从生成任务补录。
 - “同配方再生成”当前复制 Codex 指令，不直接调用图像模型。
@@ -192,4 +200,5 @@ node mosa/mcp/server.mjs
 2. 展示 Cowart 中生成或编辑图片后，无需额外入库指令即出现在素材库。
 3. 在 Web 中搜索素材，打开详情页展示 Prompt、配方和来源。
 4. 将库内素材插入 Cowart，展示去重保护与可复用性。
-5. 提交前记录主构建任务的 `/feedback` Session ID，并在项目描述中说明 Codex 与 GPT-5.6 如何完成闭环。
+5. 提交证据：本仓库的 2026-07-17 至 2026-07-19 提交记录可追溯 Codex/GPT-5.6 的增量构建；GitHub 项目简介和本节已说明该闭环。
+6. 待提交前完成：在主构建 Codex 任务中执行 `/feedback`，并记录返回的 Feedback Session ID。不要以普通 Codex 任务 ID 代替该 ID。
