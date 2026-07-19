@@ -7,6 +7,7 @@ npm-debug.log*
 *.bak-*
 assets/*/thumbs/
 /canvas/
+/outputs/
 
 # Runtime library entries remain local. Existing tracked files are the checked-in
 # demo seed; intentionally curated new samples can still be added with git add -f.

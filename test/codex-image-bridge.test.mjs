@@ -90,6 +90,76 @@ test("upgrades an archived task instruction to the matching image generation pro
   assert.equal(upgraded.source.model, "gpt-5.6-terra");
 });
 
+test("does not downgrade revised prompt provenance when only task fallback remains", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const imagesDir = join(root, "generated_images");
+  const sessionsDir = join(root, "sessions");
+  const taskId = "019f776f-f6d5-7692-b9e5-dd280fc09f07";
+  const imagePath = join(imagesDir, taskId, "verified.png");
+  const sessionPath = join(sessionsDir, `rollout-test-${taskId}.jsonl`);
+  await mkdir(join(imagesDir, taskId), { recursive: true });
+  await mkdir(sessionsDir, { recursive: true });
+  await writeFile(imagePath, pngFixture(1024, 1024));
+  await writeFile(sessionPath, `${JSON.stringify({
+    type: "turn_context",
+    payload: { model: "gpt-5.6-terra" },
+  })}\n${JSON.stringify({
+    type: "response_item",
+    payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Task-level fallback prompt" }] },
+  })}\n`);
+
+  const store = createAssetStore({ projectRoot, managerDir, codexImagesDir: imagesDir });
+  await store.createAsset({
+    assetId: "verified-provenance",
+    imagePath,
+    prompt: "Verified revised prompt",
+    sourceType: "codex-generated",
+    business_fields: { prompt_status: "image-generation-revised-prompt" },
+    source: {
+      prompt_status: "image-generation-revised-prompt",
+      codex_image_generation_call_id: "verified-call",
+    },
+  });
+
+  const result = await reconcileCodexGeneratedImages({ store, imagesDir, sessionsDir });
+  assert.deepEqual(result.updated, []);
+  const asset = await store.getAsset("default", "verified-provenance");
+  assert.equal(asset.prompt, "Verified revised prompt");
+  assert.equal(asset.source.prompt_status, "image-generation-revised-prompt");
+  assert.equal(asset.source.codex_image_generation_call_id, "verified-call");
+  assert.equal(asset.source.model, undefined);
+});
+
+test("does not infer an unmatched image model from the task's final turn", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const imagesDir = join(root, "generated_images");
+  const sessionsDir = join(root, "sessions");
+  const taskId = "019f776f-f6d5-7692-b9e5-dd280fc09f08";
+  const imagePath = join(imagesDir, taskId, "unmatched.png");
+  const sessionPath = join(sessionsDir, `rollout-test-${taskId}.jsonl`);
+  await mkdir(join(imagesDir, taskId), { recursive: true });
+  await mkdir(sessionsDir, { recursive: true });
+  await writeFile(imagePath, pngFixture(800, 1200));
+  await writeFile(sessionPath, [
+    { type: "turn_context", payload: { model: "first-model" } },
+    { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "First turn" }] } },
+    { type: "turn_context", payload: { model: "final-model" } },
+    { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Final turn" }] } },
+  ].map((event) => JSON.stringify(event)).join("\n") + "\n");
+
+  const store = createAssetStore({ projectRoot, managerDir, codexImagesDir: imagesDir });
+  const result = await reconcileCodexGeneratedImages({ store, imagesDir, sessionsDir });
+  assert.equal(result.imported.length, 1);
+  assert.equal(result.imported[0].source.prompt_status, "task-user-prompt");
+  assert.equal(result.imported[0].source.model, null);
+});
+
 test("watches a later Codex image and stores fallback metadata when no session is available", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
   t.after(() => rm(root, { recursive: true, force: true }));

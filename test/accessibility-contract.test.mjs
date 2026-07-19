@@ -58,6 +58,16 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
   assert.match(app, /\["cowart", t\("filterCowart"\)/);
 });
 
+test("keeps background library refreshes from replacing active edits", async () => {
+  const app = await readFile(resolve(root, "app/app.js"), "utf8");
+
+  assert.match(app, /detailDirty: false/);
+  assert.match(app, /requestId !== assetRequestSequence/);
+  assert.match(app, /!options\.background \|\| assetsChanged/);
+  assert.match(app, /selectedChanged && !isDetailEditorActive\(\)/);
+  assert.match(app, /field\.addEventListener\("input", \(\) => \{ state\.detailDirty = true; \}\)/);
+});
+
 test("uses a single language chosen from system, Chinese, or English", async () => {
   const [html, app] = await Promise.all([
     readFile(resolve(root, "app/index.html"), "utf8"),

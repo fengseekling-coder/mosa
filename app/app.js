@@ -9,7 +9,7 @@ const translations = {
 
 const preference = safeStorageGet("mosa.ui-language") || "system";
 const state = {
-  project: "default", projects: [], assets: [], selectedId: null, detailOpen: false, imagePreviewId: null, previewReturnFocus: null, query: "",
+  project: "default", projects: [], assets: [], selectedId: null, detailOpen: false, detailDirty: false, imagePreviewId: null, previewReturnFocus: null, query: "",
   filter: { type: "all", value: "" }, groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [] },
   libraryPath: "", codexImagesDir: "", modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference)
 };
@@ -112,32 +112,56 @@ async function loadProjects() {
   renderSettingsMenu();
 }
 
-async function loadStats() {
-  try {
-    const library = await api(`/api/library-path?project=${encodeURIComponent(state.project)}`);
-    state.libraryPath = library.path || "";
-    state.codexImagesDir = library.codexGeneratedImagesDir || "";
-    updateCodexHint();
-  } catch { state.libraryPath = ""; }
-  const result = await api(`/api/groups?project=${encodeURIComponent(state.project)}`);
-  state.groups = { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [], ...(result.groups || {}) };
-  renderQuickFilters();
-  renderFilterPanel();
+let statsRequestSequence = 0;
+async function loadStats(options = {}) {
+  const requestId = ++statsRequestSequence;
+  const project = state.project;
+  const [library, result] = await Promise.all([
+    api(`/api/library-path?project=${encodeURIComponent(project)}`).catch(() => null),
+    api(`/api/groups?project=${encodeURIComponent(project)}`)
+  ]);
+  if (requestId !== statsRequestSequence || project !== state.project) return false;
+
+  state.libraryPath = library?.path || "";
+  state.codexImagesDir = library?.codexGeneratedImagesDir || "";
+  updateCodexHint();
+  const nextGroups = { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [], ...(result.groups || {}) };
+  const changed = JSON.stringify(nextGroups) !== JSON.stringify(state.groups);
+  state.groups = nextGroups;
+  if (!options.background || changed) {
+    renderQuickFilters();
+    renderFilterPanel();
+  }
+  return true;
 }
 
-async function loadAssets() {
-  const params = new URLSearchParams({ project: state.project, q: state.query });
-  if (state.filter.type === "favorite") params.set("favorite", "1");
-  else if (state.filter.type === "recent") params.set("recent", "1");
-  else if (state.filter.type === "codex") params.set("source", "codex-generated");
-  else if (state.filter.type === "cowart") params.set("source", "cowart-generated");
-  else if (["group", "category", "style"].includes(state.filter.type)) params.set(state.filter.type, state.filter.value);
+let assetRequestSequence = 0;
+async function loadAssets(options = {}) {
+  const requestId = ++assetRequestSequence;
+  const request = currentAssetRequest();
+  const params = new URLSearchParams({ project: request.project, q: request.query });
+  if (request.filterType === "favorite") params.set("favorite", "1");
+  else if (request.filterType === "recent") params.set("recent", "1");
+  else if (request.filterType === "codex") params.set("source", "codex-generated");
+  else if (request.filterType === "cowart") params.set("source", "cowart-generated");
+  else if (["group", "category", "style"].includes(request.filterType)) params.set(request.filterType, request.filterValue);
   const result = await api(`/api/assets?${params}`);
-  state.assets = result.assets || [];
+  if (requestId !== assetRequestSequence || assetRequestKey(request) !== assetRequestKey(currentAssetRequest())) return false;
+
+  const previousAssets = state.assets;
+  const previousSelected = previousAssets.find((asset) => asset.id === state.selectedId);
+  const nextAssets = result.assets || [];
+  const nextSelected = nextAssets.find((asset) => asset.id === state.selectedId);
+  const assetsChanged = assetListVersion(previousAssets) !== assetListVersion(nextAssets);
+  const selectedChanged = assetVersion(previousSelected) !== assetVersion(nextSelected);
+  state.assets = nextAssets;
   if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)) state.selectedId = null;
-  renderGrid();
-  updateViewTitle();
-  if (state.detailOpen) renderDetail();
+  if (!options.background || assetsChanged) {
+    renderGrid();
+    updateViewTitle();
+  }
+  if (state.detailOpen && (!options.background || !state.selectedId || (selectedChanged && !isDetailEditorActive()))) renderDetail();
+  return true;
 }
 
 let libraryRefreshInFlight = false;
@@ -145,12 +169,33 @@ async function refreshLibraryInBackground() {
   if (document.hidden || libraryRefreshInFlight) return;
   libraryRefreshInFlight = true;
   try {
-    await Promise.all([loadStats(), loadAssets()]);
+    await Promise.all([loadStats({ background: true }), loadAssets({ background: true })]);
   } catch {
     // A transient refresh failure should not interrupt the active library view.
   } finally {
     libraryRefreshInFlight = false;
   }
+}
+
+function currentAssetRequest() {
+  return { project: state.project, query: state.query, filterType: state.filter.type, filterValue: state.filter.value };
+}
+
+function assetRequestKey(request) {
+  return JSON.stringify([request.project, request.query, request.filterType, request.filterValue]);
+}
+
+function assetListVersion(assets) {
+  return assets.map((asset) => `${asset.id}:${asset.updated_at || ""}:${asset.image_url || ""}`).join("|");
+}
+
+function assetVersion(asset) {
+  return asset ? `${asset.id}:${asset.updated_at || ""}` : "";
+}
+
+function isDetailEditorActive() {
+  const active = document.activeElement;
+  return state.detailDirty || (active instanceof HTMLElement && Boolean(els.detailPanel?.contains(active) && active.closest("[data-edit]")));
 }
 
 async function refreshCowartBridgeStatus() {
@@ -363,6 +408,7 @@ function updateSelectedCard() { els.assetGrid?.querySelectorAll(".asset-card").f
 function setDetailOpen(open) {
   state.detailOpen = Boolean(open); els.appShell?.classList.toggle("details-open", state.detailOpen); els.detailPanel?.setAttribute("aria-hidden", String(!state.detailOpen));
   if (state.detailOpen) renderDetail();
+  else state.detailDirty = false;
 }
 
 function openImportModal() { state.modalReturnFocus = document.activeElement; els.importModal?.classList.add("open"); els.importModal?.setAttribute("aria-hidden", "false"); requestAnimationFrame(() => els.imagePathInput?.focus()); }
@@ -448,6 +494,7 @@ function trapImagePreviewFocus(event) {
 function renderDetail() {
   if (!els.detailPanel) return;
   const asset = state.assets.find((item) => item.id === state.selectedId);
+  state.detailDirty = false;
   if (!asset) { els.detailPanel.innerHTML = `<div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t(state.assets.length ? "noSelection" : "noAssets")}</p><span>${t(state.assets.length ? "noSelectionHint" : "noAssetsHint")}</span></div>`; return; }
   const source = asset.source || {}; const rating = Math.min(5, Math.max(0, Math.round(asset.rating || 0))); const groupOptions = state.groups.groups.map(([name]) => `<option value="${escapeHtml(name)}"></option>`).join("");
   const metadata = [["skill", asset.skill], ["style", asset.style], ["ratio", asset.ratio], ["theme", asset.theme], ["group", asset.group], ["category", asset.category], ["rating", asset.rating ? `${asset.rating}/5` : ""]].filter(([, value]) => value !== undefined && value !== null && value !== "");
@@ -466,6 +513,10 @@ function sourceName(source = {}) { return source.type === "codex-generated" ? t(
 
 function bindDetailEvents(asset) {
   const panel = els.detailPanel;
+  panel.querySelectorAll("[data-edit]").forEach((field) => {
+    field.addEventListener("input", () => { state.detailDirty = true; });
+    field.addEventListener("change", () => { state.detailDirty = true; });
+  });
   panel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => setDetailOpen(false));
   panel.querySelector(".detail-image")?.addEventListener("dblclick", (event) => openImagePreview(asset.id, event.currentTarget));
   panel.querySelector('[data-action="copy-prompt"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(asset.prompt || ""); showToast(t("copySuccess"), "success"); }));
@@ -474,7 +525,7 @@ function bindDetailEvents(asset) {
     const instruction = [t("generatedInstruction"), "", `asset_id: ${asset.id}`, `skill: ${asset.skill || ""}`, `style: ${asset.style || ""}`, `ratio: ${asset.ratio || ""}`, `theme: ${asset.theme || ""}`, `group: ${asset.group || ""}`, `category: ${asset.category || ""}`, `business_fields: ${JSON.stringify(asset.business_fields || {})}`, "", asset.prompt || ""].join("\n");
     await navigator.clipboard.writeText(instruction); showToast(t("instructionCopied"), "success");
   }));
-  panel.querySelectorAll('[data-edit="rating"] button').forEach((button) => button.addEventListener("click", () => { const value = Number(button.dataset.val); panel.querySelectorAll('[data-edit="rating"] button').forEach((star) => { const on = Number(star.dataset.val) <= value; star.classList.toggle("on", on); star.textContent = on ? "★" : "☆"; }); }));
+  panel.querySelectorAll('[data-edit="rating"] button').forEach((button) => button.addEventListener("click", () => { state.detailDirty = true; const value = Number(button.dataset.val); panel.querySelectorAll('[data-edit="rating"] button').forEach((star) => { const on = Number(star.dataset.val) <= value; star.classList.toggle("on", on); star.textContent = on ? "★" : "☆"; }); }));
   panel.querySelector('[data-action="save-recipe"]')?.addEventListener("click", () => runAction(async () => {
     const businessText = panel.querySelector('[data-edit="business_fields"]').value;
     let businessFields = {}; try { businessFields = businessText.trim() ? JSON.parse(businessText) : {}; } catch { throw new Error(t("invalidJson")); }
