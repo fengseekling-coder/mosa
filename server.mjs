@@ -28,7 +28,7 @@ const server = createServer(async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
 
-    if (!isAllowedLocalOrigin(req.headers.origin, port)) {
+    if (!isAllowedLocalOrigin(req.headers.origin, boundPortFor(server, port))) {
       sendJson(res, 403, { error: "Cross-origin requests are not allowed." });
       return;
     }
@@ -59,8 +59,13 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`MOSA: http://127.0.0.1:${port}`);
+  console.log(`MOSA: http://127.0.0.1:${boundPortFor(server, port)}`);
 });
+
+function boundPortFor(serverInstance, fallbackPort) {
+  const address = serverInstance.address();
+  return typeof address === "object" && address ? address.port : fallbackPort;
+}
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/cowart-bridge") {

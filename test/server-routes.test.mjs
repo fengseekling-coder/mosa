@@ -8,12 +8,11 @@ import test from "node:test";
 
 test("returns 404 for a missing library image without stopping the server", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-server-"));
-  const port = 44000 + Math.floor(Math.random() * 1000);
   const server = spawn(process.execPath, ["server.mjs"], {
     cwd: process.cwd(),
     env: {
       ...process.env,
-      MOSA_PORT: String(port),
+      MOSA_PORT: "0",
       MOSA_PROJECT_DIR: root,
       CODEX_GENERATED_IMAGES_DIR: join(root, "generated-images"),
       CODEX_SESSIONS_DIR: join(root, "sessions"),
@@ -23,21 +22,48 @@ test("returns 404 for a missing library image without stopping the server", asyn
   });
   t.after(async () => {
     if (server.exitCode === null) {
+      const exited = once(server, "exit");
       server.kill("SIGTERM");
-      await once(server, "exit");
+      await exited;
     }
     await rm(root, { recursive: true, force: true });
   });
 
+  const port = await waitForServerPort(server);
   await waitForServer(port, server);
   const missingImage = await fetch(`http://127.0.0.1:${port}/library/default/images/does-not-exist.png`);
   assert.equal(missingImage.status, 404);
   assert.deepEqual(await missingImage.json(), { error: "Asset not found" });
 
-  const bridgeStatus = await fetch(`http://127.0.0.1:${port}/api/bridges`);
+  const bridgeStatus = await fetch(`http://127.0.0.1:${port}/api/bridges`, {
+    headers: { origin: `http://127.0.0.1:${port}` },
+  });
   assert.equal(bridgeStatus.status, 200);
   assert.equal(server.exitCode, null);
 });
+
+async function waitForServerPort(server) {
+  server.stdout.setEncoding("utf8");
+  return new Promise((resolvePort, rejectPort) => {
+    let output = "";
+    const timer = setTimeout(() => finish(new Error("Timed out waiting for MOSA server startup.")), 5000);
+    const onOutput = (chunk) => {
+      output += chunk;
+      const match = /MOSA: http:\/\/127\.0\.0\.1:(\d+)/.exec(output);
+      if (match) finish(null, Number(match[1]));
+    };
+    const onExit = () => finish(new Error("MOSA server exited during startup."));
+    const finish = (error, port) => {
+      clearTimeout(timer);
+      server.stdout.off("data", onOutput);
+      server.off("exit", onExit);
+      if (error) rejectPort(error);
+      else resolvePort(port);
+    };
+    server.stdout.on("data", onOutput);
+    server.once("exit", onExit);
+  });
+}
 
 async function waitForServer(port, server) {
   const deadline = Date.now() + 5000;

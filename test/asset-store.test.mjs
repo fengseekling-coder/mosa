@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdtemp, mkdir, readFile, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdtemp, mkdir, readFile, rm, stat, symlink, unlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -101,6 +101,50 @@ test("keeps concurrent group creations from independent store instances", async 
   assert.deepEqual(stats.groups, [["alpha", 0], ["beta", 0]]);
 });
 
+test("does not reclaim a stale-looking lock held by a live group writer", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const firstStore = createAssetStore({ projectRoot, managerDir });
+  const secondStore = createAssetStore({ projectRoot, managerDir });
+  firstStore.listAssets = async () => {
+    await delay(150);
+    return [];
+  };
+
+  const firstWrite = firstStore.createGroup({ projectId: "default", name: "alpha" });
+  const lockPath = join(managerDir, "assets", "default", ".groups.lock");
+  await waitForPath(lockPath);
+  const staleTime = new Date(Date.now() - 31_000);
+  await utimes(lockPath, staleTime, staleTime);
+
+  const secondWrite = secondStore.createGroup({ projectId: "default", name: "beta" });
+  await Promise.all([firstWrite, secondWrite]);
+
+  const stats = await secondStore.listGroups("default");
+  assert.deepEqual(stats.groups, [["alpha", 0], ["beta", 0]]);
+});
+
+test("recovers a stale group lock whose owner has exited", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const store = createAssetStore({ projectRoot, managerDir });
+  await store.ensureProject("default");
+  const lockPath = join(managerDir, "assets", "default", ".groups.lock");
+  await writeFile(lockPath, JSON.stringify({ token: "dead-owner", pid: 999_999_999 }), "utf8");
+  const staleTime = new Date(Date.now() - 31_000);
+  await utimes(lockPath, staleTime, staleTime);
+
+  await store.createGroup({ projectId: "default", name: "recovered" });
+  const stats = await store.listGroups("default");
+  assert.deepEqual(stats.groups, [["recovered", 0]]);
+});
+
 test("continues to reject image paths outside approved source roots", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -178,3 +222,20 @@ test("imports Cowart page assets from the configured external canvas directory",
   assert.equal(asset.source.path, sourcePath);
   assert.match(asset.image_path, /mosa\/assets\/default\/images\/cowart-bear\.png$/);
 });
+
+async function waitForPath(path) {
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    try {
+      await access(path);
+      return;
+    } catch {
+      await delay(10);
+    }
+  }
+  throw new Error(`Timed out waiting for ${path}`);
+}
+
+function delay(milliseconds) {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
