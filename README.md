@@ -241,3 +241,7 @@ node mosa/mcp/server.mjs
 4. 将库内素材插入 Cowart，展示去重保护与可复用性。
 5. 提交证据：本仓库的 2026-07-17 至 2026-07-19 提交记录可追溯 Codex/GPT-5.6 的增量构建；GitHub 项目简介和本节已说明该闭环。
 6. 待提交前完成：在主构建 Codex 任务中执行 `/feedback`，并记录返回的 Feedback Session ID。不要以普通 Codex 任务 ID 代替该 ID。
+
+## License
+
+MOSA is available under the [MIT License](LICENSE).
