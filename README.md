@@ -39,6 +39,10 @@ curl -sS http://127.0.0.1:43517/api/codex-bridge
 
 两个状态接口中的 `enabled`、`watching` 和 `polling` 都为 `true`，表示自动归档已启用。`polling` 是文件系统没有传递变更事件时的兜底同步。
 
+## 更新记录
+
+近期更新见 [CHANGELOG.md](CHANGELOG.md)。每次更新均记录日期与简短说明。
+
 ## 一次性连接 Codex MCP
 
 在终端注册 MCP。将路径替换成自己的绝对路径：

@@ -291,7 +291,7 @@ function renderQuickFilters() {
 
 function renderSidebarGroups() {
   if (!els.sidebarGroupList) return;
-  els.sidebarGroupList.innerHTML = state.groups.groups.map(([name, count]) => `<li><button class="nav-item nav-group-item${state.filter.type === "group" && state.filter.value === name ? " active" : ""}" data-filter="group" data-value="${escapeHtml(name)}" type="button" aria-pressed="${state.filter.type === "group" && state.filter.value === name}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-10Z"/></svg><span class="nav-item-text">${escapeHtml(name)}</span><span class="nav-count">${count}</span></button></li>`).join("");
+  els.sidebarGroupList.innerHTML = state.groups.groups.map(([name, count]) => `<li><button class="nav-item nav-group-item${state.filter.type === "group" && state.filter.value === name ? " active" : ""}" data-filter="group" data-value="${escapeHtml(name)}" type="button" aria-pressed="${state.filter.type === "group" && state.filter.value === name}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-10Z"/></svg><span class="nav-item-text" title="${escapeHtml(name)}">${escapeHtml(name)}</span><span class="nav-count">${count}</span></button></li>`).join("");
 }
 
 function renderFilterPanel() {
@@ -310,7 +310,7 @@ function renderFilterList(element, values, type, emptyText) {
 }
 
 let masonryResizeObserver = null;
-function layoutMasonry() { els.assetGrid?.querySelectorAll(".asset-card").forEach((card) => { const height = card.querySelector(".asset-card-select")?.getBoundingClientRect().height || 0; if (height) card.style.gridRowEnd = `span ${Math.ceil((height + 8) / 16)}`; }); }
+function layoutMasonry() { els.assetGrid?.querySelectorAll(".asset-card").forEach((card) => { const height = card.getBoundingClientRect().height || 0; if (height) card.style.gridRowEnd = `span ${Math.ceil(height + 8)}`; }); }
 function setupMasonryLayout() {
   const grid = els.assetGrid; if (!grid) return;
   const schedule = () => requestAnimationFrame(layoutMasonry);
