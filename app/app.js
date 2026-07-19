@@ -32,6 +32,7 @@ async function init() {
   setDetailOpen(false);
   await refreshCowartBridgeStatus();
   setInterval(refreshCowartBridgeStatus, 5000);
+  setInterval(refreshLibraryInBackground, 2500);
   bindKeyboardNav();
 }
 
@@ -137,6 +138,19 @@ async function loadAssets() {
   renderGrid();
   updateViewTitle();
   if (state.detailOpen) renderDetail();
+}
+
+let libraryRefreshInFlight = false;
+async function refreshLibraryInBackground() {
+  if (document.hidden || libraryRefreshInFlight) return;
+  libraryRefreshInFlight = true;
+  try {
+    await Promise.all([loadStats(), loadAssets()]);
+  } catch {
+    // A transient refresh failure should not interrupt the active library view.
+  } finally {
+    libraryRefreshInFlight = false;
+  }
 }
 
 async function refreshCowartBridgeStatus() {

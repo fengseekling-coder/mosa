@@ -21,6 +21,9 @@ test("archives Codex generated images with task metadata and avoids duplicates",
   await writeFile(imagePath, pngFixture(1024, 1536));
   const revisedPrompt = "Use case: stylized-concept\nAsset type: premium sci-fi keyframe, 2:3 portrait\nPrimary request: Build a luminous vertical megacity with rain and suspended transit rings.";
   await writeFile(sessionPath, `${JSON.stringify({
+    type: "turn_context",
+    payload: { model: "gpt-5.6-terra" },
+  })}\n${JSON.stringify({
     type: "response_item",
     payload: { type: "message", role: "user", content: [{ type: "input_text", text: "生成五张高级艺术视觉图，2:3" }] },
   })}\n${JSON.stringify({
@@ -37,6 +40,7 @@ test("archives Codex generated images with task metadata and avoids duplicates",
   assert.equal(first.imported[0].prompt, revisedPrompt);
   assert.equal(first.imported[0].source.prompt_status, "image-generation-revised-prompt");
   assert.equal(first.imported[0].source.codex_image_generation_call_id, "exec-test");
+  assert.equal(first.imported[0].source.model, "gpt-5.6-terra");
   assert.equal(first.imported[0].ratio, "2:3");
   assert.equal(first.imported[0].business_fields.width, 1024);
   assert.match(first.imported[0].source.content_sha256, /^[a-f0-9]{64}$/);
@@ -71,6 +75,9 @@ test("upgrades an archived task instruction to the matching image generation pro
 
   const revisedPrompt = "Use case: stylized-concept\nAsset type: alien observatory, 3:4 portrait\nPrimary request: Create a luminous ancient observatory above a cloud ocean.";
   await appendFile(sessionPath, `${JSON.stringify({
+    type: "turn_context",
+    payload: { model: "gpt-5.6-terra" },
+  })}\n${JSON.stringify({
     type: "event_msg",
     timestamp: "2026-07-18T22:55:27.133Z",
     payload: { type: "image_generation_end", call_id: "exec-upgrade", saved_path: imagePath, revised_prompt: revisedPrompt },
@@ -80,6 +87,7 @@ test("upgrades an archived task instruction to the matching image generation pro
   const upgraded = await store.getAsset("default", fallbackAsset.id);
   assert.equal(upgraded.prompt, revisedPrompt);
   assert.equal(upgraded.source.prompt_status, "image-generation-revised-prompt");
+  assert.equal(upgraded.source.model, "gpt-5.6-terra");
 });
 
 test("watches a later Codex image and stores fallback metadata when no session is available", async (t) => {
