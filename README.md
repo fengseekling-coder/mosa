@@ -14,6 +14,45 @@ The Build Week implementation history is visible in the repository's dated commi
 
 The resulting product closes the loop for visual work: create in Codex or Cowart, preserve the image with its prompt and provenance, find it again in MOSA, and reuse it on the Cowart canvas without duplicating its record.
 
+## Build Week setup and judging guide
+
+MOSA is a local-first developer tool. The complete library can be evaluated from the tracked sample records without an OpenAI account, Codex image credits, Cowart, or access to the author's local files.
+
+### Supported platform
+
+- Tested platform: macOS with Node.js and npm.
+- The core Node.js service and browser UI use standard filesystem and HTTP APIs, but Windows and Linux have not been verified for this submission.
+- Codex automatic archiving requires Codex Desktop and access to its standard local `~/.codex/generated_images/` and session directories.
+- Cowart automatic archiving is optional and requires the separately installed Cowart plugin plus a configured local canvas directory.
+
+### Install and run
+
+```bash
+git clone https://github.com/fengseekling-coder/mosa.git
+cd mosa
+npm ci
+npm test
+npm start
+```
+
+Open <http://127.0.0.1:43517>. The repository includes sample records, so the gallery, search, filters, asset detail view, prompt provenance, and source metadata can be inspected immediately. No build step, test account, API key, or external database is required.
+
+For a quick bridge health check while the service is running:
+
+```bash
+curl -sS http://127.0.0.1:43517/api/codex-bridge
+curl -sS http://127.0.0.1:43517/api/cowart-bridge
+```
+
+The optional integrations become active when their local source directories are available. They are not required to inspect or test the tracked Build Week sample data.
+
+### What judges can verify
+
+1. Browse and search the included visual records in the Web app.
+2. Open an asset to inspect its full prompt, source type, Codex task ID, original path, dimensions, and provenance status.
+3. Run `npm test` to verify storage boundaries, route behavior, accessibility contracts, Codex reconciliation, and Cowart deduplication.
+4. Review the dated Git history and the `Built with Codex and GPT-5.6` section above for the Build Week implementation record.
+
 ## 它如何归档图片
 
 | 来源 | 归档方式 | 保存的信息 | 需要的前提 |
@@ -196,7 +235,7 @@ node mosa/mcp/server.mjs
 
 ## Build Week 演示清单
 
-1. 展示 Codex 生成图片并调用 `asset_create`，证明完整 Prompt 与来源入库。
+1. 展示真实 Codex `image_generation_end` 记录，以及监听器无需点击 Import 即自动归档完整 Prompt 与来源。
 2. 展示 Cowart 中生成或编辑图片后，无需额外入库指令即出现在素材库。
 3. 在 Web 中搜索素材，打开详情页展示 Prompt、配方和来源。
 4. 将库内素材插入 Cowart，展示去重保护与可复用性。
