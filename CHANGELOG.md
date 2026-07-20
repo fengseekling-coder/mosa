@@ -1,8 +1,16 @@
-# 更新记录
+# Changelog
 
-## 2026-07-19
+## 0.1.0 — OpenAI Build Week release
 
-- 修复素材墙卡片底部空白，并统一纵向间距。
-- 左侧长分组名显示省略号，悬停可查看完整名称。
-- 补充界面布局与视觉验收说明。
-- README 保留完整界面截图，移除两张局部截图。
+- Added a local-first visual library that preserves prompts, image metadata, source paths, and provenance alongside each asset.
+- Added automatic Codex image reconciliation and provenance capture from local image-generation records.
+- Added Cowart canvas synchronization, source-aware reuse, and deduplication for images returned to the canvas.
+- Added a browser UI with search, filters, metadata editing, English and Chinese interfaces, and a local MCP server.
+- Added a reproducible judging path using tracked sample records and the `npm test` suite.
+
+## 2026-07-19 — UI polish
+
+- Fixed blank space below gallery cards and normalized vertical spacing.
+- Truncated long collection names in the sidebar while preserving their full value in the hover title.
+- Added layout and visual-QA documentation.
+- Kept the complete README interface screenshot and removed two redundant detail screenshots.
