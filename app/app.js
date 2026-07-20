@@ -1,16 +1,16 @@
 const translations = {
   zh: {
-    appTitle: "MOSA — 创作资产库", brandSubtitle: "创作资产库", library: "素材库", allAssets: "全部素材", favorites: "收藏", recent: "最近", refine: "筛选", findAssets: "查找素材", clearFilters: "清除筛选", source: "来源", groups: "分组", addGroup: "添加分组", createGroup: "添加分组", groupName: "分组名称", groupNamePlaceholder: "例如：灵感参考", closeGroup: "关闭添加分组窗口", groupCreated: "分组已创建：", groupNameRequired: "请输入分组名称", groupExists: "分组已存在：", categories: "分类", styles: "风格", settings: "设置", language: "语言", systemLanguage: "跟随系统", chinese: "中文", english: "英文", project: "项目", openLibrary: "打开素材库", importAsset: "导入素材", importEyebrow: "素材库", importTitle: "导入素材", closeImport: "关闭导入窗口", closePreview: "关闭大图预览", viewFullImage: "查看大图", imagePath: "图片路径", imagePathPlaceholder: "图片的本地绝对路径", prompt: "提示词", promptPlaceholder: "完整提示词", skill: "技能", style: "风格", ratio: "比例", theme: "主题", group: "分组", category: "分类", businessFields: "业务字段 JSON", none: "—", categoryProduct: "产品", categoryConcept: "概念", categoryTexture: "纹理", categoryReference: "参考", categoryOther: "其他", cancel: "取消", saveAsset: "保存素材", assetList: "素材列表", assetInspector: "素材检视器", noAssets: "还没有素材", noAssetsHint: "导入第一张图片，开始建立可复用的创作资产库。", noSelection: "选择一张素材", noSelectionHint: "在画廊中选择图片即可查看提示词与配方。", close: "关闭", copyPrompt: "复制提示词", copyPath: "复制路径", regenerate: "同配方再生成", recipe: "配方", sourceInfo: "来源信息", editMetadata: "编辑元数据", saveRecipe: "保存配方", imageLocation: "图片路径", notRecorded: "未记录", noDetails: "暂无附加信息", sourceCodex: "Codex", sourceCowart: "Cowart", sourceManual: "手动导入", sourceLabel: "来源", taskId: "任务 ID", model: "模型", generationTool: "生成工具", originalPath: "原始路径", canvasObject: "画布对象", pageAsset: "页面素材", canvasNote: "画布说明", canvasEdited: "批注编辑结果", canvasImage: "画布图片", rating: "评分", copyOriginalPath: "复制原始路径", saved: "已保存", saving: "正在保存…", copySuccess: "提示词已复制", pathCopied: "图片路径已复制", originalPathCopied: "原始路径已复制", instructionCopied: "再生成指令已复制", openInFinder: "已在 Finder 中打开", failedToOpen: "无法打开：", imagePathRequired: "请填写图片路径", invalidJson: "业务字段 JSON 格式错误", savedAsset: "素材已保存", recipeSaved: "配方已保存", groupSaved: "已移至分组：", groupFailed: "设置分组失败：", statusReady: "就绪", statusBridgeOff: "Cowart 自动归档未启用", statusBridgeError: "Cowart 自动归档出现错误", statusBridgeEnabled: "Cowart 自动归档已启用", statusBridgeImported: "Cowart 已归档 {count} 项", assetsCount: "{count} 项", filterAll: "全部", filterCodex: "Codex", filterCowart: "Cowart", noGroups: "暂无分组", noCategories: "暂无分类", noStyles: "暂无风格", languageChanged: "语言已更新", searchPlaceholder: "搜索素材、提示词或风格", generatedInstruction: "请用相同配方再生成一张图片，并保存到 MOSA："
+    appTitle: "MOSA — 创作资产库", brandSubtitle: "创作资产库", library: "素材库", allAssets: "全部素材", favorites: "收藏", recent: "最近", refine: "筛选", findAssets: "查找素材", clearFilters: "清除筛选", source: "来源", groups: "分组", addGroup: "添加分组", createGroup: "添加分组", groupName: "分组名称", groupNamePlaceholder: "例如：灵感参考", closeGroup: "关闭添加分组窗口", groupCreated: "分组已创建：", groupNameRequired: "请输入分组名称", groupExists: "分组已存在：", categories: "分类", styles: "风格", settings: "设置", language: "语言", systemLanguage: "跟随系统", chinese: "中文", english: "英文", project: "项目", openLibrary: "打开素材库", importAsset: "导入素材", importEyebrow: "素材库", importTitle: "导入素材", closeImport: "关闭导入窗口", closePreview: "关闭大图预览", viewFullImage: "查看大图", imagePath: "图片路径", imagePathPlaceholder: "图片的本地绝对路径", prompt: "提示词", promptPlaceholder: "完整提示词", skill: "技能", style: "风格", ratio: "比例", theme: "主题", group: "分组", category: "分类", businessFields: "业务字段 JSON", none: "—", categoryProduct: "产品", categoryConcept: "概念", categoryTexture: "纹理", categoryReference: "参考", categoryOther: "其他", cancel: "取消", saveAsset: "保存素材", assetList: "素材列表", assetInspector: "素材检视器", noAssets: "还没有素材", noAssetsHint: "导入第一张图片，开始建立可复用的创作资产库。", noSelection: "选择一张素材", noSelectionHint: "在画廊中选择图片即可查看提示词与配方。", close: "关闭", copyPrompt: "复制提示词", copyPath: "复制路径", regenerate: "同配方再生成", insertCowart: "插入 Cowart", insertingCowart: "正在插入 Cowart…", insertedCowart: "已插入 Cowart", cowartInsertUnavailable: "Cowart 插件不可用", recipe: "配方", sourceInfo: "来源信息", editMetadata: "编辑元数据", saveRecipe: "保存配方", imageLocation: "图片路径", notRecorded: "未记录", noDetails: "暂无附加信息", sourceCodex: "Codex", sourceCowart: "Cowart", sourceManual: "手动导入", sourceLabel: "来源", taskId: "任务 ID", model: "模型", generationTool: "生成工具", originalPath: "原始路径", canvasObject: "画布对象", pageAsset: "页面素材", canvasNote: "画布说明", canvasEdited: "批注编辑结果", canvasImage: "画布图片", rating: "评分", copyOriginalPath: "复制原始路径", saved: "已保存", saving: "正在保存…", copySuccess: "提示词已复制", pathCopied: "图片路径已复制", originalPathCopied: "原始路径已复制", instructionCopied: "再生成指令已复制", openInFinder: "已在 Finder 中打开", failedToOpen: "无法打开：", imagePathRequired: "请填写图片路径", invalidJson: "业务字段 JSON 格式错误", savedAsset: "素材已保存", recipeSaved: "配方已保存", groupSaved: "已移至分组：", groupFailed: "设置分组失败：", statusChecking: "检查桥接状态…", statusReady: "桥接已就绪", statusBridgeOff: "桥接未启用", statusBridgeError: "桥接出现错误", statusBridgePartial: "部分桥接已启用", statusCowartInsertUnavailable: "插入 Cowart 不可用", statusImportedCount: "已归档 {count} 项", statusUnavailable: "MOSA 服务不可用", retry: "重试", assetsCount: "{count} 项", filterAll: "全部", filterCodex: "Codex", filterCowart: "Cowart", noGroups: "暂无分组", noCategories: "暂无分类", noStyles: "暂无风格", languageChanged: "语言已更新", searchPlaceholder: "搜索素材、提示词或风格", generatedInstruction: "请用相同配方再生成一张图片，并保存到 MOSA："
   },
   en: {
-    appTitle: "MOSA — Creative Asset Library", brandSubtitle: "Creative asset library", library: "Library", allAssets: "All assets", favorites: "Favorites", recent: "Recent", refine: "Filter", findAssets: "Find assets", clearFilters: "Clear filters", source: "Source", groups: "Collections", addGroup: "Add collection", createGroup: "Add collection", groupName: "Collection name", groupNamePlaceholder: "e.g. Inspiration", closeGroup: "Close add collection dialog", groupCreated: "Collection created: ", groupNameRequired: "Enter a collection name", groupExists: "Collection already exists: ", categories: "Categories", styles: "Styles", settings: "Settings", language: "Language", systemLanguage: "Use system language", chinese: "Chinese", english: "English", project: "Project", openLibrary: "Open library folder", importAsset: "Import asset", importEyebrow: "LIBRARY", importTitle: "Import asset", closeImport: "Close import", closePreview: "Close full-image preview", viewFullImage: "View full image", imagePath: "Image path", imagePathPlaceholder: "Absolute path to the local image", prompt: "Prompt", promptPlaceholder: "Full prompt", skill: "Skill", style: "Style", ratio: "Ratio", theme: "Theme", group: "Collection", category: "Category", businessFields: "Business fields JSON", none: "—", categoryProduct: "Product", categoryConcept: "Concept", categoryTexture: "Texture", categoryReference: "Reference", categoryOther: "Other", cancel: "Cancel", saveAsset: "Save asset", assetList: "Asset list", assetInspector: "Asset inspector", noAssets: "No assets yet", noAssetsHint: "Import your first image to start a reusable creative library.", noSelection: "Select an asset", noSelectionHint: "Choose an image in the gallery to view its prompt and recipe.", close: "Close", copyPrompt: "Copy prompt", copyPath: "Copy path", regenerate: "Regenerate", recipe: "Recipe", sourceInfo: "Source", editMetadata: "Edit metadata", saveRecipe: "Save recipe", imageLocation: "Image path", notRecorded: "Not recorded", noDetails: "No additional details", sourceCodex: "Codex", sourceCowart: "Cowart", sourceManual: "Manual import", sourceLabel: "Source", taskId: "Task ID", model: "Model", generationTool: "Generation tool", originalPath: "Original path", canvasObject: "Canvas object", pageAsset: "Page asset", canvasNote: "Canvas note", canvasEdited: "Annotated edit", canvasImage: "Canvas image", rating: "Rating", copyOriginalPath: "Copy original path", saved: "Saved", saving: "Saving…", copySuccess: "Prompt copied", pathCopied: "Image path copied", originalPathCopied: "Original path copied", instructionCopied: "Regeneration instruction copied", openInFinder: "Opened in Finder", failedToOpen: "Unable to open: ", imagePathRequired: "Enter an image path", invalidJson: "Business fields JSON is invalid", savedAsset: "Asset saved", recipeSaved: "Recipe saved", groupSaved: "Moved to collection: ", groupFailed: "Unable to update collection: ", statusReady: "Ready", statusBridgeOff: "Cowart auto-archive is off", statusBridgeError: "Cowart auto-archive has an error", statusBridgeEnabled: "Cowart auto-archive is on", statusBridgeImported: "Cowart archived {count} items", assetsCount: "{count} assets", filterAll: "All", filterCodex: "Codex", filterCowart: "Cowart", noGroups: "No collections", noCategories: "No categories", noStyles: "No styles", languageChanged: "Language updated", searchPlaceholder: "Search assets, prompts, or styles", generatedInstruction: "Regenerate this image with the same recipe and save it to MOSA:"
+    appTitle: "MOSA — Creative Asset Library", brandSubtitle: "Creative asset library", library: "Library", allAssets: "All assets", favorites: "Favorites", recent: "Recent", refine: "Filter", findAssets: "Find assets", clearFilters: "Clear filters", source: "Source", groups: "Collections", addGroup: "Add collection", createGroup: "Add collection", groupName: "Collection name", groupNamePlaceholder: "e.g. Inspiration", closeGroup: "Close add collection dialog", groupCreated: "Collection created: ", groupNameRequired: "Enter a collection name", groupExists: "Collection already exists: ", categories: "Categories", styles: "Styles", settings: "Settings", language: "Language", systemLanguage: "Use system language", chinese: "Chinese", english: "English", project: "Project", openLibrary: "Open library folder", importAsset: "Import asset", importEyebrow: "LIBRARY", importTitle: "Import asset", closeImport: "Close import", closePreview: "Close full-image preview", viewFullImage: "View full image", imagePath: "Absolute path to the local image", prompt: "Prompt", promptPlaceholder: "Full prompt", skill: "Skill", style: "Style", ratio: "Ratio", theme: "Theme", group: "Collection", category: "Category", businessFields: "Business fields JSON", none: "—", categoryProduct: "Product", categoryConcept: "Concept", categoryTexture: "Texture", categoryReference: "Reference", categoryOther: "Other", cancel: "Cancel", saveAsset: "Save asset", assetList: "Asset list", assetInspector: "Asset inspector", noAssets: "No assets yet", noAssetsHint: "Import your first image to start a reusable creative library.", noSelection: "Select an asset", noSelectionHint: "Choose an image in the gallery to view its prompt and recipe.", close: "Close", copyPrompt: "Copy prompt", copyPath: "Copy path", regenerate: "Regenerate", insertCowart: "Insert into Cowart", insertingCowart: "Inserting into Cowart…", insertedCowart: "Inserted into Cowart", cowartInsertUnavailable: "Cowart plugin unavailable", recipe: "Recipe", sourceInfo: "Source", editMetadata: "Edit metadata", saveRecipe: "Save recipe", imageLocation: "Image path", notRecorded: "Not recorded", noDetails: "No additional details", sourceCodex: "Codex", sourceCowart: "Cowart", sourceManual: "Manual import", sourceLabel: "Source", taskId: "Task ID", model: "Model", generationTool: "Generation tool", originalPath: "Original path", canvasObject: "Canvas object", pageAsset: "Page asset", canvasNote: "Canvas note", canvasEdited: "Annotated edit", canvasImage: "Canvas image", rating: "Rating", copyOriginalPath: "Copy original path", saved: "Saved", saving: "Saving…", copySuccess: "Prompt copied", pathCopied: "Image path copied", originalPathCopied: "Original path copied", instructionCopied: "Regeneration instruction copied", openInFinder: "Opened in Finder", failedToOpen: "Unable to open: ", imagePathRequired: "Enter an image path", invalidJson: "Business fields JSON is invalid", savedAsset: "Asset saved", recipeSaved: "Recipe saved", groupSaved: "Moved to collection: ", groupFailed: "Unable to update collection: ", statusChecking: "Checking bridges…", statusReady: "Bridges ready", statusBridgeOff: "Bridges off", statusBridgeError: "Bridge error", statusBridgePartial: "Some bridges enabled", statusCowartInsertUnavailable: "Cowart insert unavailable", statusImportedCount: "Archived {count} items", statusUnavailable: "MOSA service unavailable", retry: "Retry", assetsCount: "{count} assets", filterAll: "All", filterCodex: "Codex", filterCowart: "Cowart", noGroups: "No collections", noCategories: "No categories", noStyles: "No styles", languageChanged: "Language updated", searchPlaceholder: "Search assets, prompts, or styles", generatedInstruction: "Regenerate this image with the same recipe and save it to MOSA:"
   }
 };
 
 const preference = safeStorageGet("mosa.ui-language") || "system";
 const state = {
   project: "default", projects: [], assets: [], selectedId: null, detailOpen: false, detailDirty: false, imagePreviewId: null, previewReturnFocus: null, query: "",
-  filter: { type: "all", value: "" }, groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [] },
+  filter: { type: "all", value: "" }, groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [] }, cowartInsertAvailable: false,
   libraryPath: "", codexImagesDir: "", modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference)
 };
 
@@ -18,7 +18,7 @@ const els = {
   searchInput: document.querySelector("#searchInput"), quickFilters: document.querySelector("#quickFilters"),
   filterToggle: document.querySelector("#filterToggle"), filterPanel: document.querySelector("#filterPanel"), filterDot: document.querySelector("#filterDot"), clearFiltersBtn: document.querySelector("#clearFiltersBtn"), sourceFilters: document.querySelector("#sourceFilters"), groupList: document.querySelector("#groupList"), categoryList: document.querySelector("#categoryList"), styleList: document.querySelector("#styleList"),
   settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), addGroupBtn: document.querySelector("#addGroupBtn"), sidebarGroupList: document.querySelector("#sidebarGroupList"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), codexSourceHint: document.querySelector("#codexSourceHint"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
-  viewTitle: document.querySelector("#viewTitle"), assetCount: document.querySelector("#assetCount"), statusText: document.querySelector("#statusText"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer")
+  viewTitle: document.querySelector("#viewTitle"), assetCount: document.querySelector("#assetCount"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer")
 };
 
 init();
@@ -26,13 +26,18 @@ init();
 async function init() {
   applyLanguage();
   bindEvents();
-  await loadProjects();
-  await loadStats();
-  await loadAssets();
-  setDetailOpen(false);
-  await refreshCowartBridgeStatus();
-  setInterval(refreshCowartBridgeStatus, 5000);
-  setInterval(refreshLibraryInBackground, 2500);
+  try {
+    await loadProjects();
+    await loadStats();
+    await loadAssets();
+    setDetailOpen(false);
+    await refreshBridgeStatus();
+    setInterval(refreshBridgeStatus, 5000);
+    setInterval(refreshLibraryInBackground, 2500);
+  } catch (error) {
+    renderErrorState(error);
+    setStatus(t("statusUnavailable"), "error");
+  }
   bindKeyboardNav();
 }
 
@@ -198,13 +203,26 @@ function isDetailEditorActive() {
   return state.detailDirty || (active instanceof HTMLElement && Boolean(els.detailPanel?.contains(active) && active.closest("[data-edit]")));
 }
 
-async function refreshCowartBridgeStatus() {
+async function refreshBridgeStatus() {
   try {
-    const { bridge } = await api("/api/cowart-bridge");
-    if (!bridge?.enabled) return setStatus(t("statusBridgeOff"));
-    if (bridge.lastError) return setStatus(t("statusBridgeError"));
-    return setStatus(bridge.lastImportedAt ? t("statusBridgeImported", { count: bridge.totalImported }) : t("statusBridgeEnabled"));
-  } catch { setStatus(t("statusReady")); }
+    const { codex, cowart, cowartInsert } = await api("/api/bridges");
+    state.cowartInsertAvailable = Boolean(cowartInsert?.available);
+    const hasError = codex?.lastError || cowart?.lastError;
+    const codexOn = Boolean(codex?.enabled);
+    const cowartOn = Boolean(cowart?.enabled);
+    const importedCount = Number(cowart?.totalImported || 0) + Number(codex?.totalImported || 0);
+    if (hasError) setStatus(t("statusBridgeError"), "error");
+    else if (codexOn && cowartOn && state.cowartInsertAvailable) setStatus(t("statusReady"), "ok");
+    else if (codexOn || cowartOn) setStatus(state.cowartInsertAvailable ? t("statusBridgePartial") : t("statusCowartInsertUnavailable"), "warn");
+    else setStatus(t("statusBridgeOff"), "warn");
+    if (els.bridgeStatusMeta) els.bridgeStatusMeta.textContent = importedCount > 0 ? t("statusImportedCount", { count: importedCount }) : "";
+    updateCowartInsertControls();
+  } catch {
+    state.cowartInsertAvailable = false;
+    if (els.bridgeStatusMeta) els.bridgeStatusMeta.textContent = "";
+    setStatus(t("statusUnavailable"), "error");
+    updateCowartInsertControls();
+  }
 }
 
 function updateCodexHint() {
@@ -225,6 +243,7 @@ function updateViewTitle() {
 
 function bindEvents() {
   els.searchInput?.addEventListener("input", debounce(async () => { state.query = els.searchInput.value; await loadAssets(); }, 180));
+  els.assetGrid?.addEventListener("click", (event) => { if (event.target.closest('[data-action="retry"]')) window.location.reload(); });
   els.addGroupBtn?.addEventListener("click", openGroupModal);
   els.newAssetTopBtn?.addEventListener("click", openImportModal);
   els.quickFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) setFilter(button.dataset.filter); });
@@ -282,6 +301,7 @@ function setLanguage(value) {
   state.languagePreference = value;
   safeStorageSet("mosa.ui-language", value);
   applyLanguage();
+  refreshBridgeStatus();
   showToast(t("languageChanged"), "success");
 }
 
@@ -399,6 +419,12 @@ function renderGrid() {
   els.assetGrid.querySelectorAll(".card-quick-copy").forEach((button) => button.addEventListener("click", async (event) => { event.stopPropagation(); await runAction(async () => { await navigator.clipboard.writeText(button.dataset.copy || ""); showToast(t("copySuccess"), "success"); }); }));
 }
 
+function renderErrorState(error) {
+  if (!els.assetGrid) return;
+  const message = error instanceof Error ? error.message : String(error || "");
+  els.assetGrid.innerHTML = `<div class="error-state"><p>${t("statusUnavailable")}</p><span>${escapeHtml(message)}</span><button type="button" data-action="retry">${t("retry")}</button></div>`;
+}
+
 function selectAsset(id, shouldScroll = false) {
   if (!id) return; state.selectedId = id; setDetailOpen(true); updateSelectedCard();
   if (shouldScroll) els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -500,6 +526,13 @@ function renderDetail() {
   const metadata = [["skill", asset.skill], ["style", asset.style], ["ratio", asset.ratio], ["theme", asset.theme], ["group", asset.group], ["category", asset.category], ["rating", asset.rating ? `${asset.rating}/5` : ""]].filter(([, value]) => value !== undefined && value !== null && value !== "");
   const sourceRows = buildSourceRows(source).filter(([, value]) => value !== undefined && value !== null && value !== "");
   els.detailPanel.innerHTML = `<div class="detail-studio-bar"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail">${t("close")}</button></div><div class="detail-image-wrap"><img class="detail-image" src="${asset.image_url}" alt="${escapeHtml(asset.theme || asset.id)}" title="${t("viewFullImage")}" /></div><div class="detail-head"><h3>${escapeHtml(asset.theme || asset.asset || asset.id)}</h3><p>${escapeHtml(asset.id)} · ${formatDate(asset.created_at)}</p></div><div class="detail-actions"><button class="action-btn primary" data-action="copy-prompt">${t("copyPrompt")}</button><button class="action-btn secondary" data-action="regenerate">${t("regenerate")}</button><button class="action-btn secondary" data-action="copy-path">${t("copyPath")}</button></div><section class="section"><div class="section-head"><h4>${t("prompt")}</h4></div><div class="prompt-box">${asset.prompt ? escapeHtml(asset.prompt) : `<span class="empty-copy">${t("notRecorded")}</span>`}</div></section><section class="section"><div class="section-head"><h4>${t("recipe")}</h4></div>${metadata.length ? `<div class="meta-table">${metadata.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val">${key === "rating" ? `<span class="rating-stars">${"★".repeat(rating)}${"☆".repeat(5 - rating)}</span>` : escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</section><details class="detail-disclosure"><summary>${t("sourceInfo")}</summary><div class="disclosure-content">${sourceRows.length ? `<div class="meta-table">${sourceRows.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val source-value">${escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("editMetadata")}</summary><div class="disclosure-content detail-fields"><label class="field"><span>${t("prompt")}</span><textarea data-edit="prompt" rows="5">${escapeHtml(asset.prompt || "")}</textarea></label><div class="two"><label class="field"><span>${t("skill")}</span><input data-edit="skill" value="${escapeHtml(asset.skill || "")}" /></label><label class="field"><span>${t("style")}</span><input data-edit="style" value="${escapeHtml(asset.style || "")}" /></label></div><div class="two"><label class="field"><span>${t("ratio")}</span><input data-edit="ratio" value="${escapeHtml(asset.ratio || "")}" /></label><label class="field"><span>${t("theme")}</span><input data-edit="theme" value="${escapeHtml(asset.theme || "")}" /></label></div><div class="two"><label class="field"><span>${t("group")}</span><input data-edit="group" value="${escapeHtml(asset.group || "")}" list="groupSuggestionsEdit" /><datalist id="groupSuggestionsEdit">${groupOptions}</datalist></label><label class="field"><span>${t("category")}</span><select data-edit="category"><option value="">${t("none")}</option>${categoryOptions(asset.category)}</select></label></div><label class="field"><span>${t("rating")}</span><div class="rating-edit" data-edit="rating">${[1,2,3,4,5].map((number) => `<button type="button" data-val="${number}" class="${number <= rating ? "on" : ""}">${number <= rating ? "★" : "☆"}</button>`).join("")}</div></label><label class="field"><span>${t("businessFields")}</span><textarea data-edit="business_fields" rows="3">${escapeHtml(JSON.stringify(asset.business_fields || {}, null, 2))}</textarea></label><button class="save-recipe-btn" data-action="save-recipe">${t("saveRecipe")}</button></div></details><details class="detail-disclosure"><summary>${t("imageLocation")}</summary><div class="disclosure-content"><div class="path-box">${escapeHtml(asset.image_path)}</div></div></details>`;
+  const insertButton = document.createElement("button");
+  insertButton.className = "action-btn primary";
+  insertButton.type = "button";
+  insertButton.dataset.action = "insert-cowart";
+  insertButton.textContent = t("insertCowart");
+  els.detailPanel.querySelector(".detail-actions")?.prepend(insertButton);
+  updateCowartInsertControls();
   bindDetailEvents(asset);
 }
 
@@ -519,6 +552,14 @@ function bindDetailEvents(asset) {
   });
   panel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => setDetailOpen(false));
   panel.querySelector(".detail-image")?.addEventListener("dblclick", (event) => openImagePreview(asset.id, event.currentTarget));
+  panel.querySelector('[data-action="insert-cowart"]')?.addEventListener("click", () => runAction(async () => {
+    const button = panel.querySelector('[data-action="insert-cowart"]');
+    button.disabled = true;
+    showToast(t("insertingCowart"));
+    await api(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/insert-cowart`, { method: "POST", body: { placement: "right" } });
+    showToast(t("insertedCowart"), "success");
+    await refreshBridgeStatus();
+  }).finally(updateCowartInsertControls));
   panel.querySelector('[data-action="copy-prompt"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(asset.prompt || ""); showToast(t("copySuccess"), "success"); }));
   panel.querySelector('[data-action="copy-path"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(asset.image_path); showToast(t("pathCopied"), "success"); }));
   panel.querySelector('[data-action="regenerate"]')?.addEventListener("click", () => runAction(async () => {
@@ -535,8 +576,19 @@ function bindDetailEvents(asset) {
   }));
 }
 
+function updateCowartInsertControls() {
+  const button = els.detailPanel?.querySelector('[data-action="insert-cowart"]');
+  if (!button) return;
+  button.disabled = !state.cowartInsertAvailable;
+  button.title = state.cowartInsertAvailable ? t("insertCowart") : t("cowartInsertUnavailable");
+}
+
 function formatDate(value) { if (!value) return ""; try { return new Intl.DateTimeFormat(state.locale === "zh" ? "zh-CN" : "en", { year: "numeric", month: "short", day: "numeric" }).format(new Date(value)); } catch { return String(value).slice(0, 10); } }
-function setStatus(value) { if (els.statusText) els.statusText.textContent = value; }
+function setStatus(value, stateName = "neutral") {
+  if (els.statusText) els.statusText.textContent = value;
+  if (els.bridgeStatus) els.bridgeStatus.dataset.state = stateName;
+  if (els.bridgeStatusLabel) els.bridgeStatusLabel.textContent = value;
+}
 async function runAction(action) { try { await action(); } catch (error) { showToast(error.message, "error"); } }
 function debounce(fn, delay) { let timer; return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); }; }
 function escapeHtml(value) { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }

@@ -1,10 +1,11 @@
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
-import { extname, join, resolve } from "node:path";
+import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssetStore, mimeTypeForFile } from "./lib/asset-store.mjs";
 import { createCodexImageBridge } from "./lib/codex-image-bridge.mjs";
 import { createCowartAssetBridge } from "./lib/cowart-bridge.mjs";
+import { createCowartMcpClient } from "./lib/cowart-mcp-client.mjs";
 import { isAllowedLocalOrigin, resolveAllowedFolderPath } from "./lib/server-security.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
@@ -17,6 +18,7 @@ const codexBridge = createCodexImageBridge({
   imagesDir: store.codexImagesDir,
   sessionsDir: process.env.CODEX_SESSIONS_DIR,
 });
+const cowartMcpClient = createCowartMcpClient({ serverPath: process.env.COWART_MCP_SERVER_PATH });
 const appDir = join(managerDir, "app");
 
 await store.ensureProject("default");
@@ -79,7 +81,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "GET" && url.pathname === "/api/bridges") {
-    sendJson(res, 200, { codex: codexBridge.status(), cowart: cowartBridge.status() });
+    sendJson(res, 200, { codex: codexBridge.status(), cowart: cowartBridge.status(), cowartInsert: cowartMcpClient.status() });
     return;
   }
 
@@ -171,6 +173,32 @@ async function handleApi(req, res, url) {
   if (req.method === "POST" && url.pathname === "/api/assets/create") {
     const body = await readJson(req);
     sendJson(res, 200, { asset: await store.createAsset(body) });
+    return;
+  }
+
+  const insertMatch = /^\/api\/assets\/([^/]+)\/([^/]+)\/insert-cowart$/.exec(url.pathname);
+  if (insertMatch && req.method === "POST") {
+    const projectId = decodeURIComponent(insertMatch[1]);
+    const assetId = decodeURIComponent(insertMatch[2]);
+    const asset = await store.getAsset(projectId, assetId);
+    if (!cowartMcpClient.status().available) {
+      sendJson(res, 503, { error: "Cowart MCP server is unavailable." });
+      return;
+    }
+    const body = await readJson(req);
+    const placement = ["right", "left", "below"].includes(body.placement) ? body.placement : "right";
+    const result = await cowartMcpClient.callTool("insert_cowart_image", {
+      imagePath: asset.image_path,
+      projectDir: managerDir,
+      canvasDir: store.cowartCanvasDir,
+      fileName: basename(asset.image_path),
+      placement,
+      matchAnchor: false,
+      replaceAiImageHolder: false,
+      altText: asset.theme || asset.asset || asset.id,
+      assetMeta: { mosaAssetId: asset.id, mosaProjectId: asset.project_id },
+    });
+    sendJson(res, 200, { ok: true, assetId: asset.id, result: result.structuredContent || {} });
     return;
   }
 

@@ -24,6 +24,7 @@ test("keeps the import flow keyboard-accessible", async () => {
   assert.match(app, /class="asset-card-select" type="button"/);
   assert.doesNotMatch(app, /card-overlay|asset-source-badge/);
   assert.match(html, /id="assetCount" role="status" aria-live="polite"/);
+  assert.match(html, /id="bridgeStatus" data-state="checking" role="status" aria-live="polite"/);
   assert.match(app, /function trapImportModalFocus\(event\)/);
   assert.match(app, /function trapGroupModalFocus\(event\)/);
   assert.match(app, /async function saveGroup\(\)/);
@@ -66,6 +67,18 @@ test("keeps background library refreshes from replacing active edits", async () 
   assert.match(app, /!options\.background \|\| assetsChanged/);
   assert.match(app, /selectedChanged && !isDetailEditorActive\(\)/);
   assert.match(app, /field\.addEventListener\("input", \(\) => \{ state\.detailDirty = true; \}\)/);
+});
+
+test("keeps the Cowart reuse path wired through the local server", async () => {
+  const [app, server] = await Promise.all([
+    readFile(resolve(root, "app/app.js"), "utf8"),
+    readFile(resolve(root, "server.mjs"), "utf8"),
+  ]);
+
+  assert.match(app, /dataset\.action = "insert-cowart"/);
+  assert.match(app, /\/insert-cowart/);
+  assert.match(server, /insert_cowart_image/);
+  assert.match(server, /mosaAssetId/);
 });
 
 test("uses a single language chosen from system, Chinese, or English", async () => {
