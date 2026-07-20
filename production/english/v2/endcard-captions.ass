@@ -1,0 +1,16 @@
+[Script Info]
+Title: MOSA End Card English Captions
+ScriptType: v4.00+
+PlayResX: 3024
+PlayResY: 1964
+ScaledBorderAndShadow: yes
+WrapStyle: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,1,2,120,120,80,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.60,0:00:03.30,Default,,0,0,0,,From generation and editing\Nto archiving and reuse,
+Dialogue: 0,0:00:03.30,0:00:06.15,Default,,0,0,0,,the entire creative pipeline is complete.

@@ -1,0 +1,28 @@
+[Script Info]
+Title: MOSA Demo English Captions
+ScriptType: v4.00+
+PlayResX: 3024
+PlayResY: 1964
+ScaledBorderAndShadow: yes
+WrapStyle: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,1,2,120,120,80,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:04.40,Default,,0,0,0,,A complete workflow from image generation\Nto editing and archiving.
+Dialogue: 0,0:00:04.40,0:00:08.95,Default,,0,0,0,,We begin with a new task in Codex,\Nthen generate images directly on the Cowart canvas.
+Dialogue: 0,0:00:22.00,0:00:25.70,Default,,0,0,0,,Three different visual styles appear in sequence.
+Dialogue: 0,0:00:25.70,0:00:29.80,Default,,0,0,0,,Each image can be selected, moved, resized,\Nand rearranged directly on the canvas.
+Dialogue: 0,0:00:44.00,0:00:48.40,Default,,0,0,0,,Once generation is complete,\Nevery asset is automatically added to MOSA.
+Dialogue: 0,0:00:48.40,0:00:54.22,Default,,0,0,0,,The gallery brings all results together,\Nwhile preserving the prompt, model, dimensions, and source.
+Dialogue: 0,0:01:10.00,0:01:14.30,Default,,0,0,0,,Next, we return to Codex and create\Narchitectural, fashion, and material studies.
+Dialogue: 0,0:01:14.30,0:01:19.02,Default,,0,0,0,,Different formats and mediums all remain\Npart of the same workflow.
+Dialogue: 0,0:01:43.00,0:01:46.10,Default,,0,0,0,,Each artwork can be opened on its own\Nand reviewed in detail.
+Dialogue: 0,0:01:46.10,0:01:49.26,Default,,0,0,0,,Refine it further, or save it directly\Nto the library.
+Dialogue: 0,0:02:07.00,0:02:10.20,Default,,0,0,0,,Finally, MOSA reconnects the work\Ncreated across Codex and Cowart,
+Dialogue: 0,0:02:10.20,0:02:13.75,Default,,0,0,0,,while keeping every source and parameter traceable.
+Dialogue: 0,0:02:26.00,0:02:28.60,Default,,0,0,0,,From generation and editing\Nto archiving and reuse,
+Dialogue: 0,0:02:28.60,0:02:31.24,Default,,0,0,0,,the entire creative pipeline is complete.

@@ -1,0 +1,66 @@
+1
+00:00:00,000 --> 00:00:04,400
+A complete workflow from image generation
+to editing and archiving.
+
+2
+00:00:04,400 --> 00:00:08,950
+We begin with a new task in Codex,
+then generate images directly on the Cowart canvas.
+
+3
+00:00:22,000 --> 00:00:25,700
+Three different visual styles appear in sequence.
+
+4
+00:00:25,700 --> 00:00:29,804
+Each image can be selected, moved, resized,
+and rearranged directly on the canvas.
+
+5
+00:00:44,000 --> 00:00:48,400
+Once generation is complete,
+every asset is automatically added to MOSA.
+
+6
+00:00:48,400 --> 00:00:54,220
+The gallery brings all results together,
+while preserving the prompt, model, dimensions, and source.
+
+7
+00:01:10,000 --> 00:01:14,300
+Next, we return to Codex and create
+architectural, fashion, and material studies.
+
+8
+00:01:14,300 --> 00:01:19,017
+Different formats and mediums all remain
+part of the same workflow.
+
+9
+00:01:43,000 --> 00:01:46,100
+Each artwork can be opened on its own
+and reviewed in detail.
+
+10
+00:01:46,100 --> 00:01:49,256
+Refine it further, or save it directly
+to the library.
+
+11
+00:02:07,000 --> 00:02:10,200
+Finally, MOSA reconnects the work
+created across Codex and Cowart,
+
+12
+00:02:10,200 --> 00:02:13,748
+while keeping every source and parameter traceable.
+
+13
+00:02:26,000 --> 00:02:28,600
+From generation and editing
+to archiving and reuse,
+
+14
+00:02:28,600 --> 00:02:31,238
+the entire creative pipeline is complete.
