@@ -6,6 +6,8 @@
 
 > Codex images and Cowart canvas images are both monitored locally and remain traceable.
 
+**OpenAI Build Week demo:** [Watch the 2:21 English walkthrough on YouTube](https://youtu.be/RdRtq4xfqhI).
+
 ## Built with Codex and GPT-5.6
 
 MOSA was built through iterative Codex sessions using GPT-5.6-terra. GPT-5.6 shaped the local-first product boundary, provenance model, end-to-end demo path, and successive interface and reliability refinements. Codex then turned those decisions into the Node service, MCP tools, web interface, Codex image archiver, and Cowart bridge; it also ran focused tests and verification passes that informed follow-up fixes.
