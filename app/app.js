@@ -9,6 +9,7 @@ const translations = {
 
 Object.assign(translations.zh, {
   cowartCanvases: "Cowart 画布",
+  cowartInsertTarget: "回插画布",
   cowartProjectPath: "项目路径",
   cowartProjectPathPlaceholder: "/Users/name/project",
   addCowartCanvas: "添加项目画布",
@@ -23,6 +24,7 @@ Object.assign(translations.zh, {
 
 Object.assign(translations.en, {
   cowartCanvases: "Cowart canvases",
+  cowartInsertTarget: "Insert canvas",
   cowartProjectPath: "Project path",
   cowartProjectPathPlaceholder: "/Users/name/project",
   addCowartCanvas: "Add project canvas",
@@ -38,7 +40,7 @@ Object.assign(translations.en, {
 const preference = safeStorageGet("mosa.ui-language") || "system";
 const state = {
   project: "default", projects: [], cowartCanvases: [], assets: [], selectedId: null, detailOpen: false, detailDirty: false, imagePreviewId: null, previewReturnFocus: null, query: "",
-  filter: { type: "all", value: "" }, groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [] }, cowartInsertAvailable: false,
+  filter: { type: "all", value: "" }, groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [] }, cowartInsertAvailable: false, cowartInsertTargetId: safeStorageGet("mosa.cowart-insert-target") || "mosa",
   libraryPath: "", codexImagesDir: "", modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference)
 };
 
@@ -125,6 +127,30 @@ function cowartCanvasLabel(canvas = {}) {
   return path.split("/").pop() || path || t("cowartCanvases");
 }
 
+function cowartInsertTargetIdFor(asset) {
+  const sourceId = typeof asset?.source?.cowart_source_id === "string" ? asset.source.cowart_source_id : "";
+  const requestedId = sourceId || state.cowartInsertTargetId;
+  if (state.cowartCanvases.some((canvas) => canvas.id === requestedId)) return requestedId;
+  return state.cowartCanvases.find((canvas) => canvas.id === "mosa")?.id || state.cowartCanvases[0]?.id || "";
+}
+
+function createCowartInsertControl(asset) {
+  const targetId = cowartInsertTargetIdFor(asset);
+  state.cowartInsertTargetId = targetId || state.cowartInsertTargetId;
+
+  const control = document.createElement("div");
+  control.className = "cowart-insert-control";
+  control.innerHTML = `<label class="visually-hidden" for="cowartInsertTarget">${escapeHtml(t("cowartInsertTarget"))}</label><select id="cowartInsertTarget" class="cowart-target-select" data-cowart-insert-target aria-label="${escapeHtml(t("cowartInsertTarget"))}">${state.cowartCanvases.map((canvas) => `<option value="${escapeHtml(canvas.id)}"${canvas.id === targetId ? " selected" : ""}>${escapeHtml(cowartCanvasLabel(canvas))}</option>`).join("")}</select>`;
+
+  const insertButton = document.createElement("button");
+  insertButton.className = "action-btn primary";
+  insertButton.type = "button";
+  insertButton.dataset.action = "insert-cowart";
+  insertButton.textContent = t("insertCowart");
+  control.append(insertButton);
+  return control;
+}
+
 function bindKeyboardNav() {
   document.addEventListener("keydown", (event) => {
     if (els.importModal?.classList.contains("open") || event.target.matches("input, textarea, select")) return;
@@ -166,6 +192,7 @@ async function loadCowartCanvases() {
   const result = await api("/api/cowart-canvases");
   state.cowartCanvases = result.canvases || [];
   renderSettingsMenu();
+  if (state.detailOpen) renderDetail();
 }
 
 let statsRequestSequence = 0;
@@ -609,12 +636,7 @@ function renderDetail() {
   const metadata = [["skill", asset.skill], ["style", asset.style], ["ratio", asset.ratio], ["theme", asset.theme], ["group", asset.group], ["category", asset.category], ["rating", asset.rating ? `${asset.rating}/5` : ""]].filter(([, value]) => value !== undefined && value !== null && value !== "");
   const sourceRows = buildSourceRows(source).filter(([, value]) => value !== undefined && value !== null && value !== "");
   els.detailPanel.innerHTML = `<div class="detail-studio-bar"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail">${t("close")}</button></div><div class="detail-image-wrap"><img class="detail-image" src="${asset.image_url}" alt="${escapeHtml(asset.theme || asset.id)}" title="${t("viewFullImage")}" /></div><div class="detail-head"><h3>${escapeHtml(asset.theme || asset.asset || asset.id)}</h3><p>${escapeHtml(asset.id)} · ${formatDate(asset.created_at)}</p></div><div class="detail-actions"><button class="action-btn primary" data-action="copy-prompt">${t("copyPrompt")}</button><button class="action-btn secondary" data-action="regenerate">${t("regenerate")}</button><button class="action-btn secondary" data-action="copy-path">${t("copyPath")}</button></div><section class="section"><div class="section-head"><h4>${t("prompt")}</h4></div><div class="prompt-box">${asset.prompt ? escapeHtml(asset.prompt) : `<span class="empty-copy">${t("notRecorded")}</span>`}</div></section><section class="section"><div class="section-head"><h4>${t("recipe")}</h4></div>${metadata.length ? `<div class="meta-table">${metadata.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val">${key === "rating" ? `<span class="rating-stars">${"★".repeat(rating)}${"☆".repeat(5 - rating)}</span>` : escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</section><details class="detail-disclosure"><summary>${t("sourceInfo")}</summary><div class="disclosure-content">${sourceRows.length ? `<div class="meta-table">${sourceRows.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val source-value">${escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("editMetadata")}</summary><div class="disclosure-content detail-fields"><label class="field"><span>${t("prompt")}</span><textarea data-edit="prompt" rows="5">${escapeHtml(asset.prompt || "")}</textarea></label><div class="two"><label class="field"><span>${t("skill")}</span><input data-edit="skill" value="${escapeHtml(asset.skill || "")}" /></label><label class="field"><span>${t("style")}</span><input data-edit="style" value="${escapeHtml(asset.style || "")}" /></label></div><div class="two"><label class="field"><span>${t("ratio")}</span><input data-edit="ratio" value="${escapeHtml(asset.ratio || "")}" /></label><label class="field"><span>${t("theme")}</span><input data-edit="theme" value="${escapeHtml(asset.theme || "")}" /></label></div><div class="two"><label class="field"><span>${t("group")}</span><input data-edit="group" value="${escapeHtml(asset.group || "")}" list="groupSuggestionsEdit" /><datalist id="groupSuggestionsEdit">${groupOptions}</datalist></label><label class="field"><span>${t("category")}</span><select data-edit="category"><option value="">${t("none")}</option>${categoryOptions(asset.category)}</select></label></div><label class="field"><span>${t("rating")}</span><div class="rating-edit" data-edit="rating">${[1,2,3,4,5].map((number) => `<button type="button" data-val="${number}" class="${number <= rating ? "on" : ""}">${number <= rating ? "★" : "☆"}</button>`).join("")}</div></label><label class="field"><span>${t("businessFields")}</span><textarea data-edit="business_fields" rows="3">${escapeHtml(JSON.stringify(asset.business_fields || {}, null, 2))}</textarea></label><button class="save-recipe-btn" data-action="save-recipe">${t("saveRecipe")}</button></div></details><details class="detail-disclosure"><summary>${t("imageLocation")}</summary><div class="disclosure-content"><div class="path-box">${escapeHtml(asset.image_path)}</div></div></details>`;
-  const insertButton = document.createElement("button");
-  insertButton.className = "action-btn primary";
-  insertButton.type = "button";
-  insertButton.dataset.action = "insert-cowart";
-  insertButton.textContent = t("insertCowart");
-  els.detailPanel.querySelector(".detail-actions")?.prepend(insertButton);
+  els.detailPanel.querySelector(".detail-actions")?.prepend(createCowartInsertControl(asset));
   updateCowartInsertControls();
   bindDetailEvents(asset);
 }
@@ -635,11 +657,16 @@ function bindDetailEvents(asset) {
   });
   panel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => setDetailOpen(false));
   panel.querySelector(".detail-image")?.addEventListener("dblclick", (event) => openImagePreview(asset.id, event.currentTarget));
+  panel.querySelector("[data-cowart-insert-target]")?.addEventListener("change", (event) => {
+    state.cowartInsertTargetId = event.target.value;
+    safeStorageSet("mosa.cowart-insert-target", state.cowartInsertTargetId);
+  });
   panel.querySelector('[data-action="insert-cowart"]')?.addEventListener("click", () => runAction(async () => {
     const button = panel.querySelector('[data-action="insert-cowart"]');
     button.disabled = true;
     showToast(t("insertingCowart"));
-    const result = await api(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/insert-cowart`, { method: "POST", body: { placement: "right" } });
+    const targetId = panel.querySelector("[data-cowart-insert-target]")?.value || state.cowartInsertTargetId;
+    const result = await api(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/insert-cowart`, { method: "POST", body: { placement: "right", targetId } });
     const canvas = result.canvas || {};
     showToast(t("insertedCowart", { page: canvas.pageId || "Cowart", x: Math.round(canvas.bounds?.x || 0), y: Math.round(canvas.bounds?.y || 0) }), "success");
     await refreshBridgeStatus();
@@ -662,9 +689,11 @@ function bindDetailEvents(asset) {
 
 function updateCowartInsertControls() {
   const button = els.detailPanel?.querySelector('[data-action="insert-cowart"]');
+  const target = els.detailPanel?.querySelector("[data-cowart-insert-target]");
   if (!button) return;
   button.disabled = !state.cowartInsertAvailable;
   button.title = state.cowartInsertAvailable ? t("insertCowart") : t("cowartInsertUnavailable");
+  if (target) target.disabled = !state.cowartInsertAvailable;
 }
 
 function formatDate(value) { if (!value) return ""; try { return new Intl.DateTimeFormat(state.locale === "zh" ? "zh-CN" : "en", { year: "numeric", month: "short", day: "numeric" }).format(new Date(value)); } catch { return String(value).slice(0, 10); } }

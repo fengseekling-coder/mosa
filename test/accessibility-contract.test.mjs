@@ -76,9 +76,11 @@ test("keeps the Cowart reuse path wired through the local server", async () => {
   ]);
 
   assert.match(app, /dataset\.action = "insert-cowart"/);
+  assert.match(app, /data-cowart-insert-target/);
   assert.match(app, /\/insert-cowart/);
   assert.match(server, /insert_cowart_image/);
   assert.match(server, /mosaAssetId/);
+  assert.match(server, /Cowart insertion target is not registered/);
 });
 
 test("uses a single language chosen from system, Chinese, or English", async () => {

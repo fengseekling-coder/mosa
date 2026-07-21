@@ -7,7 +7,7 @@ import { createCodexImageBridge } from "./lib/codex-image-bridge.mjs";
 import { createCowartBridgeManager } from "./lib/cowart-bridge-manager.mjs";
 import { createCowartProjectRegistry } from "./lib/cowart-project-registry.mjs";
 import { createCowartMcpClient } from "./lib/cowart-mcp-client.mjs";
-import { chooseCowartInsertTarget, normalizeCowartInsertResult, verifyCowartInsert } from "./lib/cowart-insert.mjs";
+import { chooseCowartInsertTarget, normalizeCowartInsertResult, resolveCowartInsertCanvas, verifyCowartInsert } from "./lib/cowart-insert.mjs";
 import { isAllowedLocalOrigin, resolveAllowedFolderPath } from "./lib/server-security.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
@@ -217,7 +217,12 @@ async function handleApi(req, res, url) {
     }
     const body = await readJson(req);
     const placement = ["right", "left", "below"].includes(body.placement) ? body.placement : "right";
-    const cowartTargetArgs = { projectDir: managerDir, canvasDir: store.cowartCanvasDir };
+    const targetCanvas = resolveCowartInsertCanvas(cowartBridge.sources(), body.targetId);
+    if (!targetCanvas) {
+      sendJson(res, 400, { error: "Cowart insertion target is not registered." });
+      return;
+    }
+    const cowartTargetArgs = { projectDir: targetCanvas.projectDir, canvasDir: targetCanvas.canvasDir };
     const [canvasStateResult, selectionResult] = await Promise.all([
       cowartMcpClient.callTool("get_cowart_canvas_state", cowartTargetArgs),
       cowartMcpClient.callTool("get_cowart_selection", cowartTargetArgs),
@@ -249,7 +254,13 @@ async function handleApi(req, res, url) {
       ok: true,
       assetId: asset.id,
       result: insertion,
-      canvas: { ...verified, anchorSource: target.anchorSource },
+      canvas: {
+        ...verified,
+        sourceId: targetCanvas.id,
+        projectDir: targetCanvas.projectDir,
+        canvasDir: targetCanvas.canvasDir,
+        anchorSource: target.anchorSource,
+      },
     });
     return;
   }

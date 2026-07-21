@@ -56,7 +56,7 @@ The optional integrations become active when their local source directories are 
 
 1. Browse and search the included visual records in the Web app.
 2. Open an asset to inspect its full prompt, source type, Codex task ID, original path, dimensions, and provenance status.
-3. Run `npm test` to verify storage boundaries, route behavior, accessibility contracts, Codex reconciliation, and Cowart deduplication. The Build Week release currently has 27 passing automated tests.
+3. Run `npm test` to verify storage boundaries, route behavior, accessibility contracts, Codex reconciliation, and Cowart deduplication. The Build Week release currently has 33 passing automated tests.
 4. Review the dated Git history and the `Built with Codex and GPT-5.6` section above for the Build Week implementation record.
 
 ## 中文产品与集成说明

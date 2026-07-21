@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chooseCowartInsertTarget, verifyCowartInsert } from "../lib/cowart-insert.mjs";
+import { chooseCowartInsertTarget, resolveCowartInsertCanvas, verifyCowartInsert } from "../lib/cowart-insert.mjs";
 
 function canvasState() {
   return {
@@ -17,13 +17,25 @@ function canvasState() {
 }
 
 test("uses the current canvas selection as the insertion anchor", () => {
-  const target = chooseCowartInsertTarget(canvasState(), { selection: { selectedShapes: ["shape:far"] } });
+  const target = chooseCowartInsertTarget(canvasState(), { selection: { selectedShapes: [{ id: "shape:far", type: "image" }] } });
   assert.deepEqual(target, { pageId: "page:main", anchorShapeId: "shape:far", anchorSource: "selection" });
 });
 
 test("uses the current viewport's nearest page shape when no shape is selected", () => {
   const target = chooseCowartInsertTarget(canvasState(), { selection: { selectedShapes: [] } });
   assert.deepEqual(target, { pageId: "page:main", anchorShapeId: "shape:near", anchorSource: "viewport" });
+});
+
+test("allows insertion only into the MOSA or registered Cowart canvases", () => {
+  const canvases = [
+    { id: "mosa", projectDir: "/workspace/mosa", canvasDir: "/workspace/mosa/canvas" },
+    { id: "project-a", projectDir: "/workspace/project-a", canvasDir: "/workspace/project-a/canvas" },
+  ];
+
+  assert.equal(resolveCowartInsertCanvas(canvases), canvases[0]);
+  assert.equal(resolveCowartInsertCanvas(canvases, "project-a"), canvases[1]);
+  assert.equal(resolveCowartInsertCanvas(canvases, "unregistered"), null);
+  assert.equal(resolveCowartInsertCanvas(canvases, ""), null);
 });
 
 test("only verifies a persisted Cowart image with matching MOSA provenance", () => {
