@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Added opt-in monitoring for multiple project-local Cowart canvases while preserving the MOSA dedicated canvas.
+- Added persisted project registration, per-canvas bridge status, and Cowart project provenance on archived assets.
+
 ## 0.1.0 — OpenAI Build Week release
 
 - Added a local-first visual library that preserves prompts, image metadata, source paths, and provenance alongside each asset.

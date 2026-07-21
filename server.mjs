@@ -4,15 +4,26 @@ import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssetStore, mimeTypeForFile } from "./lib/asset-store.mjs";
 import { createCodexImageBridge } from "./lib/codex-image-bridge.mjs";
-import { createCowartAssetBridge } from "./lib/cowart-bridge.mjs";
+import { createCowartBridgeManager } from "./lib/cowart-bridge-manager.mjs";
+import { createCowartProjectRegistry } from "./lib/cowart-project-registry.mjs";
 import { createCowartMcpClient } from "./lib/cowart-mcp-client.mjs";
+import { chooseCowartInsertTarget, normalizeCowartInsertResult, verifyCowartInsert } from "./lib/cowart-insert.mjs";
 import { isAllowedLocalOrigin, resolveAllowedFolderPath } from "./lib/server-security.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || join(managerDir, ".."));
 const port = Number(process.env.MOSA_PORT || 43517);
 const store = createAssetStore({ projectRoot, managerDir });
-const cowartBridge = createCowartAssetBridge({ store, canvasDir: store.cowartCanvasDir });
+const cowartProjectRegistry = createCowartProjectRegistry({
+  managerDir,
+  registryPath: process.env.MOSA_COWART_REGISTRY_PATH,
+});
+const cowartBridge = createCowartBridgeManager({
+  store,
+  registry: cowartProjectRegistry,
+  managerDir,
+  canvasDir: store.cowartCanvasDir,
+});
 const codexBridge = createCodexImageBridge({
   store,
   imagesDir: store.codexImagesDir,
@@ -82,6 +93,25 @@ async function handleApi(req, res, url) {
 
   if (req.method === "GET" && url.pathname === "/api/bridges") {
     sendJson(res, 200, { codex: codexBridge.status(), cowart: cowartBridge.status(), cowartInsert: cowartMcpClient.status() });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/cowart-canvases") {
+    sendJson(res, 200, { canvases: cowartBridge.sources() });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/cowart-canvases") {
+    const body = await readJson(req);
+    const result = await cowartBridge.addProject({ projectDir: body.projectDir });
+    sendJson(res, result.created ? 201 : 200, result);
+    return;
+  }
+
+  const cowartCanvasMatch = /^\/api\/cowart-canvases\/([^/]+)$/.exec(url.pathname);
+  if (cowartCanvasMatch && req.method === "DELETE") {
+    const canvas = await cowartBridge.removeProject(decodeURIComponent(cowartCanvasMatch[1]));
+    sendJson(res, 200, { canvas });
     return;
   }
 
@@ -187,18 +217,40 @@ async function handleApi(req, res, url) {
     }
     const body = await readJson(req);
     const placement = ["right", "left", "below"].includes(body.placement) ? body.placement : "right";
+    const cowartTargetArgs = { projectDir: managerDir, canvasDir: store.cowartCanvasDir };
+    const [canvasStateResult, selectionResult] = await Promise.all([
+      cowartMcpClient.callTool("get_cowart_canvas_state", cowartTargetArgs),
+      cowartMcpClient.callTool("get_cowart_selection", cowartTargetArgs),
+    ]);
+    const target = chooseCowartInsertTarget(canvasStateResult.structuredContent || {}, selectionResult.structuredContent || {});
     const result = await cowartMcpClient.callTool("insert_cowart_image", {
       imagePath: asset.image_path,
-      projectDir: managerDir,
-      canvasDir: store.cowartCanvasDir,
+      ...cowartTargetArgs,
       fileName: basename(asset.image_path),
       placement,
+      pageId: target.pageId || undefined,
+      anchorShapeId: target.anchorShapeId || undefined,
       matchAnchor: false,
       replaceAiImageHolder: false,
       altText: asset.theme || asset.asset || asset.id,
       assetMeta: { mosaAssetId: asset.id, mosaProjectId: asset.project_id },
     });
-    sendJson(res, 200, { ok: true, assetId: asset.id, result: result.structuredContent || {} });
+    const insertion = normalizeCowartInsertResult(result.structuredContent);
+    if (!insertion) throw new Error("Cowart did not confirm a persisted image shape.");
+
+    const persistedState = await cowartMcpClient.callTool("get_cowart_canvas_state", cowartTargetArgs);
+    const verified = verifyCowartInsert(persistedState.structuredContent || {}, insertion, {
+      id: asset.id,
+      projectId: asset.project_id,
+    });
+    if (!verified) throw new Error("Cowart did not persist the inserted image on the target canvas.");
+
+    sendJson(res, 200, {
+      ok: true,
+      assetId: asset.id,
+      result: insertion,
+      canvas: { ...verified, anchorSource: target.anchorSource },
+    });
     return;
   }
 

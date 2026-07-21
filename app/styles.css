@@ -75,7 +75,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .icon-button:hover { border-color: var(--line-strong); color: var(--ink); background: var(--surface-muted); }
 .icon-button.quiet { border-color: transparent; background: transparent; }
 .settings-wrap { position: relative; }
-.settings-menu { position: absolute; z-index: 40; bottom: 39px; left: 0; width: 208px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); }
+.settings-menu { position: absolute; z-index: 40; bottom: 39px; left: 0; width: min(272px, calc(100vw - 24px)); padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); }
 .settings-section + .settings-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
 .settings-menu p { padding: 5px 7px 7px; color: var(--ink-tertiary); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .settings-menu button { display: flex; width: 100%; align-items: center; justify-content: space-between; padding: 7px; border: 0; border-radius: 6px; color: var(--ink-secondary); background: transparent; cursor: pointer; font-size: 12px; text-align: left; }
@@ -88,6 +88,19 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .settings-submenu-trigger svg { flex: 0 0 auto; }
 .language-menu { position: fixed; z-index: 45; top: var(--language-menu-top, 12px); left: var(--language-menu-left, 12px); width: min(184px, calc(100vw - 24px)); padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); }
 .language-menu button { width: 100%; }
+.settings-cowart-add { display: flex; align-items: center; gap: 4px; padding: 0 3px; }
+.settings-cowart-add input { min-width: 0; height: 32px; flex: 1; padding: 0 7px; border: 1px solid transparent; border-radius: 7px; background: var(--surface-muted); font-size: 12px; }
+.settings-cowart-add input:hover, .settings-cowart-add input:focus { border-color: var(--line); }
+.settings-menu .settings-cowart-add .icon-button { display: inline-grid; width: 32px; min-width: 32px; height: 32px; padding: 0; place-items: center; }
+.settings-cowart-list { display: grid; max-height: 126px; gap: 2px; margin: 5px 3px 0; overflow: auto; }
+.settings-cowart-entry { display: flex; min-width: 0; height: 28px; align-items: center; gap: 7px; padding-left: 7px; border-radius: 6px; color: var(--ink-secondary); font-size: 11px; }
+.settings-cowart-entry:hover { background: var(--surface-muted); }
+.settings-cowart-status { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--ink-tertiary); }
+.settings-cowart-status[data-state="ok"] { background: var(--success); }
+.settings-cowart-status[data-state="error"] { background: var(--danger); }
+.settings-cowart-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-menu .settings-cowart-entry .settings-cowart-remove { display: inline-grid; width: 28px; min-width: 28px; height: 28px; padding: 0; place-items: center; color: var(--ink-tertiary); }
+.settings-menu .settings-cowart-entry .settings-cowart-remove:hover { color: var(--danger); }
 
 /* Main gallery */
 .library { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; }

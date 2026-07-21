@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -17,6 +17,7 @@ test("returns 404 for a missing library image without stopping the server", asyn
       CODEX_GENERATED_IMAGES_DIR: join(root, "generated-images"),
       CODEX_SESSIONS_DIR: join(root, "sessions"),
       COWART_MOSA_CANVAS_DIR: join(root, "cowart-data"),
+      MOSA_COWART_REGISTRY_PATH: join(root, "state", "cowart-projects.json"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -40,6 +41,27 @@ test("returns 404 for a missing library image without stopping the server", asyn
   });
   assert.equal(bridgeStatus.status, 200);
   assert.equal(server.exitCode, null);
+
+  const otherProject = join(root, "other-project");
+  await mkdir(otherProject, { recursive: true });
+  const canonicalOtherProject = await realpath(otherProject);
+  const addCanvas = await fetch(`http://127.0.0.1:${port}/api/cowart-canvases`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectDir: otherProject }),
+  });
+  assert.equal(addCanvas.status, 201);
+  const added = await addCanvas.json();
+  assert.equal(added.canvas.projectDir, canonicalOtherProject);
+  assert.equal(added.canvas.canvasDir, join(canonicalOtherProject, "canvas"));
+
+  const canvases = await fetch(`http://127.0.0.1:${port}/api/cowart-canvases`);
+  assert.equal(canvases.status, 200);
+  assert.equal((await canvases.json()).canvases.length, 2);
+
+  const removeCanvas = await fetch(`http://127.0.0.1:${port}/api/cowart-canvases/${encodeURIComponent(added.canvas.id)}`, { method: "DELETE" });
+  assert.equal(removeCanvas.status, 200);
+  assert.equal((await removeCanvas.json()).canvas.id, added.canvas.id);
 });
 
 async function waitForServerPort(server) {

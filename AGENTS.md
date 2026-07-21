@@ -4,7 +4,7 @@
 
 - This repository is the user's only Build Week project. Keep all product code, assets, tests, and Git commits inside this directory.
 - Cowart is an externally installed Codex plugin at `/Users/azhuilab/plugins/cowart`; never vendor, clone, or copy its code into this repository.
-- Cowart runtime data belongs outside this repository at `/Users/azhuilab/.codex/cowart-data/mosa`.
+- Cowart runtime data belongs outside this repository. MOSA's dedicated canvas is `/Users/azhuilab/.codex/cowart-data/mosa`; additional registered Cowart projects keep their own `<projectDir>/canvas` directories.
 
 ## Natural-language launch commands
 
@@ -29,7 +29,8 @@
 
 ## Cowart-to-library automatic registration
 
-- MOSA starts a project-scoped Cowart bridge with the web server. It watches only `/Users/azhuilab/.codex/cowart-data/mosa/pages/`, reconciles saved page assets against Cowart snapshots, and archives new generated or edited images automatically.
+- MOSA starts a Cowart bridge manager with the web server. It watches the dedicated canvas plus each project explicitly registered in MOSA Settings → Cowart canvases; a registered project is monitored only at `<projectDir>/canvas/pages/`.
+- Registered project roots are persisted outside the repository in `~/.codex/mosa/cowart-projects.json`. Never scan arbitrary Cowart projects or broad filesystem roots to discover canvases.
 - The bridge is the source of truth for auto-archival. It covers Cowart image generation, AI-holder replacement, and annotation editing without changing the Cowart plugin or requiring the creating task to call `asset_create`.
 - It deduplicates by the exact Cowart page-asset path. The bridge skips images whose Cowart asset metadata identifies an existing MOSA asset.
 - Cowart snapshots expose an image description but not the full generation prompt. Auto-archived records therefore label their Prompt as canvas alt text; attach the original full prompt later when it is available.
