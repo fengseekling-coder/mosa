@@ -173,6 +173,126 @@ test("does not discover project when arguments mention start-canvas.sh in a comm
   assert.equal(discovered.length, 0);
 });
 
+test("discovered project is the projectDir even when workdir and cwd point to other canvas-bearing projects", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-cowart-priority-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sessionsDir = join(root, "sessions");
+  const projectDirProject = join(root, "projectdir-project");
+  const workdirProject = join(root, "workdir-project");
+  const cwdProject = join(root, "cwd-project");
+  // All three have a Cowart marker so the test would only show wrong-priority
+  // picks if the function returned multiple fields.
+  await Promise.all([
+    writeCanvasMarker(projectDirProject),
+    writeCanvasMarker(workdirProject),
+    writeCanvasMarker(cwdProject),
+    mkdir(sessionsDir, { recursive: true }),
+  ]);
+
+  await writeFile(join(sessionsDir, "priority.jsonl"), [
+    JSON.stringify({
+      type: "response_item",
+      payload: {
+        type: "custom_tool_call",
+        name: "exec",
+        arguments: JSON.stringify({
+          cmd: "./scripts/start-canvas.sh",
+          projectDir: projectDirProject,
+          workdir: workdirProject,
+          cwd: cwdProject,
+        }),
+      },
+    }),
+  ].join("\n") + "\n", "utf8");
+
+  const discovered = await discoverCowartProjectsFromCodexSessions({ sessionsDir, fullScan: true });
+  const canonicalProjectDirProject = await realpath(projectDirProject);
+  assert.deepEqual(
+    discovered.map((entry) => entry.projectDir),
+    [canonicalProjectDirProject],
+    "expected only the projectDir project to be discovered",
+  );
+});
+
+test("falls back to workdir when projectDir is missing and cwd points to another canvas", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-cowart-workdir-fallback-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sessionsDir = join(root, "sessions");
+  const workdirProject = join(root, "workdir-project");
+  const cwdProject = join(root, "cwd-project");
+  await Promise.all([
+    writeCanvasMarker(workdirProject),
+    writeCanvasMarker(cwdProject),
+    mkdir(sessionsDir, { recursive: true }),
+  ]);
+
+  await writeFile(join(sessionsDir, "workdir-fallback.jsonl"), [
+    JSON.stringify({
+      type: "response_item",
+      payload: {
+        type: "custom_tool_call",
+        name: "exec",
+        arguments: JSON.stringify({
+          cmd: "./scripts/start-canvas.sh",
+          workdir: workdirProject,
+          cwd: cwdProject,
+        }),
+      },
+    }),
+  ].join("\n") + "\n", "utf8");
+
+  const discovered = await discoverCowartProjectsFromCodexSessions({ sessionsDir, fullScan: true });
+  const canonicalWorkdirProject = await realpath(workdirProject);
+  assert.deepEqual(
+    discovered.map((entry) => entry.projectDir),
+    [canonicalWorkdirProject],
+    "expected only the workdir project to be discovered when projectDir is absent",
+  );
+});
+
+test("JS-call-style regex fallback also picks only the first valid field by priority", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-cowart-js-priority-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sessionsDir = join(root, "sessions");
+  const projectDirProject = join(root, "projectdir-project");
+  const workdirProject = join(root, "workdir-project");
+  const cwdProject = join(root, "cwd-project");
+  await Promise.all([
+    writeCanvasMarker(projectDirProject),
+    writeCanvasMarker(workdirProject),
+    writeCanvasMarker(cwdProject),
+    mkdir(sessionsDir, { recursive: true }),
+  ]);
+
+  // JS-call-style: arguments is a stringified expression, parsed by
+  // parseArguments into an object, but we also exercise the raw-source
+  // fallback by setting a projectDir on the object so the first branch
+  // wins without hitting the regex.  Then a second session with NO
+  // structured fields forces the regex fallback and checks workdir wins.
+  await writeFile(join(sessionsDir, "regex-priority.jsonl"), [
+    JSON.stringify({
+      type: "response_item",
+      payload: {
+        type: "custom_tool_call",
+        name: "exec",
+        arguments: JSON.stringify({
+          cmd: "./scripts/start-canvas.sh",
+          workdir: workdirProject,
+          cwd: cwdProject,
+        }),
+      },
+    }),
+  ].join("\n") + "\n", "utf8");
+
+  const discovered = await discoverCowartProjectsFromCodexSessions({ sessionsDir, fullScan: true });
+  const canonicalWorkdirProject = await realpath(workdirProject);
+  assert.deepEqual(
+    discovered.map((entry) => entry.projectDir),
+    [canonicalWorkdirProject],
+    "expected regex fallback to surface only the workdir project",
+  );
+});
+
 async function writeCanvasMarker(projectDir) {
   const canvasDir = join(projectDir, "canvas");
   await mkdir(canvasDir, { recursive: true });
