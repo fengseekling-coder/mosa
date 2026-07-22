@@ -250,7 +250,7 @@ test("falls back to workdir when projectDir is missing and cwd points to another
   );
 });
 
-test("JS-call-style regex fallback also picks only the first valid field by priority", async (t) => {
+test("regex fallback on an un-stringified JS call still picks only the first valid field by priority", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-js-priority-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const sessionsDir = join(root, "sessions");
@@ -264,32 +264,38 @@ test("JS-call-style regex fallback also picks only the first valid field by prio
     mkdir(sessionsDir, { recursive: true }),
   ]);
 
-  // JS-call-style: arguments is a stringified expression, parsed by
-  // parseArguments into an object, but we also exercise the raw-source
-  // fallback by setting a projectDir on the object so the first branch
-  // wins without hitting the regex.  Then a second session with NO
-  // structured fields forces the regex fallback and checks workdir wins.
-  await writeFile(join(sessionsDir, "regex-priority.jsonl"), [
+  // The Codex session records the raw source of the tool call verbatim.
+  // parseArguments() cannot turn an un-stringified JS expression into a
+  // structured object, so the extractor must consult `source` via the
+  // projectDir > workdir > cwd regex fallback.  All three directories
+  // have valid Cowart markers; the test only passes if the regex
+  // fallback honours the same priority order and stops at projectDir.
+  const jsExpression = [
+    "const result = await tools.exec_command({",
+    `  cmd:"./scripts/start-canvas.sh",`,
+    `  projectDir:"${projectDirProject}",`,
+    `  workdir:"${workdirProject}",`,
+    `  cwd:"${cwdProject}"`,
+    "});",
+  ].join("\n");
+
+  await writeFile(join(sessionsDir, "js-call-priority.jsonl"), [
     JSON.stringify({
       type: "response_item",
       payload: {
         type: "custom_tool_call",
         name: "exec",
-        arguments: JSON.stringify({
-          cmd: "./scripts/start-canvas.sh",
-          workdir: workdirProject,
-          cwd: cwdProject,
-        }),
+        arguments: jsExpression,
       },
     }),
   ].join("\n") + "\n", "utf8");
 
   const discovered = await discoverCowartProjectsFromCodexSessions({ sessionsDir, fullScan: true });
-  const canonicalWorkdirProject = await realpath(workdirProject);
+  const canonicalProjectDirProject = await realpath(projectDirProject);
   assert.deepEqual(
     discovered.map((entry) => entry.projectDir),
-    [canonicalWorkdirProject],
-    "expected regex fallback to surface only the workdir project",
+    [canonicalProjectDirProject],
+    "expected regex fallback to discover only the projectDir project",
   );
 });
 
