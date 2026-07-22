@@ -5,11 +5,11 @@
 ## 当前状态
 
 - 工作目录：`/Users/azhuilab/codex_aigc/mosa`
-- Phase 0-2 已通过 PR #3 合并至 `main`（`b09b657`）。
+- Phase 0-2 已通过 PR #3 合并至 `main`（`b09b657`）；迁移交接记录通过 PR #4 合并（`6d71a6f`），Cowart 自动发现通过 PR #5 合并（`38be7f4`）。
 - 真实素材库 `/Users/azhuilab/MOSA Library` 已于 2026-07-22 完成 SQLite 迁移：导入 270 个旧资产与 1 个空分组，并在迁移期间校验了全部 270 个原图哈希。
 - 旧 JSON 与 Prompt 备份位于 `/Users/azhuilab/MOSA Library/legacy-json-backup/2026-07-22T12-26-53-909Z`；不要删除 JSON 源目录、该备份或 `mosa.db`，也不要手工修改迁移状态。
-- `mosa verify` 在迁移后通过（270 个资产）；SQLite 服务启动后 Codex 归档桥接新增 1 个正常资产，最终复核通过（271 个资产、0 个失败）。
-- `mosa thumbnails rebuild` 已完成 270 个派生图任务。交接时 SQLite 服务运行在 `http://127.0.0.1:43519`；受监管的旧 JSON 服务继续占用 `43517`，不要为释放端口而终止它。
+- `mosa verify` 在迁移后通过（270 个资产）；SQLite 服务启动后 Codex 归档桥接新增 1 个正常资产，最终复核通过（271 个资产、0 个失败）。271 是当时的历史快照，服务持续归档时总数可以增长；应以 `ok: true` 与空 `failures` 判断完整性。
+- `mosa thumbnails rebuild` 已完成 270 个派生图任务。SQLite 服务目前运行在 `http://127.0.0.1:43519`；它在 PR #5 合并前启动，`/api/bridges` 尚未返回 `cowartDiscovery`，因此自动发现会在下一次获准的受控重启后生效。受监管的旧 JSON 服务继续占用 `43517`，不要为释放端口而终止它。
 
 ## 本次实现范围
 
@@ -36,6 +36,13 @@
 - JSON 兼容后端与 SQLite 使用同一套稳定游标顺序；后台刷新不会折叠用户已经加载的后续页面。
 - 支持 `mosa thumbnails rebuild` 进行可断点续跑的补全和修复；EXIF 方向、透明 PNG、SVG 与无法解码的文件都有明确任务状态。
 
+### 后续集成：Cowart 项目画布自动发现
+
+- MOSA 从 `CODEX_SESSIONS_DIR` 下的本地 Codex JSONL 会话中识别真实的 `render_cowart_canvas_widget` 或 `start-canvas.sh` 启动调用；不扫描任意项目目录。
+- 发现前会规范化项目路径，并要求 `<projectDir>/canvas` 具备 Cowart 自有标记文件；通过的项目仍登记在服务端允许列表中并只监听该画布。
+- 本地启动调用只选择一个项目：`projectDir` 优先于 `workdir`，后者优先于 `cwd`。搜索、注释或 `echo` 中提到 `start-canvas.sh` 不会触发监听。
+- 设置页只展示自动发现的画布；保留现有画布 API 以兼容已有客户端。`GET /api/bridges` 在新服务进程中包含 `cowartDiscovery` 状态。
+
 ## 关键文件
 
 | 领域 | 文件 |
@@ -45,6 +52,7 @@
 | WebP 派生图任务 worker | `lib/derivative-worker.mjs` |
 | CLI | `bin/mosa.mjs` |
 | HTTP 服务和路由 | `server.mjs` |
+| Cowart 画布自动发现 | `lib/cowart-canvas-discovery.mjs` |
 | MCP v1 兼容层 | `mcp/server.mjs` |
 | CI 与本地检查 | `.github/workflows/ci.yml`、`scripts/check-source.mjs` |
 | 新增测试 | `test/sqlite-store.test.mjs`、`test/library-migration.test.mjs`、`test/performance.test.mjs` |
@@ -54,7 +62,7 @@
 - 默认素材库路径：`~/MOSA Library`，其中保存 `mosa.db`、`assets/<project>/original`、`previews`、`thumbnails` 和 `legacy-json-backup`。
 - 迁移完成后，SQLite 是唯一运行期权威；JSON 仅作可验证备份，不做长期双写。
 - JSON 损坏、缺失原图或哈希不符会报告具体路径并以非零状态退出，不允许静默跳过。
-- 保持现有 Codex 来源目录白名单、Cowart 登记式监听、回插目标允许列表和原图 URL 行为；不扫描任意 Cowart 项目目录。
+- 保持现有 Codex 来源目录白名单、Cowart 的事件式自动发现与服务端允许列表、回插目标允许列表和原图 URL 行为；不扫描任意 Cowart 项目目录。
 - 本次不包含 Tauri、AI 元数据/Embedding、版本树 UI 或 MCP 2.0。
 
 ## 已完成验证
@@ -87,15 +95,26 @@ npm exec mosa -- verify --library /Users/azhuilab/MOSA\ Library
 # assets: 271; failures: 0; migration_state: completed
 curl -sS http://127.0.0.1:43519/api/library-path
 # storage: sqlite; libraryDir: /Users/azhuilab/MOSA Library
+
+# PR #5 自动发现回归验证
+node --test test/cowart-canvas-discovery.test.mjs
+# 8 passed
+npm test
+# 49 passed, 1 skipped
+npm run lint
+npm run check
+npm run audit
+# clean; syntax checked; 0 vulnerabilities
 ```
 
 ## 后续操作
 
-1. 新启动 SQLite 服务时，使用独立端口并显式指定已迁移素材库：
+1. 只有在获准的受控重启窗口内，才重启 `43519` 的 SQLite 服务以加载 PR #5；不要终止 `43517` 的旧 JSON 服务。新进程必须使用已迁移素材库：
 
 ```bash
 MOSA_LIBRARY_DIR='/Users/azhuilab/MOSA Library' MOSA_PORT=43519 npm start
 ```
 
-2. 例行维护可运行 `npm exec mosa -- verify --library /Users/azhuilab/MOSA\ Library`；仅在需补全或修复派生图时运行 `npm exec mosa -- thumbnails rebuild --library /Users/azhuilab/MOSA\ Library`。
-3. 迁移、校验或派生图任务失败时，不要删除 JSON 目录、备份或 SQLite 数据库，也不要手工激活/回退迁移状态；先保留现场并依据命令输出中的具体路径修复。
+2. 重启后，`GET /api/bridges` 必须出现启用的 `cowartDiscovery`；仅在本地 Codex 会话出现真实 Cowart 启动记录且目标具有画布标记时，才会增加项目画布监听。
+3. 例行维护可运行 `npm exec mosa -- verify --library /Users/azhuilab/MOSA\ Library`；仅在需补全或修复派生图时运行 `npm exec mosa -- thumbnails rebuild --library /Users/azhuilab/MOSA\ Library`。
+4. 迁移、校验或派生图任务失败时，不要删除 JSON 目录、备份或 SQLite 数据库，也不要手工激活/回退迁移状态；先保留现场并依据命令输出中的具体路径修复。
