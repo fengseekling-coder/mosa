@@ -101,7 +101,9 @@ test("uses a single language chosen from system, Chinese, or English", async () 
   assert.match(app, /data-language-menu/);
   assert.match(app, /function positionLanguageMenu\(\)/);
   assert.match(app, /document\.documentElement\.lang/);
-  assert.match(app, /data-cowart-canvas-form/);
-  assert.match(app, /data-remove-cowart-canvas/);
+  assert.match(app, /自动发现的 Cowart 画布/);
+  assert.match(app, /function cowartCanvasListSignature\(canvases\)/);
+  assert.doesNotMatch(app, /data-cowart-canvas-form/);
+  assert.doesNotMatch(app, /data-remove-cowart-canvas/);
   assert.match(app, /\/api\/cowart-canvases/);
 });

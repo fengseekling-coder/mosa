@@ -8,32 +8,20 @@ const translations = {
 };
 
 Object.assign(translations.zh, {
-  cowartCanvases: "Cowart 画布",
+  cowartCanvases: "自动发现的 Cowart 画布",
   cowartInsertTarget: "回插画布",
-  cowartProjectPath: "项目路径",
-  cowartProjectPathPlaceholder: "/Users/name/project",
-  addCowartCanvas: "添加项目画布",
-  removeCowartCanvas: "移除监控画布",
   mosaCanvas: "MOSA 专用画布",
-  cowartCanvasAdded: "已开始监控：{name}",
-  cowartCanvasRemoved: "已停止监控：{name}",
-  cowartProjectPathRequired: "请输入项目的绝对路径",
+  projectCanvas: "项目画布 · {name}",
   statusWatchingOneCanvas: "监控 1 个画布",
   statusWatchingCanvasCount: "监控 {count} 个画布",
   loadMore: "加载更多",
 });
 
 Object.assign(translations.en, {
-  cowartCanvases: "Cowart canvases",
+  cowartCanvases: "Detected Cowart canvases",
   cowartInsertTarget: "Insert canvas",
-  cowartProjectPath: "Project path",
-  cowartProjectPathPlaceholder: "/Users/name/project",
-  addCowartCanvas: "Add project canvas",
-  removeCowartCanvas: "Remove monitored canvas",
-  mosaCanvas: "MOSA canvas",
-  cowartCanvasAdded: "Now monitoring: {name}",
-  cowartCanvasRemoved: "Stopped monitoring: {name}",
-  cowartProjectPathRequired: "Enter an absolute project path",
+  mosaCanvas: "MOSA dedicated canvas",
+  projectCanvas: "Project canvas · {name}",
   statusWatchingOneCanvas: "1 canvas",
   statusWatchingCanvasCount: "{count} canvases",
   loadMore: "Load more",
@@ -117,16 +105,16 @@ function renderCowartCanvasSettings() {
   const entries = state.cowartCanvases.map((canvas) => {
     const label = cowartCanvasLabel(canvas);
     const status = canvas.lastError ? "error" : canvas.enabled ? "ok" : "off";
-    const removeButton = canvas.managed ? "" : `<button class="icon-button quiet settings-cowart-remove" type="button" data-remove-cowart-canvas="${escapeHtml(canvas.id)}" title="${escapeHtml(t("removeCowartCanvas"))}" aria-label="${escapeHtml(`${t("removeCowartCanvas")}: ${label}`)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2m-7 4v7m6-7v7M6 6l1 15h10l1-15"/></svg></button>`;
-    return `<div class="settings-cowart-entry" title="${escapeHtml(canvas.canvasDir || canvas.projectDir || "")}"><span class="settings-cowart-status" data-state="${status}" aria-hidden="true"></span><span class="settings-cowart-name">${escapeHtml(label)}</span>${removeButton}</div>`;
+    return `<div class="settings-cowart-entry" title="${escapeHtml(canvas.canvasDir || canvas.projectDir || "")}"><span class="settings-cowart-status" data-state="${status}" aria-hidden="true"></span><span class="settings-cowart-name">${escapeHtml(label)}</span></div>`;
   }).join("");
-  return `<section class="settings-section settings-cowart-section"><p>${t("cowartCanvases")}</p><form class="settings-cowart-add" data-cowart-canvas-form><label class="visually-hidden" for="cowartProjectPath">${t("cowartProjectPath")}</label><input id="cowartProjectPath" data-cowart-project-path placeholder="${escapeHtml(t("cowartProjectPathPlaceholder"))}" aria-label="${escapeHtml(t("cowartProjectPath"))}" /><button class="icon-button quiet" type="submit" title="${escapeHtml(t("addCowartCanvas"))}" aria-label="${escapeHtml(t("addCowartCanvas"))}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button></form><div class="settings-cowart-list">${entries}</div></section>`;
+  return `<section class="settings-section settings-cowart-section"><p>${t("cowartCanvases")}</p><div class="settings-cowart-list">${entries}</div></section>`;
 }
 
 function cowartCanvasLabel(canvas = {}) {
   if (canvas.managed) return t("mosaCanvas");
   const path = String(canvas.projectDir || "").replace(/\/+$/, "");
-  return path.split("/").pop() || path || t("cowartCanvases");
+  const name = path.split("/").pop() || path || t("cowartCanvases");
+  return t("projectCanvas", { name });
 }
 
 function cowartInsertTargetIdFor(asset) {
@@ -297,6 +285,12 @@ function isDetailEditorActive() {
 async function refreshBridgeStatus() {
   try {
     const { codex, cowart, cowartInsert } = await api("/api/bridges");
+    const nextCanvases = Array.isArray(cowart?.sources) ? cowart.sources : [];
+    if (cowartCanvasListSignature(nextCanvases) !== cowartCanvasListSignature(state.cowartCanvases)) {
+      state.cowartCanvases = nextCanvases;
+      renderSettingsMenu();
+      if (state.detailOpen && !isDetailEditorActive()) renderDetail();
+    }
     state.cowartInsertAvailable = Boolean(cowartInsert?.available);
     const hasError = codex?.lastError || cowart?.lastError;
     const codexOn = Boolean(codex?.enabled);
@@ -324,6 +318,10 @@ async function refreshBridgeStatus() {
     setStatus(t("statusUnavailable"), "error");
     updateCowartInsertControls();
   }
+}
+
+function cowartCanvasListSignature(canvases) {
+  return (canvases || []).map((canvas) => `${canvas.id}:${canvas.canvasDir}:${canvas.enabled}:${canvas.lastError || ""}`).join("|");
 }
 
 function updateCodexHint() {
@@ -363,19 +361,6 @@ function bindEvents() {
     state.project = select.value; state.selectedId = null; state.filter = { type: "all", value: "" }; state.query = ""; els.searchInput.value = "";
     await loadStats(); await loadAssets();
   });
-  els.settingsMenu?.addEventListener("submit", (event) => {
-    if (!event.target.matches("[data-cowart-canvas-form]")) return;
-    event.preventDefault();
-    runAction(async () => {
-      const input = event.target.querySelector("[data-cowart-project-path]");
-      const projectDir = input?.value.trim() || "";
-      if (!projectDir) throw new Error(t("cowartProjectPathRequired"));
-      const result = await api("/api/cowart-canvases", { method: "POST", body: { projectDir } });
-      await loadCowartCanvases();
-      await refreshBridgeStatus();
-      showToast(t("cowartCanvasAdded", { name: cowartCanvasLabel(result.canvas) }), "success");
-    });
-  });
   els.settingsMenu?.addEventListener("click", (event) => {
     const languageMenuTrigger = event.target.closest("[data-language-menu]");
     if (languageMenuTrigger) {
@@ -391,15 +376,6 @@ function bindEvents() {
     if (localeButton) return setLanguage(localeButton.dataset.locale);
     const openLibraryButton = event.target.closest("[data-open-library]");
     if (openLibraryButton) runAction(async () => { if (!state.libraryPath) return; await api("/api/open-folder", { method: "POST", body: { path: state.libraryPath } }); showToast(t("openInFinder"), "success"); });
-    const removeCanvasButton = event.target.closest("[data-remove-cowart-canvas]");
-    if (removeCanvasButton) runAction(async () => {
-      const id = removeCanvasButton.dataset.removeCowartCanvas;
-      const canvas = state.cowartCanvases.find((entry) => entry.id === id);
-      const result = await api(`/api/cowart-canvases/${encodeURIComponent(id)}`, { method: "DELETE" });
-      await loadCowartCanvases();
-      await refreshBridgeStatus();
-      showToast(t("cowartCanvasRemoved", { name: cowartCanvasLabel(result.canvas || canvas) }), "success");
-    });
   });
   els.closeImportModal?.addEventListener("click", closeImportModal);
   els.cancelImportBtn?.addEventListener("click", closeImportModal);
