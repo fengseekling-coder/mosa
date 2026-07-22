@@ -7,7 +7,7 @@ import { createAssetStore } from "../lib/asset-store.mjs";
 import { createCowartBridgeManager } from "../lib/cowart-bridge-manager.mjs";
 import { createCowartProjectRegistry } from "../lib/cowart-project-registry.mjs";
 
-test("archives explicitly registered project-local Cowart canvases", async (t) => {
+test("archives registered project-local Cowart canvases", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-manager-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 

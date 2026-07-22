@@ -86,9 +86,9 @@ The optional integrations become active when their local source directories are 
 | 来源 | 归档方式 | 保存的信息 | 需要的前提 |
 | --- | --- | --- | --- |
 | Codex 生图 | 监听 `~/.codex/generated_images/`，优先以硬链接入库 | 任务 ID、原始路径、时间、文件哈希、尺寸与可用的任务提示词 | 素材管理器服务保持运行 |
-| Cowart 画布 | 素材管理器服务读取已保存的 Cowart 画布快照，自动同步新页面图片 | 图片、画布描述、尺寸、画布对象与页面资产来源 | 服务保持运行；在 MOSA 设置中登记项目画布 |
+| Cowart 画布 | 素材管理器服务读取已保存的 Cowart 画布快照，自动同步新页面图片 | 图片、画布描述、尺寸、画布对象与页面资产来源 | 服务保持运行；在 Codex 中打开项目画布 |
 
-Codex 自动归档的范围仅限 Codex 标准生成目录，不会扫描用户的 Downloads、桌面或其他本地图片。Cowart 只监听 MOSA 专用画布和在设置中明确登记的项目 `<项目>/canvas/`，不会扫描其他项目。
+Codex 自动归档的范围仅限 Codex 标准生成目录，不会扫描用户的 Downloads、桌面或其他本地图片。Cowart 只监听 MOSA 专用画布，以及从本地 Codex 任务中的真实 Cowart 启动事件自动发现的 `<项目>/canvas/`；不会扫描其他项目目录。
 
 ### 本地启动
 
@@ -169,7 +169,7 @@ node scripts/migrate-codex-hardlinks.mjs
 
 Cowart 在这个目录保存画布后，新生成的图片、AI 图片框替换结果和批注编辑结果都会自动入库。桥接器以 Cowart 画布快照中的页面资产路径去重；从素材管理器插回画布的图片会携带来源 ID，桥接器会跳过它，避免重复归档。
 
-要归档其他项目的画布，在 MOSA 的 **设置 → Cowart 画布** 中填入该项目的绝对路径。MOSA 会只监控该项目的 `<项目>/canvas/`，项目之间仍保持各自的 Cowart 画布；已登记列表保存在 `~/.codex/mosa/cowart-projects.json`，服务重启后仍会生效。MOSA 不会自动扫描或收集未登记项目的画布。
+打开其他项目的 Cowart 画布后，MOSA 会从本地 Codex 任务记录中的 `render_cowart_canvas_widget` 或 Cowart 本地启动调用自动识别项目根目录，验证该项目确实存在 Cowart 画布标记，然后立即监听 `<项目>/canvas/`。项目之间仍保持各自的画布；自动发现列表保存在 `~/.codex/mosa/cowart-projects.json`，服务重启后仍会生效。这个流程基于真实启动事件，不会扫描机器上的任意项目目录。
 
 Cowart 快照仅提供画布描述（alt text），不保存完整生图 Prompt。因此 Cowart 自动归档的素材会明确标记为 `canvas-alt-text-only`；需要完整 Prompt 时，可在详情页后补或从原生成任务补录。
 
@@ -191,14 +191,14 @@ Cowart 是外部 Codex 插件，运行数据刻意保存在仓库外，不会被
 COWART_MOSA_CANVAS_DIR=/absolute/path/to/cowart-data/my-project npm start
 ```
 
-这个环境变量只改变 MOSA 专用画布。其他项目画布请通过设置菜单登记，而不是通过扫描机器上的目录。
+这个环境变量只改变 MOSA 专用画布。其他项目画布会在 Cowart 被实际打开后自动发现。
 
 ### 最短端到端验证
 
 1. 运行 `npm start`，打开 Web App。
 2. 新开任意 Codex 任务（不需要关联 MOSA 项目）。
 3. 生成一张图片；在 Web 中等待最多 3 秒，确认出现 **Codex** 来源的新素材、任务 ID、原始路径与提示词状态。
-4. 若使用普通项目画布，先在 **设置 → Cowart 画布** 登记项目根目录；然后打开该项目的 Cowart 画布，生成、替换或批注编辑一张图片并保存画布。
+4. 打开任意项目的 Cowart 画布，生成、替换或批注编辑一张图片并保存；MOSA 会自动发现并监听这个项目画布。
 5. 等待最多 2 秒，回到 Web 查看带有 **Cowart** 来源标记的新素材；也可访问 `/api/cowart-bridge` 查看同步状态。
 6. 将一张库内素材插回画布，确认素材总数没有因同一文件再次增加。
 
@@ -212,7 +212,7 @@ COWART_MOSA_CANVAS_DIR=/absolute/path/to/cowart-data/my-project npm start
 | `CODEX_GENERATED_IMAGES_DIR` | `~/.codex/generated_images` | 允许 `asset_create` 读取的 Codex 图片来源根目录 |
 | `CODEX_SESSIONS_DIR` | `~/.codex/sessions` | 用于读取对应 Codex 任务提示词的会话记录根目录 |
 | `COWART_MOSA_CANVAS_DIR` | `~/.codex/cowart-data/mosa` | MOSA 专用 Cowart 画布数据目录 |
-| `MOSA_COWART_REGISTRY_PATH` | `~/.codex/mosa/cowart-projects.json` | 已登记项目画布列表；每项只监听 `<项目>/canvas/` |
+| `MOSA_COWART_REGISTRY_PATH` | `~/.codex/mosa/cowart-projects.json` | 自动发现的项目画布列表；每项只监听 `<项目>/canvas/` |
 | `COWART_MCP_SERVER_PATH` | `~/plugins/cowart/mcp/server.mjs` | 可选的 Cowart MCP 服务入口，用于 Web 中的一键插入 |
 
 ### 本地数据结构
@@ -245,7 +245,7 @@ Cowart 运行数据不在仓库中：
 
 ```text
 ~/.codex/cowart-data/mosa/             # MOSA 专用画布
-~/.codex/mosa/cowart-projects.json     # 已登记项目根目录
+~/.codex/mosa/cowart-projects.json     # 自动发现的项目根目录
 ```
 
 #### Git 与本地素材
@@ -281,7 +281,7 @@ node mosa/mcp/server.mjs
 
 - 未迁移时数据以 JSON 本地文件保存；验证完成后 SQLite 是唯一运行期元数据权威。JSON 只保留为兼容回退与迁移备份，不做双写。
 - Codex 图片归档在素材管理器服务运行时自动监听标准生成目录；MCP `asset_create` 可用于显式保存和补充生成元数据。
-- Cowart 自动归档依赖素材管理器服务运行，并且只覆盖 MOSA 专用画布和明确登记的项目画布。
+- Cowart 自动归档依赖素材管理器服务运行，并且只覆盖 MOSA 专用画布和从真实 Cowart 启动事件发现的项目画布。
 - Cowart 自动归档保留画布描述，不具备完整 Prompt；原始 Prompt 需要从生成任务补录。
 - “同配方再生成”当前复制 Codex 指令，不直接调用图像模型。
 

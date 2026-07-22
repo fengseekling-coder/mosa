@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -10,14 +10,49 @@ import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 
 test("returns 404 for a missing library image without stopping the server", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-server-"));
+  const sessionsDir = join(root, "sessions");
+  const detectedProject = join(root, "detected-project");
+  const workdirOnlyProject = join(root, "workdir-only-project");
+  await mkdir(join(detectedProject, "canvas"), { recursive: true });
+  await mkdir(join(workdirOnlyProject, "canvas"), { recursive: true });
+  await mkdir(sessionsDir, { recursive: true });
+  await writeFile(join(detectedProject, "canvas", "cowart-view-state.json"), "{}\n", "utf8");
+  await writeFile(join(workdirOnlyProject, "canvas", "cowart-view-state.json"), "{}\n", "utf8");
+  // Session 1: has turn_context.cwd + JS-call-style start-canvas.sh
+  await writeFile(join(sessionsDir, "cowart-open.jsonl"), [
+    JSON.stringify({ type: "turn_context", payload: { cwd: detectedProject } }),
+    JSON.stringify({
+      type: "response_item",
+      payload: {
+        type: "custom_tool_call",
+        name: "exec",
+        arguments: `const result = await tools.exec_command({cmd:"./scripts/start-canvas.sh ${detectedProject}",workdir:"${detectedProject}"});`,
+      },
+    }),
+  ].join("\n") + "\n");
+  // Session 2: NO turn_context.cwd -- project dir only in structured JSON workdir.
+  await writeFile(join(sessionsDir, "workdir-only.jsonl"), [
+    JSON.stringify({
+      type: "response_item",
+      payload: {
+        type: "custom_tool_call",
+        name: "exec",
+        arguments: JSON.stringify({
+          cmd: "./scripts/start-canvas.sh",
+          workdir: workdirOnlyProject,
+        }),
+      },
+    }),
+  ].join("\n") + "\n");
   const server = spawn(process.execPath, ["server.mjs"], {
     cwd: process.cwd(),
     env: {
       ...process.env,
       MOSA_PORT: "0",
       MOSA_PROJECT_DIR: root,
+      MOSA_LIBRARY_DIR: join(root, "library"),
       CODEX_GENERATED_IMAGES_DIR: join(root, "generated-images"),
-      CODEX_SESSIONS_DIR: join(root, "sessions"),
+      CODEX_SESSIONS_DIR: sessionsDir,
       COWART_MOSA_CANVAS_DIR: join(root, "cowart-data"),
       MOSA_COWART_REGISTRY_PATH: join(root, "state", "cowart-projects.json"),
     },
@@ -44,6 +79,15 @@ test("returns 404 for a missing library image without stopping the server", asyn
   assert.equal(bridgeStatus.status, 200);
   assert.equal(server.exitCode, null);
 
+  const automaticallyDetected = await fetch(`http://127.0.0.1:${port}/api/cowart-canvases`);
+  assert.equal(automaticallyDetected.status, 200);
+  const detectedCanvases = (await automaticallyDetected.json()).canvases;
+  const canonicalDetectedProject = await realpath(detectedProject);
+  const canonicalWorkdirOnlyProject = await realpath(workdirOnlyProject);
+  assert.equal(detectedCanvases.length, 3);
+  assert.equal(detectedCanvases.some((canvas) => canvas.projectDir === canonicalDetectedProject), true);
+  assert.equal(detectedCanvases.some((canvas) => canvas.projectDir === canonicalWorkdirOnlyProject), true);
+
   const otherProject = join(root, "other-project");
   await mkdir(otherProject, { recursive: true });
   const canonicalOtherProject = await realpath(otherProject);
@@ -59,7 +103,7 @@ test("returns 404 for a missing library image without stopping the server", asyn
 
   const canvases = await fetch(`http://127.0.0.1:${port}/api/cowart-canvases`);
   assert.equal(canvases.status, 200);
-  assert.equal((await canvases.json()).canvases.length, 2);
+  assert.equal((await canvases.json()).canvases.length, 4);
 
   const removeCanvas = await fetch(`http://127.0.0.1:${port}/api/cowart-canvases/${encodeURIComponent(added.canvas.id)}`, { method: "DELETE" });
   assert.equal(removeCanvas.status, 200);
@@ -119,23 +163,28 @@ test("SQLite HTTP surface paginates assets and serves durable derivatives", asyn
 
 async function waitForServerPort(server) {
   server.stdout.setEncoding("utf8");
+  server.stderr.setEncoding("utf8");
   return new Promise((resolvePort, rejectPort) => {
     let output = "";
+    let errorOutput = "";
     const timer = setTimeout(() => finish(new Error("Timed out waiting for MOSA server startup.")), 5000);
     const onOutput = (chunk) => {
       output += chunk;
       const match = /MOSA: http:\/\/127\.0\.0\.1:(\d+)/.exec(output);
       if (match) finish(null, Number(match[1]));
     };
-    const onExit = () => finish(new Error("MOSA server exited during startup."));
+    const onErrorOutput = (chunk) => { errorOutput += chunk; };
+    const onExit = () => finish(new Error(`MOSA server exited during startup.${errorOutput ? `\n${errorOutput}` : ""}`));
     const finish = (error, port) => {
       clearTimeout(timer);
       server.stdout.off("data", onOutput);
+      server.stderr.off("data", onErrorOutput);
       server.off("exit", onExit);
       if (error) rejectPort(error);
       else resolvePort(port);
     };
     server.stdout.on("data", onOutput);
+    server.stderr.on("data", onErrorOutput);
     server.once("exit", onExit);
   });
 }

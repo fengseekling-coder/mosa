@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createAssetStore, mimeTypeForFile } from "./lib/asset-store.mjs";
 import { createCodexImageBridge } from "./lib/codex-image-bridge.mjs";
 import { createCowartBridgeManager } from "./lib/cowart-bridge-manager.mjs";
+import { createCowartCanvasDiscovery } from "./lib/cowart-canvas-discovery.mjs";
 import { createCowartProjectRegistry } from "./lib/cowart-project-registry.mjs";
 import { createCowartMcpClient } from "./lib/cowart-mcp-client.mjs";
 import { chooseCowartInsertTarget, normalizeCowartInsertResult, resolveCowartInsertCanvas, verifyCowartInsert } from "./lib/cowart-insert.mjs";
@@ -16,6 +17,7 @@ const managerDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || join(managerDir, ".."));
 const port = Number(process.env.MOSA_PORT || 43517);
 const libraryDir = resolve(process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"));
+const codexSessionsDir = resolve(process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions"));
 const store = createAssetStore({ projectRoot, managerDir, libraryDir });
 const cowartProjectRegistry = createCowartProjectRegistry({
   managerDir,
@@ -30,7 +32,14 @@ const cowartBridge = createCowartBridgeManager({
 const codexBridge = createCodexImageBridge({
   store,
   imagesDir: store.codexImagesDir,
-  sessionsDir: process.env.CODEX_SESSIONS_DIR,
+  sessionsDir: codexSessionsDir,
+});
+const cowartCanvasDiscovery = createCowartCanvasDiscovery({
+  sessionsDir: codexSessionsDir,
+  managerDir,
+  dedicatedCanvasDir: store.cowartCanvasDir,
+  knownProjectDirs: () => cowartBridge.sources().map((source) => source.projectDir),
+  onDiscover: ({ projectDir }) => cowartBridge.addProject({ projectDir }),
 });
 const cowartMcpClient = createCowartMcpClient({ serverPath: process.env.COWART_MCP_SERVER_PATH });
 const appDir = join(managerDir, "app");
@@ -38,6 +47,7 @@ const derivativeWorker = createDerivativeWorker({ store });
 
 await store.ensureProject("default");
 await cowartBridge.start();
+await cowartCanvasDiscovery.start();
 await codexBridge.start();
 derivativeWorker.start();
 
@@ -97,11 +107,17 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "GET" && url.pathname === "/api/bridges") {
-    sendJson(res, 200, { codex: codexBridge.status(), cowart: cowartBridge.status(), cowartInsert: cowartMcpClient.status() });
+    sendJson(res, 200, {
+      codex: codexBridge.status(),
+      cowart: cowartBridge.status(),
+      cowartDiscovery: cowartCanvasDiscovery.status(),
+      cowartInsert: cowartMcpClient.status(),
+    });
     return;
   }
 
   if (req.method === "GET" && url.pathname === "/api/cowart-canvases") {
+    await cowartCanvasDiscovery.reconcile();
     sendJson(res, 200, { canvases: cowartBridge.sources() });
     return;
   }
