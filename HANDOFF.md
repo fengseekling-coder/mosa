@@ -55,7 +55,8 @@
 | Cowart 画布自动发现 | `lib/cowart-canvas-discovery.mjs` |
 | MCP v1 兼容层 | `mcp/server.mjs` |
 | CI 与本地检查 | `.github/workflows/ci.yml`、`scripts/check-source.mjs` |
-| 新增测试 | `test/sqlite-store.test.mjs`、`test/library-migration.test.mjs`、`test/performance.test.mjs` |
+| Core 存储测试 | `test/sqlite-store.test.mjs`、`test/library-migration.test.mjs`、`test/performance.test.mjs` |
+| Cowart 发现回归测试 | `test/cowart-canvas-discovery.test.mjs`、`test/server-routes.test.mjs` |
 
 ## 数据与兼容边界
 
@@ -67,10 +68,11 @@
 
 ## 已完成验证
 
-实现、迁移和运行态的最后一次验证记录：
+实现、迁移和运行态的验证记录：
 
 ```bash
 npm ci
+# Phase 0-2 Core 基线
 npm test                       # 41 passed, 1 skipped（性能测试默认跳过）
 npm run test:performance       # 50,000 资产：启动 < 3s，FTS P95 < 100ms
 npm run lint
