@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createAssetStore } from "../lib/asset-store.mjs";
+import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 import { createCowartAssetBridge, reconcileCowartAssets } from "../lib/cowart-bridge.mjs";
 
 test("archives Cowart page assets once and keeps MOSA-origin images out", async (t) => {
@@ -68,6 +69,40 @@ test("watches a Cowart page directory and archives a later image", async (t) => 
   const assets = await store.listAssets({ projectId: "default" });
   assert.equal(assets.length, 1);
   assert.equal(assets[0].source.cowart_shape_id, "shape:watch-bear");
+});
+
+test("archives a registered external Cowart canvas through the SQLite store only within its pages root", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-cowart-sqlite-external-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "workspace");
+  const managerDir = join(projectRoot, "mosa");
+  const cowartProjectDir = join(root, "external-project");
+  const canvasDir = join(cowartProjectDir, "canvas");
+  const pageDir = join(canvasDir, "pages", "page");
+  const imagePath = join(pageDir, "assets", "external.png");
+  await mkdir(join(pageDir, "assets"), { recursive: true });
+  await writeFile(imagePath, "fixture external Cowart image", "utf8");
+  await writeFile(join(pageDir, "cowart-canvas.json"), JSON.stringify({
+    store: {
+      "asset:external": { id: "asset:external", typeName: "asset", type: "image", props: { name: "external.png", src: "/page-assets/page/external.png" }, meta: {} },
+      "shape:external": { id: "shape:external", typeName: "shape", type: "image", props: { assetId: "asset:external", w: 1200, h: 800, altText: "External Cowart image" }, meta: {} },
+    },
+  }), "utf8");
+
+  const store = createSqliteAssetStore({ projectRoot, managerDir, libraryDir: join(root, "library") });
+  t.after(() => store.close());
+  await assert.rejects(store.createAsset({ imagePath }), /Refusing to import outside the project roots/);
+
+  const result = await reconcileCowartAssets({
+    store,
+    canvasDir,
+    cowartProjectDir,
+    sourceId: "registered-external-project",
+  });
+  assert.equal(result.imported.length, 1);
+  assert.equal(result.imported[0].source.cowart_project_dir, cowartProjectDir);
+  assert.equal(result.imported[0].source.cowart_source_id, "registered-external-project");
 });
 
 async function waitFor(condition, timeoutMs = 2000) {

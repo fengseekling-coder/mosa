@@ -59,7 +59,7 @@ npm exec mosa -- thumbnails rebuild
 
 Use `--library /absolute/path/to/library` to choose another location. Corrupt JSON, corrupt collection data, missing originals, or hash mismatches leave SQLite inactive and report the exact paths. Empty collections are preserved. After a successful migration, `npm start` automatically selects the completed SQLite library; use `MOSA_LIBRARY_DIR` only when choosing a non-default location.
 
-SQLite adds FTS5 search and cursor pagination (`limit` up to 250) without changing existing REST fields or MCP v1 tool names. The gallery requests 100 thumbnails at a time, the inspector uses a 1600px preview when ready, and `/library/<project>/images/<file>` still serves the original asset.
+SQLite adds FTS5 search and cursor pagination (`limit` up to 250) while preserving existing REST fields and MCP tools. Schema v2 adds indexed recipe-version traversal, and the version API/MCP tools are additive. The gallery requests 100 thumbnails at a time, the inspector uses a 1600px preview when ready, and `/library/<project>/images/<file>` still serves the original asset.
 
 The UI follows the system language by default. To inspect the English interface, open **Settings → Language → English** after starting MOSA.
 
@@ -75,9 +75,10 @@ The optional integrations become active when their local source directories are 
 ### What judges can verify
 
 1. Browse and search the included visual records in the Web app.
-2. Open an asset to inspect its full prompt, source type, Codex task ID, original path, dimensions, and provenance status.
-3. Run `npm test` to verify JSON compatibility, SQLite migration, derivative jobs, route behavior, accessibility contracts, Codex reconciliation, and Cowart deduplication. Run `npm run test:performance` separately for the 50,000-asset benchmark.
-4. Review the dated Git history and the `Built with Codex and GPT-5.6` section above for the Build Week implementation record.
+2. Open an asset to inspect its full prompt, provenance, and root-to-branch recipe history, including archived versions.
+3. Save metadata in place, branch a new version with a required change summary, and switch between version nodes without depending on the active gallery page or filter.
+4. Run `npm test` to verify JSON compatibility, SQLite migration, version trees, derivative jobs, route behavior, accessibility contracts, Codex reconciliation, and Cowart deduplication. Run `npm run test:performance` separately for the 50,000-asset benchmark.
+5. Review the dated Git history and the `Built with Codex and GPT-5.6` section above for the Build Week implementation record.
 
 ## 中文产品与集成说明
 
@@ -260,6 +261,23 @@ git add -f assets/default/images/<asset>.png \
 
 本地 HTTP 服务只接受同源浏览器请求，不应通过远程网页、反向代理或公网端口暴露。
 
+### 配方版本历史
+
+MOSA 的版本不是覆盖式编辑日志，而是由独立素材组成的树。每个节点保留自己的图片、Prompt、配方、来源与时间；可以从根节点或任意历史节点继续分支，已归档节点也仍会出现在完整历史中。
+
+- **保存当前配方**通过普通 PATCH 更新当前节点，不创建新版本。
+- **另存为新版本**创建当前节点的直接子节点，`version_change` 必填；传入新的 `imagePath` 时保存真实新图，不传时复制父图作为配方快照。
+- `asset_duplicate` 始终创建新的独立版本根，只在来源中保留 `duplicated_from`。
+- `parent_asset_id` 与 `child_asset_ids` 是只读关系字段，不能通过普通元数据 PATCH 改写。
+- 历史顺序为从根开始的稳定深度优先遍历，包含所有分支和已归档版本。
+
+HTTP 接口：
+
+```text
+GET  /api/assets/:project/:asset/versions
+POST /api/assets/:project/:asset/versions
+```
+
 ### MCP 工具
 
 - `asset_create`
@@ -269,6 +287,8 @@ git add -f assets/default/images/<asset>.png \
 - `asset_attach_prompt`
 - `asset_archive`
 - `asset_duplicate`
+- `asset_version_create`
+- `asset_version_history`
 
 可以直接在仓库父目录运行 MCP 服务进行本地调试：
 
@@ -283,16 +303,17 @@ node mosa/mcp/server.mjs
 - Codex 图片归档在素材管理器服务运行时自动监听标准生成目录；MCP `asset_create` 可用于显式保存和补充生成元数据。
 - Cowart 自动归档依赖素材管理器服务运行，并且只覆盖 MOSA 专用画布和从真实 Cowart 启动事件发现的项目画布。
 - Cowart 自动归档保留画布描述，不具备完整 Prompt；原始 Prompt 需要从生成任务补录。
-- “同配方再生成”当前复制 Codex 指令，不直接调用图像模型。
+- “同配方再生成”复制一条 Codex 指令；生成完成后，Codex 应把图像工具返回的实际 `imagePath` 传给 `asset_version_create`，将新图保存为当前节点的子版本。
 
 ### Build Week 演示清单
 
 1. 展示真实 Codex `image_generation_end` 记录，以及监听器无需点击 Import 即自动归档完整 Prompt 与来源。
 2. 展示 Cowart 中生成或编辑图片后，无需额外入库指令即出现在素材库。
-3. 在 Web 中搜索素材，打开详情页展示 Prompt、配方和来源。
-4. 将库内素材插入 Cowart，展示去重保护与可复用性。
-5. 提交证据：本仓库的 2026-07-17 至 2026-07-19 提交记录可追溯 Codex/GPT-5.6 的增量构建；GitHub 项目简介和本节已说明该闭环。
-6. 已在主构建 Codex 任务中执行 `/feedback`，并将返回的 Session ID 记录在提交材料中。
+3. 在 Web 中搜索素材，打开详情页展示 Prompt、配方、来源与完整版本分支。
+4. 从历史节点另存新版本，展示必填变更说明、真实新图接入和归档版本可见性。
+5. 将库内素材插入 Cowart，展示去重保护与可复用性。
+6. 提交证据：本仓库的 2026-07-17 至 2026-07-19 提交记录可追溯 Codex/GPT-5.6 的增量构建；GitHub 项目简介和本节已说明该闭环。
+7. 已在主构建 Codex 任务中执行 `/feedback`，并将返回的 Session ID 记录在提交材料中。
 
 ## License
 

@@ -16,6 +16,8 @@ const TOOL_ASSET_UPDATE_METADATA = "asset_update_metadata";
 const TOOL_ASSET_ATTACH_PROMPT = "asset_attach_prompt";
 const TOOL_ASSET_ARCHIVE = "asset_archive";
 const TOOL_ASSET_DUPLICATE = "asset_duplicate";
+const TOOL_ASSET_VERSION_CREATE = "asset_version_create";
+const TOOL_ASSET_VERSION_HISTORY = "asset_version_history";
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -89,10 +91,53 @@ function toolDefinitions() {
     },
     {
       name: TOOL_ASSET_DUPLICATE,
-      description: "Create an independent editable copy of an asset while retaining duplicate provenance.",
+      description: "Create an independent editable copy that starts a new version root while retaining duplicate provenance.",
       inputSchema: {
         type: "object",
-        properties: { projectId: { type: "string" }, assetId: { type: "string" }, assetIdNew: { type: "string" }, version_change: { type: "string" } },
+        properties: { projectId: { type: "string" }, assetId: { type: "string" }, assetIdNew: { type: "string" } },
+        required: ["assetId"],
+        additionalProperties: false
+      }
+    },
+    {
+      name: TOOL_ASSET_VERSION_CREATE,
+      description: "Save a new recipe version as a child of an existing asset without overwriting the parent.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectId: { type: "string" },
+          assetId: { type: "string", description: "Existing parent asset ID." },
+          assetIdNew: { type: "string", description: "Optional ID for the new version." },
+          imagePath: { type: "string", description: "Optional new image path. When omitted, the parent image is copied for a recipe-only version." },
+          version_change: { type: "string", minLength: 1, description: "Required summary of what changed from the parent." },
+          prompt: { type: "string" },
+          skill: { type: "string" },
+          style: { type: "string" },
+          ratio: { type: "string" },
+          theme: { type: "string" },
+          business_fields: { type: "object" },
+          tags: { type: "array", items: { type: "string" } },
+          favorite: { type: "boolean" },
+          group: { type: "string" },
+          category: { type: "string" },
+          rating: { type: "integer", minimum: 0, maximum: 5 },
+          sourceType: { type: "string" },
+          source: {
+            type: "object",
+            description: "Optional provenance for a replacement image, such as generation_tool, model, or codex_session_id.",
+            additionalProperties: true
+          }
+        },
+        required: ["assetId", "version_change"],
+        additionalProperties: false
+      }
+    },
+    {
+      name: TOOL_ASSET_VERSION_HISTORY,
+      description: "Read the complete root-to-descendant recipe version tree for an asset, including archived versions.",
+      inputSchema: {
+        type: "object",
+        properties: { projectId: { type: "string" }, assetId: { type: "string" } },
         required: ["assetId"],
         additionalProperties: false
       }
@@ -156,8 +201,19 @@ async function handleToolCall(id, params) {
     return;
   }
   if (params?.name === TOOL_ASSET_DUPLICATE) {
-    const asset = await store.duplicateAsset(args.projectId || "default", args.assetId, { assetId: args.assetIdNew, version_change: args.version_change });
+    const asset = await store.duplicateAsset(args.projectId || "default", args.assetId, { assetId: args.assetIdNew });
     sendResult(id, { content: [{ type: "text", text: `Duplicated asset ${asset.id}` }], structuredContent: { asset } });
+    return;
+  }
+  if (params?.name === TOOL_ASSET_VERSION_CREATE) {
+    const { projectId = "default", assetId, assetIdNew, ...input } = args;
+    const asset = await store.createAssetVersion(projectId, assetId, { ...input, assetId: assetIdNew });
+    sendResult(id, { content: [{ type: "text", text: `Created version ${asset.id} from ${assetId}` }], structuredContent: { asset } });
+    return;
+  }
+  if (params?.name === TOOL_ASSET_VERSION_HISTORY) {
+    const history = await store.getAssetVersionHistory(args.projectId || "default", args.assetId);
+    sendResult(id, { content: [{ type: "text", text: `${history.versions.length} versions rooted at ${history.root_asset_id}` }], structuredContent: { history } });
     return;
   }
   sendError(id, -32602, `Unknown tool: ${params?.name || ""}`);
@@ -170,7 +226,7 @@ async function handleRequest(message) {
       protocolVersion: params?.protocolVersion || "2025-11-25",
       capabilities: { tools: {} },
       serverInfo: { name: "MOSA MCP", version: "0.1.0" },
-      instructions: "Save generated images with full prompts and recipe metadata. Images from Codex's default ~/.codex/generated_images task folders are accepted and their source path is recorded. List and retrieve saved assets for reuse."
+      instructions: "Save generated images with full prompts and recipe metadata. Use asset_version_create with the generated imagePath and a version_change summary when creating a child recipe version. Images from Codex's default ~/.codex/generated_images task folders are accepted and their source path is recorded."
     });
     return;
   }
@@ -186,7 +242,13 @@ async function handleRequest(message) {
     try {
       await handleToolCall(id, params);
     } catch (error) {
-      sendError(id, -32603, error.message);
+      if (error?.statusCode && error?.code) {
+        sendResult(id, {
+          content: [{ type: "text", text: error.message }],
+          isError: true,
+          structuredContent: { error: { code: error.code, message: error.message } },
+        });
+      } else sendError(id, -32603, error.message);
     }
     return;
   }

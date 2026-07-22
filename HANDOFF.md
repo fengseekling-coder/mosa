@@ -6,6 +6,7 @@
 
 - 工作目录：`/Users/azhuilab/codex_aigc/mosa`
 - Phase 0-2 已通过 PR #3 合并至 `main`（`b09b657`）；迁移交接记录通过 PR #4 合并（`6d71a6f`），Cowart 自动发现通过 PR #5 合并（`38be7f4`）。
+- `agent/recipe-history` 在 `main@bebec4f` 上实现配方版本树，尚未部署到 `43519`；生产服务仍运行已合并的 PR #5 代码。
 - 真实素材库 `/Users/azhuilab/MOSA Library` 已于 2026-07-22 完成 SQLite 迁移：导入 270 个旧资产与 1 个空分组，并在迁移期间校验了全部 270 个原图哈希。
 - 旧 JSON 与 Prompt 备份位于 `/Users/azhuilab/MOSA Library/legacy-json-backup/2026-07-22T12-26-53-909Z`；不要删除 JSON 源目录、该备份或 `mosa.db`，也不要手工修改迁移状态。
 - `mosa verify` 在迁移后通过（270 个资产）；SQLite 服务启动后 Codex 归档桥接继续正常归档。2026-07-22 受控重启后的最终验收通过（283 个资产、0 个失败）。资产数是动态快照，应以 `ok: true` 与空 `failures` 判断完整性。
@@ -25,7 +26,7 @@
 - SQLite 使用 `better-sqlite3`、FTS5 和游标分页；数据库维护项目、资产、标签、版本、派生任务及迁移状态。
 - `mosa migrate` 先清点并校验旧 JSON 与原图哈希，迁移时保留 JSON/Prompt 备份；失败或未完成时不会激活 SQLite。
 - REST `GET /api/assets` 和 MCP `asset_list` 支持 `limit`（默认 100，最大 250）与 `cursor`，响应保留原有资产字段并增加 `page.total`、`page.nextCursor`。
-- 支持软归档和复制，并保留版本/来源关系。
+- 支持软归档；`asset_duplicate` 创建独立版本根，并通过 `duplicated_from` 保留复制来源。
 - 运行期后端只由迁移完成状态选择，环境变量不能绕过验证或让已迁移素材库回退双写。
 
 ### Phase 2：派生图和图库性能
@@ -43,20 +44,33 @@
 - 本地启动调用只选择一个项目：`projectDir` 优先于 `workdir`，后者优先于 `cwd`。搜索、注释或 `echo` 中提到 `start-canvas.sh` 不会触发监听。
 - 设置页只展示自动发现的画布；保留现有画布 API 以兼容已有客户端。`GET /api/bridges` 在新服务进程中包含 `cowartDiscovery` 状态。
 
+### 后续集成：配方版本树
+
+- 每个版本是独立 asset，拥有自己的图片、Prompt、配方和来源；新图可通过 `imagePath` 直接保存为子版本，不传新图时复制父图形成配方快照。
+- `POST /api/assets/:project/:asset/versions` 与 MCP `asset_version_create` 从当前节点分支并强制填写 `version_change`；GET 路由与 `asset_version_history` 返回包含归档节点的完整稳定 DFS 历史。
+- 普通 PATCH 禁止修改 `parent_asset_id`、`parentAssetId` 与 `child_asset_ids`；children 由父边动态派生。缺失父、跨项目、自环/循环及重复 ID 返回稳定错误。
+- SQLite schema v2 增加父边索引和一次性迁移记录，保留现有 `migration_state`；旧 JSON 迁移会先做父序、重复 ID、跨项目和循环校验。
+- Web 详情页提供双语时间线、“保存当前配方”和“另存为新版本”；异步历史响应只更新 timeline，不覆盖编辑表单。
+- 已登记的外部 Cowart 画布仅在单次桥接导入中信任其 `<canvasDir>/pages` 根，普通素材导入白名单不变。
+
 ## 关键文件
 
 | 领域 | 文件 |
 | --- | --- |
 | SQLite 存储 | `lib/sqlite-asset-store.mjs` |
+| JSON 存储 | `lib/asset-store.mjs` |
+| 版本树共享契约 | `lib/asset-version-history.mjs` |
 | JSON 到 SQLite 迁移与验证 | `lib/library-migration.mjs` |
 | WebP 派生图任务 worker | `lib/derivative-worker.mjs` |
 | CLI | `bin/mosa.mjs` |
 | HTTP 服务和路由 | `server.mjs` |
 | Cowart 画布自动发现 | `lib/cowart-canvas-discovery.mjs` |
 | MCP v1 兼容层 | `mcp/server.mjs` |
+| 版本时间线 UI | `app/app.js`、`app/styles.css` |
 | CI 与本地检查 | `.github/workflows/ci.yml`、`scripts/check-source.mjs` |
 | Core 存储测试 | `test/sqlite-store.test.mjs`、`test/library-migration.test.mjs`、`test/performance.test.mjs` |
 | Cowart 发现回归测试 | `test/cowart-canvas-discovery.test.mjs`、`test/server-routes.test.mjs` |
+| 版本树回归测试 | `test/asset-version-history.test.mjs`、`test/mcp-version-history.test.mjs` |
 
 ## 数据与兼容边界
 
@@ -64,7 +78,7 @@
 - 迁移完成后，SQLite 是唯一运行期权威；JSON 仅作可验证备份，不做长期双写。
 - JSON 损坏、缺失原图或哈希不符会报告具体路径并以非零状态退出，不允许静默跳过。
 - 保持现有 Codex 来源目录白名单、Cowart 的事件式自动发现与服务端允许列表、回插目标允许列表和原图 URL 行为；不扫描任意 Cowart 项目目录。
-- 本次不包含 Tauri、AI 元数据/Embedding、版本树 UI 或 MCP 2.0。
+- 本次不包含 Tauri、AI 元数据/Embedding 或 MCP 2.0。
 
 ## 已完成验证
 
@@ -116,11 +130,27 @@ curl -sS http://127.0.0.1:43519/api/cowart-canvases
 # MOSA 专用画布、new-chat、shen
 npm exec mosa -- verify --library /Users/azhuilab/MOSA\ Library
 # assets: 283; failures: 0; ok: true; migration_state: completed
+
+# agent/recipe-history 分支验证（未触碰生产端口或真实素材库）
+npm test
+# 64 passed, 1 skipped（性能测试默认跳过；包含 2 个 HTTP 路由测试）
+node --test test/asset-version-history.test.mjs test/sqlite-store.test.mjs
+# 9 passed
+node --test test/library-migration.test.mjs
+# 8 passed
+node --test test/mcp-version-history.test.mjs test/accessibility-contract.test.mjs
+# 7 passed
+node --test test/asset-store.test.mjs test/codex-image-bridge.test.mjs test/cowart-bridge-manager.test.mjs test/cowart-bridge.test.mjs test/cowart-canvas-discovery.test.mjs
+# 29 passed
+npm run lint
+npm run check
+git diff --check
+# passed; syntax checked 36 JavaScript files
 ```
 
 ## 后续维护
 
-1. `43519` 已完成 PR #5 的受控重启，无需重复操作。以后仅在获准的维护窗口内重启；不要终止 `43517` 的旧 JSON 服务。新进程必须使用已迁移素材库：
+1. `43519` 已完成 PR #5 的受控重启，但未加载 `agent/recipe-history`。不要用本分支改动生产素材库或端口做验证；以后仅在获准的维护窗口内重启，也不要终止 `43517` 的旧 JSON 服务。新进程必须使用已迁移素材库：
 
 ```bash
 MOSA_LIBRARY_DIR='/Users/azhuilab/MOSA Library' MOSA_PORT=43519 npm start
