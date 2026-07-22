@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added Node 22 baseline, ESLint, source checks, dependency audit scripts, and GitHub Actions CI for `main` and `develop`.
+- Added verified JSON-to-SQLite migration with FTS5 search, stable cursor pagination, empty-group preservation, JSON backup, corruption reporting, and resumable verification.
+- Added durable WebP preview/thumbnail jobs and gallery pagination while keeping original image URLs compatible.
 - Added opt-in monitoring for multiple project-local Cowart canvases while preserving the MOSA dedicated canvas.
 - Added persisted project registration, per-canvas bridge status, and Cowart project provenance on archived assets.
 

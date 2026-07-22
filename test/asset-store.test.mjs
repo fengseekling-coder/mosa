@@ -61,6 +61,27 @@ test("imports a Codex default generated image and preserves its provenance", asy
   assert.deepEqual(codexOnly.map((item) => item.id), ["codex-fixture"]);
 });
 
+test("JSON pagination remains stable when the cursor asset is archived", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-cursor-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, "fixture image", "utf8");
+  const store = createAssetStore({ projectRoot, managerDir });
+  for (const assetId of ["alpha", "bravo", "charlie"]) await store.createAsset({ assetId, imagePath: sourcePath, created_at: createdAt });
+
+  const first = await store.listAssetPage({ projectId: "default", limit: 1 });
+  assert.equal(first.assets[0].id, "charlie");
+  await store.archiveAsset("default", "charlie");
+  await store.createAsset({ assetId: "delta", imagePath: sourcePath, created_at: createdAt });
+  const second = await store.listAssetPage({ projectId: "default", limit: 1, cursor: first.page.nextCursor });
+  assert.equal(second.assets[0].id, "bravo");
+  await assert.rejects(store.listAssetPage({ projectId: "default", cursor: Buffer.from("{}").toString("base64url") }), /Invalid asset cursor/);
+});
+
 test("persists manually created groups, including empty groups", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
   t.after(() => rm(root, { recursive: true, force: true }));

@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssetStore, mimeTypeForFile } from "./lib/asset-store.mjs";
@@ -9,11 +10,13 @@ import { createCowartProjectRegistry } from "./lib/cowart-project-registry.mjs";
 import { createCowartMcpClient } from "./lib/cowart-mcp-client.mjs";
 import { chooseCowartInsertTarget, normalizeCowartInsertResult, resolveCowartInsertCanvas, verifyCowartInsert } from "./lib/cowart-insert.mjs";
 import { isAllowedLocalOrigin, resolveAllowedFolderPath } from "./lib/server-security.mjs";
+import { createDerivativeWorker } from "./lib/derivative-worker.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || join(managerDir, ".."));
 const port = Number(process.env.MOSA_PORT || 43517);
-const store = createAssetStore({ projectRoot, managerDir });
+const libraryDir = resolve(process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"));
+const store = createAssetStore({ projectRoot, managerDir, libraryDir });
 const cowartProjectRegistry = createCowartProjectRegistry({
   managerDir,
   registryPath: process.env.MOSA_COWART_REGISTRY_PATH,
@@ -31,10 +34,12 @@ const codexBridge = createCodexImageBridge({
 });
 const cowartMcpClient = createCowartMcpClient({ serverPath: process.env.COWART_MCP_SERVER_PATH });
 const appDir = join(managerDir, "app");
+const derivativeWorker = createDerivativeWorker({ store });
 
 await store.ensureProject("default");
 await cowartBridge.start();
 await codexBridge.start();
+derivativeWorker.start();
 
 const server = createServer(async (req, res) => {
   try {
@@ -139,7 +144,9 @@ async function handleApi(req, res, url) {
     const projectId = url.searchParams.get("project") || "default";
     sendJson(res, 200, {
       path: store.projectDir(projectId),
-      codexGeneratedImagesDir: store.codexImagesDir
+      codexGeneratedImagesDir: store.codexImagesDir,
+      storage: store.storageKind || "json",
+      libraryDir: store.libraryDir || null,
     });
     return;
   }
@@ -185,24 +192,29 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "GET" && url.pathname === "/api/assets") {
-    sendJson(res, 200, {
-      assets: await store.listAssets({
-        projectId: url.searchParams.get("project") || "default",
-        query: url.searchParams.get("q") || "",
-        group: url.searchParams.get("group") || "",
-        category: url.searchParams.get("category") || "",
-        style: url.searchParams.get("style") || "",
-        source: url.searchParams.get("source") || "",
-        favorite: url.searchParams.get("favorite") === "1",
-        recent: url.searchParams.get("recent") === "1"
-      })
-    });
+    const filters = {
+      projectId: url.searchParams.get("project") || "default",
+      query: url.searchParams.get("q") || "",
+      group: url.searchParams.get("group") || "",
+      category: url.searchParams.get("category") || "",
+      style: url.searchParams.get("style") || "",
+      source: url.searchParams.get("source") || "",
+      favorite: url.searchParams.get("favorite") === "1",
+      recent: url.searchParams.get("recent") === "1",
+      limit: url.searchParams.get("limit") || undefined,
+      cursor: url.searchParams.get("cursor") || undefined,
+    };
+    const page = typeof store.listAssetPage === "function"
+      ? await store.listAssetPage(filters)
+      : { assets: await store.listAssets(filters), page: { total: 0, nextCursor: null } };
+    sendJson(res, 200, page);
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/assets/create") {
     const body = await readJson(req);
     sendJson(res, 200, { asset: await store.createAsset(body) });
+    derivativeWorker.wake();
     return;
   }
 
@@ -266,6 +278,20 @@ async function handleApi(req, res, url) {
   }
 
   const assetMatch = /^\/api\/assets\/([^/]+)\/([^/]+)$/.exec(url.pathname);
+  const archiveMatch = /^\/api\/assets\/([^/]+)\/([^/]+)\/archive$/.exec(url.pathname);
+  if (archiveMatch && req.method === "POST") {
+    if (typeof store.archiveAsset !== "function") throw new Error("Asset archival is unavailable.");
+    sendJson(res, 200, { asset: await store.archiveAsset(decodeURIComponent(archiveMatch[1]), decodeURIComponent(archiveMatch[2])) });
+    return;
+  }
+  const duplicateMatch = /^\/api\/assets\/([^/]+)\/([^/]+)\/duplicate$/.exec(url.pathname);
+  if (duplicateMatch && req.method === "POST") {
+    if (typeof store.duplicateAsset !== "function") throw new Error("Asset duplication is unavailable.");
+    const body = await readJson(req);
+    sendJson(res, 201, { asset: await store.duplicateAsset(decodeURIComponent(duplicateMatch[1]), decodeURIComponent(duplicateMatch[2]), body) });
+    derivativeWorker.wake();
+    return;
+  }
   if (assetMatch && req.method === "GET") {
     sendJson(res, 200, { asset: await store.getAsset(assetMatch[1], assetMatch[2]) });
     return;
@@ -281,6 +307,22 @@ async function handleApi(req, res, url) {
 }
 
 async function handleLibrary(res, url) {
+  const derivativeMatch = /^\/library\/([^/]+)\/(thumbnails|previews)\/([^/]+)\.webp$/.exec(url.pathname);
+  if (derivativeMatch) {
+    const kind = derivativeMatch[2] === "previews" ? "preview" : "thumbnail";
+    try {
+      if (typeof store.derivativeReadStream !== "function") throw new Error("Derivatives unavailable.");
+      const imageStream = await store.derivativeReadStream(decodeURIComponent(derivativeMatch[1]), decodeURIComponent(derivativeMatch[3]), kind);
+      imageStream.on("error", () => { if (!res.headersSent) sendJson(res, 404, { error: "Derivative not found" }); });
+      res.statusCode = 200;
+      res.setHeader("content-type", "image/webp");
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      imageStream.pipe(res);
+    } catch {
+      sendJson(res, 404, { error: "Derivative not found" });
+    }
+    return;
+  }
   const match = /^\/library\/([^/]+)\/images\/([^/]+)$/.exec(url.pathname);
   if (!match) {
     sendJson(res, 404, { error: "Not found" });
