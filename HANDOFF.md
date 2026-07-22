@@ -4,21 +4,21 @@
 
 ## 交接结论
 
-- 当前待审分支：`agent/recipe-history`，提交 `efd0d19`，Draft PR [#7](https://github.com/fengseekling-coder/mosa/pull/7) 指向 `main`。
-- 配方版本树实现已完成并推送：JSON/SQLite、REST/MCP、Web 时间线、迁移和 Cowart 导入边界均在该 PR 内。
-- 最终验证：`npm test` 为 64 passed、1 skipped；lint、源码检查和 `git diff --check` 均通过。PR 尚未合并，分支尚未部署。
+- 配方版本树已通过 PR [#7](https://github.com/fengseekling-coder/mosa/pull/7) 合并至 `main`，合并提交为 `db2c090`；PR head 为 `25b9aee`。
+- JSON/SQLite、REST/MCP、Web 时间线、迁移和 Cowart 外部画布 `pages` 导入边界均已部署到 `43519`。
+- 最终验证：`npm test` 为 64 passed、1 skipped；50,000 资产性能测试、lint、源码检查、依赖审计和 `git diff --check` 均通过。生产 SQLite 验证为 284 个资产、0 个失败。
 - 当前产品是本地 Web UI，不是 Tauri 或可安装的 macOS 桌面应用；本次没有引入桌面壳、`.app` 或 `.dmg`。
-- 下一步只应审阅并合并 PR #7；生产部署必须在维护窗口内执行，且不得改动 `43517`、`43519` 或真实素材库，除非明确授权。
+- 后续只在获准的维护窗口内操作 `43519` 或真实素材库；`43517` 的旧 JSON 服务必须继续保持不变。
 
 ## 当前状态
 
 - 工作目录：`/Users/azhuilab/codex_aigc/mosa`
 - Phase 0-2 已通过 PR #3 合并至 `main`（`b09b657`）；迁移交接记录通过 PR #4 合并（`6d71a6f`），Cowart 自动发现通过 PR #5 合并（`38be7f4`）。
-- `agent/recipe-history` 基于 `main@bebec4f` 实现配方版本树，已推送为 Draft PR #7，尚未部署到 `43519`；生产服务仍运行已合并的 PR #5 代码。
+- 配方版本树 PR #7 已合并，`43519` 正运行其 `25b9aee` 代码并使用已迁移的 SQLite 素材库；当前用户级 launchd job 为 `com.azhuilab.mosa.43519`。
 - 真实素材库 `/Users/azhuilab/MOSA Library` 已于 2026-07-22 完成 SQLite 迁移：导入 270 个旧资产与 1 个空分组，并在迁移期间校验了全部 270 个原图哈希。
 - 旧 JSON 与 Prompt 备份位于 `/Users/azhuilab/MOSA Library/legacy-json-backup/2026-07-22T12-26-53-909Z`；不要删除 JSON 源目录、该备份或 `mosa.db`，也不要手工修改迁移状态。
-- `mosa verify` 在迁移后通过（270 个资产）；SQLite 服务启动后 Codex 归档桥接继续正常归档。2026-07-22 受控重启后的最终验收通过（283 个资产、0 个失败）。资产数是动态快照，应以 `ok: true` 与空 `failures` 判断完整性。
-- `mosa thumbnails rebuild` 已完成 270 个派生图任务。SQLite 服务目前运行在 `http://127.0.0.1:43519`，并已通过受控重启加载 PR #5：`cowartDiscovery` 已启用，识别 2 个候选项目并监听 MOSA 专用画布与 2 个项目画布。受监管的旧 JSON 服务继续占用 `43517`，重启期间未被操作；不要为释放端口而终止它。
+- `mosa verify` 在迁移后通过（270 个资产）；SQLite 服务启动后 Codex 归档桥接继续正常归档。2026-07-22 部署 PR #7 后最终验收通过（284 个资产、0 个失败）。资产数是动态快照，应以 `ok: true` 与空 `failures` 判断完整性。
+- `mosa thumbnails rebuild` 已完成 270 个派生图任务。SQLite 服务目前运行在 `http://127.0.0.1:43519`，已加载 PR #7：`cowartDiscovery` 启用，识别 2 个候选项目并监听 MOSA 专用画布与 2 个项目画布；`shen` 画布此前的外部路径导入错误已清除并归档 1 个合规资产。受监管的旧 JSON 服务继续占用 `43517`，部署期间未被操作；不要为释放端口而终止它。
 
 ## 本次实现范围
 
@@ -154,11 +154,22 @@ npm run lint
 npm run check
 git diff --check
 # passed; syntax checked 36 JavaScript files
+
+# PR #7 合并后的生产部署验收
+npm run test:performance
+# 50,000 资产：通过启动 < 3s、FTS P95 < 100ms 契约
+curl -sS http://127.0.0.1:43519/api/library-path
+# storage: sqlite; libraryDir: /Users/azhuilab/MOSA Library
+curl -sS http://127.0.0.1:43519/api/bridges
+# cowartDiscovery: enabled=true; candidateCount=2; lastError=null
+# cowart: monitoredCount=3; registeredCount=2; lastError=null
+npm exec mosa -- verify --library /Users/azhuilab/MOSA\ Library
+# assets: 284; failures: 0; ok: true; migration_state: completed
 ```
 
 ## 后续维护
 
-1. `43519` 已完成 PR #5 的受控重启，但未加载 `agent/recipe-history`。不要用本分支改动生产素材库或端口做验证；以后仅在获准的维护窗口内重启，也不要终止 `43517` 的旧 JSON 服务。新进程必须使用已迁移素材库：
+1. `43519` 已加载 PR #7 的配方版本树。以后仅在获准的维护窗口内重启，也不要终止 `43517` 的旧 JSON 服务。新进程必须使用已迁移素材库：
 
 ```bash
 MOSA_LIBRARY_DIR='/Users/azhuilab/MOSA Library' MOSA_PORT=43519 npm start
