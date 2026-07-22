@@ -8,8 +8,8 @@
 - Phase 0-2 已通过 PR #3 合并至 `main`（`b09b657`）；迁移交接记录通过 PR #4 合并（`6d71a6f`），Cowart 自动发现通过 PR #5 合并（`38be7f4`）。
 - 真实素材库 `/Users/azhuilab/MOSA Library` 已于 2026-07-22 完成 SQLite 迁移：导入 270 个旧资产与 1 个空分组，并在迁移期间校验了全部 270 个原图哈希。
 - 旧 JSON 与 Prompt 备份位于 `/Users/azhuilab/MOSA Library/legacy-json-backup/2026-07-22T12-26-53-909Z`；不要删除 JSON 源目录、该备份或 `mosa.db`，也不要手工修改迁移状态。
-- `mosa verify` 在迁移后通过（270 个资产）；SQLite 服务启动后 Codex 归档桥接新增 1 个正常资产，最终复核通过（271 个资产、0 个失败）。271 是当时的历史快照，服务持续归档时总数可以增长；应以 `ok: true` 与空 `failures` 判断完整性。
-- `mosa thumbnails rebuild` 已完成 270 个派生图任务。SQLite 服务目前运行在 `http://127.0.0.1:43519`；它在 PR #5 合并前启动，`/api/bridges` 尚未返回 `cowartDiscovery`，因此自动发现会在下一次获准的受控重启后生效。受监管的旧 JSON 服务继续占用 `43517`，不要为释放端口而终止它。
+- `mosa verify` 在迁移后通过（270 个资产）；SQLite 服务启动后 Codex 归档桥接继续正常归档。2026-07-22 受控重启后的最终验收通过（283 个资产、0 个失败）。资产数是动态快照，应以 `ok: true` 与空 `failures` 判断完整性。
+- `mosa thumbnails rebuild` 已完成 270 个派生图任务。SQLite 服务目前运行在 `http://127.0.0.1:43519`，并已通过受控重启加载 PR #5：`cowartDiscovery` 已启用，识别 2 个候选项目并监听 MOSA 专用画布与 2 个项目画布。受监管的旧 JSON 服务继续占用 `43517`，重启期间未被操作；不要为释放端口而终止它。
 
 ## 本次实现范围
 
@@ -107,16 +107,25 @@ npm run lint
 npm run check
 npm run audit
 # clean; syntax checked; 0 vulnerabilities
+
+# PR #5 运行态加载后的最终验收
+curl -sS http://127.0.0.1:43519/api/bridges
+# cowartDiscovery: enabled=true; candidateCount=2; lastError=null
+# cowart: monitoredCount=3; registeredCount=2
+curl -sS http://127.0.0.1:43519/api/cowart-canvases
+# MOSA 专用画布、new-chat、shen
+npm exec mosa -- verify --library /Users/azhuilab/MOSA\ Library
+# assets: 283; failures: 0; ok: true; migration_state: completed
 ```
 
-## 后续操作
+## 后续维护
 
-1. 只有在获准的受控重启窗口内，才重启 `43519` 的 SQLite 服务以加载 PR #5；不要终止 `43517` 的旧 JSON 服务。新进程必须使用已迁移素材库：
+1. `43519` 已完成 PR #5 的受控重启，无需重复操作。以后仅在获准的维护窗口内重启；不要终止 `43517` 的旧 JSON 服务。新进程必须使用已迁移素材库：
 
 ```bash
 MOSA_LIBRARY_DIR='/Users/azhuilab/MOSA Library' MOSA_PORT=43519 npm start
 ```
 
-2. 重启后，`GET /api/bridges` 必须出现启用的 `cowartDiscovery`；仅在本地 Codex 会话出现真实 Cowart 启动记录且目标具有画布标记时，才会增加项目画布监听。
+2. `GET /api/bridges` 应持续返回启用的 `cowartDiscovery`；仅在本地 Codex 会话出现真实 Cowart 启动记录且目标具有画布标记时，才会增加项目画布监听。
 3. 例行维护可运行 `npm exec mosa -- verify --library /Users/azhuilab/MOSA\ Library`；仅在需补全或修复派生图时运行 `npm exec mosa -- thumbnails rebuild --library /Users/azhuilab/MOSA\ Library`。
 4. 迁移、校验或派生图任务失败时，不要删除 JSON 目录、备份或 SQLite 数据库，也不要手工激活/回退迁移状态；先保留现场并依据命令输出中的具体路径修复。
