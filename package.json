@@ -4,10 +4,27 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "bin": {
+    "mosa": "bin/mosa.mjs"
+  },
   "scripts": {
     "start": "node server.mjs",
     "mcp": "node mcp/server.mjs",
     "test": "node --test",
+    "lint": "eslint .",
+    "check": "node scripts/check-source.mjs",
+    "audit": "npm audit --omit=dev",
+    "test:performance": "MOSA_PERF_TEST=1 node --test test/performance.test.mjs",
     "verify:codex": "node scripts/verify-codex-asset.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.1",
+    "sharp": "^0.35.3"
+  },
+  "devDependencies": {
+    "eslint": "^10.7.0"
   }
 }

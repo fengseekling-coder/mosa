@@ -126,6 +126,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .asset-card-select { position: relative; display: block; width: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; text-align: left; }
 .asset-card-select:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
 .thumb { display: block; width: 100%; height: auto; }
+.asset-load-more { grid-column: 1 / -1; display: flex; justify-content: center; padding: 18px 0 28px; }
+.asset-load-more button { min-height: 34px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink-secondary); background: var(--surface); cursor: pointer; font: inherit; font-size: 12px; font-weight: 650; }
+.asset-load-more button:hover { color: var(--ink); background: var(--surface-muted); }
 .card-quick-copy { position: absolute; right: 8px; bottom: 8px; z-index: 2; display: grid; width: 30px; height: 30px; padding: 0; place-items: center; border: 0; border-radius: 7px; color: var(--ink); background: rgba(255,255,255,.94); cursor: pointer; opacity: 0; transition: opacity .18s var(--ease), transform .18s var(--ease); }
 .asset-card:hover .card-quick-copy, .asset-card:focus-within .card-quick-copy { opacity: 1; }
 .card-quick-copy:hover { transform: scale(1.06); background: #fff; }

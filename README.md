@@ -41,6 +41,26 @@ npm start
 
 Open <http://127.0.0.1:43517>. The repository includes sample records, so the gallery, search, filters, asset detail view, prompt provenance, and source metadata can be inspected immediately. No build step, test account, API key, or external database is required.
 
+### MOSA 2.0 Core migration (SQLite + derivatives)
+
+MOSA leaves the current JSON library untouched until a verified migration succeeds. The production library is independent from this Git checkout and defaults to `~/MOSA Library`; it contains `mosa.db`, immutable originals, generated WebP previews and thumbnails, plus a read-only JSON backup from the migration.
+
+```bash
+# Inspect the legacy JSON library without writing anything.
+npm exec mosa -- migrate --dry-run
+
+# Migrate into ~/MOSA Library and verify every imported original by SHA-256.
+npm exec mosa -- migrate
+npm exec mosa -- verify
+
+# Rebuild or repair resumable preview and thumbnail jobs.
+npm exec mosa -- thumbnails rebuild
+```
+
+Use `--library /absolute/path/to/library` to choose another location. Corrupt JSON, corrupt collection data, missing originals, or hash mismatches leave SQLite inactive and report the exact paths. Empty collections are preserved. After a successful migration, `npm start` automatically selects the completed SQLite library; use `MOSA_LIBRARY_DIR` only when choosing a non-default location.
+
+SQLite adds FTS5 search and cursor pagination (`limit` up to 250) without changing existing REST fields or MCP v1 tool names. The gallery requests 100 thumbnails at a time, the inspector uses a 1600px preview when ready, and `/library/<project>/images/<file>` still serves the original asset.
+
 The UI follows the system language by default. To inspect the English interface, open **Settings → Language → English** after starting MOSA.
 
 For a quick bridge health check while the service is running:
@@ -56,7 +76,7 @@ The optional integrations become active when their local source directories are 
 
 1. Browse and search the included visual records in the Web app.
 2. Open an asset to inspect its full prompt, source type, Codex task ID, original path, dimensions, and provenance status.
-3. Run `npm test` to verify storage boundaries, route behavior, accessibility contracts, Codex reconciliation, and Cowart deduplication. The Build Week release currently has 33 passing automated tests.
+3. Run `npm test` to verify JSON compatibility, SQLite migration, derivative jobs, route behavior, accessibility contracts, Codex reconciliation, and Cowart deduplication. Run `npm run test:performance` separately for the 50,000-asset benchmark.
 4. Review the dated Git history and the `Built with Codex and GPT-5.6` section above for the Build Week implementation record.
 
 ## 中文产品与集成说明
@@ -188,6 +208,7 @@ COWART_MOSA_CANVAS_DIR=/absolute/path/to/cowart-data/my-project npm start
 | --- | --- | --- |
 | `MOSA_PROJECT_DIR` | MOSA 目录的父目录 | 工作区根目录，用于确定项目上下文 |
 | `MOSA_PORT` | `43517` | Web 服务本地端口 |
+| `MOSA_LIBRARY_DIR` | `~/MOSA Library` | 已完成迁移的 SQLite 素材库根目录；未迁移时回退 JSON |
 | `CODEX_GENERATED_IMAGES_DIR` | `~/.codex/generated_images` | 允许 `asset_create` 读取的 Codex 图片来源根目录 |
 | `CODEX_SESSIONS_DIR` | `~/.codex/sessions` | 用于读取对应 Codex 任务提示词的会话记录根目录 |
 | `COWART_MOSA_CANVAS_DIR` | `~/.codex/cowart-data/mosa` | MOSA 专用 Cowart 画布数据目录 |
@@ -206,6 +227,18 @@ mosa/
 ├── app/                  # 本地 Web UI
 ├── lib/                  # 素材存储与 Cowart 桥接器
 └── mcp/                  # Codex MCP 服务
+```
+
+完成迁移后，运行期个人素材位于仓库外：
+
+```text
+~/MOSA Library/
+├── mosa.db                # SQLite 运行期权威数据
+├── assets/<project>/
+│   ├── original/          # 不修改的原图
+│   ├── previews/          # 最长边 1600px WebP
+│   └── thumbnails/        # 最长边 400px WebP
+└── legacy-json-backup/    # 迁移时保存的 JSON / Prompt 备份
 ```
 
 Cowart 运行数据不在仓库中：
@@ -234,6 +267,8 @@ git add -f assets/default/images/<asset>.png \
 - `asset_get`
 - `asset_update_metadata`
 - `asset_attach_prompt`
+- `asset_archive`
+- `asset_duplicate`
 
 可以直接在仓库父目录运行 MCP 服务进行本地调试：
 
@@ -244,7 +279,7 @@ node mosa/mcp/server.mjs
 
 ### 当前边界
 
-- 数据以本地文件保存，第一版不使用数据库或云同步。
+- 未迁移时数据以 JSON 本地文件保存；验证完成后 SQLite 是唯一运行期元数据权威。JSON 只保留为兼容回退与迁移备份，不做双写。
 - Codex 图片归档在素材管理器服务运行时自动监听标准生成目录；MCP `asset_create` 可用于显式保存和补充生成元数据。
 - Cowart 自动归档依赖素材管理器服务运行，并且只覆盖 MOSA 专用画布和明确登记的项目画布。
 - Cowart 自动归档保留画布描述，不具备完整 Prompt；原始 Prompt 需要从生成任务补录。

@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import test from "node:test";
+import sharp from "sharp";
+import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 
 test("returns 404 for a missing library image without stopping the server", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-server-"));
@@ -64,6 +66,57 @@ test("returns 404 for a missing library image without stopping the server", asyn
   assert.equal((await removeCanvas.json()).canvas.id, added.canvas.id);
 });
 
+test("SQLite HTTP surface paginates assets and serves durable derivatives", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-server-sqlite-"));
+  const libraryDir = join(root, "library");
+  const imagePath = join(root, "generated-images", "fixture.png");
+  await mkdir(join(root, "generated-images"), { recursive: true });
+  await sharp({ create: { width: 8, height: 8, channels: 4, background: "#243047" } }).png().toFile(imagePath);
+  const seeded = createSqliteAssetStore({ projectRoot: root, managerDir: process.cwd(), libraryDir });
+  const asset = await seeded.createAsset({ assetId: "sqlite-fixture", imagePath, prompt: "red mechanical future city" });
+  await seeded.setMigrationState("completed", { test: true });
+  seeded.close();
+
+  const server = spawn(process.execPath, ["server.mjs"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      MOSA_PORT: "0",
+      MOSA_PROJECT_DIR: root,
+      MOSA_LIBRARY_DIR: libraryDir,
+      CODEX_GENERATED_IMAGES_DIR: join(root, "generated-images"),
+      CODEX_SESSIONS_DIR: join(root, "sessions"),
+      COWART_MOSA_CANVAS_DIR: join(root, "cowart-data"),
+      MOSA_COWART_REGISTRY_PATH: join(root, "state", "cowart-projects.json"),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(async () => {
+    if (server.exitCode === null) {
+      const exited = once(server, "exit");
+      server.kill("SIGTERM");
+      await exited;
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  const port = await waitForServerPort(server);
+  await waitForServer(port, server);
+  const assets = await fetch(`http://127.0.0.1:${port}/api/assets?project=default&limit=1`);
+  assert.equal(assets.status, 200);
+  const page = await assets.json();
+  assert.equal(page.page.total, 1);
+  assert.equal(page.assets[0].id, asset.id);
+  const thumbnail = await waitForResponse(`http://127.0.0.1:${port}/library/default/thumbnails/${asset.id}.webp`);
+  assert.equal(thumbnail.status, 200);
+  assert.equal(thumbnail.headers.get("content-type"), "image/webp");
+
+  const duplicate = await fetch(`http://127.0.0.1:${port}/api/assets/default/${asset.id}/duplicate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ assetId: "sqlite-copy" }) });
+  assert.equal(duplicate.status, 201);
+  const copied = (await duplicate.json()).asset;
+  const archived = await fetch(`http://127.0.0.1:${port}/api/assets/default/${copied.id}/archive`, { method: "POST" });
+  assert.equal(archived.status, 200);
+});
+
 async function waitForServerPort(server) {
   server.stdout.setEncoding("utf8");
   return new Promise((resolvePort, rejectPort) => {
@@ -100,4 +153,14 @@ async function waitForServer(port, server) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
   }
   throw new Error("Timed out waiting for MOSA server startup.");
+}
+
+async function waitForResponse(url) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const response = await fetch(url);
+    if (response.status !== 404) return response;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  }
+  throw new Error(`Timed out waiting for ${url}`);
 }

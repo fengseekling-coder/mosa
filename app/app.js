@@ -20,6 +20,7 @@ Object.assign(translations.zh, {
   cowartProjectPathRequired: "请输入项目的绝对路径",
   statusWatchingOneCanvas: "监控 1 个画布",
   statusWatchingCanvasCount: "监控 {count} 个画布",
+  loadMore: "加载更多",
 });
 
 Object.assign(translations.en, {
@@ -35,11 +36,12 @@ Object.assign(translations.en, {
   cowartProjectPathRequired: "Enter an absolute project path",
   statusWatchingOneCanvas: "1 canvas",
   statusWatchingCanvasCount: "{count} canvases",
+  loadMore: "Load more",
 });
 
 const preference = safeStorageGet("mosa.ui-language") || "system";
 const state = {
-  project: "default", projects: [], cowartCanvases: [], assets: [], selectedId: null, detailOpen: false, detailDirty: false, imagePreviewId: null, previewReturnFocus: null, query: "",
+  project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, detailOpen: false, detailDirty: false, imagePreviewId: null, previewReturnFocus: null, query: "",
   filter: { type: "all", value: "" }, groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [] }, cowartInsertAvailable: false, cowartInsertTargetId: safeStorageGet("mosa.cowart-insert-target") || "mosa",
   libraryPath: "", codexImagesDir: "", modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference)
 };
@@ -223,6 +225,8 @@ async function loadAssets(options = {}) {
   const requestId = ++assetRequestSequence;
   const request = currentAssetRequest();
   const params = new URLSearchParams({ project: request.project, q: request.query });
+  params.set("limit", "100");
+  if (options.append && state.nextCursor) params.set("cursor", state.nextCursor);
   if (request.filterType === "favorite") params.set("favorite", "1");
   else if (request.filterType === "recent") params.set("recent", "1");
   else if (request.filterType === "codex") params.set("source", "codex-generated");
@@ -233,11 +237,17 @@ async function loadAssets(options = {}) {
 
   const previousAssets = state.assets;
   const previousSelected = previousAssets.find((asset) => asset.id === state.selectedId);
-  const nextAssets = result.assets || [];
+  const incomingAssets = result.assets || [];
+  const nextAssets = options.append
+    ? [...state.assets, ...incomingAssets.filter((asset) => !state.assets.some((current) => current.id === asset.id && current.project_id === asset.project_id))]
+    : incomingAssets;
   const nextSelected = nextAssets.find((asset) => asset.id === state.selectedId);
   const assetsChanged = assetListVersion(previousAssets) !== assetListVersion(nextAssets);
   const selectedChanged = assetVersion(previousSelected) !== assetVersion(nextSelected);
   state.assets = nextAssets;
+  state.pageTotal = Number(result.page?.total || nextAssets.length);
+  state.nextCursor = result.page?.nextCursor || null;
+  state.loadedPageCount = options.append ? state.loadedPageCount + 1 : 1;
   if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)) state.selectedId = null;
   if (!options.background || assetsChanged) {
     renderGrid();
@@ -252,7 +262,10 @@ async function refreshLibraryInBackground() {
   if (document.hidden || libraryRefreshInFlight) return;
   libraryRefreshInFlight = true;
   try {
-    await Promise.all([loadStats({ background: true }), loadAssets({ background: true })]);
+    await Promise.all([
+      loadStats({ background: true }),
+      state.loadedPageCount > 1 ? Promise.resolve(true) : loadAssets({ background: true }),
+    ]);
   } catch {
     // A transient refresh failure should not interrupt the active library view.
   } finally {
@@ -324,14 +337,17 @@ function updateCodexHint() {
 function updateViewTitle() {
   const titles = { all: t("allAssets"), favorite: t("favorites"), recent: t("recent"), codex: t("filterCodex"), cowart: t("filterCowart") };
   els.viewTitle.textContent = titles[state.filter.type] || state.filter.value || t("allAssets");
-  els.assetCount.textContent = t("assetsCount", { count: state.assets.length });
+  els.assetCount.textContent = t("assetsCount", { count: state.pageTotal || state.assets.length });
   const filtered = state.filter.type !== "all" || Boolean(state.query);
   els.filterDot.hidden = !filtered;
 }
 
 function bindEvents() {
   els.searchInput?.addEventListener("input", debounce(async () => { state.query = els.searchInput.value; await loadAssets(); }, 180));
-  els.assetGrid?.addEventListener("click", (event) => { if (event.target.closest('[data-action="retry"]')) window.location.reload(); });
+  els.assetGrid?.addEventListener("click", (event) => {
+    if (event.target.closest('[data-action="retry"]')) window.location.reload();
+    if (event.target.closest('[data-action="load-more"]')) void loadAssets({ append: true });
+  });
   els.addGroupBtn?.addEventListener("click", openGroupModal);
   els.newAssetTopBtn?.addEventListener("click", openImportModal);
   els.quickFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) setFilter(button.dataset.filter); });
@@ -514,10 +530,11 @@ function renderGrid() {
     els.assetGrid.innerHTML = `<div class="empty-state"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t("noAssets")}</p><span>${t("noAssetsHint")}</span></div>`;
     return;
   }
-  els.assetGrid.innerHTML = state.assets.map((asset) => {
+  const cards = state.assets.map((asset) => {
     const title = asset.theme || asset.asset || asset.id; const selected = asset.id === state.selectedId;
-    return `<article class="asset-card${selected ? " selected" : ""}" data-id="${escapeHtml(asset.id)}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(title)}"><img class="thumb" src="${asset.image_url}" alt="${escapeHtml(title)}" loading="lazy" /></button><button class="card-quick-copy" type="button" data-copy="${escapeHtml(asset.prompt || "")}" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button></article>`;
+    return `<article class="asset-card${selected ? " selected" : ""}" data-id="${escapeHtml(asset.id)}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(title)}"><img class="thumb" src="${asset.thumbnail_url || asset.image_url}" alt="${escapeHtml(title)}" loading="lazy" /></button><button class="card-quick-copy" type="button" data-copy="${escapeHtml(asset.prompt || "")}" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button></article>`;
   }).join("");
+  els.assetGrid.innerHTML = `${cards}${state.nextCursor ? `<div class="asset-load-more"><button type="button" data-action="load-more">${t("loadMore")}</button></div>` : ""}`;
   setupMasonryLayout();
   els.assetGrid.querySelectorAll(".asset-card-select").forEach((button) => {
     button.addEventListener("click", () => selectAsset(button.closest(".asset-card")?.dataset.id));
@@ -635,7 +652,7 @@ function renderDetail() {
   const source = asset.source || {}; const rating = Math.min(5, Math.max(0, Math.round(asset.rating || 0))); const groupOptions = state.groups.groups.map(([name]) => `<option value="${escapeHtml(name)}"></option>`).join("");
   const metadata = [["skill", asset.skill], ["style", asset.style], ["ratio", asset.ratio], ["theme", asset.theme], ["group", asset.group], ["category", asset.category], ["rating", asset.rating ? `${asset.rating}/5` : ""]].filter(([, value]) => value !== undefined && value !== null && value !== "");
   const sourceRows = buildSourceRows(source).filter(([, value]) => value !== undefined && value !== null && value !== "");
-  els.detailPanel.innerHTML = `<div class="detail-studio-bar"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail">${t("close")}</button></div><div class="detail-image-wrap"><img class="detail-image" src="${asset.image_url}" alt="${escapeHtml(asset.theme || asset.id)}" title="${t("viewFullImage")}" /></div><div class="detail-head"><h3>${escapeHtml(asset.theme || asset.asset || asset.id)}</h3><p>${escapeHtml(asset.id)} · ${formatDate(asset.created_at)}</p></div><div class="detail-actions"><button class="action-btn primary" data-action="copy-prompt">${t("copyPrompt")}</button><button class="action-btn secondary" data-action="regenerate">${t("regenerate")}</button><button class="action-btn secondary" data-action="copy-path">${t("copyPath")}</button></div><section class="section"><div class="section-head"><h4>${t("prompt")}</h4></div><div class="prompt-box">${asset.prompt ? escapeHtml(asset.prompt) : `<span class="empty-copy">${t("notRecorded")}</span>`}</div></section><section class="section"><div class="section-head"><h4>${t("recipe")}</h4></div>${metadata.length ? `<div class="meta-table">${metadata.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val">${key === "rating" ? `<span class="rating-stars">${"★".repeat(rating)}${"☆".repeat(5 - rating)}</span>` : escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</section><details class="detail-disclosure"><summary>${t("sourceInfo")}</summary><div class="disclosure-content">${sourceRows.length ? `<div class="meta-table">${sourceRows.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val source-value">${escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("editMetadata")}</summary><div class="disclosure-content detail-fields"><label class="field"><span>${t("prompt")}</span><textarea data-edit="prompt" rows="5">${escapeHtml(asset.prompt || "")}</textarea></label><div class="two"><label class="field"><span>${t("skill")}</span><input data-edit="skill" value="${escapeHtml(asset.skill || "")}" /></label><label class="field"><span>${t("style")}</span><input data-edit="style" value="${escapeHtml(asset.style || "")}" /></label></div><div class="two"><label class="field"><span>${t("ratio")}</span><input data-edit="ratio" value="${escapeHtml(asset.ratio || "")}" /></label><label class="field"><span>${t("theme")}</span><input data-edit="theme" value="${escapeHtml(asset.theme || "")}" /></label></div><div class="two"><label class="field"><span>${t("group")}</span><input data-edit="group" value="${escapeHtml(asset.group || "")}" list="groupSuggestionsEdit" /><datalist id="groupSuggestionsEdit">${groupOptions}</datalist></label><label class="field"><span>${t("category")}</span><select data-edit="category"><option value="">${t("none")}</option>${categoryOptions(asset.category)}</select></label></div><label class="field"><span>${t("rating")}</span><div class="rating-edit" data-edit="rating">${[1,2,3,4,5].map((number) => `<button type="button" data-val="${number}" class="${number <= rating ? "on" : ""}">${number <= rating ? "★" : "☆"}</button>`).join("")}</div></label><label class="field"><span>${t("businessFields")}</span><textarea data-edit="business_fields" rows="3">${escapeHtml(JSON.stringify(asset.business_fields || {}, null, 2))}</textarea></label><button class="save-recipe-btn" data-action="save-recipe">${t("saveRecipe")}</button></div></details><details class="detail-disclosure"><summary>${t("imageLocation")}</summary><div class="disclosure-content"><div class="path-box">${escapeHtml(asset.image_path)}</div></div></details>`;
+  els.detailPanel.innerHTML = `<div class="detail-studio-bar"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail">${t("close")}</button></div><div class="detail-image-wrap"><img class="detail-image" src="${asset.preview_url || asset.image_url}" alt="${escapeHtml(asset.theme || asset.id)}" title="${t("viewFullImage")}" /></div><div class="detail-head"><h3>${escapeHtml(asset.theme || asset.asset || asset.id)}</h3><p>${escapeHtml(asset.id)} · ${formatDate(asset.created_at)}</p></div><div class="detail-actions"><button class="action-btn primary" data-action="copy-prompt">${t("copyPrompt")}</button><button class="action-btn secondary" data-action="regenerate">${t("regenerate")}</button><button class="action-btn secondary" data-action="copy-path">${t("copyPath")}</button></div><section class="section"><div class="section-head"><h4>${t("prompt")}</h4></div><div class="prompt-box">${asset.prompt ? escapeHtml(asset.prompt) : `<span class="empty-copy">${t("notRecorded")}</span>`}</div></section><section class="section"><div class="section-head"><h4>${t("recipe")}</h4></div>${metadata.length ? `<div class="meta-table">${metadata.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val">${key === "rating" ? `<span class="rating-stars">${"★".repeat(rating)}${"☆".repeat(5 - rating)}</span>` : escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</section><details class="detail-disclosure"><summary>${t("sourceInfo")}</summary><div class="disclosure-content">${sourceRows.length ? `<div class="meta-table">${sourceRows.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val source-value">${escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("editMetadata")}</summary><div class="disclosure-content detail-fields"><label class="field"><span>${t("prompt")}</span><textarea data-edit="prompt" rows="5">${escapeHtml(asset.prompt || "")}</textarea></label><div class="two"><label class="field"><span>${t("skill")}</span><input data-edit="skill" value="${escapeHtml(asset.skill || "")}" /></label><label class="field"><span>${t("style")}</span><input data-edit="style" value="${escapeHtml(asset.style || "")}" /></label></div><div class="two"><label class="field"><span>${t("ratio")}</span><input data-edit="ratio" value="${escapeHtml(asset.ratio || "")}" /></label><label class="field"><span>${t("theme")}</span><input data-edit="theme" value="${escapeHtml(asset.theme || "")}" /></label></div><div class="two"><label class="field"><span>${t("group")}</span><input data-edit="group" value="${escapeHtml(asset.group || "")}" list="groupSuggestionsEdit" /><datalist id="groupSuggestionsEdit">${groupOptions}</datalist></label><label class="field"><span>${t("category")}</span><select data-edit="category"><option value="">${t("none")}</option>${categoryOptions(asset.category)}</select></label></div><label class="field"><span>${t("rating")}</span><div class="rating-edit" data-edit="rating">${[1,2,3,4,5].map((number) => `<button type="button" data-val="${number}" class="${number <= rating ? "on" : ""}">${number <= rating ? "★" : "☆"}</button>`).join("")}</div></label><label class="field"><span>${t("businessFields")}</span><textarea data-edit="business_fields" rows="3">${escapeHtml(JSON.stringify(asset.business_fields || {}, null, 2))}</textarea></label><button class="save-recipe-btn" data-action="save-recipe">${t("saveRecipe")}</button></div></details><details class="detail-disclosure"><summary>${t("imageLocation")}</summary><div class="disclosure-content"><div class="path-box">${escapeHtml(asset.image_path)}</div></div></details>`;
   els.detailPanel.querySelector(".detail-actions")?.prepend(createCowartInsertControl(asset));
   updateCowartInsertControls();
   bindDetailEvents(asset);

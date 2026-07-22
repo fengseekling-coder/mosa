@@ -66,6 +66,7 @@ test("keeps background library refreshes from replacing active edits", async () 
   assert.match(app, /requestId !== assetRequestSequence/);
   assert.match(app, /!options\.background \|\| assetsChanged/);
   assert.match(app, /selectedChanged && !isDetailEditorActive\(\)/);
+  assert.match(app, /state\.loadedPageCount > 1 \? Promise\.resolve\(true\) : loadAssets\(\{ background: true \}\)/);
   assert.match(app, /field\.addEventListener\("input", \(\) => \{ state\.detailDirty = true; \}\)/);
 });
 

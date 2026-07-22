@@ -1,17 +1,21 @@
 import readline from "node:readline";
-import { resolve } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssetStore } from "../lib/asset-store.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || process.cwd());
-const store = createAssetStore({ projectRoot, managerDir });
+const libraryDir = resolve(process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"));
+const store = createAssetStore({ projectRoot, managerDir, libraryDir });
 
 const TOOL_ASSET_CREATE = "asset_create";
 const TOOL_ASSET_LIST = "asset_list";
 const TOOL_ASSET_GET = "asset_get";
 const TOOL_ASSET_UPDATE_METADATA = "asset_update_metadata";
 const TOOL_ASSET_ATTACH_PROMPT = "asset_attach_prompt";
+const TOOL_ASSET_ARCHIVE = "asset_archive";
+const TOOL_ASSET_DUPLICATE = "asset_duplicate";
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -59,7 +63,7 @@ function toolDefinitions() {
       description: "List saved MOSA assets for a project, optionally filtered by search text.",
       inputSchema: {
         type: "object",
-        properties: { projectId: { type: "string" }, query: { type: "string" } },
+        properties: { projectId: { type: "string" }, query: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 250 }, cursor: { type: "string" } },
         additionalProperties: false
       }
     },
@@ -69,6 +73,26 @@ function toolDefinitions() {
       inputSchema: {
         type: "object",
         properties: { projectId: { type: "string" }, assetId: { type: "string" } },
+        required: ["assetId"],
+        additionalProperties: false
+      }
+    },
+    {
+      name: TOOL_ASSET_ARCHIVE,
+      description: "Soft-delete an asset from active MOSA results while preserving its provenance and original file.",
+      inputSchema: {
+        type: "object",
+        properties: { projectId: { type: "string" }, assetId: { type: "string" } },
+        required: ["assetId"],
+        additionalProperties: false
+      }
+    },
+    {
+      name: TOOL_ASSET_DUPLICATE,
+      description: "Create an independent editable copy of an asset while retaining duplicate provenance.",
+      inputSchema: {
+        type: "object",
+        properties: { projectId: { type: "string" }, assetId: { type: "string" }, assetIdNew: { type: "string" }, version_change: { type: "string" } },
         required: ["assetId"],
         additionalProperties: false
       }
@@ -104,8 +128,10 @@ async function handleToolCall(id, params) {
     return;
   }
   if (params?.name === TOOL_ASSET_LIST) {
-    const assets = await store.listAssets({ projectId: args.projectId || "default", query: args.query || "" });
-    sendResult(id, { content: [{ type: "text", text: `${assets.length} assets` }], structuredContent: { assets } });
+    const result = typeof store.listAssetPage === "function"
+      ? await store.listAssetPage({ projectId: args.projectId || "default", query: args.query || "", limit: args.limit, cursor: args.cursor })
+      : { assets: await store.listAssets({ projectId: args.projectId || "default", query: args.query || "" }), page: { nextCursor: null } };
+    sendResult(id, { content: [{ type: "text", text: `${result.assets.length} assets` }], structuredContent: result });
     return;
   }
   if (params?.name === TOOL_ASSET_GET) {
@@ -122,6 +148,16 @@ async function handleToolCall(id, params) {
   if (params?.name === TOOL_ASSET_ATTACH_PROMPT) {
     const asset = await store.updateMetadata(args.projectId || "default", args.assetId, { prompt: args.prompt });
     sendResult(id, { content: [{ type: "text", text: `Attached prompt to ${asset.id}` }], structuredContent: { asset } });
+    return;
+  }
+  if (params?.name === TOOL_ASSET_ARCHIVE) {
+    const asset = await store.archiveAsset(args.projectId || "default", args.assetId);
+    sendResult(id, { content: [{ type: "text", text: `Archived asset ${asset.id}` }], structuredContent: { asset } });
+    return;
+  }
+  if (params?.name === TOOL_ASSET_DUPLICATE) {
+    const asset = await store.duplicateAsset(args.projectId || "default", args.assetId, { assetId: args.assetIdNew, version_change: args.version_change });
+    sendResult(id, { content: [{ type: "text", text: `Duplicated asset ${asset.id}` }], structuredContent: { asset } });
     return;
   }
   sendError(id, -32602, `Unknown tool: ${params?.name || ""}`);
