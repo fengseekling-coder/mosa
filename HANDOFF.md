@@ -5,10 +5,11 @@
 ## 当前状态
 
 - 工作目录：`/Users/azhuilab/codex_aigc/mosa`
-- 当前分支：`develop`
-- Phase 0-2 实现已完成并通过交付验证；本交接文档随该实现进入 `develop`。
-- 当前默认仍是 JSON 兼容后端。只有独立素材库的 SQLite 迁移完成并验证后，运行期才会自动切换到 SQLite。
-- 未对真实用户数据执行迁移；请不要在未明确授权时运行会向 `~/MOSA Library` 写入数据的迁移命令。
+- Phase 0-2 已通过 PR #3 合并至 `main`（`b09b657`）。
+- 真实素材库 `/Users/azhuilab/MOSA Library` 已于 2026-07-22 完成 SQLite 迁移：导入 270 个旧资产与 1 个空分组，并在迁移期间校验了全部 270 个原图哈希。
+- 旧 JSON 与 Prompt 备份位于 `/Users/azhuilab/MOSA Library/legacy-json-backup/2026-07-22T12-26-53-909Z`；不要删除 JSON 源目录、该备份或 `mosa.db`，也不要手工修改迁移状态。
+- `mosa verify` 在迁移后通过（270 个资产）；SQLite 服务启动后 Codex 归档桥接新增 1 个正常资产，最终复核通过（271 个资产、0 个失败）。
+- `mosa thumbnails rebuild` 已完成 270 个派生图任务。交接时 SQLite 服务运行在 `http://127.0.0.1:43519`；受监管的旧 JSON 服务继续占用 `43517`，不要为释放端口而终止它。
 
 ## 本次实现范围
 
@@ -58,7 +59,7 @@
 
 ## 已完成验证
 
-本次实现的最后一次验证记录：
+实现、迁移和运行态的最后一次验证记录：
 
 ```bash
 npm ci
@@ -69,20 +70,32 @@ npm run check
 npm run audit
 git diff --check
 
-# 只读迁移预检，不写入真实素材库
+# 迁移前只读预检
 npm exec mosa -- migrate --dry-run --library /private/tmp/mosa-handoff-library
 # discovered: 270; discoveredGroups: 1; issues: 0
+
+# 已在真实素材库执行并通过
+npm exec mosa -- migrate --library /Users/azhuilab/MOSA\ Library
+# imported: 270 assets; importedGroups: 1; verified: 270
+npm exec mosa -- verify --library /Users/azhuilab/MOSA\ Library
+# assets: 270; failures: 0
+npm exec mosa -- thumbnails rebuild --library /Users/azhuilab/MOSA\ Library
+# succeeded: 270
+
+# SQLite 服务运行后最终复核
+npm exec mosa -- verify --library /Users/azhuilab/MOSA\ Library
+# assets: 271; failures: 0; migration_state: completed
+curl -sS http://127.0.0.1:43519/api/library-path
+# storage: sqlite; libraryDir: /Users/azhuilab/MOSA Library
 ```
 
 ## 后续操作
 
-1. 通过 PR 审查 `develop` 的 Phase 0-2 实现并合并到 `main`。
-2. 仅在获得真实数据迁移授权后执行以下命令，并在每步检查返回码：
+1. 新启动 SQLite 服务时，使用独立端口并显式指定已迁移素材库：
 
 ```bash
-npm exec mosa -- migrate
-npm exec mosa -- verify
-npm exec mosa -- thumbnails rebuild
+MOSA_LIBRARY_DIR='/Users/azhuilab/MOSA Library' MOSA_PORT=43519 npm start
 ```
 
-迁移或校验失败时，不要删除 JSON 目录或手工激活 SQLite；先保留现场并依据命令输出中的具体路径修复。
+2. 例行维护可运行 `npm exec mosa -- verify --library /Users/azhuilab/MOSA\ Library`；仅在需补全或修复派生图时运行 `npm exec mosa -- thumbnails rebuild --library /Users/azhuilab/MOSA\ Library`。
+3. 迁移、校验或派生图任务失败时，不要删除 JSON 目录、备份或 SQLite 数据库，也不要手工激活/回退迁移状态；先保留现场并依据命令输出中的具体路径修复。
