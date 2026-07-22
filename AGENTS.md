@@ -2,7 +2,7 @@
 
 ## Project boundary
 
-- This repository contains the MOSA product. Keep all product code, assets, tests, and Git commits inside this directory.
+- This repository is the user's only Build Week project. Keep all product code, assets, tests, and Git commits inside this directory.
 - Cowart is an externally installed Codex plugin at `/Users/azhuilab/plugins/cowart`; never vendor, clone, or copy its code into this repository.
 - Cowart runtime data belongs outside this repository. MOSA's dedicated canvas is `/Users/azhuilab/.codex/cowart-data/mosa`; additional registered Cowart projects keep their own `<projectDir>/canvas` directories.
 

@@ -6,26 +6,26 @@ MOSA is a local-first creative memory library for Codex and Cowart. It keeps reu
 
 > Codex images and Cowart canvas images are both monitored locally and remain traceable.
 
-**Product walkthrough:** [Watch the 2:21 English walkthrough on YouTube](https://youtu.be/RdRtq4xfqhI).
+**OpenAI Build Week demo:** [Watch the 2:21 English walkthrough on YouTube](https://youtu.be/RdRtq4xfqhI).
 
 中文简介：把可复用的图片、完整 Prompt、生成上下文和来源信息保存在同一个项目中，并提供 Web 搜索、编辑与复用入口。
 
-## Product focus
+## Built with Codex and GPT-5.6
 
-MOSA is a local-first creative memory library. It keeps images, prompts, generation context, and provenance together so visual work can be found, inspected, refined, and reused without giving up local control.
+MOSA was built through iterative Codex sessions using GPT-5.6-terra. GPT-5.6 shaped the local-first product boundary, provenance model, end-to-end demo path, and successive interface and reliability refinements. Codex then turned those decisions into the Node service, MCP tools, web interface, Codex image archiver, and Cowart bridge; it also ran focused tests and verification passes that informed follow-up fixes.
 
-The Codex and Cowart integrations are optional local capabilities, not account requirements. MOSA can archive generated images from Codex, synchronize explicitly registered Cowart canvases, preserve source provenance, and return library assets to the selected canvas.
+The Build Week implementation history is visible in the repository's dated commits: Codex image provenance, the MCP workflow, Cowart synchronization, source-aware metadata, hard-link archival, and UI refinements were developed as separate, reviewable changes. A real Codex image-generation run was used to verify that MOSA preserves the generated image, complete prompt, task context, `imagegen` tool attribution, and `gpt-5.6-terra` model metadata.
 
-The product closes the loop for visual work: create in Codex or Cowart, preserve the image with its prompt and provenance, find it again in MOSA, and reuse it on the Cowart canvas without duplicating its record.
+The resulting product closes the loop for visual work: create in Codex or Cowart, preserve the image with its prompt and provenance, find it again in MOSA, and reuse it on the Cowart canvas without duplicating its record.
 
-## Install and verify
+## Build Week setup and judging guide
 
-MOSA is a local-first developer tool. The complete library can be explored from the tracked sample records without an OpenAI account, Codex image credits, Cowart, or access to the author's local files.
+MOSA is a local-first developer tool. The complete library can be evaluated from the tracked sample records without an OpenAI account, Codex image credits, Cowart, or access to the author's local files.
 
 ### Supported platform
 
 - Tested platform: macOS with Node.js and npm.
-- The core Node.js service and browser UI use standard filesystem and HTTP APIs, but Windows and Linux have not yet been verified.
+- The core Node.js service and browser UI use standard filesystem and HTTP APIs, but Windows and Linux have not been verified for this submission.
 - Codex automatic archiving requires Codex Desktop and access to its standard local `~/.codex/generated_images/` and session directories.
 - Cowart automatic archiving is optional and requires the separately installed Cowart plugin plus a configured local canvas directory.
 
@@ -50,14 +50,14 @@ curl -sS http://127.0.0.1:43517/api/codex-bridge
 curl -sS http://127.0.0.1:43517/api/cowart-bridge
 ```
 
-The optional integrations become active when their local source directories are available. They are not required to inspect or test the tracked sample data.
+The optional integrations become active when their local source directories are available. They are not required to inspect or test the tracked Build Week sample data.
 
-### Core workflow checks
+### What judges can verify
 
 1. Browse and search the included visual records in the Web app.
 2. Open an asset to inspect its full prompt, source type, Codex task ID, original path, dimensions, and provenance status.
-3. Run `npm test` to verify storage boundaries, route behavior, accessibility contracts, Codex reconciliation, and Cowart deduplication. The current suite has 33 passing automated tests.
-4. Register a project canvas in **Settings → Cowart canvases**, then select the target canvas when inserting a library asset.
+3. Run `npm test` to verify storage boundaries, route behavior, accessibility contracts, Codex reconciliation, and Cowart deduplication. The Build Week release currently has 33 passing automated tests.
+4. Review the dated Git history and the `Built with Codex and GPT-5.6` section above for the Build Week implementation record.
 
 ## 中文产品与集成说明
 
@@ -102,7 +102,7 @@ curl -sS http://127.0.0.1:43517/api/codex-bridge
 
 ## Changelog
 
-Product release notes are in [CHANGELOG.md](CHANGELOG.md).
+Build Week release notes are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Technical documentation (中文说明)
 
@@ -250,12 +250,14 @@ node mosa/mcp/server.mjs
 - Cowart 自动归档保留画布描述，不具备完整 Prompt；原始 Prompt 需要从生成任务补录。
 - “同配方再生成”当前复制 Codex 指令，不直接调用图像模型。
 
-### 核心流程验证
+### Build Week 演示清单
 
 1. 展示真实 Codex `image_generation_end` 记录，以及监听器无需点击 Import 即自动归档完整 Prompt 与来源。
 2. 展示 Cowart 中生成或编辑图片后，无需额外入库指令即出现在素材库。
 3. 在 Web 中搜索素材，打开详情页展示 Prompt、配方和来源。
-4. 将库内素材插入已选择的 Cowart 画布，展示去重保护与可复用性。
+4. 将库内素材插入 Cowart，展示去重保护与可复用性。
+5. 提交证据：本仓库的 2026-07-17 至 2026-07-19 提交记录可追溯 Codex/GPT-5.6 的增量构建；GitHub 项目简介和本节已说明该闭环。
+6. 已在主构建 Codex 任务中执行 `/feedback`，并将返回的 Session ID 记录在提交材料中。
 
 ## License
 
