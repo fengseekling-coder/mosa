@@ -27,9 +27,47 @@ Object.assign(translations.en, {
   loadMore: "Load more",
 });
 
+Object.assign(translations.zh, {
+  versionHistory: "版本历史",
+  versionLoading: "正在加载版本…",
+  versionLoadFailed: "无法加载版本历史",
+  versionLabel: "版本 {number}",
+  currentVersion: "当前版本",
+  initialVersion: "初始版本",
+  versionChange: "变更说明",
+  versionChangePlaceholder: "说明这个版本相对当前版本有哪些变化",
+  noVersionChange: "未记录变更说明",
+  saveAsVersion: "另存为新版本",
+  savingVersion: "正在保存版本…",
+  versionSaved: "新版本已保存",
+  versionChangeRequired: "请填写变更说明",
+  discardVersionChanges: "有尚未保存的修改，仍要切换版本吗？",
+  archivedVersion: "已归档",
+  generatedInstruction: "请用相同配方再生成一张图片，并通过 MOSA 的 asset_version_create 保存为当前素材的新版本：",
+});
+
+Object.assign(translations.en, {
+  versionHistory: "Version history",
+  versionLoading: "Loading versions…",
+  versionLoadFailed: "Unable to load version history",
+  versionLabel: "Version {number}",
+  currentVersion: "Current version",
+  initialVersion: "Initial version",
+  versionChange: "Change summary",
+  versionChangePlaceholder: "Describe what changed from the current version",
+  noVersionChange: "No change summary",
+  saveAsVersion: "Save as new version",
+  savingVersion: "Saving version…",
+  versionSaved: "New version saved",
+  versionChangeRequired: "Enter a change summary",
+  discardVersionChanges: "You have unsaved changes. Switch versions anyway?",
+  archivedVersion: "Archived",
+  generatedInstruction: "Regenerate this image with the same recipe, then use MOSA's asset_version_create tool to save it as a new version of the current asset:",
+});
+
 const preference = safeStorageGet("mosa.ui-language") || "system";
 const state = {
-  project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, detailOpen: false, detailDirty: false, imagePreviewId: null, previewReturnFocus: null, query: "",
+  project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, detailAsset: null, versionHistory: null, detailOpen: false, detailDirty: false, imagePreviewId: null, previewReturnFocus: null, query: "",
   filter: { type: "all", value: "" }, groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [] }, cowartInsertAvailable: false, cowartInsertTargetId: safeStorageGet("mosa.cowart-insert-target") || "mosa",
   libraryPath: "", codexImagesDir: "", modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference)
 };
@@ -146,6 +184,7 @@ function bindKeyboardNav() {
     if (els.importModal?.classList.contains("open") || event.target.matches("input, textarea, select")) return;
     if (!state.assets.length) return;
     const index = state.assets.findIndex((asset) => asset.id === state.selectedId);
+    if (index < 0) return;
     if (event.key === "ArrowUp" && index > 0) selectAsset(state.assets[index - 1].id, true);
     if (event.key === "ArrowDown" && index < state.assets.length - 1) selectAsset(state.assets[index + 1].id, true);
   });
@@ -224,19 +263,23 @@ async function loadAssets(options = {}) {
   if (requestId !== assetRequestSequence || assetRequestKey(request) !== assetRequestKey(currentAssetRequest())) return false;
 
   const previousAssets = state.assets;
-  const previousSelected = previousAssets.find((asset) => asset.id === state.selectedId);
+  const previousSelected = selectedAsset();
   const incomingAssets = result.assets || [];
   const nextAssets = options.append
     ? [...state.assets, ...incomingAssets.filter((asset) => !state.assets.some((current) => current.id === asset.id && current.project_id === asset.project_id))]
     : incomingAssets;
-  const nextSelected = nextAssets.find((asset) => asset.id === state.selectedId);
+  const nextSelected = nextAssets.find((asset) => asset.id === state.selectedId)
+    || (state.detailAsset?.id === state.selectedId && state.detailAsset.project_id === request.project ? state.detailAsset : null);
   const assetsChanged = assetListVersion(previousAssets) !== assetListVersion(nextAssets);
   const selectedChanged = assetVersion(previousSelected) !== assetVersion(nextSelected);
   state.assets = nextAssets;
   state.pageTotal = Number(result.page?.total || nextAssets.length);
   state.nextCursor = result.page?.nextCursor || null;
   state.loadedPageCount = options.append ? state.loadedPageCount + 1 : 1;
-  if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)) state.selectedId = null;
+  if (state.detailAsset?.project_id !== request.project) state.detailAsset = null;
+  if (state.detailAsset && state.assets.some((asset) => asset.id === state.detailAsset.id && asset.project_id === state.detailAsset.project_id)) state.detailAsset = null;
+  if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)
+    && !(state.detailAsset?.id === state.selectedId && state.detailAsset.project_id === request.project)) state.selectedId = null;
   if (!options.background || assetsChanged) {
     renderGrid();
     updateViewTitle();
@@ -279,7 +322,7 @@ function assetVersion(asset) {
 
 function isDetailEditorActive() {
   const active = document.activeElement;
-  return state.detailDirty || (active instanceof HTMLElement && Boolean(els.detailPanel?.contains(active) && active.closest("[data-edit]")));
+  return state.detailDirty || (active instanceof HTMLElement && Boolean(els.detailPanel?.contains(active) && active.closest("[data-edit], [data-version-change]")));
 }
 
 async function refreshBridgeStatus() {
@@ -358,7 +401,7 @@ function bindEvents() {
   els.settingsMenu?.addEventListener("change", async (event) => {
     const select = event.target.closest("[data-project-select]");
     if (!select) return;
-    state.project = select.value; state.selectedId = null; state.filter = { type: "all", value: "" }; state.query = ""; els.searchInput.value = "";
+    state.project = select.value; clearDetailSelection(); state.filter = { type: "all", value: "" }; state.query = ""; els.searchInput.value = "";
     await loadStats(); await loadAssets();
   });
   els.settingsMenu?.addEventListener("click", (event) => {
@@ -409,7 +452,7 @@ function setLanguage(value) {
 
 function setFilter(type, value = "") {
   state.filter = { type, value };
-  state.selectedId = null;
+  clearDetailSelection();
   renderQuickFilters(); renderFilterPanel(); loadAssets();
 }
 
@@ -529,8 +572,26 @@ function renderErrorState(error) {
 }
 
 function selectAsset(id, shouldScroll = false) {
-  if (!id) return; state.selectedId = id; setDetailOpen(true); updateSelectedCard();
+  if (!id || !confirmDetailNavigation(id)) return;
+  state.selectedId = id; state.detailAsset = null; state.versionHistory = null; setDetailOpen(true); updateSelectedCard();
   if (shouldScroll) els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function clearDetailSelection() {
+  state.selectedId = null;
+  state.detailAsset = null;
+  state.versionHistory = null;
+}
+
+function confirmDetailNavigation(nextAssetId) {
+  return !state.detailDirty || nextAssetId === state.selectedId || window.confirm(t("discardVersionChanges"));
+}
+
+function selectedAsset() {
+  return state.assets.find((asset) => asset.id === state.selectedId)
+    || (state.detailAsset?.id === state.selectedId ? state.detailAsset : null)
+    || state.versionHistory?.versions?.find((asset) => asset.id === state.selectedId)
+    || null;
 }
 
 function updateSelectedCard() { els.assetGrid?.querySelectorAll(".asset-card").forEach((card) => { const selected = card.dataset.id === state.selectedId; card.classList.toggle("selected", selected); card.querySelector(".asset-card-select")?.setAttribute("aria-pressed", String(selected)); }); }
@@ -569,13 +630,15 @@ async function saveGroup() {
     await loadStats();
     showToast(`${t("groupCreated")}${result.group.name}`, "success");
     state.filter = { type: "group", value: result.group.name };
-    state.selectedId = null;
+    clearDetailSelection();
     renderQuickFilters(); renderFilterPanel(); await loadAssets();
   });
 }
 
 function openImagePreview(id, trigger) {
-  const asset = state.assets.find((item) => item.id === id);
+  const asset = state.assets.find((item) => item.id === id)
+    || state.versionHistory?.versions?.find((item) => item.id === id)
+    || (state.detailAsset?.id === id ? state.detailAsset : null);
   if (!asset || !els.imagePreviewModal || !els.imagePreviewImage || !els.imagePreviewTitle) return;
   state.imagePreviewId = asset.id;
   state.previewReturnFocus = trigger instanceof HTMLElement ? trigger : document.activeElement;
@@ -620,18 +683,79 @@ function trapImagePreviewFocus(event) {
   event.preventDefault(); focusable[next].focus();
 }
 
+let detailRenderSequence = 0;
+
 function renderDetail() {
   if (!els.detailPanel) return;
-  const asset = state.assets.find((item) => item.id === state.selectedId);
+  const renderId = ++detailRenderSequence;
+  const asset = selectedAsset();
   state.detailDirty = false;
   if (!asset) { els.detailPanel.innerHTML = `<div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t(state.assets.length ? "noSelection" : "noAssets")}</p><span>${t(state.assets.length ? "noSelectionHint" : "noAssetsHint")}</span></div>`; return; }
   const source = asset.source || {}; const rating = Math.min(5, Math.max(0, Math.round(asset.rating || 0))); const groupOptions = state.groups.groups.map(([name]) => `<option value="${escapeHtml(name)}"></option>`).join("");
   const metadata = [["skill", asset.skill], ["style", asset.style], ["ratio", asset.ratio], ["theme", asset.theme], ["group", asset.group], ["category", asset.category], ["rating", asset.rating ? `${asset.rating}/5` : ""]].filter(([, value]) => value !== undefined && value !== null && value !== "");
   const sourceRows = buildSourceRows(source).filter(([, value]) => value !== undefined && value !== null && value !== "");
-  els.detailPanel.innerHTML = `<div class="detail-studio-bar"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail">${t("close")}</button></div><div class="detail-image-wrap"><img class="detail-image" src="${asset.preview_url || asset.image_url}" alt="${escapeHtml(asset.theme || asset.id)}" title="${t("viewFullImage")}" /></div><div class="detail-head"><h3>${escapeHtml(asset.theme || asset.asset || asset.id)}</h3><p>${escapeHtml(asset.id)} · ${formatDate(asset.created_at)}</p></div><div class="detail-actions"><button class="action-btn primary" data-action="copy-prompt">${t("copyPrompt")}</button><button class="action-btn secondary" data-action="regenerate">${t("regenerate")}</button><button class="action-btn secondary" data-action="copy-path">${t("copyPath")}</button></div><section class="section"><div class="section-head"><h4>${t("prompt")}</h4></div><div class="prompt-box">${asset.prompt ? escapeHtml(asset.prompt) : `<span class="empty-copy">${t("notRecorded")}</span>`}</div></section><section class="section"><div class="section-head"><h4>${t("recipe")}</h4></div>${metadata.length ? `<div class="meta-table">${metadata.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val">${key === "rating" ? `<span class="rating-stars">${"★".repeat(rating)}${"☆".repeat(5 - rating)}</span>` : escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</section><details class="detail-disclosure"><summary>${t("sourceInfo")}</summary><div class="disclosure-content">${sourceRows.length ? `<div class="meta-table">${sourceRows.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val source-value">${escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("editMetadata")}</summary><div class="disclosure-content detail-fields"><label class="field"><span>${t("prompt")}</span><textarea data-edit="prompt" rows="5">${escapeHtml(asset.prompt || "")}</textarea></label><div class="two"><label class="field"><span>${t("skill")}</span><input data-edit="skill" value="${escapeHtml(asset.skill || "")}" /></label><label class="field"><span>${t("style")}</span><input data-edit="style" value="${escapeHtml(asset.style || "")}" /></label></div><div class="two"><label class="field"><span>${t("ratio")}</span><input data-edit="ratio" value="${escapeHtml(asset.ratio || "")}" /></label><label class="field"><span>${t("theme")}</span><input data-edit="theme" value="${escapeHtml(asset.theme || "")}" /></label></div><div class="two"><label class="field"><span>${t("group")}</span><input data-edit="group" value="${escapeHtml(asset.group || "")}" list="groupSuggestionsEdit" /><datalist id="groupSuggestionsEdit">${groupOptions}</datalist></label><label class="field"><span>${t("category")}</span><select data-edit="category"><option value="">${t("none")}</option>${categoryOptions(asset.category)}</select></label></div><label class="field"><span>${t("rating")}</span><div class="rating-edit" data-edit="rating">${[1,2,3,4,5].map((number) => `<button type="button" data-val="${number}" class="${number <= rating ? "on" : ""}">${number <= rating ? "★" : "☆"}</button>`).join("")}</div></label><label class="field"><span>${t("businessFields")}</span><textarea data-edit="business_fields" rows="3">${escapeHtml(JSON.stringify(asset.business_fields || {}, null, 2))}</textarea></label><button class="save-recipe-btn" data-action="save-recipe">${t("saveRecipe")}</button></div></details><details class="detail-disclosure"><summary>${t("imageLocation")}</summary><div class="disclosure-content"><div class="path-box">${escapeHtml(asset.image_path)}</div></div></details>`;
+  const cachedHistory = versionHistoryForAsset(asset);
+  els.detailPanel.innerHTML = `<div class="detail-studio-bar"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail">${t("close")}</button></div><div class="detail-image-wrap"><img class="detail-image" src="${asset.preview_url || asset.image_url}" alt="${escapeHtml(asset.theme || asset.id)}" title="${t("viewFullImage")}" /></div><div class="detail-head"><h3 id="detailTitle" tabindex="-1">${escapeHtml(asset.theme || asset.asset || asset.id)}</h3><p>${escapeHtml(asset.id)} · ${formatDate(asset.created_at)}</p></div><div class="detail-actions"><button class="action-btn primary" type="button" data-action="copy-prompt">${t("copyPrompt")}</button><button class="action-btn secondary" type="button" data-action="regenerate">${t("regenerate")}</button><button class="action-btn secondary" type="button" data-action="copy-path">${t("copyPath")}</button></div><section class="section"><div class="section-head"><h4>${t("prompt")}</h4></div><div class="prompt-box">${asset.prompt ? escapeHtml(asset.prompt) : `<span class="empty-copy">${t("notRecorded")}</span>`}</div></section><section class="section"><div class="section-head"><h4>${t("recipe")}</h4></div>${metadata.length ? `<div class="meta-table">${metadata.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val">${key === "rating" ? `<span class="rating-stars">${"★".repeat(rating)}${"☆".repeat(5 - rating)}</span>` : escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</section><details class="detail-disclosure" open><summary>${t("versionHistory")}</summary><div class="disclosure-content version-history-region" data-version-history aria-live="polite">${cachedHistory ? versionHistoryMarkup(cachedHistory, asset.id) : `<p class="version-history-status" role="status">${t("versionLoading")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("sourceInfo")}</summary><div class="disclosure-content">${sourceRows.length ? `<div class="meta-table">${sourceRows.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val source-value">${escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("editMetadata")}</summary><div class="disclosure-content detail-fields"><label class="field"><span>${t("prompt")}</span><textarea data-edit="prompt" rows="5">${escapeHtml(asset.prompt || "")}</textarea></label><div class="two"><label class="field"><span>${t("skill")}</span><input data-edit="skill" value="${escapeHtml(asset.skill || "")}" /></label><label class="field"><span>${t("style")}</span><input data-edit="style" value="${escapeHtml(asset.style || "")}" /></label></div><div class="two"><label class="field"><span>${t("ratio")}</span><input data-edit="ratio" value="${escapeHtml(asset.ratio || "")}" /></label><label class="field"><span>${t("theme")}</span><input data-edit="theme" value="${escapeHtml(asset.theme || "")}" /></label></div><div class="two"><label class="field"><span>${t("group")}</span><input data-edit="group" value="${escapeHtml(asset.group || "")}" list="groupSuggestionsEdit" /><datalist id="groupSuggestionsEdit">${groupOptions}</datalist></label><label class="field"><span>${t("category")}</span><select data-edit="category"><option value="">${t("none")}</option>${categoryOptions(asset.category)}</select></label></div><label class="field"><span>${t("rating")}</span><div class="rating-edit" data-edit="rating">${[1,2,3,4,5].map((number) => `<button type="button" data-val="${number}" class="${number <= rating ? "on" : ""}" aria-label="${number}/5">${number <= rating ? "★" : "☆"}</button>`).join("")}</div></label><label class="field"><span>${t("businessFields")}</span><textarea data-edit="business_fields" rows="3">${escapeHtml(JSON.stringify(asset.business_fields || {}, null, 2))}</textarea></label><label class="field version-change-field"><span>${t("versionChange")}</span><textarea data-version-change rows="2" placeholder="${escapeHtml(t("versionChangePlaceholder"))}"></textarea></label><div class="recipe-save-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-recipe">${t("saveRecipe")}</button><button class="recipe-save-btn primary" type="button" data-action="save-version">${t("saveAsVersion")}</button></div></div></details><details class="detail-disclosure"><summary>${t("imageLocation")}</summary><div class="disclosure-content"><div class="path-box">${escapeHtml(asset.image_path)}</div></div></details>`;
   els.detailPanel.querySelector(".detail-actions")?.prepend(createCowartInsertControl(asset));
   updateCowartInsertControls();
-  bindDetailEvents(asset);
+  bindDetailEvents(asset, renderId);
+  bindVersionHistoryEvents(cachedHistory);
+  void loadVersionHistory(asset);
+}
+
+let versionHistoryRequestSequence = 0;
+
+function versionHistoryForAsset(asset) {
+  const history = state.versionHistory;
+  if (!history || history.project_id !== asset.project_id) return null;
+  return history.versions?.some((version) => version.id === asset.id) ? history : null;
+}
+
+async function loadVersionHistory(asset) {
+  const requestId = ++versionHistoryRequestSequence;
+  const selectedKey = `${asset.project_id}\u0000${asset.id}`;
+  try {
+    const result = await api(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/versions`);
+    if (requestId !== versionHistoryRequestSequence || `${state.project}\u0000${state.selectedId}` !== selectedKey) return;
+    state.versionHistory = result.history;
+    renderVersionHistoryRegion(result.history, asset.id);
+  } catch (error) {
+    if (requestId !== versionHistoryRequestSequence || `${state.project}\u0000${state.selectedId}` !== selectedKey) return;
+    renderVersionHistoryRegion(null, asset.id, error);
+  }
+}
+
+function renderVersionHistoryRegion(history, selectedId, error = null) {
+  const region = els.detailPanel?.querySelector("[data-version-history]");
+  if (!region || state.selectedId !== selectedId) return;
+  region.innerHTML = error
+    ? `<p class="version-history-status error" role="status">${escapeHtml(t("versionLoadFailed"))}: ${escapeHtml(error.message)}</p>`
+    : versionHistoryMarkup(history, selectedId);
+  bindVersionHistoryEvents(history);
+}
+
+function versionHistoryMarkup(history, selectedId) {
+  const versions = history?.versions || [];
+  return `<ol class="version-timeline" aria-label="${escapeHtml(t("versionHistory"))}">${versions.map((version) => {
+    const selected = version.id === selectedId;
+    const depth = Math.min(Math.max(Number(version.version_depth) || 0, 0), 6);
+    const change = version.version_change || (version.version_index === 1 ? t("initialVersion") : t("noVersionChange"));
+    return `<li class="version-timeline-item${selected ? " selected" : ""}" style="--version-depth:${depth}"><button type="button" data-version-id="${escapeHtml(version.id)}"${selected ? ' aria-current="true"' : ""}><span class="version-marker" aria-hidden="true"></span><span class="version-content"><span class="version-title"><strong>${escapeHtml(t("versionLabel", { number: version.version_index }))}</strong>${selected ? `<span class="version-current">${t("currentVersion")}</span>` : ""}${version.archived ? `<span class="version-archived">${t("archivedVersion")}</span>` : ""}</span><span class="version-change">${escapeHtml(change)}</span><time datetime="${escapeHtml(version.created_at || "")}">${escapeHtml(formatDate(version.created_at))}</time></span></button></li>`;
+  }).join("")}</ol>`;
+}
+
+function bindVersionHistoryEvents(history) {
+  if (!history) return;
+  els.detailPanel?.querySelectorAll("[data-version-id]").forEach((button) => button.addEventListener("click", () => {
+    const asset = history.versions.find((version) => version.id === button.dataset.versionId);
+    if (!asset || asset.id === state.selectedId || !confirmDetailNavigation(asset.id)) return;
+    state.selectedId = asset.id;
+    state.detailAsset = asset;
+    state.versionHistory = history;
+    updateSelectedCard();
+    renderDetail();
+    requestAnimationFrame(() => els.detailPanel?.querySelector("#detailTitle")?.focus());
+  }));
 }
 
 function categoryOptions(selected) { return ["product", "concept", "texture", "reference", "other"].map((value) => `<option value="${value}"${selected === value ? " selected" : ""}>${t(`category${value[0].toUpperCase()}${value.slice(1)}`)}</option>`).join(""); }
@@ -642,9 +766,9 @@ function buildSourceRows(source) {
 }
 function sourceName(source = {}) { return source.type === "codex-generated" ? t("sourceCodex") : source.type === "cowart-generated" ? t("sourceCowart") : t("sourceManual"); }
 
-function bindDetailEvents(asset) {
+function bindDetailEvents(asset, renderId) {
   const panel = els.detailPanel;
-  panel.querySelectorAll("[data-edit]").forEach((field) => {
+  panel.querySelectorAll("[data-edit], [data-version-change]").forEach((field) => {
     field.addEventListener("input", () => { state.detailDirty = true; });
     field.addEventListener("change", () => { state.detailDirty = true; });
   });
@@ -667,17 +791,94 @@ function bindDetailEvents(asset) {
   panel.querySelector('[data-action="copy-prompt"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(asset.prompt || ""); showToast(t("copySuccess"), "success"); }));
   panel.querySelector('[data-action="copy-path"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(asset.image_path); showToast(t("pathCopied"), "success"); }));
   panel.querySelector('[data-action="regenerate"]')?.addEventListener("click", () => runAction(async () => {
-    const instruction = [t("generatedInstruction"), "", `asset_id: ${asset.id}`, `skill: ${asset.skill || ""}`, `style: ${asset.style || ""}`, `ratio: ${asset.ratio || ""}`, `theme: ${asset.theme || ""}`, `group: ${asset.group || ""}`, `category: ${asset.category || ""}`, `business_fields: ${JSON.stringify(asset.business_fields || {})}`, "", asset.prompt || ""].join("\n");
+    const instruction = [t("generatedInstruction"), "", "tool: asset_version_create", `projectId: ${asset.project_id}`, `assetId: ${asset.id}`, "imagePath: <path returned by image generation>", "version_change:", `skill: ${asset.skill || ""}`, `style: ${asset.style || ""}`, `ratio: ${asset.ratio || ""}`, `theme: ${asset.theme || ""}`, `group: ${asset.group || ""}`, `category: ${asset.category || ""}`, `business_fields: ${JSON.stringify(asset.business_fields || {})}`, "", asset.prompt || ""].join("\n");
     await navigator.clipboard.writeText(instruction); showToast(t("instructionCopied"), "success");
   }));
   panel.querySelectorAll('[data-edit="rating"] button').forEach((button) => button.addEventListener("click", () => { state.detailDirty = true; const value = Number(button.dataset.val); panel.querySelectorAll('[data-edit="rating"] button').forEach((star) => { const on = Number(star.dataset.val) <= value; star.classList.toggle("on", on); star.textContent = on ? "★" : "☆"; }); }));
   panel.querySelector('[data-action="save-recipe"]')?.addEventListener("click", () => runAction(async () => {
-    const businessText = panel.querySelector('[data-edit="business_fields"]').value;
-    let businessFields = {}; try { businessFields = businessText.trim() ? JSON.parse(businessText) : {}; } catch { throw new Error(t("invalidJson")); }
-    const patch = { prompt: panel.querySelector('[data-edit="prompt"]').value, skill: panel.querySelector('[data-edit="skill"]').value, style: panel.querySelector('[data-edit="style"]').value, ratio: panel.querySelector('[data-edit="ratio"]').value, theme: panel.querySelector('[data-edit="theme"]').value, group: panel.querySelector('[data-edit="group"]').value, category: panel.querySelector('[data-edit="category"]').value, rating: panel.querySelectorAll('[data-edit="rating"] button.on').length, business_fields: businessFields };
-    const result = await api(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}`, { method: "PATCH", body: patch });
-    state.selectedId = result.asset.id; showToast(t("recipeSaved"), "success"); await loadStats(); await loadAssets();
+    const originProjectId = asset.project_id;
+    const originAssetId = asset.id;
+    setRecipeActionsBusy(panel, true, "save-recipe");
+    try {
+      const result = await api(`/api/assets/${encodeURIComponent(originProjectId)}/${encodeURIComponent(originAssetId)}`, { method: "PATCH", body: readRecipeDraft(panel) });
+      showToast(t("recipeSaved"), "success");
+      if (!isCurrentDetailAction(renderId, originProjectId, originAssetId)) return;
+      state.selectedId = result.asset.id;
+      state.detailAsset = result.asset;
+      state.versionHistory = null;
+      state.detailDirty = false;
+      await loadStats();
+      if (!isCurrentDetailSelection(result.asset.project_id, result.asset.id)) return;
+      await loadAssets();
+      if (isCurrentDetailSelection(result.asset.project_id, result.asset.id)) requestAnimationFrame(() => els.detailPanel?.querySelector("#detailTitle")?.focus());
+    } finally {
+      if (renderId === detailRenderSequence) setRecipeActionsBusy(panel, false, "save-recipe");
+    }
   }));
+  panel.querySelector('[data-action="save-version"]')?.addEventListener("click", () => runAction(async () => {
+    const versionChange = panel.querySelector("[data-version-change]")?.value.trim() || "";
+    if (!versionChange) throw new Error(t("versionChangeRequired"));
+    const originProjectId = asset.project_id;
+    const originAssetId = asset.id;
+    setRecipeActionsBusy(panel, true, "save-version");
+    try {
+      const result = await api(`/api/assets/${encodeURIComponent(originProjectId)}/${encodeURIComponent(originAssetId)}/versions`, {
+        method: "POST",
+        body: { ...readRecipeDraft(panel), version_change: versionChange },
+      });
+      showToast(t("versionSaved"), "success");
+      if (!isCurrentDetailAction(renderId, originProjectId, originAssetId)) return;
+      state.selectedId = result.asset.id;
+      state.detailAsset = result.asset;
+      state.versionHistory = null;
+      state.detailDirty = false;
+      await loadStats();
+      if (!isCurrentDetailSelection(result.asset.project_id, result.asset.id)) return;
+      await loadAssets();
+      if (isCurrentDetailSelection(result.asset.project_id, result.asset.id)) requestAnimationFrame(() => els.detailPanel?.querySelector("#detailTitle")?.focus());
+    } finally {
+      if (renderId === detailRenderSequence) setRecipeActionsBusy(panel, false, "save-version");
+    }
+  }));
+}
+
+function readRecipeDraft(panel) {
+  const businessText = panel.querySelector('[data-edit="business_fields"]').value;
+  let businessFields = {};
+  try {
+    businessFields = businessText.trim() ? JSON.parse(businessText) : {};
+  } catch {
+    throw new Error(t("invalidJson"));
+  }
+  return {
+    prompt: panel.querySelector('[data-edit="prompt"]').value,
+    skill: panel.querySelector('[data-edit="skill"]').value,
+    style: panel.querySelector('[data-edit="style"]').value,
+    ratio: panel.querySelector('[data-edit="ratio"]').value,
+    theme: panel.querySelector('[data-edit="theme"]').value,
+    group: panel.querySelector('[data-edit="group"]').value,
+    category: panel.querySelector('[data-edit="category"]').value,
+    rating: panel.querySelectorAll('[data-edit="rating"] button.on').length,
+    business_fields: businessFields,
+  };
+}
+
+function setRecipeActionsBusy(panel, busy, activeAction) {
+  panel.querySelectorAll(".recipe-save-btn").forEach((button) => { button.disabled = busy; });
+  panel.querySelectorAll('input[data-edit], textarea[data-edit], select[data-edit], [data-version-change], [data-edit="rating"] button').forEach((field) => { field.disabled = busy; });
+  const activeButton = panel.querySelector(`[data-action="${activeAction}"]`);
+  if (!activeButton?.isConnected) return;
+  activeButton.textContent = busy
+    ? t(activeAction === "save-version" ? "savingVersion" : "saving")
+    : t(activeAction === "save-version" ? "saveAsVersion" : "saveRecipe");
+}
+
+function isCurrentDetailAction(renderId, projectId, assetId) {
+  return renderId === detailRenderSequence && isCurrentDetailSelection(projectId, assetId);
+}
+
+function isCurrentDetailSelection(projectId, assetId) {
+  return state.project === projectId && state.selectedId === assetId;
 }
 
 function updateCowartInsertControls() {

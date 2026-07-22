@@ -82,6 +82,31 @@ test("JSON pagination remains stable when the cursor asset is archived", async (
   await assert.rejects(store.listAssetPage({ projectId: "default", cursor: Buffer.from("{}").toString("base64url") }), /Invalid asset cursor/);
 });
 
+test("corrupt canonical JSON metadata cannot be hidden or overwritten", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-corrupt-metadata-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  const store = createAssetStore({ projectRoot, managerDir });
+  await Promise.all([
+    mkdir(join(projectRoot, "generated-images"), { recursive: true }),
+    store.ensureProject("default"),
+  ]);
+  await writeFile(sourcePath, "fixture image", "utf8");
+  const metadataPath = join(managerDir, "assets", "default", "metadata", "broken.json");
+  const corruptMetadata = "{ not valid json\n";
+  await writeFile(metadataPath, corruptMetadata, "utf8");
+
+  await assert.rejects(store.getAsset("default", "broken"), SyntaxError);
+  await assert.rejects(store.getAssetVersionHistory("default", "broken"), SyntaxError);
+  await assert.rejects(
+    store.createAsset({ assetId: "broken", imagePath: sourcePath }),
+    (error) => error?.code === "ASSET_ALREADY_EXISTS",
+  );
+  assert.equal(await readFile(metadataPath, "utf8"), corruptMetadata);
+});
+
 test("persists manually created groups, including empty groups", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
   t.after(() => rm(root, { recursive: true, force: true }));

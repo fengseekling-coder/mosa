@@ -7,6 +7,11 @@
 - Added durable WebP preview/thumbnail jobs and gallery pagination while keeping original image URLs compatible.
 - Added automatic monitoring for project-local Cowart canvases opened from Codex while preserving the MOSA dedicated canvas.
 - Added event-based canvas discovery, persisted project registration, per-canvas bridge status, and Cowart project provenance on archived assets.
+- Added asset-based recipe version trees with stable branching history, archived-node visibility, and independent images and provenance per version.
+- Added REST, MCP, and bilingual Web UI surfaces for creating and browsing versions, with required change summaries and typed relationship errors.
+- Added SQLite schema v2 migration tracking, indexed version traversal, duplicate-ID migration validation, and conflict-safe concurrent creates.
+- Changed `asset_duplicate` to start an independent version root while retaining `duplicated_from` provenance.
+- Fixed registered external Cowart canvases so imports trust only that canvas's `pages` root without widening normal import permissions.
 
 ## 0.1.0 — OpenAI Build Week release
 

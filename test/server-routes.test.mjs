@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -114,8 +114,10 @@ test("SQLite HTTP surface paginates assets and serves durable derivatives", asyn
   const root = await mkdtemp(join(tmpdir(), "mosa-server-sqlite-"));
   const libraryDir = join(root, "library");
   const imagePath = join(root, "generated-images", "fixture.png");
+  const replacementPath = join(root, "replacement.png");
   await mkdir(join(root, "generated-images"), { recursive: true });
   await sharp({ create: { width: 8, height: 8, channels: 4, background: "#243047" } }).png().toFile(imagePath);
+  await sharp({ create: { width: 8, height: 8, channels: 4, background: "#c43d38" } }).png().toFile(replacementPath);
   const seeded = createSqliteAssetStore({ projectRoot: root, managerDir: process.cwd(), libraryDir });
   const asset = await seeded.createAsset({ assetId: "sqlite-fixture", imagePath, prompt: "red mechanical future city" });
   await seeded.setMigrationState("completed", { test: true });
@@ -157,6 +159,58 @@ test("SQLite HTTP surface paginates assets and serves durable derivatives", asyn
   const duplicate = await fetch(`http://127.0.0.1:${port}/api/assets/default/${asset.id}/duplicate`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ assetId: "sqlite-copy" }) });
   assert.equal(duplicate.status, 201);
   const copied = (await duplicate.json()).asset;
+  assert.equal(copied.parent_asset_id, null);
+
+  const bypassVersionContract = await fetch(`http://127.0.0.1:${port}/api/assets/create`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: "default", assetId: "bypass-version-contract", imagePath: replacementPath, parent_asset_id: asset.id }),
+  });
+  assert.equal(bypassVersionContract.status, 400);
+  assert.equal((await bypassVersionContract.json()).code, "INVALID_VERSION_CHANGE");
+
+  const invalidVersion = await fetch(`http://127.0.0.1:${port}/api/assets/default/${asset.id}/versions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ version_change: " " }),
+  });
+  assert.equal(invalidVersion.status, 400);
+  assert.equal((await invalidVersion.json()).code, "INVALID_VERSION_CHANGE");
+
+  const versionResponse = await fetch(`http://127.0.0.1:${port}/api/assets/default/${asset.id}/versions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ assetId: "sqlite-version", imagePath: replacementPath, version_change: "Brighter palette", theme: "Daylight" }),
+  });
+  assert.equal(versionResponse.status, 201);
+  const version = (await versionResponse.json()).asset;
+  assert.equal(version.parent_asset_id, asset.id);
+  assert.equal(version.version_change, "Brighter palette");
+  assert.equal(version.theme, "Daylight");
+  assert.equal(version.source.path, replacementPath);
+  const versionImage = await fetch(`http://127.0.0.1:${port}${version.image_url}`);
+  assert.equal(versionImage.status, 200);
+  assert.deepEqual(Buffer.from(await versionImage.arrayBuffer()), await readFile(replacementPath));
+
+  const historyResponse = await fetch(`http://127.0.0.1:${port}/api/assets/default/${version.id}/versions`);
+  assert.equal(historyResponse.status, 200);
+  const history = (await historyResponse.json()).history;
+  assert.equal(history.root_asset_id, asset.id);
+  assert.equal(history.selected_asset_id, version.id);
+  assert.deepEqual(history.versions.map((item) => item.id), [asset.id, version.id]);
+
+  const missingHistory = await fetch(`http://127.0.0.1:${port}/api/assets/default/missing/versions`);
+  assert.equal(missingHistory.status, 404);
+  assert.equal((await missingHistory.json()).code, "ASSET_NOT_FOUND");
+
+  const immutableRelation = await fetch(`http://127.0.0.1:${port}/api/assets/default/${version.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ parent_asset_id: null }),
+  });
+  assert.equal(immutableRelation.status, 400);
+  assert.equal((await immutableRelation.json()).code, "VERSION_RELATION_IMMUTABLE");
+
   const archived = await fetch(`http://127.0.0.1:${port}/api/assets/default/${copied.id}/archive`, { method: "POST" });
   assert.equal(archived.status, 200);
 });

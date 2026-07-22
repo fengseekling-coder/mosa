@@ -82,7 +82,10 @@ const server = createServer(async (req, res) => {
 
     await handleStatic(res, url.pathname);
   } catch (error) {
-    sendJson(res, 500, { error: error.message });
+    const statusCode = Number(error?.statusCode) || 500;
+    const payload = { error: error instanceof Error ? error.message : String(error) };
+    if (error?.statusCode && error?.code) payload.code = error.code;
+    sendJson(res, statusCode, payload);
   }
 });
 
@@ -308,14 +311,31 @@ async function handleApi(req, res, url) {
     derivativeWorker.wake();
     return;
   }
+  const versionsMatch = /^\/api\/assets\/([^/]+)\/([^/]+)\/versions$/.exec(url.pathname);
+  if (versionsMatch && req.method === "GET") {
+    if (typeof store.getAssetVersionHistory !== "function") throw new Error("Asset version history is unavailable.");
+    const projectId = decodeURIComponent(versionsMatch[1]);
+    const assetId = decodeURIComponent(versionsMatch[2]);
+    sendJson(res, 200, { history: await store.getAssetVersionHistory(projectId, assetId) });
+    return;
+  }
+  if (versionsMatch && req.method === "POST") {
+    if (typeof store.createAssetVersion !== "function") throw new Error("Asset version creation is unavailable.");
+    const projectId = decodeURIComponent(versionsMatch[1]);
+    const assetId = decodeURIComponent(versionsMatch[2]);
+    const body = await readJson(req);
+    sendJson(res, 201, { asset: await store.createAssetVersion(projectId, assetId, body) });
+    derivativeWorker.wake();
+    return;
+  }
   if (assetMatch && req.method === "GET") {
-    sendJson(res, 200, { asset: await store.getAsset(assetMatch[1], assetMatch[2]) });
+    sendJson(res, 200, { asset: await store.getAsset(decodeURIComponent(assetMatch[1]), decodeURIComponent(assetMatch[2])) });
     return;
   }
 
   if (assetMatch && req.method === "PATCH") {
     const body = await readJson(req);
-    sendJson(res, 200, { asset: await store.updateMetadata(assetMatch[1], assetMatch[2], body) });
+    sendJson(res, 200, { asset: await store.updateMetadata(decodeURIComponent(assetMatch[1]), decodeURIComponent(assetMatch[2]), body) });
     return;
   }
 

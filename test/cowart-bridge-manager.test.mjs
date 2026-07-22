@@ -11,7 +11,8 @@ test("archives registered project-local Cowart canvases", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-manager-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
-  const managerDir = join(root, "mosa");
+  const projectRoot = join(root, "workspace");
+  const managerDir = join(projectRoot, "mosa");
   const firstProject = join(root, "first-project");
   const secondProject = join(root, "second-project");
   await Promise.all([
@@ -20,10 +21,14 @@ test("archives registered project-local Cowart canvases", async (t) => {
   ]);
 
   const store = createAssetStore({
-    projectRoot: root,
+    projectRoot,
     managerDir,
     cowartCanvasDir: join(root, "cowart-data", "mosa"),
   });
+  await assert.rejects(
+    store.createAsset({ imagePath: join(firstProject, "canvas", "pages", "page", "assets", "first-project-image.png") }),
+    /Refusing to import outside the project roots/,
+  );
   const registry = createCowartProjectRegistry({
     managerDir,
     registryPath: join(root, "state", "cowart-projects.json"),

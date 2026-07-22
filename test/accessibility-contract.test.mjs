@@ -107,3 +107,37 @@ test("uses a single language chosen from system, Chinese, or English", async () 
   assert.doesNotMatch(app, /data-remove-cowart-canvas/);
   assert.match(app, /\/api\/cowart-canvases/);
 });
+
+test("keeps recipe version history navigable without replacing active edits", async () => {
+  const [app, css] = await Promise.all([
+    readFile(resolve(root, "app/app.js"), "utf8"),
+    readFile(resolve(root, "app/styles.css"), "utf8"),
+  ]);
+
+  assert.match(app, /versionHistory: "版本历史"/);
+  assert.match(app, /versionHistory: "Version history"/);
+  assert.match(app, /data-version-history aria-live="polite"/);
+  assert.match(app, /<ol class="version-timeline" aria-label=/);
+  assert.match(app, /<time datetime=/);
+  assert.match(app, /aria-current="true"/);
+  assert.match(app, /<label class="field version-change-field">/);
+  assert.match(app, /data-action="save-version"/);
+  assert.match(app, /function readRecipeDraft\(panel\)/);
+  assert.match(app, /body: \{ \.\.\.readRecipeDraft\(panel\), version_change: versionChange \}/);
+  assert.match(app, /`assetId: \$\{asset\.id\}`/);
+  assert.match(app, /imagePath: <path returned by image generation>/);
+  assert.match(app, /requestId !== versionHistoryRequestSequence/);
+  assert.match(app, /function renderVersionHistoryRegion\(history, selectedId, error = null\)/);
+  const regionRenderer = /function renderVersionHistoryRegion[\s\S]*?\n}\n\nfunction versionHistoryMarkup/.exec(app)?.[0] || "";
+  assert.doesNotMatch(regionRenderer, /renderDetail\(/);
+  assert.match(app, /state\.detailAsset = asset/);
+  assert.match(app, /if \(index < 0\) return;/);
+  assert.match(app, /function confirmDetailNavigation\(nextAssetId\)/);
+  assert.match(app, /window\.confirm\(t\("discardVersionChanges"\)\)/);
+  assert.match(app, /function isCurrentDetailAction\(renderId, projectId, assetId\)/);
+  assert.match(app, /renderId === detailRenderSequence/);
+  assert.match(app, /\[data-edit="rating"\] button/);
+  assert.match(css, /\.version-timeline-item\.selected > button/);
+  assert.match(css, /\.recipe-save-actions \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(css, /\.recipe-save-btn \{[^}]*white-space: normal;/);
+});

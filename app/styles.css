@@ -192,6 +192,24 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .detail-disclosure summary::after { margin-left: auto; color: var(--ink-tertiary); content: "+"; font-size: 17px; font-weight: 400; }
 .detail-disclosure[open] summary::after { content: "–"; }
 .disclosure-content { padding: 0 0 15px; }
+.version-history-region { min-height: 36px; }
+.version-history-status { padding: 3px 0 8px; color: var(--ink-tertiary); font-size: 11px; }
+.version-history-status.error { color: var(--danger); overflow-wrap: anywhere; }
+.version-timeline { display: grid; gap: 2px; padding: 0; margin: 0; list-style: none; }
+.version-timeline-item { min-width: 0; margin-left: calc(var(--version-depth, 0) * 12px); }
+.version-timeline-item > button { position: relative; display: flex; width: 100%; min-width: 0; gap: 9px; align-items: flex-start; padding: 7px 8px; border: 0; border-radius: 7px; color: var(--ink-secondary); background: transparent; cursor: pointer; text-align: left; }
+.version-timeline-item > button:hover { color: var(--ink); background: var(--surface-muted); }
+.version-timeline-item.selected > button { color: var(--ink); background: var(--accent-soft); }
+.version-marker { width: 8px; height: 8px; flex: 0 0 auto; margin-top: 5px; border: 2px solid var(--ink-tertiary); border-radius: 50%; background: var(--surface); }
+.version-timeline-item.selected .version-marker { border-color: var(--accent); background: var(--accent); }
+.version-content { display: grid; min-width: 0; flex: 1; gap: 2px; }
+.version-title { display: flex; min-width: 0; flex-wrap: wrap; gap: 5px; align-items: center; }
+.version-title strong { color: inherit; font-size: 11px; }
+.version-current, .version-archived { padding: 1px 5px; border-radius: 5px; font-size: 9px; font-weight: 700; }
+.version-current { color: var(--accent-deep); background: #fff; }
+.version-archived { color: var(--ink-secondary); background: var(--surface-deep); }
+.version-change { color: var(--ink-secondary); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.version-content time { color: var(--ink-tertiary); font-size: 9px; }
 .detail-empty { display: flex; min-height: 100%; align-items: center; justify-content: center; padding: 40px 28px; flex-direction: column; color: var(--ink-tertiary); text-align: center; }
 .detail-empty svg { opacity: .3; }
 .detail-empty p { margin-top: 10px; color: var(--ink-secondary); font-weight: 680; }
@@ -213,8 +231,14 @@ input::placeholder, textarea::placeholder { color: var(--ink-tertiary); }
 .rating-edit { display: flex; gap: 2px; }
 .rating-edit button { width: 29px; height: 29px; padding: 0; border: 0; border-radius: 6px; color: #c5c3bd; background: transparent; cursor: pointer; font-size: 16px; }
 .rating-edit button:hover, .rating-edit button.on { color: #b78116; background: #fbf6e7; }
-.save-recipe-btn { width: 100%; height: 36px; border: 1px solid var(--accent); border-radius: 8px; color: #fff; background: var(--accent); cursor: pointer; font-size: 12px; font-weight: 700; }
-.save-recipe-btn:hover { border-color: var(--accent-deep); background: var(--accent-deep); }
+.version-change-field { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.recipe-save-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
+.recipe-save-btn { min-width: 0; min-height: 38px; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 11px; font-weight: 700; line-height: 1.25; white-space: normal; }
+.recipe-save-btn.primary { border: 1px solid var(--accent); color: #fff; background: var(--accent); }
+.recipe-save-btn.primary:hover { border-color: var(--accent-deep); background: var(--accent-deep); }
+.recipe-save-btn.secondary { border: 1px solid var(--line-strong); color: var(--ink-secondary); background: var(--surface); }
+.recipe-save-btn.secondary:hover { color: var(--ink); background: var(--surface-muted); }
+.recipe-save-btn:disabled { cursor: wait; opacity: .55; }
 .modal-overlay { position: fixed; z-index: 100; inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; background: rgba(22,22,20,.28); backdrop-filter: blur(7px); }
 .modal-overlay.open { display: flex; }
 .modal-card { display: flex; width: 526px; max-width: 100%; max-height: min(760px, 88vh); flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 24px 72px rgba(10,10,9,.26); }
