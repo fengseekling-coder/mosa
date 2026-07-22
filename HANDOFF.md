@@ -2,11 +2,19 @@
 
 更新日期：2026-07-22
 
+## 交接结论
+
+- 当前待审分支：`agent/recipe-history`，提交 `efd0d19`，Draft PR [#7](https://github.com/fengseekling-coder/mosa/pull/7) 指向 `main`。
+- 配方版本树实现已完成并推送：JSON/SQLite、REST/MCP、Web 时间线、迁移和 Cowart 导入边界均在该 PR 内。
+- 最终验证：`npm test` 为 64 passed、1 skipped；lint、源码检查和 `git diff --check` 均通过。PR 尚未合并，分支尚未部署。
+- 当前产品是本地 Web UI，不是 Tauri 或可安装的 macOS 桌面应用；本次没有引入桌面壳、`.app` 或 `.dmg`。
+- 下一步只应审阅并合并 PR #7；生产部署必须在维护窗口内执行，且不得改动 `43517`、`43519` 或真实素材库，除非明确授权。
+
 ## 当前状态
 
 - 工作目录：`/Users/azhuilab/codex_aigc/mosa`
 - Phase 0-2 已通过 PR #3 合并至 `main`（`b09b657`）；迁移交接记录通过 PR #4 合并（`6d71a6f`），Cowart 自动发现通过 PR #5 合并（`38be7f4`）。
-- `agent/recipe-history` 在 `main@bebec4f` 上实现配方版本树，尚未部署到 `43519`；生产服务仍运行已合并的 PR #5 代码。
+- `agent/recipe-history` 基于 `main@bebec4f` 实现配方版本树，已推送为 Draft PR #7，尚未部署到 `43519`；生产服务仍运行已合并的 PR #5 代码。
 - 真实素材库 `/Users/azhuilab/MOSA Library` 已于 2026-07-22 完成 SQLite 迁移：导入 270 个旧资产与 1 个空分组，并在迁移期间校验了全部 270 个原图哈希。
 - 旧 JSON 与 Prompt 备份位于 `/Users/azhuilab/MOSA Library/legacy-json-backup/2026-07-22T12-26-53-909Z`；不要删除 JSON 源目录、该备份或 `mosa.db`，也不要手工修改迁移状态。
 - `mosa verify` 在迁移后通过（270 个资产）；SQLite 服务启动后 Codex 归档桥接继续正常归档。2026-07-22 受控重启后的最终验收通过（283 个资产、0 个失败）。资产数是动态快照，应以 `ok: true` 与空 `failures` 判断完整性。
