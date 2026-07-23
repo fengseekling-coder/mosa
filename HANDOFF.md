@@ -1,6 +1,10 @@
 # MOSA 2.0 Core 交接文档
 
-更新日期：2026-07-22
+运行态快照：2026-07-22
+
+文档整理：2026-07-23
+
+> 本文档面向维护者，记录环境相关的部署快照、验证证据和恢复边界。公开使用、迁移和故障处理请优先阅读 `README.md` 与 `docs/operations.md`；不要将本文中的个人路径、端口或动态资产数当作通用安装说明。
 
 ## 交接结论
 
@@ -9,6 +13,7 @@
 - 最终验证：`npm test` 为 64 passed、1 skipped；50,000 资产性能测试、lint、源码检查、依赖审计和 `git diff --check` 均通过。生产 SQLite 验证为 284 个资产、0 个失败。
 - 当前产品是本地 Web UI，不是 Tauri 或可安装的 macOS 桌面应用；本次没有引入桌面壳、`.app` 或 `.dmg`。
 - 后续只在获准的维护窗口内操作 `43519` 或真实素材库；`43517` 的旧 JSON 服务必须继续保持不变。
+- **未部署（本工作树）**：Grok Build CLI 媒体自动归档（`lib/grok-media-bridge.mjs` + `GET /api/bridges.grok`）。这是本地文件系统集成，不调用 Grok API；上线生产 `43519` 前需要单独批准的维护窗口，并确认 `GROK_SESSIONS_DIR` 边界。
 
 ## 当前状态
 
@@ -72,11 +77,13 @@
 | WebP 派生图任务 worker | `lib/derivative-worker.mjs` |
 | CLI | `bin/mosa.mjs` |
 | HTTP 服务和路由 | `server.mjs` |
+| Grok 媒体自动归档 | `lib/grok-media-bridge.mjs` |
 | Cowart 画布自动发现 | `lib/cowart-canvas-discovery.mjs` |
 | MCP v1 兼容层 | `mcp/server.mjs` |
 | 版本时间线 UI | `app/app.js`、`app/styles.css` |
 | CI 与本地检查 | `.github/workflows/ci.yml`、`scripts/check-source.mjs` |
 | Core 存储测试 | `test/sqlite-store.test.mjs`、`test/library-migration.test.mjs`、`test/performance.test.mjs` |
+| Grok 桥接回归测试 | `test/grok-media-bridge.test.mjs` |
 | Cowart 发现回归测试 | `test/cowart-canvas-discovery.test.mjs`、`test/server-routes.test.mjs` |
 | 版本树回归测试 | `test/asset-version-history.test.mjs`、`test/mcp-version-history.test.mjs` |
 
@@ -176,5 +183,7 @@ MOSA_LIBRARY_DIR='/Users/azhuilab/MOSA Library' MOSA_PORT=43519 npm start
 ```
 
 2. `GET /api/bridges` 应持续返回启用的 `cowartDiscovery`；仅在本地 Codex 会话出现真实 Cowart 启动记录且目标具有画布标记时，才会增加项目画布监听。
-3. 例行维护可运行 `npm exec mosa -- verify --library /Users/azhuilab/MOSA\ Library`；仅在需补全或修复派生图时运行 `npm exec mosa -- thumbnails rebuild --library /Users/azhuilab/MOSA\ Library`。
-4. 迁移、校验或派生图任务失败时，不要删除 JSON 目录、备份或 SQLite 数据库，也不要手工激活/回退迁移状态；先保留现场并依据命令输出中的具体路径修复。
+3. 部署 Grok 媒体桥接后，`GET /api/bridges` 还应包含 `grok.enabled=true` 与 `grok.sessionsDir`；默认根为 `~/.grok/sessions`，可用 `GROK_SESSIONS_DIR` 覆盖。不要扫描该根之外的路径。
+4. 例行维护可运行 `npm exec mosa -- verify --library /Users/azhuilab/MOSA\ Library`；仅在需补全或修复派生图时运行 `npm exec mosa -- thumbnails rebuild --library /Users/azhuilab/MOSA\ Library`。
+5. 迁移、校验或派生图任务失败时，不要删除 JSON 目录、备份或 SQLite 数据库，也不要手工激活/回退迁移状态；先保留现场并依据命令输出中的具体路径修复。
+6. 视频资产没有 WebP 缩略图是预期行为；不要引入 ffmpeg 或把视频送入 sharp。

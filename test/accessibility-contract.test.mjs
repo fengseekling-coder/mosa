@@ -50,6 +50,7 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
   assert.match(html, /id="filterPanel"/);
   assert.match(html, /class="toolbar-filter" id="filterToggle"/);
   assert.match(app, /source", "cowart-generated"/);
+  assert.match(app, /source", "grok-generated"/);
   assert.match(app, /function setDetailOpen\(open\)/);
   assert.match(app, /state\.detailOpen = Boolean\(open\)/);
   assert.match(app, /function updateSelectedCard\(\)/);
@@ -57,6 +58,15 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
   assert.match(app, /function renderFilterPanel\(\)/);
   assert.match(app, /function positionFilterPanel\(\)/);
   assert.match(app, /\["cowart", t\("filterCowart"\)/);
+  assert.match(app, /\["grok", t\("filterGrok"\)/);
+  assert.match(app, /function isVideoAsset\(/);
+  assert.match(app, /function assetMediaPreviewMarkup\(/);
+  // Global bridge health ignores Grok-only failures while still exposing Grok metadata.
+  assert.match(app, /const hasError = codex\?\.lastError \|\| cowart\?\.lastError;/);
+  assert.doesNotMatch(app, /const hasError = codex\?\.lastError \|\| grok\?\.lastError \|\| cowart\?\.lastError;/);
+  assert.match(app, /if \(grok\?\.lastWarning\) meta\.push\(String\(grok\.lastWarning\)\);/);
+  assert.match(app, /if \(grok\?\.lastError\) meta\.push\(String\(grok\.lastError\)\);/);
+  assert.match(app, /else if \(codexOn && cowartOn && state\.cowartInsertAvailable\) setStatus\(t\("statusReady"\), "ok"\);/);
 });
 
 test("keeps background library refreshes from replacing active edits", async () => {

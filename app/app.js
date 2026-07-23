@@ -65,6 +65,28 @@ Object.assign(translations.en, {
   generatedInstruction: "Regenerate this image with the same recipe, then use MOSA's asset_version_create tool to save it as a new version of the current asset:",
 });
 
+Object.assign(translations.zh, {
+  sourceGrok: "Grok",
+  filterGrok: "Grok",
+  sessionId: "会话 ID",
+  mediaKind: "媒体类型",
+  mediaKindImage: "图片",
+  mediaKindVideo: "视频",
+  videoFallback: "浏览器无法预览该视频；请打开原文件。",
+  openOriginalMedia: "打开原媒体",
+});
+
+Object.assign(translations.en, {
+  sourceGrok: "Grok",
+  filterGrok: "Grok",
+  sessionId: "Session ID",
+  mediaKind: "Media kind",
+  mediaKindImage: "Image",
+  mediaKindVideo: "Video",
+  videoFallback: "This browser cannot preview the video. Open the original file instead.",
+  openOriginalMedia: "Open original media",
+});
+
 const preference = safeStorageGet("mosa.ui-language") || "system";
 const state = {
   project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, detailAsset: null, versionHistory: null, detailOpen: false, detailDirty: false, imagePreviewId: null, previewReturnFocus: null, query: "",
@@ -237,7 +259,7 @@ async function loadStats(options = {}) {
   state.libraryPath = library?.path || "";
   state.codexImagesDir = library?.codexGeneratedImagesDir || "";
   updateCodexHint();
-  const nextGroups = { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [], ...(result.groups || {}) };
+  const nextGroups = { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, grok: 0, groups: [], categories: [], styles: [], ...(result.groups || {}) };
   const changed = JSON.stringify(nextGroups) !== JSON.stringify(state.groups);
   state.groups = nextGroups;
   if (!options.background || changed) {
@@ -258,6 +280,7 @@ async function loadAssets(options = {}) {
   else if (request.filterType === "recent") params.set("recent", "1");
   else if (request.filterType === "codex") params.set("source", "codex-generated");
   else if (request.filterType === "cowart") params.set("source", "cowart-generated");
+  else if (request.filterType === "grok") params.set("source", "grok-generated");
   else if (["group", "category", "style"].includes(request.filterType)) params.set(request.filterType, request.filterValue);
   const result = await api(`/api/assets?${params}`);
   if (requestId !== assetRequestSequence || assetRequestKey(request) !== assetRequestKey(currentAssetRequest())) return false;
@@ -327,7 +350,7 @@ function isDetailEditorActive() {
 
 async function refreshBridgeStatus() {
   try {
-    const { codex, cowart, cowartInsert } = await api("/api/bridges");
+    const { codex, grok, cowart, cowartInsert } = await api("/api/bridges");
     const nextCanvases = Array.isArray(cowart?.sources) ? cowart.sources : [];
     if (cowartCanvasListSignature(nextCanvases) !== cowartCanvasListSignature(state.cowartCanvases)) {
       state.cowartCanvases = nextCanvases;
@@ -335,14 +358,17 @@ async function refreshBridgeStatus() {
       if (state.detailOpen && !isDetailEditorActive()) renderDetail();
     }
     state.cowartInsertAvailable = Boolean(cowartInsert?.available);
+    // Required bridges only: a Grok-only failure must not force global error status.
     const hasError = codex?.lastError || cowart?.lastError;
     const codexOn = Boolean(codex?.enabled);
     const cowartOn = Boolean(cowart?.enabled);
-    const importedCount = Number(cowart?.totalImported || 0) + Number(codex?.totalImported || 0);
+    const grokOn = Boolean(grok?.enabled);
+    const importedCount = Number(cowart?.totalImported || 0) + Number(codex?.totalImported || 0) + Number(grok?.totalImported || 0);
     const monitoredCount = Number(cowart?.monitoredCount || 0);
+    // Grok is optional: global readiness only requires Codex + Cowart (+ insert when available).
     if (hasError) setStatus(t("statusBridgeError"), "error");
     else if (codexOn && cowartOn && state.cowartInsertAvailable) setStatus(t("statusReady"), "ok");
-    else if (codexOn || cowartOn) setStatus(state.cowartInsertAvailable ? t("statusBridgePartial") : t("statusCowartInsertUnavailable"), "warn");
+    else if (codexOn || cowartOn || grokOn) setStatus(state.cowartInsertAvailable ? t("statusBridgePartial") : t("statusCowartInsertUnavailable"), "warn");
     else setStatus(t("statusBridgeOff"), "warn");
     if (els.bridgeStatusMeta) {
       const meta = [];
@@ -352,6 +378,8 @@ async function refreshBridgeStatus() {
           : t("statusWatchingCanvasCount", { count: monitoredCount }));
       }
       if (importedCount > 0) meta.push(t("statusImportedCount", { count: importedCount }));
+      if (grok?.lastWarning) meta.push(String(grok.lastWarning));
+      if (grok?.lastError) meta.push(String(grok.lastError));
       els.bridgeStatusMeta.textContent = meta.join(" · ");
     }
     updateCowartInsertControls();
@@ -376,7 +404,7 @@ function updateCodexHint() {
 }
 
 function updateViewTitle() {
-  const titles = { all: t("allAssets"), favorite: t("favorites"), recent: t("recent"), codex: t("filterCodex"), cowart: t("filterCowart") };
+  const titles = { all: t("allAssets"), favorite: t("favorites"), recent: t("recent"), codex: t("filterCodex"), cowart: t("filterCowart"), grok: t("filterGrok") };
   els.viewTitle.textContent = titles[state.filter.type] || state.filter.value || t("allAssets");
   els.assetCount.textContent = t("assetsCount", { count: state.pageTotal || state.assets.length });
   const filtered = state.filter.type !== "all" || Boolean(state.query);
@@ -520,7 +548,7 @@ function renderSidebarGroups() {
 
 function renderFilterPanel() {
   if (!els.sourceFilters) return;
-  const sources = [["all", t("filterAll"), state.groups.total], ["codex", t("filterCodex"), state.groups.codex], ["cowart", t("filterCowart"), state.groups.cowart]];
+  const sources = [["all", t("filterAll"), state.groups.total], ["codex", t("filterCodex"), state.groups.codex], ["cowart", t("filterCowart"), state.groups.cowart], ["grok", t("filterGrok"), state.groups.grok]];
   els.sourceFilters.innerHTML = sources.map(([type, label, count]) => `<button class="filter-pill${state.filter.type === type ? " active" : ""}" data-filter="${type}" type="button" aria-pressed="${state.filter.type === type}">${escapeHtml(label)} <span>${count}</span></button>`).join("");
   renderFilterList(els.groupList, state.groups.groups, "group", t("noGroups"));
   renderFilterList(els.categoryList, state.groups.categories, "category", t("noCategories"));
@@ -538,7 +566,11 @@ function layoutMasonry() { els.assetGrid?.querySelectorAll(".asset-card").forEac
 function setupMasonryLayout() {
   const grid = els.assetGrid; if (!grid) return;
   const schedule = () => requestAnimationFrame(layoutMasonry);
-  grid.querySelectorAll(".thumb").forEach((image) => image.addEventListener("load", schedule, { once: true })); schedule();
+  grid.querySelectorAll(".thumb").forEach((media) => {
+    media.addEventListener("load", schedule, { once: true });
+    media.addEventListener("loadeddata", schedule, { once: true });
+  });
+  schedule();
   masonryResizeObserver?.disconnect();
   if ("ResizeObserver" in window) { masonryResizeObserver = new ResizeObserver(schedule); masonryResizeObserver.observe(grid); }
 }
@@ -551,7 +583,8 @@ function renderGrid() {
   }
   const cards = state.assets.map((asset) => {
     const title = asset.theme || asset.asset || asset.id; const selected = asset.id === state.selectedId;
-    return `<article class="asset-card${selected ? " selected" : ""}" data-id="${escapeHtml(asset.id)}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(title)}"><img class="thumb" src="${asset.thumbnail_url || asset.image_url}" alt="${escapeHtml(title)}" loading="lazy" /></button><button class="card-quick-copy" type="button" data-copy="${escapeHtml(asset.prompt || "")}" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button></article>`;
+    const media = assetMediaPreviewMarkup(asset, "thumb");
+    return `<article class="asset-card${selected ? " selected" : ""}${isVideoAsset(asset) ? " is-video" : ""}" data-id="${escapeHtml(asset.id)}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(title)}">${media}</button><button class="card-quick-copy" type="button" data-copy="${escapeHtml(asset.prompt || "")}" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button></article>`;
   }).join("");
   els.assetGrid.innerHTML = `${cards}${state.nextCursor ? `<div class="asset-load-more"><button type="button" data-action="load-more">${t("loadMore")}</button></div>` : ""}`;
   setupMasonryLayout();
@@ -640,6 +673,10 @@ function openImagePreview(id, trigger) {
     || state.versionHistory?.versions?.find((item) => item.id === id)
     || (state.detailAsset?.id === id ? state.detailAsset : null);
   if (!asset || !els.imagePreviewModal || !els.imagePreviewImage || !els.imagePreviewTitle) return;
+  if (isVideoAsset(asset)) {
+    window.open(asset.image_url, "_blank", "noopener,noreferrer");
+    return;
+  }
   state.imagePreviewId = asset.id;
   state.previewReturnFocus = trigger instanceof HTMLElement ? trigger : document.activeElement;
   els.imagePreviewImage.style.removeProperty("width");
@@ -695,7 +732,10 @@ function renderDetail() {
   const metadata = [["skill", asset.skill], ["style", asset.style], ["ratio", asset.ratio], ["theme", asset.theme], ["group", asset.group], ["category", asset.category], ["rating", asset.rating ? `${asset.rating}/5` : ""]].filter(([, value]) => value !== undefined && value !== null && value !== "");
   const sourceRows = buildSourceRows(source).filter(([, value]) => value !== undefined && value !== null && value !== "");
   const cachedHistory = versionHistoryForAsset(asset);
-  els.detailPanel.innerHTML = `<div class="detail-studio-bar"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail">${t("close")}</button></div><div class="detail-image-wrap"><img class="detail-image" src="${asset.preview_url || asset.image_url}" alt="${escapeHtml(asset.theme || asset.id)}" title="${t("viewFullImage")}" /></div><div class="detail-head"><h3 id="detailTitle" tabindex="-1">${escapeHtml(asset.theme || asset.asset || asset.id)}</h3><p>${escapeHtml(asset.id)} · ${formatDate(asset.created_at)}</p></div><div class="detail-actions"><button class="action-btn primary" type="button" data-action="copy-prompt">${t("copyPrompt")}</button><button class="action-btn secondary" type="button" data-action="regenerate">${t("regenerate")}</button><button class="action-btn secondary" type="button" data-action="copy-path">${t("copyPath")}</button></div><section class="section"><div class="section-head"><h4>${t("prompt")}</h4></div><div class="prompt-box">${asset.prompt ? escapeHtml(asset.prompt) : `<span class="empty-copy">${t("notRecorded")}</span>`}</div></section><section class="section"><div class="section-head"><h4>${t("recipe")}</h4></div>${metadata.length ? `<div class="meta-table">${metadata.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val">${key === "rating" ? `<span class="rating-stars">${"★".repeat(rating)}${"☆".repeat(5 - rating)}</span>` : escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</section><details class="detail-disclosure" open><summary>${t("versionHistory")}</summary><div class="disclosure-content version-history-region" data-version-history aria-live="polite">${cachedHistory ? versionHistoryMarkup(cachedHistory, asset.id) : `<p class="version-history-status" role="status">${t("versionLoading")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("sourceInfo")}</summary><div class="disclosure-content">${sourceRows.length ? `<div class="meta-table">${sourceRows.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val source-value">${escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("editMetadata")}</summary><div class="disclosure-content detail-fields"><label class="field"><span>${t("prompt")}</span><textarea data-edit="prompt" rows="5">${escapeHtml(asset.prompt || "")}</textarea></label><div class="two"><label class="field"><span>${t("skill")}</span><input data-edit="skill" value="${escapeHtml(asset.skill || "")}" /></label><label class="field"><span>${t("style")}</span><input data-edit="style" value="${escapeHtml(asset.style || "")}" /></label></div><div class="two"><label class="field"><span>${t("ratio")}</span><input data-edit="ratio" value="${escapeHtml(asset.ratio || "")}" /></label><label class="field"><span>${t("theme")}</span><input data-edit="theme" value="${escapeHtml(asset.theme || "")}" /></label></div><div class="two"><label class="field"><span>${t("group")}</span><input data-edit="group" value="${escapeHtml(asset.group || "")}" list="groupSuggestionsEdit" /><datalist id="groupSuggestionsEdit">${groupOptions}</datalist></label><label class="field"><span>${t("category")}</span><select data-edit="category"><option value="">${t("none")}</option>${categoryOptions(asset.category)}</select></label></div><label class="field"><span>${t("rating")}</span><div class="rating-edit" data-edit="rating">${[1,2,3,4,5].map((number) => `<button type="button" data-val="${number}" class="${number <= rating ? "on" : ""}" aria-label="${number}/5">${number <= rating ? "★" : "☆"}</button>`).join("")}</div></label><label class="field"><span>${t("businessFields")}</span><textarea data-edit="business_fields" rows="3">${escapeHtml(JSON.stringify(asset.business_fields || {}, null, 2))}</textarea></label><label class="field version-change-field"><span>${t("versionChange")}</span><textarea data-version-change rows="2" placeholder="${escapeHtml(t("versionChangePlaceholder"))}"></textarea></label><div class="recipe-save-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-recipe">${t("saveRecipe")}</button><button class="recipe-save-btn primary" type="button" data-action="save-version">${t("saveAsVersion")}</button></div></div></details><details class="detail-disclosure"><summary>${t("imageLocation")}</summary><div class="disclosure-content"><div class="path-box">${escapeHtml(asset.image_path)}</div></div></details>`;
+  const openMediaAction = isVideoAsset(asset)
+    ? `<button class="action-btn secondary" type="button" data-action="open-original-media">${t("openOriginalMedia")}</button>`
+    : "";
+  els.detailPanel.innerHTML = `<div class="detail-studio-bar"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail">${t("close")}</button></div><div class="detail-image-wrap">${assetMediaPreviewMarkup(asset, "detail")}</div><div class="detail-head"><h3 id="detailTitle" tabindex="-1">${escapeHtml(asset.theme || asset.asset || asset.id)}</h3><p>${escapeHtml(asset.id)} · ${formatDate(asset.created_at)}</p></div><div class="detail-actions"><button class="action-btn primary" type="button" data-action="copy-prompt">${t("copyPrompt")}</button><button class="action-btn secondary" type="button" data-action="regenerate">${t("regenerate")}</button><button class="action-btn secondary" type="button" data-action="copy-path">${t("copyPath")}</button>${openMediaAction}</div><section class="section"><div class="section-head"><h4>${t("prompt")}</h4></div><div class="prompt-box">${asset.prompt ? escapeHtml(asset.prompt) : `<span class="empty-copy">${t("notRecorded")}</span>`}</div></section><section class="section"><div class="section-head"><h4>${t("recipe")}</h4></div>${metadata.length ? `<div class="meta-table">${metadata.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val">${key === "rating" ? `<span class="rating-stars">${"★".repeat(rating)}${"☆".repeat(5 - rating)}</span>` : escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</section><details class="detail-disclosure" open><summary>${t("versionHistory")}</summary><div class="disclosure-content version-history-region" data-version-history aria-live="polite">${cachedHistory ? versionHistoryMarkup(cachedHistory, asset.id) : `<p class="version-history-status" role="status">${t("versionLoading")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("sourceInfo")}</summary><div class="disclosure-content">${sourceRows.length ? `<div class="meta-table">${sourceRows.map(([key, value]) => `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val source-value">${escapeHtml(value)}</span></div>`).join("")}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("editMetadata")}</summary><div class="disclosure-content detail-fields"><label class="field"><span>${t("prompt")}</span><textarea data-edit="prompt" rows="5">${escapeHtml(asset.prompt || "")}</textarea></label><div class="two"><label class="field"><span>${t("skill")}</span><input data-edit="skill" value="${escapeHtml(asset.skill || "")}" /></label><label class="field"><span>${t("style")}</span><input data-edit="style" value="${escapeHtml(asset.style || "")}" /></label></div><div class="two"><label class="field"><span>${t("ratio")}</span><input data-edit="ratio" value="${escapeHtml(asset.ratio || "")}" /></label><label class="field"><span>${t("theme")}</span><input data-edit="theme" value="${escapeHtml(asset.theme || "")}" /></label></div><div class="two"><label class="field"><span>${t("group")}</span><input data-edit="group" value="${escapeHtml(asset.group || "")}" list="groupSuggestionsEdit" /><datalist id="groupSuggestionsEdit">${groupOptions}</datalist></label><label class="field"><span>${t("category")}</span><select data-edit="category"><option value="">${t("none")}</option>${categoryOptions(asset.category)}</select></label></div><label class="field"><span>${t("rating")}</span><div class="rating-edit" data-edit="rating">${[1,2,3,4,5].map((number) => `<button type="button" data-val="${number}" class="${number <= rating ? "on" : ""}" aria-label="${number}/5">${number <= rating ? "★" : "☆"}</button>`).join("")}</div></label><label class="field"><span>${t("businessFields")}</span><textarea data-edit="business_fields" rows="3">${escapeHtml(JSON.stringify(asset.business_fields || {}, null, 2))}</textarea></label><label class="field version-change-field"><span>${t("versionChange")}</span><textarea data-version-change rows="2" placeholder="${escapeHtml(t("versionChangePlaceholder"))}"></textarea></label><div class="recipe-save-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-recipe">${t("saveRecipe")}</button><button class="recipe-save-btn primary" type="button" data-action="save-version">${t("saveAsVersion")}</button></div></div></details><details class="detail-disclosure"><summary>${t("imageLocation")}</summary><div class="disclosure-content"><div class="path-box">${escapeHtml(asset.image_path)}</div></div></details>`;
   els.detailPanel.querySelector(".detail-actions")?.prepend(createCowartInsertControl(asset));
   updateCowartInsertControls();
   bindDetailEvents(asset, renderId);
@@ -762,9 +802,48 @@ function categoryOptions(selected) { return ["product", "concept", "texture", "r
 function buildSourceRows(source) {
   if (source.type === "codex-generated") return [["sourceLabel", sourceName(source)], ["taskId", source.codex_task_id], ["model", source.model], ["generationTool", source.generation_tool], ["originalPath", source.path]];
   if (source.type === "cowart-generated") return [["sourceLabel", sourceName(source)], ["canvasObject", source.cowart_shape_id], ["pageAsset", source.cowart_asset_id], ["canvasNote", source.cowart_annotation_source_shape_id ? t("canvasEdited") : t("canvasImage")], ["originalPath", source.path]];
+  if (source.type === "grok-generated") {
+    const mediaLabel = source.media_kind === "video" ? t("mediaKindVideo") : t("mediaKindImage");
+    return [
+      ["sourceLabel", sourceName(source)],
+      ["mediaKind", mediaLabel],
+      ["sessionId", source.grok_session_id],
+      ["model", source.model],
+      ["generationTool", source.generation_tool],
+      ["originalPath", source.path || source.grok_media_path],
+    ];
+  }
   return [["sourceLabel", sourceName(source)], ["originalPath", source.path], ["taskId", source.codex_task_id], ["generationTool", source.generation_tool], ["model", source.model]];
 }
-function sourceName(source = {}) { return source.type === "codex-generated" ? t("sourceCodex") : source.type === "cowart-generated" ? t("sourceCowart") : t("sourceManual"); }
+function sourceName(source = {}) {
+  if (source.type === "codex-generated") return t("sourceCodex");
+  if (source.type === "cowart-generated") return t("sourceCowart");
+  if (source.type === "grok-generated") return t("sourceGrok");
+  return t("sourceManual");
+}
+
+function isVideoAsset(asset = {}) {
+  const kind = asset.source?.media_kind || asset.business_fields?.media_kind;
+  if (kind === "video") return true;
+  if (kind === "image") return false;
+  const path = String(asset.image_path || asset.asset || asset.image_url || "");
+  return /\.(mp4|webm|mov|m4v)(?:$|\?)/i.test(path);
+}
+
+function assetMediaPreviewMarkup(asset, mode = "thumb") {
+  const title = asset.theme || asset.asset || asset.id;
+  const url = mode === "detail" ? (asset.preview_url || asset.image_url) : (asset.thumbnail_url || asset.image_url);
+  if (isVideoAsset(asset)) {
+    if (mode === "detail") {
+      return `<div class="detail-video-stack"><video class="detail-image detail-video" src="${escapeHtml(asset.image_url)}" controls playsinline preload="metadata" title="${escapeHtml(title)}">${escapeHtml(t("videoFallback"))}</video><p class="video-fallback-note">${escapeHtml(t("videoFallback"))} <a class="video-open-link" href="${escapeHtml(asset.image_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("openOriginalMedia"))}</a></p></div>`;
+    }
+    return `<span class="thumb video-thumb" aria-hidden="true"><video class="thumb-video" src="${escapeHtml(asset.image_url)}" muted playsinline preload="metadata"></video><span class="video-badge">▶</span></span>`;
+  }
+  if (mode === "detail") {
+    return `<img class="detail-image" src="${escapeHtml(url)}" alt="${escapeHtml(title)}" title="${escapeHtml(t("viewFullImage"))}" />`;
+  }
+  return `<img class="thumb" src="${escapeHtml(url)}" alt="${escapeHtml(title)}" loading="lazy" />`;
+}
 
 function bindDetailEvents(asset, renderId) {
   const panel = els.detailPanel;
@@ -773,7 +852,12 @@ function bindDetailEvents(asset, renderId) {
     field.addEventListener("change", () => { state.detailDirty = true; });
   });
   panel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => setDetailOpen(false));
-  panel.querySelector(".detail-image")?.addEventListener("dblclick", (event) => openImagePreview(asset.id, event.currentTarget));
+  if (!isVideoAsset(asset)) {
+    panel.querySelector(".detail-image")?.addEventListener("dblclick", (event) => openImagePreview(asset.id, event.currentTarget));
+  }
+  panel.querySelector('[data-action="open-original-media"]')?.addEventListener("click", () => {
+    window.open(asset.image_url, "_blank", "noopener,noreferrer");
+  });
   panel.querySelector("[data-cowart-insert-target]")?.addEventListener("change", (event) => {
     state.cowartInsertTargetId = event.target.value;
     safeStorageSet("mosa.cowart-insert-target", state.cowartInsertTargetId);

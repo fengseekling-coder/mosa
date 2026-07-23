@@ -9,6 +9,7 @@ import { createCowartBridgeManager } from "./lib/cowart-bridge-manager.mjs";
 import { createCowartCanvasDiscovery } from "./lib/cowart-canvas-discovery.mjs";
 import { createCowartProjectRegistry } from "./lib/cowart-project-registry.mjs";
 import { createCowartMcpClient } from "./lib/cowart-mcp-client.mjs";
+import { createGrokMediaBridge } from "./lib/grok-media-bridge.mjs";
 import { chooseCowartInsertTarget, normalizeCowartInsertResult, resolveCowartInsertCanvas, verifyCowartInsert } from "./lib/cowart-insert.mjs";
 import { isAllowedLocalOrigin, resolveAllowedFolderPath } from "./lib/server-security.mjs";
 import { createDerivativeWorker } from "./lib/derivative-worker.mjs";
@@ -19,11 +20,13 @@ const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || join(managerDir, "..
 const port = Number(process.env.MOSA_PORT || 43517);
 const libraryDir = resolve(process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"));
 const codexSessionsDir = resolve(process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions"));
+const grokSessionsDir = resolve(process.env.GROK_SESSIONS_DIR || join(homedir(), ".grok", "sessions"));
 const runtimeLock = await acquireMosaRuntimeLock({ libraryDir });
 let store;
 let cowartProjectRegistry;
 let cowartBridge;
 let codexBridge;
+let grokBridge;
 let cowartCanvasDiscovery;
 let cowartMcpClient;
 let derivativeWorker;
@@ -44,6 +47,10 @@ try {
     imagesDir: store.codexImagesDir,
     sessionsDir: codexSessionsDir,
   });
+  grokBridge = createGrokMediaBridge({
+    store,
+    sessionsDir: grokSessionsDir,
+  });
   cowartCanvasDiscovery = createCowartCanvasDiscovery({
     sessionsDir: codexSessionsDir,
     managerDir,
@@ -58,6 +65,7 @@ try {
   await cowartBridge.start();
   await cowartCanvasDiscovery.start();
   await codexBridge.start();
+  await grokBridge.start();
   derivativeWorker.start();
 } catch (error) {
   await stopRuntime();
@@ -111,6 +119,7 @@ let shutdownPromise = null;
 
 function stopRuntime() {
   derivativeWorker?.stop?.();
+  grokBridge?.stop?.();
   codexBridge?.stop?.();
   cowartCanvasDiscovery?.stop?.();
   cowartBridge?.stop?.();
@@ -160,9 +169,15 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/grok-bridge") {
+    sendJson(res, 200, { bridge: grokBridge.status() });
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/bridges") {
     sendJson(res, 200, {
       codex: codexBridge.status(),
+      grok: grokBridge.status(),
       cowart: cowartBridge.status(),
       cowartDiscovery: cowartCanvasDiscovery.status(),
       cowartInsert: cowartMcpClient.status(),
@@ -215,6 +230,7 @@ async function handleApi(req, res, url) {
     sendJson(res, 200, {
       path: store.projectDir(projectId),
       codexGeneratedImagesDir: store.codexImagesDir,
+      grokSessionsDir,
       storage: store.storageKind || "json",
       libraryDir: store.libraryDir || null,
     });

@@ -53,6 +53,7 @@ test("returns 404 for a missing library image without stopping the server", asyn
       MOSA_LIBRARY_DIR: join(root, "library"),
       CODEX_GENERATED_IMAGES_DIR: join(root, "generated-images"),
       CODEX_SESSIONS_DIR: sessionsDir,
+      GROK_SESSIONS_DIR: join(root, "grok-sessions"),
       COWART_MOSA_CANVAS_DIR: join(root, "cowart-data"),
       MOSA_COWART_REGISTRY_PATH: join(root, "state", "cowart-projects.json"),
     },
@@ -77,6 +78,9 @@ test("returns 404 for a missing library image without stopping the server", asyn
     headers: { origin: `http://127.0.0.1:${port}` },
   });
   assert.equal(bridgeStatus.status, 200);
+  const bridges = await bridgeStatus.json();
+  assert.equal(bridges.grok?.enabled, true);
+  assert.equal(typeof bridges.grok?.sessionsDir, "string");
   assert.equal(server.exitCode, null);
 
   const automaticallyDetected = await fetch(`http://127.0.0.1:${port}/api/cowart-canvases`);
@@ -132,6 +136,7 @@ test("SQLite HTTP surface paginates assets and serves durable derivatives", asyn
       MOSA_LIBRARY_DIR: libraryDir,
       CODEX_GENERATED_IMAGES_DIR: join(root, "generated-images"),
       CODEX_SESSIONS_DIR: join(root, "sessions"),
+      GROK_SESSIONS_DIR: join(root, "grok-sessions"),
       COWART_MOSA_CANVAS_DIR: join(root, "cowart-data"),
       MOSA_COWART_REGISTRY_PATH: join(root, "state", "cowart-projects.json"),
     },
