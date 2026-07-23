@@ -484,33 +484,43 @@ async function handleStatic(res, pathname) {
   }
 }
 
+class HttpError extends Error {
+  constructor(statusCode, code, message) {
+    super(message);
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
 function readJson(req) {
   return new Promise((resolveBody, rejectBody) => {
-    let body = "";
-    const MAX_SIZE = 5 * 1024 * 1024; // 5MB
-    req.setEncoding("utf8");
+    const chunks = [];
+    let totalBytes = 0;
+    let rejected = false;
+    const MAX_SIZE = 5 * 1024 * 1024; // 5MiB
     req.on("data", (chunk) => {
-      // 在累加前检查单个 chunk 大小，防止超大 chunk 绕过限制
-      if (chunk.length > MAX_SIZE) {
-        rejectBody(new Error("Request body too large."));
-        req.destroy();
+      if (rejected) return;
+      totalBytes += Buffer.byteLength(chunk, "utf8");
+      if (Buffer.byteLength(chunk, "utf8") > MAX_SIZE || totalBytes > MAX_SIZE) {
+        rejected = true;
+        rejectBody(new HttpError(413, "REQUEST_BODY_TOO_LARGE", "Request body too large."));
+        req.resume();
         return;
       }
-      if (body.length + chunk.length > MAX_SIZE) {
-        rejectBody(new Error("Request body too large."));
-        req.destroy();
-        return;
-      }
-      body += chunk;
+      chunks.push(Buffer.from(chunk));
     });
     req.on("end", () => {
+      if (rejected) return;
       try {
+        const body = Buffer.concat(chunks).toString("utf8");
         resolveBody(body ? JSON.parse(body) : {});
-      } catch (error) {
-        rejectBody(error);
+      } catch {
+        rejectBody(new HttpError(400, "INVALID_JSON_BODY", "Invalid JSON in request body."));
       }
     });
-    req.on("error", rejectBody);
+    req.on("error", (error) => {
+      if (!rejected) rejectBody(error);
+    });
   });
 }
 
