@@ -215,6 +215,255 @@ test("SQLite HTTP surface paginates assets and serves durable derivatives", asyn
   assert.equal(archived.status, 200);
 });
 
+test("invalid cursor returns 400 with INVALID_ASSET_CURSOR code", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-server-cursor-"));
+  const libraryDir = join(root, "library");
+  const imagePath = join(root, "generated-images", "cursor-test.png");
+  await mkdir(join(root, "generated-images"), { recursive: true });
+  await sharp({ create: { width: 4, height: 4, channels: 4, background: "#1a2b3c" } }).png().toFile(imagePath);
+  const seeded = createSqliteAssetStore({ projectRoot: root, managerDir: process.cwd(), libraryDir });
+  await seeded.createAsset({ assetId: "cursor-fixture", imagePath, prompt: "cursor test" });
+  await seeded.setMigrationState("completed", { test: true });
+  seeded.close();
+
+  const server = spawn(process.execPath, ["server.mjs"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      MOSA_PORT: "0",
+      MOSA_PROJECT_DIR: root,
+      MOSA_LIBRARY_DIR: libraryDir,
+      CODEX_GENERATED_IMAGES_DIR: join(root, "generated-images"),
+      CODEX_SESSIONS_DIR: join(root, "sessions"),
+      COWART_MOSA_CANVAS_DIR: join(root, "cowart-data"),
+      MOSA_COWART_REGISTRY_PATH: join(root, "state", "cowart-projects.json"),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(async () => {
+    if (server.exitCode === null) {
+      const exited = once(server, "exit");
+      server.kill("SIGTERM");
+      await exited;
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  const port = await waitForServerPort(server);
+  await waitForServer(port, server);
+
+  const invalidBase64 = Buffer.from('{"wrong":"field"}').toString("base64url");
+  const invalidCursorResponse = await fetch(`http://127.0.0.1:${port}/api/assets?cursor=${invalidBase64}`);
+  assert.equal(invalidCursorResponse.status, 400);
+  const invalidCursorBody = await invalidCursorResponse.json();
+  assert.equal(invalidCursorBody.code, "INVALID_ASSET_CURSOR");
+  assert.equal(typeof invalidCursorBody.error, "string");
+
+  const garbageCursor = await fetch(`http://127.0.0.1:${port}/api/assets?cursor=!!!not-valid!!!`);
+  assert.equal(garbageCursor.status, 400);
+  const garbageBody = await garbageCursor.json();
+  assert.equal(garbageBody.code, "INVALID_ASSET_CURSOR");
+
+  const validCursorResponse = await fetch(`http://127.0.0.1:${port}/api/assets?limit=1`);
+  assert.equal(validCursorResponse.status, 200);
+  const validPage = await validCursorResponse.json();
+  assert.ok(validPage.page);
+
+  assert.equal(server.exitCode, null);
+});
+
+test("request body errors return correct HTTP status codes", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-server-body-"));
+  const libraryDir = join(root, "library");
+  const imagePath = join(root, "generated-images", "body-test.png");
+  await mkdir(join(root, "generated-images"), { recursive: true });
+  await sharp({ create: { width: 4, height: 4, channels: 4, background: "#4d5e6f" } }).png().toFile(imagePath);
+  const seeded = createSqliteAssetStore({ projectRoot: root, managerDir: process.cwd(), libraryDir });
+  await seeded.setMigrationState("completed", { test: true });
+  seeded.close();
+
+  const server = spawn(process.execPath, ["server.mjs"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      MOSA_PORT: "0",
+      MOSA_PROJECT_DIR: root,
+      MOSA_LIBRARY_DIR: libraryDir,
+      CODEX_GENERATED_IMAGES_DIR: join(root, "generated-images"),
+      CODEX_SESSIONS_DIR: join(root, "sessions"),
+      COWART_MOSA_CANVAS_DIR: join(root, "cowart-data"),
+      MOSA_COWART_REGISTRY_PATH: join(root, "state", "cowart-projects.json"),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(async () => {
+    if (server.exitCode === null) {
+      const exited = once(server, "exit");
+      server.kill("SIGTERM");
+      await exited;
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  const port = await waitForServerPort(server);
+  await waitForServer(port, server);
+
+  const invalidJsonResponse = await fetch(`http://127.0.0.1:${port}/api/assets/create`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{not valid json!!!",
+  });
+  assert.equal(invalidJsonResponse.status, 400);
+  const invalidJsonBody = await invalidJsonResponse.json();
+  assert.equal(invalidJsonBody.code, "INVALID_JSON_BODY");
+  assert.equal(typeof invalidJsonBody.error, "string");
+
+  const hugePayload = "x".repeat(6 * 1024 * 1024);
+  const tooLargeResponse = await fetch(`http://127.0.0.1:${port}/api/assets/create`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: hugePayload,
+  });
+  assert.equal(tooLargeResponse.status, 413);
+  const tooLargeBody = await tooLargeResponse.json();
+  assert.equal(tooLargeBody.code, "REQUEST_BODY_TOO_LARGE");
+  assert.equal(typeof tooLargeBody.error, "string");
+
+  const normalResponse = await fetch(`http://127.0.0.1:${port}/api/assets?project=default&limit=10`);
+  assert.equal(normalResponse.status, 200);
+
+  assert.equal(server.exitCode, null);
+});
+
+test("JSON backend invalid cursor returns 400 with INVALID_ASSET_CURSOR", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-json-cursor-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { createAssetStore } = await import("../lib/asset-store.mjs");
+  const store = createAssetStore({ projectRoot: root, managerDir: join(root, "mosa"), libraryDir: join(root, "library") });
+  assert.equal(store.storageKind, "json");
+  await store.ensureProject("default");
+
+  const server = spawn(process.execPath, ["server.mjs"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      MOSA_PORT: "0",
+      MOSA_PROJECT_DIR: root,
+      MOSA_LIBRARY_DIR: join(root, "library"),
+      CODEX_GENERATED_IMAGES_DIR: join(root, "generated-images"),
+      CODEX_SESSIONS_DIR: join(root, "sessions"),
+      COWART_MOSA_CANVAS_DIR: join(root, "cowart-data"),
+      MOSA_COWART_REGISTRY_PATH: join(root, "state", "cowart-projects.json"),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(async () => {
+    if (server.exitCode === null) {
+      server.kill("SIGTERM");
+      await once(server, "exit");
+    }
+  });
+  const port = await waitForServerPort(server);
+  await waitForServer(port, server);
+
+  const badCursor = Buffer.from('{"bad":true}').toString("base64url");
+  const res = await fetch(`http://127.0.0.1:${port}/api/assets?cursor=${badCursor}`);
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.equal(body.code, "INVALID_ASSET_CURSOR");
+
+  const garbage = await fetch(`http://127.0.0.1:${port}/api/assets?cursor=!!!nope!!!`);
+  assert.equal(garbage.status, 400);
+  assert.equal((await garbage.json()).code, "INVALID_ASSET_CURSOR");
+});
+
+test("cross-origin request returns 403 while same-origin succeeds", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-cors-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const server = spawn(process.execPath, ["server.mjs"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      MOSA_PORT: "0",
+      MOSA_PROJECT_DIR: root,
+      MOSA_LIBRARY_DIR: join(root, "library"),
+      CODEX_GENERATED_IMAGES_DIR: join(root, "generated-images"),
+      CODEX_SESSIONS_DIR: join(root, "sessions"),
+      COWART_MOSA_CANVAS_DIR: join(root, "cowart-data"),
+      MOSA_COWART_REGISTRY_PATH: join(root, "state", "cowart-projects.json"),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(async () => {
+    if (server.exitCode === null) {
+      server.kill("SIGTERM");
+      await once(server, "exit");
+    }
+  });
+  const port = await waitForServerPort(server);
+  await waitForServer(port, server);
+
+  const crossOrigin = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+    headers: { origin: "https://example.com" },
+  });
+  assert.equal(crossOrigin.status, 403);
+  assert.deepEqual(await crossOrigin.json(), { error: "Cross-origin requests are not allowed." });
+
+  const sameOrigin = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+    headers: { origin: `http://127.0.0.1:${port}` },
+  });
+  assert.equal(sameOrigin.status, 200);
+  const projects = await sameOrigin.json();
+  assert.ok(Array.isArray(projects.projects));
+});
+
+test("multi-byte UTF-8 body exceeding 5 MiB returns 413", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-multibyte-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const server = spawn(process.execPath, ["server.mjs"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      MOSA_PORT: "0",
+      MOSA_PROJECT_DIR: root,
+      MOSA_LIBRARY_DIR: join(root, "library"),
+      CODEX_GENERATED_IMAGES_DIR: join(root, "generated-images"),
+      CODEX_SESSIONS_DIR: join(root, "sessions"),
+      COWART_MOSA_CANVAS_DIR: join(root, "cowart-data"),
+      MOSA_COWART_REGISTRY_PATH: join(root, "state", "cowart-projects.json"),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(async () => {
+    if (server.exitCode === null) {
+      server.kill("SIGTERM");
+      await once(server, "exit");
+    }
+  });
+  const port = await waitForServerPort(server);
+  await waitForServer(port, server);
+
+  // Each Chinese character is 3 bytes in UTF-8 but 1 JS string length unit.
+  // 2 MiB characters → 6 MiB bytes, well above the 5 MiB byte limit.
+  const charCount = 2 * 1024 * 1024;
+  const jsonBody = JSON.stringify({ prompt: "\u4f60\u597d".repeat(charCount) });
+  const jsLen = jsonBody.length;
+  const byteLen = Buffer.byteLength(jsonBody, "utf8");
+  assert.ok(jsLen < 5 * 1024 * 1024, `JS string length ${jsLen} should be under 5 MiB`);
+  assert.ok(byteLen > 5 * 1024 * 1024, `UTF-8 byte length ${byteLen} should exceed 5 MiB`);
+
+  const res = await fetch(`http://127.0.0.1:${port}/api/assets/create`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: jsonBody,
+  });
+  assert.equal(res.status, 413);
+  const body = await res.json();
+  assert.equal(body.code, "REQUEST_BODY_TOO_LARGE");
+  assert.equal(typeof body.error, "string");
+
+  const stillWorks = await fetch(`http://127.0.0.1:${port}/api/assets?project=default&limit=10`);
+  assert.equal(stillWorks.status, 200);
+});
+
 async function waitForServerPort(server) {
   server.stdout.setEncoding("utf8");
   server.stderr.setEncoding("utf8");
