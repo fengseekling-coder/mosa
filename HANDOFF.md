@@ -1,6 +1,6 @@
 # MOSA 2.0 Core 交接文档
 
-运行态快照：2026-07-22
+运行态快照：2026-07-23
 
 文档整理：2026-07-23
 
@@ -9,21 +9,21 @@
 ## 交接结论
 
 - 配方版本树已通过 PR [#7](https://github.com/fengseekling-coder/mosa/pull/7) 合并至 `main`，合并提交为 `db2c090`；PR head 为 `25b9aee`。
-- JSON/SQLite、REST/MCP、Web 时间线、迁移和 Cowart 外部画布 `pages` 导入边界均已部署到 `43519`。
-- 最终验证：`npm test` 为 64 passed、1 skipped；50,000 资产性能测试、lint、源码检查、依赖审计和 `git diff --check` 均通过。生产 SQLite 验证为 284 个资产、0 个失败。
+- JSON/SQLite、REST/MCP、Web 时间线、迁移、Cowart 外部画布 `pages` 导入，以及 Grok Build CLI 媒体自动归档均已部署到 `43519`。
+- Grok 发布快照 `e7b03db` 的预部署验证：`npm test` 为 81 passed、1 skipped；lint、源码检查、依赖审计和 `git diff --check` 均通过。生产 SQLite 只读校验为 `integrity_check=ok`、schema v2、迁移完成、306 个资产、3 个 Grok 资产。
 - 当前产品是本地 Web UI，不是 Tauri 或可安装的 macOS 桌面应用；本次没有引入桌面壳、`.app` 或 `.dmg`。
-- 后续只在获准的维护窗口内操作 `43519` 或真实素材库；`43517` 的旧 JSON 服务必须继续保持不变。
-- **未部署（本工作树）**：Grok Build CLI 媒体自动归档（`lib/grok-media-bridge.mjs` + `GET /api/bridges.grok`）。这是本地文件系统集成，不调用 Grok API；上线生产 `43519` 前需要单独批准的维护窗口，并确认 `GROK_SESSIONS_DIR` 边界。
+- 后续只在获准的维护窗口内操作 `43519` 或真实素材库。`43517` 的旧 JSON 服务不属于本 job 的管理范围；2026-07-23 验收时没有对应 user launchctl job 或监听器，本次没有对它执行启动、停止或配置变更。
+- Grok Build CLI 媒体自动归档已部署：`lib/grok-media-bridge.mjs` 通过 `GET /api/grok-bridge` 与 `GET /api/bridges` 的 `grok` 字段暴露状态，仅读取 `GROK_SESSIONS_DIR=/Users/azhuilab/.grok/sessions`。这是本地文件系统集成，不调用 Grok API。
 
 ## 当前状态
 
 - 工作目录：`/Users/azhuilab/codex_aigc/mosa`
 - Phase 0-2 已通过 PR #3 合并至 `main`（`b09b657`）；迁移交接记录通过 PR #4 合并（`6d71a6f`），Cowart 自动发现通过 PR #5 合并（`38be7f4`）。
-- 配方版本树 PR #7 已合并，`43519` 正运行其 `25b9aee` 代码并使用已迁移的 SQLite 素材库；当前用户级 launchd job 为 `com.azhuilab.mosa.43519`。
+- 配方版本树 PR #7 已合并。`43519` 当前运行本地提交 `e7b03db` 的干净发布快照 `/Users/azhuilab/codex_aigc/mosa-releases/e7b03db`，并使用已迁移的 SQLite 素材库；当前用户级 launchctl submitted job 为 `com.azhuilab.mosa.43519`。该提交尚未推送到远程。
 - 真实素材库 `/Users/azhuilab/MOSA Library` 已于 2026-07-22 完成 SQLite 迁移：导入 270 个旧资产与 1 个空分组，并在迁移期间校验了全部 270 个原图哈希。
 - 旧 JSON 与 Prompt 备份位于 `/Users/azhuilab/MOSA Library/legacy-json-backup/2026-07-22T12-26-53-909Z`；不要删除 JSON 源目录、该备份或 `mosa.db`，也不要手工修改迁移状态。
-- `mosa verify` 在迁移后通过（270 个资产）；SQLite 服务启动后 Codex 归档桥接继续正常归档。2026-07-22 部署 PR #7 后最终验收通过（284 个资产、0 个失败）。资产数是动态快照，应以 `ok: true` 与空 `failures` 判断完整性。
-- `mosa thumbnails rebuild` 已完成 270 个派生图任务。SQLite 服务目前运行在 `http://127.0.0.1:43519`，已加载 PR #7：`cowartDiscovery` 启用，识别 2 个候选项目并监听 MOSA 专用画布与 2 个项目画布；`shen` 画布此前的外部路径导入错误已清除并归档 1 个合规资产。受监管的旧 JSON 服务继续占用 `43517`，部署期间未被操作；不要为释放端口而终止它。
+- `mosa verify` 在迁移后通过（270 个资产）；SQLite 服务启动后 Codex 归档桥接继续正常归档。2026-07-22 部署 PR #7 后最终验收通过（284 个资产、0 个失败）。2026-07-23 Grok 发布后，通过只读 SQLite 检查确认 `integrity_check=ok`、schema v2、迁移完成、306 个资产与 3 个 Grok 资产。资产数是动态快照，应以完整性检查和空 `failures` 判断完整性。
+- `mosa thumbnails rebuild` 已完成 270 个派生图任务。SQLite 服务目前运行在 `http://127.0.0.1:43519`，`cowartDiscovery` 启用，识别 2 个候选项目并监听 MOSA 专用画布与 2 个项目画布；`shen` 画布此前的外部路径导入错误已清除并归档 1 个合规资产。Grok bridge 已启用、正在监听并已导入 3 个会话媒体；Cowart 插入仍可用。
 
 ## 本次实现范围
 
@@ -172,18 +172,39 @@ curl -sS http://127.0.0.1:43519/api/bridges
 # cowart: monitoredCount=3; registeredCount=2; lastError=null
 npm exec mosa -- verify --library /Users/azhuilab/MOSA\ Library
 # assets: 284; failures: 0; ok: true; migration_state: completed
+
+# Grok Build CLI 媒体桥生产发布（2026-07-23，本地提交 e7b03db）
+# 在干净发布快照 /Users/azhuilab/codex_aigc/mosa-releases/e7b03db 中执行
+npm test
+# 81 passed, 1 skipped
+npm run lint
+npm run check
+npm run audit
+git diff --check e7b03db^ e7b03db
+# clean; syntax checked 40 JavaScript files; 0 vulnerabilities
+curl -sS http://127.0.0.1:43519/api/grok-bridge
+# bridge.enabled=true; watching=true; GROK_SESSIONS_DIR=/Users/azhuilab/.grok/sessions
+curl -sS 'http://127.0.0.1:43519/api/assets?project=default&source=grok-generated&limit=10'
+# page.total=3; generation-tool-prompt; image_gen; grok-4.5-build
+sqlite3 'file:/Users/azhuilab/MOSA%20Library/mosa.db?mode=ro' \
+  'PRAGMA integrity_check; SELECT value FROM library_meta WHERE key IN ("migration_state", "schema_version") ORDER BY key; SELECT COUNT(*) FROM assets; SELECT COUNT(*) FROM assets WHERE source_type = "grok-generated";'
+# ok; completed; 2; 306; 3
 ```
 
 ## 后续维护
 
-1. `43519` 已加载 PR #7 的配方版本树。以后仅在获准的维护窗口内重启，也不要终止 `43517` 的旧 JSON 服务。新进程必须使用已迁移素材库：
+1. `43519` 当前运行 `e7b03db` 发布快照，包含 PR #7 配方版本树与 Grok 媒体桥。以后仅在获准的维护窗口内重启。新进程必须使用已迁移素材库、明确的 `GROK_SESSIONS_DIR`，并执行干净的已提交快照；不要从脏工作树直接启动生产：
 
 ```bash
-MOSA_LIBRARY_DIR='/Users/azhuilab/MOSA Library' MOSA_PORT=43519 npm start
+MOSA_LIBRARY_DIR='/Users/azhuilab/MOSA Library' \
+MOSA_PORT=43519 \
+GROK_SESSIONS_DIR='/Users/azhuilab/.grok/sessions' \
+/Users/azhuilab/.hermes/node/bin/node \
+  /Users/azhuilab/codex_aigc/mosa-releases/<commit>/server.mjs
 ```
 
 2. `GET /api/bridges` 应持续返回启用的 `cowartDiscovery`；仅在本地 Codex 会话出现真实 Cowart 启动记录且目标具有画布标记时，才会增加项目画布监听。
-3. 部署 Grok 媒体桥接后，`GET /api/bridges` 还应包含 `grok.enabled=true` 与 `grok.sessionsDir`；默认根为 `~/.grok/sessions`，可用 `GROK_SESSIONS_DIR` 覆盖。不要扫描该根之外的路径。
+3. `GET /api/bridges` 应包含 `grok.enabled=true` 与 `grok.sessionsDir`；当前根为 `~/.grok/sessions`，可用 `GROK_SESSIONS_DIR` 覆盖。不要扫描该根之外的路径；媒体会在服务运行时自动入库。
 4. 例行维护可运行 `npm exec mosa -- verify --library /Users/azhuilab/MOSA\ Library`；仅在需补全或修复派生图时运行 `npm exec mosa -- thumbnails rebuild --library /Users/azhuilab/MOSA\ Library`。
 5. 迁移、校验或派生图任务失败时，不要删除 JSON 目录、备份或 SQLite 数据库，也不要手工激活/回退迁移状态；先保留现场并依据命令输出中的具体路径修复。
 6. 视频资产没有 WebP 缩略图是预期行为；不要引入 ffmpeg 或把视频送入 sharp。
