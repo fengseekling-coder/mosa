@@ -1,0 +1,21 @@
+node_modules/
+.DS_Store
+.env
+.env.*
+!.env.example
+npm-debug.log*
+*.bak-*
+
+# User libraries and private project material.
+/assets/
+/production/
+/HANDOFF.md
+/design-qa.md
+/docs/screenshots/
+
+/canvas/
+/outputs/
+
+# Runtime library entries remain local.
+/mosa.db*
+/legacy-json-backup/

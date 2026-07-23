@@ -1,0 +1,287 @@
+import assert from "node:assert/strict";
+import { access, copyFile, mkdtemp, mkdir, readFile, rm, stat, symlink, unlink, utimes, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { createAssetStore } from "../lib/asset-store.mjs";
+
+test("imports a Codex default generated image and preserves its provenance", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const codexImagesDir = join(root, ".codex", "generated_images");
+  const taskId = "019f-codex-task";
+  const sourcePath = join(codexImagesDir, taskId, "generated.png");
+  await mkdir(join(codexImagesDir, taskId), { recursive: true });
+  await writeFile(sourcePath, "fixture image", "utf8");
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const store = createAssetStore({ projectRoot, managerDir, codexImagesDir });
+  const asset = await store.createAsset({
+    projectId: "default",
+    assetId: "codex-fixture",
+    imagePath: sourcePath,
+    prompt: "A verified Codex test image",
+    source: { generation_tool: "imagegen", model: "gpt-5.6" }
+  });
+
+  assert.equal(asset.source.type, "codex-generated");
+  assert.equal(asset.source.path, sourcePath);
+  assert.equal(asset.source.codex_generated_images_root, codexImagesDir);
+  assert.equal(asset.source.codex_task_id, taskId);
+  assert.equal(asset.source.codex_relative_path, `${taskId}/generated.png`);
+  assert.equal(asset.source.generation_tool, "imagegen");
+  assert.equal(asset.source.model, "gpt-5.6");
+  assert.equal(asset.source.storage_mode, "hard-link");
+  assert.match(asset.image_path, /mosa\/assets\/default\/images\/codex-fixture\.png$/);
+  const [sourceStat, libraryStat] = await Promise.all([stat(sourcePath), stat(asset.image_path)]);
+  assert.equal(sourceStat.ino, libraryStat.ino);
+
+  const storedMetadata = JSON.parse(await readFile(join(managerDir, "assets", "default", "metadata", "codex-fixture.json"), "utf8"));
+  assert.equal(storedMetadata.source.path, sourcePath);
+  assert.equal(storedMetadata.prompt, "A verified Codex test image");
+
+  // Existing copy-based Codex entries can be converted safely after checking
+  // both paths still contain identical bytes.
+  await unlink(asset.image_path);
+  await copyFile(sourcePath, asset.image_path);
+  const migration = await store.migrateCodexAssetsToHardLinks("default");
+  assert.deepEqual(migration.migrated, ["codex-fixture"]);
+  const [relinkedSourceStat, relinkedLibraryStat] = await Promise.all([stat(sourcePath), stat(asset.image_path)]);
+  assert.equal(relinkedSourceStat.ino, relinkedLibraryStat.ino);
+
+  const localImagesDir = join(projectRoot, "generated-images");
+  const localPath = join(localImagesDir, "local.png");
+  await mkdir(localImagesDir, { recursive: true });
+  await writeFile(localPath, "local fixture image", "utf8");
+  await store.createAsset({ assetId: "local-fixture", imagePath: localPath });
+
+  const codexOnly = await store.listAssets({ projectId: "default", source: "codex-generated" });
+  assert.deepEqual(codexOnly.map((item) => item.id), ["codex-fixture"]);
+});
+
+test("JSON pagination remains stable when the cursor asset is archived", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-cursor-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, "fixture image", "utf8");
+  const store = createAssetStore({ projectRoot, managerDir });
+  for (const assetId of ["alpha", "bravo", "charlie"]) await store.createAsset({ assetId, imagePath: sourcePath, created_at: createdAt });
+
+  const first = await store.listAssetPage({ projectId: "default", limit: 1 });
+  assert.equal(first.assets[0].id, "charlie");
+  await store.archiveAsset("default", "charlie");
+  await store.createAsset({ assetId: "delta", imagePath: sourcePath, created_at: createdAt });
+  const second = await store.listAssetPage({ projectId: "default", limit: 1, cursor: first.page.nextCursor });
+  assert.equal(second.assets[0].id, "bravo");
+  await assert.rejects(store.listAssetPage({ projectId: "default", cursor: Buffer.from("{}").toString("base64url") }), /Invalid asset cursor/);
+});
+
+test("corrupt canonical JSON metadata cannot be hidden or overwritten", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-corrupt-metadata-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  const store = createAssetStore({ projectRoot, managerDir });
+  await Promise.all([
+    mkdir(join(projectRoot, "generated-images"), { recursive: true }),
+    store.ensureProject("default"),
+  ]);
+  await writeFile(sourcePath, "fixture image", "utf8");
+  const metadataPath = join(managerDir, "assets", "default", "metadata", "broken.json");
+  const corruptMetadata = "{ not valid json\n";
+  await writeFile(metadataPath, corruptMetadata, "utf8");
+
+  await assert.rejects(store.getAsset("default", "broken"), SyntaxError);
+  await assert.rejects(store.getAssetVersionHistory("default", "broken"), SyntaxError);
+  await assert.rejects(
+    store.createAsset({ assetId: "broken", imagePath: sourcePath }),
+    (error) => error?.code === "ASSET_ALREADY_EXISTS",
+  );
+  assert.equal(await readFile(metadataPath, "utf8"), corruptMetadata);
+});
+
+test("persists manually created groups, including empty groups", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const store = createAssetStore({ projectRoot, managerDir });
+  await store.createGroup({ projectId: "default", name: "  Inspiration   board " });
+
+  let stats = await store.listGroups("default");
+  assert.deepEqual(stats.groups, [["Inspiration board", 0]]);
+  await assert.rejects(store.createGroup({ projectId: "default", name: "inspiration board" }), /Group already exists/);
+
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, "fixture image", "utf8");
+  await store.createAsset({ assetId: "grouped-fixture", imagePath: sourcePath, group: "Inspiration board" });
+
+  stats = await createAssetStore({ projectRoot, managerDir }).listGroups("default");
+  assert.deepEqual(stats.groups, [["Inspiration board", 1]]);
+});
+
+test("keeps concurrent group creations from independent store instances", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const firstStore = createAssetStore({ projectRoot, managerDir });
+  const secondStore = createAssetStore({ projectRoot, managerDir });
+
+  await Promise.all([
+    firstStore.createGroup({ projectId: "default", name: "alpha" }),
+    secondStore.createGroup({ projectId: "default", name: "beta" }),
+  ]);
+
+  const stats = await firstStore.listGroups("default");
+  assert.deepEqual(stats.groups, [["alpha", 0], ["beta", 0]]);
+});
+
+test("does not reclaim a stale-looking lock held by a live group writer", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const firstStore = createAssetStore({ projectRoot, managerDir });
+  const secondStore = createAssetStore({ projectRoot, managerDir });
+  firstStore.listAssets = async () => {
+    await delay(150);
+    return [];
+  };
+
+  const firstWrite = firstStore.createGroup({ projectId: "default", name: "alpha" });
+  const lockPath = join(managerDir, "assets", "default", ".groups.lock");
+  await waitForPath(lockPath);
+  const staleTime = new Date(Date.now() - 31_000);
+  await utimes(lockPath, staleTime, staleTime);
+
+  const secondWrite = secondStore.createGroup({ projectId: "default", name: "beta" });
+  await Promise.all([firstWrite, secondWrite]);
+
+  const stats = await secondStore.listGroups("default");
+  assert.deepEqual(stats.groups, [["alpha", 0], ["beta", 0]]);
+});
+
+test("recovers a stale group lock whose owner has exited", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const store = createAssetStore({ projectRoot, managerDir });
+  await store.ensureProject("default");
+  const lockPath = join(managerDir, "assets", "default", ".groups.lock");
+  await writeFile(lockPath, JSON.stringify({ token: "dead-owner", pid: 999_999_999 }), "utf8");
+  const staleTime = new Date(Date.now() - 31_000);
+  await utimes(lockPath, staleTime, staleTime);
+
+  await store.createGroup({ projectId: "default", name: "recovered" });
+  const stats = await store.listGroups("default");
+  assert.deepEqual(stats.groups, [["recovered", 0]]);
+});
+
+test("continues to reject image paths outside approved source roots", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const outsidePath = join(root, "outside", "not-allowed.png");
+  await mkdir(join(root, "outside"), { recursive: true });
+  await writeFile(outsidePath, "fixture image", "utf8");
+
+  const store = createAssetStore({
+    projectRoot: join(root, "project"),
+    managerDir: join(root, "project", "mosa"),
+    codexImagesDir: join(root, ".codex", "generated_images")
+  });
+
+  await assert.rejects(store.createAsset({ imagePath: outsidePath }), /Refusing to import outside the project roots/);
+});
+
+test("rejects symbolic links even when their link path is inside an approved root", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const outsidePath = join(root, "outside", "secret.txt");
+  const linkedImagePath = join(projectRoot, "generated-images", "linked.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await mkdir(join(root, "outside"), { recursive: true });
+  await writeFile(outsidePath, "not an image", "utf8");
+  await symlink(outsidePath, linkedImagePath);
+
+  const store = createAssetStore({ projectRoot, managerDir });
+  await assert.rejects(store.createAsset({ imagePath: linkedImagePath }), /Refusing to import symbolic links/);
+});
+
+test("rejects a regular file reached through a symbolic-link directory", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const outsideDir = join(root, "outside");
+  const linkedDir = join(projectRoot, "generated-images", "linked");
+  const linkedImagePath = join(linkedDir, "escape.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await mkdir(outsideDir, { recursive: true });
+  await writeFile(join(outsideDir, "escape.png"), "not an image", "utf8");
+  await symlink(outsideDir, linkedDir);
+
+  const store = createAssetStore({ projectRoot, managerDir });
+  await assert.rejects(store.createAsset({ imagePath: linkedImagePath }), /Refusing to import outside the project roots/);
+});
+
+test("imports Cowart page assets from the configured external canvas directory", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const canvasDir = join(root, "cowart-data", "mosa");
+  const sourcePath = join(canvasDir, "pages", "page", "assets", "cowart-bear.png");
+  await mkdir(join(canvasDir, "pages", "page", "assets"), { recursive: true });
+  await writeFile(sourcePath, "fixture Cowart image", "utf8");
+
+  const store = createAssetStore({
+    projectRoot,
+    managerDir: join(projectRoot, "mosa"),
+    cowartCanvasDir: canvasDir
+  });
+  const asset = await store.createAsset({
+    assetId: "cowart-bear",
+    imagePath: sourcePath,
+    sourceType: "cowart-generated"
+  });
+
+  assert.equal(asset.source.type, "cowart-generated");
+  assert.equal(asset.source.path, sourcePath);
+  assert.match(asset.image_path, /mosa\/assets\/default\/images\/cowart-bear\.png$/);
+});
+
+async function waitForPath(path) {
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    try {
+      await access(path);
+      return;
+    } catch {
+      await delay(10);
+    }
+  }
+  throw new Error(`Timed out waiting for ${path}`);
+}
+
+function delay(milliseconds) {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}

@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MOSA — 创作资产库</title>
+    <link rel="stylesheet" href="/styles.css?v=17" />
+  </head>
+  <body>
+    <div class="toast-container" id="toastContainer" aria-live="polite"></div>
+
+    <div class="modal-overlay" id="importModal" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="importModalTitle" tabindex="-1">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow" data-i18n="importEyebrow">LIBRARY</p>
+            <h3 id="importModalTitle" data-i18n="importTitle">导入素材</h3>
+          </div>
+          <button class="icon-button" id="closeImportModal" type="button" data-i18n-aria-label="closeImport" aria-label="关闭导入窗口">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <label class="field"><span data-i18n="imagePath">图片路径</span><input id="imagePathInput" data-i18n-placeholder="imagePathPlaceholder" placeholder="图片的本地绝对路径" /><small class="field-hint" id="codexSourceHint"></small></label>
+          <label class="field"><span data-i18n="prompt">提示词</span><textarea id="promptInput" rows="4" data-i18n-placeholder="promptPlaceholder" placeholder="完整提示词"></textarea></label>
+          <div class="two">
+            <label class="field"><span data-i18n="skill">技能</span><input id="skillInput" placeholder="punk-cover" /></label>
+            <label class="field"><span data-i18n="style">风格</span><input id="styleInput" placeholder="cyberpunk" /></label>
+          </div>
+          <div class="two">
+            <label class="field"><span data-i18n="ratio">比例</span><input id="ratioInput" placeholder="9:16" /></label>
+            <label class="field"><span data-i18n="theme">主题</span><input id="themeInput" placeholder="orbital-luxury-vault" /></label>
+          </div>
+          <div class="two">
+            <label class="field"><span data-i18n="group">分组</span><input id="groupInput" placeholder="sci-fi" /></label>
+            <label class="field"><span data-i18n="category">分类</span><select id="categoryInput">
+              <option value="" data-i18n="none">—</option><option value="product" data-i18n="categoryProduct">产品</option><option value="concept" data-i18n="categoryConcept">概念</option><option value="texture" data-i18n="categoryTexture">纹理</option><option value="reference" data-i18n="categoryReference">参考</option><option value="other" data-i18n="categoryOther">其他</option>
+            </select></label>
+          </div>
+          <label class="field"><span data-i18n="businessFields">业务字段 JSON</span><textarea id="businessInput" rows="3" placeholder='{"product":"...","price":"..."}'></textarea></label>
+        </div>
+        <div class="modal-footer"><button class="btn-secondary" id="cancelImportBtn" type="button" data-i18n="cancel">取消</button><button class="btn-primary" id="saveAssetBtn" type="button" data-i18n="saveAsset">保存素材</button></div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="groupModal" aria-hidden="true">
+      <div class="modal-card group-modal-card" role="dialog" aria-modal="true" aria-labelledby="groupModalTitle" tabindex="-1">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow" data-i18n="groups">分组</p>
+            <h3 id="groupModalTitle" data-i18n="createGroup">添加分组</h3>
+          </div>
+          <button class="icon-button" id="closeGroupModal" type="button" data-i18n-aria-label="closeGroup" aria-label="关闭添加分组窗口">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <label class="field"><span data-i18n="groupName">分组名称</span><input id="groupNameInput" data-i18n-placeholder="groupNamePlaceholder" placeholder="例如：灵感参考" maxlength="80" /></label>
+        </div>
+        <div class="modal-footer"><button class="btn-secondary" id="cancelGroupBtn" type="button" data-i18n="cancel">取消</button><button class="btn-primary" id="saveGroupBtn" type="button" data-i18n="createGroup">添加分组</button></div>
+      </div>
+    </div>
+
+    <div class="image-preview-modal" id="imagePreviewModal" role="dialog" aria-modal="true" aria-labelledby="imagePreviewTitle" hidden>
+      <div class="image-preview-card" tabindex="-1">
+        <div class="image-preview-header"><p class="eyebrow" data-i18n="viewFullImage">查看大图</p><button class="icon-button" id="closeImagePreview" type="button" data-i18n-aria-label="closePreview" aria-label="关闭大图预览"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+        <div class="image-preview-stage" id="imagePreviewStage"><img id="imagePreviewImage" alt="" /></div>
+        <h3 id="imagePreviewTitle"></h3>
+      </div>
+    </div>
+
+    <div class="shell" id="appShell">
+      <aside class="sidebar" aria-label="MOSA">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 28 28" fill="none"><rect x="2" y="3" width="10" height="16" rx="2" fill="currentColor" opacity=".9"/><rect x="7" y="3" width="10" height="16" rx="2" fill="currentColor" opacity=".48"/><rect x="4" y="21" width="20" height="4" rx="1.5" fill="currentColor" opacity=".7"/></svg></div>
+          <div class="brand-info"><h1>MOSA</h1><p data-i18n="brandSubtitle">创作资产库</p></div>
+        </div>
+
+        <div class="search-bar"><svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input id="searchInput" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="搜索素材" /></div>
+
+        <nav class="primary-nav" data-i18n-aria-label="library" aria-label="素材库">
+          <ul class="nav-list" id="quickFilters">
+            <li><button class="nav-item active" data-filter="all" type="button" aria-pressed="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span class="nav-item-text" data-i18n="allAssets">全部素材</span><span class="nav-count" id="countAll">—</span></button></li>
+            <li><button class="nav-item" data-filter="favorite" type="button" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg><span class="nav-item-text" data-i18n="favorites">收藏</span><span class="nav-count" id="countFav">—</span></button></li>
+            <li><button class="nav-item" data-filter="recent" type="button" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="nav-item-text" data-i18n="recent">最近</span><span class="nav-count" id="countRecent">—</span></button></li>
+          </ul>
+          <button class="add-group-button" id="addGroupBtn" type="button" data-i18n-aria-label="addGroup" aria-label="添加分组"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="addGroup">添加分组</span></button>
+          <ul class="sidebar-group-list" id="sidebarGroupList" data-i18n-aria-label="groups" aria-label="分组"></ul>
+        </nav>
+
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-footer">
+          <div class="settings-wrap">
+            <button class="settings-trigger" id="settingsToggle" type="button" aria-expanded="false" aria-controls="settingsMenu"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06-2.15 2.15-.06-.06A1.7 1.7 0 0 0 15.72 18a1.7 1.7 0 0 0-1.02 1.55V20h-3v-.45A1.7 1.7 0 0 0 10.68 18a1.7 1.7 0 0 0-1.87 1.02l-.06.06-2.15-2.15.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.02H5v-3h.45A1.7 1.7 0 0 0 7 9.96a1.7 1.7 0 0 0-1.02-1.87l-.06-.06 2.15-2.15.06.06A1.7 1.7 0 0 0 10 6.28a1.7 1.7 0 0 0 1.02-1.55V4.3h3v.45A1.7 1.7 0 0 0 15.04 6.3a1.7 1.7 0 0 0 1.87-1.02l.06-.06 2.15 2.15-.06.06A1.7 1.7 0 0 0 18.72 9.3a1.7 1.7 0 0 0 1.55 1.02h.45v3h-.45A1.7 1.7 0 0 0 19.4 15Z"/></svg><span data-i18n="settings">设置</span></button>
+            <div class="settings-menu" id="settingsMenu" hidden>
+              <section class="settings-section"><p data-i18n="project">项目</p><div class="settings-project-row"><label class="visually-hidden" for="projectSelect" data-i18n="project">项目</label><select id="projectSelect"><option value="default">default</option></select><button class="icon-button quiet" id="openFolderBtn" type="button" data-i18n-title="openLibrary" data-i18n-aria-label="openLibrary" title="打开素材库" aria-label="打开素材库"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg></button></div></section>
+              <section class="settings-section"><p data-i18n="language">语言</p><button type="button" data-locale="system"></button><button type="button" data-locale="zh"></button><button type="button" data-locale="en"></button></section>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="library">
+        <header class="topbar"><div class="topbar-left"><div class="title-row"><h2 id="viewTitle">全部素材</h2><p id="assetCount" role="status" aria-live="polite">0</p></div></div><div class="topbar-right"><span class="visually-hidden" id="statusText" role="status" aria-live="polite"></span><div class="bridge-status" id="bridgeStatus" data-state="checking" role="status" aria-live="polite"><span class="bridge-dot" aria-hidden="true"></span><span id="bridgeStatusLabel" data-i18n="statusChecking">检查桥接状态…</span><span class="bridge-status-meta" id="bridgeStatusMeta"></span></div><button class="toolbar-filter" id="filterToggle" type="button" aria-expanded="false" aria-controls="filterPanel"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10m-7 6h4"/></svg><span data-i18n="refine">筛选</span><span class="filter-dot" id="filterDot" hidden></span></button><button class="create-button" id="newAssetTopBtn" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="importAsset">导入素材</span></button></div></header>
+        <section class="grid" id="assetGrid" data-i18n-aria-label="assetList" aria-label="素材列表"></section>
+      </main>
+
+      <aside class="filter-panel" id="filterPanel" data-i18n-aria-label="refine" aria-label="筛选" hidden>
+        <div class="filter-panel-head"><div><p class="eyebrow" data-i18n="refine">筛选</p><h3 data-i18n="findAssets">查找素材</h3></div><button class="icon-button quiet" id="clearFiltersBtn" type="button" data-i18n-title="clearFilters" data-i18n-aria-label="clearFilters" title="清除筛选" aria-label="清除筛选"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h5M20 20v-5h-5"/><path d="M5.5 15a7 7 0 0 0 12.5 1.7M18.5 9A7 7 0 0 0 6 7.3"/></svg></button></div>
+        <section class="filter-section"><p data-i18n="source">来源</p><div class="filter-pills" id="sourceFilters"></div></section>
+        <section class="filter-section"><p data-i18n="groups">分组</p><ul class="filter-list" id="groupList"></ul></section>
+        <section class="filter-section"><p data-i18n="categories">分类</p><ul class="filter-list" id="categoryList"></ul></section>
+        <section class="filter-section"><p data-i18n="styles">风格</p><ul class="filter-list" id="styleList"></ul></section>
+      </aside>
+
+      <aside class="detail" id="detailPanel" data-i18n-aria-label="assetInspector" aria-label="素材检视器" aria-hidden="true"></aside>
+    </div>
+
+    <script type="module" src="/app.js?v=18"></script>
+  </body>
+</html>
