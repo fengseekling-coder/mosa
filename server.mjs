@@ -12,44 +12,58 @@ import { createCowartMcpClient } from "./lib/cowart-mcp-client.mjs";
 import { chooseCowartInsertTarget, normalizeCowartInsertResult, resolveCowartInsertCanvas, verifyCowartInsert } from "./lib/cowart-insert.mjs";
 import { isAllowedLocalOrigin, resolveAllowedFolderPath } from "./lib/server-security.mjs";
 import { createDerivativeWorker } from "./lib/derivative-worker.mjs";
+import { acquireMosaRuntimeLock } from "./lib/runtime-lock.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || join(managerDir, ".."));
 const port = Number(process.env.MOSA_PORT || 43517);
 const libraryDir = resolve(process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"));
 const codexSessionsDir = resolve(process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions"));
-const store = createAssetStore({ projectRoot, managerDir, libraryDir });
-const cowartProjectRegistry = createCowartProjectRegistry({
-  managerDir,
-  registryPath: process.env.MOSA_COWART_REGISTRY_PATH,
-});
-const cowartBridge = createCowartBridgeManager({
-  store,
-  registry: cowartProjectRegistry,
-  managerDir,
-  canvasDir: store.cowartCanvasDir,
-});
-const codexBridge = createCodexImageBridge({
-  store,
-  imagesDir: store.codexImagesDir,
-  sessionsDir: codexSessionsDir,
-});
-const cowartCanvasDiscovery = createCowartCanvasDiscovery({
-  sessionsDir: codexSessionsDir,
-  managerDir,
-  dedicatedCanvasDir: store.cowartCanvasDir,
-  knownProjectDirs: () => cowartBridge.sources().map((source) => source.projectDir),
-  onDiscover: ({ projectDir }) => cowartBridge.addProject({ projectDir }),
-});
-const cowartMcpClient = createCowartMcpClient({ serverPath: process.env.COWART_MCP_SERVER_PATH });
-const appDir = join(managerDir, "app");
-const derivativeWorker = createDerivativeWorker({ store });
+const runtimeLock = await acquireMosaRuntimeLock({ libraryDir });
+let store;
+let cowartProjectRegistry;
+let cowartBridge;
+let codexBridge;
+let cowartCanvasDiscovery;
+let cowartMcpClient;
+let derivativeWorker;
+try {
+  store = createAssetStore({ projectRoot, managerDir, libraryDir });
+  cowartProjectRegistry = createCowartProjectRegistry({
+    managerDir,
+    registryPath: process.env.MOSA_COWART_REGISTRY_PATH,
+  });
+  cowartBridge = createCowartBridgeManager({
+    store,
+    registry: cowartProjectRegistry,
+    managerDir,
+    canvasDir: store.cowartCanvasDir,
+  });
+  codexBridge = createCodexImageBridge({
+    store,
+    imagesDir: store.codexImagesDir,
+    sessionsDir: codexSessionsDir,
+  });
+  cowartCanvasDiscovery = createCowartCanvasDiscovery({
+    sessionsDir: codexSessionsDir,
+    managerDir,
+    dedicatedCanvasDir: store.cowartCanvasDir,
+    knownProjectDirs: () => cowartBridge.sources().map((source) => source.projectDir),
+    onDiscover: ({ projectDir }) => cowartBridge.addProject({ projectDir }),
+  });
+  cowartMcpClient = createCowartMcpClient({ serverPath: process.env.COWART_MCP_SERVER_PATH });
+  derivativeWorker = createDerivativeWorker({ store });
 
-await store.ensureProject("default");
-await cowartBridge.start();
-await cowartCanvasDiscovery.start();
-await codexBridge.start();
-derivativeWorker.start();
+  await store.ensureProject("default");
+  await cowartBridge.start();
+  await cowartCanvasDiscovery.start();
+  await codexBridge.start();
+  derivativeWorker.start();
+} catch (error) {
+  await stopRuntime();
+  throw error;
+}
+const appDir = join(managerDir, "app");
 
 const server = createServer(async (req, res) => {
   try {
@@ -91,6 +105,43 @@ const server = createServer(async (req, res) => {
 
 server.listen(port, "127.0.0.1", () => {
   console.log(`MOSA: http://127.0.0.1:${boundPortFor(server, port)}`);
+});
+
+let shutdownPromise = null;
+
+function stopRuntime() {
+  derivativeWorker?.stop?.();
+  codexBridge?.stop?.();
+  cowartCanvasDiscovery?.stop?.();
+  cowartBridge?.stop?.();
+  store?.close?.();
+  return runtimeLock.release();
+}
+
+function shutdown() {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    if (server.listening) await new Promise((resolveClose) => server.close(resolveClose));
+    await stopRuntime();
+  })();
+  return shutdownPromise;
+}
+
+function handleSignal() {
+  void shutdown().then(
+    () => process.exit(0),
+    (error) => {
+      console.error(error);
+      process.exit(1);
+    },
+  );
+}
+
+process.once("SIGINT", handleSignal);
+process.once("SIGTERM", handleSignal);
+server.once("error", (error) => {
+  console.error(error);
+  void shutdown().finally(() => process.exit(1));
 });
 
 function boundPortFor(serverInstance, fallbackPort) {
