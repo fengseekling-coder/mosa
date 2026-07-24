@@ -292,7 +292,15 @@ test("HTTP ingest endpoint accepts chrome-extension origin with token", async (t
     if (server.exitCode === null) {
       const exited = once(server, "exit");
       server.kill("SIGTERM");
-      await exited;
+      const forceKill = setTimeout(() => {
+        if (server.exitCode === null) server.kill("SIGKILL");
+      }, 5_000);
+      try {
+        const [, signal] = await exited;
+        assert.notEqual(signal, "SIGKILL", "MOSA test server did not shut down within 5 seconds");
+      } finally {
+        clearTimeout(forceKill);
+      }
     }
     await rm(root, { recursive: true, force: true });
   });
@@ -314,6 +322,7 @@ test("HTTP ingest endpoint accepts chrome-extension origin with token", async (t
     }),
   });
   assert.equal(blocked.status, 403);
+  await blocked.arrayBuffer();
 
   const unapprovedExtension = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture`, {
     method: "POST",
@@ -325,6 +334,7 @@ test("HTTP ingest endpoint accepts chrome-extension origin with token", async (t
     body: JSON.stringify({ provider: "chatgpt", imageBase64: SAMPLE_PNG_BASE64, mimeType: "image/jpeg" }),
   });
   assert.equal(unapprovedExtension.status, 403);
+  await unapprovedExtension.arrayBuffer();
 
   const unauthorized = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture`, {
     method: "POST",
@@ -341,6 +351,7 @@ test("HTTP ingest endpoint accepts chrome-extension origin with token", async (t
   });
   assert.equal(unauthorized.status, 401);
   assert.equal(unauthorized.headers.get("access-control-allow-origin"), "chrome-extension://abc123");
+  await unauthorized.arrayBuffer();
 
   const imported = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture`, {
     method: "POST",
