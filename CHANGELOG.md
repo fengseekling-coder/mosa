@@ -2,7 +2,24 @@
 
 This file records user-visible changes. Operational deployment state and local paths belong in `HANDOFF.md`, not here.
 
-## Unreleased
+## 0.2.0 - Unreleased
+
+### Licensing
+
+- Changed MOSA from the MIT License to the PolyForm Noncommercial License 1.0.0 for version 0.2.0 and later. Noncommercial personal, educational, research, hobby, modification, and distribution uses remain permitted under the license terms; commercial use requires separate written authorization.
+- Tagged `v0.1.0` as the final MIT-licensed public source snapshot. Copies obtained under the MIT License retain the rights granted with those copies.
+
+### ChatGPT web capture
+
+- Added an optional Chrome extension that captures ChatGPT-generated images with message-scoped Prompt and provenance data.
+- Added a loopback-only ingest endpoint and bridge status endpoint. Web capture is disabled until `MOSA_WEB_CAPTURE_TOKEN` is explicitly configured.
+- Added image-byte, MIME, size, pixel-count, origin, and request-envelope validation for browser-extension ingestion.
+- Stores the extension address, Token, and auto-capture preference in Chrome local storage rather than synchronized storage.
+
+### Project documentation
+
+- Added security, privacy, support, contribution, commercial-licensing, and conduct policies.
+- Added structured bug and feature issue forms plus a pull request template.
 
 ### Grok Build CLI media archive
 
@@ -32,7 +49,7 @@ This file records user-visible changes. Operational deployment state and local p
 - Added SQLite schema v2 migration tracking, indexed version traversal, duplicate-ID migration validation, and conflict-safe concurrent creates.
 - Changed `asset_duplicate` to start an independent version root while retaining `duplicated_from` provenance.
 
-## 0.1.0
+## 0.1.0 - Final MIT-licensed source snapshot
 
 - Added a local-first visual library that preserves prompts, image metadata, source paths, and provenance alongside each asset.
 - Added automatic Codex image reconciliation and provenance capture from local image-generation records.

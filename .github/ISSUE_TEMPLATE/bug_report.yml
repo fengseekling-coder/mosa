@@ -1,0 +1,66 @@
+name: Bug report
+description: Report a reproducible MOSA defect without private user data
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include real Prompts, user assets, Tokens, credentials, session identifiers, or private local paths. Report security vulnerabilities through SECURITY.md instead.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing Issues and Discussions.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
+        - label: I replaced private data and local paths with safe placeholders.
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: MOSA version or commit
+      placeholder: v0.2.0 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Local service or Web UI
+        - Codex collection
+        - ChatGPT web capture
+        - Grok collection
+        - Cowart collection or insertion
+        - SQLite migration, search, or derivatives
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Use sample data and placeholder paths.
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Relevant sanitized output
+      description: Include only the smallest useful error or status output.
+      render: shell

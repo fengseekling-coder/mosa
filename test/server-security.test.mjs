@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { isAllowedLocalOrigin, resolveAllowedFolderPath } from "../lib/server-security.mjs";
+import { isAllowedIngestOrigin, isAllowedLocalOrigin, parseAllowedIngestOrigins, resolveAllowedFolderPath } from "../lib/server-security.mjs";
 
 test("allows only same-origin browser requests", () => {
   assert.equal(isAllowedLocalOrigin(undefined, 43517), true);
@@ -10,6 +10,16 @@ test("allows only same-origin browser requests", () => {
   assert.equal(isAllowedLocalOrigin("http://localhost:43517", 43517), true);
   assert.equal(isAllowedLocalOrigin("https://example.com", 43517), false);
   assert.equal(isAllowedLocalOrigin("null", 43517), false);
+});
+
+test("allows only explicitly configured extension origins for ingest", () => {
+  const allowed = parseAllowedIngestOrigins("chrome-extension://approved, moz-extension://firefox, https://example.com");
+  assert.deepEqual(allowed, ["chrome-extension://approved", "moz-extension://firefox"]);
+  assert.equal(isAllowedIngestOrigin("chrome-extension://approved", 43517, allowed), true);
+  assert.equal(isAllowedIngestOrigin("moz-extension://firefox", 43517, allowed), true);
+  assert.equal(isAllowedIngestOrigin("chrome-extension://other", 43517, allowed), false);
+  assert.equal(isAllowedIngestOrigin("https://chatgpt.com", 43517, allowed), false);
+  assert.equal(isAllowedLocalOrigin("chrome-extension://id", 43517), false);
 });
 
 test("resolves only allowed Finder paths", () => {

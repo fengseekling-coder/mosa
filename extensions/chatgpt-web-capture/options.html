@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>MOSA ChatGPT Capture 设置</title>
+    <style>
+      body {
+        font: 14px/1.5 system-ui, -apple-system, sans-serif;
+        margin: 24px;
+        max-width: 560px;
+        color: #0f172a;
+      }
+      label {
+        display: block;
+        font-weight: 600;
+        margin: 14px 0 6px;
+      }
+      input[type="text"],
+      input[type="url"] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 14px;
+      }
+      button {
+        margin-top: 18px;
+        padding: 8px 14px;
+        border: 0;
+        border-radius: 8px;
+        background: #111827;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      #status {
+        margin-top: 12px;
+        color: #166534;
+        min-height: 1.2em;
+      }
+      code {
+        background: #f1f5f9;
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>MOSA ChatGPT Capture</h1>
+    <p>自动/手动把 ChatGPT 网页生成的图片保存到本机 MOSA。</p>
+    <p>公共默认地址为 <code>http://127.0.0.1:43517</code>。Token 没有默认值，必须与 MOSA 服务端配置一致。</p>
+
+    <label for="mosaBaseUrl">MOSA 地址</label>
+    <input id="mosaBaseUrl" type="url" placeholder="http://127.0.0.1:43517" />
+
+    <label for="mosaToken">Ingest Token</label>
+    <input id="mosaToken" type="password" autocomplete="off" placeholder="填写随机 Token" />
+
+    <div class="row">
+      <input id="autoCapture" type="checkbox" />
+      <label for="autoCapture" style="margin: 0; font-weight: 500">发现新图时自动入库</label>
+    </div>
+
+    <button id="save" type="button">保存设置</button>
+    <button id="test" type="button" style="background: #334155; margin-left: 8px">测试连接</button>
+    <div id="status"></div>
+
+    <script src="options.js" type="module"></script>
+  </body>
+</html>

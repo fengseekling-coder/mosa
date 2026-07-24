@@ -23,10 +23,14 @@ For a persistent local installation, use the operating system's process manager 
 MOSA_LIBRARY_DIR=/absolute/path/to/library \
 MOSA_PORT=PORT \
 MOSA_PROJECT_DIR=/absolute/path/to/mosa \
+MOSA_WEB_CAPTURE_TOKEN='replace-with-a-random-secret' \
+MOSA_WEB_CAPTURE_ORIGINS='chrome-extension://replace-with-extension-id' \
 npm start
 ```
 
 Choose a port that is not already used by another MOSA or legacy service. Bind only to `127.0.0.1`; MOSA is not designed for public exposure.
+
+`MOSA_WEB_CAPTURE_TOKEN` and `MOSA_WEB_CAPTURE_ORIGINS` are optional unless the ChatGPT extension is used. The origins value is a comma-separated list of exact `chrome-extension://<id>` or `moz-extension://<id>` origins. When the Token is unset, web capture must remain disabled; when the origin is absent, extension requests must be rejected. Never put the Token in a tracked file, command transcript, issue, or log.
 
 ## Library Migration
 
@@ -63,6 +67,7 @@ After starting a service, check the active storage and every bridge in one place
 curl -sS http://127.0.0.1:PORT/api/library-path
 curl -sS http://127.0.0.1:PORT/api/bridges
 curl -sS http://127.0.0.1:PORT/api/cowart-canvases
+curl -sS http://127.0.0.1:PORT/api/web-capture
 ```
 
 Expected conditions:
@@ -73,6 +78,7 @@ Expected conditions:
 - `lastError` is empty or `null`.
 - `cowartDiscovery` is enabled when the service can read local Codex session records.
 - `cowartInsert.available` is true only when the Cowart plugin endpoint is available.
+- `webCapture.enabled` is true only when `MOSA_WEB_CAPTURE_TOKEN` and at least one approved extension origin are explicitly configured; its providers list should contain `chatgpt`.
 
 Run an integrity check whenever a migration, repair, or service incident is resolved:
 
@@ -89,6 +95,7 @@ Treat `ok: true` and an empty `failures` list as the integrity result. The asset
 - Preserve the command output and the reported path when migration or verification fails.
 - Do not terminate another service only to free a port; choose another port or confirm the service owner first.
 - Do not widen Codex source roots, Grok sessions roots, Cowart discovery roots, or Cowart insertion targets to solve an import failure.
+- Do not bypass Web Capture Token, extension-origin, image-byte, MIME, size, or pixel-count validation to make an ingest request pass.
 - Do not pass video assets through sharp or introduce ffmpeg/transcoding to “fix” missing video previews; original media playback is the supported path.
 
 ## Before a Code or Deployment Change
