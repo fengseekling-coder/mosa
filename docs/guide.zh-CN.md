@@ -2,11 +2,20 @@
 
 MOSA 是面向 Codex、Cowart 和本地 Grok Build CLI 的本地创作素材库。它不负责生图，而是在媒体生成或画布编辑后，自动把图片/视频、Prompt、来源、参数、版本和画布上下文归档为可检索、可复用的本地素材。
 
+## 许可与商用
+
+MOSA 采用 [PolyForm Noncommercial License 1.0.0](../LICENSE)，属于源码可见、非商业许可软件，不是 OSI 认可的开源软件。
+
+- 个人、学习、研究、兴趣项目等非商业用途，以及非商业修改和传播均可免费使用。
+- 任何商业用途、收费服务、客户交付或商业平台集成都须另行取得版权所有者的书面授权；申请流程见 [商业授权说明](../COMMERCIAL-LICENSE.md)。
+- 重新分发原版或修改版时，必须保留许可证条款和 Required Notice。
+
 ## 产品边界
 
 - **Codex** 负责 AI 生成、理解和任务执行。
 - **Cowart** 负责画布编排与编辑。
 - **Grok Build CLI** 可在本地生成图片与视频。
+- **ChatGPT 网页扩展**可选，用于把网页生图及其对应上下文发送到本机 MOSA。
 - **MOSA** 负责自动收集、归档、检索、版本管理和回插。
 
 MOSA 当前是本地 Web 应用，不是云服务或 macOS `.app`。它不包含额外 AI 模型、Embedding 搜索或远程同步，也不调用 Grok API，也不应通过公网或反向代理暴露。
@@ -17,6 +26,7 @@ MOSA 当前是本地 Web 应用，不是云服务或 macOS `.app`。它不包含
 - 要自动归档 Codex 生图，需要安装 Codex Desktop。
 - 要自动归档 Grok 媒体，需要本机已登录并可写入 `~/.grok/sessions` 的 Grok Build CLI。
 - Cowart 自动归档和一键回插需要安装 Cowart 插件；不使用 Cowart 时不影响 MOSA 的其他功能。
+- ChatGPT 网页归档需要 Chrome，并且必须显式配置随机 `MOSA_WEB_CAPTURE_TOKEN` 与扩展来源 `MOSA_WEB_CAPTURE_ORIGINS`。
 
 ## 本地启动
 
@@ -69,6 +79,20 @@ npm exec mosa -- thumbnails rebuild --library /absolute/path/to/library
 
 MOSA 不扫描 Downloads、桌面或任意本地图片目录。原图在同一文件系统时优先硬链接入库，跨文件系统时才复制。
 
+### ChatGPT 网页生图
+
+Web Capture 是可选功能。先在 Chrome 加载一次扩展并复制扩展 ID，再启动 MOSA：
+
+```bash
+MOSA_WEB_CAPTURE_TOKEN='replace-with-a-random-secret' \
+MOSA_WEB_CAPTURE_ORIGINS='chrome-extension://replace-with-extension-id' \
+npm start
+```
+
+在扩展选项中填写实际 MOSA 地址和同一个 Token。未配置 Token 时服务端保持禁用；来源不在精确白名单中时，跨来源请求会被拒绝。
+
+扩展只向所配置的 `127.0.0.1` 或 `localhost` MOSA 地址发送图片字节、匹配到的 Prompt/用户消息、页面 URL、会话/消息 ID、模型信息和采集时间。地址、Token 与自动采集开关保存在 Chrome 本地存储，不使用同步存储。完整边界见 [隐私说明](../PRIVACY.md) 和 [扩展指南](../extensions/chatgpt-web-capture/README.md)。
+
 ### Grok Build CLI 媒体
 
 服务运行时，MOSA 只监听 `~/.grok/sessions/`（可用 `GROK_SESSIONS_DIR` 覆盖）。它只发现各会话目录下 `images/` 与 `videos/` 中的媒体，并读取同会话的 `chat_history.jsonl` 提取工具参数中的 Prompt、模型与工具名。
@@ -115,9 +139,10 @@ asset_version_history
 curl -sS http://127.0.0.1:43517/api/library-path
 curl -sS http://127.0.0.1:43517/api/bridges
 curl -sS http://127.0.0.1:43517/api/cowart-canvases
+curl -sS http://127.0.0.1:43517/api/web-capture
 ```
 
-`/api/bridges` 中的 `lastError` 为空或 `null` 表示没有最近桥接错误。服务停止时不会丢失已经归档的素材，但新的 Codex/Cowart 图片不会即时自动收集。
+`/api/bridges` 中的 `lastError` 为空或 `null` 表示没有最近桥接错误；`webCapture.enabled` 只有在显式配置 Token 和扩展来源后才应为 `true`。服务停止时不会丢失已经归档的素材，但新的 Codex、Grok、ChatGPT 或 Cowart 媒体不会即时自动收集。
 
 迁移、校验、派生图修复、端口冲突和恢复边界见 [operations.md](operations.md)。
 
@@ -127,5 +152,6 @@ curl -sS http://127.0.0.1:43517/api/cowart-canvases
 - 不要为强制重试而删除原 JSON、`legacy-json-backup` 或数据库。
 - 不要为了抢占端口直接终止未知服务。
 - 不要放宽 Codex 来源目录、Cowart 画布发现目录或回插目标允许列表。
+- 不要提交或公开 Web Capture Token、真实 Prompt、会话标识、页面 URL 或个人素材路径。
 
 更多当前功能与配置请参阅仓库根目录的 [README.md](../README.md)。

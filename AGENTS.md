@@ -12,8 +12,16 @@
 - Start the local service with `npm start`. Configure non-default locations through the documented environment variables.
 - The Cowart integration is optional. When it is unavailable, preserve normal library behavior rather than creating plugin-specific files in the checkout.
 
+## Licensing
+
+- MOSA is source-available under the root `LICENSE` using `PolyForm-Noncommercial-1.0.0`; do not describe it as OSI-approved open-source software.
+- Preserve the root `LICENSE`, its `Required Notice`, the README license summary, `COMMERCIAL-LICENSE.md`, and the root package license metadata when changing public files.
+- Do not grant, imply, or document commercial-use permission without the copyright holder's separate written authorization.
+- Keep third-party dependency licenses unchanged; project licensing metadata and dependency licensing metadata are separate scopes.
+
 ## Safety
 
 - Keep all public documentation portable: use relative paths, `$HOME`, or explicit placeholders instead of personal absolute paths.
 - Treat imported assets and their Prompt/provenance records as private user data by default.
 - Do not widen filesystem allowlists, session roots, or canvas targets merely to make an import succeed.
+- Keep browser-extension credentials in local storage, require an explicit ingest Token, and document every captured field and host permission in `PRIVACY.md`.

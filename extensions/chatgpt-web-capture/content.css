@@ -1,0 +1,80 @@
+.mosa-capture-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%) translateY(16px);
+  z-index: 2147483646;
+  max-width: min(92vw, 420px);
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.94);
+  color: #f8fafc;
+  font: 600 13px/1.35 system-ui, -apple-system, sans-serif;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.mosa-capture-toast.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.mosa-capture-toast.is-error {
+  background: rgba(127, 29, 29, 0.95);
+}
+
+#mosa-capture-dock {
+  position: fixed;
+  right: 16px;
+  bottom: 88px;
+  z-index: 2147483645;
+  width: 168px;
+  padding: 10px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #e2e8f0;
+  font: 12px/1.35 system-ui, -apple-system, sans-serif;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+}
+
+#mosa-capture-dock .mosa-dock-title {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+  color: #a3e635;
+}
+
+#mosa-capture-dock .mosa-dock-btn {
+  display: block;
+  width: 100%;
+  margin: 0 0 6px;
+  border: 0;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: 600 12px/1.2 system-ui, -apple-system, sans-serif;
+  cursor: pointer;
+  color: #0f172a;
+  background: #e2e8f0;
+}
+
+#mosa-capture-dock .mosa-dock-btn.mosa-dock-primary {
+  background: linear-gradient(135deg, #9ef01a, #70e000);
+}
+
+#mosa-capture-dock .mosa-dock-btn:hover {
+  filter: brightness(1.05);
+}
+
+#mosa-capture-dock .mosa-dock-status {
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 11px;
+  word-break: break-word;
+}
+
+#mosa-capture-dock .mosa-dock-status.is-error {
+  color: #fda4af;
+}

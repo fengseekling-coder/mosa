@@ -81,7 +81,22 @@ test("returns 404 for a missing library image without stopping the server", asyn
   const bridges = await bridgeStatus.json();
   assert.equal(bridges.grok?.enabled, true);
   assert.equal(typeof bridges.grok?.sessionsDir, "string");
+  assert.equal(bridges.webCapture?.enabled, false);
+  assert.equal(bridges.webCapture?.tokenConfigured, false);
+  assert.equal(bridges.webCapture?.originConfigured, false);
+  assert.ok(Array.isArray(bridges.webCapture?.providers));
   assert.equal(server.exitCode, null);
+
+  const disabledWebCapture = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(disabledWebCapture.status, 503);
+  assert.deepEqual(await disabledWebCapture.json(), {
+    error: "Web capture is disabled until MOSA_WEB_CAPTURE_TOKEN is configured.",
+    code: "WEB_CAPTURE_DISABLED",
+  });
 
   const automaticallyDetected = await fetch(`http://127.0.0.1:${port}/api/cowart-canvases`);
   assert.equal(automaticallyDetected.status, 200);

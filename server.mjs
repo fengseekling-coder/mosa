@@ -11,9 +11,10 @@ import { createCowartProjectRegistry } from "./lib/cowart-project-registry.mjs";
 import { createCowartMcpClient } from "./lib/cowart-mcp-client.mjs";
 import { createGrokMediaBridge } from "./lib/grok-media-bridge.mjs";
 import { chooseCowartInsertTarget, normalizeCowartInsertResult, resolveCowartInsertCanvas, verifyCowartInsert } from "./lib/cowart-insert.mjs";
-import { isAllowedLocalOrigin, resolveAllowedFolderPath } from "./lib/server-security.mjs";
+import { isAllowedIngestOrigin, isAllowedLocalOrigin, parseAllowedIngestOrigins, resolveAllowedFolderPath } from "./lib/server-security.mjs";
 import { createDerivativeWorker } from "./lib/derivative-worker.mjs";
 import { acquireMosaRuntimeLock } from "./lib/runtime-lock.mjs";
+import { createWebCaptureIngest, extractBearerToken, WEB_CAPTURE_MAX_BODY_BYTES } from "./lib/web-capture-ingest.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || join(managerDir, ".."));
@@ -21,12 +22,14 @@ const port = Number(process.env.MOSA_PORT || 43517);
 const libraryDir = resolve(process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"));
 const codexSessionsDir = resolve(process.env.CODEX_SESSIONS_DIR || join(homedir(), ".codex", "sessions"));
 const grokSessionsDir = resolve(process.env.GROK_SESSIONS_DIR || join(homedir(), ".grok", "sessions"));
+const webCaptureOrigins = parseAllowedIngestOrigins(process.env.MOSA_WEB_CAPTURE_ORIGINS);
 const runtimeLock = await acquireMosaRuntimeLock({ libraryDir });
 let store;
 let cowartProjectRegistry;
 let cowartBridge;
 let codexBridge;
 let grokBridge;
+let webCaptureIngest;
 let cowartCanvasDiscovery;
 let cowartMcpClient;
 let derivativeWorker;
@@ -50,6 +53,12 @@ try {
   grokBridge = createGrokMediaBridge({
     store,
     sessionsDir: grokSessionsDir,
+  });
+  webCaptureIngest = createWebCaptureIngest({
+    store,
+    libraryDir,
+    token: process.env.MOSA_WEB_CAPTURE_TOKEN,
+    allowedOrigins: webCaptureOrigins,
   });
   cowartCanvasDiscovery = createCowartCanvasDiscovery({
     sessionsDir: codexSessionsDir,
@@ -78,19 +87,40 @@ const server = createServer(async (req, res) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
 
-    if (!isAllowedLocalOrigin(req.headers.origin, boundPortFor(server, port))) {
+    const url = new URL(req.url, `http://${req.headers.host || "127.0.0.1"}`);
+    const activePort = boundPortFor(server, port);
+    const isWebCaptureRoute = url.pathname === "/api/ingest/web-capture" || url.pathname === "/api/web-capture";
+
+    if (isWebCaptureRoute) {
+      if (!isAllowedIngestOrigin(req.headers.origin, activePort, webCaptureOrigins)) {
+        sendJson(res, 403, { error: "Cross-origin requests are not allowed." });
+        return;
+      }
+      if (req.headers.origin) {
+        res.setHeader("Access-Control-Allow-Origin", req.headers.origin);
+        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+        res.setHeader("Vary", "Origin");
+      }
+    } else if (!isAllowedLocalOrigin(req.headers.origin, activePort)) {
       sendJson(res, 403, { error: "Cross-origin requests are not allowed." });
       return;
     }
 
-    // The app is same-origin; do not grant cross-origin preflight access.
+    // Web-capture allows chrome-extension preflight; other routes stay same-origin only.
     if (req.method === "OPTIONS") {
+      if (isWebCaptureRoute && isAllowedIngestOrigin(req.headers.origin, activePort, webCaptureOrigins)) {
+        res.statusCode = 204;
+        if (req.headers.origin) res.setHeader("Access-Control-Allow-Origin", req.headers.origin);
+        res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        res.setHeader("Access-Control-Allow-Headers", "content-type, authorization, x-mosa-token");
+        res.setHeader("Access-Control-Max-Age", "600");
+        res.end();
+        return;
+      }
       res.statusCode = 204;
       res.end();
       return;
     }
-
-    const url = new URL(req.url, `http://${req.headers.host || "127.0.0.1"}`);
 
     if (url.pathname.startsWith("/api/")) {
       await handleApi(req, res, url);
@@ -174,10 +204,25 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "GET" && url.pathname === "/api/web-capture") {
+    sendJson(res, 200, { bridge: webCaptureIngest.status() });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/ingest/web-capture") {
+    // Base64 images need a larger body budget than ordinary JSON metadata posts.
+    const body = await readJson(req, WEB_CAPTURE_MAX_BODY_BYTES);
+    const result = await webCaptureIngest.ingest(body, extractBearerToken(req));
+    if (result.status === "imported") derivativeWorker.wake();
+    sendJson(res, result.status === "imported" ? 201 : 200, result);
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/bridges") {
     sendJson(res, 200, {
       codex: codexBridge.status(),
       grok: grokBridge.status(),
+      webCapture: webCaptureIngest.status(),
       cowart: cowartBridge.status(),
       cowartDiscovery: cowartCanvasDiscovery.status(),
       cowartInsert: cowartMcpClient.status(),
@@ -458,15 +503,9 @@ async function handleLibrary(res, url) {
 }
 
 async function handleStatic(res, pathname) {
-  const fileName = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
-  // 使用 path.normalize 安全处理路径，防止路径遍历攻击
-  const normalized = fileName.replace(/\.\./g, ".");
-  const safeFile = normalized.includes("..") ? "index.html" : normalized;
-  const filePath = join(appDir, safeFile);
-
-  // 确保解析后的路径在 appDir 内
-  const resolvedPath = resolve(filePath);
-  if (!resolvedPath.startsWith(resolve(appDir))) {
+  const fileName = pathname === "/" ? "index.html" : basename(pathname);
+  const filePath = join(appDir, fileName);
+  if (resolve(filePath) !== join(appDir, fileName)) {
     sendJson(res, 403, { error: "Forbidden" });
     return;
   }
@@ -492,16 +531,16 @@ class HttpError extends Error {
   }
 }
 
-function readJson(req) {
+function readJson(req, maxBytes = 5 * 1024 * 1024) {
   return new Promise((resolveBody, rejectBody) => {
     const chunks = [];
     let totalBytes = 0;
     let rejected = false;
-    const MAX_SIZE = 5 * 1024 * 1024; // 5MiB
+    const MAX_SIZE = Number.isFinite(maxBytes) ? Math.max(1024, maxBytes) : 5 * 1024 * 1024;
     req.on("data", (chunk) => {
       if (rejected) return;
-      totalBytes += Buffer.byteLength(chunk, "utf8");
-      if (Buffer.byteLength(chunk, "utf8") > MAX_SIZE || totalBytes > MAX_SIZE) {
+      totalBytes += Buffer.byteLength(chunk);
+      if (totalBytes > MAX_SIZE) {
         rejected = true;
         rejectBody(new HttpError(413, "REQUEST_BODY_TOO_LARGE", "Request body too large."));
         req.resume();
