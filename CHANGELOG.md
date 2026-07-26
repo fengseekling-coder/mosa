@@ -21,6 +21,12 @@ This file records user-visible changes. Operational deployment state and local p
 - Added security, privacy, support, contribution, commercial-licensing, and conduct policies.
 - Added structured bug and feature issue forms plus a pull request template.
 
+### macOS desktop
+
+- Added an Apple Silicon Electron shell that opens the existing MOSA Web UI without adding an AI model, cloud service, or frontend rewrite.
+- Added verified attach, owned-runtime, and conflict modes for the local MOSA service, preserving external services and stopping only runtimes owned by the desktop app.
+- Added Electron Forge packaging with ASAR and unpacked native dependencies for `better-sqlite3` and `sharp`.
+
 ### Grok Build CLI media archive
 
 - Added a Grok media bridge that watches only `GROK_SESSIONS_DIR` (default `~/.grok/sessions`) and archives session `images/` and `videos/` with source type `grok-generated`.

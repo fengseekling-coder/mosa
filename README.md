@@ -28,7 +28,7 @@ MOSA does not generate media or replace Codex/Cowart/Grok. Those tools create; M
 - Cowart collection listens only to the dedicated MOSA canvas and registered or safely auto-discovered project canvases. It does not scan arbitrary projects.
 - ChatGPT web capture is optional and disabled until an ingest Token is explicitly configured. The extension sends captured image bytes, matched Prompt/user-message text, page URL, conversation/message identifiers, model metadata, and capture time only to the configured loopback MOSA address.
 - The extension stores its MOSA address, Token, and auto-capture preference in Chrome local storage, not synchronized storage. Treat the Token as a local secret.
-- MOSA does not add an AI model, remote synchronization, embedding search, or a desktop `.app` in the current release.
+- MOSA does not add an AI model, remote synchronization, or embedding search. The macOS desktop shell packages the same local MOSA service and Web UI; it does not add cloud or model dependencies.
 
 See [PRIVACY.md](PRIVACY.md) for the complete data boundary and [SECURITY.md](SECURITY.md) for private vulnerability reporting.
 
@@ -53,6 +53,22 @@ npm start
 Open <http://127.0.0.1:43517>.
 
 The repository contains application code only. MOSA keeps each user's library, generated media, Prompt records, and provenance outside the checkout. For migration, health checks, or recovery, read [docs/operations.md](docs/operations.md).
+
+## macOS Desktop
+
+The Electron desktop shell uses `~/MOSA Library` and port `43519` by default:
+
+```bash
+npm ci
+npm run desktop:start
+
+# Build the local arm64 app and ZIP artifact.
+npm run desktop:make
+```
+
+When the configured port already serves the same MOSA library, the desktop app attaches to that service and leaves it running on Quit. Otherwise, it starts and owns a local runtime, which remains active while the desktop app is open and stops cleanly when the app quits. MOSA never terminates an unverified listener or a service for a different library.
+
+Forge writes `MOSA.app` under `out/MOSA-darwin-arm64/` and the ZIP under `out/make/zip/darwin/arm64/`. These development artifacts are unsigned and not notarized.
 
 ## Local Library and Migration
 
@@ -197,7 +213,9 @@ For new child versions, pass the image tool's real `imagePath` to `asset_version
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
 | `MOSA_PROJECT_DIR` | Parent of the MOSA checkout | Workspace context for the service |
+| `MOSA_PROJECT_ID` | `default` | Project selected by the `scripts/migrate-codex-hardlinks.mjs` maintenance pass |
 | `MOSA_PORT` | `43517` | Local HTTP port |
+| `MOSA_DESKTOP_PORT` | `43519` | Local HTTP port used by the macOS desktop shell |
 | `MOSA_LIBRARY_DIR` | `~/MOSA Library` | Runtime SQLite library after migration |
 | `CODEX_GENERATED_IMAGES_DIR` | `~/.codex/generated_images` | Allowed Codex image source root |
 | `CODEX_SESSIONS_DIR` | `~/.codex/sessions` | Local Codex session records used for Prompt provenance |

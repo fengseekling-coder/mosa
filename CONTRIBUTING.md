@@ -49,6 +49,8 @@ git diff --check
 
 The performance test is opt-in and may take longer than the regular suite.
 
+Continuous integration runs `npm run lint`, `npm run check`, `npm test`, and `npm run audit` on Linux. macOS remains the supported runtime, so verify macOS-specific behavior locally before proposing a change.
+
 ## Pull Requests
 
 - Create a topic branch from the current `main`.

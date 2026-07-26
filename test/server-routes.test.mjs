@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -70,6 +71,19 @@ test("returns 404 for a missing library image without stopping the server", asyn
 
   const port = await waitForServerPort(server);
   await waitForServer(port, server);
+  const home = await fetch(`http://127.0.0.1:${port}/`);
+  assert.equal(home.status, 200);
+  assert.equal(home.headers.get("content-security-policy"), "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; connect-src 'self'");
+
+  const unknownApi = await fetch(`http://127.0.0.1:${port}/api/not-a-route`);
+  assert.equal(unknownApi.status, 404);
+  assert.deepEqual(await unknownApi.json(), { error: "Not found" });
+
+  const traversal = await rawGet(port, "/%2e%2e/server.mjs");
+  assert.equal(traversal.statusCode, 200);
+  assert.equal(traversal.headers["content-type"], "text/html; charset=utf-8");
+  assert.doesNotMatch(traversal.body, /import \{ createServer \} from "node:http"/);
+
   const missingImage = await fetch(`http://127.0.0.1:${port}/library/default/images/does-not-exist.png`);
   assert.equal(missingImage.status, 404);
   assert.deepEqual(await missingImage.json(), { error: "Asset not found" });
@@ -219,9 +233,21 @@ test("SQLite HTTP surface paginates assets and serves durable derivatives", asyn
   assert.equal(history.selected_asset_id, version.id);
   assert.deepEqual(history.versions.map((item) => item.id), [asset.id, version.id]);
 
+  const recipeResponse = await fetch(`http://127.0.0.1:${port}/api/assets/default/${asset.id}/recipes`);
+  assert.equal(recipeResponse.status, 200);
+  const recipeHistory = (await recipeResponse.json()).history;
+  assert.equal(recipeHistory.asset_id, asset.id);
+  assert.equal(recipeHistory.snapshots.length, 1);
+  assert.equal(recipeHistory.snapshots[0].effective_prompt, "red mechanical future city");
+  assert.equal(recipeHistory.active_snapshot_id, recipeHistory.snapshots[0].snapshot_id);
+
   const missingHistory = await fetch(`http://127.0.0.1:${port}/api/assets/default/missing/versions`);
   assert.equal(missingHistory.status, 404);
   assert.equal((await missingHistory.json()).code, "ASSET_NOT_FOUND");
+
+  const missingRecipeHistory = await fetch(`http://127.0.0.1:${port}/api/assets/default/missing/recipes`);
+  assert.equal(missingRecipeHistory.status, 404);
+  assert.equal((await missingRecipeHistory.json()).code, "ASSET_NOT_FOUND");
 
   const immutableRelation = await fetch(`http://127.0.0.1:${port}/api/assets/default/${version.id}`, {
     method: "PATCH",
@@ -540,4 +566,20 @@ async function waitForResponse(url) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
   }
   throw new Error(`Timed out waiting for ${url}`);
+}
+
+function rawGet(port, path) {
+  return new Promise((resolveResponse, rejectResponse) => {
+    const req = request({ host: "127.0.0.1", port, path }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on("end", () => resolveResponse({
+        statusCode: response.statusCode,
+        headers: response.headers,
+        body: Buffer.concat(chunks).toString("utf8"),
+      }));
+    });
+    req.once("error", rejectResponse);
+    req.end();
+  });
 }

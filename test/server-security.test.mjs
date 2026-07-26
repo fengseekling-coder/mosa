@@ -32,6 +32,6 @@ test("resolves only allowed Finder paths", () => {
 });
 
 test("keeps copied library images available to both gallery and inspector", async () => {
-  const server = await readFile(resolve(import.meta.dirname, "..", "server.mjs"), "utf8");
-  assert.match(server, /Cache-Control", "public, max-age=31536000, immutable"/);
+  const runtime = await readFile(resolve(import.meta.dirname, "..", "lib", "mosa-runtime.mjs"), "utf8");
+  assert.match(runtime, /Cache-Control", "public, max-age=31536000, immutable"/);
 });

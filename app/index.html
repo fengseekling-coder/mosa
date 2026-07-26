@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MOSA — 创作资产库</title>
-    <link rel="stylesheet" href="/styles.css?v=17" />
+    <link rel="stylesheet" href="/styles.css?v=19" />
   </head>
   <body>
     <div class="toast-container" id="toastContainer" aria-live="polite"></div>
@@ -21,23 +21,35 @@
           </button>
         </div>
         <div class="modal-body">
-          <label class="field"><span data-i18n="imagePath">图片路径</span><input id="imagePathInput" data-i18n-placeholder="imagePathPlaceholder" placeholder="图片的本地绝对路径" /><small class="field-hint" id="codexSourceHint"></small></label>
+          <label class="field"><span data-i18n="imagePath">图片路径</span><input id="imagePathInput" data-i18n-placeholder="imagePathPlaceholder" placeholder="图片的本地绝对路径" aria-describedby="imagePathGuidance imagePathError" /></label>
+          <p class="field-error" id="imagePathError" role="alert" hidden></p>
+          <div class="field-guidance" id="imagePathGuidance">
+            <p><span class="field-guidance-key" data-i18n="importPathFormats">支持格式</span><span id="importFormatList"></span></p>
+            <p><span class="field-guidance-key" data-i18n="importPathExample">示例</span><code id="importPathExample"></code></p>
+            <p><span class="field-guidance-key" data-i18n="importPathCodexDir">Codex 图片目录</span><code id="codexSourceHint"></code></p>
+          </div>
           <label class="field"><span data-i18n="prompt">提示词</span><textarea id="promptInput" rows="4" data-i18n-placeholder="promptPlaceholder" placeholder="完整提示词"></textarea></label>
-          <div class="two">
-            <label class="field"><span data-i18n="skill">技能</span><input id="skillInput" placeholder="punk-cover" /></label>
-            <label class="field"><span data-i18n="style">风格</span><input id="styleInput" placeholder="cyberpunk" /></label>
-          </div>
-          <div class="two">
-            <label class="field"><span data-i18n="ratio">比例</span><input id="ratioInput" placeholder="9:16" /></label>
-            <label class="field"><span data-i18n="theme">主题</span><input id="themeInput" placeholder="orbital-luxury-vault" /></label>
-          </div>
           <div class="two">
             <label class="field"><span data-i18n="group">分组</span><input id="groupInput" placeholder="sci-fi" /></label>
             <label class="field"><span data-i18n="category">分类</span><select id="categoryInput">
               <option value="" data-i18n="none">—</option><option value="product" data-i18n="categoryProduct">产品</option><option value="concept" data-i18n="categoryConcept">概念</option><option value="texture" data-i18n="categoryTexture">纹理</option><option value="reference" data-i18n="categoryReference">参考</option><option value="other" data-i18n="categoryOther">其他</option>
             </select></label>
           </div>
-          <label class="field"><span data-i18n="businessFields">业务字段 JSON</span><textarea id="businessInput" rows="3" placeholder='{"product":"...","price":"..."}'></textarea></label>
+          <details class="import-advanced" id="importAdvanced">
+            <summary data-i18n="advancedSettings">高级设置</summary>
+            <div class="import-advanced-content">
+              <div class="two">
+                <label class="field"><span data-i18n="skill">技能</span><input id="skillInput" placeholder="punk-cover" /></label>
+                <label class="field"><span data-i18n="style">风格</span><input id="styleInput" placeholder="cyberpunk" /></label>
+              </div>
+              <div class="two">
+                <label class="field"><span data-i18n="ratio">比例</span><input id="ratioInput" placeholder="9:16" /></label>
+                <label class="field"><span data-i18n="theme">主题</span><input id="themeInput" placeholder="orbital-luxury-vault" /></label>
+              </div>
+              <label class="field"><span data-i18n="businessFields">业务字段 JSON</span><textarea id="businessInput" rows="3" placeholder='{"product":"...","price":"..."}' aria-describedby="businessFieldsError"></textarea></label>
+              <p class="field-error" id="businessFieldsError" role="alert" hidden></p>
+            </div>
+          </details>
         </div>
         <div class="modal-footer"><button class="btn-secondary" id="cancelImportBtn" type="button" data-i18n="cancel">取消</button><button class="btn-primary" id="saveAssetBtn" type="button" data-i18n="saveAsset">保存素材</button></div>
       </div>
@@ -64,7 +76,7 @@
     <div class="image-preview-modal" id="imagePreviewModal" role="dialog" aria-modal="true" aria-labelledby="imagePreviewTitle" hidden>
       <div class="image-preview-card" tabindex="-1">
         <div class="image-preview-header"><p class="eyebrow" data-i18n="viewFullImage">查看大图</p><button class="icon-button" id="closeImagePreview" type="button" data-i18n-aria-label="closePreview" aria-label="关闭大图预览"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-        <div class="image-preview-stage" id="imagePreviewStage"><img id="imagePreviewImage" alt="" /></div>
+        <div class="image-preview-stage" id="imagePreviewStage"><img id="imagePreviewImage" alt="" /><video id="imagePreviewVideo" controls playsinline hidden></video></div>
         <h3 id="imagePreviewTitle"></h3>
       </div>
     </div>
@@ -101,21 +113,25 @@
       </aside>
 
       <main class="library">
-        <header class="topbar"><div class="topbar-left"><div class="title-row"><h2 id="viewTitle">全部素材</h2><p id="assetCount" role="status" aria-live="polite">0</p></div></div><div class="topbar-right"><span class="visually-hidden" id="statusText" role="status" aria-live="polite"></span><div class="bridge-status" id="bridgeStatus" data-state="checking" role="status" aria-live="polite"><span class="bridge-dot" aria-hidden="true"></span><span id="bridgeStatusLabel" data-i18n="statusChecking">检查桥接状态…</span><span class="bridge-status-meta" id="bridgeStatusMeta"></span></div><button class="toolbar-filter" id="filterToggle" type="button" aria-expanded="false" aria-controls="filterPanel"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10m-7 6h4"/></svg><span data-i18n="refine">筛选</span><span class="filter-dot" id="filterDot" hidden></span></button><button class="create-button" id="newAssetTopBtn" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="importAsset">导入素材</span></button></div></header>
+        <header class="topbar"><div class="topbar-left"><div class="title-row"><h2 id="viewTitle">全部素材</h2><p id="assetCount" role="status" aria-live="polite">0</p></div></div><div class="topbar-right"><span class="visually-hidden" id="statusText" role="status" aria-live="polite"></span><div class="bridge-status" id="bridgeStatus" data-state="checking" role="status" aria-live="polite"><span class="bridge-dot" aria-hidden="true"></span><span id="bridgeStatusLabel" data-i18n="statusChecking">检查桥接状态…</span><span class="bridge-status-meta" id="bridgeStatusMeta"></span></div><button class="toolbar-filter" id="filterToggle" type="button" aria-expanded="false" aria-controls="filterPanel" data-i18n-aria-label="refine" aria-label="筛选"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10m-7 6h4"/></svg><span data-i18n="refine">筛选</span><span class="filter-dot" id="filterDot" hidden></span></button><button class="toolbar-filter density-toggle" id="densityToggle" type="button" aria-pressed="false" data-i18n-title="galleryDensity" title="卡片信息" data-i18n-aria-label="galleryDensity" aria-label="卡片信息"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><path d="M3 14h7M14 14h7M3 18h7M14 18h7"/></svg></button><label class="sort-control"><span class="visually-hidden" data-i18n="sortLabel">排序</span><select id="sortSelect"><option value="newest" data-i18n="sortNewest">最新</option><option value="oldest" data-i18n="sortOldest">最早</option><option value="name" data-i18n="sortName">名称</option></select></label><button class="create-button" id="newAssetTopBtn" type="button" data-i18n-aria-label="importAsset" aria-label="导入素材"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="importAsset">导入素材</span></button></div></header>
+        <div class="active-filters" id="activeFilters" data-i18n-aria-label="activeFilters" aria-label="当前筛选" hidden></div>
         <section class="grid" id="assetGrid" data-i18n-aria-label="assetList" aria-label="素材列表"></section>
       </main>
 
       <aside class="filter-panel" id="filterPanel" data-i18n-aria-label="refine" aria-label="筛选" hidden>
         <div class="filter-panel-head"><div><p class="eyebrow" data-i18n="refine">筛选</p><h3 data-i18n="findAssets">查找素材</h3></div><button class="icon-button quiet" id="clearFiltersBtn" type="button" data-i18n-title="clearFilters" data-i18n-aria-label="clearFilters" title="清除筛选" aria-label="清除筛选"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h5M20 20v-5h-5"/><path d="M5.5 15a7 7 0 0 0 12.5 1.7M18.5 9A7 7 0 0 0 6 7.3"/></svg></button></div>
+        <div class="filter-panel-search"><input type="search" id="facetSearchInput" data-i18n-placeholder="facetSearch" placeholder="搜索风格或分组" data-i18n-aria-label="facetSearch" aria-label="搜索风格或分组" /></div>
+        <div class="filter-panel-body">
         <section class="filter-section"><p data-i18n="source">来源</p><div class="filter-pills" id="sourceFilters"></div></section>
         <section class="filter-section"><p data-i18n="groups">分组</p><ul class="filter-list" id="groupList"></ul></section>
         <section class="filter-section"><p data-i18n="categories">分类</p><ul class="filter-list" id="categoryList"></ul></section>
-        <section class="filter-section"><p data-i18n="styles">风格</p><ul class="filter-list" id="styleList"></ul></section>
+        <section class="filter-section"><p data-i18n="styles">风格</p><ul class="filter-list" id="styleList"></ul><p class="filter-truncated" id="styleTruncated" hidden></p></section>
+        </div>
       </aside>
 
       <aside class="detail" id="detailPanel" data-i18n-aria-label="assetInspector" aria-label="素材检视器" aria-hidden="true"></aside>
     </div>
 
-    <script type="module" src="/app.js?v=18"></script>
+    <script type="module" src="/app.js?v=20"></script>
   </body>
 </html>

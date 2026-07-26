@@ -19,3 +19,7 @@ npm-debug.log*
 # Runtime library entries remain local.
 /mosa.db*
 /legacy-json-backup/
+
+# Electron build output.
+/desktop/out/
+/out/

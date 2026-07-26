@@ -49,8 +49,10 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
 
   assert.match(html, /id="filterPanel"/);
   assert.match(html, /class="toolbar-filter" id="filterToggle"/);
-  assert.match(app, /source", "cowart-generated"/);
-  assert.match(app, /source", "grok-generated"/);
+  // Source filtering now runs through the shared facet map instead of a chain of
+  // literal params.set calls, but the same three source values stay reachable.
+  assert.match(app, /const SOURCE_FACETS = \{[^}]*cowart: "cowart-generated"/);
+  assert.match(app, /const SOURCE_FACETS = \{[^}]*grok: "grok-generated"/);
   assert.match(app, /function setDetailOpen\(open\)/);
   assert.match(app, /state\.detailOpen = Boolean\(open\)/);
   assert.match(app, /function updateSelectedCard\(\)/);
@@ -61,6 +63,9 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
   assert.match(app, /\["grok", t\("filterGrok"\)/);
   assert.match(app, /function isVideoAsset\(/);
   assert.match(app, /function assetMediaPreviewMarkup\(/);
+  assert.match(app, /userInstruction: "用户指令"/);
+  assert.match(app, /chatgptPromptUnavailable: "ChatGPT 未暴露原始生图提示词"/);
+  assert.match(app, /const userInstructionSection = userInstruction/);
   // Global bridge health ignores Grok-only failures while still exposing Grok metadata.
   assert.match(app, /const hasError = codex\?\.lastError \|\| cowart\?\.lastError;/);
   assert.doesNotMatch(app, /const hasError = codex\?\.lastError \|\| grok\?\.lastError \|\| cowart\?\.lastError;/);
@@ -80,18 +85,18 @@ test("keeps background library refreshes from replacing active edits", async () 
   assert.match(app, /field\.addEventListener\("input", \(\) => \{ state\.detailDirty = true; \}\)/);
 });
 
-test("keeps the Cowart reuse path wired through the local server", async () => {
-  const [app, server] = await Promise.all([
+test("keeps the Cowart reuse path wired through the local runtime", async () => {
+  const [app, runtime] = await Promise.all([
     readFile(resolve(root, "app/app.js"), "utf8"),
-    readFile(resolve(root, "server.mjs"), "utf8"),
+    readFile(resolve(root, "lib/mosa-runtime.mjs"), "utf8"),
   ]);
 
   assert.match(app, /dataset\.action = "insert-cowart"/);
   assert.match(app, /data-cowart-insert-target/);
   assert.match(app, /\/insert-cowart/);
-  assert.match(server, /insert_cowart_image/);
-  assert.match(server, /mosaAssetId/);
-  assert.match(server, /Cowart insertion target is not registered/);
+  assert.match(runtime, /insert_cowart_image/);
+  assert.match(runtime, /mosaAssetId/);
+  assert.match(runtime, /Cowart insertion target is not registered/);
 });
 
 test("uses a single language chosen from system, Chinese, or English", async () => {
@@ -128,26 +133,135 @@ test("keeps recipe version history navigable without replacing active edits", as
   assert.match(app, /versionHistory: "Version history"/);
   assert.match(app, /data-version-history aria-live="polite"/);
   assert.match(app, /<ol class="version-timeline" aria-label=/);
+  assert.match(app, /version-depth-\$\{depth\}/);
+  assert.doesNotMatch(app, /style="/);
   assert.match(app, /<time datetime=/);
   assert.match(app, /aria-current="true"/);
   assert.match(app, /<label class="field version-change-field">/);
   assert.match(app, /data-action="save-version"/);
   assert.match(app, /function readRecipeDraft\(panel\)/);
   assert.match(app, /body: \{ \.\.\.readRecipeDraft\(panel\), version_change: versionChange \}/);
-  assert.match(app, /`assetId: \$\{asset\.id\}`/);
+  assert.match(app, /function activeRecipeSnapshot\(asset\)/);
+  assert.match(app, /function regenerationInstruction\(asset, snapshot\)/);
+  assert.match(app, /`assetId: \$\{JSON\.stringify\(asset\.id\)\}`/);
   assert.match(app, /imagePath: <path returned by image generation>/);
+  assert.match(app, /data-recipe-history aria-live="polite"/);
+  assert.match(app, /data-recipe-snapshot-id=/);
+  assert.match(app, /requestId !== recipeHistoryRequestSequence/);
+  assert.match(app, /recipe_change_summary: changeSummary/);
   assert.match(app, /requestId !== versionHistoryRequestSequence/);
   assert.match(app, /function renderVersionHistoryRegion\(history, selectedId, error = null\)/);
   const regionRenderer = /function renderVersionHistoryRegion[\s\S]*?\n}\n\nfunction versionHistoryMarkup/.exec(app)?.[0] || "";
   assert.doesNotMatch(regionRenderer, /renderDetail\(/);
   assert.match(app, /state\.detailAsset = asset/);
-  assert.match(app, /if \(index < 0\) return;/);
+  // Gallery navigation no longer keys off the selected index — it resolves the
+  // neighbour from rendered geometry — but it still requires a live selection.
+  assert.match(app, /if \(!state\.assets\.some\(\(asset\) => asset\.id === state\.selectedId\)\) return;/);
   assert.match(app, /function confirmDetailNavigation\(nextAssetId\)/);
   assert.match(app, /window\.confirm\(t\("discardVersionChanges"\)\)/);
   assert.match(app, /function isCurrentDetailAction\(renderId, projectId, assetId\)/);
   assert.match(app, /renderId === detailRenderSequence/);
   assert.match(app, /\[data-edit="rating"\] button/);
   assert.match(css, /\.version-timeline-item\.selected > button/);
+  assert.match(css, /\.version-depth-6 \{ margin-left: 72px; \}/);
+  assert.match(css, /\.recipe-snapshot-item \{/);
+  // The reference-rights badge must stay a text label with its own class, not
+  // colour alone, so the state survives without colour perception.
+  // The rights editor is the only way an operator can record this data, and the
+  // badge is the only place the gap is visible, so the badge must be the way in.
+  assert.match(app, /function referenceRightsMarkup\(asset\)/);
+  assert.match(app, /data-reference-rights-section/);
+  assert.match(app, /data-action="open-reference-rights"/);
+  assert.match(app, /<button type="button" class="recipe-reference-rights \$\{rights\.tone\}" data-action="open-reference-rights"/);
+  assert.match(app, /function readReferenceRightsDraft\(section, asset\)/);
+  // Gallery rows omit recipe relations, so the editor is built before the
+  // history it reads has arrived. It must redraw when the history lands or it
+  // stays empty on first open for every asset that actually has references.
+  assert.match(app, /function renderReferenceRightsRegion\(asset\)/);
+  assert.match(app, /data-reference-rights>/);
+  const historyRenderer = /function renderRecipeHistoryRegion[\s\S]*?\n}\n/.exec(app)?.[0] || "";
+  assert.match(historyRenderer, /renderReferenceRightsRegion\(asset\)/);
+  // Digest material must be copied from the snapshot, never re-read from the
+  // editor, or a rights annotation would become a different recipe.
+  assert.match(app, /asset_id: reference\.asset_id,\s*\n\s*sha256: reference\.sha256,\s*\n\s*role: reference\.role,\s*\n\s*scope: reference\.scope,\s*\n\s*applied: reference\.applied,/);
+  assert.match(app, /const USE_PERMISSION_CYCLE = \{ undeclared: "allowed", allowed: "forbidden", forbidden: "undeclared" \}/);
+  assert.match(app, /regenerateRestrictedConfirm/);
+  assert.match(app, /referenceRightsTone\(reference\) === "restricted"/);
+  // The strict CSP forbids an inline onerror attribute.
+  assert.doesNotMatch(app, /onerror=/);
+  assert.match(css, /\.use-chip\.forbidden \{/);
+  assert.match(css, /\.reference-thumb-empty \{/);
+  assert.match(app, /function referenceRightsSummary\(references\)/);
+  assert.match(app, /class="recipe-reference-rights \$\{rights\.tone\}"/);
+  assert.match(app, /referenceRightsRestricted: "\{count\} 项参考受限"/);
+  assert.match(app, /referenceRightsUnresolved: "\{count\} with unconfirmed rights"/);
+  assert.match(css, /\.recipe-reference-rights\.restricted \{/);
+  assert.match(css, /\.recipe-reference-rights\.unresolved \{/);
   assert.match(css, /\.recipe-save-actions \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(css, /\.recipe-save-btn \{[^}]*white-space: normal;/);
+});
+
+test("provides an accessible tabbed detail panel with ARIA roles", async () => {
+  const [app, css] = await Promise.all([
+    readFile(resolve(root, "app/app.js"), "utf8"),
+    readFile(resolve(root, "app/styles.css"), "utf8"),
+  ]);
+
+  assert.match(app, /tabOverview: "概览"/);
+  assert.match(app, /tabOverview: "Overview"/);
+  assert.match(app, /tabRecipe: "Recipe"/);
+  assert.match(app, /tabVersions: "Versions"/);
+  assert.match(app, /role="tablist"/);
+  assert.match(app, /role="tab" id="detailTabOverview"/);
+  assert.match(app, /role="tab" id="detailTabRecipe"/);
+  assert.match(app, /role="tab" id="detailTabVersions"/);
+  assert.match(app, /aria-controls="detailPanelOverview"/);
+  assert.match(app, /aria-controls="detailPanelRecipe"/);
+  assert.match(app, /aria-controls="detailPanelVersions"/);
+  assert.match(app, /role="tabpanel" id="detailPanelOverview"/);
+  assert.match(app, /role="tabpanel" id="detailPanelRecipe"/);
+  assert.match(app, /role="tabpanel" id="detailPanelVersions"/);
+  assert.match(app, /aria-labelledby="detailTabOverview"/);
+  assert.match(app, /function switchDetailTab\(tabId\)/);
+  assert.match(app, /function bindDetailTabEvents\(\)/);
+  assert.match(app, /state\.detailTab = "overview"/);
+  assert.match(css, /\.detail-tab-panel\[hidden\] \{ display: none; \}/);
+  assert.match(css, /\.detail-tab\[aria-selected="true"\]/);
+  assert.match(css, /\.detail-tabs/);
+});
+
+test("supports Escape to close detail panel and focus return", async () => {
+  const app = await readFile(resolve(root, "app/app.js"), "utf8");
+
+  assert.match(app, /detailReturnFocus: null/);
+  assert.match(app, /state\.detailReturnFocus = \(activeEl instanceof HTMLElement/);
+  assert.match(app, /const returnEl = state\.detailReturnFocus/);
+  assert.match(app, /if \(returnEl instanceof HTMLElement && returnEl\.isConnected\) returnEl\.focus\(\)/);
+  assert.match(app, /function setDetailOpen\(open\)/);
+  assert.match(app, /state\.detailTab = "overview"/);
+  // Focus must move on the closed -> open transition only, and must not be
+  // deferred to an animation frame (those are suspended while the window is
+  // hidden or throttled, which silently drops the focus move).
+  assert.match(app, /if \(!wasOpen\) els\.detailPanel\?\.querySelector\("#detailTitle"\)\?\.focus\(\)/);
+  assert.doesNotMatch(app, /requestAnimationFrame\(\(\) => \{\s*const firstTab/);
+});
+
+test("keeps the 960px+ side drawer layout without bottom split", async () => {
+  const css = await readFile(resolve(root, "app/styles.css"), "utf8");
+
+  assert.match(css, /\.shell\.details-open \{ grid-template-columns: 224px minmax\(0, 1fr\) clamp\(360px, 30vw, 480px\); \}/);
+  assert.match(css, /@media \(max-width: 1120px\)/);
+  assert.match(css, /@media \(max-width: 959px\)/);
+  assert.doesNotMatch(css, /1120px.*grid-template-rows.*286px/s);
+  assert.match(css, /\.detail-tab \{/);
+  assert.match(css, /\.section-head-copy/);
+});
+
+test("ensures minimum touch target sizes for accessibility", async () => {
+  const css = await readFile(resolve(root, "app/styles.css"), "utf8");
+
+  assert.match(css, /\.action-btn \{[^}]*min-height: 36px/);
+  assert.match(css, /\.detail-close \{[^}]*min-height: 36px/);
+  assert.match(css, /\.cowart-target-select \{[^}]*min-height: 36px/);
+  assert.match(css, /\.section-head-copy \{[^}]*min-height: 36px/);
 });

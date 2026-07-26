@@ -4,6 +4,10 @@
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
+  "main": "desktop/main.mjs",
+  "config": {
+    "forge": "desktop/forge.config.mjs"
+  },
   "engines": {
     "node": ">=22.0.0"
   },
@@ -18,13 +22,20 @@
     "check": "node scripts/check-source.mjs",
     "audit": "npm audit --omit=dev",
     "test:performance": "MOSA_PERF_TEST=1 node --test test/performance.test.mjs",
-    "verify:codex": "node scripts/verify-codex-asset.mjs"
+    "verify:codex": "node scripts/verify-codex-asset.mjs",
+    "desktop:start": "electron desktop/main.mjs",
+    "desktop:package": "electron-forge package --platform darwin --arch arm64",
+    "desktop:make": "electron-forge make --platform darwin --arch arm64"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.1",
     "sharp": "^0.35.3"
   },
   "devDependencies": {
-    "eslint": "^10.7.0"
+    "eslint": "^10.7.0",
+    "electron": "43.2.0",
+    "@electron-forge/cli": "7.11.2",
+    "@electron-forge/maker-zip": "7.11.2",
+    "@electron-forge/plugin-auto-unpack-natives": "7.11.2"
   }
 }

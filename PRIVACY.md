@@ -25,6 +25,8 @@ The selected local MOSA library can contain:
 - version relationships, tags, archive state, and collection metadata;
 - for ChatGPT capture, page URL, conversation/message identifiers, capture time, and extension version when available.
 
+A recipe may also record rights declarations for the reference images it used: copyright state, portrait-consent state, redistribution state, an attribution string, and the purposes the reference may or may not serve. These are entered by the user, not detected. They can concern identifiable third parties, so an attribution name is personal data and the library should be treated accordingly. MOSA never infers consent: every field starts at `unknown`, and silence is never recorded as permission.
+
 The library is stored on the user's machine. MOSA does not upload it to a MOSA-operated service.
 
 ## ChatGPT Chrome Extension

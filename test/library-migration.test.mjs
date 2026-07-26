@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { inspectLegacyLibrary, migrateLegacyLibrary, verifySqliteLibrary } from "../lib/library-migration.mjs";
+import { createAssetStore, createJsonAssetStore } from "../lib/asset-store.mjs";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+1CBR3wAAAABJRU5ErkJggg==", "base64");
@@ -221,4 +222,41 @@ test("migration reports cross-project parents and multi-node cycles", async (t) 
   const report = await migrateLegacyLibrary({ managerDir, projectRoot: root, libraryDir: join(root, "library") });
   assert.equal(report.completed, false);
   assert.equal(report.backupPath, null);
+});
+
+test("migration turns hard-linked Codex assets into copies that re-linking reclaims", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-migrate-hardlink-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const codexImagesDir = join(root, ".codex", "generated_images");
+  const codexPath = join(codexImagesDir, "task-1", "generated.png");
+  await mkdir(join(codexImagesDir, "task-1"), { recursive: true });
+  await writeFile(codexPath, PNG);
+
+  const legacy = createJsonAssetStore({ projectRoot, managerDir, codexImagesDir });
+  const imported = await legacy.createAsset({ assetId: "codex-legacy", imagePath: codexPath, prompt: "a linked import" });
+  assert.equal(imported.source.storage_mode, "hard-link");
+  assert.equal((await stat(imported.image_path)).ino, (await stat(codexPath)).ino);
+
+  // Migration re-imports each record from the legacy *library* file, not from the Codex path,
+  // so `createAsset` sees a non-Codex source and copies. Every previously linked asset lands
+  // in the new library as a second set of bytes.
+  const libraryDir = join(root, "library");
+  const report = await migrateLegacyLibrary({ managerDir, projectRoot, libraryDir });
+  assert.equal(report.completed, true);
+
+  const store = createAssetStore({ projectRoot, managerDir, libraryDir });
+  t.after(() => store.close());
+  assert.equal(store.storageKind, "sqlite", "a completed migration must route the maintenance pass to SQLite");
+  const migrated = await store.getAsset("default", "codex-legacy");
+  assert.equal(migrated.source.type, "codex-generated");
+  assert.equal(migrated.source.storage_mode, "copy");
+  assert.notEqual((await stat(migrated.image_path)).ino, (await stat(codexPath)).ino);
+
+  const result = await store.migrateCodexAssetsToHardLinks("default");
+  assert.deepEqual(result.migrated, ["codex-legacy"]);
+  assert.equal((await stat(migrated.image_path)).ino, (await stat(codexPath)).ino, "the duplicated bytes are reclaimed");
+  assert.equal((await store.getAsset("default", "codex-legacy")).source.storage_mode, "hard-link");
+  assert.equal((await verifySqliteLibrary({ managerDir, projectRoot, libraryDir })).ok, true);
 });
