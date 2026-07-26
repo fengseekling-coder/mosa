@@ -3,6 +3,7 @@ const DEFAULTS = {
   mosaToken: "",
   autoCapture: true,
 };
+const LEGACY_DEV_TOKEN = "mosa-web-capture-dev";
 
 const statusEl = document.getElementById("status");
 const baseUrlEl = document.getElementById("mosaBaseUrl");
@@ -18,27 +19,64 @@ async function load() {
 }
 
 document.getElementById("save").addEventListener("click", async () => {
+  const token = tokenEl.value.trim();
+  if (token === LEGACY_DEV_TOKEN) {
+    setStatus("旧开发 Token 已失效。请填写与当前 MOSA 服务一致的新随机 Token。", "error");
+    return;
+  }
   await chrome.storage.local.set({
     mosaBaseUrl: baseUrlEl.value.trim() || DEFAULTS.mosaBaseUrl,
-    mosaToken: tokenEl.value.trim(),
+    mosaToken: token,
     autoCapture: autoCaptureEl.checked,
   });
-  statusEl.textContent = "已保存。请刷新 ChatGPT 页面使内容脚本生效。";
+  setStatus("已保存。请刷新 ChatGPT 页面使内容脚本生效。", "success");
 });
 
 document.getElementById("test").addEventListener("click", async () => {
-  statusEl.textContent = "测试中…";
+  setStatus("测试中…", "success");
   const baseUrl = (baseUrlEl.value.trim() || DEFAULTS.mosaBaseUrl).replace(/\/+$/, "");
+  const token = tokenEl.value.trim();
+  if (!token) {
+    setStatus("请先填写 Ingest Token。", "error");
+    return;
+  }
+  if (token === LEGACY_DEV_TOKEN) {
+    setStatus("旧开发 Token 已失效。请填写与当前 MOSA 服务一致的新随机 Token。", "error");
+    return;
+  }
   try {
-    const response = await fetch(`${baseUrl}/api/web-capture`);
+    // A deliberately incomplete ingest request exercises the real Bearer-token
+    // path without writing an asset. A valid token reaches image validation.
+    const response = await fetch(`${baseUrl}/api/ingest/web-capture`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ provider: "chatgpt", mimeType: "image/png", imageBase64: "" }),
+    });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    statusEl.textContent = data.bridge?.enabled
-      ? `连接成功：providers=${(data.bridge?.providers || []).join(",")}`
-      : "已连接，但 Web Capture 未启用。请检查服务端 Token 与扩展来源白名单。";
+    if (response.status === 400 && data.code === "WEB_CAPTURE_BAD_IMAGE") {
+      setStatus("连接和 Token 验证成功。", "success");
+      return;
+    }
+    if (response.status === 401 && data.code === "WEB_CAPTURE_UNAUTHORIZED") {
+      setStatus("Token 不匹配。请填写当前 MOSA 服务配置的 Token。", "error");
+      return;
+    }
+    if (response.status === 403) {
+      setStatus("扩展来源未获服务端批准。请检查 MOSA_WEB_CAPTURE_ORIGINS。", "error");
+      return;
+    }
+    throw new Error(data.error || `HTTP ${response.status}`);
   } catch (error) {
-    statusEl.textContent = `连接失败：${error instanceof Error ? error.message : String(error)}`;
+    setStatus(`连接失败：${error instanceof Error ? error.message : String(error)}`, "error");
   }
 });
+
+function setStatus(message, kind) {
+  statusEl.textContent = message;
+  statusEl.style.color = kind === "error" ? "#b91c1c" : "#166534";
+}
 
 load();

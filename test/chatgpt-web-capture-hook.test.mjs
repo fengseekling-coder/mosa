@@ -11,17 +11,48 @@ const contentSource = await readFile(new URL("../extensions/chatgpt-web-capture/
 const optionsSource = await readFile(new URL("../extensions/chatgpt-web-capture/options.js", import.meta.url), "utf8");
 const optionsHtml = await readFile(new URL("../extensions/chatgpt-web-capture/options.html", import.meta.url), "utf8");
 
-function createHookHarness(payload, conversationId = "conversation-test") {
+function createHookHarness(payload, conversationId = "conversation-test", options = {}) {
   const events = [];
+  const requestedUrls = [];
+  const requestedInits = [];
+  let messageListener = null;
   const window = {
-    fetch: async () => ({
-      clone: () => ({ text: async () => JSON.stringify(payload) }),
-    }),
+    fetch: async (url, init) => {
+      requestedUrls.push(String(url));
+      requestedInits.push(init || null);
+      if (typeof options.respond === "function") {
+        const override = options.respond(String(url), init);
+        if (override) return override;
+      }
+      return {
+        ok: true,
+        clone: () => ({ text: async () => JSON.stringify(payload) }),
+        text: async () => JSON.stringify(payload),
+      };
+    },
+    addEventListener: (type, listener) => {
+      if (type === "message") messageListener = listener;
+    },
     postMessage: (event) => events.push(event),
+    WebSocket: class MockWebSocket {
+      constructor(url) {
+        this.url = url;
+        this.messageListeners = [];
+      }
+
+      addEventListener(type, listener) {
+        if (type === "message") this.messageListeners.push(listener);
+      }
+
+      emit(data) {
+        for (const listener of this.messageListeners) listener({ data });
+      }
+    },
   };
   function MockXHR() {}
   MockXHR.prototype.open = () => {};
   MockXHR.prototype.send = () => {};
+  MockXHR.prototype.setRequestHeader = () => {};
 
   vm.runInNewContext(hookSource, {
     Date,
@@ -31,15 +62,37 @@ function createHookHarness(payload, conversationId = "conversation-test") {
     String,
     URL,
     XMLHttpRequest: MockXHR,
+    // Base64 and UTF-8 decoding are page APIs the hook needs for socket frames.
+    atob: globalThis.atob,
+    TextDecoder: globalThis.TextDecoder,
+    Uint8Array: globalThis.Uint8Array,
+    ArrayBuffer: globalThis.ArrayBuffer,
     document: { documentElement: {}, addEventListener: () => {} },
-    location: { pathname: `/c/${conversationId}` },
+    location: { origin: "https://chatgpt.com", pathname: `/c/${conversationId}` },
     window,
   }, { filename: "page-hook.js" });
 
   return {
     events,
-    async harvest() {
-      await window.fetch("https://chatgpt.com/backend-api/conversation/test");
+    requestedUrls,
+    requestedInits,
+    async harvest(init) {
+      await window.fetch("https://chatgpt.com/backend-api/conversation/test", init);
+      await setImmediate();
+    },
+    async socketFrame(data) {
+      const socket = new window.WebSocket("wss://chatgpt.com/client/hubs/conversations");
+      socket.emit(data);
+      await setImmediate();
+      await setImmediate();
+    },
+    async refreshCurrentConversation() {
+      assert.ok(messageListener, "page hook should listen for refresh requests");
+      messageListener({
+        source: window,
+        data: { source: "mosa-chatgpt-capture", type: "refresh-current-conversation" },
+      });
+      await setImmediate();
       await setImmediate();
     },
   };
@@ -66,6 +119,124 @@ test("uses safe local extension settings without a public Token default", () => 
   assert.doesNotMatch(contentSource, /chrome\.storage\.sync\.set/);
   assert.match(optionsSource, /chrome\.storage\.local\.set/);
   assert.match(optionsHtml, /type="password"/);
+});
+
+test("clears the legacy development Token and verifies the real ingest authorization path", () => {
+  assert.match(backgroundSource, /const LEGACY_DEV_TOKEN = "mosa-web-capture-dev"/);
+  assert.match(backgroundSource, /const localToken = normalizeStoredToken\(local\.mosaToken\)/);
+  assert.match(backgroundSource, /mosaToken: localToken \|\| migratedToken \|\| DEFAULTS\.mosaToken/);
+  assert.match(optionsSource, /authorization: `Bearer \$\{token\}`/);
+  assert.match(optionsSource, /WEB_CAPTURE_BAD_IMAGE/);
+  assert.match(optionsSource, /WEB_CAPTURE_UNAUTHORIZED/);
+});
+
+function loadImageLookupKeys() {
+  const source = ["chatGptImageProxyInfo", "normalizeAssetId", "imageLookupKeys"].map((name) => {
+    const match = new RegExp(`\\n {2}function ${name}\\([\\s\\S]*?\\n {2}\\}`).exec(contentSource);
+    assert.ok(match, `${name} should be extractable from content.js`);
+    return match[0];
+  }).join("\n");
+  const context = { Set, String, URL, location: { href: "https://chatgpt.com/c/demo" } };
+  vm.runInNewContext(source, context, { filename: "content-lookup.js" });
+  return context.imageLookupKeys;
+}
+
+test("resolves every URL variant of one ChatGPT file to a shared identity", () => {
+  const imageLookupKeys = loadImageLookupKeys();
+  const estuary = imageLookupKeys("https://chatgpt.com/backend-api/estuary/content?cid=demo&id=file-abc123def&ts=1&sig=first");
+  const cdn = imageLookupKeys("https://files.oaiusercontent.com/file-abc123def?se=2026-07-26&sig=second");
+  const cdnResigned = imageLookupKeys("https://files.oaiusercontent.com/file-abc123def?se=2026-07-27&sig=third");
+  const other = imageLookupKeys("https://files.oaiusercontent.com/file-zzz987yyy?se=2026-07-26&sig=fourth");
+
+  assert.ok(estuary.includes("asset:file-abc123def"));
+  assert.ok(cdn.includes("asset:file-abc123def"));
+  assert.ok(estuary.some((key) => cdn.includes(key)), "Estuary and CDN links must share an identity");
+  assert.deepEqual(cdn, cdnResigned, "a re-signed link is the same image");
+  assert.equal(other.some((key) => cdn.includes(key)), false, "different files stay separate");
+});
+
+test("archives one row per uploaded reference photo", () => {
+  // The same upload surfaces as a composer blob, an Estuary proxy URL and a
+  // signed CDN link. Keying on the raw src archived it once per variant.
+  assert.match(contentSource, /const savedIdentityKeys = new Set\(\)/);
+  assert.match(contentSource, /function isSavedCandidate\(candidate\)/);
+  assert.match(contentSource, /function rememberSavedCandidate\(candidate\)/);
+  assert.match(contentSource, /if \(isSavedCandidate\(candidate\)\) return false;/);
+  assert.doesNotMatch(contentSource, /if \(savedKeys\.has\(key\)\) return false;/);
+
+  // A composer attachment is re-rendered inside the sent message at a capped
+  // size, so capturing both produced two differently sized assets.
+  assert.match(contentSource, /function isComposerNode\(node\)/);
+  assert.match(contentSource, /if \(!manual && isComposerNode\(img\)\) return false;/);
+  assert.match(contentSource, /if \(!manual && isComposerNode\(el\)\) continue;/);
+
+  // The Estuary proxy and the signed CDN link carry the same file id. Without
+  // it they read as two images, and their bytes differ (canvas re-encode vs
+  // served file), so the server content-hash dedupe cannot merge them either.
+  assert.match(contentSource, /if \(fileId\) keys\.push\(`asset:\$\{fileId\}`\);/);
+
+  // Canvas stays the primary byte source: reordering it would re-import every
+  // asset already archived from a canvas snapshot under a new content hash.
+  const bytesFn = /async function bytesFromUrlOrImg\(candidate\) \{[\s\S]*?\n {2}\}/.exec(contentSource)?.[0] || "";
+  assert.ok(bytesFn, "bytesFromUrlOrImg should exist");
+  assert.ok(bytesFn.indexOf("canvasBytesFromImage(candidate.el)") < bytesFn.indexOf("originalBytesFromUrl("));
+
+  assert.match(contentSource, /isReference: isReferenceCandidate\(candidate\)/);
+  assert.match(backgroundSource, /is_reference: Boolean\(payload\.isReference\)/);
+});
+
+test("uses only a same-message Model caption when conversation metadata is cached", () => {
+  assert.equal(manifest.version, "0.9.0");
+  assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
+  assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
+  assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
+  assert.match(contentSource, /via: "dom-message-caption"/);
+});
+
+test("keeps a same-message user instruction separate and retries for a late caption", () => {
+  assert.doesNotMatch(contentSource, /allowUserMessageFallback/);
+  assert.doesNotMatch(contentSource, /promptSource: "bound-user-message"/);
+  assert.match(contentSource, /function domCandidateForImage\(imageUrl\)/);
+  assert.match(contentSource, /function enqueueDomCandidateForImage\(imageUrl, reason\)/);
+  assert.match(contentSource, /function schedulePromptRecovery\(candidate\)/);
+  assert.match(contentSource, /function currentViewportCandidate\(candidates\)/);
+  assert.match(contentSource, /const delays = \[2_800, 7_200\]/);
+});
+
+test("refreshes only the active conversation to recover a late Model caption", async () => {
+  const caption = "Model caption: A detailed retro travel poster for Nanjing, China, with cream paper, bold red Art Deco typography, city vignettes, and a screen-print editorial layout.";
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    mapping: {
+      nanjing: {
+        message: {
+          id: "message-nanjing",
+          author: { role: "tool" },
+          content: {
+            parts: [
+              caption,
+              { asset_pointer: "sediment://file-nanjing" },
+            ],
+          },
+        },
+      },
+    },
+  });
+
+  await harness.refreshCurrentConversation();
+
+  assert.deepEqual(harness.requestedUrls, [
+    "https://chatgpt.com/backend-api/conversation/conversation-test",
+  ]);
+  assert.deepEqual(generationEvents(harness).map((event) => ({
+    imageKey: event.payload.imageKey,
+    prompt: event.payload.prompt,
+    promptStatus: event.payload.promptStatus,
+  })), [{
+    imageKey: "estuary:conversation-test:file-nanjing",
+    prompt: caption,
+    promptStatus: "visible-caption",
+  }]);
 });
 
 test("binds revised prompts to ChatGPT Estuary cid/id keys", async () => {
@@ -164,6 +335,131 @@ test("binds a Model caption in the same tool message when dalle.prompt is blank"
     promptStatus: "visible-caption",
     prompt: caption,
   }]);
+});
+
+test("reuses the page's own backend-api credentials when refreshing a conversation", async () => {
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} });
+
+  // The ChatGPT app itself calls backend-api with a bearer token. A refresh that
+  // omits it is rejected, which is what disabled late-caption recovery.
+  await harness.harvest({
+    headers: {
+      Authorization: "Bearer page-session-token",
+      "OAI-Device-Id": "device-abc",
+      "X-Unrelated-Secret": "must-not-be-copied",
+    },
+  });
+  await harness.refreshCurrentConversation();
+
+  const refreshIndex = harness.requestedUrls.indexOf("https://chatgpt.com/backend-api/conversation/conversation-test");
+  assert.ok(refreshIndex >= 0, "the refresh should reach the conversation endpoint");
+  const headers = harness.requestedInits[refreshIndex]?.headers || {};
+  assert.equal(headers.authorization, "Bearer page-session-token");
+  assert.equal(headers["oai-device-id"], "device-abc");
+  assert.equal(Object.hasOwn(headers, "x-unrelated-secret"), false, "only the known auth headers are replayed");
+});
+
+test("keeps page credentials inside the page world", async () => {
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} });
+  await harness.harvest({ headers: { Authorization: "Bearer page-session-token" } });
+  await harness.refreshCurrentConversation();
+
+  const posted = JSON.stringify(harness.events);
+  assert.equal(posted.includes("page-session-token"), false, "a captured token must never be posted out of the page");
+  assert.doesNotMatch(contentSource, /authorization/i);
+  // The captured values may leave the map for exactly one destination: the
+  // same-origin conversation request. Reporting only whether one exists is fine.
+  assert.doesNotMatch(hookSource, /forwardedHeaders\.get\b/);
+  assert.equal((hookSource.match(/Object\.fromEntries\(forwardedHeaders\)/g) || []).length, 1);
+});
+
+test("reports a failed conversation refresh instead of losing it silently", async () => {
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", {
+    respond: () => ({ ok: false, status: 401, text: async () => "", clone: () => ({ text: async () => "" }) }),
+  });
+
+  await harness.refreshCurrentConversation();
+
+  const failure = harness.events.find((event) => event.type === "conversation-refresh-failed");
+  assert.ok(failure, "a rejected refresh must be reported");
+  assert.equal(failure.payload.status, 401);
+  assert.equal(failure.payload.authorized, false);
+  assert.match(contentSource, /data\.type === "conversation-refresh-failed"/);
+});
+
+test("harvests a caption from the live WebSocket stream", async () => {
+  // ChatGPT streams a live answer over a socket, so fetch and XHR never see the
+  // caption of an image generated while the page stays open.
+  const caption = "Model caption: 一张暖色沙漠时装大片海报，构图为低角度仰拍，画面有强烈的电影感光影与胶片颗粒，排版为杂志封面风格。";
+  const frame = `data: ${JSON.stringify({
+    conversation_id: "conversation-test",
+    message: {
+      id: "message-live",
+      author: { role: "tool" },
+      content: { parts: [caption, { asset_pointer: "sediment://file-live" }] },
+    },
+  })}\n\n`;
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} });
+
+  await harness.socketFrame(JSON.stringify({
+    type: "http.response.body",
+    body: Buffer.from(frame, "utf8").toString("base64"),
+    more_body: true,
+  }));
+
+  assert.deepEqual(generationEvents(harness).map((event) => ({
+    imageKey: event.payload.imageKey,
+    prompt: event.payload.prompt,
+    promptStatus: event.payload.promptStatus,
+  })), [{
+    imageKey: "estuary:conversation-test:file-live",
+    prompt: caption,
+    promptStatus: "visible-caption",
+  }]);
+});
+
+test("accepts an unmarked caption in the image tool message", async () => {
+  // The "Model caption:" marker is OpenAI wording that has changed before.
+  const caption = "A dramatic low-angle sports portrait scene with cinematic side lighting, a warm desert background, bold editorial typography, and a premium magazine cover layout.";
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    mapping: {
+      unmarked: {
+        message: {
+          id: "message-unmarked",
+          author: { role: "tool" },
+          content: { parts: [caption, { asset_pointer: "sediment://file-unmarked" }] },
+        },
+      },
+    },
+  });
+
+  await harness.harvest();
+
+  assert.deepEqual(generationEvents(harness).map((event) => ({
+    prompt: event.payload.prompt,
+    promptStatus: event.payload.promptStatus,
+  })), [{ prompt: caption, promptStatus: "visible-caption" }]);
+});
+
+test("does not mistake assistant prose about an image for its caption", async () => {
+  const prose = "Here is the poster you asked for. I kept the lighting cinematic and the typography bold so the layout reads clearly, and I can adjust the composition or palette if you want a different style.";
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    mapping: {
+      prose: {
+        message: {
+          id: "message-prose",
+          author: { role: "assistant" },
+          content: { content_type: "multimodal_text", parts: [prose, { asset_pointer: "sediment://file-prose" }] },
+        },
+      },
+    },
+  });
+
+  await harness.harvest();
+
+  assert.deepEqual(generationEvents(harness), [], "chat prose is not a generation caption");
 });
 
 test("does not attach a prompt from one message to an unrelated image message", async () => {

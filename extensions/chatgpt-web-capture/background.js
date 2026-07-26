@@ -4,6 +4,7 @@ const DEFAULTS = {
   autoCapture: true, // always default on
 };
 const STORAGE_KEYS = ["mosaBaseUrl", "mosaToken", "autoCapture"];
+const LEGACY_DEV_TOKEN = "mosa-web-capture-dev";
 let settingsMigration;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -55,16 +56,22 @@ function migrateSettingsToLocal() {
       chrome.storage.local.get(null),
       chrome.storage.sync.get(STORAGE_KEYS),
     ]);
-    const migratedToken = synced.mosaToken === "mosa-web-capture-dev" ? "" : synced.mosaToken;
+    const localToken = normalizeStoredToken(local.mosaToken);
+    const migratedToken = normalizeStoredToken(synced.mosaToken);
     const patch = {
       mosaBaseUrl: local.mosaBaseUrl || synced.mosaBaseUrl || DEFAULTS.mosaBaseUrl,
-      mosaToken: local.mosaToken || migratedToken || DEFAULTS.mosaToken,
+      mosaToken: localToken || migratedToken || DEFAULTS.mosaToken,
       autoCapture: local.autoCapture ?? synced.autoCapture ?? DEFAULTS.autoCapture,
     };
     await chrome.storage.local.set(patch);
     await chrome.storage.sync.remove(STORAGE_KEYS);
   })();
   return settingsMigration;
+}
+
+function normalizeStoredToken(value) {
+  const token = String(value || "").trim();
+  return token === LEGACY_DEV_TOKEN ? "" : token;
 }
 
 async function fetchImageAsBase64(url) {
@@ -134,6 +141,7 @@ async function ingestToMosa(payload = {}) {
         prompt_status: payload.promptStatus || (payload.prompt ? "user-message" : "not-available"),
         user_message: payload.userMessage || payload.user_message || "",
         prompt_source: payload.promptSource || payload.prompt_source || "",
+        is_reference: Boolean(payload.isReference),
         imageBase64,
         mimeType,
         pageUrl: payload.pageUrl || "",
