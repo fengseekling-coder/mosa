@@ -1052,7 +1052,7 @@
 
   async function loadSettings() {
     try {
-      const response = await chrome.runtime.sendMessage({ type: "mosa.getSettings" });
+      const response = await runtimeSend({ type: "mosa.getSettings" });
       if (response?.ok && response.settings) {
         // Force-enable auto if missing; respect explicit false.
         autoCapture = response.settings.autoCapture !== false;
@@ -1062,7 +1062,7 @@
     }
     // Persist true default so options page matches.
     try {
-      await chrome.storage.local.set({ autoCapture });
+      chrome.storage?.local?.set?.({ autoCapture });
     } catch {
       // ignore
     }

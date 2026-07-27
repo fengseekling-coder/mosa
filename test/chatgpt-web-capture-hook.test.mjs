@@ -115,7 +115,7 @@ test("uses safe local extension settings without a public Token default", () => 
   assert.doesNotMatch(backgroundSource, /mosaToken:\s*"mosa-web-capture-dev"/);
   assert.match(backgroundSource, /chrome\.storage\.local\.get/);
   assert.match(backgroundSource, /chrome\.storage\.local\.set/);
-  assert.match(contentSource, /chrome\.storage\.local\.set/);
+  assert.match(contentSource, /chrome\.storage\?\.local\?\.set\?\./);
   assert.doesNotMatch(contentSource, /chrome\.storage\.sync\.set/);
   assert.match(optionsSource, /chrome\.storage\.local\.set/);
   assert.match(optionsHtml, /type="password"/);
