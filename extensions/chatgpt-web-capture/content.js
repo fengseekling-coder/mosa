@@ -61,6 +61,7 @@
   let autoQueue = Promise.resolve();
   let contextLost = false;
   let autoScanInterval = null;
+  let observer = null;
 
   function showToast(message, isError = false) {
     let el = document.getElementById("mosa-capture-toast");
@@ -347,7 +348,7 @@
     contextLost = true;
     if (autoScanInterval) clearInterval(autoScanInterval);
     if (scanTimer) clearTimeout(scanTimer);
-    observer.disconnect();
+    observer?.disconnect();
     for (const timers of promptRecoveryTimers.values()) {
       for (const timer of timers) clearTimeout(timer);
     }
@@ -1054,17 +1055,20 @@
     try {
       const response = await runtimeSend({ type: "mosa.getSettings" });
       if (response?.ok && response.settings) {
-        // Force-enable auto if missing; respect explicit false.
         autoCapture = response.settings.autoCapture !== false;
+        return;
       }
     } catch {
-      autoCapture = true;
+      if (contextLost) return;
     }
-    // Persist true default so options page matches.
+
+    // The background owns defaults and migration. A temporary messaging failure
+    // must never overwrite an explicit local "off" preference.
     try {
-      chrome.storage?.local?.set?.({ autoCapture });
+      const stored = await chrome.storage?.local?.get?.({ autoCapture });
+      if (stored) autoCapture = stored.autoCapture !== false;
     } catch {
-      // ignore
+      // Keep the in-memory value when both settings paths are unavailable.
     }
   }
 
@@ -1125,12 +1129,7 @@
     }
   });
 
-  // Boot. page-hook.js is a document_start MAIN-world content script.
-  ensureDock();
-  loadSettings().then(() => scheduleScan(true));
-  scheduleScan(true);
-
-  const observer = new MutationObserver(() => scheduleScan(false));
+  observer = new MutationObserver(() => scheduleScan(false));
   const startObs = () => {
     observer.observe(document.documentElement || document.body, {
       childList: true,
@@ -1141,6 +1140,11 @@
   };
   if (document.documentElement) startObs();
   else document.addEventListener("DOMContentLoaded", startObs, { once: true });
+
+  // Boot. page-hook.js is a document_start MAIN-world content script.
+  ensureDock();
+  loadSettings().then(() => scheduleScan(true));
+  scheduleScan(true);
 
   // Aggressive periodic auto scan — user explicitly wants hands-free save.
   // Doubles as the orphan watchdog: an extension reload flips the dock to the
@@ -1154,7 +1158,7 @@
   }, 2000);
 
   chrome.storage?.onChanged?.addListener((changes, area) => {
-    if (area !== "sync" || !changes.autoCapture) return;
+    if (area !== "local" || !changes.autoCapture) return;
     autoCapture = changes.autoCapture.newValue !== false;
     setStatus(autoCapture ? "自动开" : "自动关");
     if (autoCapture) scheduleScan(true);

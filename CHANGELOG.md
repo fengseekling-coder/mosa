@@ -15,6 +15,7 @@ This file records user-visible changes. Operational deployment state and local p
 - Added a loopback-only ingest endpoint and bridge status endpoint. Web capture is disabled until `MOSA_WEB_CAPTURE_TOKEN` is explicitly configured.
 - Added image-byte, MIME, size, pixel-count, origin, and request-envelope validation for browser-extension ingestion.
 - Stores the extension address, Token, and auto-capture preference in Chrome local storage rather than synchronized storage.
+- Hardened extension reload handling so startup context loss is reported reliably and temporary settings failures cannot re-enable auto-capture or overwrite the saved preference.
 
 ### Project documentation
 

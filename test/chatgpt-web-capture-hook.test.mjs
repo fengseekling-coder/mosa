@@ -115,7 +115,7 @@ test("uses safe local extension settings without a public Token default", () => 
   assert.doesNotMatch(backgroundSource, /mosaToken:\s*"mosa-web-capture-dev"/);
   assert.match(backgroundSource, /chrome\.storage\.local\.get/);
   assert.match(backgroundSource, /chrome\.storage\.local\.set/);
-  assert.match(contentSource, /chrome\.storage\?\.local\?\.set\?\./);
+  assert.match(contentSource, /chrome\.storage\?\.local\?\.get\?\./);
   assert.doesNotMatch(contentSource, /chrome\.storage\.sync\.set/);
   assert.match(optionsSource, /chrome\.storage\.local\.set/);
   assert.match(optionsHtml, /type="password"/);
@@ -186,7 +186,7 @@ test("archives one row per uploaded reference photo", () => {
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.9.1");
+  assert.equal(manifest.version, "0.9.2");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
@@ -225,6 +225,125 @@ test("an orphaned content script explains itself instead of dying on sendMessage
   const interval = /autoScanInterval = setInterval\(\(\) => \{[\s\S]*?\n {2}\}, 2000\);/.exec(contentSource)?.[0] || "";
   assert.ok(interval, "auto scan interval should be extractable from content.js");
   assert.match(interval, /markContextLost\(\)/);
+});
+
+function loadSettingsHarness({ response, responseError, localValue = true } = {}) {
+  const loadSettings = /async function loadSettings\(\) \{[\s\S]*?\n {2}\}/.exec(contentSource)?.[0] || "";
+  assert.ok(loadSettings, "loadSettings should be extractable from content.js");
+  const localReads = [];
+  const localWrites = [];
+  const context = {
+    chrome: {
+      storage: {
+        local: {
+          get: async (defaults) => {
+            localReads.push(defaults);
+            return { autoCapture: localValue };
+          },
+          set: async (value) => localWrites.push(value),
+        },
+      },
+    },
+    contextLost: false,
+    runtimeSend: async () => {
+      if (responseError) throw responseError;
+      return response;
+    },
+  };
+  vm.runInNewContext(`
+    let autoCapture = true;
+    ${loadSettings}
+    globalThis.runLoadSettings = async () => {
+      await loadSettings();
+      return autoCapture;
+    };
+  `, context, { filename: "content-settings.js" });
+  return { context, localReads, localWrites };
+}
+
+test("a settings read failure preserves an explicit local auto-capture choice", async () => {
+  const harness = loadSettingsHarness({
+    responseError: new Error("background temporarily unavailable"),
+    localValue: false,
+  });
+
+  assert.equal(await harness.context.runLoadSettings(), false);
+  assert.equal(harness.localReads.length, 1);
+  assert.equal(harness.localReads[0].autoCapture, true);
+  assert.deepEqual(harness.localWrites, [], "the content script must not rewrite settings");
+});
+
+test("the background setting wins without a redundant local read", async () => {
+  const harness = loadSettingsHarness({
+    response: { ok: true, settings: { autoCapture: false } },
+    localValue: true,
+  });
+
+  assert.equal(await harness.context.runLoadSettings(), false);
+  assert.deepEqual(harness.localReads, []);
+  assert.deepEqual(harness.localWrites, []);
+});
+
+test("startup context loss disconnects an initialized observer without a TDZ error", async () => {
+  const observerAssignment = contentSource.indexOf("observer = new MutationObserver");
+  const settingsBoot = contentSource.indexOf("loadSettings().then");
+  assert.ok(observerAssignment !== -1 && observerAssignment < settingsBoot);
+  assert.match(contentSource, /observer\?\.disconnect\(\)/);
+
+  const markContextLost = /function markContextLost\(\) \{[\s\S]*?\n {2}\}/.exec(contentSource)?.[0] || "";
+  const runtimeSend = /async function runtimeSend\(message\) \{[\s\S]*?\n {2}\}/.exec(contentSource)?.[0] || "";
+  const context = {
+    CONTEXT_LOST_MESSAGE: "refresh required",
+    Error,
+    autoScanInterval: null,
+    clearInterval,
+    clearTimeout,
+    chrome: {},
+    contextLost: false,
+    document: { getElementById: () => null },
+    extensionAlive: () => false,
+    observer: { disconnectCalled: 0, disconnect() { this.disconnectCalled += 1; } },
+    promptRecoveryTimers: new Map(),
+    scanTimer: null,
+    setStatus: () => {},
+    showToast: () => {},
+  };
+  vm.runInNewContext(`
+    ${markContextLost}
+    ${runtimeSend}
+    globalThis.runRuntimeSend = () => runtimeSend({ type: "mosa.getSettings" });
+  `, context, { filename: "content-context-loss.js" });
+
+  await assert.rejects(context.runRuntimeSend(), /refresh required/);
+  assert.equal(context.observer.disconnectCalled, 1);
+  assert.equal(context.contextLost, true);
+});
+
+test("an open page follows auto-capture changes from local storage only", () => {
+  const listener = /chrome\.storage\?\.onChanged\?\.addListener\(\(changes, area\) => \{[\s\S]*?\n {2}\}\);/.exec(contentSource)?.[0] || "";
+  assert.ok(listener, "storage listener should be extractable from content.js");
+  let storageListener = null;
+  const context = {
+    chrome: { storage: { onChanged: { addListener: (callback) => { storageListener = callback; } } } },
+    state: {},
+  };
+  vm.runInNewContext(`
+    let autoCapture = true;
+    let scheduled = 0;
+    let status = "";
+    function scheduleScan() { scheduled += 1; }
+    function setStatus(value) { status = value; }
+    ${listener}
+    globalThis.readState = () => ({ autoCapture, scheduled, status });
+  `, context, { filename: "content-storage-listener.js" });
+
+  assert.equal(typeof storageListener, "function");
+  storageListener({ autoCapture: { newValue: false } }, "local");
+  assert.equal(JSON.stringify(context.readState()), JSON.stringify({ autoCapture: false, scheduled: 0, status: "自动关" }));
+  storageListener({ autoCapture: { newValue: true } }, "sync");
+  assert.equal(JSON.stringify(context.readState()), JSON.stringify({ autoCapture: false, scheduled: 0, status: "自动关" }));
+  storageListener({ autoCapture: { newValue: true } }, "local");
+  assert.equal(JSON.stringify(context.readState()), JSON.stringify({ autoCapture: true, scheduled: 1, status: "自动开" }));
 });
 
 test("refreshes only the active conversation to recover a late Model caption", async () => {

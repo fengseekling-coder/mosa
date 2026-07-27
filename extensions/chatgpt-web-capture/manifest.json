@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MOSA ChatGPT Capture",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Archive ChatGPT generation images with message-scoped prompt and asset correlation.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
