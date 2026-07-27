@@ -59,6 +59,8 @@
   let lastError = "";
   let lastStatus = "starting";
   let autoQueue = Promise.resolve();
+  let contextLost = false;
+  let autoScanInterval = null;
 
   function showToast(message, isError = false) {
     let el = document.getElementById("mosa-capture-toast");
@@ -324,7 +326,45 @@
     return false;
   }
 
+  const CONTEXT_LOST_MESSAGE = "MOSA 扩展已更新或重载，本页脚本已失联：请按 Cmd+Shift+R 硬刷新本页恢复捕获";
+
+  function extensionAlive() {
+    try {
+      return typeof chrome === "object" && Boolean(chrome?.runtime?.id);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Reloading or re-adding the unpacked extension orphans this already-injected
+   * script: the dock stays on screen while chrome.runtime is gone, so every
+   * save died with a raw "Cannot read properties of undefined". Say what
+   * happened once, freeze the buttons, and stop the scan machinery.
+   */
+  function markContextLost() {
+    if (contextLost) return;
+    contextLost = true;
+    if (autoScanInterval) clearInterval(autoScanInterval);
+    if (scanTimer) clearTimeout(scanTimer);
+    observer.disconnect();
+    for (const timers of promptRecoveryTimers.values()) {
+      for (const timer of timers) clearTimeout(timer);
+    }
+    promptRecoveryTimers.clear();
+    const dock = document.getElementById("mosa-capture-dock");
+    for (const btn of dock?.querySelectorAll?.("[data-action]") || []) {
+      btn.disabled = true;
+    }
+    setStatus(CONTEXT_LOST_MESSAGE, true);
+    showToast(CONTEXT_LOST_MESSAGE, true);
+  }
+
   async function runtimeSend(message) {
+    if (!extensionAlive() || typeof chrome.runtime?.sendMessage !== "function") {
+      markContextLost();
+      throw new Error(CONTEXT_LOST_MESSAGE);
+    }
     try {
       const response = await chrome.runtime.sendMessage(message);
       if (chrome.runtime.lastError) {
@@ -336,8 +376,9 @@
       return response;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      if (/Extension context invalidated|context invalidated/i.test(msg)) {
-        throw new Error("扩展已热更新失效：请 Cmd+Shift+R 硬刷新本页后再点保存");
+      if (/Extension context invalidated|context invalidated|reading 'sendMessage'/i.test(msg)) {
+        markContextLost();
+        throw new Error(CONTEXT_LOST_MESSAGE);
       }
       if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
         throw new Error("扩展后台未连接：请在 chrome://extensions 打开 MOSA 并点刷新，再硬刷新本页");
@@ -936,6 +977,11 @@
         if (!btn) return;
         event.preventDefault();
         event.stopPropagation();
+        if (contextLost || !extensionAlive()) {
+          markContextLost();
+          showToast(CONTEXT_LOST_MESSAGE, true);
+          return;
+        }
         const action = btn.getAttribute("data-action");
         if (action === "toggle-auto") {
           autoCapture = !autoCapture;
@@ -975,8 +1021,14 @@
   }
 
   function scheduleScan(force = false) {
+    if (contextLost) return;
     if (scanTimer) clearTimeout(scanTimer);
     scanTimer = setTimeout(async () => {
+      if (contextLost) return;
+      if (!extensionAlive()) {
+        markContextLost();
+        return;
+      }
       ensureDock();
       hookReady ||= document.documentElement?.dataset?.mosaPageHook === "1";
       if (location.href !== lastUrl) lastUrl = location.href;
@@ -1091,7 +1143,13 @@
   else document.addEventListener("DOMContentLoaded", startObs, { once: true });
 
   // Aggressive periodic auto scan — user explicitly wants hands-free save.
-  setInterval(() => {
+  // Doubles as the orphan watchdog: an extension reload flips the dock to the
+  // refresh instruction within 2s instead of waiting for a failed save.
+  autoScanInterval = setInterval(() => {
+    if (!extensionAlive()) {
+      markContextLost();
+      return;
+    }
     if (autoCapture) scheduleScan(true);
   }, 2000);
 

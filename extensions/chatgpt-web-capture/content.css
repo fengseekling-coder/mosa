@@ -68,6 +68,12 @@
   filter: brightness(1.05);
 }
 
+#mosa-capture-dock .mosa-dock-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: none;
+}
+
 #mosa-capture-dock .mosa-dock-status {
   margin-top: 4px;
   color: #94a3b8;

@@ -186,7 +186,7 @@ test("archives one row per uploaded reference photo", () => {
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.9.0");
+  assert.equal(manifest.version, "0.9.1");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
@@ -201,6 +201,30 @@ test("keeps a same-message user instruction separate and retries for a late capt
   assert.match(contentSource, /function schedulePromptRecovery\(candidate\)/);
   assert.match(contentSource, /function currentViewportCandidate\(candidates\)/);
   assert.match(contentSource, /const delays = \[2_800, 7_200\]/);
+});
+
+test("an orphaned content script explains itself instead of dying on sendMessage", () => {
+  // Reloading or re-adding the unpacked extension leaves the injected script
+  // running with chrome.runtime gone; every save then failed with a raw
+  // "Cannot read properties of undefined (reading 'sendMessage')".
+  assert.match(contentSource, /function extensionAlive\(\)/);
+  assert.match(contentSource, /function markContextLost\(\)/);
+  assert.match(contentSource, /const CONTEXT_LOST_MESSAGE = /);
+
+  const send = /async function runtimeSend\(message\) \{[\s\S]*?\n {2}\}/.exec(contentSource)?.[0] || "";
+  assert.ok(send, "runtimeSend should be extractable from content.js");
+  assert.ok(
+    send.indexOf("extensionAlive()") !== -1
+      && send.indexOf("extensionAlive()") < send.indexOf("chrome.runtime.sendMessage(message)"),
+    "runtimeSend must verify the extension context before touching chrome.runtime",
+  );
+  assert.match(send, /reading 'sendMessage'/);
+
+  // The scan interval doubles as the watchdog: an orphaned page flips to the
+  // refresh instruction on its own instead of waiting for a failed save.
+  const interval = /autoScanInterval = setInterval\(\(\) => \{[\s\S]*?\n {2}\}, 2000\);/.exec(contentSource)?.[0] || "";
+  assert.ok(interval, "auto scan interval should be extractable from content.js");
+  assert.match(interval, /markContextLost\(\)/);
 });
 
 test("refreshes only the active conversation to recover a late Model caption", async () => {
