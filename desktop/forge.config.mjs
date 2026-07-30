@@ -11,7 +11,7 @@ export async function removeNativeBuildMetadata(buildPath) {
 }
 
 export const packageIgnorePatterns = [
-  /^\/(?:\.github|scripts|test)(?:\/|$)/,
+  /^\/(?:\.github|dist|scripts|test)(?:\/|$)/,
   /^\/(?:\.gitignore|\.nvmrc|AGENTS\.md|CODE_OF_CONDUCT\.md|CONTRIBUTING\.md|eslint\.config\.js)$/,
 ];
 

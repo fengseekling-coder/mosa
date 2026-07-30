@@ -18,6 +18,7 @@ test("packages MOSA with ASAR and unpacked native dependencies", () => {
   assert.equal(typeof forgeConfig.hooks.packageAfterPrune, "function");
   assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/test/example.test.mjs")), true);
   assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/scripts/check-source.mjs")), true);
+  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/dist/lib/server-security.js")), true);
   assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/lib/mosa-runtime.mjs")), false);
   assert.deepEqual(forgeConfig.packagerConfig.ignore, packageIgnorePatterns);
   assert.equal(forgeConfig.plugins.some((plugin) => plugin.name === "auto-unpack-natives"), true);
@@ -45,8 +46,14 @@ test("keeps the desktop window single-instance and sandboxed", async () => {
   const source = await readFile(resolve(import.meta.dirname, "..", "desktop", "main.mjs"), "utf8");
   assert.match(source, /app\.requestSingleInstanceLock\(\)/);
   assert.match(source, /app\.on\("window-all-closed", \(\) => \{\}\)/);
+  assert.match(source, /startMosaService/);
+  assert.match(source, /DEFAULT_MOSA_DESKTOP_PORT/);
   assert.match(source, /const desktopDataDir = app\.getPath\("userData"\)/);
   assert.match(source, /cowartProjectDir: desktopDataDir/);
+  assert.match(source, /loadURL\(service\.url\)/);
+  assert.doesNotMatch(source, /loadFile\(/);
+  assert.match(source, /app\.on\("before-quit"/);
+  assert.match(source, /service\?\.mode === "owned"/);
   assert.match(source, /contextIsolation: true/);
   assert.match(source, /nodeIntegration: false/);
   assert.match(source, /sandbox: true/);

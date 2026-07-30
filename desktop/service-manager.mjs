@@ -1,9 +1,9 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
+import { DEFAULT_MOSA_DESKTOP_PORT, normalizeMosaPort } from "../lib/runtime-defaults.mjs";
 
 const DEFAULT_HOST = "127.0.0.1";
-const DEFAULT_PORT = 43519;
 const DEFAULT_PROBE_TIMEOUT_MS = 1500;
 
 export class MosaServiceConflictError extends Error {
@@ -19,7 +19,7 @@ export class MosaServiceConflictError extends Error {
  */
 export async function startMosaService(options = {}) {
   const host = options.host || DEFAULT_HOST;
-  const port = normalizePort(options.port ?? DEFAULT_PORT);
+  const port = normalizeMosaPort(options.port ?? DEFAULT_MOSA_DESKTOP_PORT, { label: "MOSA desktop port" });
   const libraryDir = resolve(options.libraryDir || join(homedir(), "MOSA Library"));
   const probeOptions = {
     host,
@@ -53,7 +53,7 @@ export async function startMosaService(options = {}) {
 
 export async function probeMosaService(options = {}) {
   const host = options.host || DEFAULT_HOST;
-  const port = normalizePort(options.port ?? DEFAULT_PORT);
+  const port = normalizeMosaPort(options.port ?? DEFAULT_MOSA_DESKTOP_PORT, { label: "MOSA desktop port" });
   const libraryDir = resolve(options.libraryDir || join(homedir(), "MOSA Library"));
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const timeoutMs = Number.isFinite(options.timeoutMs)
@@ -155,12 +155,4 @@ function conflict(message, cause) {
 
 function isConnectionRefused(error) {
   return error?.cause?.code === "ECONNREFUSED" || error?.code === "ECONNREFUSED";
-}
-
-function normalizePort(value) {
-  const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new Error("MOSA desktop port must be an integer from 1 to 65535.");
-  }
-  return port;
 }
