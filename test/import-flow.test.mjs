@@ -77,7 +77,7 @@ for (const kind of ["json", "sqlite"]) {
 }
 
 test("import rejections reach the client as 400 with a code, and the format list is served", async (t) => {
-  const { dir, projectRoot, generated } = await makeWorkspace(t, "mosa-import-api-");
+  const { dir, projectRoot, generated, imagePath } = await makeWorkspace(t, "mosa-import-api-");
   const runtime = await startMosaRuntime({
     port: 0,
     projectRoot: dir,
@@ -116,6 +116,27 @@ test("import rejections reach the client as 400 with a code, and the format list
   assert.deepEqual(library.supportedMediaExtensions, SUPPORTED_MEDIA_EXTENSIONS);
   assert.ok(library.supportedMediaExtensions.includes(".png"));
   assert.ok(library.supportedMediaExtensions.includes(".mp4"));
+
+  const created = await post({ projectId: "default", imagePath });
+  assert.equal(created.status, 200);
+  const asset = (await created.json()).asset;
+  const batch = (body) => fetch(`${runtime.url}/api/assets/batch`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+
+  // A batch "Favorite" is idempotent. It never unfavorites a selected asset.
+  const favorite = await batch({ action: "favorite", projectId: "default", assetIds: [asset.id] });
+  assert.equal(favorite.status, 200);
+  assert.deepEqual((await favorite.json()).results, [{ id: asset.id, favorite: true }]);
+  const favoriteAgain = await batch({ action: "favorite", projectId: "default", assetIds: [asset.id] });
+  assert.equal(favoriteAgain.status, 200);
+  assert.deepEqual((await favoriteAgain.json()).results, [{ id: asset.id, favorite: true }]);
+
+  const invalidBatch = await batch({ action: "delete", projectId: "default", assetIds: [asset.id] });
+  assert.equal(invalidBatch.status, 400);
+  const archive = await batch({ action: "archive", projectId: "default", assetIds: [asset.id] });
+  assert.equal(archive.status, 200);
+  assert.deepEqual((await archive.json()).results, [{ id: asset.id, archived: true }]);
 });
 
 test("shows only the four everyday fields and hides the rest behind advanced settings", async () => {
@@ -146,10 +167,41 @@ test("explains the path field with server-sourced formats, an example, and the C
   assert.match(html, /id="codexSourceHint"/);
   assert.match(app, /els\.importFormatList\.textContent = state\.supportedMediaExtensions\.join\(" "\)/);
   assert.match(app, /state\.supportedMediaExtensions = Array\.isArray\(library\?\.supportedMediaExtensions\)/);
-  // No fabricated drag-and-drop or file picker: the sandbox cannot supply an
-  // absolute path, so the form guides typing instead of pretending otherwise.
-  assert.doesNotMatch(app, /dragover|dataTransfer|showOpenFilePicker|webkitdirectory/);
+  // The sandbox cannot supply an absolute path via a file picker, so the form
+  // guides typing.  Drag-and-drop is allowed: it fills the path input, but the
+  // user still verifies and submits the form.
+  assert.doesNotMatch(app, /showOpenFilePicker|webkitdirectory/);
   assert.doesNotMatch(html, /type="file"/);
+});
+
+test("keeps desktop drag-and-drop and batch actions truthful", async () => {
+  const [html, app, preload, i18n] = await Promise.all([
+    readFile(resolve(root, "app/index.html"), "utf8"),
+    readFile(resolve(root, "app/app.js"), "utf8"),
+    readFile(resolve(root, "desktop/preload.mjs"), "utf8"),
+    readFile(resolve(root, "app/i18n.mjs"), "utf8"),
+  ]);
+
+  assert.match(html, /id="batchToggle"/);
+  assert.match(html, /id="batchBar" role="region"/);
+  assert.doesNotMatch(html, /id="dropOverlay"/);
+  assert.ok(app.includes("function droppedFilePath(file)"));
+  assert.ok(app.includes("getPathForFile?.(file)"));
+  assert.equal(app.includes("file.webkitRelativePath || file.name"), false);
+  assert.ok(preload.includes("webUtils.getPathForFile(file)"));
+  assert.ok(app.includes('els.batchFavorite?.addEventListener("click"'));
+  assert.ok(app.includes('api("/api/assets/batch"'));
+  assert.ok(app.includes("body: { action, projectId: state.project, assetIds }"));
+  assert.ok(app.includes('if (!window.confirm(t("confirmBatchArchive", { count: 1 }))) return;'));
+  assert.ok(html.includes('data-i18n="darkModeToggle"'));
+  assert.ok(app.includes('showToast(t("darkModeChanged"), "success")'));
+
+  for (const key of [
+    "batchMode", "batchFavoriteDone", "batchArchiveDone", "batchOperationIncomplete",
+    "addFavorite", "removeFavorite", "dropPathUnavailable", "appearance", "darkModeToggle", "darkModeChanged",
+  ]) {
+    assert.match(i18n, new RegExp(`\\b${key}:`), `translation missing for ${key}`);
+  }
 });
 
 test("attaches import errors to their field with aria wiring and non-colour cues", async () => {
@@ -206,10 +258,8 @@ test("keeps the import dialog's focus contract and translates every new string",
     "advancedSettings", "importPathFormats", "importPathExample", "importPathCodexDir", "importPathCodexDirUnknown",
     "errorPathRequired", "errorPathNotFound", "errorPathUnsupported", "errorPathNotReadable", "errorInvalidJson", "savingAsset",
   ];
-  const zh = [...app.matchAll(/Object\.assign\(translations\.zh, \{([\s\S]*?)\n\}\);/g)].map((m) => m[1]).join("\n");
-  const en = [...app.matchAll(/Object\.assign\(translations\.en, \{([\s\S]*?)\n\}\);/g)].map((m) => m[1]).join("\n");
+  const i18n = await readFile(resolve(root, "app/i18n.mjs"), "utf8");
   for (const key of keys) {
-    assert.match(zh, new RegExp(`\\b${key}:`), `zh translation missing for ${key}`);
-    assert.match(en, new RegExp(`\\b${key}:`), `en translation missing for ${key}`);
+    assert.match(i18n, new RegExp(`\\b${key}:`), `translation missing for ${key}`);
   }
 });

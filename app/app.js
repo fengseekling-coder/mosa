@@ -1,316 +1,4 @@
-const translations = {
-  zh: {
-    appTitle: "MOSA — 创作资产库", brandSubtitle: "创作资产库", library: "素材库", allAssets: "全部素材", favorites: "收藏", recent: "最近", refine: "筛选", findAssets: "查找素材", clearFilters: "清除筛选", source: "来源", groups: "分组", addGroup: "添加分组", createGroup: "添加分组", groupName: "分组名称", groupNamePlaceholder: "例如：灵感参考", closeGroup: "关闭添加分组窗口", groupCreated: "分组已创建：", groupNameRequired: "请输入分组名称", groupExists: "分组已存在：", categories: "分类", styles: "风格", settings: "设置", language: "语言", systemLanguage: "跟随系统", chinese: "中文", english: "英文", project: "项目", openLibrary: "打开素材库", importAsset: "导入素材", importEyebrow: "素材库", importTitle: "导入素材", closeImport: "关闭导入窗口", closePreview: "关闭大图预览", viewFullImage: "查看大图", imagePath: "图片路径", imagePathPlaceholder: "图片的本地绝对路径", prompt: "提示词", promptPlaceholder: "完整提示词", skill: "技能", style: "风格", ratio: "比例", theme: "主题", group: "分组", category: "分类", businessFields: "业务字段 JSON", none: "—", categoryProduct: "产品", categoryConcept: "概念", categoryTexture: "纹理", categoryReference: "参考", categoryOther: "其他", cancel: "取消", saveAsset: "保存素材", assetList: "素材列表", assetInspector: "素材检视器", noAssets: "还没有素材", noAssetsHint: "导入第一张图片，开始建立可复用的创作资产库。", noSelection: "选择一张素材", noSelectionHint: "在画廊中选择图片即可查看提示词与配方。", close: "关闭", copyPrompt: "复制提示词", copyPath: "复制路径", regenerate: "同配方再生成", insertCowart: "插入 Cowart", insertingCowart: "正在插入 Cowart…", insertedCowart: "已插入 Cowart：{page}（{x}, {y}）", cowartInsertUnavailable: "Cowart 插件不可用", recipe: "配方", sourceInfo: "来源信息", editMetadata: "编辑元数据", saveRecipe: "保存配方", imageLocation: "图片路径", notRecorded: "未记录", noDetails: "暂无附加信息", sourceCodex: "Codex", sourceCowart: "Cowart", sourceManual: "手动导入", sourceLabel: "来源", taskId: "任务 ID", model: "模型", generationTool: "生成工具", originalPath: "原始路径", canvasObject: "画布对象", pageAsset: "页面素材", canvasNote: "画布说明", canvasEdited: "批注编辑结果", canvasImage: "画布图片", rating: "评分", copyOriginalPath: "复制原始路径", saved: "已保存", saving: "正在保存…", copySuccess: "提示词已复制", pathCopied: "图片路径已复制", originalPathCopied: "原始路径已复制", instructionCopied: "再生成指令已复制", openInFinder: "已在 Finder 中打开", failedToOpen: "无法打开：", invalidJson: "业务字段 JSON 格式错误", savedAsset: "素材已保存", recipeSaved: "配方已保存", groupSaved: "已移至分组：", groupFailed: "设置分组失败：", statusChecking: "检查桥接状态…", statusReady: "桥接已就绪", statusBridgeOff: "桥接未启用", statusBridgeError: "桥接出现错误", statusBridgePartial: "部分桥接已启用", statusCowartInsertUnavailable: "插入 Cowart 不可用", statusImportedCount: "已归档 {count} 项", statusUnavailable: "MOSA 服务不可用", retry: "重试", assetsCount: "{count} 项", filterAll: "全部", filterCodex: "Codex", filterCowart: "Cowart", noGroups: "暂无分组", noCategories: "暂无分类", noStyles: "暂无风格", languageChanged: "语言已更新", searchPlaceholder: "搜索素材、提示词或风格", generatedInstruction: "请用相同配方再生成一张图片，并保存到 MOSA："
-  },
-  en: {
-    appTitle: "MOSA — Creative Asset Library", brandSubtitle: "Creative asset library", library: "Library", allAssets: "All assets", favorites: "Favorites", recent: "Recent", refine: "Filter", findAssets: "Find assets", clearFilters: "Clear filters", source: "Source", groups: "Collections", addGroup: "Add collection", createGroup: "Add collection", groupName: "Collection name", groupNamePlaceholder: "e.g. Inspiration", closeGroup: "Close add collection dialog", groupCreated: "Collection created: ", groupNameRequired: "Enter a collection name", groupExists: "Collection already exists: ", categories: "Categories", styles: "Styles", settings: "Settings", language: "Language", systemLanguage: "Use system language", chinese: "Chinese", english: "English", project: "Project", openLibrary: "Open library folder", importAsset: "Import asset", importEyebrow: "LIBRARY", importTitle: "Import asset", closeImport: "Close import", closePreview: "Close full-image preview", viewFullImage: "View full image", imagePath: "Absolute path to the local image", prompt: "Prompt", promptPlaceholder: "Full prompt", skill: "Skill", style: "Style", ratio: "Ratio", theme: "Theme", group: "Collection", category: "Category", businessFields: "Business fields JSON", none: "—", categoryProduct: "Product", categoryConcept: "Concept", categoryTexture: "Texture", categoryReference: "Reference", categoryOther: "Other", cancel: "Cancel", saveAsset: "Save asset", assetList: "Asset list", assetInspector: "Asset inspector", noAssets: "No assets yet", noAssetsHint: "Import your first image to start a reusable creative library.", noSelection: "Select an asset", noSelectionHint: "Choose an image in the gallery to view its prompt and recipe.", close: "Close", copyPrompt: "Copy prompt", copyPath: "Copy path", regenerate: "Regenerate", insertCowart: "Insert into Cowart", insertingCowart: "Inserting into Cowart…", insertedCowart: "Inserted into Cowart: {page} ({x}, {y})", cowartInsertUnavailable: "Cowart plugin unavailable", recipe: "Recipe", sourceInfo: "Source", editMetadata: "Edit metadata", saveRecipe: "Save recipe", imageLocation: "Image path", notRecorded: "Not recorded", noDetails: "No additional details", sourceCodex: "Codex", sourceCowart: "Cowart", sourceManual: "Manual import", sourceLabel: "Source", taskId: "Task ID", model: "Model", generationTool: "Generation tool", originalPath: "Original path", canvasObject: "Canvas object", pageAsset: "Page asset", canvasNote: "Canvas note", canvasEdited: "Annotated edit", canvasImage: "Canvas image", rating: "Rating", copyOriginalPath: "Copy original path", saved: "Saved", saving: "Saving…", copySuccess: "Prompt copied", pathCopied: "Image path copied", originalPathCopied: "Original path copied", instructionCopied: "Regeneration instruction copied", openInFinder: "Opened in Finder", failedToOpen: "Unable to open: ", invalidJson: "Business fields JSON is invalid", savedAsset: "Asset saved", recipeSaved: "Recipe saved", groupSaved: "Moved to collection: ", groupFailed: "Unable to update collection: ", statusChecking: "Checking bridges…", statusReady: "Bridges ready", statusBridgeOff: "Bridges off", statusBridgeError: "Bridge error", statusBridgePartial: "Some bridges enabled", statusCowartInsertUnavailable: "Cowart insert unavailable", statusImportedCount: "Archived {count} items", statusUnavailable: "MOSA service unavailable", retry: "Retry", assetsCount: "{count} assets", filterAll: "All", filterCodex: "Codex", filterCowart: "Cowart", noGroups: "No collections", noCategories: "No categories", noStyles: "No styles", languageChanged: "Language updated", searchPlaceholder: "Search assets, prompts, or styles", generatedInstruction: "Regenerate this image with the same recipe and save it to MOSA:"
-  }
-};
-
-Object.assign(translations.zh, {
-  cowartCanvases: "自动发现的 Cowart 画布",
-  cowartInsertTarget: "回插画布",
-  mosaCanvas: "MOSA 专用画布",
-  projectCanvas: "项目画布 · {name}",
-  statusWatchingOneCanvas: "监控 1 个画布",
-  statusWatchingCanvasCount: "监控 {count} 个画布",
-  loadMore: "加载更多",
-});
-
-Object.assign(translations.en, {
-  cowartCanvases: "Detected Cowart canvases",
-  cowartInsertTarget: "Insert canvas",
-  mosaCanvas: "MOSA dedicated canvas",
-  projectCanvas: "Project canvas · {name}",
-  statusWatchingOneCanvas: "1 canvas",
-  statusWatchingCanvasCount: "{count} canvases",
-  loadMore: "Load more",
-});
-
-Object.assign(translations.zh, {
-  userInstruction: "用户指令",
-  chatgptPromptUnavailable: "ChatGPT 未暴露原始生图提示词",
-});
-
-Object.assign(translations.en, {
-  userInstruction: "User instruction",
-  chatgptPromptUnavailable: "ChatGPT did not expose the original image-generation prompt",
-});
-
-Object.assign(translations.zh, {
-  versionHistory: "版本历史",
-  versionLoading: "正在加载版本…",
-  versionLoadFailed: "无法加载版本历史",
-  versionLabel: "版本 {number}",
-  currentVersion: "当前版本",
-  initialVersion: "初始版本",
-  versionChange: "变更说明",
-  versionChangePlaceholder: "说明这个版本相对当前版本有哪些变化",
-  noVersionChange: "未记录变更说明",
-  saveAsVersion: "另存为新版本",
-  savingVersion: "正在保存版本…",
-  versionSaved: "新版本已保存",
-  versionChangeRequired: "请填写变更说明",
-  discardVersionChanges: "有尚未保存的修改，仍要切换版本吗？",
-  archivedVersion: "已归档",
-  generatedInstruction: "请用相同配方再生成一张图片，并通过 MOSA 的 asset_version_create 保存为当前素材的新版本：",
-});
-
-Object.assign(translations.en, {
-  versionHistory: "Version history",
-  versionLoading: "Loading versions…",
-  versionLoadFailed: "Unable to load version history",
-  versionLabel: "Version {number}",
-  currentVersion: "Current version",
-  initialVersion: "Initial version",
-  versionChange: "Change summary",
-  versionChangePlaceholder: "Describe what changed from the current version",
-  noVersionChange: "No change summary",
-  saveAsVersion: "Save as new version",
-  savingVersion: "Saving version…",
-  versionSaved: "New version saved",
-  versionChangeRequired: "Enter a change summary",
-  discardVersionChanges: "You have unsaved changes. Switch versions anyway?",
-  archivedVersion: "Archived",
-  generatedInstruction: "Regenerate this image with the same recipe, then use MOSA's asset_version_create tool to save it as a new version of the current asset:",
-});
-
-Object.assign(translations.zh, {
-  recipeSnapshotHistory: "配方快照",
-  recipeSnapshotLoading: "正在加载配方快照…",
-  recipeSnapshotLoadFailed: "无法加载配方快照",
-  recipeSnapshotLabel: "配方 {number}",
-  currentRecipe: "当前配方",
-  useRecipe: "用此配方再生成",
-  promptStatus: "Prompt 来源",
-  negativePrompt: "负向约束",
-  referenceCount: "{count} 项参考",
-    referenceRights: "参考图与权利",
-    regenerateRestrictedConfirm: "这个配方里有 {count} 张参考图是受限的（肖像授权被拒绝，或不允许再分发）。仍然复制再生成指令吗？",
-    noReferences: "这张图没有绑定参考图",
-    referenceHash: "摘要",
-    saveRights: "保存权利",
-    rightsSaved: "权利已保存",
-    attributionPlaceholder: "署名，例如摄影师或来源",
-    useChipHint: "点击切换：不声明 → 可以用 → 不可以用",
-    rights_copyright: "版权",
-    rights_portrait_consent: "肖像授权",
-    rights_redistribution: "可否再分发",
-    rights_attribution: "署名",
-    rightsValue_unknown: "未确认",
-    rightsValue_owned: "我自己的",
-    rightsValue_licensed: "已获授权",
-    "rightsValue_third-party": "第三方的",
-    rightsValue_granted: "已获同意",
-    "rightsValue_not-required": "无需授权",
-    rightsValue_denied: "已被拒绝",
-    rightsValue_allowed: "可以",
-    rightsValue_forbidden: "不可以",
-    rightsState_cleared: "已确认",
-    rightsState_unresolved: "未确认",
-    rightsState_restricted: "受限",
-    permission_undeclared: "未声明",
-    permission_allowed: "可以用",
-    permission_forbidden: "不可以用",
-    use_identity: "人物身份",
-    use_subject: "主体",
-    use_world: "环境",
-    use_space: "空间",
-    use_composition: "构图",
-    use_lighting: "灯光",
-    use_wardrobe: "服装",
-    use_color: "色彩",
-    use_style: "风格",
-    use_prop: "道具",
-    referenceRightsRestricted: "{count} 项参考受限",
-    referenceRightsUnresolved: "{count} 项参考权利未确认",
-    referenceRightsCleared: "参考权利已确认",
-  noRecipeChange: "未记录变更说明",
-});
-
-Object.assign(translations.en, {
-  recipeSnapshotHistory: "Recipe snapshots",
-  recipeSnapshotLoading: "Loading recipe snapshots…",
-  recipeSnapshotLoadFailed: "Unable to load recipe snapshots",
-  recipeSnapshotLabel: "Recipe {number}",
-  currentRecipe: "Current recipe",
-  useRecipe: "Regenerate from this recipe",
-  promptStatus: "Prompt source",
-  negativePrompt: "Negative prompt",
-  referenceCount: "{count} references",
-    referenceRights: "References and rights",
-    regenerateRestrictedConfirm: "{count} reference(s) in this recipe are restricted (consent denied or redistribution forbidden). Copy the regeneration instruction anyway?",
-    noReferences: "No reference image is bound to this asset",
-    referenceHash: "hash",
-    saveRights: "Save rights",
-    rightsSaved: "Rights saved",
-    attributionPlaceholder: "Credit, e.g. photographer or source",
-    useChipHint: "Click to cycle: undeclared → may use → must not use",
-    rights_copyright: "Copyright",
-    rights_portrait_consent: "Portrait consent",
-    rights_redistribution: "Redistribution",
-    rights_attribution: "Attribution",
-    rightsValue_unknown: "Unconfirmed",
-    rightsValue_owned: "Mine",
-    rightsValue_licensed: "Licensed",
-    "rightsValue_third-party": "Third party",
-    rightsValue_granted: "Granted",
-    "rightsValue_not-required": "Not required",
-    rightsValue_denied: "Denied",
-    rightsValue_allowed: "Allowed",
-    rightsValue_forbidden: "Forbidden",
-    rightsState_cleared: "Confirmed",
-    rightsState_unresolved: "Unconfirmed",
-    rightsState_restricted: "Restricted",
-    permission_undeclared: "Undeclared",
-    permission_allowed: "May use",
-    permission_forbidden: "Must not use",
-    use_identity: "Identity",
-    use_subject: "Subject",
-    use_world: "World",
-    use_space: "Space",
-    use_composition: "Composition",
-    use_lighting: "Lighting",
-    use_wardrobe: "Wardrobe",
-    use_color: "Color",
-    use_style: "Style",
-    use_prop: "Prop",
-    referenceRightsRestricted: "{count} restricted",
-    referenceRightsUnresolved: "{count} with unconfirmed rights",
-    referenceRightsCleared: "Reference rights confirmed",
-  noRecipeChange: "No change summary",
-});
-
-Object.assign(translations.zh, {
-  sourceGrok: "Grok",
-  filterGrok: "Grok",
-  sessionId: "会话 ID",
-  mediaKind: "媒体类型",
-  mediaKindImage: "图片",
-  mediaKindVideo: "视频",
-  videoFallback: "浏览器无法预览该视频；请打开原文件。",
-  openOriginalMedia: "打开原媒体",
-});
-
-Object.assign(translations.zh, {
-  tabOverview: "概览",
-  tabRecipe: "配方",
-  tabVersions: "版本",
-});
-
-Object.assign(translations.en, {
-  tabOverview: "Overview",
-  tabRecipe: "Recipe",
-  tabVersions: "Versions",
-});
-
-Object.assign(translations.en, {
-  sourceGrok: "Grok",
-  filterGrok: "Grok",
-  sessionId: "Session ID",
-  mediaKind: "Media kind",
-  mediaKindImage: "Image",
-  mediaKindVideo: "Video",
-  videoFallback: "This browser cannot preview the video. Open the original file instead.",
-  openOriginalMedia: "Open original media",
-});
-
-Object.assign(translations.zh, {
-  sortLabel: "排序",
-  sortNewest: "最新",
-  sortOldest: "最早",
-  sortName: "名称",
-  facetSearch: "搜索风格或分组",
-  facetNoMatch: "没有匹配的条件",
-  activeFilters: "当前筛选",
-  clearAll: "清除全部",
-  removeFilter: "移除筛选：{label}",
-  chipSearch: "搜索",
-  chipSource: "来源",
-  chipGroup: "分组",
-  chipCategory: "分类",
-  chipStyle: "风格",
-  chipScope: "范围",
-  chipSeparator: "：",
-  filterCount: "{count} 个条件",
-  allGroups: "全部分组（{count}）",
-  facetTruncated: "显示 {shown} / 共 {total}",
-});
-
-Object.assign(translations.zh, {
-  advancedSettings: "高级设置",
-  importPathFormats: "支持格式",
-  importPathExample: "示例",
-  importPathCodexDir: "Codex 图片目录",
-  importPathCodexDirUnknown: "未检测到",
-  errorPathRequired: "请填写图片的本地绝对路径",
-  errorPathNotFound: "找不到这个文件，请检查路径是否正确",
-  errorPathUnsupported: "不支持这种文件格式",
-  errorPathNotReadable: "无法读取这个文件（需要是素材库可访问目录下的普通文件，不能是快捷方式）",
-  errorInvalidJson: "业务字段不是合法的 JSON",
-  savingAsset: "正在保存…",
-});
-
-Object.assign(translations.zh, {
-  galleryLoading: "正在载入素材…",
-  galleryDensity: "卡片信息",
-  densityImageOnly: "只显示图片",
-  densityWithInfo: "显示信息",
-  cardAccessibleName: "{title}，来源 {source}，{date}",
-  versionLabelShort: "V{number}",
-  sourceWebChatgpt: "ChatGPT",
-  sourceUnknown: "未知来源",
-  loadFailed: "素材加载失败",
-});
-
-Object.assign(translations.en, {
-  galleryLoading: "Loading assets…",
-  galleryDensity: "Card info",
-  densityImageOnly: "Images only",
-  densityWithInfo: "Show details",
-  cardAccessibleName: "{title}, from {source}, {date}",
-  versionLabelShort: "V{number}",
-  sourceWebChatgpt: "ChatGPT",
-  sourceUnknown: "Unknown source",
-  loadFailed: "Could not load assets",
-});
-
-Object.assign(translations.en, {
-  advancedSettings: "Advanced settings",
-  importPathFormats: "Supported formats",
-  importPathExample: "Example",
-  importPathCodexDir: "Codex images folder",
-  importPathCodexDirUnknown: "Not detected",
-  errorPathRequired: "Enter the absolute path to a local image",
-  errorPathNotFound: "No file at this path — check that it is correct",
-  errorPathUnsupported: "This file format is not supported",
-  errorPathNotReadable: "This file cannot be read (it must be a regular file inside a folder the library can reach, not a shortcut)",
-  errorInvalidJson: "Business fields are not valid JSON",
-  savingAsset: "Saving…",
-});
-
-Object.assign(translations.en, {
-  sortLabel: "Sort",
-  sortNewest: "Newest",
-  sortOldest: "Oldest",
-  sortName: "Name",
-  facetSearch: "Search styles or collections",
-  facetNoMatch: "No matching filters",
-  activeFilters: "Active filters",
-  clearAll: "Clear all",
-  removeFilter: "Remove filter: {label}",
-  chipSearch: "Search",
-  chipSource: "Source",
-  chipGroup: "Collection",
-  chipCategory: "Category",
-  chipStyle: "Style",
-  chipScope: "Scope",
-  chipSeparator: ": ",
-  filterCount: "{count} filters",
-  allGroups: "All collections ({count})",
-  facetTruncated: "Showing {shown} of {total}",
-});
-
+import translations from "./i18n.mjs";
 const SORT_ORDERS = ["newest", "oldest", "name"];
 const SOURCE_FACETS = { codex: "codex-generated", cowart: "cowart-generated", grok: "grok-generated" };
 const SCOPES = ["all", "favorite", "recent"];
@@ -373,14 +61,13 @@ function humanizeFacetValue(value) {
 const preference = safeStorageGet("mosa.ui-language") || "system";
 const state = {
   project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, detailAsset: null, versionHistory: null, recipeHistory: null, detailOpen: false, detailDirty: false, detailTab: "overview", detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
-  // `scope` is the one-of-three sidebar view; `facets` combine freely on top of it,
-  // matching the store's independent source/group/category/style predicates.
   scope: "all", facets: { source: "", group: "", category: "", style: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")), facetQuery: "",
   groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [], styleTotal: 0 }, cowartInsertAvailable: false, cowartInsertTargetId: safeStorageGet("mosa.cowart-insert-target") || "mosa",
-  // The gallery is a four-state machine. Without it a cold start rendered the
-  // empty state before the first request had even answered.
   galleryStatus: "loading", galleryError: null, galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")),
-  libraryPath: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference)
+  libraryPath: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
+  batchMode: false, batchSaving: false, selectedIds: new Set(), dragCounter: 0,
+  darkMode: safeStorageGet("mosa-dark-mode") === "true",
+  imageZoom: 1, imagePanX: 0, imagePanY: 0, imageDragging: false,
 };
 
 const els = {
@@ -391,13 +78,177 @@ const els = {
   viewTitle: document.querySelector("#viewTitle"), assetCount: document.querySelector("#assetCount"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer")
 };
 
+// ===== New element references =====
+Object.assign(els, {
+  dragOverlay: document.querySelector("#dragOverlay"),
+  batchBar: document.querySelector("#batchBar"),
+  batchSelectAll: document.querySelector("#batchSelectAll"),
+  batchCount: document.querySelector("#batchCount"),
+  batchFavorite: document.querySelector("#batchFavorite"),
+  batchArchive: document.querySelector("#batchArchive"),
+  batchCancel: document.querySelector("#batchCancel"),
+  batchToggle: document.querySelector("#batchToggle"),
+});
+
+// ===== Dark mode =====
+function applyDarkMode() { document.documentElement.setAttribute("data-theme", state.darkMode ? "dark" : "light"); }
+function toggleDarkMode() { state.darkMode = !state.darkMode; safeStorageSet("mosa-dark-mode", String(state.darkMode)); applyDarkMode(); showToast(t("darkModeChanged"), "success"); }
+
+function droppedFilePath(file) {
+  try {
+    const electronPath = window.electronAPI?.getPathForFile?.(file);
+    if (electronPath) return electronPath;
+  } catch {
+    // A normal browser cannot reveal a dropped file's local path.
+  }
+  return typeof file.path === "string" ? file.path : "";
+}
+
+// ===== Drag & Drop =====
+function setupDragDrop() {
+  const library = els.assetGrid?.closest(".library");
+  if (!library) return;
+  library.addEventListener("dragenter", (e) => { e.preventDefault(); state.dragCounter++; if (els.dragOverlay) els.dragOverlay.hidden = false; });
+  library.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+  library.addEventListener("dragleave", (e) => { e.preventDefault(); state.dragCounter--; if (state.dragCounter <= 0) { state.dragCounter = 0; if (els.dragOverlay) els.dragOverlay.hidden = true; } });
+  library.addEventListener("drop", (e) => {
+    e.preventDefault(); state.dragCounter = 0; if (els.dragOverlay) els.dragOverlay.hidden = true;
+    const files = e.dataTransfer?.files;
+    if (!files || !files.length) return;
+    const file = files[0];
+    if (!/\.(png|jpe?g|webp|gif|bmp|tiff?|mp4|webm|mov|m4v|svg)$/i.test(file.name)) { showToast(t("errorPathUnsupported"), "error"); return; }
+    const filePath = droppedFilePath(file);
+    if (filePath && els.imagePathInput) els.imagePathInput.value = filePath;
+    openImportModal();
+    if (!filePath) showToast(t("dropPathUnavailable"), "error");
+  });
+}
+
+// ===== Batch Operations =====
+function setBatchMode(active) {
+  state.batchMode = Boolean(active);
+  state.selectedIds.clear();
+  if (els.assetGrid) els.assetGrid.classList.toggle("batch-active", state.batchMode);
+  updateBatchUI();
+  renderGrid();
+}
+
+function toggleBatchMode() {
+  if (state.batchSaving) return;
+  setBatchMode(!state.batchMode);
+}
+
+function toggleAssetSelection(id, event) {
+  if (event) event.stopPropagation();
+  if (!state.batchMode) return;
+  if (state.selectedIds.has(id)) state.selectedIds.delete(id); else state.selectedIds.add(id);
+  updateBatchUI(); updateSelectedCard();
+}
+function selectAllAssets() {
+  if (state.selectedIds.size === state.assets.length) state.selectedIds.clear();
+  else state.assets.forEach((a) => state.selectedIds.add(a.id));
+  updateBatchUI(); updateSelectedCard();
+}
+function updateBatchUI() {
+  const selectedCount = state.selectedIds.size;
+  if (els.batchBar) els.batchBar.hidden = !state.batchMode;
+  if (els.batchToggle) els.batchToggle.setAttribute("aria-pressed", String(state.batchMode));
+  if (els.batchCount) els.batchCount.textContent = t("batchSelected", { count: selectedCount });
+  if (els.batchSelectAll) {
+    els.batchSelectAll.textContent = selectedCount === state.assets.length ? t("deselectAll") : t("selectAll");
+    els.batchSelectAll.disabled = state.batchSaving || state.assets.length === 0;
+  }
+  for (const button of [els.batchFavorite, els.batchArchive, els.batchCancel]) {
+    if (button) button.disabled = state.batchSaving || (button !== els.batchCancel && selectedCount === 0);
+  }
+}
+
+function setBatchBusy(busy) {
+  state.batchSaving = Boolean(busy);
+  updateBatchUI();
+}
+
+async function runBatchOperation(action, successKey) {
+  const assetIds = [...state.selectedIds];
+  if (!assetIds.length || state.batchSaving) return;
+  setBatchBusy(true);
+  try {
+    const result = await api("/api/assets/batch", {
+      method: "POST",
+      body: { action, projectId: state.project, assetIds },
+    });
+    if (!Array.isArray(result.results) || result.results.length !== assetIds.length) {
+      throw new Error(t("batchOperationIncomplete"));
+    }
+    if (assetIds.includes(state.selectedId)) clearDetailSelection();
+    state.selectedIds.clear();
+    state.batchMode = false;
+    if (els.assetGrid) els.assetGrid.classList.remove("batch-active");
+    showToast(t(successKey, { count: result.results.length }), "success");
+    await loadStats();
+    await loadAssets();
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    setBatchBusy(false);
+  }
+}
+
+async function batchFavorite() {
+  await runBatchOperation("favorite", "batchFavoriteDone");
+}
+
+async function batchArchive() {
+  if (!window.confirm(t("confirmBatchArchive", { count: state.selectedIds.size }))) return;
+  await runBatchOperation("archive", "batchArchiveDone");
+}
+async function toggleFavorite(id, event) {
+  if (event) event.stopPropagation();
+  try { await api(`/api/assets/${encodeURIComponent(state.project)}/${encodeURIComponent(id)}/favorite`, { method: "POST" }); showToast(t("favAdded"), "success"); await loadAssets(); } catch (error) { showToast(error.message, "error"); }
+}
+
+// ===== Keyboard Shortcuts =====
+function setupKeyboardShortcuts() {
+  document.addEventListener("keydown", (event) => {
+    if (event.target.matches("input, textarea, select")) return;
+    if (event.key === "/" && !els.importModal?.classList.contains("open") && !els.groupModal?.classList.contains("open")) { event.preventDefault(); els.searchInput?.focus(); return; }
+    if (event.key === "Escape") {
+      if (state.batchMode) { toggleBatchMode(); event.preventDefault(); return; }
+      if (!els.imagePreviewModal?.hidden) { closeImagePreview(); event.preventDefault(); return; }
+      if (els.importModal?.classList.contains("open")) { closeImportModal(); event.preventDefault(); return; }
+      if (els.groupModal?.classList.contains("open")) { closeGroupModal(); event.preventDefault(); return; }
+      if (state.detailOpen) { setDetailOpen(false); event.preventDefault(); return; }
+    }
+    if (event.key === "b" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); toggleBatchMode(); }
+  });
+}
+
+// ===== Image Zoom & Pan =====
+function resetImageZoom() { state.imageZoom = 1; state.imagePanX = 0; state.imagePanY = 0; applyImageTransform(); }
+function applyImageTransform() { const img = els.imagePreviewImage; if (!img) return; img.style.transform = `scale(${state.imageZoom}) translate(${state.imagePanX}px, ${state.imagePanY}px)`; if (els.imagePreviewStage) els.imagePreviewStage.classList.toggle("zoomed", state.imageZoom > 1); }
+function zoomImage(delta) { state.imageZoom = Math.max(0.5, Math.min(5, state.imageZoom + delta)); if (state.imageZoom === 1) { state.imagePanX = 0; state.imagePanY = 0; } applyImageTransform(); }
+function setupImageZoomPan() {
+  const stage = els.imagePreviewStage; if (!stage) return;
+  stage.addEventListener("wheel", (e) => { if (state.imagePreviewId) { e.preventDefault(); zoomImage(e.deltaY < 0 ? 0.25 : -0.25); } }, { passive: false });
+  let startX, startY;
+  stage.addEventListener("mousedown", (e) => { if (state.imageZoom <= 1) return; state.imageDragging = true; startX = e.clientX - state.imagePanX; startY = e.clientY - state.imagePanY; stage.classList.add("dragging"); });
+  document.addEventListener("mousemove", (e) => { if (!state.imageDragging) return; state.imagePanX = e.clientX - startX; state.imagePanY = e.clientY - startY; applyImageTransform(); });
+  document.addEventListener("mouseup", () => { state.imageDragging = false; els.imagePreviewStage?.classList.remove("dragging"); });
+}
+
+function renderEmptyState() {
+  return `<div class="empty-state-onboard"><svg class="empty-icon" width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><h3>${t("onboardTitle")}</h3><p>${t("onboardHint")}</p><div class="empty-state-actions"><button class="btn-primary" type="button" id="onboardImportBtn">${t("onboardImport")}</button></div></div>`;
+}
+
 init();
 
 async function init() {
   applyLanguage();
+  applyDarkMode();
   bindEvents();
-  // Paint the skeleton before the first request so the gallery never starts out
-  // claiming the library is empty.
+  setupDragDrop();
+  setupKeyboardShortcuts();
+  setupImageZoomPan();
   renderGrid();
   try {
     await Promise.all([loadProjects(), loadCowartCanvases()]);
@@ -822,6 +673,11 @@ function removeFilterChip(kind) {
 }
 
 function bindEvents() {
+  els.batchToggle?.addEventListener("click", toggleBatchMode);
+  els.batchSelectAll?.addEventListener("click", selectAllAssets);
+  els.batchFavorite?.addEventListener("click", () => { void batchFavorite(); });
+  els.batchArchive?.addEventListener("click", () => { void batchArchive(); });
+  els.batchCancel?.addEventListener("click", () => setBatchMode(false));
   els.searchInput?.addEventListener("input", debounce(async () => { state.query = els.searchInput.value; state.nextCursor = null; renderActiveFilters(); await loadAssets(); }, 180));
   els.sortSelect?.addEventListener("change", () => {
     state.sort = normalizeSort(els.sortSelect.value);
@@ -913,6 +769,36 @@ function bindEvents() {
     event.preventDefault();
     setDetailOpen(false);
   });
+  document.querySelector("#darkModeToggle")?.addEventListener("click", toggleDarkMode);
+  bindDesktopIntegration();
+}
+
+function bindDesktopIntegration() {
+  const api = window.electronAPI;
+  if (!api) return;
+  document.querySelector("#browseFileBtn")?.addEventListener("click", async () => {
+    const filePaths = await api.openFileDialog();
+    if (filePaths?.length && els.imagePathInput) {
+      els.imagePathInput.value = filePaths[0];
+    }
+  });
+  document.addEventListener("paste", async (event) => {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        event.preventDefault();
+        const filePath = await api.pasteImage();
+        if (filePath && els.imagePathInput) {
+          els.imagePathInput.value = filePath;
+          openImportModal();
+        }
+        return;
+      }
+    }
+  });
+  api.onMenuImport?.(() => openImportModal());
+  api.onMenuSearch?.(() => { els.searchInput?.focus(); });
 }
 
 function setLanguage(value) {
@@ -1207,7 +1093,12 @@ function renderGrid() {
     const versionIndex = Number(asset.version_index) || 0;
     const badge = versionIndex > 1 ? t("versionLabelShort", { number: versionIndex }) : (asset.group || "");
     const info = `<div class="asset-card-info"><p class="asset-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</p><p class="asset-card-meta"><span>${escapeHtml(sourceLabel)}</span><span>${escapeHtml(date)}</span>${badge ? `<span class="asset-card-badge" title="${escapeHtml(badge)}">${escapeHtml(badge)}</span>` : ""}</p></div>`;
-    return `<article class="asset-card${selected ? " selected" : ""}${isVideoAsset(asset) ? " is-video" : ""}" data-id="${escapeHtml(asset.id)}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}">${media}</button>${info}<button class="card-quick-copy" type="button" data-copy="${escapeHtml(asset.prompt || "")}" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button></article>`;
+    const isFav = asset.favorite;
+    const isChecked = state.batchMode && state.selectedIds.has(asset.id);
+    const checkbox = state.batchMode ? `<input type="checkbox" class="card-checkbox" ${isChecked ? "checked" : ""} data-batch-id="${escapeHtml(asset.id)}" aria-label="${escapeHtml(t("selectAsset"))}" />` : "";
+    const favoriteLabel = isFav ? t("removeFavorite") : t("addFavorite");
+    const favBtn = `<button class="card-favorite${isFav ? " is-fav" : ""}" type="button" data-fav-id="${escapeHtml(asset.id)}" aria-label="${escapeHtml(favoriteLabel)}" title="${escapeHtml(favoriteLabel)}">${isFav ? "★" : "☆"}</button>`;
+    return `<article class="asset-card${selected ? " selected" : ""}${isVideoAsset(asset) ? " is-video" : ""}" data-id="${escapeHtml(asset.id)}" title="${escapeHtml(cardShortTitle(asset))}">${checkbox}${favBtn}<button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}">${media}</button>${info}<button class="card-quick-copy" type="button" data-copy="${escapeHtml(asset.prompt || "")}" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button></article>`;
   }).join("");
   els.assetGrid.innerHTML = `${cards}${state.nextCursor ? `<div class="asset-load-more"><button type="button" data-action="load-more">${t("loadMore")}</button></div>` : ""}`;
   setupMasonryLayout();
@@ -1219,6 +1110,8 @@ function renderGrid() {
     });
   });
   els.assetGrid.querySelectorAll(".card-quick-copy").forEach((button) => button.addEventListener("click", async (event) => { event.stopPropagation(); await runAction(async () => { await navigator.clipboard.writeText(button.dataset.copy || ""); showToast(t("copySuccess"), "success"); }); }));
+  els.assetGrid.querySelectorAll(".card-favorite").forEach((button) => button.addEventListener("click", (event) => { event.stopPropagation(); void toggleFavorite(button.dataset.favId, event); }));
+  els.assetGrid.querySelectorAll(".card-checkbox").forEach((checkbox) => checkbox.addEventListener("change", (event) => { void toggleAssetSelection(checkbox.dataset.batchId, event); }));
 }
 
 /** Routed through the state machine so a later re-render cannot resurrect the skeleton. */
@@ -1422,7 +1315,7 @@ function renderDetail() {
   const openMediaAction = isVideoAsset(asset)
     ? `<button class="action-btn secondary" type="button" data-action="open-original-media">${t("openOriginalMedia")}</button>`
     : "";
-  els.detailPanel.innerHTML = `<div class="detail-studio-bar"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}">${t("close")}</button></div><div class="detail-tabs" role="tablist" aria-label="${t("assetInspector")}"><button class="detail-tab" role="tab" id="detailTabOverview" aria-selected="${activeTab === "overview"}" aria-controls="detailPanelOverview" data-detail-tab="overview" tabindex="${activeTab === "overview" ? "0" : "-1"}">${t("tabOverview")}</button><button class="detail-tab" role="tab" id="detailTabRecipe" aria-selected="${activeTab === "recipe"}" aria-controls="detailPanelRecipe" data-detail-tab="recipe" tabindex="${activeTab === "recipe" ? "0" : "-1"}">${t("tabRecipe")}</button><button class="detail-tab" role="tab" id="detailTabVersions" aria-selected="${activeTab === "versions"}" aria-controls="detailPanelVersions" data-detail-tab="versions" tabindex="${activeTab === "versions" ? "0" : "-1"}">${t("tabVersions")}</button></div><div class="detail-tab-panel" role="tabpanel" id="detailPanelOverview" aria-labelledby="detailTabOverview"${activeTab !== "overview" ? " hidden" : ""}><div class="detail-image-wrap">${assetMediaPreviewMarkup(asset, "detail")}</div><div class="detail-head"><h3 id="detailTitle" tabindex="-1">${escapeHtml(asset.theme || asset.asset || asset.id)}</h3><p>${escapeHtml(asset.id)} · ${formatDate(asset.created_at)}</p></div><div class="detail-actions"><div class="cowart-insert-control"></div></div><section class="section"><div class="section-head"><h4>${t("prompt")}</h4><button class="section-head-copy" type="button" data-action="copy-prompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}">${copyIcon}</button></div><div class="prompt-box">${promptText}</div></section>${userInstructionSection}</div><div class="detail-tab-panel" role="tabpanel" id="detailPanelRecipe" aria-labelledby="detailTabRecipe"${activeTab !== "recipe" ? " hidden" : ""}><section class="section"><div class="section-head"><h4>${t("recipe")}</h4></div>${metadata.length ? `<div class="meta-table">${metadataRows}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</section><details class="detail-disclosure"${activeTab === "recipe" ? " open" : ""}><summary>${t("editMetadata")}</summary><div class="disclosure-content detail-fields">${editFieldsMarkup}${versionChangeFieldMarkup}<div class="recipe-save-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-recipe">${t("saveRecipe")}</button><button class="recipe-save-btn primary" type="button" data-action="save-version">${t("saveAsVersion")}</button></div></div></details><details class="detail-disclosure" data-reference-rights-section><summary>${t("referenceRights")}</summary><div class="disclosure-content" data-reference-rights>${referenceRightsMarkup(asset)}</div></details><details class="detail-disclosure"><summary>${t("sourceInfo")}</summary><div class="disclosure-content">${sourceRows.length ? `<div class="meta-table">${sourceRowsMarkup}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</div></details><div class="detail-utility-actions"><button class="action-btn secondary" type="button" data-action="regenerate">${t("regenerate")}</button><button class="action-btn secondary" type="button" data-action="copy-path">${t("copyPath")}</button>${openMediaAction}</div></div><div class="detail-tab-panel" role="tabpanel" id="detailPanelVersions" aria-labelledby="detailTabVersions"${activeTab !== "versions" ? " hidden" : ""}><details class="detail-disclosure" open><summary>${t("versionHistory")}</summary><div class="disclosure-content version-history-region" data-version-history aria-live="polite">${cachedHistory ? versionHistoryMarkup(cachedHistory, asset.id) : `<p class="version-history-status" role="status">${t("versionLoading")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("imageLocation")}</summary><div class="disclosure-content"><div class="section-head detail-path-head"><h4>${t("imageLocation")}</h4><button class="section-head-copy" type="button" data-action="copy-path" title="${t("copyPath")}" aria-label="${t("copyPath")}">${copyIcon}</button></div><div class="path-box detail-path-box">${escapeHtml(asset.image_path)}</div></div></details></div>`;
+  els.detailPanel.innerHTML = `<div class="detail-studio-bar"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}">${t("close")}</button></div><div class="detail-tabs" role="tablist" aria-label="${t("assetInspector")}"><button class="detail-tab" role="tab" id="detailTabOverview" aria-selected="${activeTab === "overview"}" aria-controls="detailPanelOverview" data-detail-tab="overview" tabindex="${activeTab === "overview" ? "0" : "-1"}">${t("tabOverview")}</button><button class="detail-tab" role="tab" id="detailTabRecipe" aria-selected="${activeTab === "recipe"}" aria-controls="detailPanelRecipe" data-detail-tab="recipe" tabindex="${activeTab === "recipe" ? "0" : "-1"}">${t("tabRecipe")}</button><button class="detail-tab" role="tab" id="detailTabVersions" aria-selected="${activeTab === "versions"}" aria-controls="detailPanelVersions" data-detail-tab="versions" tabindex="${activeTab === "versions" ? "0" : "-1"}">${t("tabVersions")}</button></div><div class="detail-tab-panel" role="tabpanel" id="detailPanelOverview" aria-labelledby="detailTabOverview"${activeTab !== "overview" ? " hidden" : ""}><div class="detail-image-wrap">${assetMediaPreviewMarkup(asset, "detail")}</div><div class="detail-head"><h3 id="detailTitle" tabindex="-1">${escapeHtml(asset.theme || asset.asset || asset.id)}</h3><p>${escapeHtml(asset.id)} · ${formatDate(asset.created_at)}</p></div><div class="detail-actions"><div class="cowart-insert-control"></div></div><section class="section"><div class="section-head"><h4>${t("prompt")}</h4><button class="section-head-copy" type="button" data-action="copy-prompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}">${copyIcon}</button></div><div class="prompt-box">${promptText}</div></section>${userInstructionSection}</div><div class="detail-tab-panel" role="tabpanel" id="detailPanelRecipe" aria-labelledby="detailTabRecipe"${activeTab !== "recipe" ? " hidden" : ""}><section class="section"><div class="section-head"><h4>${t("recipe")}</h4></div>${metadata.length ? `<div class="meta-table">${metadataRows}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</section><details class="detail-disclosure"${activeTab === "recipe" ? " open" : ""}><summary>${t("editMetadata")}</summary><div class="disclosure-content detail-fields">${editFieldsMarkup}${versionChangeFieldMarkup}<div class="recipe-save-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-recipe">${t("saveRecipe")}</button><button class="recipe-save-btn primary" type="button" data-action="save-version">${t("saveAsVersion")}</button></div></div></details><details class="detail-disclosure" data-reference-rights-section><summary>${t("referenceRights")}</summary><div class="disclosure-content" data-reference-rights>${referenceRightsMarkup(asset)}</div></details><details class="detail-disclosure"><summary>${t("sourceInfo")}</summary><div class="disclosure-content">${sourceRows.length ? `<div class="meta-table">${sourceRowsMarkup}</div>` : `<p class="empty-copy">${t("noDetails")}</p>`}</div></details><div class="detail-utility-actions"><button class="action-btn secondary" type="button" data-action="regenerate">${t("regenerate")}</button><button class="action-btn secondary" type="button" data-action="copy-path">${t("copyPath")}</button>${openMediaAction}<button class="action-btn danger" type="button" data-action="archive-asset">${t("batchArchive")}</button></div></div><div class="detail-tab-panel" role="tabpanel" id="detailPanelVersions" aria-labelledby="detailTabVersions"${activeTab !== "versions" ? " hidden" : ""}><details class="detail-disclosure" open><summary>${t("versionHistory")}</summary><div class="disclosure-content version-history-region" data-version-history aria-live="polite">${cachedHistory ? versionHistoryMarkup(cachedHistory, asset.id) : `<p class="version-history-status" role="status">${t("versionLoading")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("imageLocation")}</summary><div class="disclosure-content"><div class="section-head detail-path-head"><h4>${t("imageLocation")}</h4><button class="section-head-copy" type="button" data-action="copy-path" title="${t("copyPath")}" aria-label="${t("copyPath")}">${copyIcon}</button></div><div class="path-box detail-path-box">${escapeHtml(asset.image_path)}</div></div></details></div>`;
   els.detailPanel.querySelector("[data-version-history]")?.closest(".detail-disclosure")?.insertAdjacentHTML(
     "afterend",
     recipeHistoryDisclosureMarkup(cachedRecipeHistory),
@@ -1684,13 +1577,19 @@ function bindDetailEvents(asset, renderId) {
   panel.querySelector('[data-action="copy-path"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(asset.image_path); showToast(t("pathCopied"), "success"); }));
   panel.querySelector('[data-action="regenerate"]')?.addEventListener("click", () => runAction(async () => {
     const snapshot = activeRecipeSnapshot(asset);
-    // Regeneration hands the recipe's references to another tool. Copying a
-    // reference whose consent was refused, silently, is the one place this
-    // matrix has to interrupt rather than merely display.
     const blocked = (snapshot?.references || []).filter((reference) => referenceRightsTone(reference) === "restricted");
     if (blocked.length && !window.confirm(t("regenerateRestrictedConfirm", { count: blocked.length }))) return;
     await navigator.clipboard.writeText(regenerationInstruction(asset, snapshot));
     showToast(t("instructionCopied"), "success");
+  }));
+  panel.querySelector('[data-action="archive-asset"]')?.addEventListener("click", () => runAction(async () => {
+    if (!window.confirm(t("confirmBatchArchive", { count: 1 }))) return;
+    await api(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/archive`, { method: "POST" });
+    showToast(t("archived"), "success");
+    setDetailOpen(false);
+    state.selectedId = null;
+    await loadStats();
+    await loadAssets();
   }));
   panel.querySelectorAll('[data-edit="rating"] button').forEach((button) => button.addEventListener("click", () => { state.detailDirty = true; const value = Number(button.dataset.val); panel.querySelectorAll('[data-edit="rating"] button').forEach((star) => { const on = Number(star.dataset.val) <= value; star.classList.toggle("on", on); star.textContent = on ? "★" : "☆"; }); }));
   panel.querySelector('[data-action="save-recipe"]')?.addEventListener("click", () => runAction(async () => {

@@ -63,8 +63,9 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
   assert.match(app, /\["grok", t\("filterGrok"\)/);
   assert.match(app, /function isVideoAsset\(/);
   assert.match(app, /function assetMediaPreviewMarkup\(/);
-  assert.match(app, /userInstruction: "用户指令"/);
-  assert.match(app, /chatgptPromptUnavailable: "ChatGPT 未暴露原始生图提示词"/);
+  const i18n = await readFile(resolve(root, "app/i18n.mjs"), "utf8");
+  assert.match(i18n, /userInstruction: "用户指令"/);
+  assert.match(i18n, /chatgptPromptUnavailable: "ChatGPT 未暴露原始生图提示词"/);
   assert.match(app, /const userInstructionSection = userInstruction/);
   // Global bridge health ignores Grok-only failures while still exposing Grok metadata.
   assert.match(app, /const hasError = codex\?\.lastError \|\| cowart\?\.lastError;/);
@@ -86,23 +87,26 @@ test("keeps background library refreshes from replacing active edits", async () 
 });
 
 test("keeps the Cowart reuse path wired through the local runtime", async () => {
-  const [app, runtime] = await Promise.all([
+  const [app, runtime, assetRoutes] = await Promise.all([
     readFile(resolve(root, "app/app.js"), "utf8"),
     readFile(resolve(root, "lib/mosa-runtime.mjs"), "utf8"),
+    readFile(resolve(root, "lib/api/asset-routes.mjs"), "utf8"),
   ]);
 
   assert.match(app, /dataset\.action = "insert-cowart"/);
   assert.match(app, /data-cowart-insert-target/);
   assert.match(app, /\/insert-cowart/);
-  assert.match(runtime, /insert_cowart_image/);
-  assert.match(runtime, /mosaAssetId/);
-  assert.match(runtime, /Cowart insertion target is not registered/);
+  assert.match(runtime, /handleApiRequest/);
+  assert.match(assetRoutes, /insert_cowart_image/);
+  assert.match(assetRoutes, /mosaAssetId/);
+  assert.match(assetRoutes, /Cowart insertion target is not registered/);
 });
 
 test("uses a single language chosen from system, Chinese, or English", async () => {
-  const [html, app] = await Promise.all([
+  const [html, app, i18n] = await Promise.all([
     readFile(resolve(root, "app/index.html"), "utf8"),
     readFile(resolve(root, "app/app.js"), "utf8"),
+    readFile(resolve(root, "app/i18n.mjs"), "utf8"),
   ]);
 
   assert.match(html, /data-locale="system"/);
@@ -116,7 +120,7 @@ test("uses a single language chosen from system, Chinese, or English", async () 
   assert.match(app, /data-language-menu/);
   assert.match(app, /function positionLanguageMenu\(\)/);
   assert.match(app, /document\.documentElement\.lang/);
-  assert.match(app, /自动发现的 Cowart 画布/);
+  assert.match(i18n, /自动发现的 Cowart 画布/);
   assert.match(app, /function cowartCanvasListSignature\(canvases\)/);
   assert.doesNotMatch(app, /data-cowart-canvas-form/);
   assert.doesNotMatch(app, /data-remove-cowart-canvas/);
@@ -124,13 +128,14 @@ test("uses a single language chosen from system, Chinese, or English", async () 
 });
 
 test("keeps recipe version history navigable without replacing active edits", async () => {
-  const [app, css] = await Promise.all([
+  const [app, css, i18n] = await Promise.all([
     readFile(resolve(root, "app/app.js"), "utf8"),
     readFile(resolve(root, "app/styles.css"), "utf8"),
+    readFile(resolve(root, "app/i18n.mjs"), "utf8"),
   ]);
 
-  assert.match(app, /versionHistory: "版本历史"/);
-  assert.match(app, /versionHistory: "Version history"/);
+  assert.match(i18n, /versionHistory: "版本历史"/);
+  assert.match(i18n, /versionHistory: "Version history"/);
   assert.match(app, /data-version-history aria-live="polite"/);
   assert.match(app, /<ol class="version-timeline" aria-label=/);
   assert.match(app, /version-depth-\$\{depth\}/);
@@ -193,8 +198,8 @@ test("keeps recipe version history navigable without replacing active edits", as
   assert.match(css, /\.reference-thumb-empty \{/);
   assert.match(app, /function referenceRightsSummary\(references\)/);
   assert.match(app, /class="recipe-reference-rights \$\{rights\.tone\}"/);
-  assert.match(app, /referenceRightsRestricted: "\{count\} 项参考受限"/);
-  assert.match(app, /referenceRightsUnresolved: "\{count\} with unconfirmed rights"/);
+  assert.match(i18n, /referenceRightsRestricted: "\{count\} 项参考受限"/);
+  assert.match(i18n, /referenceRightsUnresolved: "\{count\} with unconfirmed rights"/);
   assert.match(css, /\.recipe-reference-rights\.restricted \{/);
   assert.match(css, /\.recipe-reference-rights\.unresolved \{/);
   assert.match(css, /\.recipe-save-actions \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
@@ -202,15 +207,16 @@ test("keeps recipe version history navigable without replacing active edits", as
 });
 
 test("provides an accessible tabbed detail panel with ARIA roles", async () => {
-  const [app, css] = await Promise.all([
+  const [app, css, i18n] = await Promise.all([
     readFile(resolve(root, "app/app.js"), "utf8"),
     readFile(resolve(root, "app/styles.css"), "utf8"),
+    readFile(resolve(root, "app/i18n.mjs"), "utf8"),
   ]);
 
-  assert.match(app, /tabOverview: "概览"/);
-  assert.match(app, /tabOverview: "Overview"/);
-  assert.match(app, /tabRecipe: "Recipe"/);
-  assert.match(app, /tabVersions: "Versions"/);
+  assert.match(i18n, /tabOverview: "概览"/);
+  assert.match(i18n, /tabOverview: "Overview"/);
+  assert.match(i18n, /tabRecipe: "Recipe"/);
+  assert.match(i18n, /tabVersions: "Versions"/);
   assert.match(app, /role="tablist"/);
   assert.match(app, /role="tab" id="detailTabOverview"/);
   assert.match(app, /role="tab" id="detailTabRecipe"/);

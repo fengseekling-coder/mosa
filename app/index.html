@@ -9,6 +9,25 @@
   <body>
     <div class="toast-container" id="toastContainer" aria-live="polite"></div>
 
+    <div class="drag-overlay" id="dragOverlay" hidden>
+      <div class="drag-overlay-content">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 5v14M5 12h14"/></svg>
+        <p data-i18n="dropToImport">拖放图片到此处导入</p>
+      </div>
+    </div>
+
+    <div class="batch-bar" id="batchBar" role="region" data-i18n-aria-label="batchMode" aria-label="批量管理" hidden>
+      <div class="batch-bar-left">
+        <button class="batch-bar-btn" id="batchSelectAll" type="button" data-i18n="selectAll">全选</button>
+        <span class="batch-bar-count" id="batchCount" role="status" aria-live="polite"></span>
+      </div>
+      <div class="batch-bar-right">
+        <button class="batch-bar-btn" id="batchFavorite" type="button" data-i18n="batchFavorite">收藏</button>
+        <button class="batch-bar-btn danger" id="batchArchive" type="button" data-i18n="batchArchive">归档</button>
+        <button class="batch-bar-btn quiet" id="batchCancel" type="button" data-i18n="batchCancel">取消</button>
+      </div>
+    </div>
+
     <div class="modal-overlay" id="importModal" aria-hidden="true">
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="importModalTitle" tabindex="-1">
         <div class="modal-header">
@@ -21,7 +40,7 @@
           </button>
         </div>
         <div class="modal-body">
-          <label class="field"><span data-i18n="imagePath">图片路径</span><input id="imagePathInput" data-i18n-placeholder="imagePathPlaceholder" placeholder="图片的本地绝对路径" aria-describedby="imagePathGuidance imagePathError" /></label>
+          <label class="field"><span data-i18n="imagePath">图片路径</span><div class="field-with-button"><input id="imagePathInput" data-i18n-placeholder="imagePathPlaceholder" placeholder="图片的本地绝对路径" aria-describedby="imagePathGuidance imagePathError" /><button class="browse-btn" id="browseFileBtn" type="button" data-i18n-title="browseFile" title="浏览" aria-label="浏览文件"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg></button></div></label>
           <p class="field-error" id="imagePathError" role="alert" hidden></p>
           <div class="field-guidance" id="imagePathGuidance">
             <p><span class="field-guidance-key" data-i18n="importPathFormats">支持格式</span><span id="importFormatList"></span></p>
@@ -107,13 +126,14 @@
             <div class="settings-menu" id="settingsMenu" hidden>
               <section class="settings-section"><p data-i18n="project">项目</p><div class="settings-project-row"><label class="visually-hidden" for="projectSelect" data-i18n="project">项目</label><select id="projectSelect"><option value="default">default</option></select><button class="icon-button quiet" id="openFolderBtn" type="button" data-i18n-title="openLibrary" data-i18n-aria-label="openLibrary" title="打开素材库" aria-label="打开素材库"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg></button></div></section>
               <section class="settings-section"><p data-i18n="language">语言</p><button type="button" data-locale="system"></button><button type="button" data-locale="zh"></button><button type="button" data-locale="en"></button></section>
+              <section class="settings-section"><p data-i18n="appearance">外观</p><button type="button" id="darkModeToggle" class="settings-dark-toggle" data-i18n="darkModeToggle">切换暗色模式</button></section>
             </div>
           </div>
         </div>
       </aside>
 
       <main class="library">
-        <header class="topbar"><div class="topbar-left"><div class="title-row"><h2 id="viewTitle">全部素材</h2><p id="assetCount" role="status" aria-live="polite">0</p></div></div><div class="topbar-right"><span class="visually-hidden" id="statusText" role="status" aria-live="polite"></span><div class="bridge-status" id="bridgeStatus" data-state="checking" role="status" aria-live="polite"><span class="bridge-dot" aria-hidden="true"></span><span id="bridgeStatusLabel" data-i18n="statusChecking">检查桥接状态…</span><span class="bridge-status-meta" id="bridgeStatusMeta"></span></div><button class="toolbar-filter" id="filterToggle" type="button" aria-expanded="false" aria-controls="filterPanel" data-i18n-aria-label="refine" aria-label="筛选"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10m-7 6h4"/></svg><span data-i18n="refine">筛选</span><span class="filter-dot" id="filterDot" hidden></span></button><button class="toolbar-filter density-toggle" id="densityToggle" type="button" aria-pressed="false" data-i18n-title="galleryDensity" title="卡片信息" data-i18n-aria-label="galleryDensity" aria-label="卡片信息"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><path d="M3 14h7M14 14h7M3 18h7M14 18h7"/></svg></button><label class="sort-control"><span class="visually-hidden" data-i18n="sortLabel">排序</span><select id="sortSelect"><option value="newest" data-i18n="sortNewest">最新</option><option value="oldest" data-i18n="sortOldest">最早</option><option value="name" data-i18n="sortName">名称</option></select></label><button class="create-button" id="newAssetTopBtn" type="button" data-i18n-aria-label="importAsset" aria-label="导入素材"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="importAsset">导入素材</span></button></div></header>
+        <header class="topbar"><div class="topbar-left"><div class="title-row"><h2 id="viewTitle">全部素材</h2><p id="assetCount" role="status" aria-live="polite">0</p></div></div><div class="topbar-right"><span class="visually-hidden" id="statusText" role="status" aria-live="polite"></span><div class="bridge-status" id="bridgeStatus" data-state="checking" role="status" aria-live="polite"><span class="bridge-dot" aria-hidden="true"></span><span id="bridgeStatusLabel" data-i18n="statusChecking">检查桥接状态…</span><span class="bridge-status-meta" id="bridgeStatusMeta"></span></div><button class="toolbar-filter" id="filterToggle" type="button" aria-expanded="false" aria-controls="filterPanel" data-i18n-aria-label="refine" aria-label="筛选"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10m-7 6h4"/></svg><span data-i18n="refine">筛选</span><span class="filter-dot" id="filterDot" hidden></span></button><button class="toolbar-filter batch-toggle" id="batchToggle" type="button" aria-pressed="false" data-i18n-aria-label="batchMode" aria-label="批量管理"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 12 4 4L19 6"/><path d="M5 6h9"/></svg><span data-i18n="batchMode">批量管理</span></button><button class="toolbar-filter density-toggle" id="densityToggle" type="button" aria-pressed="false" data-i18n-title="galleryDensity" title="卡片信息" data-i18n-aria-label="galleryDensity" aria-label="卡片信息"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><path d="M3 14h7M14 14h7M3 18h7M14 18h7"/></svg></button><label class="sort-control"><span class="visually-hidden" data-i18n="sortLabel">排序</span><select id="sortSelect"><option value="newest" data-i18n="sortNewest">最新</option><option value="oldest" data-i18n="sortOldest">最早</option><option value="name" data-i18n="sortName">名称</option></select></label><button class="create-button" id="newAssetTopBtn" type="button" data-i18n-aria-label="importAsset" aria-label="导入素材"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="importAsset">导入素材</span></button></div></header>
         <div class="active-filters" id="activeFilters" data-i18n-aria-label="activeFilters" aria-label="当前筛选" hidden></div>
         <section class="grid" id="assetGrid" data-i18n-aria-label="assetList" aria-label="素材列表"></section>
       </main>

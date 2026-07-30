@@ -6,6 +6,7 @@ import test from "node:test";
 const root = resolve(import.meta.dirname, "..");
 
 const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
 const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
 
@@ -137,17 +138,14 @@ test("shows how many filters are active on the filter toggle", async () => {
 });
 
 test("translates every new filter and sort string in both locales", async () => {
-  const app = await readApp();
+  const i18n = await readI18n();
   const keys = [
     "sortLabel", "sortNewest", "sortOldest", "sortName",
     "facetSearch", "facetNoMatch", "activeFilters", "clearAll", "removeFilter",
     "chipSearch", "chipSource", "chipGroup", "chipCategory", "chipStyle", "chipScope", "chipSeparator",
     "allGroups", "facetTruncated",
   ];
-  const zhBlocks = [...app.matchAll(/Object\.assign\(translations\.zh, \{([\s\S]*?)\n\}\);/g)].map((match) => match[1]).join("\n");
-  const enBlocks = [...app.matchAll(/Object\.assign\(translations\.en, \{([\s\S]*?)\n\}\);/g)].map((match) => match[1]).join("\n");
   for (const key of keys) {
-    assert.match(zhBlocks, new RegExp(`\\b${key}:`), `zh translation missing for ${key}`);
-    assert.match(enBlocks, new RegExp(`\\b${key}:`), `en translation missing for ${key}`);
+    assert.match(i18n, new RegExp(`\\b${key}:`), `zh translation missing for ${key}`);
   }
 });
