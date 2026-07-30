@@ -66,6 +66,10 @@ test("starts, identifies itself, stops idempotently, and restarts", async (t) =>
     libraryDir: options.libraryDir,
     storage: "json",
   });
+  const i18nModule = await fetch(`${first.url}/i18n.mjs`);
+  assert.equal(i18nModule.status, 200);
+  assert.equal(i18nModule.headers.get("content-type"), "text/javascript; charset=utf-8");
+  assert.match(await i18nModule.text(), /export default/);
   const bridges = await (await fetch(`${first.url}/api/bridges`)).json();
   assert.equal(bridges.cowart.sources[0].projectDir, options.cowartProjectDir);
 

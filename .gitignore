@@ -6,6 +6,14 @@ node_modules/
 npm-debug.log*
 *.bak-*
 
+# TypeScript emits runtime modules next to their .ts sources so existing Node
+# entry points can resolve their .js specifiers. They are rebuilt by npm
+# lifecycle scripts and must never be staged.
+/lib/*.js
+/lib/*.js.map
+/lib/*.d.ts
+/dist/
+
 # User libraries and private project material.
 /assets/
 /production/

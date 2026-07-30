@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createAssetStore } from "../lib/asset-store.mjs";
-import { createCodexImageBridge, reconcileCodexGeneratedImages } from "../lib/codex-image-bridge.mjs";
+import { createCodexImageBridge, reconcileCodexGeneratedImages } from "../lib/codex-image-bridge.js";
 
 test("archives Codex generated images with task metadata and avoids duplicates", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));

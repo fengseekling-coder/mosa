@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { isAllowedIngestOrigin, isAllowedLocalOrigin, parseAllowedIngestOrigins, resolveAllowedFolderPath } from "../lib/server-security.mjs";
+import { isAllowedIngestOrigin, isAllowedLocalOrigin, parseAllowedIngestOrigins, resolveAllowedFolderPath } from "../lib/server-security.js";
 
 test("allows only same-origin browser requests", () => {
   assert.equal(isAllowedLocalOrigin(undefined, 43517), true);

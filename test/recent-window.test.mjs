@@ -7,7 +7,7 @@ import {
   isRecentCreatedAt,
   normalizeCreatedAt,
   recentCutoffTimestamp,
-} from "../lib/recent-window.mjs";
+} from "../lib/recent-window.js";
 
 test("recentCutoffTimestamp quantises the cutoff so independent readers agree", () => {
   assert.equal(RECENT_WINDOW_MS, 7 * 24 * 60 * 60 * 1000);

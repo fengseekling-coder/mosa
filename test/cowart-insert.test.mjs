@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chooseCowartInsertTarget, resolveCowartInsertCanvas, verifyCowartInsert } from "../lib/cowart-insert.mjs";
+import { chooseCowartInsertTarget, resolveCowartInsertCanvas, verifyCowartInsert } from "../lib/cowart-insert.js";
 
 function canvasState() {
   return {

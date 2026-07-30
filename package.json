@@ -15,16 +15,24 @@
     "mosa": "bin/mosa.mjs"
   },
   "scripts": {
+    "prepare": "npm run build",
+    "prestart": "npm run build",
     "start": "node server.mjs",
+    "premcp": "npm run build",
     "mcp": "node mcp/server.mjs",
+    "build": "tsc",
+    "pretest": "npm run build",
     "test": "node --test",
     "lint": "eslint .",
     "check": "node scripts/check-source.mjs",
     "audit": "npm audit --omit=dev",
     "test:performance": "MOSA_PERF_TEST=1 node --test test/performance.test.mjs",
     "verify:codex": "node scripts/verify-codex-asset.mjs",
+    "predesktop:start": "npm run build",
     "desktop:start": "electron desktop/main.mjs",
+    "predesktop:package": "npm run build",
     "desktop:package": "electron-forge package --platform darwin --arch arm64",
+    "predesktop:make": "npm run build",
     "desktop:make": "electron-forge make --platform darwin --arch arm64"
   },
   "dependencies": {
@@ -36,6 +44,7 @@
     "electron": "43.2.0",
     "@electron-forge/cli": "7.11.2",
     "@electron-forge/maker-zip": "7.11.2",
-    "@electron-forge/plugin-auto-unpack-natives": "7.11.2"
+    "@electron-forge/plugin-auto-unpack-natives": "7.11.2",
+    "typescript": "5.4.5"
   }
 }

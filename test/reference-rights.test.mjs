@@ -8,8 +8,8 @@ import {
   referenceRightsStatus,
   referenceUsePermission,
   summarizeReferenceRights,
-} from "../lib/reference-rights.mjs";
-import { appendRecipeSnapshot, buildRecipeSnapshot, ensureRecipeSnapshots } from "../lib/recipe-snapshot.mjs";
+} from "../lib/reference-rights.js";
+import { appendRecipeSnapshot, buildRecipeSnapshot, ensureRecipeSnapshots } from "../lib/recipe-snapshot.js";
 
 test("a forbidden use beats an allowed use for the same purpose", () => {
   const reference = { allowed_uses: ["identity", "style"], forbidden_uses: ["identity"] };

@@ -12,8 +12,8 @@ import {
   ingestWebCapture,
   WEB_CAPTURE_MAX_BODY_BYTES,
   WEB_CAPTURE_MAX_IMAGE_BYTES,
-} from "../lib/web-capture-ingest.mjs";
-import { isAllowedIngestOrigin, parseAllowedIngestOrigins } from "../lib/server-security.mjs";
+} from "../lib/web-capture-ingest.js";
+import { isAllowedIngestOrigin, parseAllowedIngestOrigins } from "../lib/server-security.js";
 
 // High-entropy raster so compressed size exceeds the logo gate (~20KiB).
 const SAMPLE_PNG_BASE64 = await (async () => {

@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createAssetStore } from "../lib/asset-store.mjs";
-import { createCowartBridgeManager } from "../lib/cowart-bridge-manager.mjs";
-import { createCowartProjectRegistry } from "../lib/cowart-project-registry.mjs";
+import { createCowartBridgeManager } from "../lib/cowart-bridge-manager.js";
+import { createCowartProjectRegistry } from "../lib/cowart-project-registry.js";
 
 test("archives registered project-local Cowart canvases", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-manager-"));

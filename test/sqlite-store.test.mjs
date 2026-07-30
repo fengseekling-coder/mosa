@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import sharp from "sharp";
-import { createDerivativeWorker, processDerivativeJob } from "../lib/derivative-worker.mjs";
+import { createDerivativeWorker, processDerivativeJob } from "../lib/derivative-worker.js";
 import { createAssetStore } from "../lib/asset-store.mjs";
-import { normalizeCreatedAt } from "../lib/recent-window.mjs";
+import { normalizeCreatedAt } from "../lib/recent-window.js";
 import { createSqliteAssetStore, sqliteDatabasePath } from "../lib/sqlite-asset-store.mjs";
 
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+1CBR3wAAAABJRU5ErkJggg==", "base64");

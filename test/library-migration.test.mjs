@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { inspectLegacyLibrary, migrateLegacyLibrary, verifySqliteLibrary } from "../lib/library-migration.mjs";
+import { inspectLegacyLibrary, migrateLegacyLibrary, verifySqliteLibrary } from "../lib/library-migration.js";
 import { createAssetStore, createJsonAssetStore } from "../lib/asset-store.mjs";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 

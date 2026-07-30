@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createAssetStore } from "../lib/asset-store.mjs";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
-import { createCowartAssetBridge, reconcileCowartAssets } from "../lib/cowart-bridge.mjs";
+import { createCowartAssetBridge, reconcileCowartAssets } from "../lib/cowart-bridge.js";
 
 test("archives Cowart page assets once and keeps MOSA-origin images out", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));

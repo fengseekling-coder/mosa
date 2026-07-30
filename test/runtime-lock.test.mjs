@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { acquireMosaRuntimeLock } from "../lib/runtime-lock.mjs";
+import { acquireMosaRuntimeLock } from "../lib/runtime-lock.js";
 
 test("permits only one MOSA bridge runtime for a library", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-runtime-lock-"));
