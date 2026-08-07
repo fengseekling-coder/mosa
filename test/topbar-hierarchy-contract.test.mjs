@@ -243,12 +243,14 @@ test("19. title min-width and ellipsis contracts exist", async () => {
   assert.match(count, /flex: 0 0 auto/, "count must never cover the title");
 });
 
-// 20. The topbar height still references the original token.
+// 20. The topbar height still references the token. V2 (2026-08-07) deliberately
+// changed the token's value from 52px to 56px to fix an 8pt-grid violation the
+// original design audit flagged; the token indirection itself is what this locks.
 test("20. topbar height still references the token", async () => {
   const css = await readCss();
   const { block } = extractBlock(css, ".topbar {");
   assert.match(block, /height: var\(--topbar-height\)/, ".topbar must consume --topbar-height");
-  assert.match(css, /--topbar-height: 52px;/, "the 52px token value must stay unchanged");
+  assert.match(css, /--topbar-height: 56px;/, "the V2 56px token value must be in place");
 });
 
 // 21. No overflow / ellipsis menu was introduced.

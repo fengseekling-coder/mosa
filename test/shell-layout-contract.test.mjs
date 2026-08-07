@@ -72,9 +72,10 @@ test("1-7. shell regions and panel token consumption", async () => {
   assert.match(mq1120, /\.shell\.details-open \{ grid-template-columns: var\(--sidebar-width-compact\) minmax\(0, 1fr\) var\(--inspector-width-compact\); \}/);
   assert.doesNotMatch(shell + shellOpen + mq1120, /grid-template-columns:[^;]*\b(232|208|56|360|340)px\b/);
 
-  // 7. Topbar height token.
+  // 7. Topbar height token. V2 (2026-08-07) moved the value from 52px to 56px
+  // (8pt-grid fix); the token indirection is what this asserts.
   assert.match(blockAfter(css, ".topbar {"), /height: var\(--topbar-height\)/);
-  assert.match(css, /--topbar-height: 52px;/);
+  assert.match(css, /--topbar-height: 56px;/);
 });
 
 // 8. Wide-screen detail sits on the right.

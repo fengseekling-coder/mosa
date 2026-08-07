@@ -186,13 +186,16 @@ test("dark-theme accent button text meets WCAG AA 4.5:1", async () => {
   const { block: dark } = extractBlock(css, ':root[data-theme="dark"] {');
   const accent = readToken(dark, "color-accent");
   const hover = readToken(dark, "color-accent-hover");
-  const white = readToken(dark, "color-accent-contrast");
-  assert.equal(white, "#ffffff", "the white foreground is kept");
-  assert.ok(contrastRatio(white, accent) >= 4.5, `white on dark accent is ${contrastRatio(white, accent).toFixed(2)}:1`);
-  assert.ok(contrastRatio(white, hover) >= 4.5, `white on dark accent-hover is ${contrastRatio(white, hover).toFixed(2)}:1`);
+  // V2 (2026-08-07): dark accent is now a light burnt-peach (#d68f60), so a white
+  // foreground no longer clears AA — the token switched to a warm near-black
+  // (#241108) instead. The ratio math below still enforces the real 4.5:1 floor.
+  const contrastFg = readToken(dark, "color-accent-contrast");
+  assert.equal(contrastFg, "#241108", "the V2 warm-dark foreground is kept");
+  assert.ok(contrastRatio(contrastFg, accent) >= 4.5, `foreground on dark accent is ${contrastRatio(contrastFg, accent).toFixed(2)}:1`);
+  assert.ok(contrastRatio(contrastFg, hover) >= 4.5, `foreground on dark accent-hover is ${contrastRatio(contrastFg, hover).toFixed(2)}:1`);
   // The pressed fill derived by color-mix must stay above the floor as well.
   const active = mixWithBlack(accent, 88);
-  assert.ok(contrastRatio(white, active) >= 4.5, `white on dark primary-active ${active} is ${contrastRatio(white, active).toFixed(2)}:1`);
+  assert.ok(contrastRatio(contrastFg, active) >= 4.5, `foreground on dark primary-active ${active} is ${contrastRatio(contrastFg, active).toFixed(2)}:1`);
   // Destructive pressed fill keeps white text readable.
   const error = readToken(dark, "color-danger");
   const dangerActive = mixWithBlack(error, 55);
@@ -266,10 +269,14 @@ test("out-of-scope files stay locked and the Phase 1C card contract is stable", 
   // The Phase 1C/1C.1 card quick-action contract rules are locked verbatim against drift.
   // Phase 1C.1 re-locks: child-button disclosure granularity, 28px click area (Phase 1B
   // compatible IconButton floor), and the batch-disabled suppression variants.
+  // V2 (2026-08-07) deliberately restyled .card-actions/.card-action-btn (dark floating
+  // chips replace the bordered surface buttons, 32px click area, 8px gap) — the two
+  // strings below were updated to match; the disclosure-behaviour rules (favorite-visible,
+  // batch-disabled suppression) were not touched and stay verbatim.
   const css = await readCss();
   for (const rule of [
-    ".card-actions { position: absolute; z-index: var(--z-card-overlay); top: var(--space-1); right: var(--space-1); display: flex; gap: 4px; pointer-events: none; }",
-    ".card-action-btn { display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 1px solid var(--color-border-default); border-radius: var(--radius-control); color: var(--color-text-primary); background: var(--color-surface); box-shadow: var(--shadow-card); cursor: pointer; transition: opacity var(--duration-normal) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), border-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }",
+    ".card-actions { position: absolute; z-index: var(--z-card-overlay); top: var(--space-1); right: var(--space-1); display: flex; gap: var(--space-1); pointer-events: none; }",
+    ".card-action-btn { display: grid; width: 32px; height: 32px; padding: 0; place-items: center; border: 0; border-radius: var(--radius-card); color: var(--color-media-text); background: var(--chip-dark); cursor: pointer; transition: opacity var(--duration-normal) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard); }",
     ".card-action-btn.card-favorite.is-fav { color: var(--favorite); }",
     ".batch-active .asset-card .card-action-btn, .batch-active .asset-card:hover .card-action-btn, .batch-active .asset-card:focus-within .card-action-btn, .batch-active .asset-card.selected .card-action-btn { opacity: 0; pointer-events: none; }",
   ]) {

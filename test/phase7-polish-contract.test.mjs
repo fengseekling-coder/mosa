@@ -40,7 +40,10 @@ test("1. F-19 media/scrim tokens are defined and consumed", async () => {
   assert.equal(count(css, "--color-media-text: #ffffff;"), 1, "media-text defined once");
   assert.equal(count(css, "--color-scrim: rgb(0 0 0 / 0.4);"), 1, "scrim defined once");
   assert.ok(count(css, "var(--color-media-backdrop)") >= 4, "media-backdrop consumed by video thumb, preview surfaces and checkbox");
-  assert.ok(count(css, "var(--color-media-surface)") >= 3, "media-surface consumed by badge, header icon and controls");
+  // V2 (2026-08-07) moved the video-badge from --color-media-surface to the new
+  // --chip-dark token so it visually matches its sibling .card-action-btn floating
+  // chips; header icon and controls still consume media-surface.
+  assert.ok(count(css, "var(--color-media-surface)") >= 2, "media-surface consumed by header icon and controls");
   assert.ok(count(css, "var(--color-media-text)") >= 5, "media-text consumed by badge/buttons and hover-active states");
   assert.ok(count(css, "var(--color-media-border)") >= 1, "media-border consumed by header icon");
   assert.ok(count(css, "var(--color-scrim)") >= 1, "scrim consumed by modal overlay");
@@ -57,15 +60,21 @@ test("2. styles.css has no undefined custom properties", async () => {
   assert.deepEqual(missing, [], "every var(--*) reference is defined");
 });
 
-// 3. Cowart stays the only blue primary; success/warning/error stay distinct.
-test("3. Cowart is the only blue primary and status colours stay separate", async () => {
+// 3. There is exactly one semantic accent definition (no fragmentation into a
+// second, slightly-different value); success/warning/error stay distinct from it.
+// V2 (2026-08-07) repivoted the shared accent from D1 blue (#2424ff) to Muted
+// Burnt (#a35229) — Cowart-insert buttons consume the same general --accent
+// token (grep confirms no separate cowart-only colour token exists), so they
+// follow the repivot too; this test's job is single-definition discipline, not
+// pinning blue forever.
+test("3. exactly one semantic accent definition and status colours stay separate", async () => {
   const css = await readCss();
-  assert.equal(count(css, "--color-accent: #2424ff;"), 1, "exactly one semantic accent definition");
-  assert.equal(count(css, "--color-accent-hover: #1919cc;"), 1, "exactly one accent hover definition");
-  assert.equal(count(css, "--accent: #2424ff;"), 1, "deprecated alias keeps the same value");
+  assert.equal(count(css, "--color-accent: #a35229;"), 1, "exactly one semantic accent definition");
+  assert.equal(count(css, "--color-accent-hover: #8a4220;"), 1, "exactly one accent hover definition");
+  assert.equal(count(css, "--accent: #a35229;"), 1, "deprecated alias keeps the same value");
   assert.equal(count(css, "--color-success: #16a34a;"), 1, "success stays green");
   assert.equal(count(css, "--color-danger: #dc2626;"), 1, "danger stays red");
-  assert.equal(count(css, "--color-warning: #d97706;"), 1, "warning stays amber");
+  assert.equal(count(css, "--color-warning: #b45309;"), 1, "warning stays amber, distinct from the new accent");
 });
 
 // 4. Inspector ten-section order is locked in renderDetail.
