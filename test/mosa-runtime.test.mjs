@@ -61,11 +61,13 @@ test("starts, identifies itself, stops idempotently, and restarts", async (t) =>
   assert.equal(first.storage, "json");
   const response = await fetch(`${first.url}/api/health`);
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), {
-    product: "mosa",
-    libraryDir: options.libraryDir,
-    storage: "json",
-  });
+  const health = await response.json();
+  assert.equal(health.product, "mosa");
+  assert.equal(health.libraryDir, options.libraryDir);
+  assert.equal(health.storage, "json");
+  assert.equal(typeof health.productVersion, "string");
+  assert.equal(typeof health.gitSha, "string");
+  assert.equal(typeof health.uiFingerprint, "string");
   const i18nModule = await fetch(`${first.url}/i18n.mjs`);
   assert.equal(i18nModule.status, 200);
   assert.equal(i18nModule.headers.get("content-type"), "text/javascript; charset=utf-8");
@@ -83,6 +85,22 @@ test("starts, identifies itself, stops idempotently, and restarts", async (t) =>
   } finally {
     await second.stop();
   }
+});
+
+test("an explicit runtime libraryDir reroots JSON assets into libraryDir/assets", async (t) => {
+  const root = await makeTemporaryRoot(t, "mosa-runtime-explicit-library-");
+  const options = runtimeOptions(root);
+  // Let the store derive assetsRoot from the explicit libraryDir instead of the
+  // desktop-style override used by the shared fixture options.
+  delete options.assetsRoot;
+  const runtime = await startMosaRuntime(options);
+  t.after(() => runtime.stop());
+
+  assert.equal(runtime.storage, "json");
+  const library = await (await fetch(`${runtime.url}/api/library-path`)).json();
+  assert.equal(library.storage, "json");
+  assert.equal(library.libraryDir, options.libraryDir);
+  assert.equal(library.path, join(options.libraryDir, "assets", "default"));
 });
 
 test("rejects a second runtime in the same process", async (t) => {

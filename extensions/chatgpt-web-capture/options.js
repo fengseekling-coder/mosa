@@ -76,7 +76,9 @@ document.getElementById("test").addEventListener("click", async () => {
 
 function setStatus(message, kind) {
   statusEl.textContent = message;
-  statusEl.style.color = kind === "error" ? "#b91c1c" : "#166534";
+  // F-21：错误用独立 alert 语义，其余恢复 polite status；颜色不作唯一表达。
+  statusEl.setAttribute("role", kind === "error" ? "alert" : "status");
+  statusEl.style.color = kind === "error" ? "var(--mosa-error)" : "var(--mosa-success)";
 }
 
 load();

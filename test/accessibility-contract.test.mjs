@@ -31,7 +31,9 @@ test("keeps the import flow keyboard-accessible", async () => {
   assert.match(app, /function openImagePreview\(id, trigger\)/);
   assert.match(app, /function fitImagePreview\(\)/);
   assert.match(app, /Math\.min\(availableWidth \/ image\.naturalWidth, availableHeight \/ image\.naturalHeight\)/);
-  assert.match(app, /imagePreviewStage\?\.addEventListener\("click", \(event\) => \{ if \(event\.target === els\.imagePreviewStage\) closeImagePreview\(\); \}\)/);
+  assert.match(app, /imagePreviewStage\?\.addEventListener\("click", \(event\) => \{/);
+  assert.match(app, /if \(imagePreviewSuppressStageClick\) \{ imagePreviewSuppressStageClick = false; return; \}/);
+  assert.match(app, /if \(event\.target === els\.imagePreviewStage\) closeImagePreview\(\);/);
   assert.match(app, /function trapImagePreviewFocus\(event\)/);
   assert.match(app, /dblclick/);
   assert.match(app, /event\.key === "Escape"/);
@@ -58,7 +60,8 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
   assert.match(app, /function updateSelectedCard\(\)/);
   assert.match(app, /updateSelectedCard\(\);/);
   assert.match(app, /function renderFilterPanel\(\)/);
-  assert.match(app, /function positionFilterPanel\(\)/);
+  // Phase 5A / F-14：独立 positionFilterPanel 公式已收敛到共享 anchoredOverlayManager（唯一一套定位公式）。
+  assert.match(app, /const anchoredOverlayManager = createAnchoredOverlayManager\(\)/);
   assert.match(app, /\["cowart", t\("filterCowart"\)/);
   assert.match(app, /\["grok", t\("filterGrok"\)/);
   assert.match(app, /function isVideoAsset\(/);
@@ -66,7 +69,7 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
   const i18n = await readFile(resolve(root, "app/i18n.mjs"), "utf8");
   assert.match(i18n, /userInstruction: "用户指令"/);
   assert.match(i18n, /chatgptPromptUnavailable: "ChatGPT 未暴露原始生图提示词"/);
-  assert.match(app, /const userInstructionSection = userInstruction/);
+  assert.match(app, /const userInstructionMarkup = userInstruction/);
   // Global bridge health ignores Grok-only failures while still exposing Grok metadata.
   assert.match(app, /const hasError = codex\?\.lastError \|\| cowart\?\.lastError;/);
   assert.doesNotMatch(app, /const hasError = codex\?\.lastError \|\| grok\?\.lastError \|\| cowart\?\.lastError;/);
@@ -93,7 +96,7 @@ test("keeps the Cowart reuse path wired through the local runtime", async () => 
     readFile(resolve(root, "lib/api/asset-routes.mjs"), "utf8"),
   ]);
 
-  assert.match(app, /dataset\.action = "insert-cowart"/);
+  assert.match(app, /data-action="insert-cowart"/);
   assert.match(app, /data-cowart-insert-target/);
   assert.match(app, /\/insert-cowart/);
   assert.match(runtime, /handleApiRequest/);
@@ -109,16 +112,20 @@ test("uses a single language chosen from system, Chinese, or English", async () 
     readFile(resolve(root, "app/i18n.mjs"), "utf8"),
   ]);
 
-  assert.match(html, /data-locale="system"/);
-  assert.match(html, /data-locale="zh"/);
-  assert.match(html, /data-locale="en"/);
+  // Language menu buttons are dynamically generated in renderSettingsMenu()
+  // from a choices array that includes system, zh, and en options.
+  assert.match(app, /choices\s*=\s*\[/);
+  assert.match(app, /"system"[\s\S]*?"zh"[\s\S]*?"en"/);
+  assert.match(app, /data-locale="\$\{value\}"/);
   assert.match(app, /safeStorageGet\("mosa\.ui-language"\)/);
   assert.match(app, /function resolveLocale\(value\)/);
   assert.match(app, /function applyLanguage\(\)/);
   assert.match(app, /data-project-select/);
   assert.match(app, /data-open-library/);
   assert.match(app, /data-language-menu/);
-  assert.match(app, /function positionLanguageMenu\(\)/);
+  // Phase 5A / F-14：独立 positionLanguageMenu 公式已移除；语言子菜单作为 Settings 的 child
+  // 浮层经共享 manager 定位（向右优先、空间不足向左翻转）。
+  assert.match(app, /id: "language", kind: "child", parentId: "settings", placement: "right-start"/);
   assert.match(app, /document\.documentElement\.lang/);
   assert.match(i18n, /自动发现的 Cowart 画布/);
   assert.match(app, /function cowartCanvasListSignature\(canvases\)/);
@@ -158,12 +165,18 @@ test("keeps recipe version history navigable without replacing active edits", as
   assert.match(app, /function renderVersionHistoryRegion\(history, selectedId, error = null\)/);
   const regionRenderer = /function renderVersionHistoryRegion[\s\S]*?\n}\n\nfunction versionHistoryMarkup/.exec(app)?.[0] || "";
   assert.doesNotMatch(regionRenderer, /renderDetail\(/);
-  assert.match(app, /state\.detailAsset = asset/);
+  // Phase 4B：版本切换集中到 selectDetailVersion（picker change 与 timeline click 唯一入口），
+  // detailAsset 赋值随之内移；renderVersionHistoryRegion 依然不得整页重渲染。
+  assert.match(app, /state\.detailAsset = target/);
+  assert.match(app, /function selectDetailVersion\(versionId, options = \{\}\)/);
   // Gallery navigation no longer keys off the selected index — it resolves the
   // neighbour from rendered geometry — but it still requires a live selection.
   assert.match(app, /if \(!state\.assets\.some\(\(asset\) => asset\.id === state\.selectedId\)\) return;/);
-  assert.match(app, /function confirmDetailNavigation\(nextAssetId\)/);
-  assert.match(app, /window\.confirm\(t\("discardVersionChanges"\)\)/);
+  // Phase 5B：dirty guard 迁移为 async Promise 语义，经全应用唯一 ConfirmDialog 确认
+  //（window.confirm 清零）；不再存在浏览器原生确认。
+  assert.match(app, /async function confirmDetailNavigation\(nextAssetId\)/);
+  assert.match(app, /title: t\("discardChangesTitle"\)/);
+  assert.doesNotMatch(app, /window\.confirm\(/);
   assert.match(app, /function isCurrentDetailAction\(renderId, projectId, assetId\)/);
   assert.match(app, /renderId === detailRenderSequence/);
   assert.match(app, /\[data-edit="rating"\] button/);
@@ -188,9 +201,9 @@ test("keeps recipe version history navigable without replacing active edits", as
   assert.match(historyRenderer, /renderReferenceRightsRegion\(asset\)/);
   // Digest material must be copied from the snapshot, never re-read from the
   // editor, or a rights annotation would become a different recipe.
-  assert.match(app, /asset_id: reference\.asset_id,\s*\n\s*sha256: reference\.sha256,\s*\n\s*role: reference\.role,\s*\n\s*scope: reference\.scope,\s*\n\s*applied: reference\.applied,/);
+  assert.match(app, /asset_id: reference\.asset_id,\s+sha256: reference\.sha256,\s+role: reference\.role,\s+scope: reference\.scope,\s+applied: reference\.applied,/);
   assert.match(app, /const USE_PERMISSION_CYCLE = \{ undeclared: "allowed", allowed: "forbidden", forbidden: "undeclared" \}/);
-  assert.match(app, /regenerateRestrictedConfirm/);
+  assert.match(app, /restrictedRegenerateTitle/);
   assert.match(app, /referenceRightsTone\(reference\) === "restricted"/);
   // The strict CSP forbids an inline onerror attribute.
   assert.doesNotMatch(app, /onerror=/);
@@ -206,34 +219,31 @@ test("keeps recipe version history navigable without replacing active edits", as
   assert.match(css, /\.recipe-save-btn \{[^}]*white-space: normal;/);
 });
 
-test("provides an accessible tabbed detail panel with ARIA roles", async () => {
+test("provides an accessible single-column detail panel", async () => {
   const [app, css, i18n] = await Promise.all([
     readFile(resolve(root, "app/app.js"), "utf8"),
     readFile(resolve(root, "app/styles.css"), "utf8"),
     readFile(resolve(root, "app/i18n.mjs"), "utf8"),
   ]);
 
-  assert.match(i18n, /tabOverview: "概览"/);
-  assert.match(i18n, /tabOverview: "Overview"/);
-  assert.match(i18n, /tabRecipe: "Recipe"/);
-  assert.match(i18n, /tabVersions: "Versions"/);
-  assert.match(app, /role="tablist"/);
-  assert.match(app, /role="tab" id="detailTabOverview"/);
-  assert.match(app, /role="tab" id="detailTabRecipe"/);
-  assert.match(app, /role="tab" id="detailTabVersions"/);
-  assert.match(app, /aria-controls="detailPanelOverview"/);
-  assert.match(app, /aria-controls="detailPanelRecipe"/);
-  assert.match(app, /aria-controls="detailPanelVersions"/);
-  assert.match(app, /role="tabpanel" id="detailPanelOverview"/);
-  assert.match(app, /role="tabpanel" id="detailPanelRecipe"/);
-  assert.match(app, /role="tabpanel" id="detailPanelVersions"/);
-  assert.match(app, /aria-labelledby="detailTabOverview"/);
-  assert.match(app, /function switchDetailTab\(tabId\)/);
-  assert.match(app, /function bindDetailTabEvents\(\)/);
-  assert.match(app, /state\.detailTab = "overview"/);
-  assert.match(css, /\.detail-tab-panel\[hidden\] \{ display: none; \}/);
-  assert.match(css, /\.detail-tab\[aria-selected="true"\]/);
-  assert.match(css, /\.detail-tabs/);
+  // Phase 4A：三 Tab 合并为批准的单栏信息架构——无 tab 角色；#detailTitle 仍是焦点
+  // 落点，分段用原生 disclosure（键盘可达），按压态用 aria-pressed 暴露。
+  assert.match(i18n, /assetInspector: "素材检视器"/);
+  assert.match(i18n, /assetInspector: "Asset inspector"/);
+  assert.match(app, /<div class="detail-inspector"><div class="detail-inspector-header">/);
+  assert.match(app, /<div class="detail-inspector-scroll">/);
+  assert.match(app, /<h3 id="detailTitle" tabindex="-1"/);
+  assert.match(app, /data-action="close-detail" aria-label="\$\{t\("close"\)\}"/);
+  assert.match(app, /data-action="toggle-favorite" aria-pressed="\$\{favorite\}"/);
+  assert.match(app, /class="detail-facts" role="group" aria-label=/);
+  assert.match(app, /<details class="detail-disclosure"><summary>\$\{t\("versionHistory"\)\}<\/summary>/);
+  assert.doesNotMatch(app, /role="tablist"/);
+  assert.doesNotMatch(app, /role="tab"/);
+  assert.doesNotMatch(app, /role="tabpanel"/);
+  // Phase 4B 校正闸门：deprecated 的 state.detailTab 字段、初始值与重置语句全部移除，
+  // 全 app 代码零残留（此前 Phase 4A 仅移除 Tab DOM 与路由）。
+  assert.doesNotMatch(app, /detailTab/);
+  assert.match(css, /\.detail-inspector-scroll \{[^}]*overflow-y: auto/);
 });
 
 test("supports Escape to close detail panel and focus return", async () => {
@@ -244,7 +254,8 @@ test("supports Escape to close detail panel and focus return", async () => {
   assert.match(app, /const returnEl = state\.detailReturnFocus/);
   assert.match(app, /if \(returnEl instanceof HTMLElement && returnEl\.isConnected\) returnEl\.focus\(\)/);
   assert.match(app, /function setDetailOpen\(open\)/);
-  assert.match(app, /state\.detailTab = "overview"/);
+  // 关闭路径不再重置 detailTab（Phase 4B 已将该死状态整体移除）。
+  assert.doesNotMatch(app, /state\.detailTab/);
   // Focus must move on the closed -> open transition only, and must not be
   // deferred to an animation frame (those are suspended while the window is
   // hidden or throttled, which silently drops the focus move).
@@ -255,19 +266,24 @@ test("supports Escape to close detail panel and focus return", async () => {
 test("keeps the 960px+ side drawer layout without bottom split", async () => {
   const css = await readFile(resolve(root, "app/styles.css"), "utf8");
 
-  assert.match(css, /\.shell\.details-open \{ grid-template-columns: 224px minmax\(0, 1fr\) clamp\(360px, 30vw, 480px\); \}/);
-  assert.match(css, /@media \(max-width: 1120px\)/);
-  assert.match(css, /@media \(max-width: 959px\)/);
-  assert.doesNotMatch(css, /1120px.*grid-template-rows.*286px/s);
-  assert.match(css, /\.detail-tab \{/);
+  assert.match(css, /\.shell\.details-open \{ grid-template-columns: var\(--sidebar-width\) minmax\(0, 1fr\) var\(--inspector-width\); \}/);
+  assert.match(css, /@media \(max-width: 1120px\)[\s\S]*?\.shell\.details-open \{ grid-template-columns: var\(--sidebar-width-compact\) minmax\(0, 1fr\) var\(--inspector-width-compact\); \}/);
+  assert.match(css, /@media \(min-width: 701px\) and \(max-width: 1120px\)/);
+  assert.doesNotMatch(css, /@media \(max-width: 959px\)/);
+  assert.doesNotMatch(css, /\.shell\.details-open \{[^}]*grid-template-rows/);
+  assert.doesNotMatch(css, /\.detail \{[^}]*grid-row:\s*2/);
+  assert.match(css, /@media \(max-width: 700px\)[\s\S]*?\.shell, \.shell\.details-open \{ display: flex; min-height: 100vh; flex-direction: column; \}/);
+  assert.match(css, /\.detail-inspector-scroll \{/);
   assert.match(css, /\.section-head-copy/);
 });
 
 test("ensures minimum touch target sizes for accessibility", async () => {
   const css = await readFile(resolve(root, "app/styles.css"), "utf8");
 
-  assert.match(css, /\.action-btn \{[^}]*min-height: 36px/);
-  assert.match(css, /\.detail-close \{[^}]*min-height: 36px/);
-  assert.match(css, /\.cowart-target-select \{[^}]*min-height: 36px/);
-  assert.match(css, /\.section-head-copy \{[^}]*min-height: 36px/);
+  // MOSA interaction-size contract: these controls must be at least 36px tall.
+  // Using min-height (not fixed height) so content can expand naturally.
+  assert.match(css, /\.action-btn \{[^}]*min-height:\s*36px/);
+  assert.match(css, /\.detail-close \{[^}]*min-height:\s*36px/);
+  assert.match(css, /\.cowart-target-select \{[^}]*min-height:\s*36px/);
+  assert.match(css, /\.section-head-copy \{[^}]*min-height:\s*36px/);
 });

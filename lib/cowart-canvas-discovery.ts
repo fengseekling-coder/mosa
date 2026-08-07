@@ -1,5 +1,5 @@
 import { watch, type FSWatcher } from "node:fs";
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
@@ -148,12 +148,49 @@ async function cowartProjectCandidate(requestedProjectDir: string, sessionPath: 
   return { projectDir, canvasDir, sessionPath, lastSeenAt: lastSeen.toISOString() };
 }
 
-async function hasCowartCanvasMarker(canvasDir: string): Promise<boolean> {
+export async function hasCowartCanvasMarker(canvasDir: string): Promise<boolean> {
   for (const marker of ["cowart-view-state.json", "cowart-selection.json", join("pages", "manifest.json")]) {
     try { if ((await stat(join(canvasDir, marker))).isFile()) return true; } catch { /* continue */ }
   }
   return false;
 }
+
+export type TrustedExternalCanvasInspection =
+  | { trusted: true; projectDir: string; canvasDir: string }
+  | { trusted: false; reason: string; message: string };
+
+/**
+ * The single trust bar the API route, the registry, and the bridge manager all
+ * apply before an external Cowart project may be registered, started, or handed
+ * to the Cowart MCP server: `canvas` must be a real, non-symlink direct child
+ * of the project directory holding a Cowart marker. `lstat` rejects a symlinked
+ * canvas (a symlink into an outside directory would let MCP writes escape the
+ * project), and the strict realpath equality check — never a string-prefix
+ * match — proves the real canvas path is exactly join(realProjectDir, "canvas").
+ */
+export async function inspectTrustedExternalCanvas(requestedProjectDir: string): Promise<TrustedExternalCanvasInspection> {
+  let projectDir: string;
+  try { projectDir = await realpath(requestedProjectDir); } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return untrustedExternalCanvas("project-missing", "Cowart project directory does not exist.");
+    throw error;
+  }
+  if (!(await statIsDirectory(projectDir))) return untrustedExternalCanvas("project-not-directory", "Cowart project path must point to a directory.");
+  const canvasDir = join(projectDir, "canvas");
+  let canvasDetails;
+  try { canvasDetails = await lstat(canvasDir); } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return untrustedExternalCanvas("canvas-missing", "Cowart canvas directory does not exist.");
+    throw error;
+  }
+  if (canvasDetails.isSymbolicLink()) return untrustedExternalCanvas("canvas-symlink", "Cowart canvas directory must not be a symbolic link.");
+  if (!canvasDetails.isDirectory()) return untrustedExternalCanvas("canvas-not-directory", "Cowart canvas path must be a directory.");
+  const realCanvasDir = await realpath(canvasDir);
+  if (realCanvasDir !== canvasDir) return untrustedExternalCanvas("canvas-outside-project", "Cowart canvas directory must stay inside the project directory.");
+  if (!(await hasCowartCanvasMarker(canvasDir))) return untrustedExternalCanvas("canvas-no-markers", "Cowart canvas directory does not contain any Cowart marker files (cowart-view-state.json, cowart-selection.json, or pages/manifest.json).");
+  return { trusted: true, projectDir, canvasDir: realCanvasDir };
+}
+
+function untrustedExternalCanvas(reason: string, message: string): TrustedExternalCanvasInspection { return { trusted: false, reason, message }; }
+async function statIsDirectory(path: string): Promise<boolean> { try { return (await stat(path)).isDirectory(); } catch { return false; } }
 
 async function recentSessionPaths(sessionsDir: string, lookbackDays: number, fullScan: boolean): Promise<string[]> {
   if (fullScan) return walkJsonlFiles(sessionsDir);

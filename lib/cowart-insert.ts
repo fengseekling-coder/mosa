@@ -5,7 +5,7 @@ interface ViewState { currentPageId?: string; camera?: { x?: number; y?: number;
 interface CanvasState { snapshot?: CanvasSnapshot; viewState?: ViewState; [key: string]: unknown; }
 interface SelectionState { selection?: { selectedShapes?: Array<{ id?: string } | string> }; selectedShapes?: Array<{ id?: string } | string>; }
 export interface InsertTarget { pageId: string | null; anchorShapeId: string | null; anchorSource: string; }
-export interface InsertCanvas { id: string; projectDir: string; canvasDir: string; }
+export interface InsertCanvas { id: string; projectDir: string; canvasDir: string; trusted?: boolean; }
 export interface InsertResult { pageId: string; assetId: string; shapeId: string; bounds: { x: number; y: number; w: number; h: number }; }
 
 function nonEmptyString(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }
@@ -66,7 +66,9 @@ export function chooseCowartInsertTarget(canvasState: CanvasState = {}, selectio
 export function resolveCowartInsertCanvas(sources: InsertCanvas[] = [], requestedId: string | undefined = undefined): InsertCanvas | null {
   const targetId = requestedId === undefined ? "mosa" : nonEmptyString(requestedId);
   if (!targetId || !Array.isArray(sources)) return null;
-  return sources.find((s) => s?.id === targetId && nonEmptyString(s.projectDir) && nonEmptyString(s.canvasDir)) || null;
+  // Sources that failed the external-canvas trust check stay listed so the user
+  // can remove them, but their paths must never reach the Cowart MCP server.
+  return sources.find((s) => s?.id === targetId && s.trusted !== false && nonEmptyString(s.projectDir) && nonEmptyString(s.canvasDir)) || null;
 }
 
 function normalizeBounds(value: unknown): { x: number; y: number; w: number; h: number } | null {

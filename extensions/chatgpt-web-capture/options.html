@@ -4,11 +4,34 @@
     <meta charset="utf-8" />
     <title>MOSA ChatGPT Capture 设置</title>
     <style>
+      /* F-21：独立文档（非 Host 注入），:root 安全；名称与主应用语义对应。 */
+      :root {
+        --mosa-text: #0f172a;
+        --mosa-border: #cbd5e1;
+        --mosa-control-bg: #111827;
+        --mosa-control-text: #ffffff;
+        --mosa-success: #166534;
+        --mosa-error: #b91c1c;
+        --mosa-focus-ring: #2424ff;
+        --mosa-duration-fast: 120ms;
+        --mosa-ease-standard: cubic-bezier(.2, .8, .2, 1);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --mosa-text: #f8fafc;
+          --mosa-border: #334155;
+          --mosa-control-bg: #e2e8f0;
+          --mosa-control-text: #0f172a;
+          --mosa-success: #4ade80;
+          --mosa-error: #fda4af;
+          --mosa-focus-ring: #5c5cff;
+        }
+      }
       body {
         font: 14px/1.5 system-ui, -apple-system, sans-serif;
         margin: 24px;
         max-width: 560px;
-        color: #0f172a;
+        color: var(--mosa-text);
       }
       label {
         display: block;
@@ -20,8 +43,13 @@
         width: 100%;
         box-sizing: border-box;
         padding: 8px 10px;
-        border: 1px solid #cbd5e1;
+        border: 1px solid var(--mosa-border);
         border-radius: 8px;
+      }
+      input[type="text"]:focus-visible,
+      input[type="url"]:focus-visible {
+        outline: 2px solid var(--mosa-focus-ring);
+        outline-offset: 2px;
       }
       .row {
         display: flex;
@@ -34,20 +62,30 @@
         padding: 8px 14px;
         border: 0;
         border-radius: 8px;
-        background: #111827;
-        color: white;
+        background: var(--mosa-control-bg);
+        color: var(--mosa-control-text);
         font-weight: 600;
         cursor: pointer;
+        transition: background-color var(--mosa-duration-fast) var(--mosa-ease-standard);
       }
+      button:hover { filter: brightness(1.08); }
+      button:focus-visible {
+        outline: 2px solid var(--mosa-focus-ring);
+        outline-offset: 2px;
+      }
+      button.secondary { background: var(--mosa-border); }
       #status {
         margin-top: 12px;
-        color: #166534;
+        color: var(--mosa-success);
         min-height: 1.2em;
       }
       code {
-        background: #f1f5f9;
+        background: var(--mosa-border);
         padding: 1px 5px;
         border-radius: 4px;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        button { transition: none; }
       }
     </style>
   </head>
@@ -68,8 +106,8 @@
     </div>
 
     <button id="save" type="button">保存设置</button>
-    <button id="test" type="button" style="background: #334155; margin-left: 8px">测试连接</button>
-    <div id="status"></div>
+    <button id="test" type="button" class="secondary" style="margin-left: 8px">测试连接</button>
+    <div id="status" role="status" aria-live="polite"></div>
 
     <script src="options.js" type="module"></script>
   </body>

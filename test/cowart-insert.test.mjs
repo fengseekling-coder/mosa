@@ -38,6 +38,18 @@ test("allows insertion only into the MOSA or registered Cowart canvases", () => 
   assert.equal(resolveCowartInsertCanvas(canvases, ""), null);
 });
 
+test("never resolves an untrusted canvas as an MCP insert target", () => {
+  // Legacy registry entries that failed the trust check stay listed (removable)
+  // but their paths must not reach the Cowart MCP server.
+  const canvases = [
+    { id: "mosa", projectDir: "/workspace/mosa", canvasDir: "/workspace/mosa/canvas", trusted: true },
+    { id: "project-legacy", projectDir: "/workspace/legacy", canvasDir: "/workspace/legacy/canvas", trusted: false },
+  ];
+
+  assert.equal(resolveCowartInsertCanvas(canvases, "project-legacy"), null);
+  assert.equal(resolveCowartInsertCanvas(canvases, "mosa"), canvases[0]);
+});
+
 test("only verifies a persisted Cowart image with matching MOSA provenance", () => {
   const state = canvasState();
   state.snapshot.store["asset:inserted"] = {

@@ -72,6 +72,8 @@
       (document.body || document.documentElement).appendChild(el);
     }
     el.textContent = message;
+    // F-21：成功/普通状态 polite 播报，错误独立 alert——纯语义层，队列逻辑不变。
+    el.setAttribute("role", isError ? "alert" : "status");
     el.classList.toggle("is-error", Boolean(isError));
     el.classList.add("is-visible");
     if (toastTimer) clearTimeout(toastTimer);
@@ -85,6 +87,8 @@
     const status = dock?.querySelector?.('[data-role="status"]');
     if (status) {
       status.textContent = text;
+      // F-21：状态节点按错误与否切换 live region 语义（普通 status / 错误 alert）。
+      status.setAttribute("role", isError ? "alert" : "status");
       status.classList.toggle("is-error", Boolean(isError));
     }
   }
@@ -971,7 +975,7 @@
         <button type="button" class="mosa-dock-btn mosa-dock-primary" data-action="save-visible">保存当前图</button>
         <button type="button" class="mosa-dock-btn" data-action="save-all">保存全部大图</button>
         <button type="button" class="mosa-dock-btn" data-action="toggle-auto">切换自动</button>
-        <div class="mosa-dock-status" data-role="status">${lastStatus}</div>
+        <div class="mosa-dock-status" data-role="status" role="status" aria-live="polite">${lastStatus}</div>
       `;
       dock.addEventListener("click", async (event) => {
         const btn = event.target.closest("[data-action]");

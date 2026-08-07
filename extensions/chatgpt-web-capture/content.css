@@ -1,3 +1,58 @@
+/* ============================================================
+   MOSA Capture 扩展语义令牌（F-21 / D7：语义共享，代码与 DOM 不共享）
+   令牌作用域限定于扩展自身节点（#mosa-capture-dock / .mosa-capture-toast），
+   不注入 Host 页面全局命名空间。名称与主应用语义层对应：
+   surface / raised surface / border / primary+secondary text / accent /
+   focus ring / success+error / spacing / radius / motion。
+   默认深色外观（媒体观看语境）；prefers-color-scheme: light 下切换浅色
+   表面；prefers-reduced-motion 下取消位移过渡。业务逻辑零变化。
+   ============================================================ */
+#mosa-capture-dock, .mosa-capture-toast {
+  /* --- surface / raised surface / border --- */
+  --mosa-surface: rgba(15, 23, 42, 0.94);
+  --mosa-surface-raised: rgba(15, 23, 42, 0.92);
+  --mosa-border: rgba(255, 255, 255, 0.14);
+  /* --- text --- */
+  --mosa-text-primary: #f8fafc;
+  --mosa-text-secondary: #94a3b8;
+  /* --- accent（D1 品牌蓝，与主应用 primary 同族；扩展无第二 primary） --- */
+  --mosa-accent: #2424ff;
+  --mosa-accent-hover: #1919cc;
+  --mosa-accent-contrast: #ffffff;
+  /* --- focus ring（深色表面上同族浅蓝，对比可见） --- */
+  --mosa-focus-ring: #5c5cff;
+  /* --- status（success 消费于 toast 成功态，error 消费于 toast/dock 错误态） --- */
+  --mosa-success: #16a34a;
+  --mosa-error: #dc2626;
+  --mosa-error-surface: rgba(127, 29, 29, 0.95);
+  --mosa-error-text: #fda4af;
+  /* --- 控件（深色表面上的次级按钮：浅底深字，保持既有对比方向） --- */
+  --mosa-control-bg: #e2e8f0;
+  --mosa-control-text: #0f172a;
+  /* --- spacing / radius / motion --- */
+  --mosa-space-1: 8px;
+  --mosa-space-2: 10px;
+  --mosa-radius-control: 10px;
+  --mosa-radius-panel: 14px;
+  --mosa-duration-fast: 160ms;
+  --mosa-ease-standard: cubic-bezier(.2, .8, .2, 1);
+}
+
+@media (prefers-color-scheme: light) {
+  #mosa-capture-dock, .mosa-capture-toast {
+    --mosa-surface: rgba(255, 255, 255, 0.95);
+    --mosa-surface-raised: rgba(255, 255, 255, 0.93);
+    --mosa-border: rgba(15, 23, 42, 0.14);
+    --mosa-text-primary: #0f172a;
+    --mosa-text-secondary: #475569;
+    --mosa-control-bg: #111827;
+    --mosa-control-text: #ffffff;
+    --mosa-error-surface: #fee2e2;
+    --mosa-error-text: #b91c1c;
+    --mosa-focus-ring: #2424ff;
+  }
+}
+
 .mosa-capture-toast {
   position: fixed;
   left: 50%;
@@ -7,13 +62,14 @@
   max-width: min(92vw, 420px);
   padding: 10px 14px;
   border-radius: 12px;
-  background: rgba(15, 23, 42, 0.94);
-  color: #f8fafc;
+  border-left: 3px solid var(--mosa-success);
+  background: var(--mosa-surface);
+  color: var(--mosa-text-primary);
   font: 600 13px/1.35 system-ui, -apple-system, sans-serif;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 160ms ease, transform 160ms ease;
+  transition: opacity var(--mosa-duration-fast) var(--mosa-ease-standard), transform var(--mosa-duration-fast) var(--mosa-ease-standard);
 }
 
 .mosa-capture-toast.is-visible {
@@ -22,7 +78,8 @@
 }
 
 .mosa-capture-toast.is-error {
-  background: rgba(127, 29, 29, 0.95);
+  border-left-color: var(--mosa-error);
+  background: var(--mosa-error-surface);
 }
 
 #mosa-capture-dock {
@@ -32,9 +89,10 @@
   z-index: 2147483645;
   width: 168px;
   padding: 10px;
+  border: 1px solid var(--mosa-border);
   border-radius: 14px;
-  background: rgba(15, 23, 42, 0.92);
-  color: #e2e8f0;
+  background: var(--mosa-surface-raised);
+  color: var(--mosa-text-primary);
   font: 12px/1.35 system-ui, -apple-system, sans-serif;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(8px);
@@ -44,7 +102,7 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   margin-bottom: 8px;
-  color: #a3e635;
+  color: var(--mosa-accent);
 }
 
 #mosa-capture-dock .mosa-dock-btn {
@@ -56,16 +114,27 @@
   padding: 8px 10px;
   font: 600 12px/1.2 system-ui, -apple-system, sans-serif;
   cursor: pointer;
-  color: #0f172a;
-  background: #e2e8f0;
+  color: var(--mosa-control-text);
+  background: var(--mosa-control-bg);
 }
 
 #mosa-capture-dock .mosa-dock-btn.mosa-dock-primary {
-  background: linear-gradient(135deg, #9ef01a, #70e000);
+  color: var(--mosa-accent-contrast);
+  background: var(--mosa-accent);
 }
 
 #mosa-capture-dock .mosa-dock-btn:hover {
   filter: brightness(1.05);
+}
+
+#mosa-capture-dock .mosa-dock-btn.mosa-dock-primary:hover {
+  background: var(--mosa-accent-hover);
+  filter: none;
+}
+
+#mosa-capture-dock .mosa-dock-btn:focus-visible {
+  outline: 2px solid var(--mosa-focus-ring);
+  outline-offset: 2px;
 }
 
 #mosa-capture-dock .mosa-dock-btn:disabled {
@@ -76,11 +145,18 @@
 
 #mosa-capture-dock .mosa-dock-status {
   margin-top: 4px;
-  color: #94a3b8;
+  color: var(--mosa-text-secondary);
   font-size: 11px;
   word-break: break-word;
 }
 
 #mosa-capture-dock .mosa-dock-status.is-error {
-  color: #fda4af;
+  color: var(--mosa-error-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mosa-capture-toast {
+    transition: none;
+    transform: translateX(-50%) translateY(0);
+  }
 }

@@ -185,15 +185,19 @@ test("keeps desktop drag-and-drop and batch actions truthful", async () => {
   assert.match(html, /id="batchToggle"/);
   assert.match(html, /id="batchBar" role="region"/);
   assert.doesNotMatch(html, /id="dropOverlay"/);
-  assert.ok(app.includes("function droppedFilePath(file)"));
-  assert.ok(app.includes("getPathForFile?.(file)"));
+  assert.ok(app.includes("async function droppedFilePath(file)"));
+  assert.ok(app.includes("await window.electronAPI.getPathForFile(file)"));
   assert.equal(app.includes("file.webkitRelativePath || file.name"), false);
   assert.ok(preload.includes("webUtils.getPathForFile(file)"));
   assert.ok(app.includes('els.batchFavorite?.addEventListener("click"'));
   assert.ok(app.includes('api("/api/assets/batch"'));
   assert.ok(app.includes("body: { action, projectId: state.project, assetIds }"));
-  assert.ok(app.includes('if (!window.confirm(t("confirmBatchArchive", { count: 1 }))) return;'));
-  assert.ok(html.includes('data-i18n="darkModeToggle"'));
+  // Phase 5B：单素材归档迁移到全应用唯一 ConfirmDialog（window.confirm 清零）。
+  assert.match(app, /title: t\("archiveOneTitle"\)/);
+  assert.doesNotMatch(app, /window\.confirm\(/);
+  // Theme toggle is now in settings-menu segmented control, not a standalone button.
+  // Verify the new entry point is wired correctly.
+  assert.ok(app.includes('data-appearance-opt'));
   assert.ok(app.includes('showToast(t("darkModeChanged"), "success")'));
 
   for (const key of [

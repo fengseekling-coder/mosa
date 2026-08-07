@@ -1,6 +1,8 @@
 import { startMosaRuntime } from "./lib/mosa-runtime.mjs";
+import { parseDisabledBridges } from "./lib/runtime-bridges.mjs";
 
-const runtime = await startMosaRuntime();
+const disabledBridges = parseDisabledBridges({ env: process.env });
+const runtime = await startMosaRuntime(disabledBridges.length > 0 ? { disabledBridges } : {});
 console.log(`MOSA: ${runtime.url}`);
 
 let shutdownPromise = null;

@@ -1,10 +1,11 @@
-node_modules/
+node_modules
 .DS_Store
 .env
 .env.*
 !.env.example
 npm-debug.log*
 *.bak-*
+/.claude/settings.local.json
 
 # TypeScript emits runtime modules next to their .ts sources so existing Node
 # entry points can resolve their .js specifiers. They are rebuilt by npm
@@ -23,6 +24,10 @@ npm-debug.log*
 
 /canvas/
 /outputs/
+/generated-images/
+/screenshots/
+/tmp/
+/app/build-identity.json
 
 # Runtime library entries remain local.
 /mosa.db*

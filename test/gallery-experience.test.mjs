@@ -109,11 +109,15 @@ test("separates loading, failed, empty and populated gallery states", async () =
 test("offers a stable image-only / with-info density switch", async () => {
   const [app, html, css] = await Promise.all([readApp(), readHtml(), readCss()]);
 
-  assert.match(html, /id="densityToggle"/);
-  assert.match(html, /data-i18n-aria-label="galleryDensity"/);
+  // Density is now controlled via settings-menu segmented control, not a standalone toggle.
+  assert.match(app, /data-density-opt="image"/);
+  assert.match(app, /data-density-opt="info"/);
+  assert.match(app, /data-appearance-opt/);
   assert.match(app, /const GALLERY_DENSITIES = \["image", "info"\]/);
   assert.match(app, /safeStorageSet\("mosa\.gallery-density", state\.galleryDensity\)/);
-  assert.match(app, /els\.densityToggle\.setAttribute\("aria-pressed", String\(showingInfo\)\)/);
+  // Active state derives from state, not a hardcoded string.
+  assert.match(app, /state\.galleryDensity === "image" \? " active" : ""/);
+  assert.match(app, /state\.galleryDensity === "info" \? " active" : ""/);
   // Info mode adds short title, source, date and a group/version badge.
   assert.match(app, /class="asset-card-title"/);
   assert.match(app, /class="asset-card-meta"/);
@@ -146,33 +150,33 @@ test("navigates the masonry grid in two dimensions from rendered geometry", asyn
 
 test("keeps meaningful labels above the WCAG AA body-text floor", async () => {
   const css = await readCss();
-  const surface = readToken(css, "surface");
-  const muted = readToken(css, "ink-muted");
-  const secondary = readToken(css, "ink-secondary");
-  const tertiary = readToken(css, "ink-tertiary");
+  // New token system: --surface-1/2/3 and --text-1/2/3 replace old --surface/--ink-* names.
+  const surface = readToken(css, "surface-1");
+  const muted = readToken(css, "text-2");
+  const secondary = readToken(css, "text-2");
+  const tertiary = readToken(css, "text-3");
 
-  // Checking white alone is too lenient: card backgrounds use --surface-deep, and
-  // muted text there was only 4.41:1 while it passed against --surface.
-  for (const token of ["surface", "surface-muted", "surface-deep"]) {
+  // Checking white alone is too lenient: card backgrounds use --surface-3, and
+  // muted text there was only 4.41:1 while it passed against --surface-1.
+  for (const token of ["surface-1", "surface-2", "surface-3"]) {
     const background = readToken(css, token);
     const ratio = contrastRatio(muted, background);
-    assert.ok(ratio >= 4.5, `--ink-muted is ${ratio.toFixed(2)}:1 on --${token}`);
-    const secondaryRatio = contrastRatio(secondary, background);
-    assert.ok(secondaryRatio >= 4.5, `--ink-secondary is ${secondaryRatio.toFixed(2)}:1 on --${token}`);
+    assert.ok(ratio >= 4.5, `--text-2 is ${ratio.toFixed(2)}:1 on --${token}`);
   }
   // The decorative token is deliberately below the floor, which is why the roles
   // that carry meaning had to move off it.
-  assert.ok(contrastRatio(tertiary, surface) < 4.5, "--ink-tertiary is expected to remain decorative");
+  assert.ok(contrastRatio(tertiary, surface) < 4.5, "--text-3 is expected to remain decorative");
 
   // Counts, dates and metadata keys are content, not decoration.
+  // New token system uses --text-2 for muted text.
   for (const rule of [
-    /\.nav-count \{[^}]*color: var\(--ink-muted\)/,
-    /\.title-row p \{[^}]*color: var\(--ink-muted\)/,
-    /\.filter-list-item > span:last-child \{[^}]*color: var\(--ink-muted\)/,
-    /\.filter-pill span \{[^}]*color: var\(--ink-muted\)/,
-    /\.detail-head p \{[^}]*color: var\(--ink-muted\)/,
-    /\.meta-key \{[^}]*color: var\(--ink-muted\)/,
-    /\.asset-card-meta \{[^}]*color: var\(--ink-muted\)/,
+    /\.nav-count \{[^}]*color: var\(--text-2\)/,
+    /\.title-row p \{[^}]*color: var\(--text-2\)/,
+    /\.filter-list-item > span:last-child \{[^}]*color: var\(--text-2\)/,
+    /\.filter-pill span \{[^}]*color: var\(--text-2\)/,
+    /\.detail-head p \{[^}]*color: var\(--text-2\)/,
+    /\.meta-key \{[^}]*color: var\(--text-2\)/,
+    /\.asset-card-meta \{[^}]*color: var\(--text-2\)/,
   ]) {
     assert.match(css, rule);
   }

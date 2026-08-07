@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { inspectTrustedExternalCanvas } from "./cowart-canvas-discovery.js";
 
 const REGISTRY_VERSION = 1;
 interface ProjectEntry { id: string; projectDir: string; canvasDir: string; addedAt: string | null; }
@@ -61,16 +62,16 @@ export function createCowartProjectRegistry(options: { registryPath?: string; ma
   }
 
   async function normalizeProjectDir(value: unknown): Promise<string> {
-    if (typeof value !== "string" || !value.trim() || !isAbsolute(value.trim())) throw new Error("Cowart project path must be an absolute directory.");
-    const requestedPath = resolve(value.trim());
-    let projectDir: string;
-    try { projectDir = await realpath(requestedPath); } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException)?.code === "ENOENT") throw new Error("Cowart project directory does not exist.");
-      throw error;
-    }
-    const details = await stat(projectDir);
-    if (!details.isDirectory()) throw new Error("Cowart project path must point to a directory.");
-    return projectDir;
+    if (typeof value !== "string" || !value.trim()) throw new Error("Cowart project path must be an absolute directory.");
+    const raw = value.trim();
+    if (!isAbsolute(raw)) throw new Error("Cowart project path must be an absolute directory.");
+    const segments = raw.split(/[\\/]/);
+    if (segments.some((s) => s === "..")) throw new Error("Cowart project path must not contain '..' path segments.");
+    // Shared with the API route and the bridge manager so the marker and
+    // symlink rules cannot drift between layers.
+    const inspection = await inspectTrustedExternalCanvas(raw);
+    if (!inspection.trusted) throw new Error(inspection.message);
+    return inspection.projectDir;
   }
 
   async function readRegistry(): Promise<RawRegistry> {
@@ -104,6 +105,9 @@ function normalizeProjects(value: RawRegistry): ProjectEntry[] {
   const normalized: ProjectEntry[] = [];
   for (const entry of projects) {
     if (typeof entry?.projectDir !== "string" || !entry.projectDir || !isAbsolute(entry.projectDir)) continue;
+    // Entries written before registration validation existed stay listed so the
+    // user can still see and remove them; the bridge manager enforces trust at
+    // start, and this function must not silently drop registry data on rewrite.
     const projectDir = resolve(entry.projectDir);
     if (seen.has(projectDir)) continue;
     seen.add(projectDir);

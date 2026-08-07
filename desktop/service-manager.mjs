@@ -38,6 +38,9 @@ export async function startMosaService(options = {}) {
       ...(options.runtimeOptions || {}),
       port,
       libraryDir,
+      // BUG-01 fix: the desktop shell alone passes its exact import staging
+      // root; server/CLI starts without it keep the default trust boundary.
+      importStagingRoot: options.importStagingRoot ?? null,
     });
     return ownedService(runtime);
   } catch (error) {

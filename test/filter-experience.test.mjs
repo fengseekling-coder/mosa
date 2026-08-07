@@ -58,7 +58,7 @@ test("keeps facets combinable instead of replacing one another", async () => {
 test("resolves sort server-side and restarts paging when it changes", async () => {
   const [app, html] = await Promise.all([readApp(), readHtml()]);
 
-  assert.match(html, /<select id="sortSelect">/);
+  assert.match(html, /<select id="sortSelect"/);
   for (const [value, key] of [["newest", "sortNewest"], ["oldest", "sortOldest"], ["name", "sortName"]]) {
     assert.match(html, new RegExp(`<option value="${value}" data-i18n="${key}"`));
   }
@@ -77,7 +77,8 @@ test("surfaces the active query as removable chips with a clear-all", async () =
   // The chips live under the workspace bar, not inside it: competing with the
   // filter/sort/import controls pushed them off-screen at the 960px minimum.
   assert.match(html, /class="active-filters" id="activeFilters"/);
-  assert.doesNotMatch(html, /class="topbar-left">[\s\S]*?id="activeFilters"[\s\S]*?<\/div><div class="topbar-right"/);
+  // Phase 2B: .topbar-left/.topbar-right were renamed to .topbar-context/.topbar-actions (F-18 grouping).
+  assert.doesNotMatch(html, /class="topbar-context">[\s\S]*?id="activeFilters"[\s\S]*?<\/div><div class="topbar-actions"/);
   assert.match(app, /function activeFilterChips\(\)/);
   assert.match(app, /function removeFilterChip\(kind\)/);
   // Each chip clears exactly its own dimension.

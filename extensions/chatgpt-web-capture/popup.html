@@ -3,16 +3,35 @@
   <head>
     <meta charset="utf-8" />
     <style>
+      /* F-21：独立文档（非 Host 注入），:root 安全；名称与主应用语义对应。 */
+      :root {
+        --mosa-text: #0f172a;
+        --mosa-border: #f1f5f9;
+        --mosa-accent: #1d4ed8;
+        --mosa-focus-ring: #2424ff;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --mosa-text: #f8fafc;
+          --mosa-border: #334155;
+          --mosa-accent: #5c5cff;
+          --mosa-focus-ring: #5c5cff;
+        }
+      }
       body {
         font: 13px/1.4 system-ui, sans-serif;
         margin: 12px;
         width: 280px;
-        color: #0f172a;
+        color: var(--mosa-text);
       }
-      a { color: #1d4ed8; }
+      a { color: var(--mosa-accent); }
+      a:focus-visible {
+        outline: 2px solid var(--mosa-focus-ring);
+        outline-offset: 2px;
+      }
       code {
         font-size: 12px;
-        background: #f1f5f9;
+        background: var(--mosa-border);
         padding: 1px 4px;
         border-radius: 4px;
       }

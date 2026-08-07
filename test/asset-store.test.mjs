@@ -1,9 +1,151 @@
 import assert from "node:assert/strict";
 import { access, copyFile, mkdtemp, mkdir, readFile, rm, stat, symlink, unlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
+import Database from "better-sqlite3";
 import { createAssetStore } from "../lib/asset-store.mjs";
+
+// createAssetStore falls back to process.env.MOSA_LIBRARY_DIR, so path-selection
+// tests must neutralise it; node:test runs tests in-file sequentially, and each
+// test restores the variable before its own assertions run.
+function withoutMosaLibraryDir(t) {
+  const saved = process.env.MOSA_LIBRARY_DIR;
+  delete process.env.MOSA_LIBRARY_DIR;
+  t.after(() => {
+    if (saved === undefined) delete process.env.MOSA_LIBRARY_DIR;
+    else process.env.MOSA_LIBRARY_DIR = saved;
+  });
+}
+
+test("JSON runtime without any libraryDir keeps assets under managerDir/assets", async (t) => {
+  withoutMosaLibraryDir(t);
+  const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const store = createAssetStore({ projectRoot, managerDir });
+
+  assert.equal(store.storageKind, "json");
+  assert.equal(store.libraryDir, null);
+  assert.equal(store.assetsRoot, join(managerDir, "assets"));
+  assert.equal(store.projectDir("default"), join(managerDir, "assets", "default"));
+});
+
+test("an explicit options.libraryDir roots JSON assets at libraryDir/assets", async (t) => {
+  withoutMosaLibraryDir(t);
+  const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const libraryDir = join(root, "library");
+  const store = createAssetStore({ projectRoot, managerDir, libraryDir });
+
+  assert.equal(store.storageKind, "json");
+  assert.equal(store.libraryDir, resolve(libraryDir));
+  assert.equal(store.assetsRoot, join(resolve(libraryDir), "assets"));
+  assert.equal(store.projectDir("default"), join(resolve(libraryDir), "assets", "default"));
+});
+
+test("MOSA_LIBRARY_DIR alone roots JSON assets at libraryDir/assets", async (t) => {
+  const saved = process.env.MOSA_LIBRARY_DIR;
+  const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
+  process.env.MOSA_LIBRARY_DIR = join(root, "env-library");
+  t.after(() => {
+    if (saved === undefined) delete process.env.MOSA_LIBRARY_DIR;
+    else process.env.MOSA_LIBRARY_DIR = saved;
+    return rm(root, { recursive: true, force: true });
+  });
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const store = createAssetStore({ projectRoot, managerDir });
+
+  assert.equal(store.storageKind, "json");
+  assert.equal(store.libraryDir, resolve(join(root, "env-library")));
+  assert.equal(store.assetsRoot, join(resolve(join(root, "env-library")), "assets"));
+});
+
+test("a runtime-style default libraryDir (explicitLibraryDir: null) keeps JSON assets under managerDir/assets", async (t) => {
+  withoutMosaLibraryDir(t);
+  const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  // startMosaRuntime always resolves a default libraryDir for SQLite detection and
+  // locking; explicitLibraryDir: null records that the user never configured one, so
+  // the implicit default must not reroot the JSON assets away from managerDir/assets.
+  const store = createAssetStore({
+    projectRoot,
+    managerDir,
+    libraryDir: join(root, "default-library"),
+    explicitLibraryDir: null,
+  });
+
+  assert.equal(store.storageKind, "json");
+  assert.equal(store.libraryDir, null);
+  assert.equal(store.assetsRoot, join(managerDir, "assets"));
+  assert.equal(store.projectDir("default"), join(managerDir, "assets", "default"));
+});
+
+test("an explicit explicitLibraryDir roots JSON assets at libraryDir/assets", async (t) => {
+  withoutMosaLibraryDir(t);
+  const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const libraryDir = join(root, "library");
+  const store = createAssetStore({
+    projectRoot,
+    managerDir,
+    libraryDir,
+    explicitLibraryDir: libraryDir,
+  });
+
+  assert.equal(store.storageKind, "json");
+  assert.equal(store.libraryDir, resolve(libraryDir));
+  assert.equal(store.assetsRoot, join(resolve(libraryDir), "assets"));
+  assert.equal(store.projectDir("default"), join(resolve(libraryDir), "assets", "default"));
+});
+
+test("a default libraryDir still selects a completed SQLite library when nothing is explicit", async (t) => {
+  withoutMosaLibraryDir(t);
+  const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const timestamp = new Date().toISOString();
+  const legacy = new Database(join(libraryDir, "mosa.db"));
+  legacy.exec(`
+    CREATE TABLE library_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+  `);
+  legacy.prepare("INSERT INTO library_meta (key, value, updated_at) VALUES ('schema_version', '1', ?)").run(timestamp);
+  legacy.prepare("INSERT INTO library_meta (key, value, updated_at) VALUES ('migration_state', 'completed', ?)").run(timestamp);
+  legacy.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?)").run(timestamp);
+  legacy.close();
+
+  // The implicit default location still wins SQLite selection even though it must
+  // never reroot a JSON fallback.
+  const store = createAssetStore({
+    projectRoot,
+    managerDir,
+    libraryDir,
+    explicitLibraryDir: null,
+  });
+  t.after(() => store.close());
+
+  assert.equal(store.storageKind, "sqlite");
+  assert.equal(store.libraryDir, resolve(libraryDir));
+  assert.equal(store.assetsRoot, join(resolve(libraryDir), "assets"));
+});
 
 test("imports a Codex default generated image and preserves its provenance", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));

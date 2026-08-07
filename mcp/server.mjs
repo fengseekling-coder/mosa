@@ -6,8 +6,11 @@ import { createAssetStore } from "../lib/asset-store.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || process.cwd());
-const libraryDir = resolve(process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"));
-const store = createAssetStore({ projectRoot, managerDir, libraryDir });
+// The default library location still participates in SQLite detection, but the JSON
+// store only reroots its assets into it when MOSA_LIBRARY_DIR was explicitly set.
+const explicitLibraryDir = process.env.MOSA_LIBRARY_DIR ? resolve(process.env.MOSA_LIBRARY_DIR) : null;
+const libraryDir = explicitLibraryDir || resolve(join(homedir(), "MOSA Library"));
+const store = createAssetStore({ projectRoot, managerDir, libraryDir, explicitLibraryDir });
 
 const TOOL_ASSET_CREATE = "asset_create";
 const TOOL_ASSET_LIST = "asset_list";

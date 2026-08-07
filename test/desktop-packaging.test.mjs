@@ -70,3 +70,51 @@ test("keeps the desktop window single-instance and sandboxed", async () => {
   assert.match(appSource, /openImagePreview\(asset\.id, event\.currentTarget\)/);
   assert.match(index, /<video id="imagePreviewVideo" controls playsinline hidden>/);
 });
+
+test("the packaged app includes build-identity.json in app/", () => {
+  // build-identity.json must not be ignored by the forge packaging config.
+  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/app/build-identity.json")), false);
+  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/app/index.html")), false);
+  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/app/app.js")), false);
+  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/app/styles.css")), false);
+  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/lib/build-identity.mjs")), false);
+});
+
+// Phase 4C：「在 Finder 中显示」桌面能力契约。自动测试不真正打开用户 Finder——以源码
+// 契约断言验证 preload 暴露面、IPC 名称一致性、main 的 sender/路径/存在性校验与
+// shell.showItemInFolder 调用；完整行为断言见 inspector-cowart-original-actions-contract。
+test("exposes only the minimal show-in-folder capability to the renderer", async () => {
+  const preload = await readFile(resolve(import.meta.dirname, "..", "desktop", "preload.cjs"), "utf8");
+  const main = await readFile(resolve(import.meta.dirname, "..", "desktop", "main.mjs"), "utf8");
+
+  // preload 暴露 showItemInFolder，IPC 名称与 main 完全一致。
+  assert.match(preload, /showItemInFolder: \(path\) => ipcRenderer\.invoke\("show-item-in-folder", path\)/);
+  assert.match(main, /ipcMain\.handle\("show-item-in-folder",/);
+  // preload 其余 API 不变，不向 renderer 暴露 shell 对象或任意命令执行能力。
+  for (const api of ["openFileDialog", "pasteImage", "getPathForFile", "setLocale", "onMenuImport", "onMenuSearch"]) {
+    assert.match(preload, new RegExp(`${api}:`), `preload keeps exposing ${api}`);
+  }
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 5, "no new invoke channel beyond the existing five (batch 1.2 added stage-dropped-file)");
+  assert.doesNotMatch(preload, /shell\s*[:.]/, "shell is never exposed to the renderer");
+  assert.doesNotMatch(preload, /exec\(|spawn\(|execFile\(/, "no arbitrary command execution");
+
+  // main：sender 必须是当前 mainWindow.webContents；拒绝空字符串/相对路径/URL/不存在文件；
+  // 使用 shell.showItemInFolder 而非 openExternal；成功 ok:true，失败结构化 reason；不抛未处理异常。
+  const handlerStart = main.indexOf('ipcMain.handle("show-item-in-folder"');
+  assert.notEqual(handlerStart, -1);
+  const handler = main.slice(handlerStart, main.indexOf("\n}", handlerStart));
+  assert.match(handler, /event\.sender !== mainWindow\.webContents/, "rejects a non-main-window sender");
+  assert.match(handler, /typeof path !== "string" \|\| !path\.trim\(\)/, "rejects an empty path");
+  assert.match(handler, /!isAbsolute\(target\)/, "rejects a relative path");
+  assert.match(handler, /\^\[a-z\]\[a-z0-9\+\.\-\]\*:\/i\.test\(target\)/, "rejects URL input");
+  assert.match(handler, /!existsSync\(target\)/, "rejects a missing file");
+  assert.match(handler, /shell\.showItemInFolder\(target\)/, "uses shell.showItemInFolder");
+  assert.doesNotMatch(handler, /openExternal/, "never opens local paths through shell.openExternal");
+  assert.match(handler, /return \{ ok: true \}/, "success resolves ok");
+  assert.match(handler, /catch \{\n\s+return \{ ok: false, reason: "unavailable" \}/, "failures resolve a structured reason instead of throwing");
+
+  // packaged app 的 sandbox preload 使用相对 main.mjs 解析出的绝对 CommonJS 路径。
+  assert.match(main, /const preloadPath = fileURLToPath\(new URL\("\.\/preload\.cjs", import\.meta\.url\)\);/);
+  assert.match(main, /preload: preloadPath/);
+  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/desktop/preload.cjs")), false);
+});
