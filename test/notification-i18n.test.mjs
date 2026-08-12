@@ -70,7 +70,7 @@ test("set-locale IPC validates sender and locale values", async () => {
 });
 
 test("preload exposes setLocale and no longer exposes openFolder", async () => {
-  const preload = await readFile(resolve(repositoryRoot, "desktop/preload.mjs"), "utf8");
+  const preload = await readFile(resolve(repositoryRoot, "desktop/preload.cjs"), "utf8");
   assert.match(preload, /setLocale:\s*\(locale\)\s*=>\s*ipcRenderer\.invoke\("set-locale"/);
   assert.doesNotMatch(preload, /openFolder/);
   assert.doesNotMatch(preload, /open-folder/);
@@ -82,11 +82,11 @@ test("main.mjs no longer registers an open-folder IPC handler", async () => {
   assert.doesNotMatch(source, /shell\.openPath/);
   // The renderer's /api/open-folder HTTP route (validated server-side) is the
   // only remaining folder-opening path; the desktop IPC shortcut is gone.
-  const appSource = await readFile(resolve(repositoryRoot, "app/app.js"), "utf8");
+  const appSource = await readFile(resolve(repositoryRoot, "app/app.mjs"), "utf8");
   assert.doesNotMatch(appSource, /electronAPI\?\.openFolder|electronAPI\.openFolder/);
 });
 
-test("app.js syncs the resolved locale to the main process", async () => {
-  const appSource = await readFile(resolve(repositoryRoot, "app/app.js"), "utf8");
+test("app.mjs syncs the resolved locale to the main process", async () => {
+  const appSource = await readFile(resolve(repositoryRoot, "app/app.mjs"), "utf8");
   assert.match(appSource, /window\.electronAPI\?\.setLocale\?\.\(state\.locale\)/);
 });

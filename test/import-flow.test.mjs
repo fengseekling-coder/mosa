@@ -157,16 +157,17 @@ test("shows only the four everyday fields and hides the rest behind advanced set
 });
 
 test("explains the path field with server-sourced formats, an example, and the Codex folder", async () => {
-  const [html, app] = await Promise.all([
+  const [html, app, apiClient] = await Promise.all([
     readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/app.js"), "utf8"),
+    readFile(resolve(root, "app/app.mjs"), "utf8"),
+    readFile(resolve(root, "app/api-client.mjs"), "utf8"),
   ]);
 
   assert.match(html, /id="importFormatList"/);
   assert.match(html, /id="importPathExample"/);
   assert.match(html, /id="codexSourceHint"/);
   assert.match(app, /els\.importFormatList\.textContent = state\.supportedMediaExtensions\.join\(" "\)/);
-  assert.match(app, /state\.supportedMediaExtensions = Array\.isArray\(library\?\.supportedMediaExtensions\)/);
+  assert.match(apiClient, /state\.supportedMediaExtensions = Array\.isArray\(library\?\.supportedMediaExtensions\)/);
   // The sandbox cannot supply an absolute path via a file picker, so the form
   // guides typing.  Drag-and-drop is allowed: it fills the path input, but the
   // user still verifies and submits the form.
@@ -177,8 +178,8 @@ test("explains the path field with server-sourced formats, an example, and the C
 test("keeps desktop drag-and-drop and batch actions truthful", async () => {
   const [html, app, preload, i18n] = await Promise.all([
     readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/app.js"), "utf8"),
-    readFile(resolve(root, "desktop/preload.mjs"), "utf8"),
+    readFile(resolve(root, "app/app.mjs"), "utf8"),
+    readFile(resolve(root, "desktop/preload.cjs"), "utf8"),
     readFile(resolve(root, "app/i18n.mjs"), "utf8"),
   ]);
 
@@ -190,7 +191,7 @@ test("keeps desktop drag-and-drop and batch actions truthful", async () => {
   assert.equal(app.includes("file.webkitRelativePath || file.name"), false);
   assert.ok(preload.includes("webUtils.getPathForFile(file)"));
   assert.ok(app.includes('els.batchFavorite?.addEventListener("click"'));
-  assert.ok(app.includes('api("/api/assets/batch"'));
+  assert.ok(app.includes('apiFetch("/api/assets/batch"'));
   assert.ok(app.includes("body: { action, projectId: state.project, assetIds }"));
   // Phase 5B：单素材归档迁移到全应用唯一 ConfirmDialog（window.confirm 清零）。
   assert.match(app, /title: t\("archiveOneTitle"\)/);
@@ -209,10 +210,11 @@ test("keeps desktop drag-and-drop and batch actions truthful", async () => {
 });
 
 test("attaches import errors to their field with aria wiring and non-colour cues", async () => {
-  const [html, app, css] = await Promise.all([
+  const [html, app, css, apiClient] = await Promise.all([
     readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/app.js"), "utf8"),
+    readFile(resolve(root, "app/app.mjs"), "utf8"),
     readFile(resolve(root, "app/styles.css"), "utf8"),
+    readFile(resolve(root, "app/api-client.mjs"), "utf8"),
   ]);
 
   assert.match(html, /id="imagePathInput"[^>]*aria-describedby="imagePathGuidance imagePathError"/);
@@ -232,11 +234,11 @@ test("attaches import errors to their field with aria wiring and non-colour cues
   for (const code of ["IMAGE_PATH_REQUIRED", "IMAGE_PATH_NOT_FOUND", "IMAGE_PATH_UNSUPPORTED_TYPE", "IMAGE_PATH_NOT_READABLE"]) {
     assert.match(app, new RegExp(`${code}: \\{ field: "imagePath"`), `${code} must map to the path field`);
   }
-  assert.match(app, /if \(payload\.code\) error\.code = payload\.code/);
+  assert.match(apiClient, /if \(payload\.code\) error\.code = payload\.code/);
 });
 
 test("blocks a double submit and shows a loading state while saving", async () => {
-  const app = await readFile(resolve(root, "app/app.js"), "utf8");
+  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
   assert.match(app, /if \(state\.importSaving\) return;/);
   assert.match(app, /els\.saveAssetBtn\.disabled = busy/);
@@ -250,7 +252,7 @@ test("blocks a double submit and shows a loading state while saving", async () =
 });
 
 test("keeps the import dialog's focus contract and translates every new string", async () => {
-  const app = await readFile(resolve(root, "app/app.js"), "utf8");
+  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
   assert.match(app, /function trapImportModalFocus\(event\)/);
   assert.match(app, /if \(event\.key === "Escape"\) \{ event\.preventDefault\(\); closeImportModal\(\); return; \}/);

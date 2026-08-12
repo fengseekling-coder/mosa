@@ -22,7 +22,9 @@ const EXPECTED_API_KEYS = [
 const EXPECTED_API_FINGERPRINT = "d074335886412fcbee37e74b1ec6b50bd3e75c3f14d86a1247e4c44e8ea00659";
 // Audit Fix Batch 1 (BUG-08) changed only the `test` script to load
 // test/clean-test-env.mjs; the lockfile fingerprint stays untouched.
-const PACKAGE_SHA256 = "e161974a477853703cc88724de39805fe5c65e590bd331060a17be6d087a2f24";
+// R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
+// qa:packaged launcher scripts to package.json, so only its dependency
+// sections stay hash-pinned (see the dependency assertions below).
 const LOCKFILE_SHA256 = "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd";
 
 const read = (relativePath) => readFile(resolve(root, relativePath), "utf8");
@@ -30,15 +32,15 @@ const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const sortedApiKeys = (source) => [...source.matchAll(/^  ([A-Za-z][A-Za-z0-9]*):/gm)].map((match) => match[1]).sort();
 
 test("preload path, module format, security settings, and API surface are stable", async () => {
-  const [main, preload, legacyPreload, packageJson, lockfile] = await Promise.all([
+  const [main, preload, packageJson, lockfile] = await Promise.all([
     read("desktop/main.mjs"),
     read("desktop/preload.cjs"),
-    read("desktop/preload.mjs"),
     read("package.json"),
     read("package-lock.json"),
   ]);
 
   await access(preloadPath);
+  await assert.rejects(access(resolve(root, "desktop", "preload.mjs")), { code: "ENOENT" });
   assert.equal(isAbsolute(preloadPath), true);
   assert.equal(extname(preloadPath), ".cjs");
   assert.match(main, /const preloadPath = fileURLToPath\(new URL\("\.\/preload\.cjs", import\.meta\.url\)\);/);
@@ -50,8 +52,6 @@ test("preload path, module format, security settings, and API surface are stable
   assert.doesNotMatch(main, /process\.cwd\(\)|join\(__dirname/);
   assert.match(preload, /^const \{ contextBridge, ipcRenderer, webUtils \} = require\("electron"\);/);
   assert.doesNotMatch(preload, /^\s*import\s/m);
-  assert.match(legacyPreload, /LEGACY \/ NOT LOADED BY ELECTRON/);
-  assert.match(legacyPreload, /preload\.cjs/);
 
   for (const setting of ["contextIsolation: true", "sandbox: true", "nodeIntegration: false"]) {
     assert.match(main, new RegExp(setting.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${setting} remains enabled`);
@@ -78,7 +78,9 @@ test("preload path, module format, security settings, and API surface are stable
 
   assert.match(main, /minWidth: 960,/);
   assert.match(main, /minHeight: 640,/);
-  assert.equal(sha256(packageJson), PACKAGE_SHA256, "package.json was not changed by this phase");
+  const manifest = JSON.parse(packageJson);
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies were not changed by this phase");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies were not changed by this phase");
   assert.equal(sha256(lockfile), LOCKFILE_SHA256, "package-lock.json was not changed by this phase");
   assert.doesNotMatch(packageJson, /electron-preload-runtime-contract/);
 });

@@ -6,10 +6,10 @@ import {
   normalizeMosaPort,
 } from "../lib/runtime-defaults.mjs";
 
-test("keeps the legacy bridge and desktop runtime defaults distinct", () => {
+test("uses one default port for the bridge and desktop runtime", () => {
   assert.equal(DEFAULT_MOSA_PORT, 43517);
-  assert.equal(DEFAULT_MOSA_DESKTOP_PORT, 43519);
-  assert.notEqual(DEFAULT_MOSA_PORT, DEFAULT_MOSA_DESKTOP_PORT);
+  assert.equal(DEFAULT_MOSA_DESKTOP_PORT, 43517);
+  assert.equal(DEFAULT_MOSA_PORT, DEFAULT_MOSA_DESKTOP_PORT);
 });
 
 test("allows an ephemeral port only for isolated runtime tests", () => {

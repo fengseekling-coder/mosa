@@ -75,22 +75,22 @@ test("getBuildIdentity returns unknown for fields that are not strings", async (
   resetBuildIdentityCache();
 });
 
-test("computeUiFingerprint hashes index.html, styles.css, and app.js", async () => {
+test("computeUiFingerprint hashes index.html, styles.css, and app.mjs", async () => {
   const tempAppDir = await makeTempDir("mosa-fingerprint-");
   t_after_cleanup(tempAppDir);
   await writeFile(join(tempAppDir, "index.html"), "<html></html>");
   await writeFile(join(tempAppDir, "styles.css"), "body{}");
-  await writeFile(join(tempAppDir, "app.js"), "console.log();");
+  await writeFile(join(tempAppDir, "app.mjs"), "console.log();");
   const fp1 = computeUiFingerprint(tempAppDir);
   assert.match(fp1, /^[0-9a-f]{64}$/);
 
   // Changing any file changes the fingerprint.
-  await writeFile(join(tempAppDir, "app.js"), "console.log('changed');");
+  await writeFile(join(tempAppDir, "app.mjs"), "console.log('changed');");
   const fp2 = computeUiFingerprint(tempAppDir);
   assert.notEqual(fp1, fp2);
 
   // Reverting restores the original fingerprint.
-  await writeFile(join(tempAppDir, "app.js"), "console.log();");
+  await writeFile(join(tempAppDir, "app.mjs"), "console.log();");
   const fp3 = computeUiFingerprint(tempAppDir);
   assert.equal(fp1, fp3);
 });
@@ -106,7 +106,7 @@ test("the repository app/ directory has a build-identity.json with valid fields"
   resetBuildIdentityCache();
 });
 
-test("uiFingerprint in build-identity.json matches the actual content of index.html + styles.css + app.js", async () => {
+test("uiFingerprint in build-identity.json matches the actual content of index.html + styles.css + app.mjs", async () => {
   const appDir = join(repositoryRoot, "app");
   resetBuildIdentityCache();
   const identity = getBuildIdentity(appDir);
@@ -145,7 +145,7 @@ test("static resources served by the runtime match the source files in app/", as
   const service = await startMosaRuntime(runtimeOptions(root));
   t.after(() => service.stop());
 
-  for (const file of ["index.html", "styles.css", "app.js"]) {
+  for (const file of ["index.html", "styles.css", "app.mjs"]) {
     const response = await fetch(`${service.url}/${file}`);
     assert.equal(response.status, 200, `${file} should be served`);
     const served = await response.text();
@@ -166,18 +166,33 @@ test("the forge packaging config includes app/ resources and does not ignore bui
   // app/ directory should not be ignored.
   assert.ok(!patterns.some((p) => p.test("/app/index.html")));
   assert.ok(!patterns.some((p) => p.test("/app/build-identity.json")));
-  assert.ok(!patterns.some((p) => p.test("/app/app.js")));
+  assert.ok(!patterns.some((p) => p.test("/app/app.mjs")));
 });
 
-test("desktop main.mjs loads the shared web UI via loadURL, not loadFile", async () => {
+test("desktop main.mjs derives the app root from its own module location, not app.getAppPath() or cwd", async () => {
   const source = await readFile(join(repositoryRoot, "desktop", "main.mjs"), "utf-8");
-  assert.match(source, /loadURL\(service\.url\)/);
-  assert.doesNotMatch(source, /loadFile\(/);
-  assert.match(source, /appDir: join\(appPath, "app"\)/);
+  // 静态 UI 根从 desktop/main.mjs 的模块位置派生：父目录即应用根（dev 解析为仓库根，packaged 解析为 app.asar 根）。
+  assert.ok(source.includes('const appRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));'),
+    "appRoot must be derived from the module location, not app.getAppPath()");
+  // projectRoot、managerDir、appDir 使用同一个应用根。
+  assert.ok(source.includes("projectRoot: appRoot"), "projectRoot must use appRoot");
+  assert.ok(source.includes("managerDir: appRoot"), "managerDir must use appRoot");
+  assert.ok(source.includes('appDir: join(appRoot, "app")'), "appDir must be appRoot/app");
+  // 不再通过 app.getAppPath() 拼出 appDir，也不依赖 process.cwd()。
+  assert.ok(!source.includes("app.getAppPath()"), "must not use app.getAppPath()");
+  assert.ok(!source.includes("process.cwd()"), "must not use process.cwd()");
+  assert.ok(!source.includes('appDir: join(appPath, "app")'), "must not join appPath with app");
+  // 原有契约不变：loadURL(service.url)、preload、sandbox 与导航限制。
+  assert.ok(source.includes("loadURL(service.url)"), "must keep loadURL(service.url)");
+  assert.ok(!source.includes("loadFile("), "must not use loadFile");
+  assert.ok(source.includes("preload: preloadPath"), "must keep the preload path");
+  assert.ok(source.includes("sandbox: true"), "must keep the sandboxed renderer");
+  assert.ok(source.includes('webContents.on("will-navigate", blockForeignNavigation)'), "must keep navigation blocking");
+  assert.ok(source.includes('webContents.on("will-redirect", blockForeignNavigation)'), "must keep redirect blocking");
 });
 
 test("early return prevents desktop integration in non-Electron browsers", async () => {
-  const appSource = await readFile(join(repositoryRoot, "app", "app.js"), "utf-8");
+  const appSource = await readFile(join(repositoryRoot, "app", "app.mjs"), "utf-8");
   // The bindDesktopIntegration function must bail out when electronAPI is absent.
   assert.match(appSource, /if \(!api\) return/);
   // After the guard, event listeners are registered only when api is available.

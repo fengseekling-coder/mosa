@@ -15,7 +15,8 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 
-const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readOverlay = () => readFile(resolve(root, "app/overlay-manager.mjs"), "utf8");
 const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
 const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
@@ -46,9 +47,11 @@ const stripCssComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, "");
 // ---------------------------------------------------------------------------
 
 test("1. single anchored overlay manager exists exactly once", async () => {
-  const app = await readApp();
-  assert.equal(count(app, "function createAnchoredOverlayManager()"), 1, "exactly one manager factory");
+  const [app, overlay] = await Promise.all([readApp(), readOverlay()]);
+  // R1 batch 3: the factory moved to app/overlay-manager.mjs; app.js keeps the single instance.
+  assert.equal(count(overlay, "export function createAnchoredOverlayManager()"), 1, "exactly one manager factory");
   assert.equal(count(app, "const anchoredOverlayManager = createAnchoredOverlayManager();"), 1, "exactly one manager instance");
+  assert.equal(count(app, "function createAnchoredOverlayManager()"), 0, "factory no longer defined in app.js");
 });
 
 test("2. filter panel rides the shared manager", async () => {
@@ -86,8 +89,8 @@ test("6. no standalone positionLanguageMenu formula survives", async () => {
 // ---------------------------------------------------------------------------
 
 test("7. root overlays are mutually exclusive", async () => {
-  const app = await readApp();
-  const manager = functionBody(app, "createAnchoredOverlayManager");
+  const overlay = await readOverlay();
+  const manager = functionBody(overlay, "createAnchoredOverlayManager");
   assert.match(manager, /close\(rootId, "sibling-opened"\)/, "opening a root closes the other root");
 });
 
@@ -97,8 +100,8 @@ test("8. language menu is registered as the settings child", async () => {
 });
 
 test("9. opening language never closes settings", async () => {
-  const app = await readApp();
-  const manager = functionBody(app, "createAnchoredOverlayManager");
+  const overlay = await readOverlay();
+  const manager = functionBody(overlay, "createAnchoredOverlayManager");
   // child 分支只处理 child 引用，不触碰 root；且 child 不得脱离 root 存在。
   assert.match(manager, /if \(!rootId\) return; \/\/ child 浮层不得脱离 root 存在/);
   const openBody = manager.slice(manager.indexOf("function open(id)"));
@@ -108,14 +111,14 @@ test("9. opening language never closes settings", async () => {
 });
 
 test("10. closing settings also closes language", async () => {
-  const app = await readApp();
-  const manager = functionBody(app, "createAnchoredOverlayManager");
+  const overlay = await readOverlay();
+  const manager = functionBody(overlay, "createAnchoredOverlayManager");
   assert.match(manager, /close\(childId, "parent-closed"\)/, "root closure cleans up the child overlay");
 });
 
 test("11. escape closes the child overlay first", async () => {
-  const app = await readApp();
-  const manager = functionBody(app, "createAnchoredOverlayManager");
+  const overlay = await readOverlay();
+  const manager = functionBody(overlay, "createAnchoredOverlayManager");
   assert.match(manager, /if \(childId && reason === "escape" && isOpen\(childId\)\) \{ close\(childId, "escape"\); return; \}/);
 });
 
@@ -157,13 +160,14 @@ test("15. exactly one resize reposition listener (reposition only, never auto-cl
   const app = await readApp();
   assert.equal(count(app, 'window.addEventListener("resize"'), 1, "one global resize listener only");
   assert.match(app, /window\.addEventListener\("resize", \(\) => \{ anchoredOverlayManager\.repositionOpen\(\);/);
-  const manager = functionBody(app, "createAnchoredOverlayManager");
+  const overlay = await readOverlay();
+  const manager = functionBody(overlay, "createAnchoredOverlayManager");
   assert.match(manager, /repositionOpen\(\) \{ if \(rootId\) position\(rootId\); if \(childId\) position\(childId\); \}/);
 });
 
 test("16. trigger aria-expanded is synchronized by the manager", async () => {
-  const app = await readApp();
-  const manager = functionBody(app, "createAnchoredOverlayManager");
+  const overlay = await readOverlay();
+  const manager = functionBody(overlay, "createAnchoredOverlayManager");
   assert.match(manager, /function syncTriggerExpanded\(id, expanded\)/);
   assert.match(manager, /setAttribute\("aria-expanded", String\(expanded\)\)/);
 });
@@ -208,7 +212,7 @@ test("22. opening the filter panel focuses the facet search first", async () => 
 test("23. closing the filter panel returns focus to its trigger", async () => {
   const app = await readApp();
   assert.match(app, /returnFocus: \(\) => els\.filterToggle/);
-  const manager = functionBody(await readApp(), "createAnchoredOverlayManager");
+  const manager = functionBody(await readOverlay(), "createAnchoredOverlayManager");
   assert.match(manager, /if \(reason === "escape" \|\| reason === "trigger-toggle"\) restoreFocus\(id\);/);
 });
 
@@ -339,7 +343,8 @@ test("43. focus is restored through stable re-query + rAF after the settings reb
   assert.match(setLanguage, /anchoredOverlayManager\.refreshAfterRebuild\(\)/);
   assert.match(setLanguage, /requestAnimationFrame/);
   assert.match(setLanguage, /querySelector\("\[data-language-menu\]"\)\?\.focus\(\)/);
-  assert.match(functionBody(app, "createAnchoredOverlayManager"), /refreshAfterRebuild\(\)/);
+  const overlay = await readOverlay();
+  assert.match(functionBody(overlay, "createAnchoredOverlayManager"), /refreshAfterRebuild\(\)/);
 });
 
 // ---------------------------------------------------------------------------
@@ -414,22 +419,24 @@ test("51. hidden overlays stay out of the tab order", async () => {
 // ---------------------------------------------------------------------------
 
 test("52. one shared viewport padding constant", async () => {
-  const app = await readApp();
-  assert.equal(count(app, "const ANCHORED_OVERLAY_VIEWPORT_PADDING = 12;"), 1);
-  const position = functionBody(app, "createAnchoredOverlayManager");
+  const [app, overlay] = await Promise.all([readApp(), readOverlay()]);
+  // R1 batch 3: the constant moved to app/overlay-manager.mjs with the factory.
+  assert.equal(count(overlay, "const ANCHORED_OVERLAY_VIEWPORT_PADDING = 12;"), 1);
+  assert.equal(count(app, "ANCHORED_OVERLAY_VIEWPORT_PADDING"), 0, "padding constant no longer defined in app.js");
+  const position = functionBody(overlay, "createAnchoredOverlayManager");
   assert.match(position, /const pad = ANCHORED_OVERLAY_VIEWPORT_PADDING;/);
 });
 
 test("53. horizontal collision flips and clamps", async () => {
-  const app = await readApp();
-  const manager = functionBody(app, "createAnchoredOverlayManager");
+  const overlay = await readOverlay();
+  const manager = functionBody(overlay, "createAnchoredOverlayManager");
   assert.match(manager, /left = Math\.max\(pad, anchor\.left - gap - width\)/, "right-start flips left when space runs out");
   assert.match(manager, /clampLeft/, "left stays clamped inside the viewport padding");
 });
 
 test("54. vertical collision flips and clamps", async () => {
-  const app = await readApp();
-  const manager = functionBody(app, "createAnchoredOverlayManager");
+  const overlay = await readOverlay();
+  const manager = functionBody(overlay, "createAnchoredOverlayManager");
   assert.match(manager, /top = clampTop\(anchor\.top - gap - height\)/, "bottom placements flip upward when space runs out");
   assert.match(manager, /top = clampTop\(top\);/, "final top is always clamped");
 });
@@ -437,14 +444,15 @@ test("54. vertical collision flips and clamps", async () => {
 test("55. the language child flips left when the right side is too tight", async () => {
   const app = await readApp();
   assert.match(app, /id: "language", kind: "child", parentId: "settings", placement: "right-start"/);
-  const manager = functionBody(app, "createAnchoredOverlayManager");
+  const overlay = await readOverlay();
+  const manager = functionBody(overlay, "createAnchoredOverlayManager");
   assert.match(manager, /config\.placement === "right-start"/);
   assert.match(manager, /if \(left \+ width > vw - pad\) left = Math\.max\(pad, anchor\.left - gap - width\);/);
 });
 
 test("56. outside pointer never force-grabs focus", async () => {
-  const app = await readApp();
-  const manager = functionBody(app, "createAnchoredOverlayManager");
+  const overlay = await readOverlay();
+  const manager = functionBody(overlay, "createAnchoredOverlayManager");
   // 焦点恢复只发生在 escape / trigger-toggle；outside-pointer 与 selection 不抢焦点。
   assert.match(manager, /if \(reason === "escape" \|\| reason === "trigger-toggle"\) restoreFocus\(id\);/);
   assert.match(manager, /close\(childId, "outside-pointer"\)/);
@@ -488,16 +496,40 @@ test("60. package manifest and lockfile remain untouched", async () => {
   await access(resolve(root, "package-lock.json"));
 });
 
-test("61. no new dependencies — app.js imports stay the original two", async () => {
+test("61. no new dependencies — app.js imports stay the original eight first-party modules", async () => {
   const app = await readApp();
   const imports = app.match(/^import .*$/gm) || [];
+  // R1 batch 2 added app/config.mjs + app/utils.mjs, batch 3 added
+  // app/overlay-manager.mjs + app/toast-manager.mjs + app/i18n-runtime.mjs +
+  // app/api-client.mjs + app/confirm-dialog.mjs (all first-party, same repo); nothing third-party may
+  // ever join them. The two bare "import {"
+  // lines are the multi-line config/utils imports — their indented
+  // continuations are not matched by /^import/.
   assert.deepEqual(imports, [
-    'import translations from "./i18n.mjs";',
-    'import { createBridgeStatusPoller } from "./bridge-status-poller.js";',
+    'import { createLanguageApplier, createT, resolveLocale } from "./i18n-runtime.mjs";',
+    'import { createBridgeStatusPoller } from "./bridge-status-poller.mjs";',
+    'import {',
+    'import {',
+    'import { createAnchoredOverlayManager } from "./overlay-manager.mjs";',
+    'import { createToastManager } from "./toast-manager.mjs";',
+    'import { createApiClient } from "./api-client.mjs";',
+    'import { createConfirmDialog } from "./confirm-dialog.mjs";',
+    'import { createImagePreviewViewer } from "./image-preview.mjs";',
+    'import { createAssetViewer } from "./asset-view.mjs";',
+    'import { createInspectorMarkup } from "./inspector-markup.mjs";',
   ], "no third-party positioning library, no framework, no new state library");
 });
 
 test("62. overlay CSS uses no !important", async () => {
   const css = stripCssComments(await readCss());
   assert.doesNotMatch(css, /!important/, "Phase 5A styles must not escalate specificity with !important");
+});
+
+test("63. dynamic diagnostics height repositions the open settings overlay", async () => {
+  const app = await readApp();
+  const diagnostics = functionBody(app, "fetchDiagnostics");
+  assert.match(diagnostics, /finally \{\s*anchoredOverlayManager\.repositionOpen\(\);\s*\}/,
+    "success and error content both trigger a post-layout reposition");
+  assert.match(app, /fetchDiagnostics\(\);\s*\}\s*anchoredOverlayManager\.repositionOpen\(\);\s*return;/,
+    "toggle growth and collapse are repositioned synchronously");
 });

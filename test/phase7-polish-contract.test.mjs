@@ -15,16 +15,18 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 const read = (relative) => readFile(resolve(root, relative), "utf8");
-const readApp = () => read("app/app.js");
+const readApp = () => read("app/app.mjs");
+const readApiClient = () => read("app/api-client.mjs");
 const readHtml = () => read("app/index.html");
 const readCss = () => read("app/styles.css");
+const readInspectorMarkup = () => read("app/inspector-markup.mjs");
 const count = (source, needle) => source.split(needle).length - 1;
 
-/** Slices a top-level app.js function up to the next top-level function. */
+/** Slices a top-level module function up to the next top-level function. */
 function functionSlice(source, name) {
   const start = source.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `function not found: ${name}`);
-  const candidates = ["\nfunction ", "\nasync function "]
+  const candidates = ["\nfunction ", "\nasync function ", "\n  function ", "\n  async function "]
     .map((marker) => source.indexOf(marker, start + 1))
     .filter((index) => index !== -1);
   const next = candidates.length ? Math.min(...candidates) : -1;
@@ -80,6 +82,7 @@ test("3. exactly one semantic accent definition and status colours stay separate
 // 4. Inspector ten-section order is locked in renderDetail.
 test("4. Inspector ten-section order is unchanged", async () => {
   const app = await readApp();
+  const inspector = await readInspectorMarkup();
   const render = functionSlice(app, "renderDetail");
   const order = [
     "detailFileSectionMarkup",
@@ -101,27 +104,27 @@ test("4. Inspector ten-section order is unchanged", async () => {
   }
   const sectionTags = ["file", "favorite", "prompt", "source", "version", "group", "tags", "cowart", "more"];
   for (const tag of sectionTags) {
-    assert.ok(app.includes(`data-inspector-section="${tag}"`), `semantic section tag ${tag} intact`);
+    assert.ok(inspector.includes(`data-inspector-section="${tag}"`), `semantic section tag ${tag} intact`);
   }
 });
 
 // 5. Version behaviour paths are intact (picker, summary, history, recipe).
 test("5. Version behaviour paths unchanged", async () => {
-  const app = await readApp();
-  const picker = functionSlice(app, "versionPickerMarkup");
+  const inspector = await readInspectorMarkup();
+  const picker = functionSlice(inspector, "versionPickerMarkup");
   assert.match(picker, /data-version-select/, "native select picker kept");
   assert.match(picker, /aria-busy="true"/, "busy state kept");
   assert.match(picker, /detailVersionSummaryMarkup\(asset\)/, "summary kept under picker");
-  const summary = functionSlice(app, "detailVersionSummaryMarkup");
+  const summary = functionSlice(inspector, "detailVersionSummaryMarkup");
   assert.match(summary, /version-summary-label/, "summary label kept");
   assert.match(summary, /version-current/, "current-version marker kept");
-  const history = functionSlice(app, "versionHistoryMarkup");
+  const history = functionSlice(inspector, "versionHistoryMarkup");
   assert.match(history, /version-timeline-item/, "timeline items kept");
   assert.match(history, /data-version-id/, "version buttons kept");
   assert.match(history, /aria-current/, "aria-current selection kept");
-  const section = functionSlice(app, "detailVersionSectionMarkup");
+  const section = functionSlice(inspector, "detailVersionSectionMarkup");
   assert.match(section, /aria-live="polite"/, "history live region kept");
-  const recipe = functionSlice(app, "recipeHistoryMarkup");
+  const recipe = functionSlice(inspector, "recipeHistoryMarkup");
   assert.match(recipe, /recipe-snapshot/, "recipe snapshot path kept");
 });
 
@@ -129,7 +132,9 @@ test("5. Version behaviour paths unchanged", async () => {
 test("6. Extension focus-visible completed", async () => {
   assert.match(await read("extensions/chatgpt-web-capture/content.css"), /:focus-visible/, "content.css focus-visible");
   assert.match(await read("extensions/chatgpt-web-capture/options.html"), /:focus-visible/, "options.html focus-visible");
-  assert.match(await read("extensions/chatgpt-web-capture/popup.html"), /:focus-visible/, "popup.html focus-visible");
+  const manifest = JSON.parse(await read("extensions/chatgpt-web-capture/manifest.json"));
+  assert.equal(manifest.action.default_popup, undefined, "0.10.0 opens the in-page panel instead of a popup");
+  await assert.rejects(read("extensions/chatgpt-web-capture/popup.html"), /ENOENT/, "obsolete popup.html is removed");
 });
 
 // 7. Extension prefers-reduced-motion is present where motion exists.
@@ -143,10 +148,10 @@ test("8. Extension polite/error live regions complete", async () => {
   const content = await read("extensions/chatgpt-web-capture/content.js");
   const toast = functionSlice(content, "showToast");
   assert.match(toast, /setAttribute\("role", isError \? "alert" : "status"\)/, "toast toggles alert/status role");
-  const status = functionSlice(content, "setStatus");
-  assert.match(status, /setAttribute\("role", isError \? "alert" : "status"\)/, "dock status toggles alert/status role");
-  const dock = functionSlice(content, "ensureDock");
-  assert.match(dock, /role="status" aria-live="polite"/, "dock status starts as polite live region");
+  const panel = functionSlice(content, "renderControlPanel");
+  assert.match(panel, /setAttribute\("role", state\.error \? "alert" : "status"\)/, "panel status toggles alert/status role");
+  const ensurePanel = functionSlice(content, "ensureControlPanel");
+  assert.match(ensurePanel, /role="status" aria-live="polite"/, "panel status starts as polite live region");
   const optionsHtml = await read("extensions/chatgpt-web-capture/options.html");
   assert.match(optionsHtml, /id="status" role="status" aria-live="polite"/, "options status is a polite live region");
   const optionsJs = await read("extensions/chatgpt-web-capture/options.js");
@@ -186,11 +191,12 @@ test("11. Card animation is conditional and not replayed on ordinary renders", a
   assert.doesNotMatch(baseRule, /animation:/, ".asset-card base rule has no animation");
   assert.match(css, /\.asset-card\.card-enter \{ animation: card-in/, "card-enter conditional animation exists");
   const app = await readApp();
+  const apiClient = await readApiClient();
   const grid = functionSlice(app, "renderGrid");
   assert.match(grid, /function renderGrid\(\) \{/, "renderGrid signature stays contract-locked");
   assert.match(grid, /animate = false/, "renderGrid accepts animation options via arguments");
   assert.match(grid, /card-enter/, "renderGrid emits card-enter");
-  assert.match(functionSlice(app, "loadAssets"), /renderGrid\(\{ animate: options\.append \|\| previousAssets\.length === 0,/, "loadAssets gates animation to first load or append");
+  assert.match(functionSlice(apiClient, "loadAssets"), /renderGrid\(\{ animate: options\.append \|\| previousAssets\.length === 0,/, "loadAssets gates animation to first load or append");
 });
 
 // 12. Icon-only buttons keep consistent accessible names (native title tooltip).
@@ -198,9 +204,10 @@ test("12. Icon-button aria-label/title contract holds", async () => {
   const html = await readHtml();
   assert.match(html, /title="浏览"[^>]*aria-label="浏览"/, "browse button static name matches title");
   const app = await readApp();
+  const inspector = await readInspectorMarkup();
   assert.match(app, /aria-label="\$\{escapeHtml\(favoriteLabel\)\}" title="\$\{escapeHtml\(favoriteLabel\)\}"/, "favorite button name matches title");
-  assert.match(app, /title="\$\{t\("copyPrompt"\)\}" aria-label="\$\{t\("copyPrompt"\)\}"/, "copy button name matches title");
-  assert.match(app, /title="\$\{t\("copyOriginalPath"\)\}" aria-label="\$\{t\("copyOriginalPath"\)\}"/, "copy-source button name matches title");
+  assert.match(inspector, /title="\$\{t\("copyPrompt"\)\}" aria-label="\$\{t\("copyPrompt"\)\}"/, "copy button name matches title");
+  assert.match(inspector, /title="\$\{t\("copyOriginalPath"\)\}" aria-label="\$\{t\("copyOriginalPath"\)\}"/, "copy-source button name matches title");
 });
 
 // 13. No !important anywhere in the polish surfaces (comments about the rule
@@ -210,7 +217,6 @@ test("13. No !important in app or extension surfaces", async () => {
     "app/styles.css",
     "extensions/chatgpt-web-capture/content.css",
     "extensions/chatgpt-web-capture/options.html",
-    "extensions/chatgpt-web-capture/popup.html",
   ]) {
     const source = await read(relative);
     assert.doesNotMatch(source, /\s!important\s*;/, `${relative} has no !important declaration`);
@@ -241,7 +247,7 @@ test("15. Protected surfaces structurally unchanged", async () => {
   assert.match(main, /webPreferences:/, "desktop main keeps webPreferences");
   assert.match(main, /ipcMain\.handle\("open-file-dialog"/, "Finder IPC open-file-dialog intact");
   assert.match(main, /ipcMain\.handle\("show-item-in-folder"/, "Finder IPC show-item-in-folder intact");
-  const preload = await read("desktop/preload.mjs");
+  const preload = await read("desktop/preload.cjs");
   assert.match(preload, /ipcRenderer\.invoke\("open-file-dialog"\)/, "preload open-file-dialog intact");
   assert.match(preload, /ipcRenderer\.invoke\("paste-image"\)/, "preload paste-image intact");
   const server = await read("server.mjs");

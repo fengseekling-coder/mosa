@@ -28,7 +28,7 @@ test("1-2. BrowserWindow minWidth=960 且 minHeight=640（F-10 单次授权范�
 });
 
 test("3. 不在 renderer 中模拟窗口最小值", async () => {
-  const appJs = await source("app/app.js");
+  const appJs = await source("app/app.mjs");
   const index = await source("app/index.html");
   const styles = await source("app/styles.css");
   // renderer 不得用 resizeTo/resizeBy 或任何内视口钳制模拟桌面窗口最小尺寸。
@@ -131,7 +131,8 @@ test("19-21. Return / Prev / Next / Zoom 控件可见契约", async () => {
 });
 
 test("22-24. Inspector 十项顺序：Cowart 第八、More 第十、Cowart 唯一 primary", async () => {
-  const appJs = await source("app/app.js");
+  const appJs = await source("app/app.mjs");
+  const inspector = await source("app/inspector-markup.mjs");
   const template = appJs.slice(
     appJs.indexOf("detail-inspector-scroll\">${detailFileSectionMarkup"),
     appJs.indexOf("</div></div>`", appJs.indexOf("detail-inspector-scroll\">${detailFileSectionMarkup")),
@@ -157,8 +158,8 @@ test("22-24. Inspector 十项顺序：Cowart 第八、More 第十、Cowart 唯�
   assert.equal(order.indexOf("detailCowartSectionMarkup"), 7, "Cowart stays the 8th section");
   assert.equal(order.indexOf("detailMoreSectionMarkup"), 9, "More stays the 10th section");
   // data-inspector-section 标记与顺序一致。
-  assert.match(appJs, /data-inspector-section="cowart"/);
-  assert.match(appJs, /data-inspector-section="more"/);
+  assert.match(inspector, /data-inspector-section="cowart"/);
+  assert.match(inspector, /data-inspector-section="more"/);
   // 「插入 Cowart」仍是检视器内唯一 action-btn primary。
   assert.equal(appJs.split("action-btn primary").length - 1, 1);
   assert.match(appJs, /action-btn primary" type="button" data-action="insert-cowart"/);
@@ -191,13 +192,13 @@ test("26. 不新增无解释断点", async () => {
 
 test("27. 959 Web fallback 保持（Electron 钳制 960 之外 Web 仍回退）", async () => {
   const styles = await source("app/styles.css");
-  const appJs = await source("app/app.js");
+  const assetView = await source("app/asset-view.mjs");
   // 959 落在 701–1120 图标栏区间：收敛规则在 959 继续生效，无独立 959 断点。
   assert.match(styles, /@media \(min-width: 701px\) and \(max-width: 1120px\)/);
   assert.match(styles, /@media \(max-width: 700px\) \{[\s\S]*body \{ overflow: auto; \}/);
   // 滚动容器 helper 继续处理 ≤959 文档级滚动回退（Return Snapshot 正确性的前提）。
-  assert.match(appJs, /getLibraryScrollContainer/);
-  assert.match(appJs, /≤959px/);
+  assert.match(assetView, /getLibraryScrollContainer/);
+  assert.match(assetView, /≤959px/);
 });
 
 test("28-30. Overlay max-height / ConfirmDialog viewport-safe / Toast fixed 栈保持", async () => {
@@ -216,7 +217,7 @@ test("28-30. Overlay max-height / ConfirmDialog viewport-safe / Toast fixed 栈�
 });
 
 test("31. F-08 空状态不退化", async () => {
-  const appJs = await source("app/app.js");
+  const appJs = await source("app/app.mjs");
   assert.match(appJs, /gallery-empty-state/);
   assert.match(appJs, /data-empty-kind=/);
   assert.match(appJs, /empty-state-actions/);
@@ -235,26 +236,27 @@ test("32-34. Phase 5 Overlay / Confirm / Toast 契约测试文件不退化", asy
 });
 
 test("35-37. Viewer Navigation / Transform / Return Snapshot 不退化", async () => {
-  const appJs = await source("app/app.js");
+  const appJs = await source("app/app.mjs");
+  const assetView = await source("app/asset-view.mjs");
   // 35 Navigation：稳定序列 + 边界禁用（BUG-10 扩展 session 持有总数/游标/快照）。
-  assert.match(appJs, /const assetViewSequence = \{\n\s+ids: \[\], index: -1, requestKey: "",\n\s+total: 0, nextCursor: null, loading: false, generation: 0,\n\s+snapshot: null,\n\};/);
-  assert.match(appJs, /setAssetViewControlDisabled\(els\.assetViewPrev, !canNavigateAssetView\(-1\)\)/);
+  assert.match(assetView, /const assetViewSequence = \{\n\s+ids: \[\], index: -1, requestKey: "",\n\s+total: 0, nextCursor: null, loading: false, generation: 0,\n\s+snapshot: null,\n\s*\};/);
+  assert.match(assetView, /setAssetViewControlDisabled\(els\.assetViewPrev, !canNavigateAssetView\(-1\)\)/);
   assert.match(appJs, /els\.assetViewPrev\?\.addEventListener\("click", \(\) => navigateAssetView\(-1\)\)/);
   // 36 Transform：统一 transform 应用点与拖拽禁用契约保持。
-  assert.match(appJs, /function applyAssetViewTransform\(\)/);
+  assert.match(assetView, /function applyAssetViewTransform\(\)/);
   const index = await source("app/index.html");
   assert.match(index, /id="assetViewImage"[^>]*draggable="false"/);
   // 37 Return Snapshot：四字段最小集合保持。
-  assert.match(appJs, /state\.libraryReturnSnapshot = \{\n\s+scrollTop: getLibraryScrollContainer\(\)\.scrollTop,\n\s+focusedAssetId:/);
-  assert.match(appJs, /selectedAssetId: state\.selectedId,\n\s+requestKey: assetRequestKey\(currentAssetRequest\(\)\)/);
+  assert.match(assetView, /state\.libraryReturnSnapshot = \{\n\s+scrollTop: getLibraryScrollContainer\(\)\.scrollTop,\n\s+focusedAssetId:/);
+  assert.match(assetView, /selectedAssetId: state\.selectedId,\n\s+requestKey: assetRequestKey\(currentAssetRequest\(\)\)/);
 });
 
 test("38. Inspector IA 十项 section 标记全在且唯一", async () => {
-  const appJs = await source("app/app.js");
+  const inspector = await source("app/inspector-markup.mjs");
   const sections = ["file", "favorite", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
   for (const section of sections) {
     assert.equal(
-      appJs.split(`data-inspector-section="${section}"`).length - 1,
+      inspector.split(`data-inspector-section="${section}"`).length - 1,
       1,
       `inspector section "${section}" rendered exactly once`,
     );
@@ -262,17 +264,22 @@ test("38. Inspector IA 十项 section 标记全在且唯一", async () => {
 });
 
 test("39. App/Web 原图能力差异保持（Finder vs 打开原图）", async () => {
-  const appJs = await source("app/app.js");
-  assert.match(appJs, /typeof window\.electronAPI\?\.showItemInFolder === "function" && imagePath\) return "desktop-finder"/);
-  assert.match(appJs, /return "web-open"|capability === "web-open"/);
-  assert.match(appJs, /original-media-link/);
-  assert.match(appJs, /rel="noopener noreferrer"/);
+  const inspector = await source("app/inspector-markup.mjs");
+  assert.match(inspector, /typeof window\.electronAPI\?\.showItemInFolder === "function" && imagePath\) return "desktop-finder"/);
+  assert.match(inspector, /return "web-open"|capability === "web-open"/);
+  assert.match(inspector, /original-media-link/);
+  assert.match(inspector, /rel="noopener noreferrer"/);
 });
 
 test("40-41. package 与 lockfile 不变、无新依赖", async () => {
   const pkg = await source("package.json");
   const lock = await source("package-lock.json");
-  assert.equal(sha256(pkg), "e161974a477853703cc88724de39805fe5c65e590bd331060a17be6d087a2f24");
+  // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
+  // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
+  // the dependency sections the freeze really guards stay byte-identical.
+  const manifest = JSON.parse(pkg);
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b");
   assert.equal(sha256(lock), "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd");
 });
 

@@ -14,7 +14,8 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
-const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readApp = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
+const readApiClient = () => readFile(resolve(root, "app/api-client.mjs"), "utf8");
 const readLock = () => readFile(resolve(root, "package-lock.json"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
@@ -98,16 +99,16 @@ function stripJsComments(source) {
 
 // 1. The first screen still pages at limit=100.
 test("1. first screen keeps limit 100", async () => {
-  const app = await readApp();
-  const params = functionBody(app, "buildAssetPageParams");
+  const apiClient = await readApiClient();
+  const params = functionBody(apiClient, "buildAssetPageParams");
   assert.match(params, /params\.set\("limit", "100"\)/, "the shared page params fix limit at 100");
-  assert.match(functionBody(app, "loadAssets"), /requestAssetPage\(request/, "loadAssets pages through the shared helper");
+  assert.match(functionBody(apiClient, "loadAssets"), /requestAssetPage\(request/, "loadAssets pages through the shared helper");
 });
 
 // 2. limit=0 is never used anywhere in the paging path.
 test("2. no limit=0", async () => {
-  const app = await readApp();
-  const paging = sliceBetween(app, "function buildAssetPageParams", "let libraryRefreshInFlight");
+  const apiClient = await readApiClient();
+  const paging = sliceBetween(apiClient, "function buildAssetPageParams", "let libraryRefreshInFlight");
   const load = stripJsComments(paging);
   assert.doesNotMatch(load, /limit.?=.?0|"0"/, "the paging path never requests an unlimited page");
 });
@@ -150,10 +151,11 @@ test("6. one cursor request per press", async () => {
 // 7. The lazy request keeps project/query/scope/facets/sort from the captured snapshot.
 test("7. request keeps captured query semantics", async () => {
   const app = await readApp();
+  const apiClient = await readApiClient();
   const load = stripJsComments(functionBody(app, "loadNextAssetViewPage"));
   assert.match(load, /requestAssetPage\(session\.snapshot/, "the page request reads only the captured snapshot");
   assert.doesNotMatch(load, /state\.query|state\.scope|state\.facets|state\.sort/, "lazy loads never read live filter state");
-  const params = functionBody(app, "buildAssetPageParams");
+  const params = functionBody(apiClient, "buildAssetPageParams");
   assert.match(params, /project: request\.project, q: request\.query/, "project and query travel");
   assert.match(params, /params\.set\("sort", request\.sort\)/, "sort travels");
   assert.match(params, /request\.scope === "favorite"\) params\.set\("favorite", "1"/, "favorite scope travels");

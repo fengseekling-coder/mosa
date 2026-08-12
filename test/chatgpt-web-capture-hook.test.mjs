@@ -8,6 +8,7 @@ const hookSource = await readFile(new URL("../extensions/chatgpt-web-capture/pag
 const manifest = JSON.parse(await readFile(new URL("../extensions/chatgpt-web-capture/manifest.json", import.meta.url), "utf8"));
 const backgroundSource = await readFile(new URL("../extensions/chatgpt-web-capture/background.js", import.meta.url), "utf8");
 const contentSource = await readFile(new URL("../extensions/chatgpt-web-capture/content.js", import.meta.url), "utf8");
+const contentCss = await readFile(new URL("../extensions/chatgpt-web-capture/content.css", import.meta.url), "utf8");
 const optionsSource = await readFile(new URL("../extensions/chatgpt-web-capture/options.js", import.meta.url), "utf8");
 const optionsHtml = await readFile(new URL("../extensions/chatgpt-web-capture/options.html", import.meta.url), "utf8");
 
@@ -186,7 +187,7 @@ test("archives one row per uploaded reference photo", () => {
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.9.2");
+  assert.equal(manifest.version, "0.10.0");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
@@ -196,7 +197,7 @@ test("uses only a same-message Model caption when conversation metadata is cache
 test("keeps a same-message user instruction separate and retries for a late caption", () => {
   assert.doesNotMatch(contentSource, /allowUserMessageFallback/);
   assert.doesNotMatch(contentSource, /promptSource: "bound-user-message"/);
-  assert.match(contentSource, /function domCandidateForImage\(imageUrl\)/);
+  assert.match(contentSource, /function domCandidateForImage\(imageUrl(?:, \{ manual = false \} = \{\})?\)/);
   assert.match(contentSource, /function enqueueDomCandidateForImage\(imageUrl, reason\)/);
   assert.match(contentSource, /function schedulePromptRecovery\(candidate\)/);
   assert.match(contentSource, /function currentViewportCandidate\(candidates\)/);
@@ -628,4 +629,27 @@ test("does not attach a prompt from one message to an unrelated image message", 
   await harness.harvest();
 
   assert.equal(generationEvents(harness).some((event) => event.payload.imageKey === "estuary:conversation-test:file-unrelated"), false);
+});
+
+test("opens the in-page control panel in the lower-right corner instead of relying on popup UI", () => {
+  assert.match(contentSource, /mosa\.capture\.togglePanel/);
+  assert.match(contentSource, /function ensureControlPanel\(\)/);
+  assert.match(contentSource, /function toggleControlPanel\(\)/);
+  assert.match(contentSource, /mosa-capture-panel/);
+  assert.match(contentCss, /#mosa-capture-panel/);
+  assert.match(contentCss, /right:\s*16px/);
+  assert.match(contentCss, /bottom:\s*16px/);
+  assert.doesNotMatch(contentCss, /top:\s*14px/);
+  assert.doesNotMatch(JSON.stringify(manifest.action), /popup\.html/);
+});
+
+test("keeps the capture toast compact in the viewport corner", () => {
+  const toastCss = contentCss.slice(0, contentCss.indexOf("#mosa-capture-panel"));
+  assert.match(toastCss, /right:\s*16px/);
+  assert.match(toastCss, /bottom:\s*16px/);
+  assert.match(toastCss, /width:\s*max-content/);
+  assert.match(toastCss, /max-width:\s*min\(260px/);
+  assert.match(toastCss, /font:\s*600 12px/);
+  assert.doesNotMatch(toastCss, /left:\s*50%/);
+  assert.doesNotMatch(toastCss, /translateX\(\s*-50%\s*\)/);
 });

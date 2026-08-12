@@ -11,7 +11,9 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
-const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readAssetView = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
+const readInspectorMarkup = () => readFile(resolve(root, "app/inspector-markup.mjs"), "utf8");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
 const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
@@ -23,7 +25,7 @@ function functionSlice(source, name) {
   let start = source.indexOf(`async function ${name}(`);
   if (start === -1) start = source.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `function not found: ${name}`);
-  const candidates = [source.indexOf("\nfunction ", start + 1), source.indexOf("\nasync function ", start + 1)]
+  const candidates = [source.indexOf("\nfunction ", start + 1), source.indexOf("\nasync function ", start + 1), source.indexOf("\n  function ", start + 1), source.indexOf("\n  async function ", start + 1)]
     .filter((index) => index !== -1);
   const next = candidates.length ? Math.min(...candidates) : -1;
   return source.slice(start, next === -1 ? source.length : next);
@@ -47,9 +49,10 @@ const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailFavoriteSectionMar
 // 4. Picker lives inside the version section. 5. Current version is selected.
 test("1-5. native version picker inside the version section", async () => {
   const app = await readApp();
+  const inspector = await readInspectorMarkup();
 
   // 1. A single native <select data-version-select> renders the picker.
-  const picker = functionSlice(app, "versionPickerMarkup");
+  const picker = functionSlice(inspector, "versionPickerMarkup");
   assert.match(picker, /<select id="versionSelect" data-version-select/, "native select carries data-version-select");
   assert.match(picker, /<label class="visually-hidden" for="versionSelect">/, "select has an accessible (visually-hidden) label");
   assert.match(picker, /<option value="\$\{escapeHtml\(version\.id\)\}"/, "option value is the asset id");
@@ -60,7 +63,7 @@ test("1-5. native version picker inside the version section", async () => {
   assert.doesNotMatch(picker, /popover|dropdown|listbox|role="menu"/i, "no custom version popover");
 
   // 4. The picker region sits inside the version inspector section, before the disclosures.
-  const versionSection = functionSlice(app, "detailVersionSectionMarkup");
+  const versionSection = functionSlice(inspector, "detailVersionSectionMarkup");
   assert.ok(versionSection.includes('data-inspector-section="version"'), "section id stays version");
   assert.ok(versionSection.includes('class="version-picker" data-version-picker'), "picker region rendered inside the version section");
   assert.ok(versionSection.indexOf("data-version-picker") < versionSection.indexOf("data-version-history"), "picker precedes the history disclosure");
@@ -73,9 +76,9 @@ test("1-5. native version picker inside the version section", async () => {
 // 8. Multiple versions: enabled, API order. 9. Archived versions carry a text
 // marker. 10. Missing version_index never renders VNaN/V0/undefined.
 test("6-10. picker five-state model", async () => {
-  const app = await readApp();
-  const picker = functionSlice(app, "versionPickerMarkup");
-  const optionLabel = functionSlice(app, "versionOptionLabel");
+  const inspector = await readInspectorMarkup();
+  const picker = functionSlice(inspector, "versionPickerMarkup");
+  const optionLabel = functionSlice(inspector, "versionOptionLabel");
 
   // 6. Loading (no history yet): falls back to the current asset as the single
   // option (its Vn label when version_index exists), disabled, aria-busy.
@@ -115,7 +118,7 @@ test("11-14. async region updates stay guarded and paired", async () => {
   assert.doesNotMatch(pickerRegion, /innerHTML = ""|remove\(\)/, "picker region is never cleared or detached");
 
   // 12. Exactly one API request per loadVersionHistory call.
-  assert.equal(count(loader, "await api("), 1, "loadVersionHistory issues a single request");
+  assert.equal(count(loader, "await apiFetch("), 1, "loadVersionHistory issues a single request");
 
   // 13. Both stale-response guards remain on success and error paths.
   assert.equal(count(loader, "requestId !== versionHistoryRequestSequence"), 2, "request generation guard on both paths");
@@ -203,9 +206,9 @@ test("20-23. switch preserves viewer state, scroll, and lands focus", async () =
 // versions API stay on their own paths. 31. The two summaries are independent.
 // 32. Both save buttons are secondary. 33. Cowart remains the only primary.
 test("24-33. recipe save and save-as-version stay split", async () => {
-  const [app, i18n] = await Promise.all([readApp(), readI18n()]);
-  const promptSection = functionSlice(app, "detailPromptSectionMarkup");
-  const newVersionSection = functionSlice(app, "detailNewVersionSectionMarkup");
+  const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
+  const promptSection = functionSlice(inspector, "detailPromptSectionMarkup");
+  const newVersionSection = functionSlice(inspector, "detailNewVersionSectionMarkup");
 
   // 24. The recipe-change textarea sits inside the recipe disclosure, between
   // the recipe fields and the save-recipe button.
@@ -251,7 +254,7 @@ test("24-33. recipe save and save-as-version stay split", async () => {
   // 32. Both save actions stay secondary; no recipe-save primary exists.
   assert.match(promptSection, /class="recipe-save-btn secondary" type="button" data-action="save-recipe"/, "save-recipe stays secondary");
   assert.match(newVersionSection, /class="recipe-save-btn secondary" type="button" data-action="save-version"/, "save-version stays secondary");
-  assert.equal(count(app, "recipe-save-btn primary"), 0, "no primary recipe save button");
+  assert.equal(count(app, "recipe-save-btn primary") + count(inspector, "recipe-save-btn primary"), 0, "no primary recipe save button");
 
   // 33. Cowart insertion remains the application's single primary action.
   assert.equal(count(app, "action-btn primary"), 1, "exactly one primary action remains (Cowart insert)");
@@ -261,7 +264,7 @@ test("24-33. recipe save and save-as-version stay split", async () => {
 // English. 36. web-chatgpt resolves through the single source-label map.
 // 37. Grok media paths are copyable. 38. No copy affordance for empty sources.
 test("34-38. Phase 4A correction gates hold", async () => {
-  const [app, i18n] = await Promise.all([readApp(), readI18n()]);
+  const [app, inspector, i18n, config] = await Promise.all([readApp(), readInspectorMarkup(), readI18n(), readFile(resolve(root, "app/config.mjs"), "utf8")]);
 
   // 34. The dead detailTab state (field, initial value, resets, comments) is
   // fully removed from the application code.
@@ -274,20 +277,21 @@ test("34-38. Phase 4A correction gates hold", async () => {
 
   // 36. Source naming resolves through the single SOURCE_LABEL_KEYS map —
   // web-chatgpt shows as ChatGPT, never as a manual import.
-  const sourceNameFn = functionSlice(app, "sourceName");
+  const sourceNameFn = functionSlice(inspector, "sourceName");
   assert.match(sourceNameFn, /SOURCE_LABEL_KEYS\[type\] \? t\(SOURCE_LABEL_KEYS\[type\]\) : \(type \|\| t\("sourceUnknown"\)\)/, "sourceName reuses the single label map");
   assert.doesNotMatch(sourceNameFn, /sourceManual/, "sourceName never falls back to manual import");
-  assert.match(app, /"web-chatgpt": "sourceWebChatgpt"/, "web-chatgpt mapped to its own label key");
+  // SOURCE_LABEL_KEYS moved to app/config.mjs (R1 batch 2).
+  assert.match(config, /"web-chatgpt": "sourceWebChatgpt"/, "web-chatgpt mapped to its own label key");
   assert.equal(count(i18n, 'sourceWebChatgpt: "ChatGPT"'), 2, "web-chatgpt label is ChatGPT in both locales");
 
   // 37. Copying a source uses sourceCopyValue (path → grok_media_path → ""),
   // the same precedence as the displayed originalPath row.
-  const copyValue = functionSlice(app, "sourceCopyValue");
+  const copyValue = functionSlice(inspector, "sourceCopyValue");
   assert.match(copyValue, /return String\(source\.path \|\| source\.grok_media_path \|\| ""\);/, "copy value mirrors the originalPath precedence");
   assert.match(app, /copy-source.*clipboard\.writeText\(sourceCopyValue\(asset\.source\)\)/s, "copy click uses sourceCopyValue");
 
   // 38. The copy button renders only when a copyable value exists.
-  const sourceSection = functionSlice(app, "detailSourceSectionMarkup");
+  const sourceSection = functionSlice(inspector, "detailSourceSectionMarkup");
   assert.match(sourceSection, /const copyButton = sourceCopyValue\(source\)\n\s+\? `<button class="section-head-copy" type="button" data-action="copy-source"/, "empty sources get no copy button");
 });
 
@@ -296,11 +300,13 @@ test("34-38. Phase 4A correction gates hold", async () => {
 // 47. package.json and the lockfile are untouched. 48. No new dependency.
 test("39-48. layout order, neighbouring contracts, and dependency freeze", async () => {
   const app = await readApp();
+  const inspector = await readInspectorMarkup();
+  const viewer = await readAssetView();
 
   // 39-42. The composition sequence and section ids are unchanged; version is
   // still 5th, new-version 9th, more 10th.
   assert.ok(app.includes(COMPOSITION), "renderDetail composition sequence unchanged");
-  const positions = SECTION_ORDER.map((id) => app.indexOf(`data-inspector-section="${id}"`));
+  const positions = SECTION_ORDER.map((id) => inspector.indexOf(`data-inspector-section="${id}"`));
   assert.ok(positions.every((index) => index > -1), "all ten section ids still render");
   assert.deepEqual([...positions].sort((a, b) => a - b), positions, "section order matches the approved sequence");
   assert.equal(SECTION_ORDER[4], "version", "version stays the 5th section");
@@ -315,21 +321,26 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
     access(resolve(root, "test/large-view-mode-contract.test.mjs")),
     access(resolve(root, "test/inspector-information-architecture-contract.test.mjs")),
   ]);
-  assert.match(app, /assetViewSequence\.ids = state\.assets\.map\(\(asset\) => asset\.id\);/, "43. viewer navigation anchor intact");
-  assert.match(app, /function applyAssetViewTransform\(\)/, "44. viewer transform anchor intact");
-  assert.match(app, /state\.libraryReturnSnapshot = \{/, "45. library return snapshot anchor intact");
-  assert.match(app, /function detailVersionSectionMarkup\(asset, cachedHistory, cachedRecipeHistory\)/, "46. Phase 4A IA anchors intact");
+  assert.match(viewer, /assetViewSequence\.ids = state\.assets\.map\(\(asset\) => asset\.id\);/, "43. viewer navigation anchor intact");
+  assert.match(viewer, /function applyAssetViewTransform\(\)/, "44. viewer transform anchor intact");
+  assert.match(viewer, /state\.libraryReturnSnapshot = \{/, "45. library return snapshot anchor intact");
+  assert.match(inspector, /function detailVersionSectionMarkup\(asset, cachedHistory, cachedRecipeHistory\)/, "46. Phase 4A IA anchors intact");
 
   // 47. Manifest and lockfile SHAs stay at their frozen values.
   const pkg = await readFile(resolve(root, "package.json"), "utf8");
   const lock = await readFile(resolve(root, "package-lock.json"), "utf8");
-  assert.equal(sha256(pkg), "e161974a477853703cc88724de39805fe5c65e590bd331060a17be6d087a2f24", "package.json must stay untouched");
+  // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
+  // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
+  // the dependency sections the freeze really guards stay byte-identical.
+  const manifest = JSON.parse(pkg);
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must stay untouched");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies must stay untouched");
   assert.equal(sha256(lock), "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd", "package-lock.json must stay untouched");
 
   // 48. app.js gains no new imports (no new runtime dependencies, no
   // third-party Select component).
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./bridge-status-poller.js", "./i18n.mjs"], "app.js gains no new imports");
+    ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./overlay-manager.mjs", "./toast-manager.mjs"], "app.js gains no new imports");
 });
 
 // Picker/recipe styles stay inside the approved boundary: native select reuses

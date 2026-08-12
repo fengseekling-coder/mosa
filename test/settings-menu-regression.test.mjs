@@ -18,7 +18,7 @@ const root = resolve(import.meta.dirname, "..");
  * duplicate-binding bug.
  */
 test("renderSettingsMenu does not attach any event listeners", async () => {
-  const app = await readFile(resolve(root, "app/app.js"), "utf8");
+  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
   const match = /function renderSettingsMenu\(\) \{([\s\S]*?)\n\}\n\nasync function fetchDiagnostics/.exec(app);
   assert.ok(match, "expected to find renderSettingsMenu function body");
@@ -28,7 +28,7 @@ test("renderSettingsMenu does not attach any event listeners", async () => {
 });
 
 test("bindEvents registers the settingsMenu click delegation exactly once", async () => {
-  const app = await readFile(resolve(root, "app/app.js"), "utf8");
+  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
   const match = /function bindEvents\(\) \{([\s\S]*?)\n\}\n\nfunction bindDesktopIntegration/.exec(app);
   assert.ok(match, "expected to find bindEvents function body");
@@ -39,7 +39,7 @@ test("bindEvents registers the settingsMenu click delegation exactly once", asyn
 });
 
 test("bindEvents contains the theme-switch handler using real state", async () => {
-  const app = await readFile(resolve(root, "app/app.js"), "utf8");
+  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
   const match = /function bindEvents\(\) \{([\s\S]*?)\n\}\n\nfunction bindDesktopIntegration/.exec(app);
   assert.ok(match, "expected to find bindEvents function body");
@@ -52,7 +52,7 @@ test("bindEvents contains the theme-switch handler using real state", async () =
 });
 
 test("bindEvents contains the density-switch handler using real state", async () => {
-  const app = await readFile(resolve(root, "app/app.js"), "utf8");
+  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
   const match = /function bindEvents\(\) \{([\s\S]*?)\n\}\n\nfunction bindDesktopIntegration/.exec(app);
   assert.ok(match, "expected to find bindEvents function body");
@@ -65,14 +65,14 @@ test("bindEvents contains the density-switch handler using real state", async ()
 });
 
 test("legacy densityToggle references have been removed from app.js", async () => {
-  const app = await readFile(resolve(root, "app/app.js"), "utf8");
+  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
   assert.doesNotMatch(app, /els\.densityToggle/, "app.js must not reference els.densityToggle");
   assert.doesNotMatch(app, /renderDensityToggle/, "app.js must not reference renderDensityToggle");
 });
 
 test("renderSettingsMenu uses real state for segmented control active status", async () => {
-  const app = await readFile(resolve(root, "app/app.js"), "utf8");
+  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
   const match = /function renderSettingsMenu\(\) \{([\s\S]*?)\n\}\n\nasync function fetchDiagnostics/.exec(app);
   assert.ok(match, "expected to find renderSettingsMenu function body");
@@ -90,7 +90,7 @@ test("renderSettingsMenu uses real state for segmented control active status", a
 });
 
 test("topbar theme toggle stays synchronized with the shared theme state", async () => {
-  const app = await readFile(resolve(root, "app/app.js"), "utf8");
+  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
   assert.match(app, /themeToggle:\s*document\.querySelector\("#themeToggle"\)/,
     "app.js must retain a reference to the visible topbar theme control");

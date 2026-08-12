@@ -28,7 +28,7 @@ function runtimeOptions(root) {
 }
 
 /**
- * Run theme-init.js against mocked browser globals (no DOM needed) and return
+ * Run theme-init.mjs against mocked browser globals (no DOM needed) and return
  * the data-theme value the script would apply. Mirrors app.js which reads the
  * same `mosa-dark-mode` key and compares against the string "true".
  */
@@ -48,18 +48,18 @@ function makeStore(storedValue) {
 
 let themeScriptSource;
 
-test("theme-init.js loads before the stylesheet in index.html", async () => {
-  themeScriptSource = await readFile(join(repositoryRoot, "app", "theme-init.js"), "utf8");
+test("theme-init.mjs loads before the stylesheet in index.html", async () => {
+  themeScriptSource = await readFile(join(repositoryRoot, "app", "theme-init.mjs"), "utf8");
   const indexHtml = await readFile(join(repositoryRoot, "app", "index.html"), "utf8");
 
-  const scriptTag = '<script src="/theme-init.js"></script>';
+  const scriptTag = '<script src="/theme-init.mjs"></script>';
   const scriptIdx = indexHtml.indexOf(scriptTag);
   const cssIdx = indexHtml.indexOf('<link rel="stylesheet"');
-  assert.ok(scriptIdx > -1, "index.html must reference /theme-init.js");
+  assert.ok(scriptIdx > -1, "index.html must reference /theme-init.mjs");
   assert.ok(cssIdx > -1, "index.html must reference the stylesheet");
   assert.ok(
     scriptIdx < cssIdx,
-    "theme-init.js must execute before the stylesheet to avoid FOUC",
+    "theme-init.mjs must execute before the stylesheet to avoid FOUC",
   );
   // No inline theme script — the runtime CSP is script-src 'self'.
   assert.doesNotMatch(indexHtml, /<script>[^<]*document\.documentElement/);
@@ -78,18 +78,18 @@ test("theme-init falls back to light when localStorage is unavailable", () => {
   assert.equal(runThemeScript(throwingStore), "light", "read failure -> light fallback");
 });
 
-test("the runtime serves /theme-init.js same-origin for CSP compliance", async (t) => {
+test("the runtime serves /theme-init.mjs same-origin for CSP compliance", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-theme-init-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const runtime = await startMosaRuntime(runtimeOptions(root));
   t.after(() => runtime.stop());
 
-  const response = await fetch(`${runtime.url}/theme-init.js`);
+  const response = await fetch(`${runtime.url}/theme-init.mjs`);
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("content-type"), "text/javascript; charset=utf-8");
   assert.equal(await response.text(), themeScriptSource);
 
   // index.html served from the same origin references the script with a same-origin URL.
   const html = await (await fetch(`${runtime.url}/`)).text();
-  assert.match(html, /<script src="\/theme-init\.js"><\/script>/);
+  assert.match(html, /<script src="\/theme-init\.mjs"><\/script>/);
 });

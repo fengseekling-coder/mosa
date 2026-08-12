@@ -1,0 +1,109 @@
+---
+description: Architecture refactoring safety boundaries and prohibited actions
+alwaysApply: true
+---
+
+# MOSA Architecture Refactoring Boundaries
+
+This rule applies during the 10-day architecture refactoring project (2026-08-11 to 2026-08-20).
+
+## Prohibited Actions (RED LINES)
+
+### 1. User-Facing Behavior
+❌ **NEVER** change what users see or experience:
+- Do not modify UI text, labels, or messages
+- Do not change button positions, menu items, or layouts
+- Do not alter API response formats or status codes
+- Do not change file formats or data structures users interact with
+
+### 2. Dependencies
+❌ **NEVER** upgrade, downgrade, or add dependencies without explicit approval:
+- Do not run `npm install <package>`
+- Do not modify `package.json` dependencies
+- Do not change dependency versions
+- Exception: Only devDependencies for linting/tooling with explicit approval
+
+### 3. Git Configuration
+❌ **NEVER** modify git settings:
+- Do not run `git config`
+- Do not modify `.gitignore` without explicit approval
+- Do not change git hooks
+
+### 4. Unrelated Code
+❌ **NEVER** fix pre-existing bugs or unrelated issues:
+- Do not fix the failing test in `test/server-routes.test.mjs:14`
+- Do not refactor code outside the current day's scope
+- Do not "clean up" code that isn't part of the task
+
+### 5. V2 UI Migration Files
+⚠️ **DO NOT CONFLICT** with ongoing V2 UI migration:
+- Avoid modifying files with large uncommitted changes
+- Check `git status` before editing `app/`, `desktop/`, or `extensions/`
+- If you must touch these areas, coordinate explicitly
+
+## Safe Actions (GREEN LIGHT)
+
+### File Operations
+✅ Move files to archive directories (never `rm -rf`)
+✅ Rename files for consistency
+✅ Split large files into focused modules
+✅ Create new organizational directories
+
+### Code Quality
+✅ Add ESLint rules
+✅ Enable TypeScript strict checks
+✅ Add type annotations
+✅ Fix imports and module references
+
+### Documentation
+✅ Create architecture diagrams
+✅ Write README files
+✅ Document conventions
+✅ Add inline comments for non-obvious logic
+
+## Verification Requirements
+
+After EVERY change, you MUST:
+
+1. Run `npm test` → all tests that passed before must still pass
+2. Run `npm run check` → must pass
+3. Run `npm run lint` → must pass with 0 errors
+4. Run `npm run audit` → must show 0 vulnerabilities
+
+## File Movement Protocol
+
+When archiving old files:
+
+```bash
+# ✅ CORRECT: Move to archive with README
+mkdir -p lib/_archive_YYYY-MM-DD/
+mv old-file.js lib/_archive_YYYY-MM-DD/
+echo "# Archived Files\n\n- old-file.js: Reason for removal" > lib/_archive_YYYY-MM-DD/README.md
+
+# ❌ WRONG: Direct deletion
+rm -rf old-file.js
+```
+
+## Rollback Procedure
+
+If anything goes wrong:
+
+1. **Immediate rollback**: `git restore <file>` or `mv lib/_archive_*/file.js lib/`
+2. **Report to coordinator**: State what broke and why
+3. **Wait for direction**: Do not attempt multiple fixes without feedback
+
+## When In Doubt
+
+**STOP and ASK** before:
+- Modifying package.json
+- Changing build configuration
+- Touching files with 100+ uncommitted lines
+- Upgrading any tool or dependency
+- Modifying test files (unless explicitly part of the task)
+
+## Context
+
+- **Project:** MOSA (Media Organization & Storage Assistant)
+- **Refactor scope:** lib/ architecture cleanup (Day 1-10)
+- **Current HEAD:** f5c8fb7 (V2 UI migration in progress)
+- **Baseline:** docs/audit/2026-08-11-pre-refactor-baseline.md

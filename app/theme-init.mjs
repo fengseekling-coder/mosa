@@ -8,8 +8,7 @@
  *   key:   "mosa-dark-mode"
  *   value: "true" | "false"  (string)
  *
- * Any read failure or unexpected value falls back to light, matching the
- * app.js default (`safeStorageGet("mosa-dark-mode") === "true"`).
+ * Any read failure or unexpected value falls back to light, matching app.mjs.
  */
 (function applyInitialTheme() {
   var theme = "light";

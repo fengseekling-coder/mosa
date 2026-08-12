@@ -40,6 +40,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "mosa.openOptions") {
+    chrome.runtime.openOptionsPage()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    return true;
+  }
+
   return false;
 });
 
@@ -204,4 +214,66 @@ function guessMime(url) {
 
 chrome.runtime.onInstalled.addListener(async () => {
   await migrateSettingsToLocal();
+  await updateBadge();
+  await refreshContextMenus();
+});
+
+async function updateBadge() {
+  const settings = await getSettings();
+  await chrome.action.setBadgeText({ text: settings.autoCapture ? "ON" : "OFF" });
+  await chrome.action.setBadgeBackgroundColor({ color: settings.autoCapture ? "#84cc16" : "#71717a" });
+}
+
+// Context menus persist across service-worker restarts, so only (re)create them
+// on install/update. removeAll() first avoids "Cannot create item with
+// duplicate id" errors when the extension is updated or reloaded during dev.
+async function refreshContextMenus() {
+  if (!chrome.contextMenus) return;
+  await chrome.contextMenus.removeAll();
+  chrome.contextMenus.create({
+    id: "mosa-save-image",
+    title: "保存图片到 MOSA",
+    contexts: ["image"],
+  });
+  chrome.contextMenus.create({
+    id: "mosa-save-image-prompt",
+    title: "保存图片并提取 Prompt",
+    contexts: ["image"],
+  });
+}
+
+chrome.commands?.onCommand?.addListener(async (command) => {
+  if (command !== "toggle-auto-capture") return;
+  const current = await getSettings();
+  await chrome.storage.local.set({ autoCapture: !current.autoCapture });
+  await updateBadge();
+});
+
+chrome.storage?.onChanged?.addListener((changes, area) => {
+  if (area === "local" && changes.autoCapture) updateBadge();
+});
+
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab?.id) return;
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "mosa.capture.togglePanel" });
+  } catch {
+    // Page is not ready or not a supported ChatGPT tab.
+  }
+});
+
+chrome.contextMenus?.onClicked?.addListener(async (info, tab) => {
+  if (!tab?.id) return;
+  if (info.menuItemId === "mosa-save-image") {
+    await chrome.tabs.sendMessage(tab.id, {
+      type: "mosa.capture.saveImage",
+      imageUrl: info.srcUrl || "",
+    });
+  }
+  if (info.menuItemId === "mosa-save-image-prompt") {
+    await chrome.tabs.sendMessage(tab.id, {
+      type: "mosa.capture.saveImageWithPrompt",
+      imageUrl: info.srcUrl || "",
+    });
+  }
 });

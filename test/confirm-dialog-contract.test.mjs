@@ -13,7 +13,9 @@ import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
-const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readAssetView = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
+const readConfirmDialog = () => readFile(resolve(root, "app/confirm-dialog.mjs"), "utf8");
 const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
@@ -53,9 +55,10 @@ test("1-7. a single app-wide ConfirmDialog with dialog semantics", async () => {
 // 8-11. One Promise API, boolean result, resolver settles once, one pending at a time.
 test("8-11. single Promise API with a single pending confirmation", async () => {
   const app = await readApp();
-  const request = functionSlice(app, "requestConfirmation");
-  const close = functionSlice(app, "closeConfirmDialog");
-  assert.match(app, /function requestConfirmation\(\{/, "the single confirmation API exists");
+  const confirmDialog = await readConfirmDialog();
+  const request = functionSlice(confirmDialog, "requestConfirmation");
+  const close = functionSlice(confirmDialog, "closeConfirmDialog");
+  assert.match(confirmDialog, /function requestConfirmation\(\{/, "the single confirmation API exists");
   assert.match(request, /return new Promise\(\(resolve\) =>/, "returns a Promise");
   assert.equal(count(request, "confirmDialogState.resolve = resolve"), 1, "resolver assigned exactly once per open");
   assert.match(close, /resolve\(result\)/, "resolves with the boolean result");
@@ -71,9 +74,10 @@ test("8-11. single Promise API with a single pending confirmation", async () => 
 // 12-15. Confirm=true, Cancel/Escape/Backdrop=false; the backdrop can never confirm.
 test("12-15. result semantics — backdrop can only cancel", async () => {
   const app = await readApp();
+  const confirmDialog = await readConfirmDialog();
   assert.match(app, /els\.confirmDialogConfirm\?\.addEventListener\("click", \(\) => closeConfirmDialog\(true\)\);/, "Confirm button settles true");
   assert.match(app, /els\.confirmDialogCancel\?\.addEventListener\("click", \(\) => closeConfirmDialog\(false\)\);/, "Cancel button settles false");
-  const trap = functionSlice(app, "trapConfirmDialogFocus");
+  const trap = functionSlice(confirmDialog, "trapConfirmDialogFocus");
   assert.match(trap, /closeConfirmDialog\(false\)/, "Escape settles false");
   const backdrop = app.match(/els\.confirmDialog\?\.addEventListener\("click",[^\n]*/)?.[0] || "";
   assert.match(backdrop, /event\.target === els\.confirmDialog\) closeConfirmDialog\(false\)/, "backdrop click only cancels");
@@ -83,8 +87,9 @@ test("12-15. result semantics — backdrop can only cancel", async () => {
 // 16-18. Default focus lands on Cancel; Tab/Shift+Tab cycle between the two buttons.
 test("16-18. default focus on Cancel with a two-stop Tab cycle", async () => {
   const app = await readApp();
-  const request = functionSlice(app, "requestConfirmation");
-  const trap = functionSlice(app, "trapConfirmDialogFocus");
+  const confirmDialog = await readConfirmDialog();
+  const request = functionSlice(confirmDialog, "requestConfirmation");
+  const trap = functionSlice(confirmDialog, "trapConfirmDialogFocus");
   assert.match(request, /requestAnimationFrame\(\(\) => \{ if \(confirmDialogState\.pending\) els\.confirmDialogCancel\?\.focus\(\); \}\);/,
     "opening focuses Cancel — destructive actions never default-focus the confirm button");
   assert.match(trap, /const focusable = \[els\.confirmDialogCancel, els\.confirmDialogConfirm\]/, "the trap cycles exactly the two dialog buttons");
@@ -96,7 +101,8 @@ test("16-18. default focus on Cancel with a two-stop Tab cycle", async () => {
 // 19-21. Escape is consumed at the head of the priority chain and never leaks.
 test("19-21. Escape consumed first, never leaks into the viewer", async () => {
   const app = await readApp();
-  const trap = functionSlice(app, "trapConfirmDialogFocus");
+  const confirmDialog = await readConfirmDialog();
+  const trap = functionSlice(confirmDialog, "trapConfirmDialogFocus");
   assert.match(trap, /event\.preventDefault\(\);\s*\n\s*event\.stopPropagation\(\);\s*\n\s*closeConfirmDialog\(false\);/,
     "Escape is preventDefault + stopPropagation, then cancels");
   assert.ok(app.indexOf('document.addEventListener("keydown", trapConfirmDialogFocus);')
@@ -111,8 +117,9 @@ test("19-21. Escape consumed first, never leaks into the viewer", async () => {
 // 22-23. Focus returns to a connected trigger; a disconnected trigger falls back safely.
 test("22-23. focus restoration with safe fallbacks", async () => {
   const app = await readApp();
-  const restore = functionSlice(app, "restoreConfirmDialogFocus");
-  const target = functionSlice(app, "isConfirmFocusTarget");
+  const confirmDialog = await readConfirmDialog();
+  const restore = functionSlice(confirmDialog, "restoreConfirmDialogFocus");
+  const target = functionSlice(confirmDialog, "isConfirmFocusTarget");
   assert.match(restore, /requestAnimationFrame\(/, "restoration is deferred through rAF");
   assert.match(restore, /for \(const candidate of \[returnFocus, triggerElement\]\)/, "priority 1 returnFocus, priority 2 pre-open activeElement");
   assert.match(restore, /data-action="archive-asset"/, "priority 3 stable requery for the archive entry");
@@ -128,7 +135,8 @@ test("22-23. focus restoration with safe fallbacks", async () => {
 // 24-25. Anchored overlays close through the public manager API before the dialog opens.
 test("24-25. anchored overlays close through the public API before opening", async () => {
   const app = await readApp();
-  const request = functionSlice(app, "requestConfirmation");
+  const confirmDialog = await readConfirmDialog();
+  const request = functionSlice(confirmDialog, "requestConfirmation");
   const closeFilter = request.indexOf('closePanel(els.filterPanel, els.filterToggle, "confirm-dialog")');
   const closeSettings = request.indexOf('closePanel(els.settingsMenu, els.settingsToggle, "confirm-dialog")');
   const open = request.indexOf('els.confirmDialog.classList.add("open")');
@@ -195,16 +203,18 @@ test("32-35. restricted regenerate keeps warning semantics", async () => {
 // 36-42. confirmDetailNavigation is async, awaited everywhere, and restores on cancel.
 test("36-42. async dirty-navigation guard awaited at every call site", async () => {
   const app = await readApp();
+  const viewer = await readAssetView();
   assert.match(app, /async function confirmDetailNavigation\(nextAssetId\)/, "the guard is async");
   const guard = functionSlice(app, "confirmDetailNavigation");
   assert.match(guard, /if \(!state\.detailDirty \|\| nextAssetId === state\.selectedId\) return true;/,
     "not dirty or same asset passes without opening the dialog");
   assert.match(guard, /title: t\("discardChangesTitle"\)/, "uses the discard copy");
   assert.match(guard, /tone: "danger"/, "discard keeps danger tone");
-  assert.equal(count(app, "await confirmDetailNavigation("), 3, "selectAsset, openAssetView, selectDetailVersion all await");
+  assert.equal(count(app, "await confirmDetailNavigation("), 2, "selectAsset and selectDetailVersion await in app.js");
+  assert.equal(count(viewer, "await confirmDetailNavigation("), 1, "openAssetView awaits in asset-view.mjs");
   assert.doesNotMatch(app, /if \(!confirmDetailNavigation\(/, "no synchronous call site survives");
   assert.match(app, /async function selectAsset\(id, shouldScroll = false\)/, "selectAsset migrated to async");
-  assert.match(app, /async function openAssetView\(id, trigger\)/, "openAssetView migrated to async");
+  assert.match(viewer, /async function openAssetView\(id, trigger\)/, "openAssetView migrated to async");
   const helper = functionSlice(app, "selectDetailVersion");
   assert.match(helper, /if \(!await confirmDetailNavigation\(target\.id\)\) \{ restoreVersionPickerValue\(\); return false; \}/,
     "Cancel restores the select value and keeps the current version");
@@ -214,12 +224,13 @@ test("36-42. async dirty-navigation guard awaited at every call site", async () 
 // 43-44. Context keys and stale-result guards on every async path.
 test("43-44. contextKey guards keep stale results from acting", async () => {
   const app = await readApp();
+  const viewer = await readAssetView();
   assert.match(app, /contextKey: `\$\{state\.project\}:batch-archive`/, "batch contextKey");
   assert.match(app, /contextKey: `\$\{asset\.project_id\}:\$\{asset\.id\}:archive-asset`/, "single archive contextKey");
   assert.match(app, /contextKey: `\$\{asset\.project_id\}:\$\{asset\.id\}:restricted-regenerate`/, "restricted regenerate contextKey");
   assert.match(app, /contextKey: `\$\{state\.project\}:\$\{state\.selectedId\}:discard-version`/, "discard navigation contextKey");
   const selectAsset = functionSlice(app, "selectAsset");
-  const openView = functionSlice(app, "openAssetView");
+  const openView = functionSlice(viewer, "openAssetView");
   const helper = functionSlice(app, "selectDetailVersion");
   for (const [name, body] of [["selectAsset", selectAsset], ["openAssetView", openView], ["selectDetailVersion", helper]]) {
     assert.ok(body.indexOf("await confirmDetailNavigation") < body.indexOf("isCurrentDetailSelection"),
@@ -259,6 +270,7 @@ test("45-50. distinct copy per path with symmetric i18n", async () => {
 // 51-54. Neighbouring contracts keep their anchors.
 test("51-54. anchored overlay, viewer escape, version workflow, and return snapshot anchors intact", async () => {
   const app = await readApp();
+  const viewer = await readAssetView();
   const shortcuts = functionSlice(app, "setupKeyboardShortcuts");
   const iFilter = shortcuts.indexOf("if (!els.filterPanel?.hidden)");
   const iSettings = shortcuts.indexOf("if (!els.settingsMenu?.hidden)");
@@ -269,9 +281,9 @@ test("51-54. anchored overlay, viewer escape, version workflow, and return snaps
   assert.match(shortcuts, /if \(event\.defaultPrevented\) return;/, "modal trap consumption still respected");
   assert.match(app, /select\.addEventListener\("change", \(\) => selectDetailVersion\(select\.value\)\);/, "version picker delegation intact");
   assert.match(app, /selectDetailVersion\(button\.dataset\.versionId\);/, "timeline delegation intact");
-  const openView = functionSlice(app, "openAssetView");
+  const openView = functionSlice(viewer, "openAssetView");
   assert.match(openView, /state\.libraryReturnSnapshot = \{/, "return snapshot still built on open");
-  assert.match(app, /function returnToLibrary\(/, "return path intact");
+  assert.match(viewer, /function returnToLibrary\(/, "return path intact");
 });
 
 // 55. Toast compatibility entry kept — Phase 5C moved the behaviour to the
@@ -289,7 +301,12 @@ test("55. showToast keeps its signature and only delegates to the Toast Manager"
 test("56-57. package manifest and lockfile unchanged", async () => {
   const pkg = await readFile(resolve(root, "package.json"), "utf8");
   const lock = await readFile(resolve(root, "package-lock.json"), "utf8");
-  assert.equal(sha256(pkg), "e161974a477853703cc88724de39805fe5c65e590bd331060a17be6d087a2f24", "package.json frozen");
+  // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
+  // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
+  // the dependency sections the freeze really guards stay byte-identical.
+  const manifest = JSON.parse(pkg);
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies frozen");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies frozen");
   assert.equal(sha256(lock), "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd", "package-lock.json frozen");
 });
 

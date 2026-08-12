@@ -62,7 +62,7 @@ describe("diagnostics: app.js contains diagnostics entry", () => {
   let appSource;
 
   it("includes toggle-diagnostics data-action, fetchDiagnostics, diagnosticsPanel, and settings section", async () => {
-    appSource = await readFile(join(repositoryRoot, "app/app.js"), "utf8");
+    appSource = await readFile(join(repositoryRoot, "app", "app.mjs"), "utf8");
 
     assert.match(appSource, /data-action="toggle-diagnostics"/,
       "app.js should contain toggle-diagnostics data-action");
@@ -87,7 +87,7 @@ describe("diagnostics: event delegation pattern", () => {
   let appSource;
 
   it("handles diagnostics, theme, and density settings through menu delegation", async () => {
-    appSource = await readFile(join(repositoryRoot, "app/app.js"), "utf8");
+    appSource = await readFile(join(repositoryRoot, "app", "app.mjs"), "utf8");
 
     // toggle-diagnostics is handled via closest() inside the settingsMenu click handler
     assert.match(appSource, /closest\("\[data-action='toggle-diagnostics'\]"\)/,
@@ -103,6 +103,10 @@ describe("diagnostics: event delegation pattern", () => {
     // fetchDiagnostics is called after toggle
     assert.match(appSource, /fetchDiagnostics\(\)/,
       "fetchDiagnostics() should be invoked after expanding diagnostics");
+    assert.match(appSource, /finally \{\s*anchoredOverlayManager\.repositionOpen\(\);\s*\}/,
+      "async diagnostics content should reposition the open settings overlay");
+    assert.match(appSource, /fetchDiagnostics\(\);\s*\}\s*anchoredOverlayManager\.repositionOpen\(\);/,
+      "expanding or collapsing diagnostics should immediately reposition the settings overlay");
   });
 });
 
@@ -115,7 +119,7 @@ describe("diagnostics: DOM consistency", () => {
   it("settingsMenu exists in index.html; diagnosticsPanel is dynamically created in app.js", async () => {
     [htmlSource, appSource] = await Promise.all([
       readFile(join(repositoryRoot, "app/index.html"), "utf8"),
-      readFile(join(repositoryRoot, "app/app.js"), "utf8"),
+      readFile(join(repositoryRoot, "app", "app.mjs"), "utf8"),
     ]);
 
     // settingsMenu is a static element in index.html

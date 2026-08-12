@@ -33,7 +33,10 @@
     "predesktop:package": "npm run build",
     "desktop:package": "electron-forge package --platform darwin --arch arm64",
     "predesktop:make": "npm run build",
-    "desktop:make": "electron-forge make --platform darwin --arch arm64"
+    "desktop:make": "electron-forge make --platform darwin --arch arm64",
+    "qa:web": "node scripts/qa-launcher.mjs --type web",
+    "qa:electron": "node scripts/qa-launcher.mjs --type electron --no-build",
+    "qa:packaged": "node scripts/qa-launcher.mjs --type packaged --no-build"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.1",

@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
 import { DEFAULT_MOSA_DESKTOP_PORT, normalizeMosaPort } from "../lib/runtime-defaults.mjs";
+import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PROBE_TIMEOUT_MS = 1500;
@@ -16,11 +17,37 @@ export class MosaServiceConflictError extends Error {
 /**
  * Attaches to a verified local MOSA service or starts one that this process
  * owns. It deliberately never terminates a process that already owns a port.
+ *
+ * `options.isolationContext` carries the QA runtime parameters that
+ * desktop/main.mjs resolved once (runtimeMode, qaRun, expected/actual
+ * userData, production default, argv, runtimeKind) and forwards them to the
+ * guard and into startMosaRuntime. Propagation never falls back to
+ * process.env inside this layer.
  */
 export async function startMosaService(options = {}) {
   const host = options.host || DEFAULT_HOST;
   const port = normalizeMosaPort(options.port ?? DEFAULT_MOSA_DESKTOP_PORT, { label: "MOSA desktop port" });
   const libraryDir = resolve(options.libraryDir || join(homedir(), "MOSA Library"));
+  const isolation = options.isolationContext || {};
+
+  // ---- Runtime isolation guard: fail closed before any production write ----
+  const guard = validateRuntimeIsolation({
+    libraryDir: options.libraryDir,
+    port,
+    runtimeMode: isolation.runtimeMode ?? options.runtimeMode ?? process.env.MOSA_RUNTIME_MODE,
+    qaRun: isolation.qaRun ?? options.qaRun ?? process.env.MOSA_QA_RUN,
+    userData: isolation.expectedUserData ?? options.userData ?? process.env.MOSA_USER_DATA,
+    actualUserData: isolation.actualUserData ?? options.actualUserData,
+    argv: isolation.argv ?? options.argv ?? process.argv,
+    defaultUserData: isolation.productionDefaultUserData,
+    runtimeKind: isolation.runtimeKind,
+    productionLibraryDir: join(homedir(), "MOSA Library"),
+    productionPorts: [43517, 43519, 43637],
+  });
+  if (!guard.ok) {
+    throw new Error(`ISOLATION_GUARD_REJECTED: ${guard.field} ${guard.reason}`);
+  }
+
   const probeOptions = {
     host,
     port,
@@ -38,6 +65,9 @@ export async function startMosaService(options = {}) {
       ...(options.runtimeOptions || {}),
       port,
       libraryDir,
+      // The desktop shell's isolation context travels with the runtime so the
+      // third layer re-validates the exact same QA parameters it was given.
+      isolationContext: options.isolationContext,
       // BUG-01 fix: the desktop shell alone passes its exact import staging
       // root; server/CLI starts without it keep the default trust boundary.
       importStagingRoot: options.importStagingRoot ?? null,

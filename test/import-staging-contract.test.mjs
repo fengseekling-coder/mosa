@@ -343,7 +343,7 @@ test("staging failure propagates via IPC rejection without the raw path", async 
 });
 
 test("drag/drop pattern matches the store set and renderer failures are visible", async () => {
-  const app = await readFile(join(root, "app", "app.js"), "utf8");
+  const app = await readFile(join(root, "app", "app.mjs"), "utf8");
   const pattern = app.match(/\/\\\.\(([a-z0-9|?]+)\)\$\/i/);
   assert.ok(pattern, "drop extension pattern must exist");
   const dropSet = pattern[1]
@@ -373,7 +373,7 @@ test("drag & drop paths are staged in the main process, never handed to the rend
   const [preload, main, app] = await Promise.all([
     readFile(join(root, "desktop", "preload.cjs"), "utf8"),
     readFile(join(root, "desktop", "main.mjs"), "utf8"),
-    readFile(join(root, "app", "app.js"), "utf8"),
+    readFile(join(root, "app", "app.mjs"), "utf8"),
   ]);
 
   // preload: getPathForFile must not synchronously return the raw path; it
@@ -406,10 +406,10 @@ test("drag & drop paths are staged in the main process, never handed to the rend
   assert.doesNotMatch(electronBranch, /file\.path/, "Electron branch must never fall back to the raw File.path");
 });
 
-// ── batch 1.3: drop failure state hygiene + legacy contract sync ─────────────
+// ── batch 1.3: drop failure state hygiene ────────────────────────────────────
 
 test("drop failures clear the live region and never open an empty import modal", async () => {
-  const app = await readFile(join(root, "app", "app.js"), "utf8");
+  const app = await readFile(join(root, "app", "app.mjs"), "utf8");
   const drop = app.match(/library\.addEventListener\("drop", async \(e\) => \{[\s\S]*?\n  }\);/)[0];
 
   // staging 异常：必须清空 live region 后 toast，绝不落入打开 Modal 的路径。
@@ -428,13 +428,4 @@ test("drop failures clear the live region and never open an empty import modal",
   // 无文件：清空持久 live region，不留误导性的"已收到文件"。
   const noFilesBlock = drop.slice(drop.indexOf("if (!files || !files.length)"), drop.indexOf("const file = files[0];"));
   assert.match(noFilesBlock, /announceGalleryStatus\(""\);/, "no-files branch clears the live region");
-});
-
-test("legacy preload.mjs contract comment reflects the staged drag & drop flow", async () => {
-  const legacy = await readFile(join(root, "desktop", "preload.mjs"), "utf8");
-  assert.match(legacy, /LEGACY \/ NOT LOADED BY ELECTRON/, "legacy marker remains");
-  assert.match(legacy, /preload\.cjs/, "migration note remains");
-  assert.doesNotMatch(legacy, /getPathForFile: \(file\) => webUtils\.getPathForFile\(file\)/, "legacy comment must not claim the old synchronous contract");
-  assert.match(legacy, /getPathForFile: async \(file\) => \{/, "legacy comment tracks the async staging flow");
-  assert.match(legacy, /stage-dropped-file/, "legacy comment tracks the staging channel");
 });

@@ -4,7 +4,7 @@
  * Build-time script that generates `app/build-identity.json` containing:
  *   - productVersion  (from package.json)
  *   - gitSha          (from git, or "unknown")
- *   - uiFingerprint   (SHA-256 of index.html + styles.css + app.js content)
+ *   - uiFingerprint   (SHA-256 of index.html + styles.css + app.mjs content)
  *
  * Run as part of `npm run build` so both the web runtime and the packaged
  * desktop app carry an immutable record of what UI they were built with.
@@ -35,8 +35,8 @@ try {
 
 // --- uiFingerprint ---------------------------------------------------
 // Hash the three core UI files so any change to the visual layer produces
-// a new fingerprint.  Order matters: index.html → styles.css → app.js.
-const UI_FILES = ["index.html", "styles.css", "app.js"];
+// a new fingerprint.  Order matters: index.html → styles.css → app.mjs.
+const UI_FILES = ["index.html", "styles.css", "app.mjs"];
 const hash = createHash("sha256");
 for (const name of UI_FILES) {
   const content = readFileSync(join(appDir, name));

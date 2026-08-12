@@ -165,7 +165,7 @@ test("busy/loading contract is visual-only and keeps button width stable", async
   assert.ok(section.indexOf('[aria-busy="true"] {') > section.indexOf("cursor: not-allowed"),
     "the busy rule must come after the disabled rule to keep the wait cursor during busy saves");
   // aria-busy already has a live consumer in the save flow.
-  const app = await readFile(resolve(root, "app/app.js"), "utf8");
+  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
   assert.match(app, /aria-busy/, "app.js must keep driving aria-busy for the busy contract");
 });
 
@@ -257,15 +257,26 @@ test("out-of-scope files stay locked and the Phase 1C card contract is stable", 
   // app/i18n.mjs is intentionally extended by Phase 3A (four view-mode keys, zh+en):
   // parity is guarded by card-action-contract #18 and the new keys are locked by
   // test/large-view-mode-contract.test.mjs instead of a hash lock.
+  // R1 isolation fix (2026-08-09, approved scope) deliberately changed
+  // server.mjs (ERR_ISOLATION_GUARD fail-closed handler) and package.json
+  // (qa:web/qa:electron/qa:packaged launcher scripts), so those two files
+  // leave the hash table; their security-relevant behaviour is asserted
+  // structurally below. The lockfile stays hash-pinned.
   const expected = {
-    "server.mjs": "9fac240976af00ddc6979958aabb225d33f432db2cbca60c420a8b72453ba29b",
-    "package.json": "e161974a477853703cc88724de39805fe5c65e590bd331060a17be6d087a2f24",
     "package-lock.json": "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd",
   };
   for (const [file, hash] of Object.entries(expected)) {
     const text = await readFile(resolve(root, file), "utf8");
     assert.equal(sha256(text), hash, `${file} must stay untouched`);
   }
+  // server.mjs must still fail closed when the isolation guard rejects a run.
+  const server = await readFile(resolve(root, "server.mjs"), "utf8");
+  assert.match(server, /ERR_ISOLATION_GUARD/, "server.mjs must fail closed on isolation guard rejection");
+  assert.match(server, /process\.exit\(1\)/, "server.mjs must exit non-zero on isolation guard rejection");
+  // package.json dependency sections stay frozen.
+  const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must stay untouched");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies must stay untouched");
   // The Phase 1C/1C.1 card quick-action contract rules are locked verbatim against drift.
   // Phase 1C.1 re-locks: child-button disclosure granularity, 28px click area (Phase 1B
   // compatible IconButton floor), and the batch-disabled suppression variants.

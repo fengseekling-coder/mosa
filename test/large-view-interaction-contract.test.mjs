@@ -13,7 +13,8 @@ import test from "node:test";
 const root = resolve(import.meta.dirname, "..");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
 const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
-const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readAssetView = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
 const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
@@ -151,8 +152,8 @@ test("6. no previous/next controls in the zoom control bar", async () => {
   const html = await readHtml();
   const controls = stripHtmlComments(sliceBetween(assetViewSlice(html), 'class="asset-view-controls"', "</div>"));
   assert.doesNotMatch(controls, /上一张|下一张|prev-asset|next-asset|asset-prev|asset-next|assetViewPrev|assetViewNext/i, "no prev/next markup inside the zoom control bar");
-  const app = await readApp();
-  assert.doesNotMatch(stripJsComments(functionBody(app, "renderAssetView")), /navigateAssetView|prevAsset|nextAsset|previousAsset/i, "renderAssetView implements no prev/next navigation itself");
+  const viewer = await readAssetView();
+  assert.doesNotMatch(stripJsComments(functionBody(viewer, "renderAssetView")), /navigateAssetView|prevAsset|nextAsset|previousAsset/i, "renderAssetView implements no prev/next navigation itself");
 });
 
 // 7. No thumbnail strip in the asset view or its control bar.
@@ -169,127 +170,128 @@ test("8. no related-assets region", async () => {
 
 // 9. scale = 1 means exactly 100% of the natural size.
 test("9. scale 1 renders as 100 percent", async () => {
-  const app = await readApp();
-  assert.match(functionBody(app, "updateAssetViewControls"), /Math\.round\(assetViewTransform\.scale \* 100\)/,
+  const viewer = await readAssetView();
+  assert.match(functionBody(viewer, "updateAssetViewControls"), /Math\.round\(assetViewTransform\.scale \* 100\)/,
     "percentage derives from scale against the natural size");
-  assert.match(functionBody(app, "resetAssetViewToHundred"), /assetViewTransform\.scale = 1/, "100% view sets scale = 1");
+  assert.match(functionBody(viewer, "resetAssetViewToHundred"), /assetViewTransform\.scale = 1/, "100% view sets scale = 1");
 });
 
 // 10. A centralised fit-scale helper exists.
 test("10. centralised fitScale helper", async () => {
-  const app = await readApp();
-  assert.match(functionBody(app, "computeAssetFitScale"), /Math\.min\(stageWidth \/ naturalWidth, stageHeight \/ naturalHeight, 1\)/,
+  const viewer = await readAssetView();
+  assert.match(functionBody(viewer, "computeAssetFitScale"), /Math\.min\(stageWidth \/ naturalWidth, stageHeight \/ naturalHeight, 1\)/,
     "fitScale = min(stageW/naturalW, stageH/naturalH, 1)");
 });
 
 // 11. Fit never upscales small images beyond 100% by default.
 test("11. fit does not upscale small images", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "computeAssetFitScale");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "computeAssetFitScale");
   assert.match(body, /, 1\)/, "fitScale is capped at 1 (no upscaling of small images)");
   assert.match(body, /if \(!\(stageWidth > 0\)/, "degenerate inputs fall back safely");
 });
 
 // 12. A centralised pointer-centred zoom helper exists.
 test("12. centralised zoomAtPoint helper", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "zoomAssetViewAtPoint");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "zoomAssetViewAtPoint");
   assert.match(body, /anchorX = \(pointerX - currentOffsetX\) \/ scale/, "image-space anchor derives from pointer and current offset");
   assert.match(body, /offsetX: pointerX - anchorX \* targetScale/, "offset keeps the anchored image point under the pointer");
 });
 
 // 13. The pointer-centred formula is not scattered across handlers.
 test("13. pointer-centred formula not duplicated", async () => {
-  const app = await readApp();
-  assert.equal(app.match(/pointerX - currentOffsetX/g).length, 1, "anchor formula appears exactly once");
-  const wheel = functionBody(app, "handleAssetViewWheel");
+  const viewer = await readAssetView();
+  assert.equal(viewer.match(/pointerX - currentOffsetX/g).length, 1, "anchor formula appears exactly once");
+  const wheel = functionBody(viewer, "handleAssetViewWheel");
   assert.doesNotMatch(wheel, /anchorX|currentOffsetX/, "wheel handler reuses the helper instead of copying the formula");
   assert.match(wheel, /zoomAssetViewBy\(factor, pointer\.x, pointer\.y\)/, "wheel zoom routes through the shared zoom path");
 });
 
 // 14. A centralised clampOffsets helper exists.
 test("14. centralised clampOffsets helper", async () => {
-  const app = await readApp();
-  assert.match(functionBody(app, "clampAssetViewAxisOffset"), /\(renderedSize - stageSize\) \/ 2/, "pan limit = (rendered - stage) / 2");
-  assert.match(functionBody(app, "clampAssetViewOffsets"), /clampAssetViewAxisOffset\(/, "clampOffsets composes the axis helper");
+  const viewer = await readAssetView();
+  assert.match(functionBody(viewer, "clampAssetViewAxisOffset"), /\(renderedSize - stageSize\) \/ 2/, "pan limit = (rendered - stage) / 2");
+  assert.match(functionBody(viewer, "clampAssetViewOffsets"), /clampAssetViewAxisOffset\(/, "clampOffsets composes the axis helper");
 });
 
 // 15. X and Y axes clamp independently.
 test("15. per-axis clamping", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "clampAssetViewOffsets");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "clampAssetViewOffsets");
   assert.match(body, /offsetX: clampAssetViewAxisOffset\(offsetX, natural\.width \* scale, stage\.width\)/, "X clamps against rendered width");
   assert.match(body, /offsetY: clampAssetViewAxisOffset\(offsetY, natural\.height \* scale, stage\.height\)/, "Y clamps against rendered height");
-  assert.match(functionBody(app, "clampAssetViewAxisOffset"), /if \(!\(renderedSize > stageSize\)\) return 0;/, "axis collapses to 0 when the image fits");
+  assert.match(functionBody(viewer, "clampAssetViewAxisOffset"), /if \(!\(renderedSize > stageSize\)\) return 0;/, "axis collapses to 0 when the image fits");
 });
 
 // 16. Maximum zoom is 800%.
 test("16. max zoom is 800 percent", async () => {
-  const app = await readApp();
-  assert.match(app, /const ASSET_VIEW_MAX_SCALE = 8;/, "max scale constant = 8 (800%)");
-  assert.match(functionBody(app, "clampAssetViewScale"), /Math\.min\(ASSET_VIEW_MAX_SCALE, /, "scale clamped to the max");
+  const viewer = await readAssetView();
+  assert.match(viewer, /const ASSET_VIEW_MAX_SCALE = 8;/, "max scale constant = 8 (800%)");
+  assert.match(functionBody(viewer, "clampAssetViewScale"), /Math\.min\(ASSET_VIEW_MAX_SCALE, /, "scale clamped to the max");
 });
 
 // 17. Minimum zoom still fits images whose fitScale is below 10%.
 test("17. min zoom honours tiny fitScale", async () => {
-  const app = await readApp();
-  assert.match(app, /const ASSET_VIEW_MIN_SCALE_FLOOR = 0\.1;/, "min-scale floor = 10%");
-  assert.match(functionBody(app, "assetViewMinScale"), /Math\.min\(currentAssetFitScale\(\), ASSET_VIEW_MIN_SCALE_FLOOR\)/,
+  const viewer = await readAssetView();
+  assert.match(viewer, /const ASSET_VIEW_MIN_SCALE_FLOOR = 0\.1;/, "min-scale floor = 10%");
+  assert.match(functionBody(viewer, "assetViewMinScale"), /Math\.min\(currentAssetFitScale\(\), ASSET_VIEW_MIN_SCALE_FLOOR\)/,
     "min scale = min(fitScale, 0.1) so huge images can always fit");
 });
 
 // 18. Button/keyboard zoom uses a stable multiplicative step.
 test("18. stable multiplicative step", async () => {
   const app = await readApp();
-  assert.match(app, /const ASSET_VIEW_ZOOM_STEP = 1\.2;/, "zoom step = 1.2");
+  const viewer = await readAssetView();
+  assert.match(viewer, /const ASSET_VIEW_ZOOM_STEP = 1\.2;/, "zoom step = 1.2");
   assert.match(app, /els\.assetZoomIn\?\.addEventListener\("click", \(\) => zoomAssetViewBy\(ASSET_VIEW_ZOOM_STEP, 0, 0, \{ announce: true \}\)\)/, "zoom-in multiplies by the step and announces");
   assert.match(app, /els\.assetZoomOut\?\.addEventListener\("click", \(\) => zoomAssetViewBy\(1 \/ ASSET_VIEW_ZOOM_STEP, 0, 0, \{ announce: true \}\)\)/, "zoom-out divides by the step and announces");
 });
 
 // 19. Wheel is bound to the asset stage only (not document/window).
 test("19. wheel bound to asset stage only", async () => {
-  const app = await readApp();
-  assert.equal(app.match(/addEventListener\("wheel", handleAssetViewWheel/g).length, 1, "single asset-view wheel binding");
-  const setup = functionBody(app, "setupAssetViewInteraction");
+  const viewer = await readAssetView();
+  assert.equal(viewer.match(/addEventListener\("wheel", handleAssetViewWheel/g).length, 1, "single asset-view wheel binding");
+  const setup = functionBody(viewer, "setupAssetViewInteraction");
   assert.match(setup, /stage\.addEventListener\("wheel", handleAssetViewWheel/, "wheel binds to the stage element");
   assert.doesNotMatch(setup, /document\.addEventListener\("wheel"|window\.addEventListener\("wheel"/, "no global wheel interception");
 });
 
 // 20. The wheel listener is registered with passive:false so it can preventDefault.
 test("20. wheel uses passive false", async () => {
-  const app = await readApp();
-  assert.match(functionBody(app, "setupAssetViewInteraction"), /stage\.addEventListener\("wheel", handleAssetViewWheel, \{ passive: false \}\)/,
+  const viewer = await readAssetView();
+  assert.match(functionBody(viewer, "setupAssetViewInteraction"), /stage\.addEventListener\("wheel", handleAssetViewWheel, \{ passive: false \}\)/,
     "wheel listener must be non-passive");
 });
 
 // 21. Library mode never intercepts wheel events.
 test("21. library mode does not intercept wheel", async () => {
-  const app = await readApp();
-  const wheel = stripJsComments(functionBody(app, "handleAssetViewWheel"));
+  const viewer = await readAssetView();
+  const wheel = stripJsComments(functionBody(viewer, "handleAssetViewWheel"));
   assert.ok(wheel.indexOf('state.viewMode !== "asset"') > -1, "library mode bails out");
   assert.ok(wheel.indexOf('state.viewMode !== "asset"') < wheel.indexOf("preventDefault"), "bail happens before preventDefault");
-  assert.match(functionBody(app, "teardownAssetViewInteraction"), /stage\.removeEventListener\("wheel", handleAssetViewWheel\)/,
+  assert.match(functionBody(viewer, "teardownAssetViewInteraction"), /stage\.removeEventListener\("wheel", handleAssetViewWheel\)/,
     "returning to the library removes the wheel listener");
 });
 
 // 22. Pointer capture drives the drag session.
 test("22. pointer capture exists", async () => {
-  const app = await readApp();
-  assert.match(functionBody(app, "handleAssetViewPointerDown"), /els\.assetViewStage\.setPointerCapture\(event\.pointerId\)/, "drag captures the pointer");
+  const viewer = await readAssetView();
+  assert.match(functionBody(viewer, "handleAssetViewPointerDown"), /els\.assetViewStage\.setPointerCapture\(event\.pointerId\)/, "drag captures the pointer");
 });
 
 // 23. pointercancel is handled and releases capture.
 test("23. pointercancel handled", async () => {
-  const app = await readApp();
-  assert.match(functionBody(app, "setupAssetViewInteraction"), /stage\.addEventListener\("pointercancel", handleAssetViewPointerEnd\)/, "pointercancel is wired");
-  assert.match(functionBody(app, "handleAssetViewPointerEnd"), /releasePointerCapture\(event\.pointerId\)/, "capture is released on end/cancel");
-  assert.match(functionBody(app, "handleAssetViewPointerEnd"), /cancelAssetViewPan\(\)/, "pan session is cleaned up");
+  const viewer = await readAssetView();
+  assert.match(functionBody(viewer, "setupAssetViewInteraction"), /stage\.addEventListener\("pointercancel", handleAssetViewPointerEnd\)/, "pointercancel is wired");
+  assert.match(functionBody(viewer, "handleAssetViewPointerEnd"), /releasePointerCapture\(event\.pointerId\)/, "capture is released on end/cancel");
+  assert.match(functionBody(viewer, "handleAssetViewPointerEnd"), /cancelAssetViewPan\(\)/, "pan session is cleaned up");
 });
 
 // 24. Fit clears both offsets and returns to fit mode.
 test("24. fit clears offsets", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "fitAssetView");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "fitAssetView");
   assert.match(body, /assetViewTransform\.mode = "fit";/, "fit restores fit mode");
   assert.match(body, /const scale = currentAssetFitScale\(\);/, "fit recomputes fitScale");
   assert.match(body, /assetViewTransform\.offsetX = 0;/, "fit clears offsetX");
@@ -298,8 +300,8 @@ test("24. fit clears offsets", async () => {
 
 // 25. The 100% view pins scale to exactly 1 (custom mode, centre-anchored).
 test("25. hundred-percent view uses scale 1", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "resetAssetViewToHundred");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "resetAssetViewToHundred");
   assert.match(body, /zoomAssetViewAtPoint\(1, 0, 0, /, "100% anchors at the stage centre");
   assert.match(body, /assetViewTransform\.mode = "custom";/, "100% is a custom mode");
   assert.match(body, /assetViewTransform\.scale = 1;/, "100% sets scale = 1");
@@ -334,7 +336,8 @@ test("29. F shortcut fits to window", async () => {
 test("30. inputs are not intercepted", async () => {
   const app = await readApp();
   const chain = functionBody(app, "setupKeyboardShortcuts");
-  assert.match(chain, /if \(event\.target\.matches\("input, textarea, select"\)\) return;/, "native inputs bail at the chain head");
+  assert.match(chain, /if \(event\.target\.matches\?\.\("input, textarea, select"\)\)/, "native inputs bail at the chain head without assuming an Element target");
+  assert.doesNotMatch(chain, /event\.target\.matches\(/, "Document and other non-Element event targets stay safe");
   assert.match(viewerKeySlice(app), /!event\.target\.closest\?\.\("\[contenteditable\]"\)/, "contenteditable is excluded too");
 });
 
@@ -357,8 +360,8 @@ test("32. arrow keys route only through navigateAssetView", async () => {
 
 // 33. ResizeObserver watches the stage only.
 test("33. ResizeObserver observes stage only", async () => {
-  const app = await readApp();
-  const setup = functionBody(app, "setupAssetViewInteraction");
+  const viewer = await readAssetView();
+  const setup = functionBody(viewer, "setupAssetViewInteraction");
   assert.match(setup, /assetViewStageObserver = new ResizeObserver\(handleAssetViewStageResize\)/, "observer drives the stage resize handler");
   assert.match(setup, /assetViewStageObserver\.observe\(stage\)/, "only the stage is observed");
   assert.doesNotMatch(setup, /observe\(document/, "the document is never observed");
@@ -366,31 +369,32 @@ test("33. ResizeObserver observes stage only", async () => {
 
 // 34. The observer is disconnected on teardown (no leaks, no duplicates).
 test("34. observer cleaned up", async () => {
-  const app = await readApp();
-  const teardown = functionBody(app, "teardownAssetViewInteraction");
+  const viewer = await readAssetView();
+  const teardown = functionBody(viewer, "teardownAssetViewInteraction");
   assert.match(teardown, /assetViewStageObserver\?\.disconnect\(\)/, "observer disconnects");
   assert.match(teardown, /assetViewStageObserver = null;/, "observer reference is dropped");
-  assert.match(functionBody(app, "setupAssetViewInteraction"), /if \(assetViewInteractionActive \|\| !stage\) return;/, "setup is idempotent");
+  assert.match(functionBody(viewer, "setupAssetViewInteraction"), /if \(assetViewInteractionActive \|\| !stage\) return;/, "setup is idempotent");
 });
 
 // 35. Switching assets resets to fit; re-rendering the same asset keeps the transform.
 test("35. asset switch resets to fit", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "renderAssetView");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "renderAssetView");
   assert.match(body, /if \(asset\.id !== assetViewStageAssetId\) \{/, "reset only happens on a real asset switch");
   assert.match(body, /resetAssetViewTransform\(\)/, "switch resets the transform");
-  assert.match(functionBody(app, "resetAssetViewTransform"), /assetViewTransform\.mode = "fit";/, "reset restores fit semantics");
+  assert.match(functionBody(viewer, "resetAssetViewTransform"), /assetViewTransform\.mode = "fit";/, "reset restores fit semantics");
 });
 
 // 36. Image errors disable the controls without NaN or console noise. Phase 3C moved
 //     the handler to the race-guarded named handleAssetViewImageError; assertions follow.
 test("36. image error disables controls", async () => {
   const app = await readApp();
+  const viewer = await readAssetView();
   assert.match(app, /els\.assetViewImage\?\.addEventListener\("error", handleAssetViewImageError\)/, "error listener routes to the guarded named handler");
-  const errorBody = functionBody(app, "handleAssetViewImageError");
+  const errorBody = functionBody(viewer, "handleAssetViewImageError");
   assert.match(errorBody, /cancelAssetViewPan\(\)/, "error aborts any pan session");
   assert.match(errorBody, /updateAssetViewControls\(\)/, "error refreshes the controls");
-  const controls = functionBody(app, "updateAssetViewControls");
+  const controls = functionBody(viewer, "updateAssetViewControls");
   assert.match(controls, /ready \? `\$\{Math\.round\(assetViewTransform\.scale \* 100\)\}%` : "—"/, "not-ready state never shows NaN");
   assert.match(controls, /setAssetViewControlDisabled\(els\.assetZoomIn, !ready/, "controls disable when not ready");
 });
@@ -430,8 +434,8 @@ test("40. i18n key symmetry", async () => {
 
 // 41. The Phase 3A return-snapshot contract keeps its exact four fields.
 test("41. phase 3A return snapshot intact", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "openAssetView");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "openAssetView");
   assert.match(body, /scrollTop: getLibraryScrollContainer\(\)\.scrollTop/, "scrollTop snapshot kept");
   assert.match(body, /focusedAssetId:/, "focusedAssetId kept");
   assert.match(body, /selectedAssetId:/, "selectedAssetId kept");
@@ -442,13 +446,14 @@ test("41. phase 3A return snapshot intact", async () => {
 // 42. The Phase 3A Escape priority chain is unchanged.
 test("42. phase 3A escape priority intact", async () => {
   const app = await readApp();
+  const viewer = await readAssetView();
   const chain = functionBody(app, "setupKeyboardShortcuts");
   assert.match(chain, /if \(event\.defaultPrevented\) return;/, "defaultPrevented guard kept");
   const filterIdx = chain.indexOf("closePanel(els.filterPanel, els.filterToggle)");
   const assetIdx = chain.indexOf('if (state.viewMode === "asset") { returnToLibrary();');
   const detailIdx = chain.indexOf('if (state.detailOpen) { setDetailOpen(false);');
   assert.ok(filterIdx > -1 && assetIdx > filterIdx && detailIdx > assetIdx, "overlay -> asset view -> detail ordering preserved");
-  assert.match(functionBody(app, "returnToLibrary"), /getLibraryScrollContainer\(\)\.scrollTop = snapshot\.scrollTop/, "scroll restoration still uses the shared helper");
+  assert.match(functionBody(viewer, "returnToLibrary"), /getLibraryScrollContainer\(\)\.scrollTop = snapshot\.scrollTop/, "scroll restoration still uses the shared helper");
 });
 
 // 43. Phase 1/2 and Phase 3A contract suites remain in place and runnable.
@@ -485,9 +490,14 @@ test("45. no undefined tokens", async () => {
 test("46. package manifest and lockfile unchanged", async () => {
   const pkg = await readFile(resolve(root, "package.json"), "utf8");
   const lock = await readFile(resolve(root, "package-lock.json"), "utf8");
-  assert.equal(sha256(pkg), "e161974a477853703cc88724de39805fe5c65e590bd331060a17be6d087a2f24", "package.json must not change in Phase 3B");
+  // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
+  // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
+  // the dependency sections the freeze really guards stay byte-identical.
+  const manifest = JSON.parse(pkg);
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must not change in Phase 3B");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies must not change in Phase 3B");
   assert.equal(sha256(lock), "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd", "package-lock.json must not change in Phase 3B");
   const app = await readApp();
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./bridge-status-poller.js", "./i18n.mjs"], "app.js gains no new imports");
+    ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./overlay-manager.mjs", "./toast-manager.mjs"], "app.js gains no new imports");
 });

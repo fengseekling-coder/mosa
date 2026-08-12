@@ -56,7 +56,7 @@ The repository contains application code only. MOSA keeps each user's library, g
 
 ## macOS Desktop
 
-The Electron desktop shell uses `~/MOSA Library` and port `43519` by default:
+The Electron desktop shell uses `~/MOSA Library` and port `43517` by default:
 
 ```bash
 npm ci
@@ -215,7 +215,7 @@ For new child versions, pass the image tool's real `imagePath` to `asset_version
 | `MOSA_PROJECT_DIR` | Parent of the MOSA checkout | Workspace context for the service |
 | `MOSA_PROJECT_ID` | `default` | Project selected by the `scripts/migrate-codex-hardlinks.mjs` maintenance pass |
 | `MOSA_PORT` | `43517` | Local HTTP port |
-| `MOSA_DESKTOP_PORT` | `43519` | Local HTTP port used by the macOS desktop shell |
+| `MOSA_DESKTOP_PORT` | `43517` | Optional local HTTP port override for the macOS desktop shell |
 | `MOSA_LIBRARY_DIR` | `~/MOSA Library` | Runtime SQLite library after migration |
 | `CODEX_GENERATED_IMAGES_DIR` | `~/.codex/generated_images` | Allowed Codex image source root |
 | `CODEX_SESSIONS_DIR` | `~/.codex/sessions` | Local Codex session records used for Prompt provenance |

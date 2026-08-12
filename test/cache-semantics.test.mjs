@@ -49,8 +49,8 @@ test("static resource cache semantics: no-cache for UI files and immutable for l
     assert.ok(cc?.includes("must-revalidate"), `CSS should have must-revalidate, got: ${cc}`);
   });
 
-  await t.test("GET /app.js returns same no-cache policy", async () => {
-    const res = await fetch(`${runtime.url}/app.js`);
+  await t.test("GET /app.mjs returns same no-cache policy", async () => {
+    const res = await fetch(`${runtime.url}/app.mjs`);
     assert.equal(res.status, 200);
     const cc = res.headers.get("cache-control");
     assert.ok(cc?.includes("no-cache"), `JS should have no-cache, got: ${cc}`);

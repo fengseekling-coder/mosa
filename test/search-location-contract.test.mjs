@@ -14,7 +14,8 @@ import test from "node:test";
 const root = resolve(import.meta.dirname, "..");
 const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
-const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readApiClient = () => readFile(resolve(root, "app/api-client.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
 /** Extracts a `{...}` block starting at the marker, honouring nested braces. */
@@ -146,17 +147,17 @@ test("10. the search state field is unchanged", async () => {
 //     i18n keys, so the byte-level hash lock is migrated to precise code-segment locks on
 //     the unchanged pipeline (approved minimal migration; test file itself is not extended).
 test("11. search algorithm, API and i18n behaviour stay locked", async () => {
-  const app = await readApp();
+  const [app, apiClient] = await Promise.all([readApp(), readApiClient()]);
   // Debounce and reload semantics stay wired the same way: same 180ms debounce, same
   // query → nextCursor reset → renderActiveFilters → loadAssets order (Phase 3A hook aside).
   assert.match(app, /debounce\(async \(\) => \{ state\.query = els\.searchInput\.value; state\.nextCursor = null;\s+\/\/ Phase 3A[^\n]*\n\s+if \(state\.viewMode === "asset"\) returnToLibrary\(\);\s+renderActiveFilters\(\); await loadAssets\(\); \}, 180\)/,
     "the 180ms debounced query → loadAssets pipeline must stay unchanged apart from the Phase 3A exit hook");
   // The request construction is untouched: same URL params, same paging contract.
-  assert.match(app, /const params = new URLSearchParams\(\{ project: request\.project, q: request\.query \}\);/,
+  assert.match(apiClient, /const params = new URLSearchParams\(\{ project: request\.project, q: request\.query \}\)/,
     "the /api/assets query construction must stay unchanged");
-  assert.match(app, /params\.set\("limit", "100"\)/, "the page-size contract must stay unchanged");
+  assert.match(apiClient, /params\.set\("limit", "100"\)/, "the page-size contract must stay unchanged");
   // The request identity helpers stay unchanged (the Phase 3A snapshot/restore logic keys off them).
-  assert.match(app, /function currentAssetRequest\(\) \{\s+return \{ project: state\.project, query: state\.query, scope: state\.scope, facets: \{ \.\.\.state\.facets \}, sort: state\.sort \};/,
+  assert.match(apiClient, /function currentAssetRequest\(\) \{\s+return \{ project: state\.project, query: state\.query, scope: state\.scope, facets: \{ \.\.\.state\.facets \}, sort: state\.sort \};/,
     "currentAssetRequest must stay unchanged");
   const i18n = await readFile(resolve(root, "app/i18n.mjs"), "utf8");
   // The search copy is unchanged in both locales (Phase 3A only appended new view-mode keys).
@@ -218,7 +219,12 @@ test("16. no duplicate or hidden synced search control exists", async () => {
 // 17. No new dependencies were introduced.
 test("17. no new dependencies", async () => {
   const pkg = await readFile(resolve(root, "package.json"), "utf8");
-  assert.equal(sha256(pkg), "e161974a477853703cc88724de39805fe5c65e590bd331060a17be6d087a2f24", "package.json must stay untouched");
+  // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
+  // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
+  // the dependency sections the freeze really guards stay byte-identical.
+  const manifest = JSON.parse(pkg);
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must stay untouched");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies must stay untouched");
   const lock = await readFile(resolve(root, "package-lock.json"), "utf8");
   assert.equal(sha256(lock), "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd", "package-lock.json must stay untouched");
 });

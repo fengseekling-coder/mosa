@@ -6,10 +6,11 @@ import test from "node:test";
 const root = resolve(import.meta.dirname, "..");
 
 test("keeps the import flow keyboard-accessible", async () => {
-  const [html, app, css] = await Promise.all([
+  const [html, app, css, preview] = await Promise.all([
     readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/app.js"), "utf8"),
+    readFile(resolve(root, "app/app.mjs"), "utf8"),
     readFile(resolve(root, "app/styles.css"), "utf8"),
+    readFile(resolve(root, "app/image-preview.mjs"), "utf8"),
   ]);
 
   assert.match(html, /role="dialog" aria-modal="true" aria-labelledby="importModalTitle"/);
@@ -32,7 +33,10 @@ test("keeps the import flow keyboard-accessible", async () => {
   assert.match(app, /function fitImagePreview\(\)/);
   assert.match(app, /Math\.min\(availableWidth \/ image\.naturalWidth, availableHeight \/ image\.naturalHeight\)/);
   assert.match(app, /imagePreviewStage\?\.addEventListener\("click", \(event\) => \{/);
-  assert.match(app, /if \(imagePreviewSuppressStageClick\) \{ imagePreviewSuppressStageClick = false; return; \}/);
+  assert.match(app, /if \(consumeImagePreviewSuppressedClick\(\)\) return;/);
+  assert.doesNotMatch(app, /imagePreviewSuppressStageClick|clampImagePreviewOffsets|applyImageTransform/);
+  assert.match(preview, /function consumeImagePreviewSuppressedClick\(\)/);
+  assert.match(preview, /function reconcileImagePreviewTransform\(\)/);
   assert.match(app, /if \(event\.target === els\.imagePreviewStage\) closeImagePreview\(\);/);
   assert.match(app, /function trapImagePreviewFocus\(event\)/);
   assert.match(app, /dblclick/);
@@ -44,17 +48,20 @@ test("keeps the import flow keyboard-accessible", async () => {
 });
 
 test("keeps the gallery source-aware and the inspector optional", async () => {
-  const [html, app] = await Promise.all([
+  const [html, app, config, inspector] = await Promise.all([
     readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/app.js"), "utf8"),
+    readFile(resolve(root, "app/app.mjs"), "utf8"),
+    readFile(resolve(root, "app/config.mjs"), "utf8"),
+    readFile(resolve(root, "app/inspector-markup.mjs"), "utf8"),
   ]);
 
   assert.match(html, /id="filterPanel"/);
   assert.match(html, /class="toolbar-filter" id="filterToggle"/);
   // Source filtering now runs through the shared facet map instead of a chain of
   // literal params.set calls, but the same three source values stay reachable.
-  assert.match(app, /const SOURCE_FACETS = \{[^}]*cowart: "cowart-generated"/);
-  assert.match(app, /const SOURCE_FACETS = \{[^}]*grok: "grok-generated"/);
+  // SOURCE_FACETS moved to app/config.mjs (R1 batch 2).
+  assert.match(config, /export const SOURCE_FACETS = \{[^}]*cowart: "cowart-generated"/);
+  assert.match(config, /export const SOURCE_FACETS = \{[^}]*grok: "grok-generated"/);
   assert.match(app, /function setDetailOpen\(open\)/);
   assert.match(app, /state\.detailOpen = Boolean\(open\)/);
   assert.match(app, /function updateSelectedCard\(\)/);
@@ -64,12 +71,12 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
   assert.match(app, /const anchoredOverlayManager = createAnchoredOverlayManager\(\)/);
   assert.match(app, /\["cowart", t\("filterCowart"\)/);
   assert.match(app, /\["grok", t\("filterGrok"\)/);
-  assert.match(app, /function isVideoAsset\(/);
-  assert.match(app, /function assetMediaPreviewMarkup\(/);
+  assert.match(inspector, /function isVideoAsset\(/);
+  assert.match(inspector, /function assetMediaPreviewMarkup\(/);
   const i18n = await readFile(resolve(root, "app/i18n.mjs"), "utf8");
   assert.match(i18n, /userInstruction: "用户指令"/);
   assert.match(i18n, /chatgptPromptUnavailable: "ChatGPT 未暴露原始生图提示词"/);
-  assert.match(app, /const userInstructionMarkup = userInstruction/);
+  assert.match(inspector, /const userInstructionMarkup = userInstruction/);
   // Global bridge health ignores Grok-only failures while still exposing Grok metadata.
   assert.match(app, /const hasError = codex\?\.lastError \|\| cowart\?\.lastError;/);
   assert.doesNotMatch(app, /const hasError = codex\?\.lastError \|\| grok\?\.lastError \|\| cowart\?\.lastError;/);
@@ -79,19 +86,22 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
 });
 
 test("keeps background library refreshes from replacing active edits", async () => {
-  const app = await readFile(resolve(root, "app/app.js"), "utf8");
+  const [app, apiClient] = await Promise.all([
+    readFile(resolve(root, "app/app.mjs"), "utf8"),
+    readFile(resolve(root, "app/api-client.mjs"), "utf8"),
+  ]);
 
   assert.match(app, /detailDirty: false/);
-  assert.match(app, /requestId !== assetRequestSequence/);
-  assert.match(app, /!options\.background \|\| assetsChanged/);
-  assert.match(app, /selectedChanged && !isDetailEditorActive\(\)/);
-  assert.match(app, /state\.loadedPageCount > 1 \? Promise\.resolve\(true\) : loadAssets\(\{ background: true \}\)/);
+  assert.match(apiClient, /requestId !== assetRequestSequence/);
+  assert.match(apiClient, /!options\.background \|\| assetsChanged/);
+  assert.match(apiClient, /selectedChanged && !isDetailEditorActive\(\)/);
+  assert.match(apiClient, /state\.loadedPageCount > 1 \? Promise\.resolve\(true\) : loadAssets\(\{ background: true \}\)/);
   assert.match(app, /field\.addEventListener\("input", \(\) => \{ state\.detailDirty = true; \}\)/);
 });
 
 test("keeps the Cowart reuse path wired through the local runtime", async () => {
   const [app, runtime, assetRoutes] = await Promise.all([
-    readFile(resolve(root, "app/app.js"), "utf8"),
+    readFile(resolve(root, "app/app.mjs"), "utf8"),
     readFile(resolve(root, "lib/mosa-runtime.mjs"), "utf8"),
     readFile(resolve(root, "lib/api/asset-routes.mjs"), "utf8"),
   ]);
@@ -106,10 +116,12 @@ test("keeps the Cowart reuse path wired through the local runtime", async () => 
 });
 
 test("uses a single language chosen from system, Chinese, or English", async () => {
-  const [html, app, i18n] = await Promise.all([
+  const [html, app, i18n, i18nRuntime, apiClient] = await Promise.all([
     readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/app.js"), "utf8"),
+    readFile(resolve(root, "app/app.mjs"), "utf8"),
     readFile(resolve(root, "app/i18n.mjs"), "utf8"),
+    readFile(resolve(root, "app/i18n-runtime.mjs"), "utf8"),
+    readFile(resolve(root, "app/api-client.mjs"), "utf8"),
   ]);
 
   // Language menu buttons are dynamically generated in renderSettingsMenu()
@@ -118,38 +130,40 @@ test("uses a single language chosen from system, Chinese, or English", async () 
   assert.match(app, /"system"[\s\S]*?"zh"[\s\S]*?"en"/);
   assert.match(app, /data-locale="\$\{value\}"/);
   assert.match(app, /safeStorageGet\("mosa\.ui-language"\)/);
-  assert.match(app, /function resolveLocale\(value\)/);
-  assert.match(app, /function applyLanguage\(\)/);
+  assert.match(i18nRuntime, /export function resolveLocale\(value\)/);
+  assert.match(i18nRuntime, /return function applyLanguage\(\)/);
+  assert.match(app, /const applyLanguage = createLanguageApplier\(/);
   assert.match(app, /data-project-select/);
   assert.match(app, /data-open-library/);
   assert.match(app, /data-language-menu/);
   // Phase 5A / F-14：独立 positionLanguageMenu 公式已移除；语言子菜单作为 Settings 的 child
   // 浮层经共享 manager 定位（向右优先、空间不足向左翻转）。
   assert.match(app, /id: "language", kind: "child", parentId: "settings", placement: "right-start"/);
-  assert.match(app, /document\.documentElement\.lang/);
+  assert.match(i18nRuntime, /document\.documentElement\.lang/);
   assert.match(i18n, /自动发现的 Cowart 画布/);
   assert.match(app, /function cowartCanvasListSignature\(canvases\)/);
   assert.doesNotMatch(app, /data-cowart-canvas-form/);
   assert.doesNotMatch(app, /data-remove-cowart-canvas/);
-  assert.match(app, /\/api\/cowart-canvases/);
+  assert.match(apiClient, /\/api\/cowart-canvases/);
 });
 
 test("keeps recipe version history navigable without replacing active edits", async () => {
-  const [app, css, i18n] = await Promise.all([
-    readFile(resolve(root, "app/app.js"), "utf8"),
+  const [app, css, i18n, inspector] = await Promise.all([
+    readFile(resolve(root, "app/app.mjs"), "utf8"),
     readFile(resolve(root, "app/styles.css"), "utf8"),
     readFile(resolve(root, "app/i18n.mjs"), "utf8"),
+    readFile(resolve(root, "app/inspector-markup.mjs"), "utf8"),
   ]);
 
   assert.match(i18n, /versionHistory: "版本历史"/);
   assert.match(i18n, /versionHistory: "Version history"/);
-  assert.match(app, /data-version-history aria-live="polite"/);
-  assert.match(app, /<ol class="version-timeline" aria-label=/);
-  assert.match(app, /version-depth-\$\{depth\}/);
-  assert.doesNotMatch(app, /style="/);
-  assert.match(app, /<time datetime=/);
-  assert.match(app, /aria-current="true"/);
-  assert.match(app, /<label class="field version-change-field">/);
+  assert.match(inspector, /data-version-history aria-live="polite"/);
+  assert.match(inspector, /<ol class="version-timeline" aria-label=/);
+  assert.match(inspector, /version-depth-\$\{depth\}/);
+  assert.doesNotMatch(app + inspector, /style="/);
+  assert.match(inspector, /<time datetime=/);
+  assert.match(inspector, /aria-current="true"/);
+  assert.match(inspector, /<label class="field version-change-field">/);
   assert.match(app, /data-action="save-version"/);
   assert.match(app, /function readRecipeDraft\(panel\)/);
   assert.match(app, /body: \{ \.\.\.readRecipeDraft\(panel\), version_change: versionChange \}/);
@@ -157,13 +171,13 @@ test("keeps recipe version history navigable without replacing active edits", as
   assert.match(app, /function regenerationInstruction\(asset, snapshot\)/);
   assert.match(app, /`assetId: \$\{JSON\.stringify\(asset\.id\)\}`/);
   assert.match(app, /imagePath: <path returned by image generation>/);
-  assert.match(app, /data-recipe-history aria-live="polite"/);
-  assert.match(app, /data-recipe-snapshot-id=/);
+  assert.match(inspector, /data-recipe-history aria-live="polite"/);
+  assert.match(inspector, /data-recipe-snapshot-id=/);
   assert.match(app, /requestId !== recipeHistoryRequestSequence/);
   assert.match(app, /recipe_change_summary: changeSummary/);
   assert.match(app, /requestId !== versionHistoryRequestSequence/);
   assert.match(app, /function renderVersionHistoryRegion\(history, selectedId, error = null\)/);
-  const regionRenderer = /function renderVersionHistoryRegion[\s\S]*?\n}\n\nfunction versionHistoryMarkup/.exec(app)?.[0] || "";
+  const regionRenderer = /function renderVersionHistoryRegion[\s\S]*?\n}\n\nfunction bindVersionHistoryEvents/.exec(app)?.[0] || "";
   assert.doesNotMatch(regionRenderer, /renderDetail\(/);
   // Phase 4B：版本切换集中到 selectDetailVersion（picker change 与 timeline click 唯一入口），
   // detailAsset 赋值随之内移；renderVersionHistoryRegion 依然不得整页重渲染。
@@ -190,13 +204,13 @@ test("keeps recipe version history navigable without replacing active edits", as
   assert.match(app, /function referenceRightsMarkup\(asset\)/);
   assert.match(app, /data-reference-rights-section/);
   assert.match(app, /data-action="open-reference-rights"/);
-  assert.match(app, /<button type="button" class="recipe-reference-rights \$\{rights\.tone\}" data-action="open-reference-rights"/);
+  assert.match(inspector, /<button type="button" class="recipe-reference-rights \$\{rights\.tone\}" data-action="open-reference-rights"/);
   assert.match(app, /function readReferenceRightsDraft\(section, asset\)/);
   // Gallery rows omit recipe relations, so the editor is built before the
   // history it reads has arrived. It must redraw when the history lands or it
   // stays empty on first open for every asset that actually has references.
   assert.match(app, /function renderReferenceRightsRegion\(asset\)/);
-  assert.match(app, /data-reference-rights>/);
+  assert.match(inspector, /data-reference-rights>/);
   const historyRenderer = /function renderRecipeHistoryRegion[\s\S]*?\n}\n/.exec(app)?.[0] || "";
   assert.match(historyRenderer, /renderReferenceRightsRegion\(asset\)/);
   // Digest material must be copied from the snapshot, never re-read from the
@@ -209,8 +223,8 @@ test("keeps recipe version history navigable without replacing active edits", as
   assert.doesNotMatch(app, /onerror=/);
   assert.match(css, /\.use-chip\.forbidden \{/);
   assert.match(css, /\.reference-thumb-empty \{/);
-  assert.match(app, /function referenceRightsSummary\(references\)/);
-  assert.match(app, /class="recipe-reference-rights \$\{rights\.tone\}"/);
+  assert.match(inspector, /function referenceRightsSummary\(references\)/);
+  assert.match(inspector, /class="recipe-reference-rights \$\{rights\.tone\}"/);
   assert.match(i18n, /referenceRightsRestricted: "\{count\} 项参考受限"/);
   assert.match(i18n, /referenceRightsUnresolved: "\{count\} with unconfirmed rights"/);
   assert.match(css, /\.recipe-reference-rights\.restricted \{/);
@@ -220,10 +234,11 @@ test("keeps recipe version history navigable without replacing active edits", as
 });
 
 test("provides an accessible single-column detail panel", async () => {
-  const [app, css, i18n] = await Promise.all([
-    readFile(resolve(root, "app/app.js"), "utf8"),
+  const [app, css, i18n, inspector] = await Promise.all([
+    readFile(resolve(root, "app/app.mjs"), "utf8"),
     readFile(resolve(root, "app/styles.css"), "utf8"),
     readFile(resolve(root, "app/i18n.mjs"), "utf8"),
+    readFile(resolve(root, "app/inspector-markup.mjs"), "utf8"),
   ]);
 
   // Phase 4A：三 Tab 合并为批准的单栏信息架构——无 tab 角色；#detailTitle 仍是焦点
@@ -232,22 +247,22 @@ test("provides an accessible single-column detail panel", async () => {
   assert.match(i18n, /assetInspector: "Asset inspector"/);
   assert.match(app, /<div class="detail-inspector"><div class="detail-inspector-header">/);
   assert.match(app, /<div class="detail-inspector-scroll">/);
-  assert.match(app, /<h3 id="detailTitle" tabindex="-1"/);
+  assert.match(inspector, /<h3 id="detailTitle" tabindex="-1"/);
   assert.match(app, /data-action="close-detail" aria-label="\$\{t\("close"\)\}"/);
-  assert.match(app, /data-action="toggle-favorite" aria-pressed="\$\{favorite\}"/);
-  assert.match(app, /class="detail-facts" role="group" aria-label=/);
-  assert.match(app, /<details class="detail-disclosure"><summary>\$\{t\("versionHistory"\)\}<\/summary>/);
-  assert.doesNotMatch(app, /role="tablist"/);
-  assert.doesNotMatch(app, /role="tab"/);
-  assert.doesNotMatch(app, /role="tabpanel"/);
+  assert.match(inspector, /data-action="toggle-favorite" aria-pressed="\$\{favorite\}"/);
+  assert.match(inspector, /class="detail-facts" role="group" aria-label=/);
+  assert.match(inspector, /<details class="detail-disclosure"><summary>\$\{t\("versionHistory"\)\}<\/summary>/);
+  assert.doesNotMatch(app + inspector, /role="tablist"/);
+  assert.doesNotMatch(app + inspector, /role="tab"/);
+  assert.doesNotMatch(app + inspector, /role="tabpanel"/);
   // Phase 4B 校正闸门：deprecated 的 state.detailTab 字段、初始值与重置语句全部移除，
   // 全 app 代码零残留（此前 Phase 4A 仅移除 Tab DOM 与路由）。
-  assert.doesNotMatch(app, /detailTab/);
+  assert.doesNotMatch(app + inspector, /detailTab/);
   assert.match(css, /\.detail-inspector-scroll \{[^}]*overflow-y: auto/);
 });
 
 test("supports Escape to close detail panel and focus return", async () => {
-  const app = await readFile(resolve(root, "app/app.js"), "utf8");
+  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
   assert.match(app, /detailReturnFocus: null/);
   assert.match(app, /state\.detailReturnFocus = \(activeEl instanceof HTMLElement/);

@@ -12,9 +12,10 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
-const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
 const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
+const readInspectorMarkup = () => readFile(resolve(root, "app/inspector-markup.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 const count = (source, needle) => source.split(needle).length - 1;
 
@@ -43,11 +44,14 @@ function sliceBetween(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-/** Slices a top-level app.js function (declaration up to the next top-level function). */
+/** Slices a function (top-level or 2-space-indented module helper) up to the next function. */
 function functionSlice(source, name) {
   const start = source.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `function not found: ${name}`);
-  const next = source.indexOf("\nfunction ", start + 1);
+  const candidates = ["\nfunction ", "\nasync function ", "\n  function ", "\n  async function "]
+    .map((marker) => source.indexOf(marker, start + 1))
+    .filter((index) => index !== -1);
+  const next = candidates.length ? Math.min(...candidates) : -1;
   return source.slice(start, next === -1 ? source.length : next);
 }
 
@@ -60,7 +64,7 @@ const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailFavoriteSectionMar
 // 2. No detail tablist. 3. No detail tab. 4. No detail tabpanel.
 // 5. Ten semantic sections exist. 6. Their order matches the approved spec.
 test("1-6. single-column architecture, tab roles removed, ten sections in approved order", async () => {
-  const [app, css] = await Promise.all([readApp(), readCss()]);
+  const [app, inspector, css] = await Promise.all([readApp(), readInspectorMarkup(), readCss()]);
 
   // 1. Single column: one inspector shell with one header and one scroll container.
   const renderDetail = functionSlice(app, "renderDetail");
@@ -80,18 +84,18 @@ test("1-6. single-column architecture, tab roles removed, ten sections in approv
   // 2–4. No tab roles remain in the detail panel (rendered markup is
   // double-quoted; the single-quoted [role='tab'] keyboard guard is a generic
   // arrow-key escape hatch, not a rendered tab).
-  assert.doesNotMatch(app, /role="tablist"/);
-  assert.doesNotMatch(app, /role="tab"/);
-  assert.doesNotMatch(app, /role="tabpanel"/);
-  assert.doesNotMatch(app, /detailTabOverview|detailTabRecipe|detailTabVersions/);
-  assert.doesNotMatch(app, /detailPanelOverview|detailPanelRecipe|detailPanelVersions/);
-  assert.doesNotMatch(app, /class="detail-tab/);
+  assert.doesNotMatch(app + inspector, /role="tablist"/);
+  assert.doesNotMatch(app + inspector, /role="tab"/);
+  assert.doesNotMatch(app + inspector, /role="tabpanel"/);
+  assert.doesNotMatch(app + inspector, /detailTabOverview|detailTabRecipe|detailTabVersions/);
+  assert.doesNotMatch(app + inspector, /detailPanelOverview|detailPanelRecipe|detailPanelVersions/);
+  assert.doesNotMatch(app + inspector, /class="detail-tab/);
   assert.doesNotMatch(css, /\.detail-tab/);
 
   // 5. Ten semantic sections, each emitted exactly once.
-  assert.equal(count(app, 'data-inspector-section="'), 10, "exactly ten semantic sections");
+  assert.equal(count(inspector, 'data-inspector-section="'), 10, "exactly ten semantic sections");
   for (const id of SECTION_ORDER) {
-    assert.ok(app.includes(`data-inspector-section="${id}"`), `missing section ${id}`);
+    assert.ok(inspector.includes(`data-inspector-section="${id}"`), `missing section ${id}`);
   }
 
   // 6. The renderDetail composition concatenates the ten helpers in the
@@ -102,10 +106,10 @@ test("1-6. single-column architecture, tab roles removed, ten sections in approv
 // 7. File-facts section exists. 8. Missing facts fall back to notRecorded.
 // 9. No fabricated 0×0 dimensions. 10. No fabricated file size.
 test("7-10. file facts are honest — notRecorded fallbacks, no fabrication", async () => {
-  const [app, i18n] = await Promise.all([readApp(), readI18n()]);
+  const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
 
   // 7. Section with a labelled fact group and the three derived values.
-  const fileSection = functionSlice(app, "detailFileSectionMarkup");
+  const fileSection = functionSlice(inspector, "detailFileSectionMarkup");
   assert.ok(fileSection.includes('data-inspector-section="file"'));
   assert.match(fileSection, /class="detail-facts" role="group" aria-label="\$\{escapeHtml\(t\("fileFacts"\)\)\}"/);
   assert.ok(fileSection.includes('["fileDimensions", fileDimensionsText(asset)]'));
@@ -113,28 +117,29 @@ test("7-10. file facts are honest — notRecorded fallbacks, no fabrication", as
   assert.ok(fileSection.includes('["fileSize", fileSizeText(asset)]'));
 
   // 8. Every null fact renders the shared notRecorded copy (never a blank cell).
-  assert.match(app, /value === null \? `<span class="empty-copy">\$\{t\("notRecorded"\)\}<\/span>`/);
+  assert.match(inspector, /value === null \? `<span class="empty-copy">\$\{t\("notRecorded"\)\}<\/span>`/);
   assert.match(i18n, /notRecorded: "未记录"/);
   assert.match(i18n, /notRecorded: "Not recorded"/);
 
   // 9. Dimensions require two finite, positive numbers — 0×0 can never render.
-  assert.match(app, /if \(!Number\.isFinite\(width\) \|\| !Number\.isFinite\(height\) \|\| width <= 0 \|\| height <= 0\) return null;/);
+  assert.match(inspector, /if \(!Number\.isFinite\(width\) \|\| !Number\.isFinite\(height\) \|\| width <= 0 \|\| height <= 0\) return null;/);
   // No rendered literal may fake a zero dimension (checked on comment-stripped helpers).
-  const strippedHelpers = sliceBetween(app, "function detailFileSectionMarkup(", "let versionHistoryRequestSequence").replace(/\/\/.*/g, "");
+  const strippedHelpers = sliceBetween(inspector, "  function fileDimensionsText(", "  function assetMediaPreviewMarkup").replace(/\/\/.*/g, "");
   assert.doesNotMatch(strippedHelpers, /0 × 0/);
   assert.doesNotMatch(strippedHelpers, /0×0/);
-  assert.doesNotMatch(app, /naturalWidth \? |\|\| image\.naturalWidth/, "no naturalWidth masquerading as a persisted fact");
+  assert.doesNotMatch(inspector, /naturalWidth \? |\|\| image\.naturalWidth/, "no naturalWidth masquerading as a persisted fact");
 
   // 10. File size requires a positive byte count; non-positive yields "" (→ null upstream).
-  assert.match(app, /Number\.isFinite\(bytes\) && bytes > 0 \? formatFileSize\(bytes\) : null/);
-  assert.match(app, /if \(!Number\.isFinite\(bytes\) \|\| bytes <= 0\) return "";/);
+  assert.match(inspector, /Number\.isFinite\(bytes\) && bytes > 0 \? formatFileSize\(bytes\) : null/);
+  assert.match(inspector, /if \(!Number\.isFinite\(bytes\) \|\| bytes <= 0\) return "";/);
 });
 
 // 11. Favorite button exists. 12. It uses aria-pressed. 13. It reuses toggleFavorite.
 test("11-13. favorite section with aria-pressed reusing toggleFavorite", async () => {
   const app = await readApp();
+  const inspector = await readInspectorMarkup();
 
-  const favoriteSection = functionSlice(app, "detailFavoriteSectionMarkup");
+  const favoriteSection = functionSlice(inspector, "detailFavoriteSectionMarkup");
   assert.ok(favoriteSection.includes('data-inspector-section="favorite"'));
   assert.ok(favoriteSection.includes('data-action="toggle-favorite"'), "favorite button present");
   assert.ok(favoriteSection.includes('aria-pressed="${favorite}"'), "pressed state is exposed");
@@ -148,9 +153,9 @@ test("11-13. favorite section with aria-pressed reusing toggleFavorite", async (
 // 14. Prompt section exists. 15. Prompt copy entry exists.
 // 16. ChatGPT-unavailable state kept. 17. User instruction stays separate.
 test("14-17. prompt section states, copy entry and user-instruction separation", async () => {
-  const [app, i18n] = await Promise.all([readApp(), readI18n()]);
+  const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
 
-  const promptSection = functionSlice(app, "detailPromptSectionMarkup");
+  const promptSection = functionSlice(inspector, "detailPromptSectionMarkup");
   assert.ok(promptSection.includes('data-inspector-section="prompt"'));
 
   // 15. Copy renders only when a prompt exists (no dead button, no empty copy).
@@ -174,8 +179,9 @@ test("14-17. prompt section states, copy entry and user-instruction separation",
 // 18. Source section exists. 19. Source copy entry exists. 20. buildSourceRows kept.
 test("18-20. source section keeps buildSourceRows and a conditional copy entry", async () => {
   const app = await readApp();
+  const inspector = await readInspectorMarkup();
 
-  const sourceSection = functionSlice(app, "detailSourceSectionMarkup");
+  const sourceSection = functionSlice(inspector, "detailSourceSectionMarkup");
   assert.ok(sourceSection.includes('data-inspector-section="source"'));
   assert.match(sourceSection, /buildSourceRows\(source\)/, "source rows still come from buildSourceRows");
   assert.match(sourceSection, /const copyButton = sourceCopyValue\(source\)\n\s+\? `<button class="section-head-copy" type="button" data-action="copy-source"/);
@@ -190,6 +196,7 @@ test("18-20. source section keeps buildSourceRows and a conditional copy entry",
 // 23. Recipe history stays reachable.
 test("21-23. version section position and on-demand history disclosures", async () => {
   const app = await readApp();
+  const inspector = await readInspectorMarkup();
 
   // 21. Version is the 5th section (after source, before group).
   const versionIndex = COMPOSITION.indexOf("detailVersionSectionMarkup");
@@ -197,16 +204,16 @@ test("21-23. version section position and on-demand history disclosures", async 
   assert.ok(versionIndex < COMPOSITION.indexOf("detailGroupSectionMarkup"));
 
   // 22. Version history lives behind a disclosure that is closed by default.
-  const versionSection = functionSlice(app, "detailVersionSectionMarkup");
+  const versionSection = functionSlice(inspector, "detailVersionSectionMarkup");
   assert.match(versionSection, /<details class="detail-disclosure"><summary>\$\{t\("versionHistory"\)\}<\/summary>/);
   assert.doesNotMatch(versionSection, /<details class="detail-disclosure" open>/);
   assert.match(versionSection, /data-version-history aria-live="polite"/);
   // The current-version summary stays visible outside the disclosure.
-  assert.match(app, /function detailVersionSummaryMarkup\(asset\)/);
+  assert.match(inspector, /function detailVersionSummaryMarkup\(asset\)/);
 
   // 23. Recipe snapshot history stays reachable behind its own disclosure,
   // also closed by default, and still lazy-loaded after render.
-  const recipeDisclosure = functionSlice(app, "recipeHistoryDisclosureMarkup");
+  const recipeDisclosure = functionSlice(inspector, "recipeHistoryDisclosureMarkup");
   assert.match(recipeDisclosure, /<details class="detail-disclosure"><summary>\$\{t\("recipeSnapshotHistory"\)\}<\/summary>/);
   assert.doesNotMatch(recipeDisclosure, /<details class="detail-disclosure" open>/);
   assert.match(recipeDisclosure, /data-recipe-history aria-live="polite"/);
@@ -215,9 +222,9 @@ test("21-23. version section position and on-demand history disclosures", async 
 
 // 24. Group section is a read-only readout (no editing control).
 test("24. group section is display-only", async () => {
-  const app = await readApp();
+  const inspector = await readInspectorMarkup();
 
-  const groupSection = functionSlice(app, "detailGroupSectionMarkup");
+  const groupSection = functionSlice(inspector, "detailGroupSectionMarkup");
   assert.ok(groupSection.includes('data-inspector-section="group"'));
   assert.match(groupSection, /<p class="inspector-readout">/);
   assert.doesNotMatch(groupSection, /<input|<select|<textarea|contenteditable|data-edit=/);
@@ -226,14 +233,14 @@ test("24. group section is display-only", async () => {
 
 // 25. Tags section is 7th. 26. No input. 27. No fake chips. 28. No add button.
 test("25-28. tags section keeps its slot as a written placeholder only (D2)", async () => {
-  const [app, i18n] = await Promise.all([readApp(), readI18n()]);
+  const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
 
   // 25. Tags is the 7th section (after group, before cowart).
   const tagsIndex = COMPOSITION.indexOf("detailTagsSectionMarkup");
   assert.ok(tagsIndex > COMPOSITION.indexOf("detailGroupSectionMarkup"));
   assert.ok(tagsIndex < COMPOSITION.indexOf("detailCowartSectionMarkup"));
 
-  const tagsSection = functionSlice(app, "detailTagsSectionMarkup");
+  const tagsSection = functionSlice(inspector, "detailTagsSectionMarkup");
   assert.ok(tagsSection.includes('data-inspector-section="tags"'));
   // 26–28. A written placeholder only — no input, no fabricated chip, no add button.
   assert.doesNotMatch(tagsSection, /<input|<textarea|<select/);
@@ -247,6 +254,7 @@ test("25-28. tags section keeps its slot as a written placeholder only (D2)", as
 // 29. Cowart is 8th. 30. The control renders once. 31. Cowart is the only primary.
 test("29-31. cowart section renders once and stays the only solid primary action", async () => {
   const app = await readApp();
+  const inspector = await readInspectorMarkup();
 
   // 29. Cowart is the 8th section (after tags, before new-version).
   const cowartIndex = COMPOSITION.indexOf("detailCowartSectionMarkup");
@@ -254,9 +262,9 @@ test("29-31. cowart section renders once and stays the only solid primary action
   assert.ok(cowartIndex < COMPOSITION.indexOf("detailNewVersionSectionMarkup"));
 
   // 30. One mount slot in the section markup, one append call in renderDetail.
-  const cowartSection = functionSlice(app, "detailCowartSectionMarkup");
+  const cowartSection = functionSlice(inspector, "detailCowartSectionMarkup");
   assert.ok(cowartSection.includes('data-inspector-section="cowart"'));
-  assert.equal(count(app, "cowart-insert-slot"), 2, "one slot in markup + one mount query");
+  assert.equal(count(app, "cowart-insert-slot") + count(inspector, "cowart-insert-slot"), 2, "one slot in markup + one mount query");
   assert.equal(count(app, "createCowartInsertControl("), 2, "one declaration + one mount call");
   assert.equal(count(app, ".append(createCowartInsertControl("), 1, "the control is mounted exactly once");
 
@@ -266,13 +274,13 @@ test("29-31. cowart section renders once and stays the only solid primary action
   assert.match(control, /<button class="action-btn primary" type="button" data-action="insert-cowart"/);
   assert.equal(count(app, "action-btn primary"), 1, "no other action-btn primary may exist");
   assert.doesNotMatch(app, /recipe-save-btn primary/);
-  const helperRegion = sliceBetween(app, "function detailFileSectionMarkup(", "let versionHistoryRequestSequence");
+  const helperRegion = sliceBetween(inspector, "  function fileDimensionsText(", "  function assetMediaPreviewMarkup");
   assert.doesNotMatch(helperRegion, /primary/, "no section helper may render a primary action");
 });
 
 // 32. Save Version is 9th. 33. Save Version uses the secondary style.
 test("32-33. new-version section position and secondary save action", async () => {
-  const app = await readApp();
+  const inspector = await readInspectorMarkup();
 
   // 32. New-version is the 9th section (after cowart, before more).
   const newVersionIndex = COMPOSITION.indexOf("detailNewVersionSectionMarkup");
@@ -281,7 +289,7 @@ test("32-33. new-version section position and secondary save action", async () =
 
   // 33. The save button is secondary, paired with its change-note field whose
   // accessible name comes from the label span (placeholder is not the name).
-  const newVersionSection = functionSlice(app, "detailNewVersionSectionMarkup");
+  const newVersionSection = functionSlice(inspector, "detailNewVersionSectionMarkup");
   assert.ok(newVersionSection.includes('data-inspector-section="new-version"'));
   assert.match(newVersionSection, /<button class="recipe-save-btn secondary" type="button" data-action="save-version">/);
   assert.match(newVersionSection, /<label class="field version-change-field"><span>\$\{t\("versionChange"\)\}<\/span><textarea data-version-change/);
@@ -289,18 +297,18 @@ test("32-33. new-version section position and secondary save action", async () =
 
 // 34. More is 10th. 35. Archive stays a separated danger action.
 test("34-35. more section last, archive kept as a separated danger action", async () => {
-  const app = await readApp();
+  const inspector = await readInspectorMarkup();
 
   // 34. More is the final section.
   assert.ok(COMPOSITION.indexOf("detailMoreSectionMarkup") > COMPOSITION.indexOf("detailNewVersionSectionMarkup"));
   assert.ok(COMPOSITION.endsWith("${detailMoreSectionMarkup(asset)}"));
 
-  const moreSection = functionSlice(app, "detailMoreSectionMarkup");
+  const moreSection = functionSlice(inspector, "detailMoreSectionMarkup");
   assert.ok(moreSection.includes('data-inspector-section="more"'));
   // Phase 4C: the original-media entry renders through the centralized capability
   // helper (desktop-finder / web-open / unavailable) instead of a fixed button.
   assert.match(moreSection, /\$\{originalMediaActionMarkup\(asset\)\}/);
-  assert.match(app, /function originalMediaCapability\(asset\)/);
+  assert.match(inspector, /function originalMediaCapability\(asset\)/);
   // Utility actions migrated as secondary buttons inside the native disclosure.
   assert.match(moreSection, /<details class="detail-disclosure" data-more-actions>/);
   assert.match(moreSection, /<button class="action-btn secondary" type="button" data-action="regenerate">/);
@@ -314,20 +322,21 @@ test("34-35. more section last, archive kept as a separated danger action", asyn
 // 36. Editing ability stays inside a disclosure. 37. Reference rights preserved.
 test("36-37. recipe editing and reference rights stay inside disclosures", async () => {
   const app = await readApp();
+  const inspector = await readInspectorMarkup();
 
   // 36. The full recipe edit form lives behind the "recipe and editing"
   // disclosure inside the prompt section — closed by default.
-  const promptSection = functionSlice(app, "detailPromptSectionMarkup");
+  const promptSection = functionSlice(inspector, "detailPromptSectionMarkup");
   assert.match(promptSection, /<details class="detail-disclosure"><summary>\$\{t\("recipeAndEditing"\)\}<\/summary><div class="disclosure-content detail-fields">\$\{editRecipeFieldsMarkup\(asset\)\}/);
   assert.doesNotMatch(promptSection, /<details class="detail-disclosure" open>/);
-  const editFields = functionSlice(app, "editRecipeFieldsMarkup");
+  const editFields = functionSlice(inspector, "editRecipeFieldsMarkup");
   assert.match(editFields, /data-edit="prompt"/);
   assert.match(editFields, /data-edit="business_fields"/);
   assert.match(promptSection, /<button class="recipe-save-btn secondary" type="button" data-action="save-recipe">/);
 
   // 37. Reference rights stay reachable from the source section disclosure,
   // and the deep link no longer depends on switching tabs.
-  const sourceSection = functionSlice(app, "detailSourceSectionMarkup");
+  const sourceSection = functionSlice(inspector, "detailSourceSectionMarkup");
   assert.match(sourceSection, /<details class="detail-disclosure" data-reference-rights-section><summary>\$\{t\("referenceRights"\)\}<\/summary><div class="disclosure-content" data-reference-rights>\$\{referenceRightsMarkup\(asset\)\}<\/div><\/details>/);
   assert.match(app, /function bindReferenceRightsEvents\(panel, asset, renderId\)/);
   assert.match(app, /<button class="recipe-save-btn secondary" type="button" data-action="save-reference-rights">/);
@@ -336,20 +345,20 @@ test("36-37. recipe editing and reference rights stay inside disclosures", async
 // 38. state.detailTab no longer controls single-column visibility.
 // 39. bindDetailTabEvents is never called. 40. No hidden tabpanel in the tree.
 test("38-40. tab state is decoupled from rendering", async () => {
-  const [app, css] = await Promise.all([readApp(), readCss()]);
+  const [app, inspector, css] = await Promise.all([readApp(), readInspectorMarkup(), readCss()]);
 
   // 38. renderDetail never reads the deprecated compatibility field.
   assert.doesNotMatch(functionSlice(app, "renderDetail"), /detailTab/, "renderDetail must not consult state.detailTab");
 
   // 39. Neither tab function exists or is called anywhere.
-  assert.doesNotMatch(app, /bindDetailTabEvents\(\)/);
-  assert.doesNotMatch(app, /function bindDetailTabEvents/);
-  assert.doesNotMatch(app, /switchDetailTab\(/);
-  assert.doesNotMatch(app, /function switchDetailTab/);
+  assert.doesNotMatch(app + inspector, /bindDetailTabEvents\(\)/);
+  assert.doesNotMatch(app + inspector, /function bindDetailTabEvents/);
+  assert.doesNotMatch(app + inspector, /switchDetailTab\(/);
+  assert.doesNotMatch(app + inspector, /function switchDetailTab/);
 
   // 40. No tabpanel markup or hidden-panel styling can enter the a11y tree.
-  assert.doesNotMatch(app, /role="tabpanel"/);
-  assert.doesNotMatch(app, /aria-labelledby="detailTab/);
+  assert.doesNotMatch(app + inspector, /role="tabpanel"/);
+  assert.doesNotMatch(app + inspector, /aria-labelledby="detailTab/);
   assert.doesNotMatch(css, /\.detail-tab-panel/);
 });
 
@@ -411,18 +420,23 @@ test("48-51. hygiene: no !important, no undefined tokens, manifest and dependenc
   // 50. Manifest and lockfile SHAs stay at their pre-Phase-4A values.
   const pkg = await readFile(resolve(root, "package.json"), "utf8");
   const lock = await readFile(resolve(root, "package-lock.json"), "utf8");
-  assert.equal(sha256(pkg), "e161974a477853703cc88724de39805fe5c65e590bd331060a17be6d087a2f24", "package.json must stay untouched");
+  // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
+  // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
+  // the dependency sections the freeze really guards stay byte-identical.
+  const manifest = JSON.parse(pkg);
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must stay untouched");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies must stay untouched");
   assert.equal(sha256(lock), "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd", "package-lock.json must stay untouched");
 
   // 51. app.js gains no new imports (no new runtime dependencies).
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./bridge-status-poller.js", "./i18n.mjs"], "app.js gains no new imports");
+    ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./overlay-manager.mjs", "./toast-manager.mjs"], "app.js gains no new imports");
 });
 
 // i18n symmetry: every new Phase 4A key ships in both languages, and no
 // hardcoded single-language string leaks into the section helpers.
 test("i18n. new Phase 4A keys are symmetric across zh and en", async () => {
-  const [app, i18n] = await Promise.all([readApp(), readI18n()]);
+  const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
 
   const pairs = [
     [/fileFacts: "文件"/, /fileFacts: "File"/],
@@ -442,7 +456,7 @@ test("i18n. new Phase 4A keys are symmetric across zh and en", async () => {
 
   // Section helpers copy goes through t() — no CJK literals in app.js markup
   // helpers (comments are stripped first; only rendered strings are checked).
-  const helperRegion = sliceBetween(app, "function detailFileSectionMarkup(", "let versionHistoryRequestSequence").replace(/\/\/.*/g, "");
+  const helperRegion = sliceBetween(inspector, "  function fileDimensionsText(", "  function assetMediaPreviewMarkup").replace(/\/\/.*/g, "");
   assert.doesNotMatch(helperRegion, /[一-鿿]/, "section helpers must not hardcode Chinese copy");
 });
 

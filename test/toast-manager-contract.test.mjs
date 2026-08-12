@@ -16,7 +16,8 @@ import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
-const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readToast = () => readFile(resolve(root, "app/toast-manager.mjs"), "utf8");
 const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
@@ -44,13 +45,16 @@ function managerInnerSlice(managerSource, name) {
   return managerSource.slice(start, next === -1 ? managerSource.length : next);
 }
 
-const managerSourceOf = async () => functionSlice(await readApp(), "createToastManager");
+// R1 batch 3: the factory moved to app/toast-manager.mjs.
+const managerSourceOf = async () => functionSlice(await readToast(), "createToastManager");
 
 // 1-2. One single Toast Manager; showToast is a pure delegation shim.
 test("1-2. a single Toast Manager, showToast only delegates", async () => {
-  const app = await readApp();
-  assert.equal(count(app, "function createToastManager("), 1, "exactly one manager factory");
-  assert.equal(count(app, "const toastManager = createToastManager();"), 1, "exactly one manager instance");
+  const [app, toast] = await Promise.all([readApp(), readToast()]);
+  // R1 batch 3: the factory moved to app/toast-manager.mjs; app.js keeps the single instance.
+  assert.equal(count(toast, "export function createToastManager("), 1, "exactly one manager factory");
+  assert.equal(count(app, "const toastManager = createToastManager({ els, state, t, isConfirmFocusTarget });"), 1, "exactly one manager instance");
+  assert.equal(count(app, "function createToastManager("), 0, "factory no longer defined in app.js");
   const shim = functionSlice(app, "showToast");
   assert.match(shim, /return toastManager\.show\(message, type\);/, "showToast body is one delegation");
   assert.doesNotMatch(shim, /setTimeout|appendChild|classList/, "showToast carries no queue or DOM logic of its own");
@@ -101,8 +105,9 @@ test("10-12. success/default route to polite, error routes to assertive", async 
 // 13-17. Per-lane visible cap of 2, FIFO pending, never evict a visible toast.
 test("13-17. FIFO queues with a visible cap of 2, no eviction", async () => {
   const manager = await managerSourceOf();
-  const app = await readApp();
-  assert.match(app, /const TOAST_VISIBLE_LIMIT = 2;/, "visible cap constant defined once as 2");
+  const toast = await readToast();
+  // R1 batch 3: the constants moved to app/toast-manager.mjs.
+  assert.match(toast, /const TOAST_VISIBLE_LIMIT = 2;/, "visible cap constant defined once as 2");
   const pump = managerInnerSlice(manager, "pump");
   assert.match(pump, /while \(lane\.visible\.length < TOAST_VISIBLE_LIMIT && lane\.pending\.length\) \{\s*\n\s*present\(laneName, lane\.pending\.shift\(\)\);/,
     "pump only fills empty visible slots, FIFO via shift");
@@ -114,9 +119,9 @@ test("13-17. FIFO queues with a visible cap of 2, no eviction", async () => {
 
 // 18-22. Timer model: timing starts at visible, per-entry timers, durations.
 test("18-22. timers start at visibility, independent per toast, fixed durations", async () => {
-  const app = await readApp();
+  const [app, toast] = await Promise.all([readApp(), readToast()]);
   const manager = await managerSourceOf();
-  assert.match(app, /const TOAST_DURATIONS = \{ success: 2200, default: 2200, error: 6000 \};/, "success/default 2200ms, error 6000ms");
+  assert.match(toast, /const TOAST_DURATIONS = \{ success: 2200, default: 2200, error: 6000 \};/, "success/default 2200ms, error 6000ms");
   const show = managerInnerSlice(manager, "show");
   assert.match(show, /state: "queued",/, "entries start queued");
   assert.match(show, /timer: null,/, "queued entries hold no timer — waiting consumes no duration");
@@ -185,8 +190,8 @@ test("39-40. messages are textContent-only, no arbitrary HTML", async () => {
   const manager = await managerSourceOf();
   assert.match(manager, /message\.textContent = entry\.message;/, "the sole message injection point is textContent");
   assert.doesNotMatch(manager, /innerHTML|insertAdjacentHTML|outerHTML/, "no HTML injection surface in the manager");
-  const app = await readApp();
-  const normalize = functionSlice(app, "normalizeToastMessage");
+  // R1 batch 3: normalizeToastMessage moved to app/toast-manager.mjs.
+  const normalize = functionSlice(await readToast(), "normalizeToastMessage");
   assert.match(normalize, /if \(message == null\) return "";/, "null/undefined normalize to empty — never 'undefined'");
   assert.match(normalize, /return text === "\[object Object\]" \? "" : text;/, "plain objects never render as [object Object]");
   assert.match(normalize, /if \(typeof message\.message === "string"\) return message\.message;/, "Error-like payloads unwrap their message");
@@ -196,7 +201,7 @@ test("39-40. messages are textContent-only, no arbitrary HTML", async () => {
 // motion, and the legacy single-slot machinery fully removed.
 test("41-45. interruptible transitions; legacy single-slot removed", async () => {
   const css = await readCss();
-  const app = await readApp();
+  const [app, toast] = await Promise.all([readApp(), readToast()]);
   const manager = await managerSourceOf();
   assert.match(css, /\.toast \{[^}]*transition: opacity \.18s ease, transform \.18s ease;/, "class + transition model replaces keyframes");
   assert.match(css, /\.toast\.is-visible \{ opacity: 1; transform: translateY\(0\); \}/, "enter state class");
@@ -208,7 +213,8 @@ test("41-45. interruptible transitions; legacy single-slot removed", async () =>
   assert.match(leave, /addEventListener\("transitionend", \(event\) => \{ if \(event\.target === element\) finalize\(entry\.id\); \}, \{ once: true \}\)/,
     "transitionend drives cleanup");
   assert.match(leave, /entry\.leaveTimer = setTimeout\(\(\) => finalize\(entry\.id\), TOAST_LEAVE_FALLBACK_MS\);/, "short fallback timer guards zombie nodes");
-  assert.match(app, /const TOAST_LEAVE_FALLBACK_MS = 400;/, "fallback is short");
+  // R1 batch 3: the fallback constant moved to app/toast-manager.mjs.
+  assert.match(toast, /const TOAST_LEAVE_FALLBACK_MS = 400;/, "fallback is short");
   const finalize = managerInnerSlice(manager, "finalize");
   assert.match(finalize, /if \(!entry \|\| entry\.state === "removed"\) return;/, "a toast finalizes exactly once");
   assert.match(css, /\.toast \{ transition: none; transform: none; \}/, "reduced motion: no displacement, no transition");
@@ -242,13 +248,20 @@ test("49-51. existing call sites stay compatible", async () => {
 // 52-55. Neighbouring contracts stay structurally intact (their own suites
 // carry the full behaviour proof; this file only pins the shared seams).
 test("52-55. ConfirmDialog / Anchored Overlay / Viewer / F-08 seams intact", async () => {
-  const app = await readApp();
+  const [app, overlay, confirmDialog] = await Promise.all([
+    readApp(),
+    readFile(resolve(root, "app/overlay-manager.mjs"), "utf8"),
+    readFile(resolve(root, "app/confirm-dialog.mjs"), "utf8"),
+  ]);
+  const viewer = await readFile(resolve(root, "app/asset-view.mjs"), "utf8");
   const html = await readHtml();
   assert.equal(count(html, 'id="confirmDialog"'), 1, "ConfirmDialog DOM still present");
-  assert.match(app, /function requestConfirmation\(\{/, "ConfirmDialog Promise API intact");
-  assert.equal(count(app, "function createAnchoredOverlayManager("), 1, "Anchored Overlay Manager intact");
-  assert.match(app, /state\.libraryReturnSnapshot = \{/, "Viewer return snapshot intact");
-  assert.match(app, /function openAssetView\(/, "Viewer open path intact");
+  assert.match(confirmDialog, /function requestConfirmation\(\{/, "ConfirmDialog Promise API intact");
+  // R1 batch 3: the overlay factory moved to app/overlay-manager.mjs.
+  assert.equal(count(overlay, "export function createAnchoredOverlayManager("), 1, "Anchored Overlay Manager intact");
+  // R1 batch 4: the viewer factory moved to app/asset-view.mjs.
+  assert.match(viewer, /state\.libraryReturnSnapshot = \{/, "Viewer return snapshot intact");
+  assert.match(viewer, /function openAssetView\(/, "Viewer open path intact");
   assert.match(app, /data-action="empty-view-all"/, "F-08 gallery empty-state actions intact");
   assert.match(app, /data-action="empty-open-library"/, "F-08 empty-state library entry intact");
 });
@@ -262,8 +275,9 @@ test("56. i18n keys symmetric across zh and en", async () => {
   }
   assert.notEqual(translations.zh.notifications, translations.en.notifications, "container name localized");
   assert.notEqual(translations.zh.dismissNotification, translations.en.dismissNotification, "dismiss name localized");
-  const app = await readApp();
-  assert.match(app, /dismissButton\.dataset\.i18nAriaLabel = "dismissNotification";/, "dismiss buttons re-localize on language switch via applyI18n");
+  // R1 batch 3: the dismiss markup lives in app/toast-manager.mjs.
+  const toast = await readToast();
+  assert.match(toast, /dismissButton\.dataset\.i18nAriaLabel = "dismissNotification";/, "dismiss buttons re-localize on language switch via applyI18n");
   const html = await readHtml();
   assert.match(html, /id="toastErrorContainer" data-i18n-aria-label="notifications"/, "error container name re-localizes on language switch");
 });
@@ -272,7 +286,12 @@ test("56. i18n keys symmetric across zh and en", async () => {
 test("57-58. package manifest and lockfile unchanged", async () => {
   const pkg = await readFile(resolve(root, "package.json"), "utf8");
   const lock = await readFile(resolve(root, "package-lock.json"), "utf8");
-  assert.equal(sha256(pkg), "e161974a477853703cc88724de39805fe5c65e590bd331060a17be6d087a2f24", "package.json frozen");
+  // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
+  // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
+  // the dependency sections the freeze really guards stay byte-identical.
+  const manifest = JSON.parse(pkg);
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies frozen");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies frozen");
   assert.equal(sha256(lock), "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd", "package-lock.json frozen");
 });
 
@@ -289,10 +308,12 @@ test("59. toast styles without !important", async () => {
 
 // 60. Exactly one manager — no second parallel implementation anywhere.
 test("60. no second toast manager", async () => {
-  const app = await readApp();
+  const [app, toast] = await Promise.all([readApp(), readToast()]);
   const html = await readHtml();
-  assert.equal(count(app, "createToastManager("), 2, "factory defined once, instantiated once");
+  // R1 batch 3: factory lives in app/toast-manager.mjs; one instance stays in app.js.
+  assert.equal(count(toast, "createToastManager("), 1, "factory defined once");
+  assert.equal(count(app, "createToastManager("), 1, "instantiated once in app.js");
   assert.equal(count(html, "toast-stack"), 4, "exactly two toast stacks in the DOM (class mentions in markup/comments)");
   assert.equal(count(html, 'role="status" aria-live="polite" aria-relevant="additions text"'), 1, "only one toast live region exists");
-  assert.equal(count(app, "TOAST_DURATIONS"), 3, "duration table referenced only inside the one manager");
+  assert.equal(count(toast, "TOAST_DURATIONS"), 3, "duration table referenced only inside the one manager");
 });

@@ -5,41 +5,159 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import forgeConfig, {
   packageIgnorePatterns,
-  removeNativeBuildMetadata,
+  preparePackagedRuntime,
 } from "../desktop/forge.config.mjs";
+
+const isIgnored = (path) => packageIgnorePatterns.some((pattern) => pattern.test(path));
 
 test("packages MOSA with ASAR and unpacked native dependencies", () => {
   assert.equal(forgeConfig.packagerConfig.name, "MOSA");
   assert.equal(forgeConfig.packagerConfig.appBundleId, "com.azhuilab.mosa");
+  const sign = forgeConfig.packagerConfig.osxSign;
+  assert.equal(sign.identity, "-");
+  assert.equal(sign.identityValidation, false);
+  assert.equal(sign.preAutoEntitlements, false);
+  assert.equal(sign.strictVerify, true);
+  assert.equal(sign.continueOnError, false);
+  assert.deepEqual(sign.optionsForFile("/tmp/MOSA.app"), {
+    hardenedRuntime: false,
+    additionalArguments: ["--options=0"],
+  });
   assert.equal(
     forgeConfig.packagerConfig.asar.unpackDir,
     "node_modules/@img/sharp-libvips-darwin-arm64",
   );
   assert.equal(typeof forgeConfig.hooks.packageAfterPrune, "function");
-  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/test/example.test.mjs")), true);
-  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/scripts/check-source.mjs")), true);
-  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/dist/lib/server-security.js")), true);
-  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/lib/mosa-runtime.mjs")), false);
   assert.deepEqual(forgeConfig.packagerConfig.ignore, packageIgnorePatterns);
   assert.equal(forgeConfig.plugins.some((plugin) => plugin.name === "auto-unpack-natives"), true);
   assert.equal(forgeConfig.makers.some((maker) => maker.name === "zip"), true);
 });
 
-test("removes compiler metadata without deleting the packaged SQLite binding", async (t) => {
+test("desktop package excludes every non-runtime project surface", () => {
+  for (const path of [
+    "/.github/workflows/verify.yml",
+    "/.gitignore",
+    "/AGENTS.md",
+    "/assets/default/images/library-image.png",
+    "/bin/mosa.mjs",
+    "/CHANGELOG.md",
+    "/COMMERCIAL-LICENSE.md",
+    "/desktop/forge.config.mjs",
+    "/desktop/preload.mjs",
+    "/dist/lib/server-security.js",
+    "/docs/operations.md",
+    "/extensions/chatgpt-web-capture/manifest.json",
+    "/lib/asset-sort.d.ts",
+    "/lib/asset-sort.js.map",
+    "/lib/asset-sort.ts",
+    "/mcp/server.mjs",
+    "/node_modules/.package-lock.json",
+    "/node_modules/@electron/asar/lib/asar.js",
+    "/node_modules/@img/sharp-darwin-x64/package.json",
+    "/node_modules/eslint/lib/api.js",
+    "/out/MOSA-darwin-arm64/MOSA.app/Contents/Info.plist",
+    "/package-lock.json",
+    "/README.md",
+    "/scripts/check-source.mjs",
+    "/server.mjs",
+    "/test/desktop-packaging.test.mjs",
+    "/tsconfig.json",
+  ]) {
+    assert.equal(isIgnored(path), true, `${path} must stay out of the desktop package`);
+  }
+});
+
+test("desktop package keeps every required runtime surface", () => {
+  for (const path of [
+    "/LICENSE",
+    "/package.json",
+    "/app/app.mjs",
+    "/app/build-identity.json",
+    "/app/index.html",
+    "/app/styles.css",
+    "/app/font-instrument-sans.woff2",
+    "/desktop/main.mjs",
+    "/desktop/notification-i18n.mjs",
+    "/desktop/preload.cjs",
+    "/desktop/service-manager.mjs",
+    "/lib/api/asset-routes.mjs",
+    "/lib/asset-sort.js",
+    "/lib/mosa-runtime.mjs",
+    "/lib/runtime-isolation-guard.mjs",
+    "/node_modules/better-sqlite3/lib/index.js",
+    "/node_modules/better-sqlite3/prebuilds/darwin-arm64.node",
+    "/node_modules/detect-libc/lib/detect-libc.js",
+    "/node_modules/node-addon-api/index.js",
+    "/node_modules/semver/index.js",
+    "/node_modules/sharp/dist/index.cjs",
+    "/node_modules/@img/colour/index.cjs",
+    "/node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64-0.35.3.node",
+    "/node_modules/@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.3.dylib",
+  ]) {
+    assert.equal(isIgnored(path), false, `${path} must remain available to the desktop runtime`);
+  }
+});
+
+test("reduces the packaged dependency tree to arm64 runtime files", async (t) => {
   const buildPath = await mkdtemp(join(tmpdir(), "mosa-desktop-package-"));
   t.after(() => rm(buildPath, { recursive: true, force: true }));
   const packageDir = join(buildPath, "node_modules", "better-sqlite3");
   const metadataPath = join(packageDir, "build", "config.gypi");
   const bindingPath = join(packageDir, "prebuilds", "darwin-arm64.node");
+  const foreignBindingPath = join(packageDir, "prebuilds", "linux-x64.node");
+  const sqliteSourcePath = join(packageDir, "src", "addon.cpp");
+  const sharpRuntimePath = join(buildPath, "node_modules", "sharp", "dist", "index.cjs");
+  const sharpTypePath = join(buildPath, "node_modules", "sharp", "dist", "index.d.cts");
+  const nodeAddonPath = join(buildPath, "node_modules", "node-addon-api", "index.js");
   await mkdir(join(packageDir, "build"), { recursive: true });
   await mkdir(join(packageDir, "prebuilds"), { recursive: true });
+  await mkdir(join(packageDir, "src"), { recursive: true });
+  await mkdir(join(buildPath, "node_modules", "sharp", "dist"), { recursive: true });
+  await mkdir(join(buildPath, "node_modules", "node-addon-api"), { recursive: true });
   await writeFile(metadataPath, "local_prefix=/Users/example/project\n");
   await writeFile(bindingPath, "binding");
+  await writeFile(foreignBindingPath, "foreign binding");
+  await writeFile(sqliteSourcePath, "source");
+  await writeFile(sharpRuntimePath, "runtime");
+  await writeFile(sharpTypePath, "types");
+  await writeFile(nodeAddonPath, "build helper");
+  await writeFile(
+    join(buildPath, "package.json"),
+    JSON.stringify({
+      name: "mosa",
+      version: "0.2.0",
+      private: true,
+      license: "test-license",
+      type: "module",
+      main: "desktop/main.mjs",
+      config: { forge: "desktop/forge.config.mjs" },
+      scripts: { test: "node --test" },
+      bin: { mosa: "bin/mosa.mjs" },
+      engines: { node: ">=22" },
+      dependencies: { "better-sqlite3": "1", sharp: "1" },
+      devDependencies: { electron: "1" },
+    }),
+  );
 
-  await removeNativeBuildMetadata(buildPath);
+  await preparePackagedRuntime(buildPath);
 
   await assert.rejects(access(metadataPath));
+  await assert.rejects(access(foreignBindingPath));
+  await assert.rejects(access(sqliteSourcePath));
+  await assert.rejects(access(sharpTypePath));
+  await assert.rejects(access(nodeAddonPath));
   await access(bindingPath);
+  await access(sharpRuntimePath);
+  assert.deepEqual(JSON.parse(await readFile(join(buildPath, "package.json"), "utf8")), {
+    name: "mosa",
+    version: "0.2.0",
+    private: true,
+    license: "test-license",
+    type: "module",
+    main: "desktop/main.mjs",
+    engines: { node: ">=22" },
+    dependencies: { "better-sqlite3": "1", sharp: "1" },
+  });
 });
 
 test("keeps the desktop window single-instance and sandboxed", async () => {
@@ -64,7 +182,7 @@ test("keeps the desktop window single-instance and sandboxed", async () => {
   assert.match(source, /setPermissionRequestHandler\(\(_webContents, _permission, callback\) => callback\(false\)\)/);
   assert.match(source, /app\.exit\(0\)/);
 
-  const appSource = await readFile(resolve(import.meta.dirname, "..", "app", "app.js"), "utf8");
+  const appSource = await readFile(resolve(import.meta.dirname, "..", "app", "app.mjs"), "utf8");
   const index = await readFile(resolve(import.meta.dirname, "..", "app", "index.html"), "utf8");
   assert.doesNotMatch(appSource, /window\.open\(/);
   assert.match(appSource, /openImagePreview\(asset\.id, event\.currentTarget\)/);
@@ -73,11 +191,12 @@ test("keeps the desktop window single-instance and sandboxed", async () => {
 
 test("the packaged app includes build-identity.json in app/", () => {
   // build-identity.json must not be ignored by the forge packaging config.
-  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/app/build-identity.json")), false);
-  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/app/index.html")), false);
-  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/app/app.js")), false);
-  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/app/styles.css")), false);
-  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/lib/build-identity.mjs")), false);
+  assert.equal(isIgnored("/app/build-identity.json"), false);
+  assert.equal(isIgnored("/app/index.html"), false);
+  assert.equal(isIgnored("/app/app.mjs"), false);
+  assert.equal(isIgnored("/app/styles.css"), false);
+  assert.equal(isIgnored("/lib/build-identity.mjs"), false);
+  assert.equal(isIgnored("/desktop/preload.cjs"), false);
 });
 
 // Phase 4C：「在 Finder 中显示」桌面能力契约。自动测试不真正打开用户 Finder——以源码
@@ -116,5 +235,5 @@ test("exposes only the minimal show-in-folder capability to the renderer", async
   // packaged app 的 sandbox preload 使用相对 main.mjs 解析出的绝对 CommonJS 路径。
   assert.match(main, /const preloadPath = fileURLToPath\(new URL\("\.\/preload\.cjs", import\.meta\.url\)\);/);
   assert.match(main, /preload: preloadPath/);
-  assert.equal(packageIgnorePatterns.some((pattern) => pattern.test("/desktop/preload.cjs")), false);
+  assert.equal(isIgnored("/desktop/preload.cjs"), false);
 });

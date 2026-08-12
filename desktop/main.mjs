@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_MOSA_DESKTOP_PORT } from "../lib/runtime-defaults.mjs";
+import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
 import { parseDisabledBridges } from "../lib/runtime-bridges.mjs";
 import { cleanupOrphanStagedFiles, importStagingDir, stageFileForImport, STAGING_EXTENSIONS, writeStagedPng } from "../lib/import-staging.mjs";
 import { startMosaService } from "./service-manager.mjs";
@@ -11,10 +12,61 @@ import { getNotificationText, getNotificationTextForAssetsImported } from "./not
 import { getDesktopText } from "./notification-i18n.mjs";
 
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
+// The parent of this module's own directory is the application root: the
+// repository root in dev (electron desktop/main.mjs) and the app.asar root
+// when packaged. Deriving it from the module location keeps both modes on a
+// single source of truth instead of the app path API.
+const appRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+// `desktopDataDir` is the *actual* userData after Chromium applied the QA
+// --user-data-dir override (if any). It is deliberately NOT the production
+// default: Electron rewrites userData before any JS runs, so the un-overridden
+// default must be reconstructed from appData + app.name, which the switch
+// never touches. Dev (`npx electron`) reads the name from package.json
+// ("mosa"); the packaged app carries the forge packagerConfig name ("MOSA").
 const desktopDataDir = app.getPath("userData");
+const productionDefaultUserData = join(app.getPath("appData"), app.name);
 const importStagingRoot = importStagingDir(desktopDataDir);
 const desktopPort = process.env.MOSA_DESKTOP_PORT || DEFAULT_MOSA_DESKTOP_PORT;
 const libraryDir = resolve(process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"));
+
+// ---- Runtime isolation context (single source of truth, three layers) ----
+// The same context object is passed explicitly through validateRuntimeIsolation,
+// startMosaService and (via service-manager) startMosaRuntime. Propagation never
+// relies on process.env, so a caller-supplied QA override cannot be dropped or
+// replaced by an unrelated environment value somewhere down the chain.
+const isolationContext = {
+  runtimeMode: process.env.MOSA_RUNTIME_MODE,
+  qaRun: process.env.MOSA_QA_RUN,
+  expectedUserData: process.env.MOSA_USER_DATA,
+  actualUserData: desktopDataDir,
+  productionDefaultUserData,
+  argv: process.argv,
+  runtimeKind: "electron",
+};
+
+// ---- Runtime isolation guard: fail closed before any production write ----
+const guard = validateRuntimeIsolation({
+  libraryDir: process.env.MOSA_LIBRARY_DIR,
+  port: desktopPort,
+  runtimeMode: isolationContext.runtimeMode,
+  qaRun: isolationContext.qaRun,
+  userData: isolationContext.expectedUserData,
+  actualUserData: isolationContext.actualUserData,
+  defaultUserData: isolationContext.productionDefaultUserData,
+  argv: isolationContext.argv,
+  runtimeKind: isolationContext.runtimeKind,
+  productionLibraryDir: join(homedir(), "MOSA Library"),
+  productionPorts: [43517, 43519, 43637],
+});
+if (!guard.ok) {
+  console.error(`ISOLATION_GUARD_REJECTED: ${guard.field} ${guard.reason}`);
+  console.error(`ISOLATION_GUARD_REJECTED: actualUserData=${desktopDataDir}`);
+  app.exit(1);
+  // app.exit(1) does not halt execution in all Electron versions.
+  // Prevent further lifecycle registration explicitly.
+  process.exitCode = 1;
+  throw new Error(`ISOLATION_GUARD_REJECTED: ${guard.field} ${guard.reason}`);
+}
 
 // Display-only groups for the native open dialog. The authoritative set is
 // STAGING_EXTENSIONS (mirror of the store's accepted media), so the dialog can
@@ -309,16 +361,16 @@ function openMainWindow() {
 async function createMainWindow() {
   denyBrowserPermissions();
   if (!service) {
-    const appPath = app.getAppPath();
     service = await startMosaService({
       port: desktopPort,
       libraryDir,
       importStagingRoot,
+      isolationContext,
       runtimeOptions: {
-        projectRoot: appPath,
-        managerDir: appPath,
+        projectRoot: appRoot,
+        managerDir: appRoot,
         cowartProjectDir: desktopDataDir,
-        appDir: join(appPath, "app"),
+        appDir: join(appRoot, "app"),
         // JSON fallback libraries must remain writable when MOSA is packaged.
         assetsRoot: join(libraryDir, "assets"),
         generatedImagesDir: join(libraryDir, "imports"),

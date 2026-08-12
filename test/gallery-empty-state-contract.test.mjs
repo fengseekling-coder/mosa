@@ -11,9 +11,12 @@ import test from "node:test";
 // 源码切片契约。不用整文件 SHA 代替行为契约（package/lockfile 除外）。
 
 const root = resolve(import.meta.dirname, "..");
-const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readAssetView = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
+const readApiClient = () => readFile(resolve(root, "app/api-client.mjs"), "utf8");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
 const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
+const readInspectorMarkup = () => readFile(resolve(root, "app/inspector-markup.mjs"), "utf8");
 
 const count = (source, needle) => source.split(needle).length - 1;
 const sha256 = (content) => createHash("sha256").update(content).digest("hex");
@@ -138,7 +141,7 @@ test("14-19. one shell, honest copy, and the right single action per kind", asyn
 
 test("20-32. resetLibraryRefinements is the single clear path with focus recovery", async () => {
   const app = await readApp();
-  const reset = sliceBetween(app, "function resetLibraryRefinements()", "\n\ninit();");
+  const reset = sliceBetween(app, "function resetLibraryRefinements()", "\n\nasync function init()");
 
   // 20-24. Clears query, facets, facetQuery, scope and the group facet.
   assert.match(reset, /state\.query = "";/, "clears the query");
@@ -172,7 +175,7 @@ test("20-32. resetLibraryRefinements is the single clear path with focus recover
 });
 
 test("33-36. import reuses the existing modal; retry and pagination failures stay honest", async () => {
-  const app = await readApp();
+  const [app, apiClient] = await Promise.all([readApp(), readApiClient()]);
   const delegation = sliceBetween(app, 'els.assetGrid?.addEventListener("click"', 'els.newAssetTopBtn?.addEventListener("click", openImportModal);');
 
   // 33-34. Import reuses the one existing modal; there is no second one.
@@ -190,7 +193,7 @@ test("33-36. import reuses the existing modal; retry and pagination failures sta
   assert.match(delegation, /\[data-action="retry"\]'\)\) window\.location\.reload\(\)/, "retry behaviour is unchanged");
   assert.match(renderGrid, /announceEmptyState/, "announcements fire only for empty states, never for errors");
   // 36. A pagination failure can never clear existing cards.
-  const loadAssets = sliceBetween(app, "async function loadAssets(", "let libraryRefreshInFlight");
+  const loadAssets = sliceBetween(apiClient, "async function loadAssets(", "let libraryRefreshInFlight");
   assert.ok(loadAssets.indexOf("const result = await requestAssetPage(") < loadAssets.indexOf("state.assets = nextAssets"), "assets only change after a successful response");
   assert.doesNotMatch(app, /state\.assets = \[\]/, "nothing ever empties the card list directly");
   assert.doesNotMatch(delegation, /load-more[\s\S]*?renderErrorState/, "load-more failures do not repaint the grid as an error or empty state");
@@ -198,18 +201,19 @@ test("33-36. import reuses the existing modal; retry and pagination failures sta
 
 test("37-39. batch, viewer and return snapshot semantics stay untouched", async () => {
   const app = await readApp();
+  const viewer = await readAssetView();
 
   // 37. Zero results leave no operable dangerous batch action.
   const batchUi = sliceBetween(app, "function updateBatchUI()", "\nfunction setBatchBusy");
   assert.match(batchUi, /els\.batchSelectAll\.disabled = state\.batchSaving \|\| state\.assets\.length === 0;/, "select-all is disabled with zero results");
   assert.match(batchUi, /button\.disabled = state\.batchSaving \|\| \(button !== els\.batchCancel && selectedCount === 0\)/, "favorite/archive need a real selection; cancel stays the safe exit");
   // 38. Return snapshot structure is untouched.
-  assert.match(app, /state\.libraryReturnSnapshot = \{\n\s+scrollTop: getLibraryScrollContainer\(\)\.scrollTop,/, "the return snapshot keeps its fields");
-  assert.match(app, /requestKey: assetRequestKey\(currentAssetRequest\(\)\)/);
+  assert.match(viewer, /state\.libraryReturnSnapshot = \{\n\s+scrollTop: getLibraryScrollContainer\(\)\.scrollTop,/, "the return snapshot keeps its fields");
+  assert.match(viewer, /requestKey: assetRequestKey\(currentAssetRequest\(\)\)/);
   // 39. The viewer state machine is untouched.
   assert.match(app, /viewMode: "library", libraryReturnSnapshot: null/, "viewMode stays binary");
-  assert.match(app, /assetViewSequence\.ids = state\.assets\.map\(\(asset\) => asset\.id\);/);
-  assert.match(app, /function setViewMode\(/);
+  assert.match(viewer, /assetViewSequence\.ids = state\.assets\.map\(\(asset\) => asset\.id\);/);
+  assert.match(viewer, /function setViewMode\(/);
 });
 
 test("40. i18n keys are symmetric across zh and en and free of duplicate synonyms", async () => {
@@ -245,13 +249,20 @@ test("41-43. styles stay inside the token boundary; dependencies stay frozen", a
   assert.doesNotMatch(css, /\.empty-state-onboard/, "the dead onboarding shell styles are gone");
   assert.doesNotMatch(css, /\.empty-state \{/, "the old misleading empty-state styles are gone");
   // 42-43. No new imports, no manifest or lockfile change.
-  assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(), ["./bridge-status-poller.js", "./i18n.mjs"], "app.js gains no new imports");
-  assert.equal(sha256(pkg), "e161974a477853703cc88724de39805fe5c65e590bd331060a17be6d087a2f24", "package.json must stay untouched");
+  assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(), ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./overlay-manager.mjs", "./toast-manager.mjs"], "app.js gains no new imports");
+  // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
+  // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
+  // the dependency sections the freeze really guards stay byte-identical.
+  const manifest = JSON.parse(pkg);
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must stay untouched");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies must stay untouched");
   assert.equal(sha256(lock), "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd", "package-lock.json must stay untouched");
 });
 
 test("44. Phase 1–4C neighbouring contracts and anchors stay intact", async () => {
   const app = await readApp();
+  const inspector = await readInspectorMarkup();
+  const viewer = await readAssetView();
 
   await Promise.all([
     access(resolve(root, "test/filter-experience.test.mjs")),
@@ -266,6 +277,6 @@ test("44. Phase 1–4C neighbouring contracts and anchors stay intact", async ()
   assert.match(app, /if \(kind === "__all"\) \{ clearAllFilters\(\); return; \}/, "the chip clear-all entry survives");
   assert.match(app, /if \(state\.galleryStatus === "loading"\) \{ els\.assetGrid\.innerHTML = gallerySkeletonMarkup\(\); return; \}/, "the skeleton branch survives");
   assert.match(app, /action-btn primary/, "the inspector primary button survives");
-  assert.match(app, /state\.libraryReturnSnapshot = \{/);
-  assert.match(app, /function detailMoreSectionMarkup\(asset\)/);
+  assert.match(viewer, /state\.libraryReturnSnapshot = \{/);
+  assert.match(inspector, /function detailMoreSectionMarkup\(asset\)/);
 });

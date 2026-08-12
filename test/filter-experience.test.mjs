@@ -5,7 +5,8 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 
-const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readApiClient = () => readFile(resolve(root, "app/api-client.mjs"), "utf8");
 const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
 const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
@@ -17,12 +18,14 @@ const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
  * `document` at load), so the declaration is lifted out and evaluated alone.
  */
 async function loadHumanizer() {
-  const app = await readApp();
-  const start = app.indexOf("function humanizeFacetValue");
+  // humanizeFacetValue moved to app/utils.mjs (R1 batch 2); the declaration is
+  // lifted from there and evaluated alone (the gallery module touches document).
+  const utils = await readFile(resolve(root, "app/utils.mjs"), "utf8");
+  const start = utils.indexOf("function humanizeFacetValue");
   assert.ok(start > -1, "humanizeFacetValue is missing");
-  const end = app.indexOf("\n}\n", start);
+  const end = utils.indexOf("\n}\n", start);
   assert.ok(end > -1, "humanizeFacetValue is not brace-terminated as expected");
-  const source = app.slice(start, end + 2);
+  const source = utils.slice(start, end + 2);
   return new Function(`${source}; return humanizeFacetValue;`)();
 }
 
@@ -44,28 +47,39 @@ test("renders machine facet names readably without touching authored names", asy
 });
 
 test("keeps facets combinable instead of replacing one another", async () => {
-  const app = await readApp();
+  const [app, config, apiClient] = await Promise.all([
+    readApp(),
+    readFile(resolve(root, "app/config.mjs"), "utf8"),
+    readApiClient(),
+  ]);
 
-  assert.match(app, /const FACET_KEYS = \["source", "group", "category", "style"\]/);
+  // FACET_KEYS moved to app/config.mjs (R1 batch 2); the import keeps app.js
+  // wiring the same while the declaration lives with the other constants.
+  assert.match(config, /export const FACET_KEYS = \["source", "group", "category", "style"\]/);
   assert.match(app, /function toggleFacet\(key, value\) \{\s*state\.facets\[key\] = state\.facets\[key\] === value \? "" : value;/);
   // Every facet travels on the request, so choosing a style cannot drop a source.
-  assert.match(app, /for \(const key of FACET_KEYS\) \{\s*if \(request\.facets\[key\]\) params\.set\(key, request\.facets\[key\]\);/);
+  assert.match(apiClient, /for \(const key of FACET_KEYS\) \{\s*if \(request\.facets\[key\]\) params\.set\(key, request\.facets\[key\]\);/);
   // The request key covers all dimensions, so a stale response cannot overwrite a newer one.
-  assert.match(app, /JSON\.stringify\(\[request\.project, request\.query, request\.scope, \.\.\.FACET_KEYS\.map\(\(key\) => request\.facets\[key\] \|\| ""\), request\.sort\]\)/);
+  assert.match(apiClient, /JSON\.stringify\(\[request\.project, request\.query, request\.scope, \.\.\.FACET_KEYS\.map\(\(key\) => request\.facets\[key\] \|\| ""\), request\.sort\]\)/);
   assert.match(app, /scope: "all", facets: \{ source: "", group: "", category: "", style: "" \}/);
 });
 
 test("resolves sort server-side and restarts paging when it changes", async () => {
-  const [app, html] = await Promise.all([readApp(), readHtml()]);
+  const [app, html, config, apiClient] = await Promise.all([
+    readApp(),
+    readHtml(),
+    readFile(resolve(root, "app/config.mjs"), "utf8"),
+    readApiClient(),
+  ]);
 
   assert.match(html, /<select id="sortSelect"/);
   for (const [value, key] of [["newest", "sortNewest"], ["oldest", "sortOldest"], ["name", "sortName"]]) {
     assert.match(html, new RegExp(`<option value="${value}" data-i18n="${key}"`));
   }
-  assert.match(app, /params\.set\("sort", request\.sort\)/);
+  assert.match(apiClient, /params\.set\("sort", request\.sort\)/);
   // A cursor belongs to the order that issued it, so switching sort must drop it.
   assert.match(app, /state\.sort = normalizeSort\(els\.sortSelect\.value\);[\s\S]{0,320}state\.nextCursor = null;/);
-  assert.match(app, /const SORT_ORDERS = \["newest", "oldest", "name"\]/);
+  assert.match(config, /export const SORT_ORDERS = \["newest", "oldest", "name"\]/);
   assert.match(app, /safeStorageSet\("mosa\.asset-sort", state\.sort\)/);
   // Any filter change also restarts paging rather than resuming a stale cursor.
   assert.match(app, /function applyFilterChange\(\) \{\s*\/\/[^\n]*\n\s*state\.nextCursor = null;/);
@@ -116,9 +130,11 @@ test("makes long facet lists searchable and honest about truncation", async () =
 });
 
 test("stops the sidebar and filter panel from duplicating the collection list", async () => {
-  const app = await readApp();
+  // SIDEBAR_GROUP_LIMIT moved to app/config.mjs (R1 batch 2); the usage in
+  // app.js keeps the same limit via import.
+  const [app, config] = await Promise.all([readApp(), readFile(resolve(root, "app/config.mjs"), "utf8")]);
 
-  assert.match(app, /const SIDEBAR_GROUP_LIMIT = 5/);
+  assert.match(config, /export const SIDEBAR_GROUP_LIMIT = 5/);
   assert.match(app, /const shown = all\.slice\(0, SIDEBAR_GROUP_LIMIT\)/);
   assert.match(app, /data-action="open-all-groups"/);
   assert.match(app, /t\("allGroups", \{ count: all\.length \}\)/);

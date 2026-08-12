@@ -13,7 +13,8 @@ import test from "node:test";
 const root = resolve(import.meta.dirname, "..");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
 const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
-const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readAssetView = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
 const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
@@ -97,22 +98,22 @@ test("5. no related-assets rail in the asset view", async () => {
   const html = await readHtml();
   const slice = assetViewSlice(html);
   assert.doesNotMatch(slice, /related|recommend|similar/i, "no related-assets markup in the asset view");
-  const app = await readApp();
-  assert.doesNotMatch(functionBody(app, "renderAssetView"), /related|recommend|similar/i, "renderAssetView paints no related rail");
+  const viewer = await readAssetView();
+  assert.doesNotMatch(functionBody(viewer, "renderAssetView"), /related|recommend|similar/i, "renderAssetView paints no related rail");
 });
 
 // 6. In asset mode the gallery grid is hidden (via the library-view wrapper).
 test("6. gallery is hidden in asset mode", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "setViewMode");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "setViewMode");
   assert.match(body, /els\.libraryView\.hidden = assetMode/, "library-view (grid wrapper) must be hidden in asset mode");
   assert.match(body, /els\.assetView\.hidden = !assetMode/, "asset-view must be visible in asset mode");
 });
 
 // 7. In asset mode the gallery grid is inert (removed from the tab order).
 test("7. gallery is inert in asset mode", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "setViewMode");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "setViewMode");
   assert.match(body, /els\.libraryView\.toggleAttribute\("inert", assetMode\)/, "library-view must be inert in asset mode");
   assert.match(body, /els\.assetView\.toggleAttribute\("inert", !assetMode\)/, "asset-view must leave inert in asset mode");
   assert.match(body, /els\.libraryView\.setAttribute\("aria-hidden", String\(assetMode\)\)/, "library-view must be aria-hidden in asset mode");
@@ -168,10 +169,11 @@ test("12. copy quick action does not enter the view", async () => {
 // 13. Batch mode wins over the view: a click selects instead of opening.
 test("13. batch mode takes precedence over the view", async () => {
   const app = await readApp();
+  const viewer = await readAssetView();
   const cards = sliceBetween(app, 'els.assetGrid.querySelectorAll(".asset-card-select")', 'querySelectorAll(".card-quick-copy")');
   assert.match(cards, /if \(state\.batchMode\) \{ toggleAssetSelection\(id\); return; \}/,
     "batch mode click toggles selection and never reaches openAssetView");
-  assert.match(functionBody(app, "openAssetView"), /if \(!id \|\| state\.batchMode \|\| state\.viewMode === "asset"\) return;/,
+  assert.match(functionBody(viewer, "openAssetView"), /if \(!id \|\| state\.batchMode \|\| state\.viewMode === "asset"\) return;/,
     "openAssetView hard-guards batch mode and re-entry");
 });
 
@@ -224,11 +226,11 @@ test("16. Escape layering: overlays first, view exit second", async () => {
 // 17. The snapshot records scrollTop exclusively through the shared real-scroller
 //     helper — never a direct assetGrid.scrollTop read, never window.scrollY.
 test("17. snapshot captures scrollTop via the shared scroller helper", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "openAssetView");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "openAssetView");
   assert.match(body, /scrollTop: getLibraryScrollContainer\(\)\.scrollTop/, "snapshot reads scrollTop through getLibraryScrollContainer()");
   assert.doesNotMatch(body, /els\.assetGrid\.scrollTop/, "snapshot must not read assetGrid.scrollTop directly");
-  assert.doesNotMatch(body + functionBody(app, "returnToLibrary"), /window\.scrollY|window\.scrollTo/,
+  assert.doesNotMatch(body + functionBody(viewer, "returnToLibrary"), /window\.scrollY|window\.scrollTo/,
     "scroll state never comes from the window");
 });
 
@@ -236,8 +238,8 @@ test("17. snapshot captures scrollTop via the shared scroller helper", async () 
 //     and laid out again (double rAF — display:none clamps scrollTop to 0, fixed
 //     timeouts are banned), and focus is restored only after the scroll write.
 test("18. scrollTop restored via helper after re-layout, focus after scroll", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "returnToLibrary");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "returnToLibrary");
   const iRaf = body.indexOf("requestAnimationFrame(() => {");
   const iScroll = body.indexOf("getLibraryScrollContainer().scrollTop = snapshot.scrollTop;");
   const iFocus = body.indexOf("cardButton.focus({ preventScroll: true })");
@@ -250,8 +252,8 @@ test("18. scrollTop restored via helper after re-layout, focus after scroll", as
 // 19. Focus returns to the originating card; if it is gone, focus lands on the
 //     gallery container (main content), never on <body>.
 test("19. focus restores to the originating card with a grid fallback", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "returnToLibrary");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "returnToLibrary");
   assert.match(body, /els\.assetGrid\.querySelector\(`\.asset-card\[data-id="\$\{CSS\.escape\(snapshot\.focusedAssetId\)\}"\] \.asset-card-select`\)/,
     "the originating card button is looked up by the snapshot id");
   assert.match(body, /if \(cardButton\) cardButton\.focus\(\{ preventScroll: true \}\);\s+else els\.assetGrid\.focus\(\{ preventScroll: true \}\);/,
@@ -262,30 +264,30 @@ test("19. focus restores to the originating card with a grid fallback", async ()
 
 // 20. Opening and returning never reset the search query.
 test("20. search query is never reset by the view cycle", async () => {
-  const app = await readApp();
-  const bodies = functionBody(app, "openAssetView") + functionBody(app, "returnToLibrary");
+  const viewer = await readAssetView();
+  const bodies = functionBody(viewer, "openAssetView") + functionBody(viewer, "returnToLibrary");
   assert.doesNotMatch(bodies, /state\.query\s*=/, "view cycle must not touch state.query");
   assert.doesNotMatch(bodies, /els\.searchInput\.value\s*=/, "view cycle must not touch the search input");
 });
 
 // 21. Opening and returning never reset the active facets.
 test("21. facet filters are never reset by the view cycle", async () => {
-  const app = await readApp();
-  const bodies = functionBody(app, "openAssetView") + functionBody(app, "returnToLibrary");
+  const viewer = await readAssetView();
+  const bodies = functionBody(viewer, "openAssetView") + functionBody(viewer, "returnToLibrary");
   assert.doesNotMatch(bodies, /state\.facets|clearFacets|applyFilterChange/, "view cycle must not touch facet state");
 });
 
 // 22. Opening and returning never reset the sort order.
 test("22. sort order is never reset by the view cycle", async () => {
-  const app = await readApp();
-  const bodies = functionBody(app, "openAssetView") + functionBody(app, "returnToLibrary");
+  const viewer = await readAssetView();
+  const bodies = functionBody(viewer, "openAssetView") + functionBody(viewer, "returnToLibrary");
   assert.doesNotMatch(bodies, /state\.sort\s*=|normalizeSort/, "view cycle must not touch sort state");
 });
 
 // 23. Opening and returning never reset the scope (all/favorites/recent) or groups.
 test("23. scope and groups are never reset by the view cycle", async () => {
-  const app = await readApp();
-  const bodies = functionBody(app, "openAssetView") + functionBody(app, "returnToLibrary");
+  const viewer = await readAssetView();
+  const bodies = functionBody(viewer, "openAssetView") + functionBody(viewer, "returnToLibrary");
   assert.doesNotMatch(bodies, /state\.scope\s*=|state\.groups\s*=/, "view cycle must not touch scope or groups");
 });
 
@@ -299,9 +301,10 @@ test("24. no new router for the view mode", async () => {
 // 25. No second selected-asset state is introduced — the single selectedId is reused.
 test("25. no duplicate selected-asset state", async () => {
   const app = await readApp();
+  const viewer = await readAssetView();
   assert.doesNotMatch(app, /state\.(assetViewId|viewAssetId|viewerAssetId|largeViewId|viewSelectedId)/,
     "no parallel selected id may be introduced");
-  assert.match(functionBody(app, "openAssetView"), /state\.selectedId = id;/,
+  assert.match(functionBody(viewer, "openAssetView"), /state\.selectedId = id;/,
     "the view reuses the single state.selectedId");
 });
 
@@ -323,8 +326,8 @@ test("26. contain contract on the stage media", async () => {
 // 27. The two modes can never be in the tab order together (hidden + inert are
 //     driven by the same boolean in one place).
 test("27. the two modes are mutually exclusive in the tab order", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "setViewMode");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "setViewMode");
   assert.match(body, /const assetMode = state\.viewMode === "asset";/, "a single boolean drives both regions");
   assert.ok(body.indexOf("els.libraryView.hidden = assetMode") < body.indexOf("els.assetView.hidden = !assetMode"),
     "library hides exactly when the asset view shows");
@@ -402,7 +405,12 @@ test("33. no undefined design tokens in the Phase 3A CSS", async () => {
 //     with the out-of-scope locks in the sibling contracts).
 test("34. package files stay untouched", async () => {
   const pkg = await readFile(resolve(root, "package.json"), "utf8");
-  assert.equal(sha256(pkg), "e161974a477853703cc88724de39805fe5c65e590bd331060a17be6d087a2f24", "package.json must stay untouched");
+  // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
+  // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
+  // the dependency sections the freeze really guards stay byte-identical.
+  const manifest = JSON.parse(pkg);
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must stay untouched");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies must stay untouched");
   const lock = await readFile(resolve(root, "package-lock.json"), "utf8");
   assert.equal(sha256(lock), "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd", "package-lock.json must stay untouched");
 });
@@ -423,8 +431,8 @@ test("35. Escape chain stops after a modal trap consumed the event", async () =>
 //     scrolls (content overflows AND computed overflow-y allows it); otherwise the
 //     document scroller is used, with documentElement as the sane fallback.
 test("36. centralized getLibraryScrollContainer helper resolves the real scroller", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "getLibraryScrollContainer");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "getLibraryScrollContainer");
   assert.match(body, /grid\.scrollHeight > grid\.clientHeight/, "grid must genuinely overflow to qualify");
   assert.match(body, /getComputedStyle\(grid\)\.overflowY/, "computed overflow-y is inspected");
   assert.match(body, /overflowY === "auto" \|\| overflowY === "scroll"/, "only a scrollable overflow-y qualifies");
@@ -434,18 +442,18 @@ test("36. centralized getLibraryScrollContainer helper resolves the real scrolle
 // 37. The scroller judgement lives in exactly one place: the helper is the only
 //     site that mentions scrollingElement, and open/return both consume it.
 test("37. scroller resolution is centralized, not copied across functions", async () => {
-  const app = await readApp();
-  assert.equal(app.split("document.scrollingElement").length - 1, 1,
+  const viewer = await readAssetView();
+  assert.equal(viewer.split("document.scrollingElement").length - 1, 1,
     "document.scrollingElement must appear exactly once (inside the helper)");
-  assert.match(functionBody(app, "openAssetView"), /getLibraryScrollContainer\(\)/, "open captures through the helper");
-  assert.match(functionBody(app, "returnToLibrary"), /getLibraryScrollContainer\(\)/, "return restores through the same helper");
+  assert.match(functionBody(viewer, "openAssetView"), /getLibraryScrollContainer\(\)/, "open captures through the helper");
+  assert.match(functionBody(viewer, "returnToLibrary"), /getLibraryScrollContainer\(\)/, "return restores through the same helper");
 });
 
 // 38. No window-scroll assumptions and no harness-only hooks in the view cycle:
 //     the product captures and restores scroll itself; tests only observe.
 test("38. no window scroll APIs or harness-only hooks in the view cycle", async () => {
-  const app = await readApp();
-  const cycle = functionBody(app, "openAssetView") + functionBody(app, "returnToLibrary") + functionBody(app, "getLibraryScrollContainer");
+  const viewer = await readAssetView();
+  const cycle = functionBody(viewer, "openAssetView") + functionBody(viewer, "returnToLibrary") + functionBody(viewer, "getLibraryScrollContainer");
   assert.doesNotMatch(cycle, /window\.scrollY|window\.scrollTo|scrollIntoView/, "no parallel window-scroll implementation");
   assert.doesNotMatch(cycle, /__p3a|watchdog|cdp/i, "product code must not contain test-harness hooks");
 });
@@ -453,10 +461,10 @@ test("38. no window scroll APIs or harness-only hooks in the view cycle", async 
 // 39. The return snapshot stays minimal — scroll position, originating card,
 //     selection and the result-set key; never whole state or the asset array.
 test("39. return snapshot stays minimal", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "openAssetView");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "openAssetView");
   const snapshot = sliceBetween(body, "state.libraryReturnSnapshot = {", "};");
-  const keys = [...snapshot.matchAll(/^ {4}(\w+):/gm)].map((match) => match[1]);
+  const keys = [...snapshot.matchAll(/^ {4,6}(\w+):/gm)].map((match) => match[1]);
   assert.deepEqual(keys, ["scrollTop", "focusedAssetId", "selectedAssetId", "requestKey"],
     "snapshot stores only the minimal gallery context");
   assert.doesNotMatch(snapshot, /\.assets\b/, "snapshot must not copy the asset list");
@@ -469,9 +477,9 @@ test("39. return snapshot stays minimal", async () => {
 //     that card dies with the upcoming re-render, dropping focus to <body>
 //     (found in the runtime focus-fallback re-verification, flow 15).
 test("40. degraded return always focuses the gallery container", async () => {
-  const app = await readApp();
-  const body = functionBody(app, "returnToLibrary");
-  const degraded = sliceBetween(body, "if (snapshot.requestKey !== assetRequestKey(currentAssetRequest())) {", "    return;\n  }");
+  const viewer = await readAssetView();
+  const body = functionBody(viewer, "returnToLibrary");
+  const degraded = sliceBetween(body, "if (snapshot.requestKey !== assetRequestKey(currentAssetRequest())) {", "      return;\n    }");
   assert.match(degraded, /els\.assetGrid\.focus\(\);/, "degraded branch focuses the grid container");
   assert.doesNotMatch(degraded, /libraryView\?\.contains|activeElement/,
     "no conditional guard that stale in-library focus can defeat");

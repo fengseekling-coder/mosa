@@ -4,9 +4,11 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
-const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readApiClient = () => readFile(resolve(root, "app/api-client.mjs"), "utf8");
 const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
 const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
+const readInspectorMarkup = () => readFile(resolve(root, "app/inspector-markup.mjs"), "utf8");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
 
 /** WCAG relative luminance for an opaque sRGB hex colour. */
@@ -43,9 +45,14 @@ function liftFunction(app, name) {
 }
 
 test("shortens card titles instead of exposing the whole prompt", async () => {
-  const app = await readApp();
-  const cardShortTitle = new Function(`${liftFunction(app, "cardShortTitle")}
-    const CARD_TITLE_MAX = ${/const CARD_TITLE_MAX = (\d+)/.exec(app)[1]};
+  // cardShortTitle moved to app/utils.mjs (R1 batch 2); CARD_TITLE_MAX now lives
+  // in app/config.mjs, so both are lifted from their new homes.
+  const [utils, config] = await Promise.all([
+    readFile(resolve(root, "app/utils.mjs"), "utf8"),
+    readFile(resolve(root, "app/config.mjs"), "utf8"),
+  ]);
+  const cardShortTitle = new Function(`${liftFunction(utils, "cardShortTitle")}
+    const CARD_TITLE_MAX = ${/CARD_TITLE_MAX = (\d+)/.exec(config)[1]};
     return cardShortTitle;`)();
 
   const longPrompt = "Hyper-realistic cinematic badminton athlete portrait, a young East Asian beauty standing on an outdoor badminton court at golden sunset hour with an ultra-wide lens";
@@ -65,20 +72,20 @@ test("shortens card titles instead of exposing the whole prompt", async () => {
 });
 
 test("labels cards with title, source and date rather than the prompt", async () => {
-  const app = await readApp();
+  const [app, inspector] = await Promise.all([readApp(), readInspectorMarkup()]);
 
   assert.match(app, /const label = t\("cardAccessibleName", \{ title: title \|\| asset\.id, source: sourceLabel, date \}\)/);
   assert.match(app, /aria-label="\$\{escapeHtml\(label\)\}"/);
   // The prompt is still copyable and still lives in the detail panel.
   assert.match(app, /data-copy="\$\{escapeHtml\(asset\.prompt \|\| ""\)\}"/);
   assert.match(app, /aria-label="\$\{t\("copyPrompt"\)\}"/);
-  assert.match(app, /<div class="prompt-box">\$\{promptText\}<\/div>/);
+  assert.match(inspector, /<div class="prompt-box">\$\{promptText\}<\/div>/);
   // The old behaviour was to hand the raw theme/prompt straight to aria-label.
   assert.doesNotMatch(app, /aria-label="\$\{escapeHtml\(title\)\}">\$\{media\}/);
 });
 
 test("separates loading, failed, empty and populated gallery states", async () => {
-  const [app, css] = await Promise.all([readApp(), readCss()]);
+  const [app, css, apiClient] = await Promise.all([readApp(), readCss(), readApiClient()]);
 
   assert.match(app, /galleryStatus: "loading"/);
   assert.match(app, /if \(state\.galleryStatus === "loading"\) \{ els\.assetGrid\.innerHTML = gallerySkeletonMarkup\(\); return; \}/);
@@ -88,7 +95,7 @@ test("separates loading, failed, empty and populated gallery states", async () =
   const loadingGuard = renderGrid.indexOf('state.galleryStatus === "loading"');
   const emptyBranch = renderGrid.indexOf("!state.assets.length");
   assert.ok(loadingGuard > -1 && emptyBranch > loadingGuard, "the loading branch must precede the empty branch");
-  assert.match(app, /state\.galleryStatus = "ready"/);
+  assert.match(apiClient, /state\.galleryStatus = "ready"/);
   assert.match(app, /state\.galleryStatus = "error"/);
   // The skeleton is painted before the first request, not after it fails.
   assert.match(app, /bindEvents\(\);[\s\S]*?renderGrid\(\);/);
@@ -100,20 +107,25 @@ test("separates loading, failed, empty and populated gallery states", async () =
   // declared before `init()` runs or start-up dies in the temporal dead zone.
   const initCall = app.indexOf("\ninit();");
   assert.ok(initCall > -1, "init() is no longer called at module scope");
-  assert.ok(app.indexOf("const SKELETON_TILE_COUNT") < initCall, "SKELETON_TILE_COUNT must be initialised before init() runs");
-  assert.ok(app.indexOf("const GALLERY_DENSITIES") < initCall, "GALLERY_DENSITIES must be initialised before init() runs");
+  // Skeleton constants moved to app/config.mjs (R1 batch 2); the module-scope
+  // import binds them before init() runs, so the same no-TDZ guarantee holds.
+  const configImport = app.indexOf('from "./config.mjs"');
+  assert.ok(configImport > -1 && configImport < initCall, "config.mjs import must precede init()");
+  const config = await readFile(resolve(root, "app/config.mjs"), "utf8");
+  assert.match(config, /export const SKELETON_TILE_COUNT = 12;/);
+  assert.match(config, /export const GALLERY_DENSITIES = \["image", "info"\]/);
   // Heights vary through nth-child, keeping the markup free of inline styles.
   assert.match(css, /\.asset-skeleton:nth-child\(3n\)/);
 });
 
 test("offers a stable image-only / with-info density switch", async () => {
-  const [app, html, css] = await Promise.all([readApp(), readHtml(), readCss()]);
+  const [app, html, css, config] = await Promise.all([readApp(), readHtml(), readCss(), readFile(resolve(root, "app/config.mjs"), "utf8")]);
 
   // Density is now controlled via settings-menu segmented control, not a standalone toggle.
   assert.match(app, /data-density-opt="image"/);
   assert.match(app, /data-density-opt="info"/);
   assert.match(app, /data-appearance-opt/);
-  assert.match(app, /const GALLERY_DENSITIES = \["image", "info"\]/);
+  assert.match(config, /export const GALLERY_DENSITIES = \["image", "info"\]/);
   assert.match(app, /safeStorageSet\("mosa\.gallery-density", state\.galleryDensity\)/);
   // Active state derives from state, not a hardcoded string.
   assert.match(app, /state\.galleryDensity === "image" \? " active" : ""/);

@@ -24,10 +24,12 @@ const DESKTOP_TEXT = {
 };
 
 const FROZEN_SHA256 = {
-  "package.json": "e161974a477853703cc88724de39805fe5c65e590bd331060a17be6d087a2f24",
+  // package.json is intentionally excluded: the R1 isolation fix (2026-08-09,
+  // approved scope) added qa:web/qa:electron/qa:packaged launcher scripts.
+  // Its dependency sections are still frozen via the structural assertions in
+  // the package metadata test below.
   "package-lock.json": "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd",
   "desktop/preload.cjs": "37a6ef54257f5b5ac279b135887decc5e4cc27bd42345d04a68005712b6160a0",
-  "desktop/preload.mjs": "251cb5f8354d78e0e560bead6e9dbc622d47ef1e4588fa005ca271d049fb9440",
 };
 
 function sliceBetween(source, startMarker, endMarker) {
@@ -118,9 +120,15 @@ test("startup failures route the localized title while preserving the raw error 
   assert.match(reportStartupFailure, /dialog\.showErrorBox\s*\([\s\S]*,\s*message\s*\)/);
 });
 
-test("package metadata and preload implementations stay frozen", async () => {
+test("package metadata and the runtime preload stay frozen", async () => {
   for (const [relativePath, expectedHash] of Object.entries(FROZEN_SHA256)) {
     const content = await read(relativePath);
     assert.equal(sha256(content), expectedHash, `${relativePath} must remain unchanged`);
   }
+  // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
+  // qa:packaged launcher scripts to package.json, so its dependency sections
+  // (the frozen semantics) are pinned structurally instead of by file hash.
+  const manifest = JSON.parse(await read("package.json"));
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must remain unchanged");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies must remain unchanged");
 });

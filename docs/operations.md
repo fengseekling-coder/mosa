@@ -41,7 +41,7 @@ npm run desktop:start
 npm run desktop:make
 ```
 
-The desktop shell defaults to `~/MOSA Library` on `127.0.0.1:43519`. Override the port with `MOSA_DESKTOP_PORT` and the library with `MOSA_LIBRARY_DIR`.
+The desktop shell defaults to `~/MOSA Library` on `127.0.0.1:43517`, the same local service used by browser capture. Override the port with `MOSA_DESKTOP_PORT` only when a separate runtime is intentional, and the library with `MOSA_LIBRARY_DIR`.
 
 At startup, the desktop shell verifies the service identity and library path. If they match, it attaches without taking ownership; quitting the app leaves that external service running. If no service is listening, the app starts an owned runtime; closing the last window on macOS leaves the app and runtime active, while choosing Quit stops the owned runtime and releases its library lock. A foreign listener or a MOSA service using another library is reported as a conflict and is never terminated.
 

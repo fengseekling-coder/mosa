@@ -10,7 +10,9 @@ import test from "node:test";
 // Node 标准库、零网络、源码切片断言；不用整文件 SHA 代替行为契约（package/lockfile 除外）。
 
 const root = resolve(import.meta.dirname, "..");
-const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readAssetView = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
+const readInspectorMarkup = () => readFile(resolve(root, "app/inspector-markup.mjs"), "utf8");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
 const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
 const readPreload = () => readFile(resolve(root, "desktop/preload.cjs"), "utf8");
@@ -19,11 +21,14 @@ const readMain = () => readFile(resolve(root, "desktop/main.mjs"), "utf8");
 const count = (source, needle) => source.split(needle).length - 1;
 const sha256 = (content) => createHash("sha256").update(content).digest("hex");
 
-/** Slices a top-level app.js function (declaration up to the next top-level function). */
+/** Slices a function (top-level or 2-space-indented module helper) up to the next function. */
 function functionSlice(source, name) {
   const start = source.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `function not found: ${name}`);
-  const next = source.indexOf("\nfunction ", start + 1);
+  const candidates = ["\nfunction ", "\nasync function ", "\n  function ", "\n  async function "]
+    .map((marker) => source.indexOf(marker, start + 1))
+    .filter((index) => index !== -1);
+  const next = candidates.length ? Math.min(...candidates) : -1;
   return source.slice(start, next === -1 ? source.length : next);
 }
 
@@ -47,9 +52,10 @@ function insertHandlerSlice(app) {
 // 1. Cowart stays the 8th section. 2. Cowart stays the only primary. 53. Ten-section order.
 test("01-02,53. cowart section position, single primary, approved ten-section order", async () => {
   const app = await readApp();
+  const inspector = await readInspectorMarkup();
 
   assert.ok(app.includes(COMPOSITION), "renderDetail composition sequence unchanged");
-  const positions = SECTION_ORDER.map((id) => app.indexOf(`data-inspector-section="${id}"`));
+  const positions = SECTION_ORDER.map((id) => inspector.indexOf(`data-inspector-section="${id}"`));
   assert.ok(positions.every((index) => index > -1), "all ten section ids still render");
   assert.deepEqual([...positions].sort((a, b) => a - b), positions, "section order matches the approved sequence");
   assert.equal(SECTION_ORDER[7], "cowart", "cowart stays the 8th section");
@@ -202,9 +208,10 @@ test("29-35. show-item-in-folder IPC is minimal, validated, and shell-correct", 
 // image and video get an explicit entry, and unavailable never renders a dead control.
 test("36-43. original media capability adapts between App and Web without dead controls", async () => {
   const app = await readApp();
-  const capability = functionSlice(app, "originalMediaCapability");
-  const markup = functionSlice(app, "originalMediaActionMarkup");
-  const more = functionSlice(app, "detailMoreSectionMarkup");
+  const inspector = await readInspectorMarkup();
+  const capability = functionSlice(inspector, "originalMediaCapability");
+  const markup = functionSlice(inspector, "originalMediaActionMarkup");
+  const more = functionSlice(inspector, "detailMoreSectionMarkup");
 
   assert.match(capability, /typeof window\.electronAPI\?\.showItemInFolder === "function" && imagePath/, "desktop-finder requires the injected API and a real path");
   assert.match(capability, /if \(imageUrl\) return "web-open";/, "web-open requires a non-empty image_url");
@@ -218,7 +225,7 @@ test("36-43. original media capability adapts between App and Web without dead c
   // The entry is unconditional for images and videos alike — no isVideoAsset gate.
   assert.match(more, /<div class="original-media-action">\$\{originalMediaActionMarkup\(asset\)\}<\/div>/, "the entry renders for every asset");
   assert.doesNotMatch(more, /isVideoAsset/, "the entry is no longer video-only");
-  assert.doesNotMatch(app, /isVideoAsset\(asset\)\s*\?\s*[^\n]*open-original-media/, "the old video-only gate is gone");
+  assert.doesNotMatch(inspector, /isVideoAsset\(asset\)\s*\?\s*[^\n]*open-original-media/, "the old video-only gate is gone");
 
   // One capability per asset — never both entries at once.
   assert.match(markup, /if \(capability === "desktop-finder"\) return/, "finder returns early");
@@ -235,8 +242,8 @@ test("36-43. original media capability adapts between App and Web without dead c
 // 44-52. More section final form: visible original entry, native details disclosure for
 // utility actions, separated danger archive, and no custom popover or ellipsis menu.
 test("44-52. more section final form keeps the approved hierarchy", async () => {
-  const app = await readApp();
-  const more = functionSlice(app, "detailMoreSectionMarkup");
+  const inspector = await readInspectorMarkup();
+  const more = functionSlice(inspector, "detailMoreSectionMarkup");
 
   assert.ok(COMPOSITION.endsWith("${detailMoreSectionMarkup(asset)}"), "more stays the last section");
   const originalIndex = more.indexOf('original-media-action');
@@ -256,6 +263,8 @@ test("44-52. more section final form keeps the approved hierarchy", async () => 
 // 54-58. Neighbouring contracts keep passing and their app.js anchors are intact.
 test("54-58. Phase 1-4B neighbouring contracts and anchors stay intact", async () => {
   const app = await readApp();
+  const inspector = await readInspectorMarkup();
+  const viewer = await readAssetView();
 
   await Promise.all([
     access(resolve(root, "test/inspector-information-architecture-contract.test.mjs")),
@@ -265,10 +274,10 @@ test("54-58. Phase 1-4B neighbouring contracts and anchors stay intact", async (
     access(resolve(root, "test/large-view-mode-contract.test.mjs")),
     access(resolve(root, "test/accessibility-contract.test.mjs")),
   ]);
-  assert.match(app, /assetViewSequence\.ids = state\.assets\.map\(\(asset\) => asset\.id\);/, "viewer navigation anchor intact");
-  assert.match(app, /function applyAssetViewTransform\(\)/, "viewer transform anchor intact");
-  assert.match(app, /state\.libraryReturnSnapshot = \{/, "return snapshot anchor intact");
-  assert.match(app, /function detailVersionSectionMarkup\(asset, cachedHistory, cachedRecipeHistory\)/, "Phase 4A IA anchors intact");
+  assert.match(viewer, /assetViewSequence\.ids = state\.assets\.map\(\(asset\) => asset\.id\);/, "viewer navigation anchor intact");
+  assert.match(viewer, /function applyAssetViewTransform\(\)/, "viewer transform anchor intact");
+  assert.match(viewer, /state\.libraryReturnSnapshot = \{/, "return snapshot anchor intact");
+  assert.match(inspector, /function detailVersionSectionMarkup\(asset, cachedHistory, cachedRecipeHistory\)/, "Phase 4A IA anchors intact");
   assert.match(app, /function selectDetailVersion\(/, "Phase 4B version workflow anchor intact");
 });
 
@@ -280,10 +289,15 @@ test("59-60. dependency freeze: manifest, lockfile, and app.js imports unchanged
     readFile(resolve(root, "package-lock.json"), "utf8"),
   ]);
 
-  assert.equal(sha256(pkg), "e161974a477853703cc88724de39805fe5c65e590bd331060a17be6d087a2f24", "package.json must stay untouched");
+  // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
+  // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
+  // the dependency sections the freeze really guards stay byte-identical.
+  const manifest = JSON.parse(pkg);
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must stay untouched");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies must stay untouched");
   assert.equal(sha256(lock), "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd", "package-lock.json must stay untouched");
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./bridge-status-poller.js", "./i18n.mjs"], "app.js gains no new imports");
+    ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./overlay-manager.mjs", "./toast-manager.mjs"], "app.js gains no new imports");
 });
 
 // i18n: every new key exists in both locales, symmetric, and no duplicate synonyms.

@@ -6,7 +6,7 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
-const readApp = () => readFile(resolve(root, "app/app.js"), "utf8");
+const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
 /** Extracts a `{...}` block starting at the marker, honouring nested braces. */
@@ -205,18 +205,29 @@ test("16. favorite and copy listeners keep event isolation", async () => {
 test("17. no API, data-structure or persistence changes", async () => {
   // app/index.html was intentionally migrated by Phase 2A (global search into the
   // sidebar, D3); its structure is guarded by test/search-location-contract.test.mjs.
+  // R1 isolation fix (2026-08-09, approved scope) deliberately changed
+  // server.mjs (ERR_ISOLATION_GUARD fail-closed handler) and package.json
+  // (qa:web/qa:electron/qa:packaged launcher scripts), so those two files
+  // leave the hash table; their security-relevant behaviour is asserted
+  // structurally below. The lockfile stays hash-pinned.
   const expected = {
-    "server.mjs": "9fac240976af00ddc6979958aabb225d33f432db2cbca60c420a8b72453ba29b",
-    "package.json": "e161974a477853703cc88724de39805fe5c65e590bd331060a17be6d087a2f24",
     "package-lock.json": "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd",
   };
   for (const [file, hash] of Object.entries(expected)) {
     const text = await readFile(resolve(root, file), "utf8");
     assert.equal(sha256(text), hash, `${file} must stay untouched in Phase 1C`);
   }
+  // server.mjs must still fail closed when the isolation guard rejects a run.
+  const server = await readFile(resolve(root, "server.mjs"), "utf8");
+  assert.match(server, /ERR_ISOLATION_GUARD/, "server.mjs must fail closed on isolation guard rejection");
+  assert.match(server, /process\.exit\(1\)/, "server.mjs must exit non-zero on isolation guard rejection");
+  // package.json dependency sections stay frozen.
+  const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must stay untouched in Phase 1C");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies must stay untouched in Phase 1C");
   const app = await readApp();
   // The favorite flow still posts to the same endpoint; renderGrid stays free of API calls.
-  assert.match(app, /api\(`\/api\/assets\/\$\{encodeURIComponent\(state\.project\)\}\/\$\{encodeURIComponent\(id\)\}\/favorite`, \{ method: "POST" \}\)/,
+  assert.match(app, /apiFetch\(`\/api\/assets\/\$\{encodeURIComponent\(state\.project\)\}\/\$\{encodeURIComponent\(id\)\}\/favorite`, \{ method: "POST" \}\)/,
     "toggleFavorite must keep its existing API endpoint and method");
   const grid = /function renderGrid\(\) \{[\s\S]*?\n\}/.exec(app);
   assert.ok(grid, "renderGrid must exist");

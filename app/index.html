@@ -7,7 +7,7 @@
     <!-- Blocking, same-origin theme bootstrap: runs before the stylesheet so a
          saved dark-mode preference is applied before first paint (no FOUC).
          Kept as an external file to satisfy the runtime CSP (script-src 'self'). -->
-    <script src="/theme-init.js"></script>
+    <script src="/theme-init.mjs"></script>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -249,6 +249,6 @@
       <aside class="detail" id="detailPanel" data-i18n-aria-label="assetInspector" aria-label="素材检视器" aria-hidden="true"></aside>
     </div>
 
-    <script type="module" src="/app.js"></script>
+    <script type="module" src="/app.mjs"></script>
   </body>
 </html>

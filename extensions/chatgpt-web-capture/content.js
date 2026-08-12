@@ -62,6 +62,8 @@
   let contextLost = false;
   let autoScanInterval = null;
   let observer = null;
+  let controlPanel = null;
+  let panelDragState = null;
 
   function showToast(message, isError = false) {
     let el = document.getElementById("mosa-capture-toast");
@@ -72,7 +74,6 @@
       (document.body || document.documentElement).appendChild(el);
     }
     el.textContent = message;
-    // F-21：成功/普通状态 polite 播报，错误独立 alert——纯语义层，队列逻辑不变。
     el.setAttribute("role", isError ? "alert" : "status");
     el.classList.toggle("is-error", Boolean(isError));
     el.classList.add("is-visible");
@@ -83,14 +84,8 @@
   function setStatus(text, isError = false) {
     lastStatus = text;
     if (isError) lastError = text;
-    const dock = document.getElementById("mosa-capture-dock");
-    const status = dock?.querySelector?.('[data-role="status"]');
-    if (status) {
-      status.textContent = text;
-      // F-21：状态节点按错误与否切换 live region 语义（普通 status / 错误 alert）。
-      status.setAttribute("role", isError ? "alert" : "status");
-      status.classList.toggle("is-error", Boolean(isError));
-    }
+    else if (!contextLost) lastError = "";
+    renderControlPanel();
   }
 
   function conversationIdFromUrl() {
@@ -221,7 +216,6 @@
 
   function looksLikeGeneratedImage(img, { manual = false } = {}) {
     if (!(img instanceof HTMLImageElement)) return false;
-    if (img.closest("#mosa-capture-dock")) return false;
     if (!manual && isComposerNode(img)) return false;
     const src = img.currentSrc || img.src || "";
     if (!src || isBlockedUrl(src)) return false;
@@ -313,11 +307,13 @@
     return visible[0]?.candidate || candidates[0] || null;
   }
 
-  function domCandidateForImage(imageUrl) {
+  function domCandidateForImage(imageUrl, { manual = false } = {}) {
     const wantedKeys = imageLookupKeys(imageUrl);
     if (!wantedKeys.length) return null;
-    return collectDomCandidates().find((candidate) => (
-      candidateLookupKeys(candidate).some((key) => wantedKeys.includes(key))
+    return collectDomCandidates({ manual }).find((candidate) => (
+      candidate.imageUrl === imageUrl
+      || candidate.key === imageUrl
+      || candidateLookupKeys(candidate).some((key) => wantedKeys.includes(key))
     )) || null;
   }
 
@@ -357,10 +353,6 @@
       for (const timer of timers) clearTimeout(timer);
     }
     promptRecoveryTimers.clear();
-    const dock = document.getElementById("mosa-capture-dock");
-    for (const btn of dock?.querySelectorAll?.("[data-action]") || []) {
-      btn.disabled = true;
-    }
     setStatus(CONTEXT_LOST_MESSAGE, true);
     showToast(CONTEXT_LOST_MESSAGE, true);
   }
@@ -839,7 +831,7 @@
 
   async function ingestCandidate(candidate, { silentSkip = false, reason = "manual", force = false } = {}) {
     const key = candidate.key || candidate.imageUrl;
-    const manual = reason === "manual" || reason === "manual-all";
+    const manual = reason.startsWith("manual");
     rememberCandidate(candidate);
     if (!canAttempt(candidate, { force: manual || force })) {
       if (!silentSkip) {
@@ -962,68 +954,293 @@
       });
   }
 
-  function ensureDock() {
-    if (document.getElementById("mosa-capture-dock")) return;
-    const mount = () => {
-      if (document.getElementById("mosa-capture-dock")) return;
-      const host = document.body || document.documentElement;
-      if (!host) return;
-      const dock = document.createElement("div");
-      dock.id = "mosa-capture-dock";
-      dock.innerHTML = `
-        <div class="mosa-dock-title">MOSA 自动入库</div>
-        <button type="button" class="mosa-dock-btn mosa-dock-primary" data-action="save-visible">保存当前图</button>
-        <button type="button" class="mosa-dock-btn" data-action="save-all">保存全部大图</button>
-        <button type="button" class="mosa-dock-btn" data-action="toggle-auto">切换自动</button>
-        <div class="mosa-dock-status" data-role="status" role="status" aria-live="polite">${lastStatus}</div>
-      `;
-      dock.addEventListener("click", async (event) => {
-        const btn = event.target.closest("[data-action]");
-        if (!btn) return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (contextLost || !extensionAlive()) {
-          markContextLost();
-          showToast(CONTEXT_LOST_MESSAGE, true);
-          return;
-        }
-        const action = btn.getAttribute("data-action");
-        if (action === "toggle-auto") {
-          autoCapture = !autoCapture;
-          chrome.storage?.local?.set?.({ autoCapture });
-          setStatus(autoCapture ? "自动开" : "自动关");
-          if (autoCapture) scheduleScan(true);
-          return;
-        }
-        const candidates = collectDomCandidates({ manual: true });
-        if (!candidates.length) {
-          showToast("没找到大图：等图片加载完，或确认扩展版本 0.9 已刷新", true);
-          setStatus("未找到图片", true);
-          return;
-        }
-        if (action === "save-visible") {
-          try {
-            const current = currentViewportCandidate(candidates);
-            if (!current) throw new Error("未找到当前可见图片");
-            await ingestCandidate(current, { reason: "manual" });
-          } catch {
-            // toast already shown
-          }
-        } else if (action === "save-all") {
-          for (const c of candidates.slice(0, 8)) {
-            try {
-              await ingestCandidate(c, { silentSkip: false, reason: "manual-all" });
-            } catch {
-              // continue
-            }
-          }
-        }
-      });
-      host.appendChild(dock);
+  function pageState() {
+    return {
+      autoCapture,
+      cachedPromptCount: networkMeta.filter((item) => item.prompt).length,
+      contextLost,
+      conversationId: conversationIdFromUrl(),
+      error: lastError,
+      hookReady,
+      pageUrl: location.href,
+      savedCount: Math.max(savedIdentityKeys.size, savedKeys.size),
+      status: lastStatus,
     };
-    if (document.body) mount();
-    else document.addEventListener("DOMContentLoaded", mount, { once: true });
   }
+
+  function renderControlPanel() {
+    const panel = controlPanel?.isConnected
+      ? controlPanel
+      : document.getElementById("mosa-capture-panel");
+    if (!panel) return;
+    controlPanel = panel;
+
+    const state = pageState();
+    const mode = panel.querySelector('[data-role="mode"]');
+    const connection = panel.querySelector('[data-role="connection"]');
+    const detail = panel.querySelector('[data-role="detail"]');
+    const saved = panel.querySelector('[data-role="saved-count"]');
+    const cached = panel.querySelector('[data-role="prompt-count"]');
+    const toggle = panel.querySelector('[data-action="toggle-auto"]');
+
+    if (mode) {
+      mode.textContent = state.autoCapture ? "运行中" : "已关闭";
+      mode.classList.toggle("is-off", !state.autoCapture);
+    }
+    if (connection) {
+      connection.textContent = state.contextLost
+        ? "页面脚本需刷新"
+        : state.hookReady
+          ? "Hook 已连接"
+          : "Hook 连接中";
+      connection.classList.toggle("is-error", Boolean(state.contextLost || state.error));
+    }
+    if (detail) {
+      detail.textContent = state.error
+        ? state.error
+        : state.autoCapture
+          ? "正在监听当前会话中的生成图片"
+          : "自动入库已暂停，不会处理新图片";
+      detail.setAttribute("role", state.error ? "alert" : "status");
+      detail.setAttribute("aria-live", state.error ? "assertive" : "polite");
+    }
+    if (saved) saved.textContent = String(state.savedCount);
+    if (cached) cached.textContent = String(state.cachedPromptCount);
+    if (toggle) {
+      toggle.textContent = state.autoCapture ? "关闭自动入库" : "启动自动入库";
+      toggle.classList.toggle("is-off", !state.autoCapture);
+      toggle.setAttribute("aria-pressed", String(state.autoCapture));
+    }
+  }
+
+  function finishPanelDrag(event) {
+    if (event && panelDragState && event.pointerId !== panelDragState.pointerId) return;
+    controlPanel?.classList.remove("is-dragging");
+    panelDragState = null;
+    document.removeEventListener("pointermove", moveControlPanel, true);
+    document.removeEventListener("pointerup", finishPanelDrag, true);
+    document.removeEventListener("pointercancel", finishPanelDrag, true);
+  }
+
+  function moveControlPanel(event) {
+    if (!panelDragState || !controlPanel || event.pointerId !== panelDragState.pointerId) return;
+    const width = controlPanel.offsetWidth;
+    const height = controlPanel.offsetHeight;
+    const maxLeft = Math.max(8, window.innerWidth - width - 8);
+    const maxTop = Math.max(8, window.innerHeight - height - 8);
+    const left = Math.min(maxLeft, Math.max(8, event.clientX - panelDragState.offsetX));
+    const top = Math.min(maxTop, Math.max(8, event.clientY - panelDragState.offsetY));
+    controlPanel.style.left = `${Math.round(left)}px`;
+    controlPanel.style.top = `${Math.round(top)}px`;
+    controlPanel.style.right = "auto";
+  }
+
+  function startPanelDrag(event) {
+    if (event.button !== 0 || !controlPanel) return;
+    if (!event.target.closest?.('[data-drag-handle]') || event.target.closest?.("button")) return;
+    const rect = controlPanel.getBoundingClientRect();
+    panelDragState = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+    };
+    controlPanel.classList.add("is-dragging");
+    document.addEventListener("pointermove", moveControlPanel, true);
+    document.addEventListener("pointerup", finishPanelDrag, true);
+    document.addEventListener("pointercancel", finishPanelDrag, true);
+    event.preventDefault();
+  }
+
+  function handlePanelEscape(event) {
+    if (event.key === "Escape" && controlPanel?.isConnected) closeControlPanel();
+  }
+
+  function closeControlPanel() {
+    finishPanelDrag();
+    document.removeEventListener("keydown", handlePanelEscape, true);
+    controlPanel?.classList.remove("is-visible");
+    const panel = controlPanel;
+    controlPanel = null;
+    if (panel) setTimeout(() => panel.remove(), 150);
+  }
+
+  async function handleControlPanelClick(event) {
+    const button = event.target.closest?.("[data-action]");
+    if (!button) return;
+    const action = button.getAttribute("data-action");
+    if (action === "close") {
+      closeControlPanel();
+      return;
+    }
+    if (action === "toggle-auto") {
+      autoCapture = !autoCapture;
+      await chrome.storage?.local?.set?.({ autoCapture });
+      setStatus(autoCapture ? "自动入库已开启" : "自动入库已关闭");
+      showToast(autoCapture ? "MOSA 自动入库已开启" : "MOSA 自动入库已关闭");
+      if (autoCapture) scheduleScan(true);
+      renderControlPanel();
+      return;
+    }
+    if (action === "open-settings") {
+      const response = await runtimeSend({ type: "mosa.openOptions" });
+      if (!response?.ok) showToast(response?.error || "无法打开设置", true);
+      else closeControlPanel();
+    }
+  }
+
+  function ensureControlPanel() {
+    const existing = document.getElementById("mosa-capture-panel");
+    if (existing) {
+      controlPanel = existing;
+      renderControlPanel();
+      return existing;
+    }
+    const host = document.body || document.documentElement;
+    if (!host) return null;
+
+    const panel = document.createElement("section");
+    panel.id = "mosa-capture-panel";
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-label", "MOSA Capture 控制台");
+    panel.setAttribute("aria-modal", "false");
+    panel.innerHTML = `
+      <header class="mosa-panel-header" data-drag-handle>
+        <div class="mosa-panel-brand">
+          <span class="mosa-panel-logo" aria-hidden="true">M</span>
+          <span>
+            <strong>MOSA Capture</strong>
+            <small>ChatGPT Web Capture</small>
+          </span>
+        </div>
+        <button type="button" class="mosa-panel-icon-button" data-action="close" aria-label="关闭 MOSA 控制台">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+      </header>
+      <div class="mosa-panel-body">
+        <section class="mosa-panel-status-card">
+          <div class="mosa-panel-status-row">
+            <span>
+              <small>自动入库</small>
+              <strong data-role="connection">Hook 连接中</strong>
+            </span>
+            <span class="mosa-panel-mode" data-role="mode">运行中</span>
+          </div>
+          <p data-role="detail" role="status" aria-live="polite">正在读取当前页面状态</p>
+        </section>
+        <div class="mosa-panel-metrics">
+          <span><small>当前页面已存</small><strong data-role="saved-count">0</strong></span>
+          <span><small>Prompt 缓存</small><strong data-role="prompt-count">0</strong></span>
+        </div>
+        <button type="button" class="mosa-panel-primary" data-action="toggle-auto" aria-pressed="true">
+          关闭自动入库
+        </button>
+        <button type="button" class="mosa-panel-secondary" data-action="open-settings">打开设置</button>
+        <footer>拖动顶部移动 · Esc 关闭</footer>
+      </div>
+    `;
+    panel.addEventListener("click", handleControlPanelClick);
+    panel.addEventListener("pointerdown", startPanelDrag);
+    host.appendChild(panel);
+    controlPanel = panel;
+    document.addEventListener("keydown", handlePanelEscape, true);
+    renderControlPanel();
+    requestAnimationFrame(() => panel.classList.add("is-visible"));
+    return panel;
+  }
+
+  function toggleControlPanel() {
+    if (controlPanel?.isConnected || document.getElementById("mosa-capture-panel")) {
+      closeControlPanel();
+      return false;
+    }
+    return Boolean(ensureControlPanel());
+  }
+
+  async function runManualAction(action) {
+    if (contextLost || !extensionAlive()) {
+      markContextLost();
+      throw new Error(CONTEXT_LOST_MESSAGE);
+    }
+
+    const candidates = collectDomCandidates({ manual: true });
+    if (!candidates.length) {
+      const message = "没找到可保存的大图：请等图片加载完成后再试";
+      showToast(message, true);
+      setStatus("未找到图片", true);
+      throw new Error(message);
+    }
+
+    if (action === "save-visible") {
+      const current = currentViewportCandidate(candidates);
+      if (!current) throw new Error("未找到当前可见图片");
+      const result = await ingestCandidate(current, { reason: "manual-popup" });
+      return {
+        action,
+        attempted: 1,
+        completed: 1,
+        failed: 0,
+        result,
+      };
+    }
+
+    if (action === "save-all") {
+      const batch = candidates.slice(0, 12);
+      let completed = 0;
+      let failed = 0;
+      let firstError = null;
+      for (const candidate of batch) {
+        try {
+          await ingestCandidate(candidate, { silentSkip: false, reason: "manual-popup-all" });
+          completed += 1;
+        } catch (error) {
+          failed += 1;
+          firstError ||= error;
+        }
+      }
+      if (!completed && firstError) throw firstError;
+      setStatus(`批量完成 · ${completed}/${batch.length}`);
+      return {
+        action,
+        attempted: batch.length,
+        completed,
+        failed,
+      };
+    }
+
+    throw new Error(`未知操作: ${action}`);
+  }
+
+  chrome.runtime?.onMessage?.addListener((message, _sender, sendResponse) => {
+    if (!message || typeof message.type !== "string") return false;
+
+    if (message.type === "mosa.capture.togglePanel") {
+      sendResponse({ ok: true, open: toggleControlPanel(), state: pageState() });
+      return false;
+    }
+
+    if (message.type === "mosa.capture.getPageState") {
+      sendResponse({ ok: true, state: pageState() });
+      return false;
+    }
+
+    const actionByType = {
+      "mosa.capture.saveVisible": "save-visible",
+      "mosa.capture.saveAll": "save-all",
+      "mosa.capture.saveImage": "save-image",
+      "mosa.capture.saveImageWithPrompt": "save-image-with-prompt",
+    };
+    const action = actionByType[message.type];
+    if (!action) return false;
+
+    runManualAction(action)
+      .then((result) => sendResponse({ ok: true, result, state: pageState() }))
+      .catch((error) => sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        state: pageState(),
+      }));
+    return true;
+  });
 
   function scheduleScan(force = false) {
     if (contextLost) return;
@@ -1034,7 +1251,6 @@
         markContextLost();
         return;
       }
-      ensureDock();
       hookReady ||= document.documentElement?.dataset?.mosaPageHook === "1";
       if (location.href !== lastUrl) lastUrl = location.href;
       const net = networkMeta.filter((x) => x.prompt).length;
@@ -1146,7 +1362,6 @@
   else document.addEventListener("DOMContentLoaded", startObs, { once: true });
 
   // Boot. page-hook.js is a document_start MAIN-world content script.
-  ensureDock();
   loadSettings().then(() => scheduleScan(true));
   scheduleScan(true);
 
