@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "MOSA ChatGPT Capture",
-  "version": "0.8.3",
-  "description": "Archive ChatGPT generation images with message-scoped prompt and asset correlation.",
-  "permissions": ["storage", "activeTab"],
+  "name": "MOSA Web Capture",
+  "version": "0.11.0",
+  "description": "Archive generated images from ChatGPT, Gemini, Flow, and Google AI Studio to local MOSA.",
+  "permissions": ["storage", "activeTab", "contextMenus"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
@@ -11,6 +11,13 @@
     "https://*.openai.com/*",
     "https://*.oaistatic.com/*",
     "https://*.blob.core.windows.net/*",
+    "https://gemini.google.com/*",
+    "https://labs.google/*",
+    "https://aistudio.google.com/*",
+    "https://*.googleusercontent.com/*",
+    "https://*.ggpht.com/*",
+    "https://storage.googleapis.com/*",
+    "https://generativelanguage.googleapis.com/*",
     "http://127.0.0.1/*",
     "http://localhost/*"
   ],
@@ -38,11 +45,28 @@
       "css": ["content.css"],
       "run_at": "document_start",
       "all_frames": false
+    },
+    {
+      "matches": [
+        "https://gemini.google.com/*",
+        "https://labs.google/*",
+        "https://aistudio.google.com/*"
+      ],
+      "js": ["provider-sites.js"],
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ],
   "action": {
-    "default_title": "MOSA ChatGPT Capture",
-    "default_popup": "popup.html"
+    "default_title": "打开 MOSA Capture 控制台"
+  },
+  "commands": {
+    "toggle-auto-capture": {
+      "suggested_key": {
+        "default": "Alt+Shift+M"
+      },
+      "description": "切换 MOSA 自动入库"
+    }
   },
   "options_ui": {
     "page": "options.html",

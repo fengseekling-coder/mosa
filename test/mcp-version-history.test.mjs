@@ -46,7 +46,10 @@ test("MCP exposes recipe version creation, history, and structured errors", asyn
   const createDefinition = tools.find((tool) => tool.name === "asset_version_create");
   assert.deepEqual(createDefinition.inputSchema.required, ["assetId", "version_change"]);
   assert.ok(createDefinition.inputSchema.properties.imagePath);
+  assert.ok(createDefinition.inputSchema.properties.negative_prompt);
+  assert.ok(createDefinition.inputSchema.properties.references);
   assert.ok(tools.some((tool) => tool.name === "asset_version_history"));
+  assert.ok(tools.some((tool) => tool.name === "asset_recipe_history"));
 
   const created = await callMcp(server, {
     jsonrpc: "2.0",
@@ -61,6 +64,9 @@ test("MCP exposes recipe version creation, history, and structured errors", asyn
         imagePath: replacementPath,
         version_change: "Warmer palette",
         prompt: "updated prompt",
+        user_prompt: "Make it warmer",
+        negative_prompt: "watermark",
+        references: [{ asset_id: "root", sha256: "c".repeat(64), role: "composition" }],
         source: { generation_tool: "imagegen", model: "gpt-5.6" },
       },
     },
@@ -81,9 +87,23 @@ test("MCP exposes recipe version creation, history, and structured errors", asyn
   assert.equal(history.error, undefined);
   assert.deepEqual(history.result.structuredContent.history.versions.map((asset) => asset.id), ["root", "child"]);
 
-  const invalid = await callMcp(server, {
+  const recipeHistory = await callMcp(server, {
     jsonrpc: "2.0",
     id: 4,
+    method: "tools/call",
+    params: { name: "asset_recipe_history", arguments: { projectId: "default", assetId: "child" } },
+  });
+  assert.equal(recipeHistory.error, undefined);
+  assert.equal(recipeHistory.result.structuredContent.history.snapshots.length, 1);
+  const childRecipe = recipeHistory.result.structuredContent.history.snapshots[0];
+  assert.equal(childRecipe.effective_prompt, "updated prompt");
+  assert.equal(childRecipe.user_prompt, "Make it warmer");
+  assert.equal(childRecipe.negative_prompt, "watermark");
+  assert.equal(childRecipe.references[0].asset_id, "root");
+
+  const invalid = await callMcp(server, {
+    jsonrpc: "2.0",
+    id: 5,
     method: "tools/call",
     params: { name: "asset_version_create", arguments: { projectId: "default", assetId: "root", version_change: " " } },
   });
@@ -93,7 +113,7 @@ test("MCP exposes recipe version creation, history, and structured errors", asyn
 
   const bypass = await callMcp(server, {
     jsonrpc: "2.0",
-    id: 5,
+    id: 6,
     method: "tools/call",
     params: {
       name: "asset_create",

@@ -1,80 +1,338 @@
 .mosa-capture-toast {
+  all: initial;
+  box-sizing: border-box;
   position: fixed;
-  left: 50%;
-  bottom: 28px;
-  transform: translateX(-50%) translateY(16px);
+  right: 16px;
+  bottom: 16px;
   z-index: 2147483646;
-  max-width: min(92vw, 420px);
-  padding: 10px 14px;
-  border-radius: 12px;
+  display: block;
+  width: max-content;
+  max-width: min(260px, calc(100vw - 32px));
+  padding: 7px 10px;
+  border-radius: 8px;
   background: rgba(15, 23, 42, 0.94);
   color: #f8fafc;
-  font: 600 13px/1.35 system-ui, -apple-system, sans-serif;
+  font: 600 12px/1.35 system-ui, -apple-system, sans-serif;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
   opacity: 0;
   pointer-events: none;
+  overflow-wrap: anywhere;
+  transform: translateY(16px);
   transition: opacity 160ms ease, transform 160ms ease;
 }
 
 .mosa-capture-toast.is-visible {
   opacity: 1;
-  transform: translateX(-50%) translateY(0);
+  transform: translateY(0);
 }
 
 .mosa-capture-toast.is-error {
   background: rgba(127, 29, 29, 0.95);
 }
 
-#mosa-capture-dock {
+#mosa-capture-panel,
+#mosa-capture-panel * {
+  box-sizing: border-box;
+}
+
+#mosa-capture-panel {
+  all: initial;
   position: fixed;
   right: 16px;
-  bottom: 88px;
+  bottom: 16px;
   z-index: 2147483645;
-  width: 168px;
-  padding: 10px;
-  border-radius: 14px;
-  background: rgba(15, 23, 42, 0.92);
-  color: #e2e8f0;
-  font: 12px/1.35 system-ui, -apple-system, sans-serif;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(8px);
-}
-
-#mosa-capture-dock .mosa-dock-title {
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  margin-bottom: 8px;
-  color: #a3e635;
-}
-
-#mosa-capture-dock .mosa-dock-btn {
   display: block;
-  width: 100%;
-  margin: 0 0 6px;
-  border: 0;
-  border-radius: 10px;
-  padding: 8px 10px;
-  font: 600 12px/1.2 system-ui, -apple-system, sans-serif;
+  width: min(360px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid rgba(226, 232, 240, 0.24);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 14% -8%, rgba(139, 92, 246, 0.26), transparent 44%),
+    radial-gradient(circle at 94% 2%, rgba(132, 204, 22, 0.13), transparent 34%),
+    linear-gradient(145deg, rgba(35, 30, 54, 0.94), rgba(12, 15, 16, 0.96));
+  color: #f8fafc;
+  font: 500 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color-scheme: dark;
+  box-shadow:
+    0 32px 90px rgba(0, 0, 0, 0.48),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(28px) saturate(135%);
+  -webkit-backdrop-filter: blur(28px) saturate(135%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(12px) scale(0.965);
+  transform-origin: bottom right;
+  transition: opacity 170ms ease, transform 190ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  isolation: isolate;
+}
+
+#mosa-capture-panel.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+#mosa-capture-panel.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+  transition: none;
+}
+
+#mosa-capture-panel .mosa-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 18px 14px;
+  cursor: grab;
+  touch-action: none;
+}
+
+#mosa-capture-panel.is-dragging .mosa-panel-header {
+  cursor: grabbing;
+}
+
+#mosa-capture-panel .mosa-panel-brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+#mosa-capture-panel .mosa-panel-brand > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+#mosa-capture-panel .mosa-panel-logo {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 13px;
+  background: linear-gradient(145deg, #a3e635, #65a30d);
+  color: #0b1006;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  box-shadow: 0 10px 24px rgba(132, 204, 22, 0.24);
+}
+
+#mosa-capture-panel .mosa-panel-brand strong {
+  overflow: hidden;
+  color: #f8fafc;
+  font-size: 16px;
+  font-weight: 780;
+  letter-spacing: -0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#mosa-capture-panel .mosa-panel-brand small {
+  color: rgba(226, 232, 240, 0.54);
+  font-size: 10px;
+  font-weight: 680;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+#mosa-capture-panel button {
+  all: unset;
+  box-sizing: border-box;
   cursor: pointer;
-  color: #0f172a;
-  background: #e2e8f0;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
 
-#mosa-capture-dock .mosa-dock-btn.mosa-dock-primary {
-  background: linear-gradient(135deg, #9ef01a, #70e000);
+#mosa-capture-panel button:focus-visible {
+  outline: 2px solid rgba(163, 230, 53, 0.92);
+  outline-offset: 2px;
 }
 
-#mosa-capture-dock .mosa-dock-btn:hover {
-  filter: brightness(1.05);
+#mosa-capture-panel .mosa-panel-icon-button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(226, 232, 240, 0.11);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(248, 250, 252, 0.76);
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
 }
 
-#mosa-capture-dock .mosa-dock-status {
-  margin-top: 4px;
-  color: #94a3b8;
-  font-size: 11px;
-  word-break: break-word;
+#mosa-capture-panel .mosa-panel-icon-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
 }
 
-#mosa-capture-dock .mosa-dock-status.is-error {
+#mosa-capture-panel .mosa-panel-icon-button:active {
+  transform: scale(0.96);
+}
+
+#mosa-capture-panel .mosa-panel-icon-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2.2;
+}
+
+#mosa-capture-panel .mosa-panel-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 18px 18px;
+}
+
+#mosa-capture-panel .mosa-panel-status-card {
+  padding: 15px;
+  border: 1px solid rgba(226, 232, 240, 0.11);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.34);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+#mosa-capture-panel .mosa-panel-status-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+#mosa-capture-panel .mosa-panel-status-row > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+#mosa-capture-panel .mosa-panel-status-row small,
+#mosa-capture-panel .mosa-panel-metrics small {
+  color: rgba(226, 232, 240, 0.5);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+}
+
+#mosa-capture-panel .mosa-panel-status-row strong {
+  color: #f8fafc;
+  font-size: 14px;
+  font-weight: 740;
+}
+
+#mosa-capture-panel .mosa-panel-status-row strong.is-error {
   color: #fda4af;
+}
+
+#mosa-capture-panel .mosa-panel-mode {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(132, 204, 22, 0.15);
+  color: #bef264;
+  font-size: 11px;
+  font-weight: 790;
+  white-space: nowrap;
+}
+
+#mosa-capture-panel .mosa-panel-mode.is-off {
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+}
+
+#mosa-capture-panel .mosa-panel-status-card p {
+  margin: 12px 0 0;
+  color: rgba(226, 232, 240, 0.62);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+#mosa-capture-panel .mosa-panel-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+#mosa-capture-panel .mosa-panel-metrics > span {
+  display: grid;
+  gap: 5px;
+  padding: 12px 13px;
+  border: 1px solid rgba(226, 232, 240, 0.09);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+#mosa-capture-panel .mosa-panel-metrics strong {
+  color: #f8fafc;
+  font-size: 20px;
+  font-weight: 780;
+  letter-spacing: -0.03em;
+}
+
+#mosa-capture-panel .mosa-panel-primary,
+#mosa-capture-panel .mosa-panel-secondary {
+  display: grid;
+  width: 100%;
+  min-height: 44px;
+  place-items: center;
+  border-radius: 15px;
+  font-size: 13px;
+  font-weight: 780;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+#mosa-capture-panel .mosa-panel-primary {
+  background: linear-gradient(135deg, #a3e635, #84cc16);
+  color: #101706;
+  box-shadow: 0 14px 30px rgba(132, 204, 22, 0.16);
+}
+
+#mosa-capture-panel .mosa-panel-primary:hover {
+  background: linear-gradient(135deg, #b5f34f, #94dc20);
+}
+
+#mosa-capture-panel .mosa-panel-primary.is-off {
+  background: linear-gradient(135deg, #a3e635, #84cc16);
+  color: #101706;
+}
+
+#mosa-capture-panel .mosa-panel-secondary {
+  border: 1px solid rgba(226, 232, 240, 0.1);
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(248, 250, 252, 0.78);
+}
+
+#mosa-capture-panel .mosa-panel-secondary:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+}
+
+#mosa-capture-panel .mosa-panel-primary:active,
+#mosa-capture-panel .mosa-panel-secondary:active {
+  transform: translateY(1px);
+}
+
+#mosa-capture-panel footer {
+  color: rgba(226, 232, 240, 0.34);
+  font-size: 10px;
+  text-align: center;
+}
+
+@media (max-width: 520px) {
+  #mosa-capture-panel {
+    right: 12px;
+    bottom: 12px;
+    width: calc(100vw - 24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #mosa-capture-panel,
+  #mosa-capture-panel * {
+    scroll-behavior: auto;
+    transition-duration: 0.01ms;
+  }
 }

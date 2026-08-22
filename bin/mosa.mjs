@@ -3,8 +3,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
-import { createDerivativeWorker } from "../lib/derivative-worker.mjs";
-import { migrateLegacyLibrary, verifySqliteLibrary } from "../lib/library-migration.mjs";
+import { createDerivativeWorker } from "../lib/derivative-worker.js";
+import { migrateLegacyLibrary, verifySqliteLibrary } from "../lib/library-migration.js";
 
 const managerDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || dirname(managerDir));

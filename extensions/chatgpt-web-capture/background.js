@@ -4,6 +4,8 @@ const DEFAULTS = {
   autoCapture: true, // always default on
 };
 const STORAGE_KEYS = ["mosaBaseUrl", "mosaToken", "autoCapture"];
+const LEGACY_DEV_TOKEN = "mosa-web-capture-dev";
+const WEB_IMAGE_PROVIDERS = new Set(["chatgpt", "gemini", "flow", "google-ai-studio"]);
 let settingsMigration;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -39,6 +41,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "mosa.openOptions") {
+    chrome.runtime.openOptionsPage()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    return true;
+  }
+
   return false;
 });
 
@@ -55,10 +67,11 @@ function migrateSettingsToLocal() {
       chrome.storage.local.get(null),
       chrome.storage.sync.get(STORAGE_KEYS),
     ]);
-    const migratedToken = synced.mosaToken === "mosa-web-capture-dev" ? "" : synced.mosaToken;
+    const localToken = normalizeStoredToken(local.mosaToken);
+    const migratedToken = normalizeStoredToken(synced.mosaToken);
     const patch = {
       mosaBaseUrl: local.mosaBaseUrl || synced.mosaBaseUrl || DEFAULTS.mosaBaseUrl,
-      mosaToken: local.mosaToken || migratedToken || DEFAULTS.mosaToken,
+      mosaToken: localToken || migratedToken || DEFAULTS.mosaToken,
       autoCapture: local.autoCapture ?? synced.autoCapture ?? DEFAULTS.autoCapture,
     };
     await chrome.storage.local.set(patch);
@@ -67,7 +80,12 @@ function migrateSettingsToLocal() {
   return settingsMigration;
 }
 
-async function fetchImageAsBase64(url) {
+function normalizeStoredToken(value) {
+  const token = String(value || "").trim();
+  return token === LEGACY_DEV_TOKEN ? "" : token;
+}
+
+async function fetchImageAsBase64(url, { publicImage = false } = {}) {
   if (!url || typeof url !== "string") throw new Error("Image URL is required.");
   if (url.startsWith("data:")) {
     const match = /^data:([^;]+);base64,(.+)$/i.exec(url);
@@ -76,9 +94,9 @@ async function fetchImageAsBase64(url) {
   }
 
   const attempts = [
-    { credentials: "include", cache: "no-cache" },
+    ...(publicImage ? [] : [{ credentials: "include", cache: "no-cache" }]),
     { credentials: "omit", cache: "no-cache" },
-    { credentials: "include", cache: "force-cache" },
+    ...(publicImage ? [] : [{ credentials: "include", cache: "force-cache" }]),
   ];
   let lastError = null;
   for (const init of attempts) {
@@ -111,15 +129,16 @@ async function ingestToMosa(payload = {}) {
 
   let imageBase64 = payload.imageBase64;
   let mimeType = payload.mimeType || "image/png";
+  const provider = String(payload.provider || "chatgpt").trim().toLowerCase();
+  if (!WEB_IMAGE_PROVIDERS.has(provider)) throw new Error("Unsupported web image provider.");
 
   // Prefer server-side (extension background) download for remote URLs.
   if (!imageBase64 && payload.imageUrl) {
-    const fetched = await fetchImageAsBase64(payload.imageUrl);
+    const fetched = await fetchImageAsBase64(payload.imageUrl, { publicImage: provider !== "chatgpt" });
     imageBase64 = fetched.imageBase64;
     mimeType = fetched.mimeType || mimeType;
   }
   if (!imageBase64) throw new Error("No image bytes to ingest.");
-
   let response;
   try {
     response = await fetch(`${baseUrl}/api/ingest/web-capture`, {
@@ -129,11 +148,12 @@ async function ingestToMosa(payload = {}) {
         authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        provider: "chatgpt",
+        provider,
         prompt: payload.prompt || "",
         prompt_status: payload.promptStatus || (payload.prompt ? "user-message" : "not-available"),
         user_message: payload.userMessage || payload.user_message || "",
         prompt_source: payload.promptSource || payload.prompt_source || "",
+        is_reference: Boolean(payload.isReference),
         imageBase64,
         mimeType,
         pageUrl: payload.pageUrl || "",
@@ -196,4 +216,66 @@ function guessMime(url) {
 
 chrome.runtime.onInstalled.addListener(async () => {
   await migrateSettingsToLocal();
+  await updateBadge();
+  await refreshContextMenus();
+});
+
+async function updateBadge() {
+  const settings = await getSettings();
+  await chrome.action.setBadgeText({ text: settings.autoCapture ? "ON" : "OFF" });
+  await chrome.action.setBadgeBackgroundColor({ color: settings.autoCapture ? "#84cc16" : "#71717a" });
+}
+
+// Context menus persist across service-worker restarts, so only (re)create them
+// on install/update. removeAll() first avoids "Cannot create item with
+// duplicate id" errors when the extension is updated or reloaded during dev.
+async function refreshContextMenus() {
+  if (!chrome.contextMenus) return;
+  await chrome.contextMenus.removeAll();
+  chrome.contextMenus.create({
+    id: "mosa-save-image",
+    title: "保存图片到 MOSA",
+    contexts: ["image"],
+  });
+  chrome.contextMenus.create({
+    id: "mosa-save-image-prompt",
+    title: "保存图片并提取 Prompt",
+    contexts: ["image"],
+  });
+}
+
+chrome.commands?.onCommand?.addListener(async (command) => {
+  if (command !== "toggle-auto-capture") return;
+  const current = await getSettings();
+  await chrome.storage.local.set({ autoCapture: !current.autoCapture });
+  await updateBadge();
+});
+
+chrome.storage?.onChanged?.addListener((changes, area) => {
+  if (area === "local" && changes.autoCapture) updateBadge();
+});
+
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab?.id) return;
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "mosa.capture.togglePanel" });
+  } catch {
+    // Page is not ready or not a supported ChatGPT tab.
+  }
+});
+
+chrome.contextMenus?.onClicked?.addListener(async (info, tab) => {
+  if (!tab?.id) return;
+  if (info.menuItemId === "mosa-save-image") {
+    await chrome.tabs.sendMessage(tab.id, {
+      type: "mosa.capture.saveImage",
+      imageUrl: info.srcUrl || "",
+    });
+  }
+  if (info.menuItemId === "mosa-save-image-prompt") {
+    await chrome.tabs.sendMessage(tab.id, {
+      type: "mosa.capture.saveImageWithPrompt",
+      imageUrl: info.srcUrl || "",
+    });
+  }
 });

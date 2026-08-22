@@ -1,0 +1,134 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import test from "node:test";
+import * as desktopI18n from "../desktop/notification-i18n.mjs";
+import {
+  getNotificationText,
+  getNotificationTextForAssetsImported,
+} from "../desktop/notification-i18n.mjs";
+
+const root = resolve(import.meta.dirname, "..");
+const read = (relativePath) => readFile(resolve(root, relativePath), "utf8");
+const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+
+const DESKTOP_TEXT = {
+  menuFile: { zh: "文件", en: "File" },
+  menuImportAsset: { zh: "导入素材…", en: "Import Asset…" },
+  menuEdit: { zh: "编辑", en: "Edit" },
+  menuView: { zh: "视图", en: "View" },
+  menuSearch: { zh: "搜索", en: "Search" },
+  menuWindow: { zh: "窗口", en: "Window" },
+  startupErrorTitle: { zh: "MOSA 无法启动", en: "MOSA could not start" },
+};
+
+const FROZEN_SHA256 = {
+  // package.json is intentionally excluded: the R1 isolation fix (2026-08-09,
+  // approved scope) added qa:web/qa:electron/qa:packaged launcher scripts.
+  // Its dependency sections are still frozen via the structural assertions in
+  // the package metadata test below.
+  "package-lock.json": "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd",
+  "desktop/preload.cjs": "37a6ef54257f5b5ac279b135887decc5e4cc27bd42345d04a68005712b6160a0",
+};
+
+function sliceBetween(source, startMarker, endMarker) {
+  const start = source.indexOf(startMarker);
+  assert.notEqual(start, -1, `missing source marker: ${startMarker}`);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  assert.notEqual(end, -1, `missing source marker: ${endMarker}`);
+  return source.slice(start, end);
+}
+
+test("getDesktopText resolves desktop labels in zh/en and falls back safely", () => {
+  const { getDesktopText } = desktopI18n;
+  assert.equal(typeof getDesktopText, "function", "desktop i18n must expose getDesktopText");
+
+  for (const [key, expected] of Object.entries(DESKTOP_TEXT)) {
+    assert.equal(getDesktopText(key, "zh"), expected.zh, `${key} zh text`);
+    assert.equal(getDesktopText(key, "en"), expected.en, `${key} en text`);
+    assert.equal(getDesktopText(key, "ja"), expected.zh, `${key} unknown locale falls back to zh`);
+  }
+
+  assert.throws(
+    () => getDesktopText("not-a-desktop-key", "en"),
+    /Unsupported desktop key/,
+    "unknown desktop keys must fail explicitly",
+  );
+});
+
+test("notification helpers keep their existing API and output", () => {
+  assert.equal(getNotificationText("updateAvailable", "zh"), "有新版本可用，正在下载…");
+  assert.equal(getNotificationText("updateDownloaded", "en"), "New version downloaded. It will be installed on restart.");
+  assert.equal(getNotificationText("updateAvailable", "ja"), "有新版本可用，正在下载…");
+  assert.equal(getNotificationTextForAssetsImported(1, "en"), "1 new asset imported");
+  assert.equal(getNotificationTextForAssetsImported(12, "en"), "12 new assets imported");
+  assert.equal(getNotificationTextForAssetsImported(3, "ja"), "3 个新素材已导入");
+});
+
+test("main localizes custom menu labels without changing roles or accelerators", async () => {
+  const main = await read("desktop/main.mjs");
+  const menu = sliceBetween(main, "function buildMenu()", "function registerIPC()");
+
+  assert.match(main, /getDesktopText/);
+  assert.match(main, /const MOSA_MENU_ID_PREFIX = "mosa-menu-"/);
+  assert.match(main, /function pruneInjectedMenuItems\(menu\)/);
+  assert.match(main, /child\.type !== "normal" \|\| child\.id\?\.startsWith\(MOSA_MENU_ID_PREFIX\)/);
+  assert.match(menu, /id:\s*"mosa-menu-app"/);
+  assert.match(menu, /id:\s*"mosa-menu-file"/);
+  assert.match(menu, /id:\s*"mosa-menu-edit"/);
+  assert.match(menu, /id:\s*"mosa-menu-view"/);
+  assert.match(menu, /id:\s*"mosa-menu-window"/);
+  for (const label of Object.values(DESKTOP_TEXT).slice(0, 6).flatMap(({ zh, en }) => [zh, en])) {
+    assert.doesNotMatch(menu, new RegExp(`label\\s*:\\s*${label.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}`));
+  }
+  assert.equal((menu.match(/getDesktopText\s*\(/g) || []).length >= 6, true, "all custom labels must use desktop i18n");
+
+  for (const role of [
+    "about", "services", "hide", "hideOthers", "unhide", "quit", "close",
+    "undo", "redo", "cut", "copy", "paste", "pasteAndMatchStyle", "delete", "selectAll",
+    "resetZoom", "zoomIn", "zoomOut", "togglefullscreen", "minimize", "zoom", "front",
+  ]) {
+    assert.match(menu, new RegExp(`role\\s*:\\s*"${role}"`), `${role} role remains available`);
+  }
+  assert.match(menu, /accelerator\s*:\s*"CmdOrCtrl\+N"/);
+  assert.match(menu, /accelerator\s*:\s*"CmdOrCtrl\+F"/);
+  assert.match(menu, /sendToWindow\("menu-import"\)/);
+  assert.match(menu, /sendToWindow\("menu-search"\)/);
+  assert.match(menu, /pruneInjectedMenuItems\(menu\);/);
+  assert.match(menu, /setImmediate\(\(\) =>/);
+});
+
+test("set-locale validates sender and locale, rebuilds once, and is idempotent", async () => {
+  const main = await read("desktop/main.mjs");
+  const handler = sliceBetween(main, 'ipcMain.handle("set-locale"', "\n  });");
+
+  assert.match(handler, /event\.sender\s*!==\s*mainWindow\.webContents/);
+  assert.match(handler, /locale\s*!==\s*"zh"\s*&&\s*locale\s*!==\s*"en"/);
+  assert.match(handler, /if\s*\(\s*(?:locale\s*===\s*currentLocale|currentLocale\s*===\s*locale)\s*\)\s*return\s+true;/);
+  assert.match(handler, /currentLocale\s*=\s*locale/);
+  assert.match(handler, /buildMenu\(\)/);
+  assert.ok(handler.indexOf("currentLocale = locale") < handler.indexOf("buildMenu()"), "menu rebuild follows locale update");
+});
+
+test("startup failures route the localized title while preserving the raw error message", async () => {
+  const main = await read("desktop/main.mjs");
+  const reportStartupFailure = sliceBetween(main, "function reportStartupFailure(error)", "\n}");
+
+  assert.match(reportStartupFailure, /const message\s*=\s*error instanceof Error\s*\?\s*error\.message\s*:\s*String\(error\)/);
+  assert.match(reportStartupFailure, /getDesktopText\s*\(\s*"startupErrorTitle"\s*,\s*currentLocale\s*\)/);
+  assert.match(reportStartupFailure, /dialog\.showErrorBox\s*\([\s\S]*,\s*message\s*\)/);
+});
+
+test("package metadata and the runtime preload stay frozen", async () => {
+  for (const [relativePath, expectedHash] of Object.entries(FROZEN_SHA256)) {
+    const content = await read(relativePath);
+    assert.equal(sha256(content), expectedHash, `${relativePath} must remain unchanged`);
+  }
+  // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
+  // qa:packaged launcher scripts to package.json, so its dependency sections
+  // (the frozen semantics) are pinned structurally instead of by file hash.
+  const manifest = JSON.parse(await read("package.json"));
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must remain unchanged");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies must remain unchanged");
+});

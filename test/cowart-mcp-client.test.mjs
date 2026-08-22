@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import test from "node:test";
-import { createCowartMcpClient } from "../lib/cowart-mcp-client.mjs";
+import { createCowartMcpClient } from "../lib/cowart-mcp-client.js";
 
 const fakeServer = `
 let buffer = "";

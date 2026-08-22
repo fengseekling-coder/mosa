@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -70,6 +73,19 @@ test("returns 404 for a missing library image without stopping the server", asyn
 
   const port = await waitForServerPort(server);
   await waitForServer(port, server);
+  const home = await fetch(`http://127.0.0.1:${port}/`);
+  assert.equal(home.status, 200);
+  assert.equal(home.headers.get("content-security-policy"), "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; connect-src 'self'");
+
+  const unknownApi = await fetch(`http://127.0.0.1:${port}/api/not-a-route`);
+  assert.equal(unknownApi.status, 404);
+  assert.deepEqual(await unknownApi.json(), { error: "Not found" });
+
+  const traversal = await rawGet(port, "/%2e%2e/server.mjs");
+  assert.equal(traversal.statusCode, 200);
+  assert.equal(traversal.headers["content-type"], "text/html; charset=utf-8");
+  assert.doesNotMatch(traversal.body, /import \{ createServer \} from "node:http"/);
+
   const missingImage = await fetch(`http://127.0.0.1:${port}/library/default/images/does-not-exist.png`);
   assert.equal(missingImage.status, 404);
   assert.deepEqual(await missingImage.json(), { error: "Asset not found" });
@@ -107,8 +123,49 @@ test("returns 404 for a missing library image without stopping the server", asyn
   assert.equal(detectedCanvases.some((canvas) => canvas.projectDir === canonicalDetectedProject), true);
   assert.equal(detectedCanvases.some((canvas) => canvas.projectDir === canonicalWorkdirOnlyProject), true);
 
+  // External registration requires a trusted Cowart canvas: an absolute path
+  // without '..' segments whose existing canvas directory holds a real marker.
+  const registryPath = join(root, "state", "cowart-projects.json");
+  const registryBeforeRejectedPosts = await readFile(registryPath, "utf8");
+  const emptyProject = join(root, "empty-project");
+  await mkdir(emptyProject, { recursive: true });
+  const noMarkerProject = join(root, "no-marker-project");
+  await mkdir(join(noMarkerProject, "canvas"), { recursive: true });
+  // A canvas symlinked into an outside directory holding real markers: stat()
+  // would follow it, so the trust check must reject it via lstat().
+  const externalCanvas = join(root, "external-canvas");
+  await mkdir(externalCanvas, { recursive: true });
+  await writeFile(join(externalCanvas, "cowart-view-state.json"), "{}\n", "utf8");
+  const symlinkedProject = join(root, "symlinked-project");
+  await mkdir(symlinkedProject, { recursive: true });
+  await symlink(externalCanvas, join(symlinkedProject, "canvas"), "dir");
+  const rejectedRegistrations = [
+    ["relative path", "relative/project", "COWART_PROJECT_PATH_NOT_ABSOLUTE"],
+    ["missing projectDir", null, "COWART_PROJECT_PATH_REQUIRED"],
+    ["raw '..' segments", `${root}/detected-project/../other-project`, "COWART_PROJECT_PATH_UNSAFE"],
+    ["missing directory", join(root, "missing-project"), "COWART_CANVAS_DIR_MISSING"],
+    ["empty directory", emptyProject, "COWART_CANVAS_DIR_MISSING"],
+    ["canvas without markers", noMarkerProject, "COWART_CANVAS_NO_MARKERS"],
+    ["symlinked canvas", symlinkedProject, "COWART_CANVAS_SYMLINK"],
+  ];
+  for (const [name, projectDir, code] of rejectedRegistrations) {
+    const rejected = await fetch(`http://127.0.0.1:${port}/api/cowart-canvases`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(projectDir === null ? {} : { projectDir }),
+    });
+    assert.equal(rejected.status, 400, `expected a 4xx for ${name}`);
+    assert.equal((await rejected.json()).code, code, `expected ${code} for ${name}`);
+  }
+  assert.equal(await readFile(registryPath, "utf8"), registryBeforeRejectedPosts, "rejected registrations must not write the registry");
+  assert.equal(existsSync(join(emptyProject, "canvas")), false, "rejected registrations must not create canvas directories");
+  assert.deepEqual(await readdir(externalCanvas), ["cowart-view-state.json"], "rejected registrations must not write into an external canvas");
+  const unchangedCanvases = await fetch(`http://127.0.0.1:${port}/api/cowart-canvases`);
+  assert.equal((await unchangedCanvases.json()).canvases.length, 3);
+
   const otherProject = join(root, "other-project");
-  await mkdir(otherProject, { recursive: true });
+  await mkdir(join(otherProject, "canvas"), { recursive: true });
+  await writeFile(join(otherProject, "canvas", "cowart-view-state.json"), "{}\n", "utf8");
   const canonicalOtherProject = await realpath(otherProject);
   const addCanvas = await fetch(`http://127.0.0.1:${port}/api/cowart-canvases`, {
     method: "POST",
@@ -127,6 +184,169 @@ test("returns 404 for a missing library image without stopping the server", asyn
   const removeCanvas = await fetch(`http://127.0.0.1:${port}/api/cowart-canvases/${encodeURIComponent(added.canvas.id)}`, { method: "DELETE" });
   assert.equal(removeCanvas.status, 200);
   assert.equal((await removeCanvas.json()).canvas.id, added.canvas.id);
+});
+
+test("insert-cowart rejects unregistered targets without MCP calls and inserts through trusted registrations", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-server-cowart-insert-"));
+  const mcpCallLog = join(root, "mcp-calls.log");
+  const mcpStatePath = join(root, "mcp-state.json");
+  const fakeMcpServerPath = join(root, "fake-cowart-mcp.mjs");
+  await writeFile(fakeMcpServerPath, `
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+const logPath = process.env.FAKE_MCP_CALL_LOG;
+const statePath = process.env.FAKE_MCP_STATE;
+let buffer = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  const lines = buffer.split("\\n");
+  buffer = lines.pop() || "";
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const message = JSON.parse(line);
+    if (message.method === "initialize") {
+      respond(message.id, { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "fake-cowart", version: "0" } });
+    } else if (message.method === "tools/call") {
+      appendFileSync(logPath, String(message.params.name) + "\\n", "utf8");
+      handleTool(message);
+    }
+  }
+});
+function respond(id, result) { process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\\n"); }
+function handleTool(message) {
+  const name = message.params.name;
+  const args = message.params.arguments || {};
+  if (name === "get_cowart_canvas_state") {
+    const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : null;
+    const store = { "page:1": { id: "page:1", typeName: "page", index: "0" } };
+    if (state && state.inserted) {
+      store["shape:mosa"] = { id: "shape:mosa", typeName: "shape", type: "image", parentId: "page:1", props: { assetId: "asset:mosa" } };
+      store["asset:mosa"] = { id: "asset:mosa", typeName: "asset", type: "image", props: {}, meta: state.inserted.assetMeta || {} };
+    }
+    respond(message.id, { content: [], structuredContent: { snapshot: { store }, viewState: { currentPageId: "page:1" } } });
+    return;
+  }
+  if (name === "get_cowart_selection") { respond(message.id, { content: [], structuredContent: { selection: { selectedShapes: [] } } }); return; }
+  if (name === "insert_cowart_image") {
+    writeFileSync(statePath, JSON.stringify({ inserted: { assetMeta: args.assetMeta || {} } }), "utf8");
+    respond(message.id, { content: [], structuredContent: { pageId: "page:1", assetId: "asset:mosa", shapeId: "shape:mosa", bounds: { x: 10, y: 20, w: 100, h: 80 } } });
+    return;
+  }
+  respond(message.id, { content: [], structuredContent: {} });
+}
+`, "utf8");
+
+  const imagePath = join(root, "generated-images", "insert-fixture.png");
+  await mkdir(join(root, "generated-images"), { recursive: true });
+  await sharp({ create: { width: 8, height: 8, channels: 4, background: "#334455" } }).png().toFile(imagePath);
+
+  // A registry written before the trust checks existed: the canvas is a
+  // symlink into an outside directory holding real Cowart markers.
+  const legacyProject = join(root, "legacy-symlink-project");
+  const legacyExternalCanvas = join(root, "legacy-external-canvas");
+  await mkdir(legacyExternalCanvas, { recursive: true });
+  await writeFile(join(legacyExternalCanvas, "cowart-view-state.json"), "{}\n", "utf8");
+  await mkdir(legacyProject, { recursive: true });
+  await symlink(legacyExternalCanvas, join(legacyProject, "canvas"), "dir");
+  await mkdir(join(root, "state"), { recursive: true });
+  await writeFile(join(root, "state", "cowart-projects.json"), JSON.stringify({
+    version: 1,
+    projects: [{ projectDir: legacyProject, addedAt: "2026-01-01T00:00:00.000Z" }],
+  }) + "\n", "utf8");
+  const legacyId = `project-${createHash("sha256").update(legacyProject).digest("hex").slice(0, 16)}`;
+
+  const server = spawn(process.execPath, ["server.mjs"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      MOSA_PORT: "0",
+      MOSA_PROJECT_DIR: root,
+      MOSA_LIBRARY_DIR: join(root, "library"),
+      CODEX_GENERATED_IMAGES_DIR: join(root, "generated-images"),
+      CODEX_SESSIONS_DIR: join(root, "sessions"),
+      GROK_SESSIONS_DIR: join(root, "grok-sessions"),
+      COWART_MOSA_CANVAS_DIR: join(root, "cowart-data"),
+      MOSA_COWART_REGISTRY_PATH: join(root, "state", "cowart-projects.json"),
+      COWART_MCP_SERVER_PATH: fakeMcpServerPath,
+      FAKE_MCP_CALL_LOG: mcpCallLog,
+      FAKE_MCP_STATE: mcpStatePath,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(async () => {
+    if (server.exitCode === null) {
+      const exited = once(server, "exit");
+      server.kill("SIGTERM");
+      await exited;
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  const port = await waitForServerPort(server);
+  await waitForServer(port, server);
+
+  const created = await fetch(`http://127.0.0.1:${port}/api/assets/create`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ imagePath, prompt: "cowart insert fixture" }),
+  });
+  assert.equal(created.status, 200);
+  const asset = (await created.json()).asset;
+  const insertUrl = `http://127.0.0.1:${port}/api/assets/default/${encodeURIComponent(asset.id)}/insert-cowart`;
+
+  // An unregistered target is rejected before any MCP traffic.
+  const unregistered = await fetch(insertUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ placement: "right", targetId: "project-not-registered" }),
+  });
+  assert.equal(unregistered.status, 400);
+  assert.match((await unregistered.json()).error, /not registered/);
+  assert.equal(existsSync(mcpCallLog), false, "unregistered targets must not reach the Cowart MCP server");
+
+  // The legacy symlinked entry stays lazy and untrusted: no bridge starts,
+  // nothing is written through the symlink, and its paths never reach MCP.
+  const legacyCanvases = await (await fetch(`http://127.0.0.1:${port}/api/cowart-canvases`)).json();
+  const legacySource = legacyCanvases.canvases.find((source) => source.id === legacyId);
+  assert.ok(legacySource, "the legacy entry stays listed");
+  assert.equal(legacySource.enabled, false, "a legacy symlinked entry must not start a bridge");
+  assert.equal(legacySource.trusted, false, "a legacy symlinked entry must be marked untrusted");
+  assert.deepEqual(await readdir(legacyExternalCanvas), ["cowart-view-state.json"], "startup must not write through the symlinked canvas");
+  const legacyInsert = await fetch(insertUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ placement: "right", targetId: legacyId }),
+  });
+  assert.equal(legacyInsert.status, 400);
+  assert.match((await legacyInsert.json()).error, /not registered/);
+  assert.equal(existsSync(mcpCallLog), false, "untrusted legacy targets must not reach the Cowart MCP server");
+
+  // The untrusted legacy entry is still removable.
+  const legacyRemoval = await fetch(`http://127.0.0.1:${port}/api/cowart-canvases/${encodeURIComponent(legacyId)}`, { method: "DELETE" });
+  assert.equal(legacyRemoval.status, 200);
+
+  // A project with a real Cowart marker registers successfully.
+  const validProject = join(root, "valid-cowart-project");
+  await mkdir(join(validProject, "canvas"), { recursive: true });
+  await writeFile(join(validProject, "canvas", "cowart-view-state.json"), "{}\n", "utf8");
+  const registered = await fetch(`http://127.0.0.1:${port}/api/cowart-canvases`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectDir: validProject }),
+  });
+  assert.equal(registered.status, 201);
+  const canvas = (await registered.json()).canvas;
+
+  const inserted = await fetch(insertUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ placement: "right", targetId: canvas.id }),
+  });
+  assert.equal(inserted.status, 200);
+  const insertion = await inserted.json();
+  assert.equal(insertion.ok, true);
+  assert.equal(insertion.canvas.sourceId, canvas.id);
+  const mcpCalls = (await readFile(mcpCallLog, "utf8")).trim().split("\n").sort();
+  assert.deepEqual(mcpCalls, ["get_cowart_canvas_state", "get_cowart_canvas_state", "get_cowart_selection", "insert_cowart_image"].sort());
 });
 
 test("SQLite HTTP surface paginates assets and serves durable derivatives", async (t) => {
@@ -219,9 +439,21 @@ test("SQLite HTTP surface paginates assets and serves durable derivatives", asyn
   assert.equal(history.selected_asset_id, version.id);
   assert.deepEqual(history.versions.map((item) => item.id), [asset.id, version.id]);
 
+  const recipeResponse = await fetch(`http://127.0.0.1:${port}/api/assets/default/${asset.id}/recipes`);
+  assert.equal(recipeResponse.status, 200);
+  const recipeHistory = (await recipeResponse.json()).history;
+  assert.equal(recipeHistory.asset_id, asset.id);
+  assert.equal(recipeHistory.snapshots.length, 1);
+  assert.equal(recipeHistory.snapshots[0].effective_prompt, "red mechanical future city");
+  assert.equal(recipeHistory.active_snapshot_id, recipeHistory.snapshots[0].snapshot_id);
+
   const missingHistory = await fetch(`http://127.0.0.1:${port}/api/assets/default/missing/versions`);
   assert.equal(missingHistory.status, 404);
   assert.equal((await missingHistory.json()).code, "ASSET_NOT_FOUND");
+
+  const missingRecipeHistory = await fetch(`http://127.0.0.1:${port}/api/assets/default/missing/recipes`);
+  assert.equal(missingRecipeHistory.status, 404);
+  assert.equal((await missingRecipeHistory.json()).code, "ASSET_NOT_FOUND");
 
   const immutableRelation = await fetch(`http://127.0.0.1:${port}/api/assets/default/${version.id}`, {
     method: "PATCH",
@@ -540,4 +772,20 @@ async function waitForResponse(url) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
   }
   throw new Error(`Timed out waiting for ${url}`);
+}
+
+function rawGet(port, path) {
+  return new Promise((resolveResponse, rejectResponse) => {
+    const req = request({ host: "127.0.0.1", port, path }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on("end", () => resolveResponse({
+        statusCode: response.statusCode,
+        headers: response.headers,
+        body: Buffer.concat(chunks).toString("utf8"),
+      }));
+    });
+    req.once("error", rejectResponse);
+    req.end();
+  });
 }

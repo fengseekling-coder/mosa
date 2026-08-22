@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createAssetStore } from "../lib/asset-store.mjs";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
-import { createCowartAssetBridge, reconcileCowartAssets } from "../lib/cowart-bridge.mjs";
+import { createCowartAssetBridge, reconcileCowartAssets } from "../lib/cowart-bridge.js";
 
 test("archives Cowart page assets once and keeps MOSA-origin images out", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
@@ -42,7 +42,6 @@ test("archives Cowart page assets once and keeps MOSA-origin images out", async 
 
 test("watches a Cowart page directory and archives a later image", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -54,7 +53,7 @@ test("watches a Cowart page directory and archives a later image", async (t) => 
 
   const store = createAssetStore({ projectRoot, managerDir, cowartCanvasDir: canvasDir });
   const bridge = createCowartAssetBridge({ store, canvasDir, debounceMs: 10, pollIntervalMs: 100 });
-  t.after(() => bridge.stop());
+  t.after(async () => { await bridge.stop(); await rm(root, { recursive: true, force: true }); });
   await bridge.start();
 
   await writeFile(join(pageAssetsDir, "watch-bear.png"), "fixture watched Cowart image", "utf8");
@@ -69,6 +68,45 @@ test("watches a Cowart page directory and archives a later image", async (t) => 
   const assets = await store.listAssets({ projectId: "default" });
   assert.equal(assets.length, 1);
   assert.equal(assets[0].source.cowart_shape_id, "shape:watch-bear");
+});
+
+test("waits for an active Cowart archive before cleanup", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-cowart-stop-"));
+  const canvasDir = join(root, "cowart-data", "mosa");
+  const pageDir = join(canvasDir, "pages", "page");
+  const pageAssetsDir = join(pageDir, "assets");
+  let allowCreate;
+  let signalCreate;
+  const createStarted = new Promise((resolve) => { signalCreate = resolve; });
+  const store = {
+    cowartCanvasDir: canvasDir,
+    async listAssets() { return []; },
+    async createAsset() { signalCreate(); await new Promise((resolve) => { allowCreate = resolve; }); return {}; },
+  };
+  const bridge = createCowartAssetBridge({ store, canvasDir, debounceMs: 0, pollIntervalMs: 60_000 });
+  t.after(async () => { await bridge.stop(); await rm(root, { recursive: true, force: true }); });
+  await mkdir(pageAssetsDir, { recursive: true });
+  await writeFile(join(pageDir, "cowart-canvas.json"), JSON.stringify({ store: {} }), "utf8");
+  await bridge.start();
+
+  await writeFile(join(pageAssetsDir, "stop-bear.png"), "fixture watched Cowart image", "utf8");
+  await writeFile(join(pageDir, "cowart-canvas.json"), JSON.stringify({
+    store: {
+      "asset:stop-bear": { id: "asset:stop-bear", typeName: "asset", type: "image", props: { name: "stop-bear.png", src: "/page-assets/page/stop-bear.png" }, meta: {} },
+      "shape:stop-bear": { id: "shape:stop-bear", typeName: "shape", type: "image", props: { assetId: "asset:stop-bear", w: 2160, h: 2160, altText: "停止时正在归档" }, meta: {} },
+    },
+  }), "utf8");
+
+  const reconciling = bridge.reconcile();
+  await createStarted;
+  let stopped = false;
+  const stopping = bridge.stop().then(() => { stopped = true; });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(stopped, false, "stop waits for the active asset archive");
+  allowCreate();
+  await reconciling;
+  await stopping;
+  assert.equal(bridge.status().enabled, false);
 });
 
 test("archives a registered external Cowart canvas through the SQLite store only within its pages root", async (t) => {

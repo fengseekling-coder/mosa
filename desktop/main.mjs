@@ -1,0 +1,531 @@
+import { app, BrowserWindow, Menu, dialog, ipcMain, clipboard, session, shell, Notification, globalShortcut } from "electron";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve, isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
+import { DEFAULT_MOSA_DESKTOP_PORT } from "../lib/runtime-defaults.mjs";
+import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
+import { parseDisabledBridges } from "../lib/runtime-bridges.mjs";
+import { cleanupOrphanStagedFiles, importStagingDir, stageFileForImport, STAGING_EXTENSIONS, writeStagedPng } from "../lib/import-staging.mjs";
+import { startMosaService } from "./service-manager.mjs";
+import { getNotificationText, getNotificationTextForAssetsImported } from "./notification-i18n.mjs";
+import { getDesktopText } from "./notification-i18n.mjs";
+
+const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
+// The parent of this module's own directory is the application root: the
+// repository root in dev (electron desktop/main.mjs) and the app.asar root
+// when packaged. Deriving it from the module location keeps both modes on a
+// single source of truth instead of the app path API.
+const appRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+// `desktopDataDir` is the *actual* userData after Chromium applied the QA
+// --user-data-dir override (if any). It is deliberately NOT the production
+// default: Electron rewrites userData before any JS runs, so the un-overridden
+// default must be reconstructed from appData + app.name, which the switch
+// never touches. Dev (`npx electron`) reads the name from package.json
+// ("mosa"); the packaged app carries the forge packagerConfig name ("MOSA").
+const desktopDataDir = app.getPath("userData");
+const productionDefaultUserData = join(app.getPath("appData"), app.name);
+const importStagingRoot = importStagingDir(desktopDataDir);
+const desktopPort = process.env.MOSA_DESKTOP_PORT || DEFAULT_MOSA_DESKTOP_PORT;
+const libraryDir = resolve(process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"));
+
+// ---- Runtime isolation context (single source of truth, three layers) ----
+// The same context object is passed explicitly through validateRuntimeIsolation,
+// startMosaService and (via service-manager) startMosaRuntime. Propagation never
+// relies on process.env, so a caller-supplied QA override cannot be dropped or
+// replaced by an unrelated environment value somewhere down the chain.
+const isolationContext = {
+  runtimeMode: process.env.MOSA_RUNTIME_MODE,
+  qaRun: process.env.MOSA_QA_RUN,
+  expectedUserData: process.env.MOSA_USER_DATA,
+  actualUserData: desktopDataDir,
+  productionDefaultUserData,
+  argv: process.argv,
+  runtimeKind: "electron",
+};
+
+// ---- Runtime isolation guard: fail closed before any production write ----
+const guard = validateRuntimeIsolation({
+  libraryDir: process.env.MOSA_LIBRARY_DIR,
+  port: desktopPort,
+  runtimeMode: isolationContext.runtimeMode,
+  qaRun: isolationContext.qaRun,
+  userData: isolationContext.expectedUserData,
+  actualUserData: isolationContext.actualUserData,
+  defaultUserData: isolationContext.productionDefaultUserData,
+  argv: isolationContext.argv,
+  runtimeKind: isolationContext.runtimeKind,
+  productionLibraryDir: join(homedir(), "MOSA Library"),
+  productionPorts: [43517, 43519, 43637],
+});
+if (!guard.ok) {
+  console.error(`ISOLATION_GUARD_REJECTED: ${guard.field} ${guard.reason}`);
+  console.error(`ISOLATION_GUARD_REJECTED: actualUserData=${desktopDataDir}`);
+  app.exit(1);
+  // app.exit(1) does not halt execution in all Electron versions.
+  // Prevent further lifecycle registration explicitly.
+  process.exitCode = 1;
+  throw new Error(`ISOLATION_GUARD_REJECTED: ${guard.field} ${guard.reason}`);
+}
+
+// Display-only groups for the native open dialog. The authoritative set is
+// STAGING_EXTENSIONS (mirror of the store's accepted media), so the dialog can
+// never advertise a format staging would reject; the batch 1.1 guard test keeps
+// the renderer drag/drop pattern on the same set.
+const DIALOG_IMAGE_GROUP = new Set([".apng", ".avif", ".gif", ".jpg", ".jpeg", ".png", ".svg", ".webp"]);
+const DIALOG_VIDEO_GROUP = new Set([".m4v", ".mov", ".mp4", ".webm"]);
+
+function importDialogFilters() {
+  const group = (extensions) =>
+    [...STAGING_EXTENSIONS].filter((extension) => extensions.has(extension)).map((extension) => extension.slice(1));
+  return [
+    { name: "Images", extensions: group(DIALOG_IMAGE_GROUP) },
+    { name: "Video", extensions: group(DIALOG_VIDEO_GROUP) },
+  ];
+}
+const BOUNDS_PATH = join(desktopDataDir, "window-bounds.json");
+const DEFAULT_BOUNDS = { width: 1320, height: 860 };
+
+let mainWindow = null;
+let service = null;
+let shuttingDown = false;
+let shutdownPromise = null;
+let windowPromise = null;
+let ipcRegistered = false;
+let shortcutsRegistered = false;
+let updatesChecked = false;
+let currentLocale = "zh"; // safe default matching original Chinese-only notifications
+const rendererConsoleErrors = new Set();
+const MAX_RENDERER_CONSOLE_ERRORS = 32;
+
+if (!app.requestSingleInstanceLock()) {
+  app.exit(0);
+} else {
+  app.on("second-instance", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      void openMainWindow().catch(reportStartupFailure);
+      return;
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  });
+
+  app.whenReady().then(openMainWindow).catch(reportStartupFailure);
+
+  app.on("activate", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      void openMainWindow().catch(reportStartupFailure);
+    }
+  });
+
+  // Keep a desktop-owned runtime available after the last window closes.
+  app.on("window-all-closed", () => {});
+
+  app.on("before-quit", (event) => {
+    if (shuttingDown) return;
+    event.preventDefault();
+    shuttingDown = true;
+    stopBridgeNotificationPoll();
+    globalShortcut.unregisterAll();
+    void stopOwnedRuntime().catch(console.error).finally(() => app.exit(0));
+  });
+}
+
+function loadBounds() {
+  try {
+    if (existsSync(BOUNDS_PATH)) return JSON.parse(readFileSync(BOUNDS_PATH, "utf-8"));
+  } catch {}
+  return DEFAULT_BOUNDS;
+}
+
+function saveBounds(win) {
+  if (!win.isMaximized() && !win.isMinimized() && !win.isFullScreen()) {
+    try { writeFileSync(BOUNDS_PATH, JSON.stringify(win.getBounds())); } catch {}
+  }
+}
+
+function sendToWindow(channel) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send(channel);
+}
+
+const MOSA_MENU_ID_PREFIX = "mosa-menu-";
+
+// macOS/Electron may append unlabelled normal items to an application menu
+// after it is installed. Keep every explicit MOSA item and remove only those
+// injected normal entries, preserving separators and native role behavior.
+function pruneInjectedMenuItems(menu) {
+  for (const item of menu.items) {
+    const submenu = item.submenu;
+    if (!submenu) continue;
+    const retained = submenu.items.filter((child) => (
+      child.type !== "normal" || child.id?.startsWith(MOSA_MENU_ID_PREFIX)
+    ));
+    if (retained.length !== submenu.items.length) {
+      submenu.clear();
+      retained.forEach((child) => submenu.append(child));
+    }
+    pruneInjectedMenuItems(submenu);
+  }
+}
+
+function buildMenu() {
+  const template = [
+    {
+      id: "mosa-menu-app",
+      label: app.name,
+      submenu: [
+        { id: "mosa-menu-about", role: "about", label: getDesktopText("menuAbout", currentLocale) },
+        { id: "mosa-menu-app-separator-1", type: "separator" },
+        { id: "mosa-menu-services", role: "services", label: getDesktopText("menuServices", currentLocale) },
+        { id: "mosa-menu-app-separator-2", type: "separator" },
+        { id: "mosa-menu-hide", role: "hide", label: getDesktopText("menuHide", currentLocale) },
+        { id: "mosa-menu-hide-others", role: "hideOthers", label: getDesktopText("menuHideOthers", currentLocale) },
+        { id: "mosa-menu-show-all", role: "unhide", label: getDesktopText("menuShowAll", currentLocale) },
+        { id: "mosa-menu-app-separator-3", type: "separator" },
+        { id: "mosa-menu-quit", role: "quit", label: getDesktopText("menuQuit", currentLocale) },
+      ],
+    },
+    {
+      id: "mosa-menu-file",
+      label: getDesktopText("menuFile", currentLocale),
+      submenu: [
+        {
+          id: "mosa-menu-import-asset",
+          label: getDesktopText("menuImportAsset", currentLocale),
+          accelerator: "CmdOrCtrl+N",
+          click: () => sendToWindow("menu-import"),
+        },
+        { id: "mosa-menu-file-separator-1", type: "separator" },
+        { id: "mosa-menu-close", role: "close", label: getDesktopText("menuClose", currentLocale) },
+      ],
+    },
+    {
+      id: "mosa-menu-edit",
+      label: getDesktopText("menuEdit", currentLocale),
+      submenu: [
+        { id: "mosa-menu-undo", role: "undo", label: getDesktopText("menuUndo", currentLocale) },
+        { id: "mosa-menu-redo", role: "redo", label: getDesktopText("menuRedo", currentLocale) },
+        { id: "mosa-menu-edit-separator-1", type: "separator" },
+        { id: "mosa-menu-cut", role: "cut", label: getDesktopText("menuCut", currentLocale) },
+        { id: "mosa-menu-copy", role: "copy", label: getDesktopText("menuCopy", currentLocale) },
+        { id: "mosa-menu-paste", role: "paste", label: getDesktopText("menuPaste", currentLocale) },
+        { id: "mosa-menu-paste-match-style", role: "pasteAndMatchStyle", label: getDesktopText("menuPasteAndMatchStyle", currentLocale) },
+        { id: "mosa-menu-delete", role: "delete", label: getDesktopText("menuDelete", currentLocale) },
+        { id: "mosa-menu-select-all", role: "selectAll", label: getDesktopText("menuSelectAll", currentLocale) },
+      ],
+    },
+    {
+      id: "mosa-menu-view",
+      label: getDesktopText("menuView", currentLocale),
+      submenu: [
+        {
+          id: "mosa-menu-search",
+          label: getDesktopText("menuSearch", currentLocale),
+          accelerator: "CmdOrCtrl+F",
+          click: () => sendToWindow("menu-search"),
+        },
+        { id: "mosa-menu-view-separator-1", type: "separator" },
+        { id: "mosa-menu-reset-zoom", role: "resetZoom", label: getDesktopText("menuResetZoom", currentLocale) },
+        { id: "mosa-menu-zoom-in", role: "zoomIn", label: getDesktopText("menuZoomIn", currentLocale) },
+        { id: "mosa-menu-zoom-out", role: "zoomOut", label: getDesktopText("menuZoomOut", currentLocale) },
+        { id: "mosa-menu-view-separator-2", type: "separator" },
+        { id: "mosa-menu-toggle-fullscreen", role: "togglefullscreen", label: getDesktopText("menuToggleFullScreen", currentLocale) },
+      ],
+    },
+    {
+      id: "mosa-menu-window",
+      label: getDesktopText("menuWindow", currentLocale),
+      submenu: [
+        { id: "mosa-menu-minimize", role: "minimize", label: getDesktopText("menuMinimize", currentLocale) },
+        { id: "mosa-menu-window-zoom", role: "zoom", label: getDesktopText("menuZoom", currentLocale) },
+        { id: "mosa-menu-window-separator-1", type: "separator" },
+        { id: "mosa-menu-bring-all-to-front", role: "front", label: getDesktopText("menuBringAllToFront", currentLocale) },
+      ],
+    },
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+  pruneInjectedMenuItems(menu);
+  setImmediate(() => {
+    if (Menu.getApplicationMenu() === menu) pruneInjectedMenuItems(menu);
+  });
+}
+
+function registerIPC() {
+  if (ipcRegistered) return;
+  ipcRegistered = true;
+
+  // BUG-01 follow-up (audit fix batch 1.1): the native dialog is single-file.
+  // One picked file is copied into the MOSA import staging root and the staged
+  // path is returned; Cancel returns []. A staging failure keeps the detailed
+  // main-process diagnostics and propagates via IPC rejection so the renderer
+  // can surface it, instead of silently skipping and leaving staging copies
+  // the user never sees.
+  ipcMain.handle("open-file-dialog", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openFile"],
+      filters: importDialogFilters(),
+    });
+    if (result.canceled || !result.filePaths.length) return [];
+    const [filePath] = result.filePaths;
+    try {
+      return [await stageFileForImport({ sourcePath: filePath, stagingRoot: importStagingRoot })];
+    } catch (error) {
+      console.error(`[MOSA] import-staging failed for ${filePath}: ${error?.message || error}`);
+      // Never return the user's raw path; only the sanitized rejection reaches
+      // the renderer, which shows its own localized error.
+      throw new Error(`import-staging failed (${error?.code || "unknown"})`);
+    }
+  });
+
+  ipcMain.handle("paste-image", async () => {
+    const image = clipboard.readImage();
+    if (image.isEmpty()) return null;
+    try {
+      // BUG-01 fix: pastes now land inside the trusted import staging root
+      // instead of an untrusted userData/pastes directory.
+      return await writeStagedPng(importStagingRoot, image.toPNG());
+    } catch (error) {
+      console.error(`[MOSA] import-staging paste failed: ${error?.message || error}`);
+      return null;
+    }
+  });
+
+  // BUG-01 follow-up (audit fix batch 1.2)：拖放文件 staging。renderer 只把
+  // File 解析出的原始路径字符串发来（绝不经由其它通道提交文件），主进程复制进
+  // 受信任 staging 根并返回 staging 路径；失败保留主进程诊断并 throw 净化错误
+  // （仅错误码，不含原始路径），renderer 显示可见 toast，永不收到用户原始路径。
+  ipcMain.handle("stage-dropped-file", async (event, sourcePath) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      throw new Error("import-staging failed (unavailable)");
+    }
+    try {
+      return await stageFileForImport({ sourcePath, stagingRoot: importStagingRoot });
+    } catch (error) {
+      console.error(`[MOSA] import-staging failed for dropped file: ${error?.message || error}`);
+      throw new Error(`import-staging failed (${error?.code || "unknown"})`);
+    }
+  });
+
+  ipcMain.handle("set-locale", async (event, locale) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return false;
+    if (locale !== "zh" && locale !== "en") return false;
+    if (locale === currentLocale) return true;
+    currentLocale = locale;
+    buildMenu();
+    return true;
+  });
+
+  // Phase 4C：「在 Finder 中显示」最小能力适配。只接受当前主窗口渲染进程发来的
+  // 真实存在的本地绝对路径；拒绝 URL、相对路径与不存在文件；不用 shell.openExternal
+  // 处理本地路径，不创建/修改/移动/下载任何文件；失败返回结构化结果而不抛异常。
+  ipcMain.handle("show-item-in-folder", async (event, path) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false, reason: "unavailable" };
+    if (typeof path !== "string" || !path.trim()) return { ok: false, reason: "invalid" };
+    const target = path.trim();
+    if (!isAbsolute(target) || /^[a-z][a-z0-9+.-]*:/i.test(target)) return { ok: false, reason: "invalid" };
+    if (!existsSync(target)) return { ok: false, reason: "missing" };
+    try {
+      shell.showItemInFolder(target);
+      return { ok: true };
+    } catch {
+      return { ok: false, reason: "unavailable" };
+    }
+  });
+}
+
+function registerGlobalShortcuts() {
+  if (shortcutsRegistered) return;
+  shortcutsRegistered = true;
+  globalShortcut.register("CommandOrControl+N", () => sendToWindow("menu-import"));
+  globalShortcut.register("CommandOrControl+F", () => sendToWindow("menu-search"));
+}
+
+function openMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    return Promise.resolve();
+  }
+  if (windowPromise) return windowPromise;
+  // BUG-01 fix: sweep staged files left behind by failed/cancelled imports
+  // (older than 24h) at startup; never blocks window creation.
+  cleanupOrphanStagedFiles(importStagingRoot).catch((error) => {
+    console.error(`[MOSA] import-staging orphan sweep failed: ${error?.message || error}`);
+  });
+  windowPromise = createMainWindow().finally(() => { windowPromise = null; });
+  return windowPromise;
+}
+
+async function createMainWindow() {
+  denyBrowserPermissions();
+  if (!service) {
+    service = await startMosaService({
+      port: desktopPort,
+      libraryDir,
+      importStagingRoot,
+      isolationContext,
+      runtimeOptions: {
+        projectRoot: appRoot,
+        managerDir: appRoot,
+        cowartProjectDir: desktopDataDir,
+        appDir: join(appRoot, "app"),
+        // JSON fallback libraries must remain writable when MOSA is packaged.
+        assetsRoot: join(libraryDir, "assets"),
+        generatedImagesDir: join(libraryDir, "imports"),
+        // MOSA_DISABLE_BRIDGES lets isolated runs (Task 1 verification) keep
+        // the local Codex/Grok/Cowart directories invisible, so the gallery
+        // reflects only the configured fixture library. Accepted names:
+        // cowart, cowartDiscovery, codex, grok.
+        disabledBridges: parseDisabledBridges({ env: process.env }),
+      },
+    });
+  }
+
+  const url = new URL(service.url);
+  const bounds = loadBounds();
+  mainWindow = new BrowserWindow({
+    ...bounds,
+    // F-10（Phase 6A）：桌面最小窗口钳制在批准的最低验收尺寸 960×640（产品规格 §6）。
+    // 仅靠 BrowserWindow 原生最小尺寸实现，不用 resize 事件反复 setBounds、不在 renderer 模拟。
+    minWidth: 960,
+    minHeight: 640,
+    show: false,
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 16, y: 18 },
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  console.info(`[MOSA] preload-path=${preloadPath}`);
+  mainWindow.webContents.once("preload-error", (_event, attemptedPath, error) => {
+    console.error(`[MOSA] preload-error path=${attemptedPath} ${error?.stack || error}`);
+  });
+  mainWindow.webContents.once("render-process-gone", (_event, details) => {
+    console.error(`[MOSA] render-process-gone ${JSON.stringify(details)}`);
+  });
+  mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    if (level < 2 || rendererConsoleErrors.size >= MAX_RENDERER_CONSOLE_ERRORS) return;
+    const entry = `${level}:${sourceId}:${line}:${message}`;
+    if (rendererConsoleErrors.has(entry)) return;
+    rendererConsoleErrors.add(entry);
+    console.error(`[MOSA] renderer-console ${entry}`);
+  });
+
+  mainWindow.on("close", () => saveBounds(mainWindow));
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+    stopBridgeNotificationPoll();
+  });
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  const blockForeignNavigation = (event, targetUrl) => {
+    if (!isVerifiedMosaUrl(targetUrl, url)) event.preventDefault();
+  };
+  mainWindow.webContents.on("will-navigate", blockForeignNavigation);
+  mainWindow.webContents.on("will-redirect", blockForeignNavigation);
+
+  buildMenu();
+  registerIPC();
+  registerGlobalShortcuts();
+  await mainWindow.loadURL(service.url);
+  mainWindow.show();
+
+  startBridgeNotificationPoll(service.port);
+  void checkForUpdates();
+}
+
+function denyBrowserPermissions() {
+  session.defaultSession.setPermissionCheckHandler(() => false);
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+}
+
+function isVerifiedMosaUrl(targetUrl, expectedUrl) {
+  try {
+    const candidate = new URL(targetUrl);
+    return candidate.protocol === "http:"
+      && candidate.hostname === expectedUrl.hostname
+      && candidate.port === expectedUrl.port;
+  } catch {
+    return false;
+  }
+}
+
+let bridgePollTimer = null;
+let lastImportedCount = 0;
+
+function startBridgeNotificationPoll(runtimePort) {
+  if (bridgePollTimer) return;
+  const interval = 15_000;
+  bridgePollTimer = setInterval(async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    try {
+      const response = await fetch(`http://127.0.0.1:${runtimePort}/api/bridges`);
+      if (!response.ok) return;
+      const data = await response.json();
+      const codexImported = Number(data.codex?.totalImported || 0);
+      const cowartImported = Number(data.cowart?.totalImported || 0);
+      const grokImported = Number(data.grok?.totalImported || 0);
+      const totalImported = codexImported + cowartImported + grokImported;
+      if (lastImportedCount > 0 && totalImported > lastImportedCount) {
+        const delta = totalImported - lastImportedCount;
+        const body = getNotificationTextForAssetsImported(delta, currentLocale);
+        if (Notification.isSupported()) {
+          new Notification({ title: "MOSA", body, silent: true }).show();
+        }
+      }
+      lastImportedCount = totalImported;
+    } catch {
+      // Transient fetch errors are expected during shutdown.
+    }
+  }, interval);
+}
+
+function stopBridgeNotificationPoll() {
+  if (bridgePollTimer) {
+    clearInterval(bridgePollTimer);
+    bridgePollTimer = null;
+  }
+}
+
+async function checkForUpdates() {
+  if (updatesChecked) return;
+  updatesChecked = true;
+  try {
+    const { autoUpdater } = await import("electron-updater");
+    autoUpdater.logger = { info: () => {}, warn: console.warn, error: console.error };
+    autoUpdater.on("update-available", () => {
+      if (Notification.isSupported()) {
+        const body = getNotificationText("updateAvailable", currentLocale);
+        new Notification({ title: "MOSA", body, silent: true }).show();
+      }
+    });
+    autoUpdater.on("update-downloaded", () => {
+      if (Notification.isSupported()) {
+        const body = getNotificationText("updateDownloaded", currentLocale);
+        new Notification({ title: "MOSA", body, silent: true }).show();
+      }
+    });
+    autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+  } catch {
+    // electron-updater is optional; silently ignore if not installed.
+  }
+}
+
+function stopOwnedRuntime() {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = service?.mode === "owned" ? service.stop() : Promise.resolve();
+  return shutdownPromise;
+}
+
+function reportStartupFailure(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  dialog.showErrorBox(getDesktopText("startupErrorTitle", currentLocale), message);
+  shuttingDown = true;
+  stopBridgeNotificationPoll();
+  void stopOwnedRuntime().catch(console.error).finally(() => app.exit(1));
+}

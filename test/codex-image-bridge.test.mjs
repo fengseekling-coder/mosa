@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createAssetStore } from "../lib/asset-store.mjs";
-import { createCodexImageBridge, reconcileCodexGeneratedImages } from "../lib/codex-image-bridge.mjs";
+import { createCodexImageBridge, reconcileCodexGeneratedImages } from "../lib/codex-image-bridge.js";
 
 test("archives Codex generated images with task metadata and avoids duplicates", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
@@ -179,6 +179,43 @@ test("watches a later Codex image and stores fallback metadata when no session i
   assert.equal(asset.source.codex_task_id, taskId);
   assert.equal(asset.source.prompt_status, "not-available");
   assert.equal(asset.ratio, "1:1");
+});
+
+test("bridge caches the session index but refreshes metadata after a matching session changes", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const imagesDir = join(root, "generated_images");
+  const sessionsDir = join(root, "sessions");
+  const taskId = "019f776f-f6d5-7692-b9e5-dd280fc09f09";
+  const imagePath = join(imagesDir, taskId, "cached.png");
+  const sessionPath = join(sessionsDir, `rollout-test-${taskId}.jsonl`);
+  const unrelatedPath = join(sessionsDir, "unrelated.jsonl");
+  await mkdir(join(imagesDir, taskId), { recursive: true });
+  await mkdir(sessionsDir, { recursive: true });
+  await writeFile(imagePath, pngFixture(640, 480));
+  await writeFile(sessionPath, `${JSON.stringify({
+    type: "response_item",
+    payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Fallback prompt" }] },
+  })}\n`);
+  await writeFile(unrelatedPath, "{}\n");
+
+  const store = createAssetStore({ projectRoot: join(root, "project"), managerDir: join(root, "manager"), codexImagesDir: imagesDir });
+  const bridge = createCodexImageBridge({ store, imagesDir, sessionsDir, pollIntervalMs: 60_000 });
+  t.after(() => bridge.stop());
+  await bridge.start();
+  await rm(unrelatedPath);
+
+  await bridge.reconcile();
+  const revisedPrompt = "Asset type: cached metadata refresh\nPrimary request: Keep session discovery incremental.";
+  await appendFile(sessionPath, `${JSON.stringify({
+    type: "event_msg",
+    timestamp: "2026-08-10T11:00:00.000Z",
+    payload: { type: "image_generation_end", call_id: "cached", saved_path: imagePath, revised_prompt: revisedPrompt },
+  })}\n`);
+  const refreshed = await bridge.reconcile();
+  assert.equal(refreshed.updated?.length, 1);
+  const [asset] = await store.listAssets({ projectId: "default" });
+  assert.equal(asset.prompt, revisedPrompt);
 });
 
 function pngFixture(width, height) {

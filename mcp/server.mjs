@@ -6,8 +6,11 @@ import { createAssetStore } from "../lib/asset-store.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || process.cwd());
-const libraryDir = resolve(process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"));
-const store = createAssetStore({ projectRoot, managerDir, libraryDir });
+// The default library location still participates in SQLite detection, but the JSON
+// store only reroots its assets into it when MOSA_LIBRARY_DIR was explicitly set.
+const explicitLibraryDir = process.env.MOSA_LIBRARY_DIR ? resolve(process.env.MOSA_LIBRARY_DIR) : null;
+const libraryDir = explicitLibraryDir || resolve(join(homedir(), "MOSA Library"));
+const store = createAssetStore({ projectRoot, managerDir, libraryDir, explicitLibraryDir });
 
 const TOOL_ASSET_CREATE = "asset_create";
 const TOOL_ASSET_LIST = "asset_list";
@@ -18,6 +21,48 @@ const TOOL_ASSET_ARCHIVE = "asset_archive";
 const TOOL_ASSET_DUPLICATE = "asset_duplicate";
 const TOOL_ASSET_VERSION_CREATE = "asset_version_create";
 const TOOL_ASSET_VERSION_HISTORY = "asset_version_history";
+const TOOL_ASSET_RECIPE_HISTORY = "asset_recipe_history";
+
+const REFERENCE_SCHEMA = {
+  type: "array",
+  items: {
+    anyOf: [
+      { type: "string" },
+      {
+        type: "object",
+        properties: {
+          asset_id: { type: "string" },
+          sha256: { type: "string" },
+          role: { type: "string" },
+          scope: { type: "array", items: { type: "string" } },
+          applied: { type: "boolean" },
+          allowed_uses: {
+            type: "array",
+            items: { type: "string" },
+            description: "Purposes this reference may serve, for example identity, style, world, wardrobe, composition. Once set, any purpose outside the list is treated as forbidden.",
+          },
+          forbidden_uses: {
+            type: "array",
+            items: { type: "string" },
+            description: "Purposes this reference must not serve. A forbidden use always overrides the same allowed use.",
+          },
+          rights: {
+            type: "object",
+            description: "Rights declarations for the reference image. Unstated fields stay unknown; silence is never recorded as permission.",
+            properties: {
+              copyright: { enum: ["unknown", "owned", "licensed", "third-party"] },
+              portrait_consent: { enum: ["unknown", "granted", "not-required", "denied"] },
+              redistribution: { enum: ["unknown", "allowed", "forbidden"] },
+              attribution: { type: "string" },
+            },
+            additionalProperties: false,
+          },
+        },
+        additionalProperties: true,
+      },
+    ],
+  },
+};
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -42,6 +87,9 @@ function toolDefinitions() {
           projectId: { type: "string" },
           imagePath: { type: "string" },
           prompt: { type: "string" },
+          user_prompt: { type: "string", description: "Optional user request kept separately from the effective generation prompt." },
+          negative_prompt: { type: "string" },
+          references: REFERENCE_SCHEMA,
           skill: { type: "string" },
           style: { type: "string" },
           ratio: { type: "string" },
@@ -111,6 +159,9 @@ function toolDefinitions() {
           imagePath: { type: "string", description: "Optional new image path. When omitted, the parent image is copied for a recipe-only version." },
           version_change: { type: "string", minLength: 1, description: "Required summary of what changed from the parent." },
           prompt: { type: "string" },
+          user_prompt: { type: "string", description: "Optional user request kept separately from the effective generation prompt." },
+          negative_prompt: { type: "string" },
+          references: REFERENCE_SCHEMA,
           skill: { type: "string" },
           style: { type: "string" },
           ratio: { type: "string" },
@@ -143,11 +194,21 @@ function toolDefinitions() {
       }
     },
     {
-      name: TOOL_ASSET_UPDATE_METADATA,
-      description: "Update metadata fields for a saved asset.",
+      name: TOOL_ASSET_RECIPE_HISTORY,
+      description: "Read immutable generation recipe snapshots for one asset and identify the currently active snapshot.",
       inputSchema: {
         type: "object",
         properties: { projectId: { type: "string" }, assetId: { type: "string" } },
+        required: ["assetId"],
+        additionalProperties: false
+      }
+    },
+    {
+      name: TOOL_ASSET_UPDATE_METADATA,
+      description: "Update metadata fields for a saved asset. Pass `references` to record reference rights and permitted uses for an already-archived asset; that annotation is not a generation input, so it refreshes the existing recipe snapshot rather than appending a new one.",
+      inputSchema: {
+        type: "object",
+        properties: { projectId: { type: "string" }, assetId: { type: "string" }, references: REFERENCE_SCHEMA },
         required: ["assetId"],
         additionalProperties: true
       }
@@ -216,6 +277,11 @@ async function handleToolCall(id, params) {
     sendResult(id, { content: [{ type: "text", text: `${history.versions.length} versions rooted at ${history.root_asset_id}` }], structuredContent: { history } });
     return;
   }
+  if (params?.name === TOOL_ASSET_RECIPE_HISTORY) {
+    const history = await store.getRecipeSnapshotHistory(args.projectId || "default", args.assetId);
+    sendResult(id, { content: [{ type: "text", text: `${history.snapshots.length} recipe snapshots for ${history.asset_id}` }], structuredContent: { history } });
+    return;
+  }
   sendError(id, -32602, `Unknown tool: ${params?.name || ""}`);
 }
 
@@ -226,7 +292,7 @@ async function handleRequest(message) {
       protocolVersion: params?.protocolVersion || "2025-11-25",
       capabilities: { tools: {} },
       serverInfo: { name: "MOSA MCP", version: "0.1.0" },
-      instructions: "Save generated images with full prompts and recipe metadata. Use asset_version_create with the generated imagePath and a version_change summary when creating a child recipe version. Images from Codex's default ~/.codex/generated_images task folders are accepted and their source path is recorded."
+      instructions: "Save generated images with the effective prompt, distinct user prompt when available, negative constraints, reference hashes, and generation provenance. MOSA records immutable recipe snapshots automatically. Use asset_version_create with the generated imagePath and a version_change summary when creating a child asset version, and asset_recipe_history when an exact prior recipe is needed. Images from Codex's default ~/.codex/generated_images task folders are accepted and their source path is recorded."
     });
     return;
   }

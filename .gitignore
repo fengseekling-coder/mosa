@@ -1,10 +1,19 @@
-node_modules/
+node_modules
 .DS_Store
 .env
 .env.*
 !.env.example
 npm-debug.log*
 *.bak-*
+/.claude/settings.local.json
+
+# TypeScript emits runtime modules next to their .ts sources so existing Node
+# entry points can resolve their .js specifiers. They are rebuilt by npm
+# lifecycle scripts and must never be staged.
+/lib/*.js
+/lib/*.js.map
+/lib/*.d.ts
+/dist/
 
 # User libraries and private project material.
 /assets/
@@ -12,10 +21,24 @@ npm-debug.log*
 /HANDOFF.md
 /design-qa.md
 /docs/screenshots/
+/docs/ui-audit/
+/docs/product-design/
 
 /canvas/
 /outputs/
+/generated-images/
+/screenshots/
+/tmp/
+/app/build-identity.json
+
+# Local source copies and rollback snapshots are not release artifacts.
+/app.mjs
+/app/_archive_2026-08-18-v2-cleanup/
 
 # Runtime library entries remain local.
 /mosa.db*
 /legacy-json-backup/
+
+# Electron build output.
+/desktop/out/
+/out/

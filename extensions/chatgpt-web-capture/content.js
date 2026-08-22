@@ -19,6 +19,7 @@
   ];
   const MIN_EDGE = 480; // px — drop small UI logos
   const MIN_BYTES = 20 * 1024; // server also enforces this
+  const COMPOSER_SELECTOR = 'form, [data-type="unified-composer"], [data-testid="composer"]';
   const STYLE_HINTS = [
     "poster", "illustration", "typography", "vector", "style", "lighting",
     "camera", "composition", "palette", "cinematic", "editorial", "scene",
@@ -33,12 +34,23 @@
   const recentPrompts = [];
   const inFlight = new Set();
   const savedKeys = new Set();
+  /**
+   * Stable image identities already archived in this page session. One uploaded
+   * reference photo renders under several URLs (composer blob, Estuary proxy,
+   * signed CDN link), so keying only on the raw src archived it once per URL.
+   */
+  const savedIdentityKeys = new Set();
   /** Stable image identity -> candidate retained for a late prompt upgrade. */
   const capturedCandidates = new Map();
   /** Stable image identity -> best prompt rank sent to MOSA in this page session. */
   const savedPromptRanks = new Map();
   const promptUpgradeInFlight = new Set();
+  const promptRecoveryTimers = new Map();
   const failedAt = new Map(); // key -> timestamp, retry after cooldown
+  // The conversation endpoint is enough to recover a caption that was rendered
+  // from ChatGPT's cache, but was never seen by the page network hook.
+  const conversationRefreshRequestedAt = new Map();
+  const CONVERSATION_REFRESH_COOLDOWN_MS = 2_500;
   let toastTimer = null;
   let autoCapture = true;
   let scanTimer = null;
@@ -47,6 +59,11 @@
   let lastError = "";
   let lastStatus = "starting";
   let autoQueue = Promise.resolve();
+  let contextLost = false;
+  let autoScanInterval = null;
+  let observer = null;
+  let controlPanel = null;
+  let panelDragState = null;
 
   function showToast(message, isError = false) {
     let el = document.getElementById("mosa-capture-toast");
@@ -57,6 +74,7 @@
       (document.body || document.documentElement).appendChild(el);
     }
     el.textContent = message;
+    el.setAttribute("role", isError ? "alert" : "status");
     el.classList.toggle("is-error", Boolean(isError));
     el.classList.add("is-visible");
     if (toastTimer) clearTimeout(toastTimer);
@@ -66,12 +84,8 @@
   function setStatus(text, isError = false) {
     lastStatus = text;
     if (isError) lastError = text;
-    const dock = document.getElementById("mosa-capture-dock");
-    const status = dock?.querySelector?.('[data-role="status"]');
-    if (status) {
-      status.textContent = text;
-      status.classList.toggle("is-error", Boolean(isError));
-    }
+    else if (!contextLost) lastError = "";
+    renderControlPanel();
   }
 
   function conversationIdFromUrl() {
@@ -123,6 +137,10 @@
     } else if (direct) {
       try {
         const url = new URL(direct, location.href);
+        // One ChatGPT file is served both through the Estuary proxy and from a
+        // signed CDN link. Without the shared file id those read as two images.
+        const fileId = /\/(file[-_][A-Za-z0-9]{6,})(?:[./]|$)/.exec(url.pathname)?.[1] || "";
+        if (fileId) keys.push(`asset:${fileId}`);
         keys.push(`url:${url.origin}${url.pathname}`);
       } catch {
         // Ignore malformed lookup values.
@@ -177,9 +195,28 @@
     return hits.length >= 2 || (t.length > 200 && hits.length >= 1);
   }
 
+  /**
+   * An attachment still sitting in the composer is not part of the conversation
+   * yet, and ChatGPT re-renders it inside the sent message at a capped size.
+   * Capturing both archived one upload as two differently sized assets.
+   */
+  function isComposerNode(node) {
+    const scope = node?.closest?.(COMPOSER_SELECTOR);
+    if (!scope) return false;
+    if (scope.matches?.('[data-type="unified-composer"], [data-testid="composer"]')) return true;
+    // A bare <form> is the composer only when it owns the prompt input, so a
+    // future ChatGPT layout cannot silently mute capture for the whole thread.
+    return Boolean(scope.querySelector?.('textarea, [contenteditable="true"]'));
+  }
+
+  /** A picture inside a user turn is an uploaded reference, not a generation. */
+  function isReferenceCandidate(candidate) {
+    return Boolean(candidate?.el?.closest?.('[data-message-author-role="user"]'));
+  }
+
   function looksLikeGeneratedImage(img, { manual = false } = {}) {
     if (!(img instanceof HTMLImageElement)) return false;
-    if (img.closest("#mosa-capture-dock")) return false;
+    if (!manual && isComposerNode(img)) return false;
     const src = img.currentSrc || img.src || "";
     if (!src || isBlockedUrl(src)) return false;
     const w = img.naturalWidth || img.width || 0;
@@ -235,6 +272,7 @@
     for (const el of document.querySelectorAll("div, section, main, figure")) {
       const rect = el.getBoundingClientRect?.();
       if (!rect || rect.width < (manual ? 300 : 360) || rect.height < (manual ? 300 : 360)) continue;
+      if (!manual && isComposerNode(el)) continue;
       const bg = getComputedStyle(el).backgroundImage || "";
       const match = /url\(["']?(https?:\/\/[^"')]+|blob:[^"')]+)["']?\)/i.exec(bg);
       if (!match) continue;
@@ -253,7 +291,77 @@
     return [...byKey.values()].sort((a, b) => (b.width * b.height) - (a.width * a.height));
   }
 
+  function currentViewportCandidate(candidates) {
+    const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+    const viewportWidth = window.innerWidth || document.documentElement?.clientWidth || 0;
+    const visible = candidates
+      .map((candidate) => ({ candidate, rect: candidate.el?.getBoundingClientRect?.() }))
+      .filter(({ rect }) => rect && rect.bottom > 0 && rect.right > 0 && rect.top < viewportHeight && rect.left < viewportWidth)
+      .sort((a, b) => {
+        const aVisibleArea = Math.max(0, Math.min(a.rect.bottom, viewportHeight) - Math.max(a.rect.top, 0))
+          * Math.max(0, Math.min(a.rect.right, viewportWidth) - Math.max(a.rect.left, 0));
+        const bVisibleArea = Math.max(0, Math.min(b.rect.bottom, viewportHeight) - Math.max(b.rect.top, 0))
+          * Math.max(0, Math.min(b.rect.right, viewportWidth) - Math.max(b.rect.left, 0));
+        return bVisibleArea - aVisibleArea;
+      });
+    return visible[0]?.candidate || candidates[0] || null;
+  }
+
+  function domCandidateForImage(imageUrl, { manual = false } = {}) {
+    const wantedKeys = imageLookupKeys(imageUrl);
+    if (!wantedKeys.length) return null;
+    return collectDomCandidates({ manual }).find((candidate) => (
+      candidate.imageUrl === imageUrl
+      || candidate.key === imageUrl
+      || candidateLookupKeys(candidate).some((key) => wantedKeys.includes(key))
+    )) || null;
+  }
+
+  function enqueueDomCandidateForImage(imageUrl, reason) {
+    const candidate = domCandidateForImage(imageUrl);
+    if (candidate) {
+      enqueueAuto(candidate, reason);
+      return true;
+    }
+    scheduleScan(true);
+    return false;
+  }
+
+  const CONTEXT_LOST_MESSAGE = "MOSA 扩展已更新或重载，本页脚本已失联：请按 Cmd+Shift+R 硬刷新本页恢复捕获";
+
+  function extensionAlive() {
+    try {
+      return typeof chrome === "object" && Boolean(chrome?.runtime?.id);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Reloading or re-adding the unpacked extension orphans this already-injected
+   * script: the dock stays on screen while chrome.runtime is gone, so every
+   * save died with a raw "Cannot read properties of undefined". Say what
+   * happened once, freeze the buttons, and stop the scan machinery.
+   */
+  function markContextLost() {
+    if (contextLost) return;
+    contextLost = true;
+    if (autoScanInterval) clearInterval(autoScanInterval);
+    if (scanTimer) clearTimeout(scanTimer);
+    observer?.disconnect();
+    for (const timers of promptRecoveryTimers.values()) {
+      for (const timer of timers) clearTimeout(timer);
+    }
+    promptRecoveryTimers.clear();
+    setStatus(CONTEXT_LOST_MESSAGE, true);
+    showToast(CONTEXT_LOST_MESSAGE, true);
+  }
+
   async function runtimeSend(message) {
+    if (!extensionAlive() || typeof chrome.runtime?.sendMessage !== "function") {
+      markContextLost();
+      throw new Error(CONTEXT_LOST_MESSAGE);
+    }
     try {
       const response = await chrome.runtime.sendMessage(message);
       if (chrome.runtime.lastError) {
@@ -265,8 +373,9 @@
       return response;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      if (/Extension context invalidated|context invalidated/i.test(msg)) {
-        throw new Error("扩展已热更新失效：请 Cmd+Shift+R 硬刷新本页后再点保存");
+      if (/Extension context invalidated|context invalidated|reading 'sendMessage'/i.test(msg)) {
+        markContextLost();
+        throw new Error(CONTEXT_LOST_MESSAGE);
       }
       if (/Receiving end does not exist|Could not establish connection/i.test(msg)) {
         throw new Error("扩展后台未连接：请在 chrome://extensions 打开 MOSA 并点刷新，再硬刷新本页");
@@ -360,6 +469,18 @@
     )) || null;
   }
 
+  /**
+   * Automatic capture has a stricter contract than manual save: an image must
+   * be bound to a generation-tool result, rather than merely looking like a
+   * large ChatGPT asset. User uploads and normal visual-analysis attachments
+   * deliberately have no such evidence.
+   */
+  function hasVerifiedGenerationEvidence(candidate) {
+    if (isReferenceCandidate(candidate)) return false;
+    const bound = findBoundPromptForImage(candidate?.imageUrl || candidate?.key || "");
+    return Boolean(bound?.prompt && ["generation-tool-prompt", "visible-caption"].includes(bound.promptStatus));
+  }
+
   function promptQuality(promptStatus, prompt) {
     const rank = {
       "not-available": 0,
@@ -376,6 +497,19 @@
 
   function rememberCandidate(candidate) {
     for (const key of candidateLookupKeys(candidate)) capturedCandidates.set(key, candidate);
+  }
+
+  /** One archived picture, whichever URL variant or DOM node surfaced it. */
+  function isSavedCandidate(candidate) {
+    const key = candidate?.key || candidate?.imageUrl;
+    if (key && savedKeys.has(key)) return true;
+    return candidateLookupKeys(candidate).some((identity) => savedIdentityKeys.has(identity));
+  }
+
+  function rememberSavedCandidate(candidate) {
+    const key = candidate?.key || candidate?.imageUrl;
+    if (key) savedKeys.add(key);
+    for (const identity of candidateLookupKeys(candidate)) savedIdentityKeys.add(identity);
   }
 
   function rememberSavedPrompt(candidate, resolved) {
@@ -415,6 +549,7 @@
     if (!candidate) return;
     const candidateKey = candidate.key || candidate.imageUrl;
     if (!candidateKey || promptUpgradeInFlight.has(candidateKey)) return;
+    clearPromptRecovery(candidateKey);
 
     promptUpgradeInFlight.add(candidateKey);
     autoQueue = autoQueue
@@ -425,6 +560,34 @@
       }))
       .catch(() => {})
       .finally(() => promptUpgradeInFlight.delete(candidateKey));
+  }
+
+  function clearPromptRecovery(candidateKey) {
+    const timers = promptRecoveryTimers.get(candidateKey);
+    if (timers) {
+      for (const timer of timers) clearTimeout(timer);
+      promptRecoveryTimers.delete(candidateKey);
+    }
+  }
+
+  function schedulePromptRecovery(candidate) {
+    const candidateKey = candidate?.key || candidate?.imageUrl;
+    const imageRef = candidate?.imageUrl || candidateKey || "";
+    if (!candidateKey || !imageRef || promptRecoveryTimers.has(candidateKey)) return;
+
+    // The image can become visible before ChatGPT stores its tool caption.
+    // Retry only this conversation twice; a later bound caption upgrades the
+    // already archived fallback through the normal hash-dedupe route.
+    const delays = [2_800, 7_200];
+    const timers = delays.map((delay, index) => setTimeout(() => {
+      if (findBoundPromptForImage(imageRef)) {
+        clearPromptRecovery(candidateKey);
+        return;
+      }
+      requestCurrentConversationRefresh(candidate);
+      if (index === delays.length - 1) promptRecoveryTimers.delete(candidateKey);
+    }, delay));
+    promptRecoveryTimers.set(candidateKey, timers);
   }
 
   function findRecentUnboundPrompt(withinMs = 8000) {
@@ -479,17 +642,7 @@
       };
     }
 
-    // Long user message that itself looks like a full art prompt (rare but valid).
-    if (user && !isWeakChatPrompt(user) && looksLikeGenerationCaption(user)) {
-      return {
-        prompt: user,
-        promptStatus: "user-message",
-        userMessage: user,
-        promptSource: "user-full-prompt",
-      };
-    }
-
-    // Short chat ("在做一版 香港 的") → keep only as user_message; main prompt empty.
+    // A user turn is context, not ChatGPT's revised generation prompt.
     return {
       prompt: "",
       promptStatus: "not-available",
@@ -509,6 +662,66 @@
     return String(nearest?.innerText || "").trim();
   }
 
+  function messageScopeForCandidate(candidate) {
+    const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
+    if (!image) return null;
+    return image.closest(
+      '[data-message-author-role="assistant"], [data-message-author-role="tool"], [data-message-id], article',
+    );
+  }
+
+  function domCaptionForCandidate(candidate) {
+    const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
+    if (!image) return "";
+    const scope = messageScopeForCandidate(candidate);
+    const sources = [
+      image.getAttribute("alt"),
+      image.getAttribute("aria-label"),
+      scope?.innerText,
+    ];
+    for (const source of sources) {
+      const text = String(source || "").replace(/\s+/g, " ").trim();
+      const match = /model caption\s*:\s*(.+)$/i.exec(text);
+      const caption = cleanPromptText(match?.[0] || "");
+      if (looksLikeGenerationCaption(caption)) return caption;
+    }
+    return "";
+  }
+
+  function messageIdForCandidate(candidate) {
+    return String(messageScopeForCandidate(candidate)?.getAttribute?.("data-message-id") || "").trim();
+  }
+
+  function requestCurrentConversationRefresh(candidate) {
+    const conversationId = conversationIdFromUrl();
+    if (!conversationId) return false;
+
+    const imageRef = candidate?.imageUrl || candidate?.key || "";
+    const proxy = chatGptImageProxyInfo(imageRef);
+    // Do not ask the page hook to inspect the active conversation for an image
+    // from a different ChatGPT conversation.
+    if (proxy?.conversationId && proxy.conversationId !== conversationId) return false;
+
+    const now = Date.now();
+    const lastRequested = conversationRefreshRequestedAt.get(conversationId) || 0;
+    if (now - lastRequested < CONVERSATION_REFRESH_COOLDOWN_MS) return false;
+    conversationRefreshRequestedAt.set(conversationId, now);
+    if (conversationRefreshRequestedAt.size > 20) {
+      for (const [id, at] of conversationRefreshRequestedAt) {
+        if (now - at > CONVERSATION_REFRESH_COOLDOWN_MS * 4) conversationRefreshRequestedAt.delete(id);
+      }
+    }
+
+    // page-hook.js derives the endpoint from its own location; the content
+    // script never supplies a URL or any credential-bearing request detail.
+    window.postMessage({
+      source: "mosa-chatgpt-capture",
+      type: "refresh-current-conversation",
+      payload: { conversationId },
+    }, "*");
+    return true;
+  }
+
   function resolvePrompt(imageUrl, candidate) {
     const userMessage = userMessageForCandidate(candidate);
 
@@ -521,6 +734,20 @@
         via: `bound:${bound.via || "network"}`,
       });
       return { ...built, model: bound.model || "", messageId: bound.messageId || "" };
+    }
+
+    // Cached ChatGPT routes can render an image without replaying the
+    // conversation response. Keep the fallback inside that image's own
+    // message and accept only the explicit Model caption marker.
+    const domCaption = domCaptionForCandidate(candidate);
+    if (domCaption) {
+      const built = buildStoredPrompt({
+        generationPrompt: domCaption,
+        generationStatus: "visible-caption",
+        userMessage,
+        via: "dom-message-caption",
+      });
+      return { ...built, model: "", messageId: messageIdForCandidate(candidate) };
     }
 
     // Only use a very recent unbound prompt (same generation turn), never session-global best.
@@ -543,6 +770,41 @@
     return { ...built, model: "", messageId: "" };
   }
 
+  async function originalBytesFromUrl(url) {
+    if (!url) throw new Error("未能读取图片字节（下载失败或跨域）");
+    if (url.startsWith("blob:")) {
+      // A blob handle only resolves inside the page, not in the service worker.
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`blob/img fetch failed (${response.status})`);
+      const blob = await response.blob();
+      const buffer = await blob.arrayBuffer();
+      return { mimeType: blob.type || "image/png", imageBase64: arrayBufferToBase64(buffer) };
+    }
+    const response = await runtimeSend({ type: "mosa.fetchImage", url });
+    if (!response?.ok) throw new Error(response?.error || "Image download failed");
+    return response.result;
+  }
+
+  function canvasBytesFromImage(el) {
+    if (!(el instanceof HTMLImageElement) || !el.complete || !el.naturalWidth) {
+      throw new Error("未能读取图片字节（下载失败或跨域）");
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = el.naturalWidth;
+    canvas.height = el.naturalHeight;
+    canvas.getContext("2d").drawImage(el, 0, 0);
+    const dataUrl = canvas.toDataURL("image/png");
+    const match = /^data:([^;]+);base64,(.+)$/i.exec(dataUrl);
+    if (!match) throw new Error("未能读取图片字节（下载失败或跨域）");
+    return { mimeType: match[1], imageBase64: match[2] };
+  }
+
+  /**
+   * The canvas snapshot stays first. It re-encodes to different bytes than the
+   * file ChatGPT served, so switching the order would re-import every asset
+   * already archived from a canvas. Two encodings of one picture are kept apart
+   * by image identity instead, before either one is ever uploaded.
+   */
   async function bytesFromUrlOrImg(candidate) {
     if (candidate.dataUrl) {
       const match = /^data:([^;]+);base64,(.+)$/i.exec(candidate.dataUrl);
@@ -550,33 +812,12 @@
       return { mimeType: match[1], imageBase64: match[2] };
     }
 
-    if (candidate.el instanceof HTMLImageElement && candidate.el.complete && candidate.el.naturalWidth > 0) {
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = candidate.el.naturalWidth;
-        canvas.height = candidate.el.naturalHeight;
-        canvas.getContext("2d").drawImage(candidate.el, 0, 0);
-        const dataUrl = canvas.toDataURL("image/png");
-        const match = /^data:([^;]+);base64,(.+)$/i.exec(dataUrl);
-        if (match) return { mimeType: match[1], imageBase64: match[2] };
-      } catch {
-        // tainted → network fetch
-      }
+    try {
+      return canvasBytesFromImage(candidate.el);
+    } catch {
+      // No usable element, or a tainted cross-origin canvas → download instead.
     }
-
-    const url = candidate.imageUrl || candidate.key;
-    if (!url || url.startsWith("blob:")) {
-      // blob must be fetched in page; try content-script fetch
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`blob/img fetch failed (${response.status})`);
-      const blob = await response.blob();
-      const buffer = await blob.arrayBuffer();
-      return { mimeType: blob.type || "image/png", imageBase64: arrayBufferToBase64(buffer) };
-    }
-
-    const response = await runtimeSend({ type: "mosa.fetchImage", url });
-    if (!response?.ok) throw new Error(response?.error || "Image download failed");
-    return response.result;
+    return originalBytesFromUrl(candidate.imageUrl || candidate.key || "");
   }
 
   function arrayBufferToBase64(buffer) {
@@ -589,11 +830,12 @@
     return btoa(binary);
   }
 
-  function canAttempt(key, { force = false } = {}) {
+  function canAttempt(candidate, { force = false } = {}) {
+    const key = candidate?.key || candidate?.imageUrl;
     if (!key) return false;
     if (inFlight.has(key)) return false;
     if (force) return true;
-    if (savedKeys.has(key)) return false;
+    if (isSavedCandidate(candidate)) return false;
     const failed = failedAt.get(key);
     if (failed && Date.now() - failed < 8_000) return false;
     return true;
@@ -601,12 +843,13 @@
 
   async function ingestCandidate(candidate, { silentSkip = false, reason = "manual", force = false } = {}) {
     const key = candidate.key || candidate.imageUrl;
-    const manual = reason === "manual" || reason === "manual-all";
+    const manual = reason.startsWith("manual");
     rememberCandidate(candidate);
-    if (!canAttempt(key, { force: manual || force })) {
+    if (!canAttempt(candidate, { force: manual || force })) {
       if (!silentSkip) {
-        showToast(savedKeys.has(key) ? "这张已处理过（或已入库）" : "请稍后再试（冷却中）", true);
-        setStatus(savedKeys.has(key) ? "已处理过" : "冷却中");
+        const saved = isSavedCandidate(candidate);
+        showToast(saved ? "这张已处理过（或已入库）" : "请稍后再试（冷却中）", true);
+        setStatus(saved ? "已处理过" : "冷却中");
       }
       return null;
     }
@@ -620,9 +863,13 @@
     setStatus(`保存中… (${reason})`);
 
     try {
-      // Wait briefly for a bound caption for THIS image URL only.
+      // Ask the MAIN-world hook to re-read only the active conversation before
+      // waiting. Cached ChatGPT pages otherwise render the image without
+      // replaying the conversation response through the fetch/XHR interceptors.
       const imageRef = candidate.imageUrl || key;
-      const waits = manual ? 2 : 5;
+      const refreshRequested = !findBoundPromptForImage(imageRef)
+        && requestCurrentConversationRefresh(candidate);
+      const waits = refreshRequested ? 6 : (manual ? 2 : 5);
       for (let i = 0; i < waits && !findBoundPromptForImage(imageRef); i += 1) {
         await new Promise((r) => setTimeout(r, 350));
       }
@@ -649,6 +896,7 @@
           userMessage: resolved.userMessage,
           model: resolved.model,
           promptSource: resolved.promptSource,
+          isReference: isReferenceCandidate(candidate),
           mimeType,
           imageBase64,
           pageUrl: location.href,
@@ -660,7 +908,7 @@
       if (!response?.ok) throw new Error(response?.error || "Unknown extension error");
 
       const result = response.result;
-      savedKeys.add(key);
+      rememberSavedCandidate(candidate);
       failedAt.delete(key);
       rememberSavedPrompt(candidate, resolved);
 
@@ -668,6 +916,9 @@
       // downloading, after resolvePrompt had already returned no prompt.
       const lateBound = findBoundPromptForImage(imageRef);
       if (lateBound?.prompt) schedulePromptUpgrade(lateBound);
+      else if (!["visible-caption", "generation-tool-prompt"].includes(resolved.promptStatus)) {
+        schedulePromptRecovery(candidate);
+      }
 
       if (result.status === "imported") {
         const label = resolved.prompt ? resolved.promptStatus : "no-caption";
@@ -704,6 +955,7 @@
   function enqueueAuto(candidate, reason) {
     if (!autoCapture) return;
     if (!isArchiveWorthyCandidate(candidate, { manual: false })) return;
+    if (!hasVerifiedGenerationEvidence(candidate)) return;
     rememberCandidate(candidate);
     autoQueue = autoQueue
       .then(async () => {
@@ -715,66 +967,303 @@
       });
   }
 
-  function ensureDock() {
-    if (document.getElementById("mosa-capture-dock")) return;
-    const mount = () => {
-      if (document.getElementById("mosa-capture-dock")) return;
-      const host = document.body || document.documentElement;
-      if (!host) return;
-      const dock = document.createElement("div");
-      dock.id = "mosa-capture-dock";
-      dock.innerHTML = `
-        <div class="mosa-dock-title">MOSA 自动入库</div>
-        <button type="button" class="mosa-dock-btn mosa-dock-primary" data-action="save-visible">保存当前图</button>
-        <button type="button" class="mosa-dock-btn" data-action="save-all">保存全部大图</button>
-        <button type="button" class="mosa-dock-btn" data-action="toggle-auto">切换自动</button>
-        <div class="mosa-dock-status" data-role="status">${lastStatus}</div>
-      `;
-      dock.addEventListener("click", async (event) => {
-        const btn = event.target.closest("[data-action]");
-        if (!btn) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const action = btn.getAttribute("data-action");
-        if (action === "toggle-auto") {
-          autoCapture = !autoCapture;
-          chrome.storage?.local?.set?.({ autoCapture });
-          setStatus(autoCapture ? "自动开" : "自动关");
-          if (autoCapture) scheduleScan(true);
-          return;
-        }
-        const candidates = collectDomCandidates({ manual: true });
-        if (!candidates.length) {
-          showToast("没找到大图：等图片加载完，或确认扩展版本 0.8 已刷新", true);
-          setStatus("未找到图片", true);
-          return;
-        }
-        if (action === "save-visible") {
-          try {
-            await ingestCandidate(candidates[0], { reason: "manual" });
-          } catch {
-            // toast already shown
-          }
-        } else if (action === "save-all") {
-          for (const c of candidates.slice(0, 8)) {
-            try {
-              await ingestCandidate(c, { silentSkip: false, reason: "manual-all" });
-            } catch {
-              // continue
-            }
-          }
-        }
-      });
-      host.appendChild(dock);
+  function pageState() {
+    return {
+      autoCapture,
+      cachedPromptCount: networkMeta.filter((item) => item.prompt).length,
+      contextLost,
+      conversationId: conversationIdFromUrl(),
+      error: lastError,
+      hookReady,
+      pageUrl: location.href,
+      savedCount: Math.max(savedIdentityKeys.size, savedKeys.size),
+      status: lastStatus,
     };
-    if (document.body) mount();
-    else document.addEventListener("DOMContentLoaded", mount, { once: true });
   }
 
+  function renderControlPanel() {
+    const panel = controlPanel?.isConnected
+      ? controlPanel
+      : document.getElementById("mosa-capture-panel");
+    if (!panel) return;
+    controlPanel = panel;
+
+    const state = pageState();
+    const mode = panel.querySelector('[data-role="mode"]');
+    const connection = panel.querySelector('[data-role="connection"]');
+    const detail = panel.querySelector('[data-role="detail"]');
+    const saved = panel.querySelector('[data-role="saved-count"]');
+    const cached = panel.querySelector('[data-role="prompt-count"]');
+    const toggle = panel.querySelector('[data-action="toggle-auto"]');
+
+    if (mode) {
+      mode.textContent = state.autoCapture ? "运行中" : "已关闭";
+      mode.classList.toggle("is-off", !state.autoCapture);
+    }
+    if (connection) {
+      connection.textContent = state.contextLost
+        ? "页面脚本需刷新"
+        : state.hookReady
+          ? "Hook 已连接"
+          : "Hook 连接中";
+      connection.classList.toggle("is-error", Boolean(state.contextLost || state.error));
+    }
+    if (detail) {
+      detail.textContent = state.error
+        ? state.error
+        : state.autoCapture
+          ? "正在监听当前会话中的生成图片"
+          : "自动入库已暂停，不会处理新图片";
+      detail.setAttribute("role", state.error ? "alert" : "status");
+      detail.setAttribute("aria-live", state.error ? "assertive" : "polite");
+    }
+    if (saved) saved.textContent = String(state.savedCount);
+    if (cached) cached.textContent = String(state.cachedPromptCount);
+    if (toggle) {
+      toggle.textContent = state.autoCapture ? "关闭自动入库" : "启动自动入库";
+      toggle.classList.toggle("is-off", !state.autoCapture);
+      toggle.setAttribute("aria-pressed", String(state.autoCapture));
+    }
+  }
+
+  function finishPanelDrag(event) {
+    if (event && panelDragState && event.pointerId !== panelDragState.pointerId) return;
+    controlPanel?.classList.remove("is-dragging");
+    panelDragState = null;
+    document.removeEventListener("pointermove", moveControlPanel, true);
+    document.removeEventListener("pointerup", finishPanelDrag, true);
+    document.removeEventListener("pointercancel", finishPanelDrag, true);
+  }
+
+  function moveControlPanel(event) {
+    if (!panelDragState || !controlPanel || event.pointerId !== panelDragState.pointerId) return;
+    const width = controlPanel.offsetWidth;
+    const height = controlPanel.offsetHeight;
+    const maxLeft = Math.max(8, window.innerWidth - width - 8);
+    const maxTop = Math.max(8, window.innerHeight - height - 8);
+    const left = Math.min(maxLeft, Math.max(8, event.clientX - panelDragState.offsetX));
+    const top = Math.min(maxTop, Math.max(8, event.clientY - panelDragState.offsetY));
+    controlPanel.style.left = `${Math.round(left)}px`;
+    controlPanel.style.top = `${Math.round(top)}px`;
+    controlPanel.style.right = "auto";
+  }
+
+  function startPanelDrag(event) {
+    if (event.button !== 0 || !controlPanel) return;
+    if (!event.target.closest?.('[data-drag-handle]') || event.target.closest?.("button")) return;
+    const rect = controlPanel.getBoundingClientRect();
+    panelDragState = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+    };
+    controlPanel.classList.add("is-dragging");
+    document.addEventListener("pointermove", moveControlPanel, true);
+    document.addEventListener("pointerup", finishPanelDrag, true);
+    document.addEventListener("pointercancel", finishPanelDrag, true);
+    event.preventDefault();
+  }
+
+  function handlePanelEscape(event) {
+    if (event.key === "Escape" && controlPanel?.isConnected) closeControlPanel();
+  }
+
+  function closeControlPanel() {
+    finishPanelDrag();
+    document.removeEventListener("keydown", handlePanelEscape, true);
+    controlPanel?.classList.remove("is-visible");
+    const panel = controlPanel;
+    controlPanel = null;
+    if (panel) setTimeout(() => panel.remove(), 150);
+  }
+
+  async function handleControlPanelClick(event) {
+    const button = event.target.closest?.("[data-action]");
+    if (!button) return;
+    const action = button.getAttribute("data-action");
+    if (action === "close") {
+      closeControlPanel();
+      return;
+    }
+    if (action === "toggle-auto") {
+      autoCapture = !autoCapture;
+      await chrome.storage?.local?.set?.({ autoCapture });
+      setStatus(autoCapture ? "自动入库已开启" : "自动入库已关闭");
+      showToast(autoCapture ? "MOSA 自动入库已开启" : "MOSA 自动入库已关闭");
+      if (autoCapture) scheduleScan(true);
+      renderControlPanel();
+      return;
+    }
+    if (action === "open-settings") {
+      const response = await runtimeSend({ type: "mosa.openOptions" });
+      if (!response?.ok) showToast(response?.error || "无法打开设置", true);
+      else closeControlPanel();
+    }
+  }
+
+  function ensureControlPanel() {
+    const existing = document.getElementById("mosa-capture-panel");
+    if (existing) {
+      controlPanel = existing;
+      renderControlPanel();
+      return existing;
+    }
+    const host = document.body || document.documentElement;
+    if (!host) return null;
+
+    const panel = document.createElement("section");
+    panel.id = "mosa-capture-panel";
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-label", "MOSA Capture 控制台");
+    panel.setAttribute("aria-modal", "false");
+    panel.innerHTML = `
+      <header class="mosa-panel-header" data-drag-handle>
+        <div class="mosa-panel-brand">
+          <span class="mosa-panel-logo" aria-hidden="true">M</span>
+          <span>
+            <strong>MOSA Capture</strong>
+            <small>ChatGPT Web Capture</small>
+          </span>
+        </div>
+        <button type="button" class="mosa-panel-icon-button" data-action="close" aria-label="关闭 MOSA 控制台">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+      </header>
+      <div class="mosa-panel-body">
+        <section class="mosa-panel-status-card">
+          <div class="mosa-panel-status-row">
+            <span>
+              <small>自动入库</small>
+              <strong data-role="connection">Hook 连接中</strong>
+            </span>
+            <span class="mosa-panel-mode" data-role="mode">运行中</span>
+          </div>
+          <p data-role="detail" role="status" aria-live="polite">正在读取当前页面状态</p>
+        </section>
+        <div class="mosa-panel-metrics">
+          <span><small>当前页面已存</small><strong data-role="saved-count">0</strong></span>
+          <span><small>Prompt 缓存</small><strong data-role="prompt-count">0</strong></span>
+        </div>
+        <button type="button" class="mosa-panel-primary" data-action="toggle-auto" aria-pressed="true">
+          关闭自动入库
+        </button>
+        <button type="button" class="mosa-panel-secondary" data-action="open-settings">打开设置</button>
+        <footer>拖动顶部移动 · Esc 关闭</footer>
+      </div>
+    `;
+    panel.addEventListener("click", handleControlPanelClick);
+    panel.addEventListener("pointerdown", startPanelDrag);
+    host.appendChild(panel);
+    controlPanel = panel;
+    document.addEventListener("keydown", handlePanelEscape, true);
+    renderControlPanel();
+    requestAnimationFrame(() => panel.classList.add("is-visible"));
+    return panel;
+  }
+
+  function toggleControlPanel() {
+    if (controlPanel?.isConnected || document.getElementById("mosa-capture-panel")) {
+      closeControlPanel();
+      return false;
+    }
+    return Boolean(ensureControlPanel());
+  }
+
+  async function runManualAction(action) {
+    if (contextLost || !extensionAlive()) {
+      markContextLost();
+      throw new Error(CONTEXT_LOST_MESSAGE);
+    }
+
+    const candidates = collectDomCandidates({ manual: true });
+    if (!candidates.length) {
+      const message = "没找到可保存的大图：请等图片加载完成后再试";
+      showToast(message, true);
+      setStatus("未找到图片", true);
+      throw new Error(message);
+    }
+
+    if (action === "save-visible") {
+      const current = currentViewportCandidate(candidates);
+      if (!current) throw new Error("未找到当前可见图片");
+      const result = await ingestCandidate(current, { reason: "manual-popup" });
+      return {
+        action,
+        attempted: 1,
+        completed: 1,
+        failed: 0,
+        result,
+      };
+    }
+
+    if (action === "save-all") {
+      const batch = candidates.slice(0, 12);
+      let completed = 0;
+      let failed = 0;
+      let firstError = null;
+      for (const candidate of batch) {
+        try {
+          await ingestCandidate(candidate, { silentSkip: false, reason: "manual-popup-all" });
+          completed += 1;
+        } catch (error) {
+          failed += 1;
+          firstError ||= error;
+        }
+      }
+      if (!completed && firstError) throw firstError;
+      setStatus(`批量完成 · ${completed}/${batch.length}`);
+      return {
+        action,
+        attempted: batch.length,
+        completed,
+        failed,
+      };
+    }
+
+    throw new Error(`未知操作: ${action}`);
+  }
+
+  chrome.runtime?.onMessage?.addListener((message, _sender, sendResponse) => {
+    if (!message || typeof message.type !== "string") return false;
+
+    if (message.type === "mosa.capture.togglePanel") {
+      sendResponse({ ok: true, open: toggleControlPanel(), state: pageState() });
+      return false;
+    }
+
+    if (message.type === "mosa.capture.getPageState") {
+      sendResponse({ ok: true, state: pageState() });
+      return false;
+    }
+
+    const actionByType = {
+      "mosa.capture.saveVisible": "save-visible",
+      "mosa.capture.saveAll": "save-all",
+      "mosa.capture.saveImage": "save-image",
+      "mosa.capture.saveImageWithPrompt": "save-image-with-prompt",
+    };
+    const action = actionByType[message.type];
+    if (!action) return false;
+
+    runManualAction(action)
+      .then((result) => sendResponse({ ok: true, result, state: pageState() }))
+      .catch((error) => sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        state: pageState(),
+      }));
+    return true;
+  });
+
   function scheduleScan(force = false) {
+    if (contextLost) return;
     if (scanTimer) clearTimeout(scanTimer);
     scanTimer = setTimeout(async () => {
-      ensureDock();
+      if (contextLost) return;
+      if (!extensionAlive()) {
+        markContextLost();
+        return;
+      }
       hookReady ||= document.documentElement?.dataset?.mosaPageHook === "1";
       if (location.href !== lastUrl) lastUrl = location.href;
       const net = networkMeta.filter((x) => x.prompt).length;
@@ -782,14 +1271,16 @@
       if (!autoCapture && !force) return;
 
       const candidates = collectDomCandidates();
-      // Auto-save only generation-sized images that are fully loaded.
+      // Size/URL only filters UI clutter. A bound generation event is required
+      // before auto-save, so user uploads in ordinary chats never enter MOSA.
       for (const candidate of candidates.slice(0, 6)) {
-        if (!canAttempt(candidate.key)) continue;
+        if (!canAttempt(candidate)) continue;
         if (!isArchiveWorthyCandidate(candidate)) continue;
         if (candidate.el instanceof HTMLImageElement) {
           if (!candidate.el.complete) continue;
           if (candidate.el.naturalWidth > 0 && candidate.el.naturalWidth < MIN_EDGE) continue;
         }
+        if (!hasVerifiedGenerationEvidence(candidate)) continue;
         enqueueAuto(candidate, "dom-scan");
       }
     }, force ? 120 : 600);
@@ -797,19 +1288,22 @@
 
   async function loadSettings() {
     try {
-      const response = await chrome.runtime.sendMessage({ type: "mosa.getSettings" });
+      const response = await runtimeSend({ type: "mosa.getSettings" });
       if (response?.ok && response.settings) {
-        // Force-enable auto if missing; respect explicit false.
         autoCapture = response.settings.autoCapture !== false;
+        return;
       }
     } catch {
-      autoCapture = true;
+      if (contextLost) return;
     }
-    // Persist true default so options page matches.
+
+    // The background owns defaults and migration. A temporary messaging failure
+    // must never overwrite an explicit local "off" preference.
     try {
-      await chrome.storage.local.set({ autoCapture });
+      const stored = await chrome.storage?.local?.get?.({ autoCapture });
+      if (stored) autoCapture = stored.autoCapture !== false;
     } catch {
-      // ignore
+      // Keep the in-memory value when both settings paths are unavailable.
     }
   }
 
@@ -830,19 +1324,36 @@
       }
     }
 
-    // Network image URLs: only auto-ingest generation CDN URLs (never static UI).
+    // A failed recovery used to be invisible, so captures kept landing without
+    // a caption and nothing on screen said why.
+    if (data.type === "conversation-refresh-failed") {
+      const status = Number(data.payload?.status) || 0;
+      const authorized = Boolean(data.payload?.authorized);
+      setStatus(
+        `会话元数据读取失败${status ? ` (${status})` : ""}${authorized ? "" : "：未捕获登录头"}，提示词可能缺失`,
+        true,
+      );
+      return;
+    }
+
+    // The hook emits this only after binding a tool-owned generation prompt to
+    // the asset. CDN/host alone is intentionally not treated as provenance.
     if (data.type === "auto-image" && data.payload?.imageUrl && autoCapture) {
       const imageUrl = String(data.payload.imageUrl);
-      rememberMeta(data.payload);
+      const meta = rememberMeta(data.payload);
+      if (meta.isGeneration !== true) return;
       if (!isLikelyGeneratedUrl(imageUrl)) return;
-      enqueueAuto({
-        key: imageUrl,
-        imageUrl,
-        dataUrl: "",
-        el: null,
-        width: 0,
-        height: 0,
-      }, "network");
+      if (enqueueDomCandidateForImage(imageUrl, "network-dom")) return;
+      if (["generation-tool-prompt", "visible-caption"].includes(meta.promptStatus) && meta.prompt) {
+        enqueueAuto({
+          key: imageUrl,
+          imageUrl,
+          dataUrl: "",
+          el: null,
+          width: 0,
+          height: 0,
+        }, "network");
+      }
     }
 
     if (data.type === "dom-image" && data.payload?.imageUrl && autoCapture) {
@@ -851,23 +1362,11 @@
       const h = Number(data.payload.height) || 0;
       if (!isLikelyGeneratedUrl(imageUrl)) return;
       if (w > 0 && h > 0 && (w < MIN_EDGE || h < MIN_EDGE)) return;
-      enqueueAuto({
-        key: imageUrl,
-        imageUrl,
-        dataUrl: imageUrl.startsWith("data:") ? imageUrl : "",
-        el: null,
-        width: w,
-        height: h,
-      }, "dom-hook");
+      enqueueDomCandidateForImage(imageUrl, "dom-hook");
     }
   });
 
-  // Boot. page-hook.js is a document_start MAIN-world content script.
-  ensureDock();
-  loadSettings().then(() => scheduleScan(true));
-  scheduleScan(true);
-
-  const observer = new MutationObserver(() => scheduleScan(false));
+  observer = new MutationObserver(() => scheduleScan(false));
   const startObs = () => {
     observer.observe(document.documentElement || document.body, {
       childList: true,
@@ -879,13 +1378,23 @@
   if (document.documentElement) startObs();
   else document.addEventListener("DOMContentLoaded", startObs, { once: true });
 
+  // Boot. page-hook.js is a document_start MAIN-world content script.
+  loadSettings().then(() => scheduleScan(true));
+  scheduleScan(true);
+
   // Aggressive periodic auto scan — user explicitly wants hands-free save.
-  setInterval(() => {
+  // Doubles as the orphan watchdog: an extension reload flips the dock to the
+  // refresh instruction within 2s instead of waiting for a failed save.
+  autoScanInterval = setInterval(() => {
+    if (!extensionAlive()) {
+      markContextLost();
+      return;
+    }
     if (autoCapture) scheduleScan(true);
   }, 2000);
 
   chrome.storage?.onChanged?.addListener((changes, area) => {
-    if (area !== "sync" || !changes.autoCapture) return;
+    if (area !== "local" || !changes.autoCapture) return;
     autoCapture = changes.autoCapture.newValue !== false;
     setStatus(autoCapture ? "自动开" : "自动关");
     if (autoCapture) scheduleScan(true);

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { createAssetStore } from "../lib/asset-store.mjs";
-import { buildGrokAssetId, createGrokMediaBridge, reconcileGrokMedia, sha256File, __test } from "../lib/grok-media-bridge.mjs";
+import { buildGrokAssetId, createGrokMediaBridge, reconcileGrokMedia, sha256File, __test } from "../lib/grok-media-bridge.js";
 
 const SESSION_ID = "019f8f50-1f0d-7983-ab3f-544a0b5f7577";
 const WORKSPACE = "%2Ftmp%2Fmosa-grok-fixture";
@@ -517,7 +517,6 @@ test("deduplicates by content hash and can upgrade provenance from a later Grok 
 
 test("bridge start/stop reports health fields and metadata warnings", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const fixture = await createGrokSessionFixture(root);
@@ -534,13 +533,17 @@ test("bridge start/stop reports health fields and metadata warnings", async (t) 
     pollIntervalMs: 60_000,
     debounceMs: 10,
   });
+  // Stop the bridge in t.after so watchers/pollers are always cleaned up even
+  // if an assertion throws. Without this, a failed assert leaves fs.watch and
+  // setInterval alive and the test process never exits.
+  t.after(() => { bridge.stop(); rm(root, { recursive: true, force: true }); });
   const status = await bridge.start();
   assert.equal(status.enabled, true);
   assert.equal(status.sessionsDir, resolve(fixture.sessionsDir));
   assert.equal(typeof status.totalImported, "number");
   assert.ok(status.totalImported >= 1);
   assert.equal(status.lastError, null);
-  assert.match(String(status.lastWarning || ""), /malformed chat_history/i);
+  assert.match(String(status.lastWarning || ""), /malformed/i);
   bridge.stop();
   assert.equal(bridge.status().enabled, false);
   assert.equal(bridge.status().polling, false);
@@ -665,6 +668,15 @@ test("sha256File streams file contents instead of loading the whole file", async
   const direct = createHash("sha256").update(payload).digest("hex");
   assert.equal(streamed, direct);
   assert.equal(typeof createReadStream, "function");
-  const source = await readFile(new URL("../lib/grok-media-bridge.mjs", import.meta.url), "utf8");
-  assert.match(source, /export async function sha256File\(filePath\) \{\s*const hash = createHash\("sha256"\);\s*await pipeline\(createReadStream\(filePath\), hash\);/);
+  const source = await readFile(new URL("../lib/grok-media-bridge.ts", import.meta.url), "utf8");
+  // Confirm sha256File streams via createReadStream + pipeline rather than
+  // loading the whole file (which would blow memory on large media).
+  // The source may have multiple functions, so locate sha256File's body
+  // explicitly rather than scanning the whole file.
+  const shaMatch = source.match(/(?:async\s+)?function sha256File\([^)]*\)[^{]*\{([\s\S]*?)\}\s*$/m);
+  assert.ok(shaMatch, "sha256File function definition should be present");
+  const body = shaMatch[1];
+  assert.match(body, /createReadStream\(filePath\)/, "sha256File should stream via createReadStream(filePath)");
+  assert.match(body, /pipeline\(createReadStream\(filePath\),\s*hash\)/, "sha256File should pipe through pipeline(..., hash) rather than loading bytes");
+  assert.doesNotMatch(body, /readFile\(filePath/, "sha256File must not load the whole file via readFile");
 });

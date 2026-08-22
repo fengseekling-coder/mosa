@@ -15,7 +15,7 @@ MOSA 采用 [PolyForm Noncommercial License 1.0.0](../LICENSE)，属于源码可
 - **Codex** 负责 AI 生成、理解和任务执行。
 - **Cowart** 负责画布编排与编辑。
 - **Grok Build CLI** 可在本地生成图片与视频。
-- **ChatGPT 网页扩展**可选，用于把网页生图及其对应上下文发送到本机 MOSA。
+- **网页生图扩展**可选，用于把 ChatGPT、Gemini、Flow 和 Google AI Studio 的网页成图及其可用上下文发送到本机 MOSA。
 - **MOSA** 负责自动收集、归档、检索、版本管理和回插。
 
 MOSA 当前是本地 Web 应用，不是云服务或 macOS `.app`。它不包含额外 AI 模型、Embedding 搜索或远程同步，也不调用 Grok API，也不应通过公网或反向代理暴露。
@@ -26,7 +26,7 @@ MOSA 当前是本地 Web 应用，不是云服务或 macOS `.app`。它不包含
 - 要自动归档 Codex 生图，需要安装 Codex Desktop。
 - 要自动归档 Grok 媒体，需要本机已登录并可写入 `~/.grok/sessions` 的 Grok Build CLI。
 - Cowart 自动归档和一键回插需要安装 Cowart 插件；不使用 Cowart 时不影响 MOSA 的其他功能。
-- ChatGPT 网页归档需要 Chrome，并且必须显式配置随机 `MOSA_WEB_CAPTURE_TOKEN` 与扩展来源 `MOSA_WEB_CAPTURE_ORIGINS`。
+- 网页生图归档需要 Chrome，并且必须显式配置随机 `MOSA_WEB_CAPTURE_TOKEN` 与扩展来源 `MOSA_WEB_CAPTURE_ORIGINS`。
 
 ## 本地启动
 
@@ -79,7 +79,7 @@ npm exec mosa -- thumbnails rebuild --library /absolute/path/to/library
 
 MOSA 不扫描 Downloads、桌面或任意本地图片目录。原图在同一文件系统时优先硬链接入库，跨文件系统时才复制。
 
-### ChatGPT 网页生图
+### 网页生图
 
 Web Capture 是可选功能。先在 Chrome 加载一次扩展并复制扩展 ID，再启动 MOSA：
 
@@ -91,7 +91,9 @@ npm start
 
 在扩展选项中填写实际 MOSA 地址和同一个 Token。未配置 Token 时服务端保持禁用；来源不在精确白名单中时，跨来源请求会被拒绝。
 
-扩展只向所配置的 `127.0.0.1` 或 `localhost` MOSA 地址发送图片字节、匹配到的 Prompt/用户消息、页面 URL、会话/消息 ID、模型信息和采集时间。地址、Token 与自动采集开关保存在 Chrome 本地存储，不使用同步存储。完整边界见 [隐私说明](../PRIVACY.md) 和 [扩展指南](../extensions/chatgpt-web-capture/README.md)。
+扩展只向所配置的 `127.0.0.1` 或 `localhost` MOSA 地址发送图片字节和页面来源信息。ChatGPT 在可用时还会发送匹配到的 Prompt/用户消息、会话/消息 ID 与模型信息；Flow 仅在同一可见媒体卡片有唯一「Reuse Prompt」控件时保存其相邻可见 Prompt；Google AI Studio 仅保存图片所在会话内、图片 Model 回合之前最近的页面可见用户 Prompt 回合。二者都明确标为未验证实际生图提示词。Gemini 仅采集页面上可见的生成图片及页面来源；扩展不读取 Google 站点的会话接口、登录凭据、隐藏提示词、输入编辑器或模型思考。地址、Token 与自动采集开关保存在 Chrome 本地存储，不使用同步存储。完整边界见 [隐私说明](../PRIVACY.md) 和 [扩展指南](../extensions/chatgpt-web-capture/README.md)。
+
+被可靠识别为生成输入的参考图会保存为“生成记录附件”，而不是独立素材：文件按内容 hash 去重，只绑定到同会话中随后产生的生成结果及其 recipe snapshot，不进入素材瀑布流、搜索、最近添加或素材总数。当前可靠自动识别以 ChatGPT 的上传输入为准；Flow、Gemini 不会仅凭页面先后顺序猜测参考关系。旧版已经入库的 `is_reference` 素材保持原样，MOSA 不自动迁移或删除现有库内容。
 
 ### Grok Build CLI 媒体
 
@@ -142,7 +144,7 @@ curl -sS http://127.0.0.1:43517/api/cowart-canvases
 curl -sS http://127.0.0.1:43517/api/web-capture
 ```
 
-`/api/bridges` 中的 `lastError` 为空或 `null` 表示没有最近桥接错误；`webCapture.enabled` 只有在显式配置 Token 和扩展来源后才应为 `true`。服务停止时不会丢失已经归档的素材，但新的 Codex、Grok、ChatGPT 或 Cowart 媒体不会即时自动收集。
+`/api/bridges` 中的 `lastError` 为空或 `null` 表示没有最近桥接错误；`webCapture.enabled` 只有在显式配置 Token 和扩展来源后才应为 `true`。服务停止时不会丢失已经归档的素材，但新的 Codex、Grok、网页生图或 Cowart 媒体不会即时自动收集。
 
 迁移、校验、派生图修复、端口冲突和恢复边界见 [operations.md](operations.md)。
 

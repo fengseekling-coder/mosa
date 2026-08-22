@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { discoverCowartProjectsFromCodexSessions } from "../lib/cowart-canvas-discovery.mjs";
+import { discoverCowartProjectsFromCodexSessions } from "../lib/cowart-canvas-discovery.js";
 
 test("discovers only projects with a real Cowart launch call and canvas marker", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-discovery-"));

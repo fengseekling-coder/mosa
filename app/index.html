@@ -1,16 +1,31 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MOSA — 创作资产库</title>
-    <link rel="stylesheet" href="/styles.css?v=17" />
+    <!-- Blocking, same-origin theme bootstrap: runs before the stylesheet so a
+         saved dark-mode preference is applied before first paint (no FOUC).
+         Kept as an external file to satisfy the runtime CSP (script-src 'self'). -->
+    <script src="/theme-init.mjs"></script>
+    <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body>
-    <div class="toast-container" id="toastContainer" aria-live="polite"></div>
+  <body class="mosa-v2">
+    <!-- Phase 5C / F-16：双通道反馈——polite lane（success/default，容器 role=status）与
+         assertive lane（容器无 live region，每条 Error Toast 自身 role=alert）。两容器物理独立、
+         初始为空、不占布局、不拦截下方点击（pointer-events 仅 Toast 自身）。 -->
+    <div class="toast-stack toast-stack-polite" id="toastContainer" role="status" aria-live="polite" aria-relevant="additions text" aria-atomic="false"></div>
+    <div class="toast-stack toast-stack-assertive" id="toastErrorContainer" data-i18n-aria-label="notifications" aria-label="通知"></div>
+
+    <div class="drag-overlay" id="dragOverlay" role="region" data-i18n-aria-label="dropToImport" aria-label="拖放图片到此处导入" aria-labelledby="dragOverlayLabel" hidden>
+      <div class="drag-overlay-content">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 5v14M5 12h14"/></svg>
+        <p id="dragOverlayLabel" data-i18n="dropToImport">拖放图片到此处导入</p>
+      </div>
+    </div>
 
     <div class="modal-overlay" id="importModal" aria-hidden="true">
-      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="importModalTitle" tabindex="-1">
+      <div class="modal-card import-modal-card" role="dialog" aria-modal="true" aria-labelledby="importModalTitle" tabindex="-1">
         <div class="modal-header">
           <div>
             <p class="eyebrow" data-i18n="importEyebrow">LIBRARY</p>
@@ -20,24 +35,32 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg>
           </button>
         </div>
-        <div class="modal-body">
-          <label class="field"><span data-i18n="imagePath">图片路径</span><input id="imagePathInput" data-i18n-placeholder="imagePathPlaceholder" placeholder="图片的本地绝对路径" /><small class="field-hint" id="codexSourceHint"></small></label>
-          <label class="field"><span data-i18n="prompt">提示词</span><textarea id="promptInput" rows="4" data-i18n-placeholder="promptPlaceholder" placeholder="完整提示词"></textarea></label>
-          <div class="two">
-            <label class="field"><span data-i18n="skill">技能</span><input id="skillInput" placeholder="punk-cover" /></label>
-            <label class="field"><span data-i18n="style">风格</span><input id="styleInput" placeholder="cyberpunk" /></label>
+        <div class="modal-body import-modal-body">
+          <div class="import-v2-path-card">
+            <label class="field import-v2-path-field"><span class="import-v2-upload-label" data-i18n="uploadFile">上传文件</span><div class="field-with-button"><input class="import-v2-path-input" id="imagePathInput" data-i18n-placeholder="imagePathPlaceholder" placeholder="图片的本地绝对路径" aria-describedby="imagePathGuidance imagePathError" /><button class="browse-btn" id="browseFileBtn" type="button" data-i18n-title="browseFile" title="浏览" data-i18n-aria-label="uploadHint" aria-label="点击上传或拖拽文件到此处"><svg class="import-v2-upload-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg><span class="import-v2-browse-title" data-i18n="uploadHint">点击上传或拖拽文件到此处</span><span class="import-v2-browse-formats" data-i18n="uploadFormats">支持 JPG、PNG、GIF、MP4 等格式</span></button></div></label>
+            <p class="field-error" id="imagePathError" role="alert" hidden></p>
+            <div class="field-guidance import-v2-guidance" id="imagePathGuidance"><p><span data-i18n="importPathFormats">支持格式</span><span id="importFormatList"></span></p><code id="importPathExample" class="visually-hidden"></code><code id="codexSourceHint" class="visually-hidden"></code></div>
           </div>
-          <div class="two">
-            <label class="field"><span data-i18n="ratio">比例</span><input id="ratioInput" placeholder="9:16" /></label>
-            <label class="field"><span data-i18n="theme">主题</span><input id="themeInput" placeholder="orbital-luxury-vault" /></label>
-          </div>
-          <div class="two">
-            <label class="field"><span data-i18n="group">分组</span><input id="groupInput" placeholder="sci-fi" /></label>
-            <label class="field"><span data-i18n="category">分类</span><select id="categoryInput">
-              <option value="" data-i18n="none">—</option><option value="product" data-i18n="categoryProduct">产品</option><option value="concept" data-i18n="categoryConcept">概念</option><option value="texture" data-i18n="categoryTexture">纹理</option><option value="reference" data-i18n="categoryReference">参考</option><option value="other" data-i18n="categoryOther">其他</option>
-            </select></label>
-          </div>
-          <label class="field"><span data-i18n="businessFields">业务字段 JSON</span><textarea id="businessInput" rows="3" placeholder='{"product":"...","price":"..."}'></textarea></label>
+          <label class="field import-v2-group"><span data-i18n="groupOptional">分组（可选）</span><input id="groupInput" data-i18n-placeholder="groupInputPlaceholder" placeholder="输入分组名称" /></label>
+          <details class="import-advanced" id="importAdvanced">
+            <summary data-i18n="advancedSettings">高级设置</summary>
+            <div class="import-advanced-content">
+              <label class="field"><span data-i18n="prompt">提示词</span><textarea id="promptInput" rows="4" data-i18n-placeholder="promptPlaceholder" placeholder="完整提示词"></textarea></label>
+              <label class="field"><span data-i18n="category">分类</span><select id="categoryInput">
+                <option value="" data-i18n="none">—</option><option value="product" data-i18n="categoryProduct">产品</option><option value="concept" data-i18n="categoryConcept">概念</option><option value="texture" data-i18n="categoryTexture">纹理</option><option value="reference" data-i18n="categoryReference">参考</option><option value="other" data-i18n="categoryOther">其他</option>
+              </select></label>
+              <div class="two">
+                <label class="field"><span data-i18n="skill">技能</span><input id="skillInput" placeholder="punk-cover" /></label>
+                <label class="field"><span data-i18n="style">风格</span><input id="styleInput" placeholder="cyberpunk" /></label>
+              </div>
+              <div class="two">
+                <label class="field"><span data-i18n="ratio">比例</span><input id="ratioInput" placeholder="9:16" /></label>
+                <label class="field"><span data-i18n="theme">主题</span><input id="themeInput" placeholder="orbital-luxury-vault" /></label>
+              </div>
+              <label class="field"><span data-i18n="businessFields">业务字段 JSON</span><textarea id="businessInput" rows="3" placeholder='{"product":"...","price":"..."}' aria-describedby="businessFieldsError"></textarea></label>
+              <p class="field-error" id="businessFieldsError" role="alert" hidden></p>
+            </div>
+          </details>
         </div>
         <div class="modal-footer"><button class="btn-secondary" id="cancelImportBtn" type="button" data-i18n="cancel">取消</button><button class="btn-primary" id="saveAssetBtn" type="button" data-i18n="saveAsset">保存素材</button></div>
       </div>
@@ -46,76 +69,205 @@
     <div class="modal-overlay" id="groupModal" aria-hidden="true">
       <div class="modal-card group-modal-card" role="dialog" aria-modal="true" aria-labelledby="groupModalTitle" tabindex="-1">
         <div class="modal-header">
-          <div>
-            <p class="eyebrow" data-i18n="groups">分组</p>
-            <h3 id="groupModalTitle" data-i18n="createGroup">添加分组</h3>
-          </div>
+          <h3 id="groupModalTitle" data-i18n="createGroup">添加分组</h3>
           <button class="icon-button" id="closeGroupModal" type="button" data-i18n-aria-label="closeGroup" aria-label="关闭添加分组窗口">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg>
           </button>
         </div>
         <div class="modal-body">
           <label class="field"><span data-i18n="groupName">分组名称</span><input id="groupNameInput" data-i18n-placeholder="groupNamePlaceholder" placeholder="例如：灵感参考" maxlength="80" /></label>
+          <div class="group-color-field">
+            <span data-i18n="groupColor">颜色</span>
+            <div class="group-color-options" role="group" data-i18n-aria-label="groupColor" aria-label="颜色">
+              <button class="group-color-swatch selected" type="button" data-group-color="#6366f1" aria-pressed="true" data-i18n-aria-label="groupColorIndigo" aria-label="选择靛蓝"></button>
+              <button class="group-color-swatch" type="button" data-group-color="#f59e0b" aria-pressed="false" data-i18n-aria-label="groupColorAmber" aria-label="选择琥珀"></button>
+              <button class="group-color-swatch" type="button" data-group-color="#10b981" aria-pressed="false" data-i18n-aria-label="groupColorEmerald" aria-label="选择翠绿"></button>
+              <button class="group-color-swatch" type="button" data-group-color="#ef4444" aria-pressed="false" data-i18n-aria-label="groupColorRed" aria-label="选择红色"></button>
+              <button class="group-color-swatch" type="button" data-group-color="#8b5cf6" aria-pressed="false" data-i18n-aria-label="groupColorViolet" aria-label="选择紫罗兰"></button>
+              <button class="group-color-swatch" type="button" data-group-color="#ec4899" aria-pressed="false" data-i18n-aria-label="groupColorPink" aria-label="选择粉色"></button>
+            </div>
+          </div>
         </div>
         <div class="modal-footer"><button class="btn-secondary" id="cancelGroupBtn" type="button" data-i18n="cancel">取消</button><button class="btn-primary" id="saveGroupBtn" type="button" data-i18n="createGroup">添加分组</button></div>
+      </div>
+    </div>
+
+    <div class="modal-overlay account-modal-overlay" id="accountModal" aria-hidden="true">
+      <div class="account-modal-card" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle" tabindex="-1">
+        <button class="account-modal-close" id="closeAccountModal" type="button" data-i18n-aria-label="closeAccount" aria-label="关闭账户菜单">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+        <div class="account-modal-scroll">
+          <section class="account-profile">
+            <div class="account-profile-main">
+              <div class="account-avatar" aria-hidden="true"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.25"/><path d="M5.5 20c.8-3.1 3-4.75 6.5-4.75s5.7 1.65 6.5 4.75"/></svg></div>
+              <div class="account-profile-copy">
+                <div class="account-name-row"><h2 id="accountModalTitle" data-i18n="accountName">张小明</h2><button class="account-edit-button" type="button" data-account-action="profile" data-i18n-aria-label="editProfile" aria-label="编辑资料"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.12 2.12 0 0 0-3-3L5 17v3Z"/><path d="m13.5 6 3 3"/></svg></button></div>
+                <p data-i18n="accountRole">创意设计师</p>
+              </div>
+            </div>
+            <div class="account-stat-grid">
+              <div><strong id="accountAssetCount">128</strong><span data-i18n="assets">素材</span></div>
+              <div><strong id="accountCollectionCount">12</strong><span data-i18n="collections">收藏集</span></div>
+              <div><strong>1.2GB</strong><span data-i18n="storage">存储空间</span></div>
+            </div>
+          </section>
+          <section class="account-menu-list" data-i18n-aria-label="account" aria-label="个人账户">
+            <button class="account-menu-item" type="button" data-account-action="profile"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.25"/><path d="M5.5 20c.8-3.1 3-4.75 6.5-4.75s5.7 1.65 6.5 4.75"/></svg><span><strong data-i18n="personalInfo">个人信息</strong><small data-i18n="personalInfoDesc">管理您的姓名和资料</small></span></button>
+            <button class="account-menu-item" type="button" data-account-action="email"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg><span><strong data-i18n="emailSettings">邮箱设置</strong><small data-i18n="accountEmail">zhangxiaoming@example.com</small></span></button>
+            <button class="account-menu-item" type="button" data-account-action="security"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3 5.5 6v5.3c0 4.4 2.6 7.5 6.5 9.7 3.9-2.2 6.5-5.3 6.5-9.7V6L12 3Z"/><path d="m9.2 12 1.8 1.8 3.8-4"/></svg><span><strong data-i18n="security">安全与隐私</strong><small data-i18n="securityDesc">密码和身份验证</small></span></button>
+            <button class="account-menu-item" type="button" data-account-action="subscription"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg><span><strong data-i18n="subscription">订阅套餐</strong><small data-i18n="subscriptionDesc">专业版 · 2月14日续费</small></span></button>
+            <button class="account-menu-item" type="button" data-account-action="notifications"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><span><strong data-i18n="accountNotifications">通知设置</strong><small data-i18n="notificationsDesc">管理通知偏好</small></span></button>
+          </section>
+          <div class="account-logout-wrap"><button class="account-logout-button" type="button" data-account-action="logout"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg><span data-i18n="logout">退出登录</span></button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 5B / F-15：全应用唯一 ConfirmDialog——替换 window.confirm 的四条业务确认
+         （批量归档、单素材归档、放弃未保存修改、受限参考图再生）。标题/说明/确认按钮文案
+         由 requestConfirmation 动态填充；Cancel 固定复用 cancel。tone 切换确认按钮原语：
+         danger→btn-danger（DestructiveButton 红色 outline），warning→btn-primary（品牌蓝）。 -->
+    <div class="modal-overlay confirm-dialog-overlay" id="confirmDialog" aria-hidden="true">
+      <div class="modal-card confirm-dialog-card" id="confirmDialogCard" role="dialog" aria-modal="true" aria-labelledby="confirmDialogTitle" aria-describedby="confirmDialogDescription" tabindex="-1">
+        <div class="confirm-dialog-copy">
+          <h3 id="confirmDialogTitle"></h3>
+          <p id="confirmDialogDescription"></p>
+        </div>
+        <div class="modal-footer"><button class="btn-secondary" id="confirmDialogCancel" type="button" data-i18n="cancel">取消</button><button class="btn-danger" id="confirmDialogConfirm" type="button"></button></div>
       </div>
     </div>
 
     <div class="image-preview-modal" id="imagePreviewModal" role="dialog" aria-modal="true" aria-labelledby="imagePreviewTitle" hidden>
       <div class="image-preview-card" tabindex="-1">
         <div class="image-preview-header"><p class="eyebrow" data-i18n="viewFullImage">查看大图</p><button class="icon-button" id="closeImagePreview" type="button" data-i18n-aria-label="closePreview" aria-label="关闭大图预览"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-        <div class="image-preview-stage" id="imagePreviewStage"><img id="imagePreviewImage" alt="" /></div>
+        <div class="image-preview-stage" id="imagePreviewStage" role="region" data-i18n-aria-label="imagePreviewStage" aria-label="图片预览区域" aria-labelledby="imagePreviewTitle" tabindex="0"><img id="imagePreviewImage" alt="" /><video id="imagePreviewVideo" controls playsinline hidden></video></div>
         <h3 id="imagePreviewTitle"></h3>
       </div>
     </div>
 
-    <div class="shell" id="appShell">
-      <aside class="sidebar" aria-label="MOSA">
-        <div class="brand">
-          <div class="brand-mark" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 28 28" fill="none"><rect x="2" y="3" width="10" height="16" rx="2" fill="currentColor" opacity=".9"/><rect x="7" y="3" width="10" height="16" rx="2" fill="currentColor" opacity=".48"/><rect x="4" y="21" width="20" height="4" rx="1.5" fill="currentColor" opacity=".7"/></svg></div>
-          <div class="brand-info"><h1>MOSA</h1><p data-i18n="brandSubtitle">创作资产库</p></div>
-        </div>
+    <!-- The V2 navigation becomes an explicit drawer below the reference's
+         desktop breakpoint.  It is intentionally a sibling of the app shell:
+         the scrim can cover the library without clipping at the rounded shell. -->
+    <button class="mobile-nav-toggle" id="mobileNavToggle" type="button" aria-label="打开导航" aria-controls="appSidebar" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <button class="mobile-nav-scrim" id="mobileNavScrim" type="button" aria-label="关闭导航" hidden></button>
 
-        <div class="search-bar"><svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input id="searchInput" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="搜索素材" /></div>
+    <div class="shell" id="appShell">
+      <aside class="sidebar" id="appSidebar" aria-label="MOSA">
+        <button class="mobile-nav-close" id="mobileNavClose" type="button" aria-label="关闭导航">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+        <div class="brand">
+          <div class="brand-info"><h1>MOSA</h1></div>
+        </div>
+        <p class="sidebar-library-title" data-i18n="brandSubtitle">创作资产库</p>
 
         <nav class="primary-nav" data-i18n-aria-label="library" aria-label="素材库">
           <ul class="nav-list" id="quickFilters">
-            <li><button class="nav-item active" data-filter="all" type="button" aria-pressed="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span class="nav-item-text" data-i18n="allAssets">全部素材</span><span class="nav-count" id="countAll">—</span></button></li>
-            <li><button class="nav-item" data-filter="favorite" type="button" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg><span class="nav-item-text" data-i18n="favorites">收藏</span><span class="nav-count" id="countFav">—</span></button></li>
-            <li><button class="nav-item" data-filter="recent" type="button" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="nav-item-text" data-i18n="recent">最近</span><span class="nav-count" id="countRecent">—</span></button></li>
+            <li><button class="nav-item active" data-filter="all" type="button" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span class="nav-item-text" data-i18n="allAssets">全部素材</span><span class="nav-count" id="countAll">—</span></button></li>
+            <li><button class="nav-item" data-filter="favorite" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg><span class="nav-item-text" data-i18n="favorites">收藏</span><span class="nav-count" id="countFav">—</span></button></li>
+            <li><button class="nav-item" data-filter="recent" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="nav-item-text" data-i18n="recent">最近</span><span class="nav-count" id="countRecent">—</span></button></li>
           </ul>
-          <button class="add-group-button" id="addGroupBtn" type="button" data-i18n-aria-label="addGroup" aria-label="添加分组"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="addGroup">添加分组</span></button>
+          <div class="sidebar-group-heading">
+            <p class="nav-label" data-i18n="smartGroups">智能分组</p>
+            <button class="add-group-button" id="addGroupBtn" type="button" data-i18n-aria-label="addGroup" aria-label="添加分组" aria-labelledby="addGroupLabel"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="visually-hidden" id="addGroupLabel" data-i18n="addGroup">添加分组</span></button>
+          </div>
           <ul class="sidebar-group-list" id="sidebarGroupList" data-i18n-aria-label="groups" aria-label="分组"></ul>
         </nav>
 
         <div class="sidebar-spacer"></div>
         <div class="sidebar-footer">
           <div class="settings-wrap">
-            <button class="settings-trigger" id="settingsToggle" type="button" aria-expanded="false" aria-controls="settingsMenu"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06-2.15 2.15-.06-.06A1.7 1.7 0 0 0 15.72 18a1.7 1.7 0 0 0-1.02 1.55V20h-3v-.45A1.7 1.7 0 0 0 10.68 18a1.7 1.7 0 0 0-1.87 1.02l-.06.06-2.15-2.15.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.02H5v-3h.45A1.7 1.7 0 0 0 7 9.96a1.7 1.7 0 0 0-1.02-1.87l-.06-.06 2.15-2.15.06.06A1.7 1.7 0 0 0 10 6.28a1.7 1.7 0 0 0 1.02-1.55V4.3h3v.45A1.7 1.7 0 0 0 15.04 6.3a1.7 1.7 0 0 0 1.87-1.02l.06-.06 2.15 2.15-.06.06A1.7 1.7 0 0 0 18.72 9.3a1.7 1.7 0 0 0 1.55 1.02h.45v3h-.45A1.7 1.7 0 0 0 19.4 15Z"/></svg><span data-i18n="settings">设置</span></button>
-            <div class="settings-menu" id="settingsMenu" hidden>
-              <section class="settings-section"><p data-i18n="project">项目</p><div class="settings-project-row"><label class="visually-hidden" for="projectSelect" data-i18n="project">项目</label><select id="projectSelect"><option value="default">default</option></select><button class="icon-button quiet" id="openFolderBtn" type="button" data-i18n-title="openLibrary" data-i18n-aria-label="openLibrary" title="打开素材库" aria-label="打开素材库"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg></button></div></section>
-              <section class="settings-section"><p data-i18n="language">语言</p><button type="button" data-locale="system"></button><button type="button" data-locale="zh"></button><button type="button" data-locale="en"></button></section>
-            </div>
+            <button class="settings-trigger account-trigger" id="accountToggle" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="3.25"/><path d="M5.5 20c.8-3.1 3-4.75 6.5-4.75s5.7 1.65 6.5 4.75"/></svg><span data-i18n="account">个人账户</span></button>
+            <button class="settings-trigger" id="settingsToggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="settingsMenu"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06-2.15 2.15-.06-.06A1.7 1.7 0 0 0 15.72 18a1.7 1.7 0 0 0-1.02 1.55V20h-3v-.45A1.7 1.7 0 0 0 10.68 18a1.7 1.7 0 0 0-1.87 1.02l-.06.06-2.15-2.15.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.02H5v-3h.45A1.7 1.7 0 0 0 7 9.96a1.7 1.7 0 0 0-1.02-1.87l-.06-.06 2.15-2.15.06.06A1.7 1.7 0 0 0 10 6.28a1.7 1.7 0 0 0 1.02-1.55V4.3h3v.45A1.7 1.7 0 0 0 15.04 6.3a1.7 1.7 0 0 0 1.87-1.02l.06-.06 2.15 2.15-.06.06A1.7 1.7 0 0 0 18.72 9.3a1.7 1.7 0 0 0 1.55 1.02h.45v3h-.45A1.7 1.7 0 0 0 19.4 15Z"/></svg><span data-i18n="settings">设置</span></button>
           </div>
         </div>
       </aside>
 
       <main class="library">
-        <header class="topbar"><div class="topbar-left"><div class="title-row"><h2 id="viewTitle">全部素材</h2><p id="assetCount" role="status" aria-live="polite">0</p></div></div><div class="topbar-right"><span class="visually-hidden" id="statusText" role="status" aria-live="polite"></span><div class="bridge-status" id="bridgeStatus" data-state="checking" role="status" aria-live="polite"><span class="bridge-dot" aria-hidden="true"></span><span id="bridgeStatusLabel" data-i18n="statusChecking">检查桥接状态…</span><span class="bridge-status-meta" id="bridgeStatusMeta"></span></div><button class="toolbar-filter" id="filterToggle" type="button" aria-expanded="false" aria-controls="filterPanel"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M7 12h10m-7 6h4"/></svg><span data-i18n="refine">筛选</span><span class="filter-dot" id="filterDot" hidden></span></button><button class="create-button" id="newAssetTopBtn" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="importAsset">导入素材</span></button></div></header>
-        <section class="grid" id="assetGrid" data-i18n-aria-label="assetList" aria-label="素材列表"></section>
+        <!-- Phase 3A / D4 / F-01：主区内两个互斥 UI 状态——library-view（画廊模式）与
+             asset-view（专用大图查看模式）。app.js setViewMode 以 hidden + inert + aria-hidden
+             组合切换：退出布局、Tab 顺序与辅助技术树；既有内容保持原缩进以最小化 diff。 -->
+        <section class="library-view" id="libraryView">
+        <!-- V2 FilterBar 顶栏：左=.topbar-context（范围标题+类型筛选），右=.topbar-actions
+             按 mosa-library-v2 FilterBar 顺序排列：结果计数 → 批量 → 排序 → 筛选 → 搜索框；
+             utility 组（桥接状态+主题）保留但由 V2 样式隐藏，primary 组保留唯一主操作导入素材。
+             六个控件 ID 均唯一；无隐藏复制控件、无溢出菜单。#bridgeStatusMeta 全档位
+             visually-hidden（降噪）：不占可见布局但保留辅助技术语义；
+             role=status / aria-live / title / #statusText 播报路径不变（app.js 未动）。 -->
+        <header class="topbar">
+          <div class="topbar-context"><div class="title-row"><h2 id="viewTitle">全部素材</h2></div><div class="topbar-type-filters" role="group" data-i18n-aria-label="typeFilter" aria-label="类型筛选"><button class="type-filter active" type="button" data-type="all" aria-pressed="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="14.5" width="6" height="6" rx="1"/><rect x="3.5" y="14.5" width="6" height="6" rx="1"/></svg><span data-i18n="allTypes">全部</span></button><button class="type-filter" type="button" data-type="img" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m4 18 5.5-5 3.5 3 2.5-2.5L20 18"/></svg><span data-i18n="typeImages">图片</span></button><button class="type-filter" type="button" data-type="video" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3Z"/></svg><span data-i18n="typeVideos">视频</span></button></div></div>
+          <div class="topbar-actions">
+            <div class="topbar-utility-group">
+              <span class="visually-hidden" id="statusText" role="status" aria-live="polite" aria-relevant="text" aria-atomic="true"></span>
+              <div class="bridge-status" id="bridgeStatus" data-state="checking" role="status" aria-live="polite"><span class="bridge-dot" aria-hidden="true"></span><span id="bridgeStatusLabel" data-i18n="statusChecking">检查桥接状态…</span><span class="bridge-status-meta visually-hidden" id="bridgeStatusMeta"></span></div>
+              <button class="toolbar-icon" id="themeToggle" type="button" aria-pressed="false" data-i18n-title="darkModeToggle" title="切换暗色模式" data-i18n-aria-label="darkModeToggle" aria-label="切换暗色模式"><svg class="theme-icon theme-icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg><svg class="theme-icon theme-icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></button>
+            </div>
+            <div class="topbar-work-group">
+              <span class="topbar-result-count" id="assetCount" role="status" aria-live="polite">0 个结果</span>
+              <label class="sort-control"><span class="visually-hidden" data-i18n="sortLabel">排序</span><select id="sortSelect" data-i18n-aria-label="sortLabel" aria-label="排序"><option value="newest" data-i18n="sortNewest">最新优先</option><option value="oldest" data-i18n="sortOldest">最旧优先</option><option value="name" data-i18n="sortName">按名称</option></select></label>
+              <div class="topbar-search"><svg class="topbar-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input id="searchInput" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="搜索所有素材..." data-i18n-aria-label="searchPlaceholder" aria-label="搜索素材" /></div>
+            </div>
+            <div class="topbar-primary-group">
+              <button class="create-button" id="newAssetTopBtn" type="button" data-i18n-aria-label="importAsset" aria-label="导入素材"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="importAsset">导入素材</span></button>
+            </div>
+          </div>
+        </header>
+        <div class="active-filters" id="activeFilters" data-i18n-aria-label="activeFilters" aria-label="当前筛选" hidden></div>
+        <section class="grid" id="assetGrid" data-i18n-aria-label="assetList" aria-label="素材列表" aria-busy="true" tabindex="-1"></section>
+        </section>
+        <!-- 专用大图查看模式骨架（Phase 3A）：单一返回操作（可见文本=返回语义+范围名，
+             accessible name 即可见文本拼接，天然满足 Label in Name）+ 中性舞台（唯一主图）。
+             Phase 3C / F-04：头部右侧单一素材导航组（位置 output + 上一张/下一张，批准稿右上
+             箭头位）；无缩略图条/相关素材/底部素材列表。 -->
+        <section class="asset-view" id="assetView" aria-labelledby="assetViewTitle" hidden inert aria-hidden="true">
+          <header class="asset-view-header">
+            <button class="toolbar-filter asset-view-back" id="assetViewBack" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="asset-view-back-label" data-i18n="backToLibrary">返回素材库</span><span class="asset-view-back-scope" id="assetViewScope">全部素材</span></button>
+            <h2 class="visually-hidden" id="assetViewTitle"></h2>
+            <!-- Phase 3C / F-04：单一素材导航组。原生 button + type="button" + native disabled；
+                 位置为 output 语义（aria-live=polite），图标按钮以 aria-label 命名（不依赖 title）。 -->
+            <div class="asset-view-nav" id="assetViewNav" role="group" data-i18n-aria-label="assetNavControls" aria-label="素材导航">
+              <output class="asset-view-position" id="assetViewPosition" data-i18n-aria-label="assetPosition" aria-label="素材位置" aria-live="polite">—</output>
+              <button class="asset-view-nav-btn" id="assetViewPrev" type="button" data-i18n-aria-label="assetNavPrev" aria-label="上一张素材" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+              </button>
+              <button class="asset-view-nav-btn" id="assetViewNext" type="button" data-i18n-aria-label="assetNavNext" aria-label="下一张素材" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+            </div>
+          </header>
+          <div class="asset-view-stage" id="assetViewStage">
+            <img class="asset-view-image" id="assetViewImage" alt="" draggable="false" hidden />
+            <video class="asset-view-video" id="assetViewVideo" controls playsinline hidden></video>
+            <p class="asset-view-error" id="assetViewError" role="status" hidden></p>
+            <!-- Phase 3B / F-03：单一缩放控制条，舞台内部底部居中浮动（批准稿位置）。
+                 原生 button + output 语义；− / + 为图标按钮（aria-label 命名，不依赖 title），
+                 Fit 带可见文字；无上一张/下一张、无缩略图、无下载分享。 -->
+            <div class="asset-view-controls" id="assetViewControls" role="group" data-i18n-aria-label="zoomControls" aria-label="图像缩放控制">
+              <button class="asset-view-control" id="assetZoomOut" type="button" data-i18n-aria-label="zoomOut" aria-label="缩小" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14"/></svg>
+              </button>
+              <output class="asset-view-zoom-value" id="assetZoomValue" data-i18n-aria-label="zoomLevel" aria-label="当前缩放比例" aria-live="off">—</output>
+              <button class="asset-view-control" id="assetZoomIn" type="button" data-i18n-aria-label="zoomIn" aria-label="放大" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+              <button class="asset-view-fit" id="assetZoomFit" type="button" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+                <span data-i18n="zoomFit">适合窗口</span>
+              </button>
+            </div>
+          </div>
+        </section>
       </main>
 
-      <aside class="filter-panel" id="filterPanel" data-i18n-aria-label="refine" aria-label="筛选" hidden>
-        <div class="filter-panel-head"><div><p class="eyebrow" data-i18n="refine">筛选</p><h3 data-i18n="findAssets">查找素材</h3></div><button class="icon-button quiet" id="clearFiltersBtn" type="button" data-i18n-title="clearFilters" data-i18n-aria-label="clearFilters" title="清除筛选" aria-label="清除筛选"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h5M20 20v-5h-5"/><path d="M5.5 15a7 7 0 0 0 12.5 1.7M18.5 9A7 7 0 0 0 6 7.3"/></svg></button></div>
-        <section class="filter-section"><p data-i18n="source">来源</p><div class="filter-pills" id="sourceFilters"></div></section>
-        <section class="filter-section"><p data-i18n="groups">分组</p><ul class="filter-list" id="groupList"></ul></section>
-        <section class="filter-section"><p data-i18n="categories">分类</p><ul class="filter-list" id="categoryList"></ul></section>
-        <section class="filter-section"><p data-i18n="styles">风格</p><ul class="filter-list" id="styleList"></ul></section>
-      </aside>
-
+      <!-- Phase 5A / F-14：筛选面板是非模态 dialog 语义（不是菜单）；定位/碰撞/外部点击/
+           Escape 统一由 anchoredOverlayManager 处理（运行时内联 top/left 覆盖静态 fallback）。 -->
       <aside class="detail" id="detailPanel" data-i18n-aria-label="assetInspector" aria-label="素材检视器" aria-hidden="true"></aside>
     </div>
+    <div class="settings-menu" id="settingsMenu" data-i18n-aria-label="settings" aria-label="设置" hidden></div>
 
-    <script type="module" src="/app.js?v=18"></script>
+    <script type="module" src="/app.mjs"></script>
   </body>
 </html>

@@ -1,0 +1,449 @@
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import sharp from "sharp";
+import { createdAtTimestamp } from "./recent-window.js";
+import { createReferenceAttachmentStore, type ReferenceAttachment } from "./reference-attachment-store.js";
+
+const DEFAULT_PROJECT_ID = "default";
+const PROVIDER_CONFIG = {
+  chatgpt: {
+    label: "ChatGPT",
+    sourceType: "web-chatgpt",
+    skill: "ChatGPT web capture",
+    tempPrefix: "chatgpt",
+    assetIdPrefix: "web-chatgpt",
+  },
+  gemini: {
+    label: "Gemini",
+    sourceType: "web-gemini",
+    skill: "Gemini web capture",
+    tempPrefix: "gemini",
+    assetIdPrefix: "web-gemini",
+  },
+  flow: {
+    label: "Flow",
+    sourceType: "web-flow",
+    skill: "Flow web capture",
+    tempPrefix: "flow",
+    assetIdPrefix: "web-flow",
+  },
+  "google-ai-studio": {
+    label: "Google AI Studio",
+    sourceType: "web-google-ai-studio",
+    skill: "Google AI Studio web capture",
+    tempPrefix: "google-ai-studio",
+    assetIdPrefix: "web-google-ai-studio",
+  },
+} as const;
+const ALLOWED_PROVIDERS = new Set(Object.keys(PROVIDER_CONFIG));
+type ProviderId = keyof typeof PROVIDER_CONFIG;
+const MIME_TO_EXT: Record<string, string> = { "image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/webp": ".webp", "image/gif": ".gif", "image/avif": ".avif" };
+const PROMPT_STATUSES = new Set(["user-message", "visible-caption", "not-available", "generation-tool-prompt", "provider-visible-prompt"]);
+const MIME_TO_FORMATS: Record<string, Set<string>> = { "image/png": new Set(["png"]), "image/jpeg": new Set(["jpeg"]), "image/webp": new Set(["webp"]), "image/gif": new Set(["gif"]), "image/avif": new Set(["avif", "heif"]) };
+export const WEB_CAPTURE_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+export const WEB_CAPTURE_MAX_IMAGE_PIXELS = 40_000_000;
+export const WEB_CAPTURE_MAX_BODY_BYTES = Math.ceil(WEB_CAPTURE_MAX_IMAGE_BYTES / 3) * 4 + 1024 * 1024;
+
+type Metadata = Record<string, unknown>;
+
+interface StoredAsset {
+  id: string;
+  project_id: string;
+  prompt?: string;
+  theme?: string;
+  source?: Metadata;
+  business_fields?: Metadata;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+interface Store {
+  createAsset(params: Metadata, options?: Metadata): Promise<StoredAsset>;
+  listAssets(filters: Metadata): Promise<StoredAsset[]>;
+  updateMetadata?(projectId: string, assetId: string, metadata: Metadata): Promise<StoredAsset>;
+  findAssetByContentHash?(projectId: string, contentHash: string): Promise<StoredAsset | null>;
+  libraryDir?: string;
+  assetsRoot?: string;
+  [key: string]: unknown;
+}
+interface WebCaptureInput { provider?: string; mimeType?: string; mime_type?: string; imageBase64?: string; image_base64?: string; imageBytes?: Buffer | Uint8Array; prompt?: string; prompt_status?: string; promptStatus?: string; prompt_source?: string; promptSource?: string; user_message?: string; userMessage?: string; pageUrl?: string; page_url?: string; conversationId?: string; conversation_id?: string; messageId?: string; message_id?: string; model?: string; capturedAt?: string; captured_at?: string; assetId?: string; is_reference?: boolean; isReference?: boolean; extensionVersion?: string; extension_version?: string; }
+interface IngestResult { status: string; reason?: string; asset?: StoredAsset; attachment?: ReferenceAttachment; contentHash: string; upgraded?: boolean; }
+interface WebCaptureIngest { ingest(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; status(): Record<string, unknown>; assertToken(provided: string): void; readReference(projectId: string, fileName: string): Promise<{ stream: NodeJS.ReadableStream; fileName: string }>; tempRoot: string; token: string; }
+
+export function createWebCaptureIngest(options: { store?: Store; libraryDir?: string; tempRoot?: string; projectId?: string; token?: string; allowedOrigins?: string[]; } = {}): WebCaptureIngest {
+  const store = options.store as Store;
+  if (!store || typeof store.createAsset !== "function" || typeof store.listAssets !== "function") throw new Error("Web capture ingest requires a MOSA store.");
+  const libraryDir = resolve(options.libraryDir || store.libraryDir || store.assetsRoot!);
+  const tempRoot = resolve(options.tempRoot || join(libraryDir, ".web-capture-tmp"));
+  const referenceStore = createReferenceAttachmentStore(libraryDir);
+  const projectId = options.projectId || DEFAULT_PROJECT_ID;
+  const tokenSource = Object.hasOwn(options, "token") ? options.token : process.env.MOSA_WEB_CAPTURE_TOKEN;
+  const token = String(tokenSource || "").trim();
+  const allowedOriginCount = Array.isArray(options.allowedOrigins) ? options.allowedOrigins.length : 0;
+  const state: { enabled: boolean; providers: string[]; lastIngestAt: string | null; lastImportCount: number; totalImported: number; totalSkipped: number; lastError: string | null; lastSkippedReason: string | null } = { enabled: Boolean(token) && allowedOriginCount > 0, providers: Object.keys(PROVIDER_CONFIG), lastIngestAt: null, lastImportCount: 0, totalImported: 0, totalSkipped: 0, lastError: null, lastSkippedReason: null };
+  function status(): Record<string, unknown> { return { ...state, tokenConfigured: Boolean(token), originConfigured: allowedOriginCount > 0, allowedOriginCount }; }
+  function assertToken(provided: string): void {
+    if (!token) { const e = new Error("Web capture is disabled until MOSA_WEB_CAPTURE_TOKEN is configured.") as Error & { statusCode: number; code: string }; e.statusCode = 503; e.code = "WEB_CAPTURE_DISABLED"; throw e; }
+    if (!safeTokenEqual(String(provided || "").trim(), token)) { const e = new Error("Unauthorized web capture token.") as Error & { statusCode: number; code: string }; e.statusCode = 401; e.code = "WEB_CAPTURE_UNAUTHORIZED"; throw e; }
+  }
+  async function ingest(input: WebCaptureInput = {}, authToken = ""): Promise<IngestResult> {
+    assertToken(authToken);
+    try { const result = await ingestWebCapture({ store, referenceStore, tempRoot, projectId, input }); state.lastIngestAt = new Date().toISOString(); state.lastError = null; if (result.status === "imported") { state.lastImportCount = 1; state.totalImported += 1; state.lastSkippedReason = null; } else { state.lastImportCount = 0; state.totalSkipped += 1; state.lastSkippedReason = result.reason || "skipped"; } return result; } catch (error) { state.lastError = error instanceof Error ? error.message : String(error); throw error; }
+  }
+  return { ingest, status, assertToken, readReference: referenceStore.read, tempRoot, token };
+}
+
+export async function ingestWebCapture(options: { store: Store; referenceStore?: ReturnType<typeof createReferenceAttachmentStore>; tempRoot: string; projectId?: string; input?: WebCaptureInput; }): Promise<IngestResult> {
+  const { store, tempRoot, projectId = DEFAULT_PROJECT_ID, input = {} } = options;
+  const provider = String(input.provider || "").trim().toLowerCase();
+  if (!ALLOWED_PROVIDERS.has(provider)) { const e = new Error(`Unsupported provider: ${provider || "(empty)"}.`) as Error & { statusCode: number; code: string }; e.statusCode = 400; e.code = "WEB_CAPTURE_BAD_PROVIDER"; throw e; }
+  const providerConfig = PROVIDER_CONFIG[provider as ProviderId];
+  const mimeType = normalizeMime(input.mimeType || input.mime_type || "image/png"); const ext = MIME_TO_EXT[mimeType];
+  if (!ext) { const e = new Error(`Unsupported image mime type: ${mimeType}`) as Error & { statusCode: number; code: string }; e.statusCode = 400; e.code = "WEB_CAPTURE_BAD_MIME"; throw e; }
+  const imageBytes = decodeImageBytes(input);
+  if (!imageBytes.length) { const e = new Error("imageBase64 is required.") as Error & { statusCode: number; code: string }; e.statusCode = 400; e.code = "WEB_CAPTURE_BAD_IMAGE"; throw e; }
+  const MIN_IMAGE_BYTES = 20 * 1024;
+  if (imageBytes.length < MIN_IMAGE_BYTES) { const e = new Error(`Image too small (${imageBytes.length} < ${MIN_IMAGE_BYTES}).`) as Error & { statusCode: number; code: string }; e.statusCode = 400; e.code = "WEB_CAPTURE_IMAGE_TOO_SMALL"; throw e; }
+  if (imageBytes.length > WEB_CAPTURE_MAX_IMAGE_BYTES) { const e = new Error("Image exceeds 15 MiB limit.") as Error & { statusCode: number; code: string }; e.statusCode = 413; e.code = "WEB_CAPTURE_IMAGE_TOO_LARGE"; throw e; }
+  const imageMetadata = await inspectImageBytes(imageBytes);
+  if (!MIME_TO_FORMATS[mimeType]?.has(imageMetadata.format)) { const e = new Error(`MIME mismatch: ${mimeType} vs ${imageMetadata.format}`) as Error & { statusCode: number; code: string }; e.statusCode = 400; e.code = "WEB_CAPTURE_MIME_MISMATCH"; throw e; }
+  const contentHash = createHash("sha256").update(imageBytes).digest("hex");
+  let prompt = String(input.prompt || "").trim(); const userMessage = String(input.user_message || input.userMessage || "").trim();
+  const suppliedPromptStatus = String(input.prompt_status || input.promptStatus || "").trim();
+  const promptSource = String(input.prompt_source || input.promptSource || "").trim();
+  const trustedGenerationPrompt = ["generation-tool-prompt", "visible-caption"].includes(suppliedPromptStatus);
+  // Flow can expose a prompt card beside a generated-image group, and AI
+  // Studio can expose the preceding user prompt turn in the same chat session.
+  // Neither is verified to be the exact prompt executed by the provider.
+  const providerVisiblePrompt = ["flow", "google-ai-studio"].includes(provider)
+    && suppliedPromptStatus === "provider-visible-prompt";
+  if (!trustedGenerationPrompt && !providerVisiblePrompt) prompt = "";
+  let promptStatus = PROMPT_STATUSES.has(suppliedPromptStatus) ? suppliedPromptStatus : prompt ? "user-message" : "not-available";
+  if (!prompt) promptStatus = "not-available";
+  const normalizedPromptStatus = trustedGenerationPrompt || providerVisiblePrompt
+    ? (prompt ? suppliedPromptStatus : "not-available")
+    : promptStatus;
+  const pixelHash = imageMetadata.pixelHash || "";
+  const projectAssets = onceProjectListing(store, projectId);
+  const pageUrl = String(input.pageUrl || input.page_url || "").trim(); const conversationId = String(input.conversationId || input.conversation_id || "").trim();
+  const messageId = String(input.messageId || input.message_id || "").trim(); const model = String(input.model || "").trim();
+  const captureSessionId = conversationId ? `${provider}:${conversationId}` : "";
+  const generationBatchId = captureSessionId && messageId ? `${captureSessionId}:${messageId}` : "";
+  const capturedAt = String(input.capturedAt || input.captured_at || new Date().toISOString());
+  const isReference = Boolean(input.is_reference ?? input.isReference);
+  const referenceLibraryDir = store.libraryDir || (store.assetsRoot ? dirname(store.assetsRoot) : dirname(tempRoot));
+  const referenceStore = options.referenceStore || createReferenceAttachmentStore(resolve(referenceLibraryDir));
+  if (isReference) {
+    const saved = await referenceStore.save({
+      projectId, bytes: imageBytes, extension: ext, mimeType, width: imageMetadata.width, height: imageMetadata.height,
+      provider, pageUrl, conversationId, messageId, capturedAt, userMessage,
+    });
+    return {
+      status: saved.created ? "imported" : "skipped",
+      reason: saved.created ? undefined : "reference-already-archived-same-content",
+      attachment: saved.attachment,
+      contentHash,
+    };
+  }
+  const existing = await findArchivedDuplicate(store, projectId, contentHash, pixelHash, projectAssets);
+  if (existing) {
+    // A provider-visible prompt must not upgrade an asset archived from a
+    // different provider when the bytes happen to be identical.
+    const existingProvider = String(existing.source?.provider || "").trim().toLowerCase();
+    const duplicatePromptAllowed = normalizedPromptStatus !== "provider-visible-prompt" || existingProvider === provider;
+    const upgraded = await maybeUpgradePrompt(store, existing, {
+      prompt: duplicatePromptAllowed ? prompt : "",
+      promptStatus: duplicatePromptAllowed ? normalizedPromptStatus : "not-available",
+      userMessage,
+      promptSource,
+      model: String(input.model || "").trim(),
+      provider,
+    });
+    const sameBytes = existing.source?.content_sha256 === contentHash;
+    return {
+      status: "skipped",
+      reason: upgraded
+        ? "already-archived-prompt-upgraded"
+        : sameBytes ? "already-archived-same-content" : "already-archived-same-pixels",
+      asset: upgraded || existing,
+      contentHash,
+      upgraded: Boolean(upgraded),
+    };
+  }
+  await mkdir(tempRoot, { recursive: true });
+  const tempName = `${providerConfig.tempPrefix}-${Date.now()}-${randomBytes(4).toString("hex")}${ext}`; const tempPath = join(tempRoot, tempName);
+  await writeFile(tempPath, imageBytes);
+  try {
+    const assetId = sanitizeAssetId(input.assetId || `${providerConfig.assetIdPrefix}-${contentHash.slice(0, 12)}`, providerConfig.assetIdPrefix);
+    const references = await turnReferences(projectAssets, referenceStore, projectId, { conversationId, capturedAt, selfAssetId: assetId });
+    const asset = await store.createAsset({
+      projectId,
+      imagePath: tempPath,
+      assetId,
+      fileName: tempName,
+      prompt,
+      skill: providerConfig.skill,
+      theme: promptTheme(prompt, providerConfig.label),
+      tags: [provider, "web-capture", "auto-archived"],
+      category: "",
+      references,
+      created_at: capturedAt,
+      sourceType: providerConfig.sourceType,
+      business_fields: {
+        auto_archived: true,
+        is_reference: false,
+        capture_channel: "chrome-extension",
+        prompt_status: normalizedPromptStatus,
+        prompt_source: promptSource || null,
+        user_message: userMessage || null,
+        file_bytes: imageBytes.length,
+        mime_type: mimeType,
+        width: imageMetadata.width,
+        height: imageMetadata.height,
+      },
+      source: {
+        generation_tool: "web-ui",
+        provider,
+        type: providerConfig.sourceType,
+        model: model || null,
+        page_url: pageUrl || null,
+        conversation_id: conversationId || null,
+        message_id: messageId || null,
+        capture_session_id: captureSessionId || null,
+        generation_batch_id: generationBatchId || null,
+        prompt_status: normalizedPromptStatus,
+        prompt_source: promptSource || null,
+        user_message: userMessage || null,
+        captured_at: capturedAt,
+        capture_extension_version: String(input.extensionVersion || input.extension_version || ""),
+        content_sha256: contentHash,
+        pixel_sha256: pixelHash || null,
+      },
+    }, { trustedSourceRoots: [tempRoot] });
+    return { status: "imported", asset, contentHash };
+  } finally { await rm(tempPath, { force: true }).catch(() => {}); }
+}
+
+export function extractBearerToken(req: { headers?: Record<string, unknown> } | undefined | null): string {
+  const authorization = String(req?.headers?.authorization || "");
+  if (authorization.startsWith("Bearer ")) return authorization.slice("Bearer ".length).trim();
+  return String(req?.headers?.["x-mosa-token"] || "").trim();
+}
+
+function webCaptureError(message: string, statusCode: number, code: string): Error & { statusCode: number; code: string } {
+  const error = new Error(message) as Error & { statusCode: number; code: string };
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
+}
+
+async function inspectImageBytes(imageBytes: Buffer): Promise<{ format: string; width: number; height: number; pixelHash: string }> {
+  try {
+    const metadata = await sharp(imageBytes, {
+      failOn: "error",
+      limitInputPixels: WEB_CAPTURE_MAX_IMAGE_PIXELS,
+    }).metadata();
+    const width = Number(metadata.width) || 0;
+    const height = Number(metadata.height) || 0;
+    const pages = Number(metadata.pages) || 1;
+    const frameHeight = Number(metadata.pageHeight) || height;
+    const totalPixels = width * frameHeight * pages;
+    if (!width || !height || totalPixels > WEB_CAPTURE_MAX_IMAGE_PIXELS) {
+      throw webCaptureError(
+        "Image exceeds " + WEB_CAPTURE_MAX_IMAGE_PIXELS.toLocaleString("en-US") + " pixel limit.",
+        413,
+        "WEB_CAPTURE_PIXEL_LIMIT",
+      );
+    }
+    return {
+      format: String(metadata.format || ""),
+      width,
+      height: frameHeight,
+      pixelHash: await pixelDigest(imageBytes),
+    };
+  } catch (error: unknown) {
+    if ((error as { code?: string })?.code === "WEB_CAPTURE_PIXEL_LIMIT") throw error;
+    const detail = error instanceof Error ? error.message : String(error);
+    if (/pixel limit|exceeds.*pixels|input image exceeds/i.test(detail)) {
+      throw webCaptureError(
+        "Image exceeds " + WEB_CAPTURE_MAX_IMAGE_PIXELS.toLocaleString("en-US") + " pixel limit.",
+        413,
+        "WEB_CAPTURE_PIXEL_LIMIT",
+      );
+    }
+    throw webCaptureError(
+      "Image bytes are invalid, truncated, or exceed the decoded pixel limit.",
+      400,
+      "WEB_CAPTURE_BAD_IMAGE_BYTES",
+    );
+  }
+}
+
+async function pixelDigest(imageBytes: Buffer): Promise<string> {
+  try { const { data, info } = await sharp(imageBytes, { failOn: "error", limitInputPixels: WEB_CAPTURE_MAX_IMAGE_PIXELS }).removeAlpha().raw().toBuffer({ resolveWithObject: true }); return createHash("sha256").update(`${info.width}x${info.height}x${info.channels}:`).update(data).digest("hex"); } catch { return ""; }
+}
+
+function decodeImageBytes(input: WebCaptureInput): Buffer {
+  if (Buffer.isBuffer(input.imageBytes)) return input.imageBytes;
+  if (input.imageBytes instanceof Uint8Array) return Buffer.from(input.imageBytes);
+  let raw = String(input.imageBase64 || input.image_base64 || "").trim(); if (!raw) return Buffer.alloc(0);
+  const dataUrl = /^data:image\/[a-z0-9.+-]+;base64,(.+)$/i.exec(raw); if (dataUrl) raw = dataUrl[1];
+  try { return Buffer.from(raw, "base64"); } catch { return Buffer.alloc(0); }
+}
+
+function safeTokenEqual(provided: string, configured: string): boolean { if (!provided || !configured) return false; const a = Buffer.from(provided); const b = Buffer.from(configured); return a.length === b.length && timingSafeEqual(a, b); }
+function normalizeMime(value: string): string { const m = String(value || "image/png").trim().toLowerCase(); return m === "image/jpg" ? "image/jpeg" : m; }
+function onceProjectListing(store: Store, projectId: string): () => Promise<StoredAsset[]> { let pending: Promise<StoredAsset[]> | null = null; return () => { if (!pending) pending = Promise.all([store.listAssets({ projectId }), store.listAssets({ projectId, archived: true }).catch(() => [])]).then(([a, b]) => [...a, ...b]); return pending; }; }
+async function findArchivedDuplicate(store: Store, projectId: string, contentHash: string, pixelHash: string, projectAssets: () => Promise<StoredAsset[]>): Promise<StoredAsset | null> {
+  const byBytes = typeof store.findAssetByContentHash === "function" ? await store.findAssetByContentHash(projectId, contentHash) : (await projectAssets()).find((a) => a.source?.content_sha256 === contentHash) || null;
+  if (byBytes) return byBytes; if (!pixelHash) return null; return (await projectAssets()).find((a) => a.source?.pixel_sha256 === pixelHash) || null;
+}
+
+const MAX_TURN_REFERENCES = 8;
+
+async function turnReferences(projectAssets: () => Promise<StoredAsset[]>, referenceStore: ReturnType<typeof createReferenceAttachmentStore>, projectId: string, { conversationId, capturedAt, selfAssetId }: { conversationId: string; capturedAt: string; selfAssetId: string }): Promise<Metadata[]> {
+  if (!conversationId) return [];
+  const now = createdAtTimestamp(capturedAt);
+  if (now === null) return [];
+
+  const members = (await projectAssets()).filter((asset) =>
+    asset.id !== selfAssetId && asset.source?.conversation_id === conversationId);
+  const timeOf = (asset: StoredAsset) => createdAtTimestamp(asset.source?.captured_at || asset.created_at);
+
+  let previousGeneration = -Infinity;
+  for (const asset of members) {
+    if (asset.business_fields?.is_reference) continue;
+    const at = timeOf(asset);
+    if (at !== null && at < now && at > previousGeneration) previousGeneration = at;
+  }
+
+  const attachments = await referenceStore.list(projectId);
+  return attachments
+    .filter((attachment) => attachment.conversation_id === conversationId)
+    .map((attachment) => ({ attachment, at: createdAtTimestamp(attachment.captured_at) }))
+    .filter((entry): entry is { attachment: ReferenceAttachment; at: number } => entry.at !== null && entry.at <= now && entry.at > previousGeneration)
+    .sort((left, right) => left.at - right.at)
+    .slice(0, MAX_TURN_REFERENCES)
+    .map(({ attachment }) => ({
+      reference_id: attachment.id,
+      asset_id: attachment.id,
+      sha256: attachment.content_sha256,
+      attachment_url: attachment.attachment_url,
+      mime_type: attachment.mime_type,
+      width: attachment.width,
+      height: attachment.height,
+      role: "",
+      scope: [],
+      applied: true,
+    }));
+}
+
+const PROMPT_STATUS_RANK: Record<string, number> = {
+  "not-available": 0,
+  "user-message": 1,
+  "provider-visible-prompt": 1,
+  "visible-caption": 2,
+  "generation-tool-prompt": 3,
+};
+
+function promptRank(status: string, text: unknown): number {
+  const base = PROMPT_STATUS_RANK[status] ?? 0;
+  return base * 10000 + Math.min(String(text || "").trim().length, 5000);
+}
+
+function placeHints(text: unknown): string[] {
+  const value = String(text || "");
+  const hints: string[] = [];
+  const rules: Array<[RegExp, string]> = [
+    [/北京|beijing/i, "beijing"],
+    [/上海|shanghai/i, "shanghai"],
+    [/东京|tokyo/i, "tokyo"],
+    [/曼谷|bangkok/i, "bangkok"],
+    [/首尔|seoul/i, "seoul"],
+    [/巴黎|paris/i, "paris"],
+    [/伦敦|london/i, "london"],
+  ];
+  for (const [pattern, key] of rules) {
+    if (pattern.test(value)) hints.push(key);
+  }
+  return hints;
+}
+
+function mentionsAnyPlace(text: unknown, hints: string[]): boolean {
+  if (!hints.length) return false;
+  const lower = String(text || "").toLowerCase();
+  return hints.some((hint) => lower.includes(hint));
+}
+
+interface PromptUpgrade {
+  prompt?: string;
+  promptStatus?: string;
+  userMessage?: string;
+  user_message?: string;
+  promptSource?: string;
+  model?: string;
+  provider?: string;
+}
+
+async function maybeUpgradePrompt(store: Store, existing: StoredAsset, next: PromptUpgrade = {}): Promise<StoredAsset | null> {
+  if (typeof store.updateMetadata !== "function") return null;
+  const nextPrompt = String(next.prompt || "").trim();
+  const userMessage = String(next.userMessage || next.user_message || "").trim();
+  const currentUserMessage = String(existing.source?.user_message || existing.business_fields?.user_message || "").trim();
+  if (!nextPrompt) {
+    if (!userMessage || userMessage === currentUserMessage) return null;
+    return store.updateMetadata(existing.project_id, existing.id, {
+      source: {
+        ...(existing.source || {}),
+        prompt_source: next.promptSource || existing.source?.prompt_source || null,
+        user_message: userMessage,
+      },
+      business_fields: {
+        ...(existing.business_fields || {}),
+        prompt_source: next.promptSource || existing.business_fields?.prompt_source || null,
+        user_message: userMessage,
+      },
+    });
+  }
+
+  const currentPrompt = String(existing.prompt || "").trim();
+  const currentStatus = String(
+    existing.source?.prompt_status
+      || existing.business_fields?.prompt_status
+      || (currentPrompt ? "user-message" : "not-available"),
+  );
+  const nextStatus = next.promptStatus || "user-message";
+  const currentRank = promptRank(currentStatus, currentPrompt);
+  const nextRank = promptRank(nextStatus, nextPrompt);
+  const places = placeHints(userMessage || nextPrompt);
+  const placeUpgrade = places.length > 0
+    && mentionsAnyPlace(userMessage || nextPrompt, places)
+    && !mentionsAnyPlace(currentPrompt, places)
+    && (mentionsAnyPlace(nextPrompt, places) || /user edit|Generation caption|requested a different region/i.test(nextPrompt));
+  if (!placeUpgrade && nextRank <= currentRank && !(nextPrompt.length > currentPrompt.length + 40 && nextRank >= currentRank)) {
+    return null;
+  }
+
+  return store.updateMetadata(existing.project_id, existing.id, {
+    prompt: nextPrompt,
+    theme: promptTheme(nextPrompt, providerLabelFor(next.provider || existing.source?.provider)),
+    source: {
+      ...(existing.source || {}),
+      prompt_status: nextStatus,
+      prompt_source: next.promptSource || existing.source?.prompt_source || null,
+      user_message: next.userMessage || existing.source?.user_message || null,
+      model: next.model || existing.source?.model || null,
+    },
+    business_fields: {
+      ...(existing.business_fields || {}),
+      prompt_status: nextStatus,
+      prompt_source: next.promptSource || existing.business_fields?.prompt_source || null,
+      user_message: next.userMessage || existing.business_fields?.user_message || null,
+    },
+  });
+}
+
+function promptTheme(prompt: string, providerLabel: string = PROVIDER_CONFIG.chatgpt.label): string { const text = String(prompt || "").replace(/<\|has_watermark\|>/g, "").replace(/\n?展开\s*$/g, "").trim().replace(/\s+/g, " "); if (!text) return `${providerLabel} web image`; return text.length > 80 ? `${text.slice(0, 77)}...` : text; }
+function sanitizeAssetId(value: string, fallbackPrefix: string = PROVIDER_CONFIG.chatgpt.assetIdPrefix): string { return String(value || fallbackPrefix).toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || `${fallbackPrefix}-${Date.now()}`; }
+function providerLabelFor(value: unknown): string { const config = PROVIDER_CONFIG[String(value || "").trim().toLowerCase() as ProviderId]; return config?.label || PROVIDER_CONFIG.chatgpt.label; }

@@ -30,7 +30,22 @@ npm start
 
 Choose a port that is not already used by another MOSA or legacy service. Bind only to `127.0.0.1`; MOSA is not designed for public exposure.
 
-`MOSA_WEB_CAPTURE_TOKEN` and `MOSA_WEB_CAPTURE_ORIGINS` are optional unless the ChatGPT extension is used. The origins value is a comma-separated list of exact `chrome-extension://<id>` or `moz-extension://<id>` origins. When the Token is unset, web capture must remain disabled; when the origin is absent, extension requests must be rejected. Never put the Token in a tracked file, command transcript, issue, or log.
+`MOSA_WEB_CAPTURE_TOKEN` and `MOSA_WEB_CAPTURE_ORIGINS` are optional unless the web-capture extension is used. The origins value is a comma-separated list of exact `chrome-extension://<id>` or `moz-extension://<id>` origins. When the Token is unset, web capture must remain disabled; when the origin is absent, extension requests must be rejected. Never put the Token in a tracked file, command transcript, issue, or log.
+
+### macOS desktop shell
+
+Run the desktop shell from a checkout or build an arm64 application bundle and ZIP:
+
+```bash
+npm run desktop:start
+npm run desktop:make
+```
+
+The desktop shell defaults to `~/MOSA Library` on `127.0.0.1:43517`, the same local service used by browser capture. Override the port with `MOSA_DESKTOP_PORT` only when a separate runtime is intentional, and the library with `MOSA_LIBRARY_DIR`.
+
+At startup, the desktop shell verifies the service identity and library path. If they match, it attaches without taking ownership; quitting the app leaves that external service running. If no service is listening, the app starts an owned runtime; closing the last window on macOS leaves the app and runtime active, while choosing Quit stops the owned runtime and releases its library lock. A foreign listener or a MOSA service using another library is reported as a conflict and is never terminated.
+
+Forge writes `MOSA.app` under `out/MOSA-darwin-arm64/` and the ZIP under `out/make/zip/darwin/arm64/`. Development builds are unsigned and not notarized; signing, notarization, automatic updates, and background login launch are separate release work.
 
 ## Library Migration
 
@@ -48,6 +63,16 @@ npm exec mosa -- verify --library /absolute/path/to/library
 ```
 
 Migration checks JSON records, original files, hashes, and empty groups before marking the SQLite library completed. The migration creates a `legacy-json-backup` directory. Do not delete the original JSON source, the backup, or `mosa.db` during migration or recovery.
+
+## Codex Hard-Link Reclaim
+
+Migration re-imports each record from the legacy library file rather than from the Codex path, so a library that was hard-linked before migrating holds a second copy of every Codex asset. Reclaim that space once the migration has been verified:
+
+```bash
+MOSA_LIBRARY_DIR=/absolute/path/to/library node scripts/migrate-codex-hardlinks.mjs
+```
+
+Set `MOSA_PROJECT_ID` to select a project other than `default`; the pass covers archived assets too. It only swaps a library file for a hard link when the Codex original still exists, sits on the same filesystem, and hashes identically, so it never rewrites image bytes. Every other asset is reported under `skipped` with its reason. New imports are already hard-linked on ingest and need no maintenance.
 
 ## Derivative Repair
 
@@ -78,7 +103,7 @@ Expected conditions:
 - `lastError` is empty or `null`.
 - `cowartDiscovery` is enabled when the service can read local Codex session records.
 - `cowartInsert.available` is true only when the Cowart plugin endpoint is available.
-- `webCapture.enabled` is true only when `MOSA_WEB_CAPTURE_TOKEN` and at least one approved extension origin are explicitly configured; its providers list should contain `chatgpt`.
+- `webCapture.enabled` is true only when `MOSA_WEB_CAPTURE_TOKEN` and at least one approved extension origin are explicitly configured; its providers list should contain `chatgpt`, `gemini`, `flow`, and `google-ai-studio`.
 
 Run an integrity check whenever a migration, repair, or service incident is resolved:
 

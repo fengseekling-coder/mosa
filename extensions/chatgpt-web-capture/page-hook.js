@@ -150,6 +150,21 @@
     return score;
   }
 
+  const CAPTION_STYLE_HINTS = [
+    "poster", "illustration", "typography", "vector", "style", "lighting",
+    "camera", "composition", "palette", "cinematic", "editorial", "scene",
+    "caption", "graphic", "layout", "portrait", "background", "photo",
+    "海报", "插画", "构图", "光影", "风格", "场景", "画面", "镜头",
+  ];
+
+  /** Reads like generation instructions rather than a chat reply. */
+  function looksLikeGenerationCaption(text) {
+    const t = cleanPrompt(text);
+    if (t.length < 120) return false;
+    const hits = CAPTION_STYLE_HINTS.filter((word) => t.toLowerCase().includes(word.toLowerCase()));
+    return hits.length >= 2;
+  }
+
   function promptPriority(key) {
     if (["revised_prompt", "generation_prompt", "image_prompt"].includes(key)) return 3;
     if (["metadata_caption", "caption", "model_caption", "alt_text"].includes(key)) return 2;
@@ -219,9 +234,13 @@
       capturedAt: new Date().toISOString(),
       via: extra.via || "network",
       bound: Boolean(p && identity.imageKey),
+      // A CDN URL is not proof of generation: ChatGPT serves uploads through
+      // the same asset path. Only a tool-owned generation prompt is evidence
+      // that this exact asset is an output we may auto-archive.
+      isGeneration: extra.isGeneration === true,
     };
     post("generation-meta", payload);
-    if (url) post("auto-image", payload);
+    if (url && payload.isGeneration) post("auto-image", payload);
   }
 
   function emitMessageBindings(node, inherited) {
@@ -244,11 +263,17 @@
     }
 
     // ChatGPT's current image tool often leaves dalle.prompt blank, while the
-    // same tool message exposes a "Model caption:" string in content.parts.
-    // Accept it only when the enclosing message also owns an image asset.
-    function rememberVisibleCaption(value) {
+    // same tool message exposes the caption as a plain string in content.parts.
+    // The "Model caption:" marker is OpenAI wording that has changed before, so
+    // an unmarked caption is accepted too — but only inside a tool message that
+    // owns the image, which is where a caption lives and chat prose does not.
+    function rememberVisibleCaption(value, { hasImageAsset, authorRole }) {
       const text = cleanPrompt(value);
-      if (!/^model caption:/i.test(text) || !looksLikePrompt(text)) return;
+      if (!looksLikePrompt(text)) return;
+      if (!/^model caption\s*:/i.test(text)) {
+        if (!hasImageAsset || authorRole !== "tool") return;
+        if (!looksLikeGenerationCaption(text)) return;
+      }
       const current = prompts.get(text);
       if (!current || 2 > current.priority) {
         prompts.set(text, { text, priority: 2, promptStatus: "visible-caption" });
@@ -275,8 +300,12 @@
     }
 
     scan(message);
+    const captionContext = {
+      hasImageAsset: assetIds.size > 0 || imageUrls.size > 0,
+      authorRole: String(message?.author?.role || "").toLowerCase(),
+    };
     for (const part of message?.content?.parts || []) {
-      if (typeof part === "string") rememberVisibleCaption(part);
+      if (typeof part === "string") rememberVisibleCaption(part, captionContext);
     }
     const orderedPrompts = [...prompts.values()].sort((a, b) => b.priority - a.priority);
     const selected = orderedPrompts[0];
@@ -293,6 +322,7 @@
         promptStatus: selected.promptStatus,
         model,
         via: "message-metadata-url",
+        isGeneration: selected.promptStatus === "generation-tool-prompt" || selected.promptStatus === "visible-caption",
       });
     }
     for (const assetId of assetIds) {
@@ -303,6 +333,7 @@
         promptStatus: selected.promptStatus,
         model,
         via: "message-metadata-asset",
+        isGeneration: selected.promptStatus === "generation-tool-prompt" || selected.promptStatus === "visible-caption",
       });
     }
     if (!imageUrls.size && !assetIds.size) {
@@ -396,8 +427,122 @@
     }
   }
 
+  // Keep the original fetch so an explicit refresh cannot recurse through the
+  // general fetch interceptor below.
   const originalFetch = window.fetch;
+  const conversationRefreshAt = new Map();
+  const CONVERSATION_REFRESH_COOLDOWN_MS = 2_500;
+
+  /**
+   * ChatGPT's own backend-api calls carry a bearer token. A refresh that omits
+   * it is rejected, which silently disabled the whole late-caption recovery
+   * path. These values stay in this page world — the same world the ChatGPT app
+   * already keeps them in. They are never posted to the content script, never
+   * reach the MOSA background worker, and are never persisted.
+   */
+  const FORWARDED_HEADER_KEYS = new Set([
+    "authorization", "oai-device-id", "oai-client-version", "oai-language",
+  ]);
+  const forwardedHeaders = new Map();
+
+  function isSameOriginBackendApi(value) {
+    try {
+      const url = new URL(String(value || ""), location.origin);
+      return url.origin === location.origin && url.pathname.startsWith("/backend-api/");
+    } catch {
+      return false;
+    }
+  }
+
+  function rememberForwardedHeader(name, value) {
+    const key = String(name || "").toLowerCase();
+    const text = String(value == null ? "" : value).trim();
+    if (!FORWARDED_HEADER_KEYS.has(key) || !text) return;
+    forwardedHeaders.set(key, text);
+  }
+
+  function headerEntries(value) {
+    if (!value || typeof value !== "object") return [];
+    // A Headers instance is only iterable through forEach in this world.
+    if (typeof value.forEach === "function" && typeof value.append === "function") {
+      const entries = [];
+      value.forEach((headerValue, headerName) => entries.push([headerName, headerValue]));
+      return entries;
+    }
+    if (Array.isArray(value)) return value.filter((pair) => Array.isArray(pair) && pair.length >= 2);
+    return Object.entries(value);
+  }
+
+  function rememberRequestHeaders(input, init) {
+    try {
+      const url = typeof input === "string" ? input : input?.url || "";
+      if (!isSameOriginBackendApi(url)) return;
+      for (const source of [typeof input === "object" ? input?.headers : null, init?.headers]) {
+        for (const [name, value] of headerEntries(source)) rememberForwardedHeader(name, value);
+      }
+    } catch {
+      // A request shape we cannot read simply contributes no headers.
+    }
+  }
+
+  async function refreshCurrentConversation() {
+    const conversationId = conversationIdFromLocation();
+    if (!conversationId) return;
+
+    const now = Date.now();
+    const previous = conversationRefreshAt.get(conversationId) || 0;
+    if (now - previous < CONVERSATION_REFRESH_COOLDOWN_MS) return;
+    conversationRefreshAt.set(conversationId, now);
+    if (conversationRefreshAt.size > 20) {
+      for (const [id, at] of conversationRefreshAt) {
+        if (now - at > CONVERSATION_REFRESH_COOLDOWN_MS * 4) conversationRefreshAt.delete(id);
+      }
+    }
+
+    const encodedConversationId = encodeURIComponent(conversationId);
+    const base = location.origin || "https://chatgpt.com";
+    const endpoints = [
+      `${base}/backend-api/conversation/${encodedConversationId}`,
+      `${base}/backend-api/f/conversation/${encodedConversationId}`,
+    ];
+    const headers = Object.fromEntries(forwardedHeaders);
+    let lastStatus = 0;
+    for (const endpoint of endpoints) {
+      try {
+        const response = await originalFetch(endpoint, {
+          credentials: "include",
+          cache: "no-store",
+          headers,
+        });
+        if (!response?.ok) {
+          lastStatus = Number(response?.status) || 0;
+          continue;
+        }
+        harvest(await response.text(), "conversation-refresh");
+        return;
+      } catch {
+        // Try the alternate first-party conversation endpoint.
+      }
+    }
+    // A refresh that fails without a trace is how this recovery path stayed
+    // broken. Report the status only; never the headers that were sent.
+    post("conversation-refresh-failed", {
+      status: lastStatus,
+      authorized: forwardedHeaders.has("authorization"),
+    });
+  }
+
+  // The payload is intentionally ignored. The page hook derives the ID from
+  // location, so a page script cannot make the extension fetch another chat.
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) return;
+    const data = event.data;
+    if (data?.source !== "mosa-chatgpt-capture" || data.type !== "refresh-current-conversation") return;
+    refreshCurrentConversation().catch(() => {});
+  });
+
   window.fetch = async function mosaFetch(...args) {
+    rememberRequestHeaders(args[0], args[1]);
     const response = await originalFetch.apply(this, args);
     try {
       const url = typeof args[0] === "string" ? args[0] : args[0]?.url || "";
@@ -413,10 +558,21 @@
 
   const originalOpen = XMLHttpRequest.prototype.open;
   const originalSend = XMLHttpRequest.prototype.send;
+  const originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
   XMLHttpRequest.prototype.open = function mosaOpen(method, url, ...rest) {
     this.__mosaUrl = url;
     return originalOpen.call(this, method, url, ...rest);
   };
+  if (typeof originalSetRequestHeader === "function") {
+    XMLHttpRequest.prototype.setRequestHeader = function mosaSetRequestHeader(name, value) {
+      try {
+        if (isSameOriginBackendApi(this.__mosaUrl)) rememberForwardedHeader(name, value);
+      } catch {
+        // ignore
+      }
+      return originalSetRequestHeader.call(this, name, value);
+    };
+  }
   XMLHttpRequest.prototype.send = function mosaSend(...args) {
     this.addEventListener("load", function onLoad() {
       try {
@@ -430,6 +586,79 @@
     });
     return originalSend.apply(this, args);
   };
+
+  /**
+   * ChatGPT streams a live answer over a WebSocket for most consumer accounts,
+   * so fetch and XHR never see the caption of an image generated while the page
+   * is open. Frames arrive as JSON envelopes whose `body` is base64 SSE text.
+   */
+  const WS_INTEREST = /asset_pointer|revised_prompt|generation_prompt|image_prompt|model[ _]caption|dalle|oaiusercontent|estuary/i;
+
+  function decodeBase64Utf8(value) {
+    if (typeof atob !== "function") return "";
+    const binary = atob(String(value || ""));
+    if (typeof TextDecoder !== "function" || typeof Uint8Array !== "function") return binary;
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    // A caption is often Chinese; the raw binary string would mangle it.
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+
+  function harvestSocketText(text) {
+    if (!text || typeof text !== "string") return;
+    // Token-by-token deltas dominate the stream. Parse only image-bearing frames.
+    if (WS_INTEREST.test(text)) harvest(text, "websocket");
+    // Skip anything that is not a JSON envelope carrying a base64 body, so a
+    // fast answer stream does not pay for a parse per token.
+    if (text.charCodeAt(0) !== 123 || !text.includes('"body"')) return;
+    let envelope;
+    try {
+      envelope = JSON.parse(text);
+    } catch {
+      return;
+    }
+    const body = envelope?.body;
+    if (typeof body !== "string" || !body) return;
+    try {
+      const decoded = decodeBase64Utf8(body);
+      if (decoded && WS_INTEREST.test(decoded)) harvest(decoded, "websocket-body");
+    } catch {
+      // A frame we cannot decode is skipped; the refresh path still recovers it.
+    }
+  }
+
+  function harvestSocketData(data) {
+    try {
+      if (typeof data === "string") {
+        harvestSocketText(data);
+      } else if (typeof ArrayBuffer === "function" && data instanceof ArrayBuffer) {
+        if (typeof TextDecoder === "function") harvestSocketText(new TextDecoder("utf-8").decode(data));
+      } else if (data && typeof data.text === "function") {
+        data.text().then(harvestSocketText).catch(() => {});
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    const OriginalWebSocket = window.WebSocket;
+    if (typeof OriginalWebSocket === "function") {
+      class MosaWebSocket extends OriginalWebSocket {
+        constructor(...args) {
+          super(...args);
+          try {
+            this.addEventListener("message", (event) => harvestSocketData(event?.data));
+          } catch {
+            // A socket that rejects listeners still works for the page.
+          }
+        }
+      }
+      window.WebSocket = MosaWebSocket;
+    }
+  } catch {
+    // ignore
+  }
 
   try {
     const obs = new MutationObserver((mutations) => {

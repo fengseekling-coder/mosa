@@ -1,0 +1,355 @@
+// Inspector version-workflow contract (Phase 4B): the native version picker
+// (five-state model), the centralized selectDetailVersion switch helper, the
+// split recipe-save vs save-as-version paths, and the five Phase 4A correction
+// gates — all locked as static source contracts. Node standard library only,
+// no network access, and never a whole-file SHA of app.js / styles.css as a
+// substitute for behaviour contracts (package manifest pins excepted).
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { access, readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import test from "node:test";
+
+const root = resolve(import.meta.dirname, "..");
+const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readAssetView = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
+const readInspectorMarkup = () => readFile(resolve(root, "app/inspector-markup.mjs"), "utf8");
+const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
+const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
+const sha256 = (text) => createHash("sha256").update(text).digest("hex");
+const count = (source, needle) => source.split(needle).length - 1;
+
+/** Slices a top-level app.js function (declaration up to the next top-level function). */
+function functionSlice(source, name) {
+  // 优先匹配 async 声明，避免命中注释中的同名文本；终止边界同时识别 async。
+  let start = source.indexOf(`async function ${name}(`);
+  if (start === -1) start = source.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `function not found: ${name}`);
+  const candidates = [source.indexOf("\nfunction ", start + 1), source.indexOf("\nasync function ", start + 1), source.indexOf("\n  function ", start + 1), source.indexOf("\n  async function ", start + 1)]
+    .filter((index) => index !== -1);
+  const next = candidates.length ? Math.min(...candidates) : -1;
+  return source.slice(start, next === -1 ? source.length : next);
+}
+
+/** Slices source between two markers (start inclusive, end exclusive). */
+function sliceBetween(source, startMarker, endMarker) {
+  const start = source.indexOf(startMarker);
+  assert.notEqual(start, -1, `marker not found: ${startMarker}`);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  assert.notEqual(end, -1, `marker not found: ${endMarker}`);
+  return source.slice(start, end);
+}
+
+// Library v2 keeps favorite inside Overview, leaving nine semantic sections.
+const SECTION_ORDER = ["file", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
+// Exact helper-call sequence inside the renderDetail single-column composition.
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup()}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+
+// 1. Native select exists. 2-3. No hand-rolled listbox / version popover.
+// 4. Picker lives inside the version section. 5. Current version is selected.
+test("1-5. native version picker inside the version section", async () => {
+  const app = await readApp();
+  const inspector = await readInspectorMarkup();
+
+  // 1. A single native <select data-version-select> renders the picker.
+  const picker = functionSlice(inspector, "versionPickerMarkup");
+  assert.match(picker, /<select id="versionSelect" data-version-select/, "native select carries data-version-select");
+  assert.match(picker, /<label class="visually-hidden" for="versionSelect">/, "select has an accessible (visually-hidden) label");
+  assert.match(picker, /<option value="\$\{escapeHtml\(version\.id\)\}"/, "option value is the asset id");
+
+  // 2-3. No hand-rolled listbox/popover/menu anywhere; no third-party Select import.
+  assert.doesNotMatch(app, /role="listbox"/, "no custom listbox");
+  assert.doesNotMatch(app, /role="option"/, "no custom option roles");
+  assert.doesNotMatch(picker, /popover|dropdown|listbox|role="menu"/i, "no custom version popover");
+
+  // 4. The picker region sits inside the version inspector section, before the disclosures.
+  const versionSection = functionSlice(inspector, "detailVersionSectionMarkup");
+  assert.ok(versionSection.includes('data-inspector-section="version"'), "section id stays version");
+  assert.ok(versionSection.includes('class="version-picker" data-version-picker'), "picker region rendered inside the version section");
+  assert.ok(versionSection.indexOf("data-version-picker") < versionSection.indexOf("data-version-history"), "picker precedes the history disclosure");
+
+  // 5. The option matching the current asset id is marked selected.
+  assert.match(picker, /version\.id === asset\.id \? " selected" : ""/, "current version option is selected");
+});
+
+// 6. Loading: disabled + aria-busy + current Vn. 7. Single version: disabled.
+// 8. Multiple versions: enabled, API order. 9. Archived versions carry a text
+// marker. 10. Missing version_index never renders VNaN/V0/undefined.
+test("6-10. picker five-state model", async () => {
+  const inspector = await readInspectorMarkup();
+  const picker = functionSlice(inspector, "versionPickerMarkup");
+  const optionLabel = functionSlice(inspector, "versionOptionLabel");
+
+  // 6. Loading (no history yet): falls back to the current asset as the single
+  // option (its Vn label when version_index exists), disabled, aria-busy.
+  assert.match(picker, /const options = versions\.length \? versions : \[asset\];/, "loading/error fall back to the current-asset option");
+  assert.match(picker, /const busy = !error && !history;/, "busy only while loading");
+  assert.match(picker, /\$\{busy \? ' aria-busy="true"' : ""\}/, "loading select exposes aria-busy");
+
+  // 7-8. disabled is derived from option count: single option => disabled,
+  // multiple => enabled; options are mapped straight from history.versions
+  // (API DFS order, no re-sorting).
+  assert.match(picker, /const multiple = versions\.length > 1;/, "enabled state derives from the version count");
+  assert.match(picker, /\$\{multiple \? "" : " disabled"\}/, "single version disabled, multiple enabled");
+  assert.doesNotMatch(picker, /\.sort\(/, "option order follows the API response, never re-sorted");
+
+  // 9. Archived versions append the localized archivedVersion text marker.
+  assert.match(optionLabel, /version\?\.archived \? `\$\{label\} · \$\{t\("archivedVersion"\)\}` : label/, "archived marker is textual, not colour-only");
+
+  // 10. version_index is validated before use; missing/invalid values fall back
+  // to currentVersion (selected) or the asset title — never VNaN/V0/undefined.
+  assert.match(optionLabel, /Number\.isFinite\(index\) && index > 0/, "version_index is validated before rendering");
+  assert.match(optionLabel, /selected \? t\("currentVersion"\) : String\(version\?\.theme \|\| version\?\.asset \|\| version\?\.id \|\| ""\)/, "fallback label for missing version_index");
+  assert.doesNotMatch(optionLabel + picker, /NaN/, "no NaN can leak into option labels");
+});
+
+// 11. Load errors keep the picker (disabled, current version). 12. One request
+// per load. 13. Generation + selection guards stay. 14. Picker and history
+// regions update in the same response.
+test("11-14. async region updates stay guarded and paired", async () => {
+  const app = await readApp();
+  const loader = functionSlice(app, "loadVersionHistory");
+  const pickerRegion = functionSlice(app, "renderVersionPickerRegion");
+
+  // 11. The error path re-renders the picker with (null, id, error) — the picker
+  // markup still renders the current-asset option disabled instead of clearing.
+  assert.match(loader, /renderVersionPickerRegion\(null, asset\.id, error\);/, "picker is re-rendered (not removed) on error");
+  assert.match(pickerRegion, /region\.innerHTML = versionPickerMarkup\(asset, history, error\);/, "picker always re-renders from markup");
+  assert.doesNotMatch(pickerRegion, /innerHTML = ""|remove\(\)/, "picker region is never cleared or detached");
+
+  // 12. Exactly one API request per loadVersionHistory call.
+  assert.equal(count(loader, "await apiFetch("), 1, "loadVersionHistory issues a single request");
+
+  // 13. Both stale-response guards remain on success and error paths.
+  assert.equal(count(loader, "requestId !== versionHistoryRequestSequence"), 2, "request generation guard on both paths");
+  assert.equal(count(loader, "`${state.project}\\u0000${state.selectedId}` !== selectedKey"), 2, "selection guard on both paths");
+
+  // 14. Success and error responses update picker and history regions together.
+  assert.match(loader, /renderVersionPickerRegion\(result\.history, asset\.id\);\s*\n\s*renderVersionHistoryRegion\(result\.history, asset\.id\);/, "picker and history update in the same success response");
+  assert.match(loader, /renderVersionPickerRegion\(null, asset\.id, error\);\s*\n\s*renderVersionHistoryRegion\(null, asset\.id, error\);/, "picker and history update in the same error response");
+
+  // Region re-renders stay local — they never rebuild the whole detail panel.
+  assert.doesNotMatch(pickerRegion, /renderDetail\(/, "picker region update never rebuilds the detail panel");
+  const historyRegion = functionSlice(app, "renderVersionHistoryRegion");
+  assert.doesNotMatch(historyRegion, /renderDetail\(/, "history region update never rebuilds the detail panel");
+});
+
+// 15. select change routes through the centralized helper. 16. Timeline clicks
+// route through the same helper. 17. Same-version selection is a no-op.
+// 18. The dirty guard is reused. 19. Cancelling restores the select value.
+test("15-19. one centralized version-switch helper with dirty guard", async () => {
+  const app = await readApp();
+  const pickerEvents = functionSlice(app, "bindVersionPickerEvents");
+  const historyEvents = functionSlice(app, "bindVersionHistoryEvents");
+  const helper = functionSlice(app, "selectDetailVersion");
+
+  // 15-16. Both entry points delegate to selectDetailVersion; neither carries
+  // its own switch logic any more.
+  assert.match(pickerEvents, /select\.addEventListener\("change", \(\) => selectDetailVersion\(select\.value\)\);/, "select change routes to the helper");
+  assert.match(historyEvents, /selectDetailVersion\(button\.dataset\.versionId\);/, "timeline click routes to the same helper");
+  assert.doesNotMatch(historyEvents, /renderDetail\(|state\.selectedId =/, "timeline binding keeps no inline switch logic");
+  assert.doesNotMatch(pickerEvents, /renderDetail\(|state\.selectedId =/, "picker binding keeps no inline switch logic");
+
+  // 17. Selecting the already-current version is a no-op (select display value
+  // restored, no navigation).
+  assert.match(helper, /target\.id === state\.selectedId\) \{ restoreVersionPickerValue\(\); return true; \}/, "same-version selection is a no-op");
+
+  // 18. The existing confirmDetailNavigation dirty guard is reused — no second
+  // dirty state, no new confirm copy. Phase 5B: the guard is async and awaits the
+  // single app-wide ConfirmDialog Promise; window.confirm is gone.
+  assert.match(helper, /if \(!await confirmDetailNavigation\(target\.id\)\) \{ restoreVersionPickerValue\(\); return false; \}/, "dirty guard blocks the switch");
+  assert.doesNotMatch(helper, /detailDirty\s*=|window\.confirm\(/, "helper neither owns dirty state nor introduces a new confirm");
+  assert.match(app, /async function confirmDetailNavigation\(nextAssetId\) \{[\s\S]*?if \(!state\.detailDirty \|\| nextAssetId === state\.selectedId\) return true;\s*\n\s*return requestConfirmation\(\{[\s\S]*?discardChangesTitle[\s\S]*?\}\);\s*\n\}/, "shared dirty guard keeps its single confirm copy via requestConfirmation");
+
+  // 19. Cancel (or an unknown target) restores the select's displayed value.
+  assert.match(helper, /if \(!target\) \{ restoreVersionPickerValue\(\); return false; \}/, "unknown target restores the select value");
+  const restore = functionSlice(app, "restoreVersionPickerValue");
+  assert.match(restore, /select\.value = state\.selectedId;/, "restore resets the select to the current version");
+});
+
+// 20-21. The switch never touches assetViewSequence / libraryReturnSnapshot.
+// 22. Scroll position survives the switch (clamped). 23. Focus lands on the
+// new select without scrolling.
+test("20-23. switch preserves viewer state, scroll, and lands focus", async () => {
+  const app = await readApp();
+  const helper = functionSlice(app, "selectDetailVersion");
+
+  // 20-21. Viewer navigation order and the library return snapshot are untouched.
+  assert.doesNotMatch(helper, /assetViewSequence/, "version switch never touches assetViewSequence");
+  assert.doesNotMatch(helper, /libraryReturnSnapshot/, "version switch never rebuilds the return snapshot");
+
+  // The state update order is locked: selection/asset, history retention,
+  // recipe-history reset, gallery highlight, re-render.
+  assert.match(helper, /state\.selectedId = target\.id;\s*\n\s*state\.detailAsset = target;\s*\n\s*state\.recipeHistory = null;\s*\n\s*updateSelectedCard\(\);\s*\n\s*renderDetail\(\);/, "state update sequence keeps versionHistory and clears recipeHistory");
+  assert.doesNotMatch(helper, /state\.versionHistory = null/, "version history survives the switch");
+
+  // 22. The previous scrollTop is captured before renderDetail and restored
+  // afterwards, clamped into the new content's scrollable range.
+  assert.match(helper, /const previousScrollTop = els\.detailPanel\?\.querySelector\("\.detail-inspector-scroll"\)\?\.scrollTop \?\? null;/, "scrollTop captured before re-render");
+  assert.match(helper, /scroller\.scrollTop = Math\.min\(previousScrollTop, Math\.max\(0, scroller\.scrollHeight - scroller\.clientHeight\)\);/, "scrollTop restored with clamping");
+
+  // 23. Focus moves to the new select in the next frame with preventScroll so
+  // the restored scroll position is not overridden.
+  assert.match(helper, /requestAnimationFrame\(\(\) => els\.detailPanel\?\.querySelector\("\[data-version-select\]"\)\?\.focus\(\{ preventScroll: true \}\)\);/, "focus lands on the new select without scrolling");
+  assert.match(helper, /const focusSelect = options\.focusSelect !== false;/, "focus move stays opt-out via options");
+
+  // 23b. The async picker re-render can land AFTER the rAF focus (same response
+  // cycle); it must preserve focus instead of dropping it back to body.
+  const pickerRegion = functionSlice(app, "renderVersionPickerRegion");
+  assert.match(pickerRegion, /const hadFocus = region\.contains\(document\.activeElement\);/, "picker re-render captures focus before rebuild");
+  assert.match(pickerRegion, /if \(hadFocus\) region\.querySelector\("\[data-version-select\]"\)\?\.focus\(\{ preventScroll: true \}\);/, "picker re-render restores focus to the new select");
+});
+
+// 24. data-recipe-change lives inside the recipe disclosure. 25.
+// data-version-change stays in the new-version section. 26-27. Each save path
+// reads only its own field. 28. No hardcoded English summary. 29-30. PATCH vs
+// versions API stay on their own paths. 31. The two summaries are independent.
+// 32. Both save buttons are secondary. 33. Cowart remains the only primary.
+test("24-33. recipe save and save-as-version stay split", async () => {
+  const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
+  const promptSection = functionSlice(inspector, "detailPromptSectionMarkup");
+  const newVersionSection = functionSlice(inspector, "detailNewVersionSectionMarkup");
+
+  // 24. The recipe-change textarea sits inside the recipe disclosure, between
+  // the recipe fields and the save-recipe button.
+  assert.ok(promptSection.indexOf('t("recipeAndEditing")') > -1, "recipe disclosure heading intact");
+  assert.ok(promptSection.indexOf("data-recipe-change") > promptSection.indexOf("${editRecipeFieldsMarkup(asset)}"), "recipe-change follows the recipe fields");
+  assert.ok(promptSection.indexOf("data-recipe-change") < promptSection.indexOf('data-action="save-recipe"'), "recipe-change precedes the save button");
+  assert.match(promptSection, /<label class="field recipe-change-field"><span>\$\{t\("recipeChangeSummary"\)\}<\/span>/, "recipe-change field label");
+  assert.match(promptSection, /<textarea data-recipe-change rows="2" placeholder="\$\{escapeHtml\(t\("recipeChangePlaceholder"\)\)\}"><\/textarea>/, "recipe-change textarea");
+
+  // 25. data-version-change stays exclusively in the new-version section.
+  assert.ok(newVersionSection.includes('data-inspector-section="new-version"'), "new-version section id intact");
+  assert.ok(newVersionSection.includes("data-version-change"), "version-change textarea stays in the new-version section");
+  assert.doesNotMatch(promptSection, /data-version-change/, "recipe disclosure no longer hosts data-version-change");
+
+  // 26-30. The two save handlers read disjoint fields and call disjoint APIs.
+  const saveRecipe = sliceBetween(app, "panel.querySelector('[data-action=\"save-recipe\"]')?.addEventListener", "panel.querySelector('[data-action=\"save-version\"]')?.addEventListener");
+  const saveVersion = sliceBetween(app, "panel.querySelector('[data-action=\"save-version\"]')?.addEventListener", "bindReferenceRightsEvents(panel, asset, renderId);");
+  // 26.
+  assert.doesNotMatch(saveRecipe, /data-version-change/, "save-recipe never reads data-version-change");
+  assert.match(saveRecipe, /panel\.querySelector\("\[data-recipe-change\]"\)\?\.value\.trim\(\) \|\| ""/, "save-recipe reads its own summary field");
+  // 27.
+  assert.doesNotMatch(saveVersion, /data-recipe-change/, "save-version never reads data-recipe-change");
+  assert.match(saveVersion, /panel\.querySelector\("\[data-version-change\]"\)\?\.value\.trim\(\) \|\| ""/, "save-version reads its own summary field");
+  // 28.
+  assert.doesNotMatch(app, /Recipe updated in MOSA/, "no hardcoded English recipe summary");
+  assert.match(saveRecipe, /\.\.\.\(changeSummary \? \{ recipe_change_summary: changeSummary \} : \{\}\)/, "empty summary omits recipe_change_summary (server default applies)");
+  // 29-30.
+  assert.doesNotMatch(saveRecipe, /\/versions/, "save-recipe never calls the versions API");
+  assert.match(saveRecipe, /method: "PATCH"/, "save-recipe keeps the PATCH path");
+  assert.match(saveVersion, /\/versions`, \{\s*\n\s*method: "POST"/, "save-version keeps posting to the versions API");
+  assert.match(saveVersion, /version_change: versionChange/, "save-version keeps the version_change payload");
+
+  // 31. The two summary labels are independent i18n keys in both locales.
+  assert.match(i18n, /recipeChangeSummary: "配方变更说明"/);
+  assert.match(i18n, /recipeChangeSummary: "Recipe change summary"/);
+  assert.match(i18n, /recipeChangePlaceholder: "简要说明本次 Prompt、参数或元数据修改"/);
+  assert.match(i18n, /recipeChangePlaceholder: "Briefly describe the prompt, parameter, or metadata changes"/);
+  assert.match(i18n, /versionChange: "变更说明"/);
+  assert.match(i18n, /versionChange: "Change summary"/);
+  assert.match(i18n, /versionPickerLabel: "选择版本"/);
+  assert.match(i18n, /versionPickerLabel: "Select version"/);
+
+  // 32. save-recipe stays secondary; V2 composer send triggers save-version.
+  assert.match(promptSection, /class="recipe-save-btn secondary" type="button" data-action="save-recipe"/, "save-recipe stays secondary");
+  assert.match(newVersionSection, /data-action="save-version"/, "save-version action preserved in V2 composer");
+  assert.equal(count(app, "recipe-save-btn primary") + count(inspector, "recipe-save-btn primary"), 0, "no primary recipe save button");
+
+  // 33. Cowart insertion remains the application's single primary action.
+  assert.equal(count(app, "action-btn primary"), 1, "exactly one primary action remains (Cowart insert)");
+});
+
+// 34. state.detailTab is gone entirely. 35. notGrouped is "Ungrouped" in
+// English. 36. web-chatgpt resolves through the single source-label map.
+// 37. Grok media paths are copyable. 38. No copy affordance for empty sources.
+test("34-38. Phase 4A correction gates hold", async () => {
+  const [app, inspector, i18n, config] = await Promise.all([readApp(), readInspectorMarkup(), readI18n(), readFile(resolve(root, "app/config.mjs"), "utf8")]);
+
+  // 34. The dead detailTab state (field, initial value, resets, comments) is
+  // fully removed from the application code.
+  assert.doesNotMatch(app, /detailTab/, "state.detailTab leaves zero residue in app code");
+
+  // 35. English empty-group copy is "Ungrouped"; Chinese stays 未分组.
+  assert.match(i18n, /notGrouped: "Ungrouped"/);
+  assert.match(i18n, /notGrouped: "未分组"/);
+  assert.doesNotMatch(i18n, /notGrouped: "No collection"/);
+
+  // 36. Source naming resolves through the single SOURCE_LABEL_KEYS map —
+  // web-chatgpt shows as ChatGPT, never as a manual import.
+  const sourceNameFn = functionSlice(inspector, "sourceName");
+  assert.match(sourceNameFn, /SOURCE_LABEL_KEYS\[type\] \? t\(SOURCE_LABEL_KEYS\[type\]\) : \(type \|\| t\("sourceUnknown"\)\)/, "sourceName reuses the single label map");
+  assert.doesNotMatch(sourceNameFn, /sourceManual/, "sourceName never falls back to manual import");
+  // SOURCE_LABEL_KEYS moved to app/config.mjs (R1 batch 2).
+  assert.match(config, /"web-chatgpt": "sourceWebChatgpt"/, "web-chatgpt mapped to its own label key");
+  assert.equal(count(i18n, 'sourceWebChatgpt: "ChatGPT"'), 2, "web-chatgpt label is ChatGPT in both locales");
+
+  // 37. Copying a source uses sourceCopyValue (path → grok_media_path → ""),
+  // the same precedence as the displayed originalPath row.
+  const copyValue = functionSlice(inspector, "sourceCopyValue");
+  assert.match(copyValue, /return String\(source\.path \|\| source\.grok_media_path \|\| ""\);/, "copy value mirrors the originalPath precedence");
+  assert.match(app, /copy-source.*clipboard\.writeText\(sourceCopyValue\(asset\.source\)\)/s, "copy click uses sourceCopyValue");
+
+  // 38. The copy button renders only when a copyable value exists.
+  const sourceSection = functionSlice(inspector, "detailSourceSectionMarkup");
+  assert.match(sourceSection, /const copyButton = sourceCopyValue\(source\)\n\s+\? `<button class="section-head-copy" type="button" data-action="copy-source"/, "empty sources get no copy button");
+});
+
+// 39-42. The nine V2 inspector sections keep their approved order.
+// 43-46. The neighbouring contract suites keep their anchors in app.js.
+// 47. package.json and the lockfile are untouched. 48. No new dependency.
+test("39-48. layout order, neighbouring contracts, and dependency freeze", async () => {
+  const app = await readApp();
+  const inspector = await readInspectorMarkup();
+  const viewer = await readAssetView();
+
+  // 39-42. The composition sequence and section ids are unchanged; version is
+  // now 4th, new-version 8th, more 9th after favorite joined Overview.
+  assert.ok(app.includes(COMPOSITION), "renderDetail composition sequence unchanged");
+  const positions = SECTION_ORDER.map((id) => inspector.indexOf(`data-inspector-section="${id}"`));
+  assert.ok(positions.every((index) => index > -1), "all V2 section ids still render");
+  assert.deepEqual([...positions].sort((a, b) => a - b), positions, "section order matches the approved sequence");
+  assert.equal(SECTION_ORDER[3], "version", "version stays the 4th section");
+  assert.equal(SECTION_ORDER[7], "new-version", "new-version stays the 8th section");
+  assert.equal(SECTION_ORDER[8], "more", "more stays the 9th section");
+
+  // 43-46. V2 migration: large-view-* tests were removed during V2 cleanup.
+  // App.js anchors for viewer and inspector remain intact.
+  assert.match(viewer, /assetViewSequence\.ids = state\.assets\.map\(\(asset\) => asset\.id\);/, "43. viewer navigation anchor intact");
+  assert.match(viewer, /function applyAssetViewTransform\(\)/, "44. viewer transform anchor intact");
+  assert.match(viewer, /state\.libraryReturnSnapshot = \{/, "45. library return snapshot anchor intact");
+  assert.match(inspector, /function detailVersionSectionMarkup\(asset, cachedHistory, cachedRecipeHistory\)/, "46. Phase 4A IA anchors intact");
+
+  // 47. Manifest and lockfile SHAs stay at their frozen values.
+  const pkg = await readFile(resolve(root, "package.json"), "utf8");
+  const lock = await readFile(resolve(root, "package-lock.json"), "utf8");
+  // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
+  // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
+  // the dependency sections the freeze really guards stay byte-identical.
+  const manifest = JSON.parse(pkg);
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must stay untouched");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies must stay untouched");
+  assert.equal(sha256(lock), "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd", "package-lock.json must stay untouched");
+
+  // 48. app.js gains no new imports (no new runtime dependencies, no
+  // third-party Select component).
+  assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
+    ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./overlay-manager.mjs", "./toast-manager.mjs"], "app.js gains no new imports");
+});
+
+// Picker/recipe styles stay inside the approved boundary: native select reuses
+// the global form base (no custom select layer), the version area drops 9px
+// type, and the recipe-change field matches the version-change rhythm.
+test("styles. picker and recipe-change styling stay within the Phase 4B boundary", async () => {
+  const css = await readCss();
+
+  assert.match(css, /\.version-picker \{ display: grid; gap: 8px; margin-bottom: 10px; \}/, "picker layout uses the 8px grid");
+  assert.match(css, /\.recipe-change-field \{ margin-top: 8px; \}/, "recipe-change field matches version-change spacing");
+  assert.match(css, /\.version-current, \.version-archived \{[^}]*font-size: 10px;/, "version badges no longer use 9px type");
+  assert.match(css, /\.version-content time \{ color: var\(--color-text-tertiary\); font-size: 10px; \}/, "version timestamps no longer use 9px type");
+  const versionArea = sliceBetween(css, "/* 版本历史 */", "/* 配方快照 */");
+  assert.doesNotMatch(versionArea, /font-size: 9px/, "no 9px type remains in the version area");
+  assert.doesNotMatch(css, /\.version-picker[^{]*\{[^}]*appearance: none/, "native select keeps the platform affordance");
+  const cssDeclarations = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.doesNotMatch(cssDeclarations, /!important/, "no !important in any CSS declaration");
+});
