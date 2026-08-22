@@ -8,9 +8,9 @@ interface Registry { list(): Promise<RegistryEntry[]>; addProject(input: { proje
 interface BridgeStatus { enabled?: boolean; watching?: boolean; polling?: boolean; lastScanAt?: string | null; lastImportedAt?: string | null; lastImportCount?: number; totalImported?: number; lastSkippedCount?: number; lastError?: string | null; }
 interface SourceStatus { id: string; projectDir: string; canvasDir: string; managed: boolean; addedAt: string | null; trusted: boolean; enabled: boolean; watching: boolean; polling: boolean; lastScanAt: string | null; lastImportedAt: string | null; lastImportCount: number; totalImported: number; lastSkippedCount: number; lastError: string | null; }
 interface ManagerStatus { canvasDir: string; enabled: boolean; watching: boolean; polling: boolean; lastScanAt: string | null; lastImportedAt: string | null; lastImportCount: number; totalImported: number; lastSkippedCount: number; lastError: string | null; monitoredCount: number; registeredCount: number; sources: SourceStatus[]; }
-interface Bridge { start(): Promise<void>; stop(): void; status(): BridgeStatus; }
+interface Bridge { start(): Promise<void>; stop(): Promise<void>; status(): BridgeStatus; }
 
-export interface CowartBridgeManager { start(): Promise<ManagerStatus>; stop(): void; addProject(input?: { projectDir?: string }): Promise<{ project: RegistryEntry; created: boolean; canvas: SourceStatus }>; removeProject(id: string): Promise<RegistryEntry>; sources(): SourceStatus[]; status(): ManagerStatus; }
+export interface CowartBridgeManager { start(): Promise<ManagerStatus>; stop(): Promise<void>; addProject(input?: { projectDir?: string }): Promise<{ project: RegistryEntry; created: boolean; canvas: SourceStatus }>; removeProject(id: string): Promise<RegistryEntry>; sources(): SourceStatus[]; status(): ManagerStatus; }
 
 export function createCowartBridgeManager(options: { store?: ManagerStore; registry?: Registry; managerDir?: string; canvasDir?: string } = {}): CowartBridgeManager {
   const store: ManagerStore | undefined = options.store;
@@ -44,7 +44,7 @@ export function createCowartBridgeManager(options: { store?: ManagerStore; regis
   async function removeProject(id: string): Promise<RegistryEntry> {
     const project = await registry!.removeProject(id);
     const bridge = bridges.get(project.id);
-    bridge?.stop();
+    await bridge?.stop();
     bridges.delete(project.id);
     untrustedSources.delete(project.id);
     sourceErrors.delete(project.id);
@@ -63,7 +63,7 @@ export function createCowartBridgeManager(options: { store?: ManagerStore; regis
     }
     const bridge = createCowartAssetBridge({ store: store as never, canvasDir: source.canvasDir, projectId: "default", cowartProjectDir: source.projectDir, sourceId: source.id }) as unknown as Bridge;
     bridges.set(source.id, bridge);
-    try { await bridge.start(); untrustedSources.delete(source.id); sourceErrors.delete(source.id); } catch (error) { bridge.stop(); bridges.delete(source.id); sourceErrors.set(source.id, error instanceof Error ? error.message : String(error)); }
+    try { await bridge.start(); untrustedSources.delete(source.id); sourceErrors.delete(source.id); } catch (error) { await bridge.stop(); bridges.delete(source.id); sourceErrors.set(source.id, error instanceof Error ? error.message : String(error)); }
     return sourceStatus(source);
   }
 
@@ -79,7 +79,7 @@ export function createCowartBridgeManager(options: { store?: ManagerStore; regis
     return { canvasDir: primarySource.canvasDir, enabled: entries.some((e) => e.enabled), watching: entries.some((e) => e.watching), polling: entries.some((e) => e.polling), lastScanAt: newest(entries, "lastScanAt"), lastImportedAt: newest(entries, "lastImportedAt"), lastImportCount: entries.reduce((t, e) => t + e.lastImportCount, 0), totalImported: entries.reduce((t, e) => t + e.totalImported, 0), lastSkippedCount: entries.reduce((t, e) => t + e.lastSkippedCount, 0), lastError: entries.find((e) => e.lastError)?.lastError || null, monitoredCount: entries.filter((e) => e.enabled).length, registeredCount: registeredSources.length, sources: entries };
   }
 
-  function stop(): void { for (const bridge of bridges.values()) bridge.stop(); bridges.clear(); started = false; }
+  async function stop(): Promise<void> { const activeBridges = [...bridges.values()]; bridges.clear(); started = false; await Promise.all(activeBridges.map((bridge) => bridge.stop())); }
   return { start, stop, addProject, removeProject, sources, status };
 }
 

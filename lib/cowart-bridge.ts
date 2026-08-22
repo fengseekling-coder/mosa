@@ -9,7 +9,7 @@ interface Store { createAsset(params: Record<string, unknown>, options?: Record<
 interface AssetCandidate { canvasDir: string; pageId: string; imagePath: string; assetUrl: string; cowartAssetId: string; shapeId: string | null; shapeMeta: Record<string, unknown>; annotationSourceShapeId: string | null; replacedAiImageHolder: string | null; mosaAssetId: string | null; altText: string; ratio: string; }
 interface ReconcileResult { imported: unknown[]; skipped: Array<{ path: string; reason: string }>; candidates: number; queued?: boolean; }
 interface BridgeStatus { canvasDir: string; cowartProjectDir: string | null; sourceId: string | null; enabled: boolean; watching: boolean; polling: boolean; lastScanAt: string | null; lastImportedAt: string | null; lastImportCount: number; totalImported: number; lastSkippedCount: number; lastError: string | null; }
-interface Bridge { start(): Promise<BridgeStatus>; stop(): void; reconcile(): Promise<ReconcileResult>; scheduleReconcile(): void; status(): BridgeStatus; }
+interface Bridge { start(): Promise<BridgeStatus>; stop(): Promise<void>; reconcile(): Promise<ReconcileResult>; scheduleReconcile(): void; status(): BridgeStatus; }
 interface CanvasStoreRecord { typeName?: string; type?: string; id?: string; meta?: Record<string, unknown>; props?: Record<string, unknown>; [key: string]: unknown; }
 interface CanvasSnapshot { store?: Record<string, CanvasStoreRecord>; }
 
@@ -22,26 +22,52 @@ export function createCowartAssetBridge(options: { store?: Store; canvasDir?: st
   const sourceId = options.sourceId || null;
   const debounceMs = options.debounceMs != null && Number.isFinite(options.debounceMs) ? Math.max(0, options.debounceMs) : 300;
   const pollIntervalMs = options.pollIntervalMs != null && Number.isFinite(options.pollIntervalMs) ? Math.max(100, options.pollIntervalMs) : 2000;
-  let watcher: FSWatcher | null = null; let poller: ReturnType<typeof setInterval> | null = null; let timer: ReturnType<typeof setTimeout> | null = null; let reconciling = false; let reconcileAgain = false;
+  let watcher: FSWatcher | null = null; let poller: ReturnType<typeof setInterval> | null = null; let timer: ReturnType<typeof setTimeout> | null = null; let reconciling = false; let reconcileAgain = false; let enabled = false; let activeReconcile: Promise<ReconcileResult> | null = null; let stopPromise: Promise<void> | null = null;
   const state: Omit<BridgeStatus, "watching" | "polling"> = { canvasDir, cowartProjectDir, sourceId, enabled: false, lastScanAt: null, lastImportedAt: null, lastImportCount: 0, totalImported: 0, lastSkippedCount: 0, lastError: null };
 
   async function reconcile(): Promise<ReconcileResult> {
+    if (!enabled) return { imported: [], skipped: [], queued: true, candidates: 0 };
     if (reconciling) { reconcileAgain = true; return { imported: [], skipped: [], queued: true, candidates: 0 }; }
     reconciling = true;
-    try {
-      const result = await reconcileCowartAssets({ store, canvasDir, projectId, cowartProjectDir, sourceId });
-      state.lastScanAt = new Date().toISOString(); state.lastImportCount = result.imported.length; state.lastSkippedCount = result.skipped.length; state.totalImported += result.imported.length; state.lastError = null;
-      if (result.imported.length > 0) state.lastImportedAt = state.lastScanAt;
-      return result;
-    } catch (error) { state.lastScanAt = new Date().toISOString(); state.lastError = error instanceof Error ? error.message : String(error); throw error; } finally { reconciling = false; if (reconcileAgain) { reconcileAgain = false; scheduleReconcile(); } }
+    const run = (async (): Promise<ReconcileResult> => {
+      try {
+        const result = await reconcileCowartAssets({ store, canvasDir, projectId, cowartProjectDir, sourceId });
+        state.lastScanAt = new Date().toISOString(); state.lastImportCount = result.imported.length; state.lastSkippedCount = result.skipped.length; state.totalImported += result.imported.length; state.lastError = null;
+        if (result.imported.length > 0) state.lastImportedAt = state.lastScanAt;
+        return result;
+      } catch (error) { state.lastScanAt = new Date().toISOString(); state.lastError = error instanceof Error ? error.message : String(error); throw error; } finally {
+        reconciling = false;
+        activeReconcile = null;
+        if (reconcileAgain && enabled) { reconcileAgain = false; scheduleReconcile(); } else reconcileAgain = false;
+      }
+    })();
+    activeReconcile = run;
+    return run;
   }
-  function scheduleReconcile(): void { if (timer) clearTimeout(timer); timer = setTimeout(() => { timer = null; reconcile().catch(() => {}); }, debounceMs); }
+  function scheduleReconcile(): void { if (!enabled) return; if (timer) clearTimeout(timer); timer = setTimeout(() => { timer = null; if (enabled) reconcile().catch(() => {}); }, debounceMs); }
   async function start(): Promise<BridgeStatus> {
-    await mkdir(canvasDir, { recursive: true }); await reconcile();
+    if (enabled) return apiStatus();
+    enabled = true; state.enabled = true;
+    try {
+      await mkdir(canvasDir, { recursive: true });
+      if (!enabled) return apiStatus();
+      await reconcile();
+      if (!enabled) return apiStatus();
+    } catch (error) { enabled = false; state.enabled = false; throw error; }
     try { watcher = watch(canvasDir, { recursive: true }, () => scheduleReconcile()); watcher.on("error", () => { watcher?.close(); watcher = null; }); } catch { watcher = null; }
-    poller = setInterval(() => reconcile().catch(() => {}), pollIntervalMs); state.enabled = true; return apiStatus();
+    if (!enabled) { watcher?.close(); watcher = null; return apiStatus(); }
+    poller = setInterval(() => { if (enabled) reconcile().catch(() => {}); }, pollIntervalMs); return apiStatus();
   }
-  function stop(): void { if (timer) clearTimeout(timer); timer = null; if (poller) clearInterval(poller); poller = null; watcher?.close(); watcher = null; state.enabled = false; }
+  function stop(): Promise<void> {
+    if (stopPromise) return stopPromise;
+    enabled = false; state.enabled = false; reconcileAgain = false;
+    if (timer) clearTimeout(timer); timer = null;
+    if (poller) clearInterval(poller); poller = null;
+    watcher?.close(); watcher = null;
+    const currentReconcile = activeReconcile;
+    stopPromise = Promise.resolve(currentReconcile).catch(() => {}).then(() => {}).finally(() => { stopPromise = null; });
+    return stopPromise;
+  }
   function apiStatus(): BridgeStatus { return { ...state, watching: Boolean(watcher), polling: Boolean(poller) }; }
   return { start, stop, reconcile, scheduleReconcile, status: apiStatus };
 }
