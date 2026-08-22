@@ -68,6 +68,20 @@ test("C1: QA mode rejects direct symlink to production library", async () => {
   try { await import("node:fs/promises").then(fs => fs.rm(tmpDir, { recursive: true, force: true })); } catch {}
 });
 
+test("C1b: QA mode rejects a dangling symlink to production library", async (t) => {
+  const tmpDir = await mkdtemp(join(tmpdir(), "mosa-guard-c1b-"));
+  t.after(() => import("node:fs/promises").then(fs => fs.rm(tmpDir, { recursive: true, force: true })));
+  const absentProductionLibrary = join(tmpDir, "production-library");
+  const linkPath = join(tmpDir, "fake-lib");
+  await symlink(absentProductionLibrary, linkPath);
+  const result = validateRuntimeIsolation(happyParams({
+    libraryDir: linkPath,
+    productionLibraryDir: absentProductionLibrary,
+  }));
+  assert.equal(result.ok, false);
+  assert.equal(result.field, "libraryDir");
+});
+
 test("C2: QA mode rejects parent-directory symlink bypass", async () => {
   const tmpDir = await mkdtemp(join(tmpdir(), "mosa-guard-c2-"));
   // Create a symlink dir that points to parent of PROD_LIB, then traverse
