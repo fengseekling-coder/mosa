@@ -2,29 +2,33 @@
 
 This file records user-visible changes. Operational deployment state and local paths belong in `HANDOFF.md`, not here.
 
-## 0.2.0 - Unreleased
+## 0.2.0 — Unreleased / 待发布
 
-### Licensing
+> **Local visual memory for AI creation.**
+> 把 Codex、ChatGPT、Grok 与 Cowart 中的创作结果，连同可用的 Prompt、来源和版本，留在自己的 Mac 上。
 
-- Changed MOSA from the MIT License to the PolyForm Noncommercial License 1.0.0 for version 0.2.0 and later. Noncommercial personal, educational, research, hobby, modification, and distribution uses remain permitted under the license terms; commercial use requires separate written authorization.
-- Tagged `v0.1.0` as the final MIT-licensed public source snapshot. Copies obtained under the MIT License retain the rights granted with those copies.
+### New / 新增
 
-### ChatGPT web capture
+- **More creation sources, one local library.** Add optional Web Capture for ChatGPT, Gemini, Flow, and Google AI Studio; local Grok Build CLI image and video archiving; and safer project-local Cowart canvas discovery alongside Codex image collection.
+- **A library built for reuse.** Add verified JSON-to-SQLite migration, FTS5 search, stable pagination, WebP previews and thumbnails, tags, favorites, and provenance while preserving originals.
+- **Version history that keeps the why.** Add asset-based recipe version trees, REST and MCP version APIs, and bilingual UI flows for browsing versions and creating the next one.
+- **Return work to the canvas.** Add controlled insertion from MOSA into approved Cowart canvases, with provenance and deduplication to avoid re-importing the same asset.
+
+### Web image capture
 
 - Added an optional Chrome extension that captures ChatGPT-generated images with message-scoped Prompt and provenance data.
 - Added a loopback-only ingest endpoint and bridge status endpoint. Web capture is disabled until `MOSA_WEB_CAPTURE_TOKEN` is explicitly configured.
 - Added image-byte, MIME, size, pixel-count, origin, and request-envelope validation for browser-extension ingestion.
 - Stores the extension address, Token, and auto-capture preference in Chrome local storage rather than synchronized storage.
 - Hardened extension reload handling so startup context loss is reported reliably and temporary settings failures cannot re-enable auto-capture or overwrite the saved preference.
-
-### Web image capture
-
 - Added Gemini, Flow, and Google AI Studio page support to the optional Chrome extension. These sites capture only user-visible generated images and page provenance; they do not inspect session APIs, credentials, or hidden prompts.
 
-### Project documentation
+### Reliability and privacy / 可靠性与隐私
 
-- Added security, privacy, support, contribution, commercial-licensing, and conduct policies.
-- Added structured bug and feature issue forms plus a pull request template.
+- Web Capture is loopback-only and disabled by default. It requires an explicit ingest Token and approved extension origin, then validates image bytes, MIME type, size, pixel count, and request shape.
+- Migration verifies records, original-image hashes, and library structure before SQLite becomes authoritative; JSON remains a backup rather than a second live store.
+- Grok and Cowart imports preserve their source boundaries, report health and errors, and deduplicate without widening the permitted local paths.
+- Add Node 22 baseline, source checks, dependency audit scripts, and GitHub Actions CI for the public source.
 
 ### macOS desktop
 
@@ -32,33 +36,16 @@ This file records user-visible changes. Operational deployment state and local p
 - Added verified attach, owned-runtime, and conflict modes for the local MOSA service, preserving external services and stopping only runtimes owned by the desktop app.
 - Added Electron Forge packaging with ASAR and unpacked native dependencies for `better-sqlite3` and `sharp`.
 
-### Grok Build CLI media archive
+### Licensing / 许可
 
-- Added a Grok media bridge that watches only `GROK_SESSIONS_DIR` (default `~/.grok/sessions`) and archives session `images/` and `videos/` with source type `grok-generated`.
-- Captures generation-tool prompts from local `chat_history.jsonl` when available, falls back to the session user prompt, and records an explicit unavailable status otherwise.
-- Deduplicates by source path and content hash so service restarts do not create duplicate assets.
-- Serves video as original media without sharp/ffmpeg; gallery and inspector use native playback plus an open-original-media action.
-- Exposes Grok bridge health, watcher/polling state, import counts, and errors on `GET /api/bridges`.
+- Version 0.2.0 and later are source-available under the PolyForm Noncommercial License 1.0.0. Noncommercial personal, educational, research, hobby, modification, and distribution uses remain permitted; commercial use requires separate written authorization.
+- [v0.1.0](https://github.com/fengseekling-coder/mosa/releases/tag/v0.1.0) remains the final MIT-licensed public source snapshot. Existing MIT copies retain their original rights.
 
-### Library and performance
+### Known limits / 已知限制
 
-- Added a Node 22 baseline, ESLint, source checks, dependency audit scripts, and GitHub Actions CI for `main` and `develop`.
-- Added verified JSON-to-SQLite migration with FTS5 search, stable cursor pagination, empty-group preservation, JSON backup, corruption reporting, and resumable verification.
-- Added durable WebP preview/thumbnail jobs and gallery pagination while keeping original image URLs compatible.
-
-### Codex and Cowart workflow
-
-- Added automatic monitoring for project-local Cowart canvases opened from Codex while preserving the MOSA dedicated canvas.
-- Added event-based canvas discovery, persisted project registration, per-canvas bridge status, and Cowart project provenance on archived assets.
-- Added controlled Cowart insertion targets and deduplication for images returned to an approved canvas.
-- Fixed registered external Cowart canvases so imports trust only that canvas's `pages` root without widening normal import permissions.
-
-### Recipe versions
-
-- Added asset-based recipe version trees with stable branching history, archived-node visibility, and independent images and provenance per version.
-- Added REST, MCP, and bilingual Web UI surfaces for creating and browsing versions, with required change summaries and typed relationship errors.
-- Added SQLite schema v2 migration tracking, indexed version traversal, duplicate-ID migration validation, and conflict-safe concurrent creates.
-- Changed `asset_duplicate` to start an independent version root while retaining `duplicated_from` provenance.
+- **Not a packaged desktop release.** MOSA currently starts from source on macOS with Node.js 22 or newer; no desktop installer is published for 0.2.0.
+- **No cloud by default.** MOSA provides no remote sync, embedded AI model, semantic search, or automatic library upload.
+- **Capture is deliberately conservative.** Web Capture needs a locally loaded extension; when MOSA cannot confidently match generation context, it records the Prompt as unavailable instead of guessing.
 
 ## 0.1.0 - Final MIT-licensed source snapshot
 
