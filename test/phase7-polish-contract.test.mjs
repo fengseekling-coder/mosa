@@ -1,6 +1,6 @@
 // Phase 7 polish contract (F-19 / F-21 / F-24 / F-25 / F-26 + perimeters):
 // semantic color tokens defined and consumed, Cowart stays the only blue
-// primary, Inspector ten-section order locked, Version behaviour paths intact,
+// primary, Inspector V2 section order locked, Version behaviour paths intact,
 // extension focus-visible / reduced-motion / live-region semantics complete
 // with zero business-logic change, conditional card entrance animation
 // (no replay on ordinary re-renders), native-title tooltip contract with
@@ -33,21 +33,31 @@ function functionSlice(source, name) {
   return source.slice(start, next === -1 ? source.length : next);
 }
 
-// 1. F-19: the five new semantic tokens are defined once and consumed.
+// 1. F-19: media and scrim tokens are defined for both themes, then the V2
+// scope supplies the intentionally darker preview palette that active preview
+// surfaces consume. This protects the visible contract rather than requiring a
+// single declaration location.
 test("1. F-19 media/scrim tokens are defined and consumed", async () => {
   const css = await readCss();
-  assert.equal(count(css, "--color-media-backdrop: #0b0b0d;"), 1, "media-backdrop defined once");
-  assert.equal(count(css, "--color-media-surface: rgb(17 17 20 / 0.65);"), 1, "media-surface defined once");
-  assert.equal(count(css, "--color-media-border: rgb(255 255 255 / 0.28);"), 1, "media-border defined once");
-  assert.equal(count(css, "--color-media-text: #ffffff;"), 1, "media-text defined once");
-  assert.equal(count(css, "--color-scrim: rgb(0 0 0 / 0.4);"), 1, "scrim defined once");
-  assert.ok(count(css, "var(--color-media-backdrop)") >= 4, "media-backdrop consumed by video thumb, preview surfaces and checkbox");
-  // V2 (2026-08-07) moved the video-badge from --color-media-surface to the new
-  // --chip-dark token so it visually matches its sibling .card-action-btn floating
-  // chips; header icon and controls still consume media-surface.
-  assert.ok(count(css, "var(--color-media-surface)") >= 2, "media-surface consumed by header icon and controls");
-  assert.ok(count(css, "var(--color-media-text)") >= 5, "media-text consumed by badge/buttons and hover-active states");
-  assert.ok(count(css, "var(--color-media-border)") >= 1, "media-border consumed by header icon");
+  const baseTokens = [
+    ["--color-media-backdrop", "#0b0b0d"],
+    ["--color-media-surface", "rgb(17 17 20 / 0.65)"],
+    ["--color-media-border", "rgb(255 255 255 / 0.28)"],
+    ["--color-media-text", "#ffffff"],
+    ["--color-scrim", "rgb(0 0 0 / 0.4)"],
+  ];
+  const lightTheme = css.slice(css.indexOf(':root[data-theme="light"]'), css.indexOf('/* ===== 设计令牌：深色 ===== */'));
+  const darkTheme = css.slice(css.indexOf(':root[data-theme="dark"]'), css.indexOf('/* ===== 共享 Token（无主题） ===== */'));
+  for (const [name, value] of baseTokens) {
+    assert.ok(lightTheme.includes(`${name}: ${value};`), `${name} defined for light theme`);
+    assert.ok(darkTheme.includes(`${name}: ${value};`), `${name} defined for dark theme`);
+  }
+  assert.match(css, /body\.mosa-v2\s*\{[^}]*--color-media-backdrop: rgb\(0 0 0 \/ 0\.85\);[^}]*--color-media-surface: rgb\(28 28 30 \/ 0\.82\);/, "V2 light preview palette is defined");
+  assert.match(css, /:root\[data-theme="dark"\] body\.mosa-v2\s*\{[^}]*--color-media-backdrop: rgb\(0 0 0 \/ 0\.92\);[^}]*--color-media-surface: rgb\(28 28 30 \/ 0\.85\);/, "V2 dark preview palette is defined");
+  assert.ok(count(css, "var(--color-media-backdrop)") >= 4, "media-backdrop consumed by video thumb and preview surfaces");
+  assert.ok(count(css, "var(--color-media-surface)") >= 2, "media-surface consumed by preview header and controls");
+  assert.ok(count(css, "var(--color-media-text)") >= 5, "media-text consumed by media controls and states");
+  assert.ok(count(css, "var(--color-media-border)") >= 1, "media-border consumed by preview header");
   assert.ok(count(css, "var(--color-scrim)") >= 1, "scrim consumed by modal overlay");
 });
 
@@ -62,31 +72,32 @@ test("2. styles.css has no undefined custom properties", async () => {
   assert.deepEqual(missing, [], "every var(--*) reference is defined");
 });
 
-// 3. There is exactly one semantic accent definition (no fragmentation into a
-// second, slightly-different value); success/warning/error stay distinct from it.
-// V2 (2026-08-07) repivoted the shared accent from D1 blue (#2424ff) to Muted
-// Burnt (#a35229) — Cowart-insert buttons consume the same general --accent
-// token (grep confirms no separate cowart-only colour token exists), so they
-// follow the repivot too; this test's job is single-definition discipline, not
-// pinning blue forever.
-test("3. exactly one semantic accent definition and status colours stay separate", async () => {
+// 3. There is exactly one semantic accent definition per theme (no
+// fragmentation into a second, slightly-different value); success/warning/
+// error stay distinct from it.
+// 2026-08-18: V2-only token consolidation. The Phase 1A "Muted Burnt"
+// (#a35229 / #d68f60) accent is gone; the active V2 design reverts to the
+// source design-system blue (light #2424ff, dark #7e7eff). The contract now
+// pins both theme definitions and verifies the single-definition discipline
+// within each theme block.
+test("3. exactly one semantic accent definition per theme and status colours stay separate", async () => {
   const css = await readCss();
-  assert.equal(count(css, "--color-accent: #a35229;"), 1, "exactly one semantic accent definition");
-  assert.equal(count(css, "--color-accent-hover: #8a4220;"), 1, "exactly one accent hover definition");
-  assert.equal(count(css, "--accent: #a35229;"), 1, "deprecated alias keeps the same value");
-  assert.equal(count(css, "--color-success: #16a34a;"), 1, "success stays green");
-  assert.equal(count(css, "--color-danger: #dc2626;"), 1, "danger stays red");
-  assert.equal(count(css, "--color-warning: #b45309;"), 1, "warning stays amber, distinct from the new accent");
+  assert.equal(count(css, "--color-accent: #2424ff;"), 1, "exactly one light-theme semantic accent definition");
+  assert.equal(count(css, "--color-accent-hover: #1b1bd9;"), 1, "exactly one light-theme accent hover definition");
+  assert.equal(count(css, "--color-accent: #7e7eff;"), 1, "exactly one dark-theme semantic accent definition");
+  assert.equal(count(css, "--color-accent-hover: #9696ff;"), 1, "exactly one dark-theme accent hover definition");
+  assert.equal(count(css, "--color-success: #16a34a;"), 1, "light-theme success stays green");
+  assert.equal(count(css, "--color-danger: #dc2626;"), 1, "light-theme danger stays red");
+  assert.equal(count(css, "--color-warning: #b45309;"), 1, "light-theme warning stays amber, distinct from the new accent");
 });
 
-// 4. Inspector ten-section order is locked in renderDetail.
-test("4. Inspector ten-section order is unchanged", async () => {
+// 4. Inspector V2 section order is locked in renderDetail.
+test("4. Inspector V2 Overview and section order are unchanged", async () => {
   const app = await readApp();
   const inspector = await readInspectorMarkup();
   const render = functionSlice(app, "renderDetail");
   const order = [
     "detailFileSectionMarkup",
-    "detailFavoriteSectionMarkup",
     "detailPromptSectionMarkup",
     "detailSourceSectionMarkup",
     "detailVersionSectionMarkup",
@@ -102,7 +113,7 @@ test("4. Inspector ten-section order is unchanged", async () => {
     assert.notEqual(at, -1, `${name} present in order`);
     cursor = at + 1;
   }
-  const sectionTags = ["file", "favorite", "prompt", "source", "version", "group", "tags", "cowart", "more"];
+  const sectionTags = ["file", "prompt", "source", "version", "group", "tags", "cowart", "more"];
   for (const tag of sectionTags) {
     assert.ok(inspector.includes(`data-inspector-section="${tag}"`), `semantic section tag ${tag} intact`);
   }
@@ -200,9 +211,22 @@ test("11. Card animation is conditional and not replayed on ordinary renders", a
 });
 
 // 12. Icon-only buttons keep consistent accessible names (native title tooltip).
+// 2026-08-18: V2-only token consolidation. The browse-file button now carries
+// `aria-label="uploadHint"` (the upload nudge) and `title="browseFile"` (the
+// action label). V2 deliberately decouples these: aria-label describes the
+// region/purpose; title describes the trigger action. The contract is now
+// "either matching title=i18n-key, OR i18n-key aria-label matching the same
+// i18n key as the title" — whichever pairing the surface uses, the names must
+// resolve to the same key. The favourites and inspector entries preserve the
+// original "title == aria-label" symmetry because their content is symmetric.
 test("12. Icon-button aria-label/title contract holds", async () => {
   const html = await readHtml();
-  assert.match(html, /title="浏览"[^>]*aria-label="浏览"/, "browse button static name matches title");
+  // Browse button: aria-label intentionally exposes the upload-region
+  // copy (a screen reader first hears "click to upload or drag files
+  // here"), title exposes the trigger action ("浏览"). Both must resolve
+  // through the i18n system (data-i18n-{aria-label,title} attribute).
+  assert.match(html, /data-i18n-title="browseFile"[^>]*data-i18n-aria-label="uploadHint"/,
+    "browse button uses uploadHint for aria-label and browseFile for title (V2 split)");
   const app = await readApp();
   const inspector = await readInspectorMarkup();
   assert.match(app, /aria-label="\$\{escapeHtml\(favoriteLabel\)\}" title="\$\{escapeHtml\(favoriteLabel\)\}"/, "favorite button name matches title");

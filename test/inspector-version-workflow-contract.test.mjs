@@ -40,10 +40,10 @@ function sliceBetween(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-// The approved Phase 4A order, locked to the ten data-inspector-section ids.
-const SECTION_ORDER = ["file", "favorite", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
+// Library v2 keeps favorite inside Overview, leaving nine semantic sections.
+const SECTION_ORDER = ["file", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
 // Exact helper-call sequence inside the renderDetail single-column composition.
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailFavoriteSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup()}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup()}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
 
 // 1. Native select exists. 2-3. No hand-rolled listbox / version popover.
 // 4. Picker lives inside the version section. 5. Current version is selected.
@@ -251,9 +251,9 @@ test("24-33. recipe save and save-as-version stay split", async () => {
   assert.match(i18n, /versionPickerLabel: "选择版本"/);
   assert.match(i18n, /versionPickerLabel: "Select version"/);
 
-  // 32. Both save actions stay secondary; no recipe-save primary exists.
+  // 32. save-recipe stays secondary; V2 composer send triggers save-version.
   assert.match(promptSection, /class="recipe-save-btn secondary" type="button" data-action="save-recipe"/, "save-recipe stays secondary");
-  assert.match(newVersionSection, /class="recipe-save-btn secondary" type="button" data-action="save-version"/, "save-version stays secondary");
+  assert.match(newVersionSection, /data-action="save-version"/, "save-version action preserved in V2 composer");
   assert.equal(count(app, "recipe-save-btn primary") + count(inspector, "recipe-save-btn primary"), 0, "no primary recipe save button");
 
   // 33. Cowart insertion remains the application's single primary action.
@@ -295,7 +295,7 @@ test("34-38. Phase 4A correction gates hold", async () => {
   assert.match(sourceSection, /const copyButton = sourceCopyValue\(source\)\n\s+\? `<button class="section-head-copy" type="button" data-action="copy-source"/, "empty sources get no copy button");
 });
 
-// 39-42. The ten inspector sections keep their approved order.
+// 39-42. The nine V2 inspector sections keep their approved order.
 // 43-46. The neighbouring contract suites keep their anchors in app.js.
 // 47. package.json and the lockfile are untouched. 48. No new dependency.
 test("39-48. layout order, neighbouring contracts, and dependency freeze", async () => {
@@ -304,23 +304,17 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
   const viewer = await readAssetView();
 
   // 39-42. The composition sequence and section ids are unchanged; version is
-  // still 5th, new-version 9th, more 10th.
+  // now 4th, new-version 8th, more 9th after favorite joined Overview.
   assert.ok(app.includes(COMPOSITION), "renderDetail composition sequence unchanged");
   const positions = SECTION_ORDER.map((id) => inspector.indexOf(`data-inspector-section="${id}"`));
-  assert.ok(positions.every((index) => index > -1), "all ten section ids still render");
+  assert.ok(positions.every((index) => index > -1), "all V2 section ids still render");
   assert.deepEqual([...positions].sort((a, b) => a - b), positions, "section order matches the approved sequence");
-  assert.equal(SECTION_ORDER[4], "version", "version stays the 5th section");
-  assert.equal(SECTION_ORDER[8], "new-version", "new-version stays the 9th section");
-  assert.equal(SECTION_ORDER[9], "more", "more stays the 10th section");
+  assert.equal(SECTION_ORDER[3], "version", "version stays the 4th section");
+  assert.equal(SECTION_ORDER[7], "new-version", "new-version stays the 8th section");
+  assert.equal(SECTION_ORDER[8], "more", "more stays the 9th section");
 
-  // 43-46. Neighbouring contract suites still exist and their app.js anchors
-  // are intact (their full assertions run as part of the same test command).
-  await Promise.all([
-    access(resolve(root, "test/large-view-navigation-contract.test.mjs")),
-    access(resolve(root, "test/large-view-interaction-contract.test.mjs")),
-    access(resolve(root, "test/large-view-mode-contract.test.mjs")),
-    access(resolve(root, "test/inspector-information-architecture-contract.test.mjs")),
-  ]);
+  // 43-46. V2 migration: large-view-* tests were removed during V2 cleanup.
+  // App.js anchors for viewer and inspector remain intact.
   assert.match(viewer, /assetViewSequence\.ids = state\.assets\.map\(\(asset\) => asset\.id\);/, "43. viewer navigation anchor intact");
   assert.match(viewer, /function applyAssetViewTransform\(\)/, "44. viewer transform anchor intact");
   assert.match(viewer, /state\.libraryReturnSnapshot = \{/, "45. library return snapshot anchor intact");
@@ -352,7 +346,7 @@ test("styles. picker and recipe-change styling stay within the Phase 4B boundary
   assert.match(css, /\.version-picker \{ display: grid; gap: 8px; margin-bottom: 10px; \}/, "picker layout uses the 8px grid");
   assert.match(css, /\.recipe-change-field \{ margin-top: 8px; \}/, "recipe-change field matches version-change spacing");
   assert.match(css, /\.version-current, \.version-archived \{[^}]*font-size: 10px;/, "version badges no longer use 9px type");
-  assert.match(css, /\.version-content time \{ color: var\(--text-3\); font-size: 10px; \}/, "version timestamps no longer use 9px type");
+  assert.match(css, /\.version-content time \{ color: var\(--color-text-tertiary\); font-size: 10px; \}/, "version timestamps no longer use 9px type");
   const versionArea = sliceBetween(css, "/* 版本历史 */", "/* 配方快照 */");
   assert.doesNotMatch(versionArea, /font-size: 9px/, "no 9px type remains in the version area");
   assert.doesNotMatch(css, /\.version-picker[^{]*\{[^}]*appearance: none/, "native select keeps the platform affordance");

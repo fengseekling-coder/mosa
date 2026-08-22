@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import test from "node:test";
 import sharp from "sharp";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
+import { createReferenceAttachmentStore } from "../lib/reference-attachment-store.js";
 import {
   createWebCaptureIngest,
   ingestWebCapture,
@@ -82,6 +83,7 @@ test("ingests chatgpt web capture bytes and dedupes by content hash", async () =
         mimeType: "image/jpeg",
         pageUrl: "https://chatgpt.com/c/demo",
         conversationId: "demo",
+        messageId: "turn-42",
       },
     });
     assert.equal(first.status, "imported");
@@ -89,6 +91,8 @@ test("ingests chatgpt web capture bytes and dedupes by content hash", async () =
     assert.match(first.asset.prompt, /poster-style vector illustration/i);
     assert.equal(first.asset.source?.provider, "chatgpt");
     assert.equal(first.asset.source?.user_message, "做一张曼谷海报");
+    assert.equal(first.asset.source?.capture_session_id, "chatgpt:demo");
+    assert.equal(first.asset.source?.generation_batch_id, "chatgpt:demo:turn-42");
     assert.ok(first.contentHash);
 
     const second = await ingestWebCapture({
@@ -109,6 +113,192 @@ test("ingests chatgpt web capture bytes and dedupes by content hash", async () =
     store.close?.();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("records a reliable capture session without inventing a generation batch", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-session-only-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let created;
+  const store = {
+    createAsset: async (input) => { created = input; return { id: input.assetId, ...input, source: { ...input.source } }; },
+    listAssets: async () => [],
+    findAssetByContentHash: async () => null,
+  };
+  await ingestWebCapture({
+    store,
+    tempRoot: join(root, "capture"),
+    input: {
+      provider: "chatgpt",
+      imageBase64: SAMPLE_PNG_BASE64,
+      mimeType: "image/jpeg",
+      conversationId: "conversation-without-turn",
+    },
+  });
+  assert.equal(created.source.capture_session_id, "chatgpt:conversation-without-turn");
+  assert.equal(created.source.message_id, null);
+  assert.equal(created.source.generation_batch_id, null);
+});
+
+test("accepts the allowlisted generic providers with provider-derived metadata", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-providers-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const expected = [
+    ["gemini", "Gemini", "web-gemini", "Gemini web capture"],
+    ["flow", "Flow", "web-flow", "Flow web capture"],
+    ["google-ai-studio", "Google AI Studio", "web-google-ai-studio", "Google AI Studio web capture"],
+  ];
+
+  for (const [index, [provider, label, sourceType, skill]] of expected.entries()) {
+    let created;
+    const store = {
+      createAsset: async (input) => { created = input; return { id: input.assetId, ...input, source: { ...input.source } }; },
+      listAssets: async () => [],
+      findAssetByContentHash: async () => null,
+    };
+    const image = await noiseImage(index + 20);
+    await ingestWebCapture({
+      store,
+      tempRoot: join(root, provider),
+      input: { provider, imageBytes: image, mimeType: "image/png" },
+    });
+
+    assert.equal(created.sourceType, sourceType);
+    assert.equal(created.source.type, sourceType);
+    assert.equal(created.source.provider, provider);
+    assert.equal(created.skill, skill);
+    assert.equal(created.theme, `${label} web image`);
+    assert.deepEqual(created.tags, [provider, "web-capture", "auto-archived"]);
+    assert.match(created.fileName, new RegExp(`^${provider}-[0-9]+-[a-f0-9]{8}\\.png$`));
+    assert.match(created.assetId, new RegExp(`^web-${provider}-[a-f0-9]{12}$`));
+  }
+});
+
+test("persists Flow and AI Studio provider-visible prompts as unverified and rejects that status for Gemini", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-flow-prompt-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const image = await noiseImage(42);
+  const created = [];
+  const store = {
+    createAsset: async (input) => {
+      const asset = { id: input.assetId, project_id: "default", ...input, source: { ...input.source } };
+      created.push(asset);
+      return asset;
+    },
+    listAssets: async () => created,
+    findAssetByContentHash: async (_projectId, hash) => created.find((asset) => asset.source?.content_sha256 === hash) || null,
+    updateMetadata: async (_projectId, assetId, metadata) => {
+      const asset = created.find((entry) => entry.id === assetId);
+      Object.assign(asset, metadata, { source: { ...asset.source, ...(metadata.source || {}) }, business_fields: { ...asset.business_fields, ...(metadata.business_fields || {}) } });
+      return asset;
+    },
+  };
+
+  const flow = await ingestWebCapture({
+    store,
+    tempRoot: join(root, "flow"),
+    input: {
+      provider: "flow",
+      imageBytes: image,
+      mimeType: "image/png",
+      prompt: "A visible Flow prompt for a cinematic mountain landscape",
+      prompt_status: "provider-visible-prompt",
+      prompt_source: "flow-visible-composer",
+    },
+  });
+  assert.equal(flow.status, "imported");
+  assert.equal(flow.asset.prompt, "A visible Flow prompt for a cinematic mountain landscape");
+  assert.equal(flow.asset.source?.prompt_status, "provider-visible-prompt");
+  assert.equal(flow.asset.source?.prompt_source, "flow-visible-composer");
+  assert.equal(flow.asset.business_fields?.prompt_status, "provider-visible-prompt");
+
+  const aiStudio = await ingestWebCapture({
+    store,
+    tempRoot: join(root, "google-ai-studio"),
+    input: {
+      provider: "google-ai-studio",
+      imageBytes: await noiseImage(101),
+      mimeType: "image/png",
+      prompt: "A visible AI Studio user prompt associated with the image turn",
+      prompt_status: "provider-visible-prompt",
+      prompt_source: "google-ai-studio-visible-user-prompt",
+    },
+  });
+  assert.equal(aiStudio.status, "imported");
+  assert.equal(aiStudio.asset.prompt, "A visible AI Studio user prompt associated with the image turn");
+  assert.equal(aiStudio.asset.source?.prompt_status, "provider-visible-prompt");
+  assert.equal(aiStudio.asset.source?.prompt_source, "google-ai-studio-visible-user-prompt");
+
+  // A non-Flow provider cannot use the Flow-only status. The prompt is
+  // stripped and remains unavailable even when its image bytes are new.
+  const other = await ingestWebCapture({
+    store,
+    tempRoot: join(root, "gemini"),
+    input: {
+      provider: "gemini",
+      imageBytes: await noiseImage(149),
+      mimeType: "image/png",
+      prompt: "This must not be persisted",
+      prompt_status: "provider-visible-prompt",
+      prompt_source: "flow-visible-composer",
+    },
+  });
+  assert.equal(other.status, "imported");
+  assert.equal(other.asset.prompt, "");
+  assert.equal(other.asset.source?.prompt_status, "not-available");
+  assert.equal(other.asset.source?.prompt_source, "flow-visible-composer");
+});
+
+test("does not let a Flow-only prompt upgrade a same-image asset from another provider", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-flow-prompt-dedupe-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const image = await noiseImage(44);
+  const assets = [];
+  const store = {
+    createAsset: async (input) => {
+      const asset = { id: input.assetId, project_id: "default", ...input, source: { ...input.source } };
+      assets.push(asset);
+      return asset;
+    },
+    listAssets: async () => assets,
+    findAssetByContentHash: async (_projectId, hash) => assets.find((asset) => asset.source?.content_sha256 === hash) || null,
+    updateMetadata: async (_projectId, assetId, metadata) => {
+      const asset = assets.find((entry) => entry.id === assetId);
+      Object.assign(asset, metadata, { source: { ...asset.source, ...(metadata.source || {}) }, business_fields: { ...asset.business_fields, ...(metadata.business_fields || {}) } });
+      return asset;
+    },
+  };
+  const first = await ingestWebCapture({
+    store,
+    tempRoot: join(root, "chatgpt"),
+    input: { provider: "chatgpt", imageBytes: image, mimeType: "image/png" },
+  });
+  const repeat = await ingestWebCapture({
+    store,
+    tempRoot: join(root, "flow"),
+    input: {
+      provider: "flow",
+      imageBytes: image,
+      mimeType: "image/png",
+      prompt: "Do not cross provider boundary",
+      prompt_status: "provider-visible-prompt",
+    },
+  });
+  assert.equal(repeat.status, "skipped");
+  assert.equal(repeat.upgraded, false);
+  assert.equal(repeat.asset.id, first.asset.id);
+  assert.equal(repeat.asset.prompt, "");
+  assert.equal(repeat.asset.source?.provider, "chatgpt");
+});
+
+test("rejects provider values outside the exact allowlist", async () => {
+  const store = {
+    createAsset: async () => { throw new Error("must not create an asset"); },
+    listAssets: async () => [],
+  };
+  await assert.rejects(
+    () => ingestWebCapture({ store, tempRoot: "/tmp/mosa-web-provider-invalid", input: { provider: "google-ai-studio.example", imageBase64: SAMPLE_PNG_BASE64 } }),
+    (error) => error?.statusCode === 400 && error?.code === "WEB_CAPTURE_BAD_PROVIDER",
+  );
 });
 
 test("archives one asset when the same picture arrives in two encodings", async () => {
@@ -160,7 +350,7 @@ test("archives one asset when the same picture arrives in two encodings", async 
   }
 });
 
-test("marks an uploaded reference photo so it stays filterable next to generations", async () => {
+test("archives a reference as a deduplicated attachment without adding a library asset", async () => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-reference-"));
   const libraryDir = join(root, "library");
   await mkdir(libraryDir, { recursive: true });
@@ -178,12 +368,17 @@ test("marks an uploaded reference photo so it stays filterable next to generatio
         imageBase64: SAMPLE_PNG_BASE64,
         mimeType: "image/jpeg",
         user_message: "Use the uploaded photo as the exact identity reference.",
+        conversationId: "reference-demo",
+        capturedAt: "2026-08-13T10:00:00.000Z",
       },
     });
     assert.equal(reference.status, "imported");
-    assert.equal(reference.asset.category, "reference");
-    assert.ok(reference.asset.tags.includes("reference"));
-    assert.equal(reference.asset.business_fields?.is_reference, true);
+    assert.equal(reference.asset, undefined);
+    assert.match(reference.attachment.id, /^ref-[a-f0-9]{24}$/);
+    assert.equal(reference.attachment.conversation_id, "reference-demo");
+    assert.match(reference.attachment.attachment_url, /^\/library\/default\/references\//);
+    assert.equal((await store.listAssets({ projectId: "default" })).length, 0);
+    assert.deepEqual(await readFile(join(libraryDir, "reference-attachments", "default", "files", reference.attachment.file_name)), Buffer.from(SAMPLE_PNG_BASE64, "base64"));
 
     // The same upload arriving again (another URL variant) must not add a row.
     const repeat = await ingestWebCapture({
@@ -198,8 +393,29 @@ test("marks an uploaded reference photo so it stays filterable next to generatio
       },
     });
     assert.equal(repeat.status, "skipped");
-    assert.equal(repeat.asset.id, reference.asset.id);
+    assert.equal(repeat.reason, "reference-already-archived-same-content");
+    assert.equal(repeat.attachment.id, reference.attachment.id);
+    assert.equal((await store.listAssets({ projectId: "default" })).length, 0);
+
+    const generation = await ingestWebCapture({
+      store,
+      tempRoot,
+      projectId: "default",
+      input: {
+        provider: "chatgpt",
+        imageBytes: await noiseImage(77),
+        mimeType: "image/png",
+        conversationId: "reference-demo",
+        capturedAt: "2026-08-13T10:01:00.000Z",
+      },
+    });
+    assert.equal(generation.status, "imported");
     assert.equal((await store.listAssets({ projectId: "default" })).length, 1);
+    assert.equal(generation.asset.references.length, 1);
+    assert.equal(generation.asset.references[0].reference_id, reference.attachment.id);
+    assert.equal(generation.asset.references[0].attachment_url, reference.attachment.attachment_url);
+    const history = await store.getRecipeSnapshotHistory("default", generation.asset.id);
+    assert.equal(history.snapshots[0].references[0].attachment_url, reference.attachment.attachment_url);
   } finally {
     store.close?.();
     await rm(root, { recursive: true, force: true });
@@ -290,6 +506,7 @@ test("web capture token gate rejects bad credentials", async () => {
     const disabled = createWebCaptureIngest({ store, libraryDir, token: "", allowedOrigins: ["chrome-extension://approved"] });
     assert.equal(disabled.status().enabled, false);
     assert.equal(disabled.status().tokenConfigured, false);
+    assert.deepEqual(disabled.status().providers, ["chatgpt", "gemini", "flow", "google-ai-studio"]);
     await assert.rejects(
       () => disabled.ingest({ provider: "chatgpt", imageBase64: SAMPLE_PNG_BASE64 }, ""),
       (error) => error?.statusCode === 503 && error?.code === "WEB_CAPTURE_DISABLED",
@@ -495,6 +712,37 @@ test("HTTP ingest endpoint accepts chrome-extension origin with token", async (t
   assert.match(body.asset?.prompt || "", /Hong Kong/i);
   assert.equal(body.asset?.source?.user_message, "在做一版 香港 的");
 
+  const referenceResponse = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "chrome-extension://abc123",
+      authorization: "Bearer test-token",
+    },
+    body: JSON.stringify({
+      provider: "chatgpt",
+      is_reference: true,
+      imageBase64: (await noiseImage(88)).toString("base64"),
+      mimeType: "image/png",
+      conversationId: "http-reference-demo",
+      capturedAt: "2026-08-13T10:00:00.000Z",
+    }),
+  });
+  assert.equal(referenceResponse.status, 201);
+  const referenceBody = await referenceResponse.json();
+  assert.equal(referenceBody.status, "imported");
+  assert.equal(referenceBody.asset, undefined);
+  assert.match(referenceBody.attachment?.attachment_url || "", /^\/library\/default\/references\//);
+
+  const attachmentResponse = await fetch(`http://127.0.0.1:${port}${referenceBody.attachment.attachment_url}`);
+  assert.equal(attachmentResponse.status, 200);
+  assert.equal(attachmentResponse.headers.get("content-type"), "image/png");
+  assert.ok((await attachmentResponse.arrayBuffer()).byteLength > 20 * 1024);
+
+  const missingAttachment = await fetch(`http://127.0.0.1:${port}/library/default/references/not-present.png`);
+  assert.equal(missingAttachment.status, 404);
+  await missingAttachment.arrayBuffer();
+
   const bridges = await fetch(`http://127.0.0.1:${port}/api/bridges`, {
     headers: { origin: `http://127.0.0.1:${port}` },
   });
@@ -540,6 +788,20 @@ async function noiseImage(seed) {
   return sharp(raw, { raw: { width, height, channels: 3 } }).png().toBuffer();
 }
 
+function referenceFixture(bytes, conversationId, capturedAt) {
+  return {
+    projectId: "default",
+    bytes,
+    extension: ".png",
+    mimeType: "image/png",
+    width: 720,
+    height: 960,
+    provider: "chatgpt",
+    conversationId,
+    capturedAt,
+  };
+}
+
 test("prefers the store's indexed content-hash lookup over a project scan", async (t) => {
   // The scan this replaced was worst on a miss, which is the normal case while
   // capturing new images. A store that offers the indexed lookup must have it
@@ -573,15 +835,13 @@ test("links only the references from the generation's own turn", async (t) => {
   t.after(() => rm(root, { recursive: true, force: true }));
 
   const archived = [
-    // An earlier turn in the same conversation: its reference and its result.
-    { id: "old-ref", source: { conversation_id: "c1", captured_at: "2026-07-26T10:00:00.000Z", content_sha256: "a1" }, business_fields: { is_reference: true } },
     { id: "old-gen", source: { conversation_id: "c1", captured_at: "2026-07-26T10:01:00.000Z" }, business_fields: { is_reference: false } },
-    // This turn's uploads.
-    { id: "ref-a", source: { conversation_id: "c1", captured_at: "2026-07-26T10:05:00.000Z", content_sha256: "a2" }, business_fields: { is_reference: true } },
-    { id: "ref-b", source: { conversation_id: "c1", captured_at: "2026-07-26T10:06:00.000Z", content_sha256: "a3" }, business_fields: { is_reference: true } },
-    // A different conversation must never be pulled in.
-    { id: "other", source: { conversation_id: "c2", captured_at: "2026-07-26T10:05:30.000Z", content_sha256: "a4" }, business_fields: { is_reference: true } },
   ];
+  const referenceStore = createReferenceAttachmentStore(root);
+  await referenceStore.save(referenceFixture(await noiseImage(30), "c1", "2026-07-26T10:00:00.000Z"));
+  const refA = await referenceStore.save(referenceFixture(await noiseImage(31), "c1", "2026-07-26T10:05:00.000Z"));
+  const refB = await referenceStore.save(referenceFixture(await noiseImage(32), "c1", "2026-07-26T10:06:00.000Z"));
+  await referenceStore.save(referenceFixture(await noiseImage(33), "c2", "2026-07-26T10:05:30.000Z"));
 
   let created;
   const store = {
@@ -593,6 +853,7 @@ test("links only the references from the generation's own turn", async (t) => {
 
   await ingestWebCapture({
     store,
+    referenceStore,
     tempRoot: join(root, "tmp"),
     input: {
       provider: "chatgpt", imageBase64: image.toString("base64"), mimeType: "image/png",
@@ -600,27 +861,25 @@ test("links only the references from the generation's own turn", async (t) => {
     },
   });
 
-  assert.deepEqual(created.references.map((item) => item.asset_id), ["ref-a", "ref-b"]);
-  assert.deepEqual(created.references.map((item) => item.sha256), ["a2", "a3"]);
+  assert.deepEqual(created.references.map((item) => item.asset_id), [refA.attachment.id, refB.attachment.id]);
+  assert.deepEqual(created.references.map((item) => item.sha256), [refA.attachment.content_sha256, refB.attachment.content_sha256]);
   assert.equal(created.references[0].applied, true);
   assert.equal(created.references[0].role, "", "the capture cannot know the purpose and must not invent one");
 });
 
-test("a reference upload records no references of its own", async (t) => {
+test("a reference upload never calls createAsset", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-ingest-ref-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const image = await noiseImage(0);
 
-  let created;
+  let createCalls = 0;
   const store = {
-    createAsset: async (input) => { created = input; return { id: input.assetId, ...input }; },
-    listAssets: async () => [
-      { id: "sibling", source: { conversation_id: "c1", captured_at: "2026-07-26T10:00:00.000Z" }, business_fields: { is_reference: true } },
-    ],
+    createAsset: async () => { createCalls += 1; throw new Error("must not create an asset"); },
+    listAssets: async () => [],
     findAssetByContentHash: async () => null,
   };
 
-  await ingestWebCapture({
+  const result = await ingestWebCapture({
     store,
     tempRoot: join(root, "tmp"),
     input: {
@@ -629,9 +888,23 @@ test("a reference upload records no references of its own", async (t) => {
     },
   });
 
-  assert.deepEqual(created.references, []);
-  assert.equal(created.category, "reference");
-  assert.ok(created.tags.includes("reference"));
+  assert.equal(result.status, "imported");
+  assert.ok(result.attachment);
+  assert.equal(result.asset, undefined);
+  assert.equal(createCalls, 0);
+});
+
+test("serializes concurrent reference attachment index updates", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-reference-concurrent-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const referenceStore = createReferenceAttachmentStore(root);
+  const [first, second] = await Promise.all([
+    referenceStore.save(referenceFixture(await noiseImage(60), "c1", "2026-08-13T10:00:00.000Z")),
+    referenceStore.save(referenceFixture(await noiseImage(61), "c1", "2026-08-13T10:00:01.000Z")),
+  ]);
+  assert.equal(first.created, true);
+  assert.equal(second.created, true);
+  assert.deepEqual(new Set((await referenceStore.list("default")).map((item) => item.id)), new Set([first.attachment.id, second.attachment.id]));
 });
 
 test("a capture with no conversation identifier links nothing", async (t) => {

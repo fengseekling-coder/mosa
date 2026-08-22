@@ -1,6 +1,6 @@
-# MOSA ChatGPT Web Capture（0.9）
+# MOSA Web Capture（0.11）
 
-把 **ChatGPT 网页**生成的图片 + 提示词归档到本机 MOSA。支持**自动入库**与右下角悬浮面板手动保存。
+把 **ChatGPT、Gemini、Flow 和 Google AI Studio 网页**中用户可见的生成图片归档到本机 MOSA。ChatGPT 支持提示词关联；Flow 与 Google AI Studio 只会保存和图片局部关联的页面可见 Prompt（明确标为未验证）；Gemini 只保存图片，不读取或发送 Prompt、页面文本或凭据。
 
 > 本扩展随 MOSA 一同采用 [PolyForm Noncommercial License 1.0.0](../../LICENSE)：允许非商业使用、修改和传播；商业用途须另行取得书面授权。
 
@@ -18,13 +18,13 @@ npm start
 ```
 
 5. 打开扩展选项，填写实际 MOSA 地址和同一个 Token，开启需要的自动入库设置并测试连接。
-6. 刷新 ChatGPT 页面。
+6. 刷新要使用的网页。
 
 未配置 Token 时 Web Capture 保持禁用；扩展来源不在白名单中时请求会被拒绝。不要在共享环境、Issue、日志或截图中公开 Token。
 
 ## 加载 / 更新扩展
 
-更新扩展代码后，在 `chrome://extensions` 点扩展卡片上的**刷新**，然后硬刷新 ChatGPT 页面。扩展 ID 发生变化时，也要同步更新 `MOSA_WEB_CAPTURE_ORIGINS` 并重启 MOSA。
+更新扩展代码后，在 `chrome://extensions` 点扩展卡片上的**刷新**，然后硬刷新要使用的网页。扩展 ID 发生变化时，也要同步更新 `MOSA_WEB_CAPTURE_ORIGINS` 并重启 MOSA。
 
 ## 使用
 
@@ -38,6 +38,8 @@ npm start
 Prompt 优先级：同一会话消息中的生成 metadata（如 `revised_prompt`）→ 同一图片的资源键（`cid + id`）→ 对应用户消息 → `not-available`（图仍入库）。
 不会把整页最后一条用户消息误配给历史图片。
 
+ChatGPT 中能够明确识别为本轮上传输入的参考图，会作为该轮生成记录的私有附件保存：按内容 hash 去重，绑定到随后生成图片的 recipe snapshot，但不会作为独立素材出现在瀑布流、搜索、最近添加或素材总数中。旧版已作为普通素材入库的参考图不会被自动迁移或删除。Google 站点只有在页面结构和会话标识都能可靠确认时才会采用同一机制；当前不会仅凭“图片出现在生成图之前”猜测参考关系。
+
 提示词来源有三条通道，互为兜底：
 
 1. **实时流**：ChatGPT 对多数账号用 WebSocket 推流，扩展会解析其中带图片资产的帧（`fetch`/`XHR` 看不到这些）。
@@ -46,22 +48,27 @@ Prompt 优先级：同一会话消息中的生成 metadata（如 `revised_prompt
 
 第 3 条失败时右下角面板会显示原因，不再静默丢失。
 
+打开 Gemini（`gemini.google.com`）、Flow（`labs.google`）或 Google AI Studio（`aistudio.google.com`）出图后，扩展只对视口中已加载且达到最小尺寸的用户可见图片自动入库。Gemini 的 Prompt 状态固定为 `not-available`。Flow 仅在图片组有唯一、相邻的「Reuse Prompt」卡片时保存该卡片的可见 Prompt；AI Studio 只读取图片所在 `ms-chat-session` 内、图片 Model 回合之前最近的页面可见用户 Prompt 回合。二者均标记为「未验证为实际生图提示词」，不会读取输入框、编辑器、隐藏内容、模型思考、其他会话或登录信息。
+
+在这三个 Google 站点上，也可右键生成图片后选择「保存图片到 MOSA」；Flow 与 AI Studio 手动保存时也只会按上述局部规则匹配 Prompt，未匹配则不保存文字。
+
 ## 数据与权限
 
-- 扩展只在 `chatgpt.com` 和兼容的旧 ChatGPT 域名中运行，并只把数据发送到选项中配置的本机 MOSA 地址。
-- 入库数据包括图片字节、匹配到的 Prompt/用户消息、页面 URL、会话/消息 ID、模型信息、采集时间和扩展版本。
+- 扩展只在清单声明的 ChatGPT、Gemini、Flow 和 Google AI Studio 域名中运行，并只把数据发送到选项中配置的本机 MOSA 地址。
+- ChatGPT 入库数据包括图片字节、匹配到的 Prompt/用户消息、页面 URL、会话/消息 ID、模型信息、采集时间和扩展版本；Gemini 只包括图片字节、站点标识、页面 URL、采集时间和扩展版本，Prompt 固定为 `not-available`；Flow 与 AI Studio 只有在上述局部匹配成功时才额外包括该页面可见 Prompt。
 - MOSA 地址、Token 和自动采集开关保存在 Chrome 本地存储，不使用同步存储。
-- 图片下载需要清单中列出的 OpenAI 静态资源域名权限；本机通信只允许 `127.0.0.1` 或 `localhost`。
-- MOSA 不会因此获得 ChatGPT 账号密码或 OpenAI API Key。完整说明见 [PRIVACY.md](../../PRIVACY.md)。
+- 图片下载需要清单中列出的 OpenAI/Google 静态资源域名权限；本机通信只允许 `127.0.0.1` 或 `localhost`。
+- MOSA 不会因此获得任何受支持站点的账号密码或 API Key。完整说明见 [PRIVACY.md](../../PRIVACY.md)。
 
 ## 限制
 
-- 仅 ChatGPT 网页
+- Google 站点使用稳定性较低的可见 `<img>` 识别；全屏看图器或站点更新可能需要刷新页面后重试
 - 全屏看图器 DOM 多变；若自动没命中，用悬浮「保存当前图」
 - GPT 网页未暴露生成 metadata 时，扩展只保留对应用户消息，不会伪造模型实际执行的提示词
 - 无标记的 caption 只在**图片工具消息**内被接受；助手的普通回复即使提到风格词也不会被当成提示词
 - 重读会话会复用页面自身的登录请求头。这些值只留在页面世界，不写入存储、不进后台、不发给 MOSA（见 [PRIVACY.md](../../PRIVACY.md)）
 - 相同内容 hash 去重
+- 参考图附件不进入素材库；当前可靠自动识别以 ChatGPT 上传输入为准，Flow/Gemini 不按页面顺序猜测参考图
 - 改扩展代码后要在 `chrome://extensions` 点刷新，并硬刷新网页
 
 ## 许可

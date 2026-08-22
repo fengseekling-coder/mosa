@@ -1,7 +1,7 @@
 import { createLanguageApplier, createT, resolveLocale } from "./i18n-runtime.mjs";
 import { createBridgeStatusPoller } from "./bridge-status-poller.mjs";
 import {
-  FACET_KEYS, LIVE_REGION_WRITE_DELAY, SCOPES, SIDEBAR_GROUP_LIMIT, SKELETON_TILE_COUNT, SOURCE_FACETS, SOURCE_LABEL_KEYS, STATUS_ANNOUNCEMENT_DURATION,
+  FACET_KEYS, LIVE_REGION_WRITE_DELAY, SCOPES, SKELETON_TILE_COUNT, SOURCE_FACETS, SOURCE_LABEL_KEYS, STATUS_ANNOUNCEMENT_DURATION,
 } from "./config.mjs";
 import {
   cardShortTitle, debounce, escapeHtml, formatDate, humanizeFacetValue, normalizeDensity, normalizeSort, safeStorageGet, safeStorageSet,
@@ -45,12 +45,13 @@ function assetSourceLabel(asset = {}) {
 const preference = safeStorageGet("mosa.ui-language") || "system";
 const state = {
   project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, detailAsset: null, versionHistory: null, recipeHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
-  scope: "all", facets: { source: "", group: "", category: "", style: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")), facetQuery: "",
+  scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
+  mediaKind: "all",
   groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [], styleTotal: 0 }, cowartInsertAvailable: false, cowartInsertTargetId: safeStorageGet("mosa.cowart-insert-target") || "mosa", cowartInsertFeedback: null,
   galleryStatus: "loading", galleryError: null, galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")),
   libraryPath: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
-  batchMode: false, batchSaving: false, selectedIds: new Set(), dragCounter: 0,
-  darkMode: safeStorageGet("mosa-dark-mode") === "true", diagnosticsExpanded: false,
+  dragCounter: 0,
+  darkMode: safeStorageGet("mosa-dark-mode") === "true", diagnosticsExpanded: false, settingsReturnFocus: null, accountReturnFocus: null,
   imageZoom: 1, imagePanX: 0, imagePanY: 0, imageDragging: false,
   // Phase 3A / D4：专用大图查看模式最小状态——viewMode 二值（library/asset）+ 进入时的
   // 画廊返回快照。不复刻搜索/筛选/排序状态、不深拷贝 state、无第二套 selectedAsset、无平行 Router。
@@ -68,7 +69,6 @@ const applyLanguage = createLanguageApplier({
     renderSettingsMenu();
     if (els.sortSelect) els.sortSelect.value = state.sort;
     renderQuickFilters();
-    renderFilterPanel();
     updateViewTitle();
     renderGrid();
     if (state.detailOpen) renderDetail();
@@ -77,9 +77,10 @@ const applyLanguage = createLanguageApplier({
 
 const els = {
   searchInput: document.querySelector("#searchInput"), quickFilters: document.querySelector("#quickFilters"),
-  filterToggle: document.querySelector("#filterToggle"), filterPanel: document.querySelector("#filterPanel"), filterDot: document.querySelector("#filterDot"), clearFiltersBtn: document.querySelector("#clearFiltersBtn"), sourceFilters: document.querySelector("#sourceFilters"), groupList: document.querySelector("#groupList"), categoryList: document.querySelector("#categoryList"), styleList: document.querySelector("#styleList"),
-  activeFilters: document.querySelector("#activeFilters"), sortSelect: document.querySelector("#sortSelect"), facetSearchInput: document.querySelector("#facetSearchInput"), styleTruncated: document.querySelector("#styleTruncated"), themeToggle: document.querySelector("#themeToggle"),
-  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), addGroupBtn: document.querySelector("#addGroupBtn"), sidebarGroupList: document.querySelector("#sidebarGroupList"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
+  typeFilters: document.querySelector(".topbar-type-filters"),
+  sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
+  activeFilters: document.querySelector("#activeFilters"), sortSelect: document.querySelector("#sortSelect"), themeToggle: document.querySelector("#themeToggle"),
+  accountToggle: document.querySelector("#accountToggle"), accountModal: document.querySelector("#accountModal"), closeAccountModal: document.querySelector("#closeAccountModal"), accountAssetCount: document.querySelector("#accountAssetCount"), accountCollectionCount: document.querySelector("#accountCollectionCount"), settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), addGroupBtn: document.querySelector("#addGroupBtn"), sidebarGroupList: document.querySelector("#sidebarGroupList"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
   viewTitle: document.querySelector("#viewTitle"), assetCount: document.querySelector("#assetCount"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
 
@@ -97,7 +98,6 @@ const apiClient = createApiClient({
   renderDetail,
   updateCodexHint,
   renderQuickFilters,
-  renderFilterPanel,
   renderGrid,
   updateViewTitle,
   renderErrorState,
@@ -110,13 +110,6 @@ const { apiFetch, loadProjects, loadCowartCanvases, loadStats, loadAssets, refre
 // ===== New element references =====
 Object.assign(els, {
   dragOverlay: document.querySelector("#dragOverlay"),
-  batchBar: document.querySelector("#batchBar"),
-  batchSelectAll: document.querySelector("#batchSelectAll"),
-  batchCount: document.querySelector("#batchCount"),
-  batchFavorite: document.querySelector("#batchFavorite"),
-  batchArchive: document.querySelector("#batchArchive"),
-  batchCancel: document.querySelector("#batchCancel"),
-  batchToggle: document.querySelector("#batchToggle"),
   libraryView: document.querySelector("#libraryView"),
   assetView: document.querySelector("#assetView"),
   assetViewBack: document.querySelector("#assetViewBack"),
@@ -174,14 +167,6 @@ function syncSegmentedRadios(container) {
 
 // ===== Phase 5A：三套浮层注册（root 互斥 + parent/child 层级）=====
 function registerAnchoredOverlays() {
-  // Filter Panel：root 浮层，非模态 dialog 语义；打开聚焦 facet 搜索（缺失时第一个筛选控件）。
-  anchoredOverlayManager.register({
-    id: "filter", kind: "root", placement: "bottom-end", maxHeight: 580,
-    getPanel: () => els.filterPanel,
-    getTrigger: () => els.filterToggle,
-    focusOnOpen: () => els.facetSearchInput || els.filterPanel?.querySelector("button, input, select") || null,
-    returnFocus: () => els.filterToggle,
-  });
   // Settings Menu：与 Filter 互斥的 root 浮层；bottom-start 定位由碰撞公式翻转为向上展开。
   anchoredOverlayManager.register({
     id: "settings", kind: "root", placement: "bottom-start",
@@ -331,102 +316,36 @@ function setupDragDrop() {
   });
 }
 
-// ===== Batch Operations =====
-function setBatchMode(active) {
-  state.batchMode = Boolean(active);
-  state.selectedIds.clear();
-  if (els.assetGrid) els.assetGrid.classList.toggle("batch-active", state.batchMode);
-  updateBatchUI();
-  renderGrid();
-}
-
-function toggleBatchMode() {
-  if (state.batchSaving) return;
-  setBatchMode(!state.batchMode);
-}
-
-function toggleAssetSelection(id, event) {
-  if (event) event.stopPropagation();
-  if (!state.batchMode) return;
-  if (state.selectedIds.has(id)) state.selectedIds.delete(id); else state.selectedIds.add(id);
-  updateBatchUI(); updateSelectedCard();
-}
-function selectAllAssets() {
-  if (state.selectedIds.size === state.assets.length) state.selectedIds.clear();
-  else state.assets.forEach((a) => state.selectedIds.add(a.id));
-  updateBatchUI(); updateSelectedCard();
-}
-function updateBatchUI() {
-  const selectedCount = state.selectedIds.size;
-  if (els.batchBar) els.batchBar.hidden = !state.batchMode;
-  if (els.batchToggle) els.batchToggle.setAttribute("aria-pressed", String(state.batchMode));
-  if (els.batchCount) els.batchCount.textContent = t("batchSelected", { count: selectedCount });
-  if (els.batchSelectAll) {
-    els.batchSelectAll.textContent = selectedCount === state.assets.length ? t("deselectAll") : t("selectAll");
-    els.batchSelectAll.disabled = state.batchSaving || state.assets.length === 0;
-  }
-  for (const button of [els.batchFavorite, els.batchArchive, els.batchCancel]) {
-    if (button) button.disabled = state.batchSaving || (button !== els.batchCancel && selectedCount === 0);
-  }
-}
-
-function setBatchBusy(busy) {
-  state.batchSaving = Boolean(busy);
-  updateBatchUI();
-}
-
-async function runBatchOperation(action, successKey, ids = null) {
-  // Phase 5B：ids 允许调用方传入确认打开前捕获的快照（批量归档）；缺省仍读当前
-  // 选中集合（收藏等路径），行为不变。
-  const assetIds = ids ? [...ids] : [...state.selectedIds];
-  if (!assetIds.length || state.batchSaving) return;
-  setBatchBusy(true);
-  try {
-    const result = await apiFetch("/api/assets/batch", {
-      method: "POST",
-      body: { action, projectId: state.project, assetIds },
-    });
-    if (!Array.isArray(result.results) || result.results.length !== assetIds.length) {
-      throw new Error(t("batchOperationIncomplete"));
-    }
-    if (assetIds.includes(state.selectedId)) clearDetailSelection();
-    state.selectedIds.clear();
-    state.batchMode = false;
-    if (els.assetGrid) els.assetGrid.classList.remove("batch-active");
-    showToast(t(successKey, { count: result.results.length }), "success");
-    await loadStats();
-    await loadAssets();
-  } catch (error) {
-    showToast(error.message, "error");
-  } finally {
-    setBatchBusy(false);
-  }
-}
-
-async function batchFavorite() {
-  await runBatchOperation("favorite", "batchFavoriteDone");
-}
-
-async function batchArchive() {
-  const count = state.selectedIds.size;
-  if (!count) return;
-  // Phase 5B：确认打开时刻捕获选中 ID 快照——确认后只处理快照中的 ID，Modal 打开
-  // 期间选中集合变化不会导致标题与实际操作数量错位；Cancel 后 selection 保持。
-  const snapshotIds = [...state.selectedIds];
-  const confirmed = await requestConfirmation({
-    title: t("archiveManyTitle", { count }),
-    description: t("archiveManyDescription", { count }),
-    confirmLabel: t("archiveAction"),
-    tone: "danger",
-    contextKey: `${state.project}:batch-archive`,
-  });
-  if (!confirmed) return; // Cancel：不调用归档 API，不产生业务副作用
-  await runBatchOperation("archive", "batchArchiveDone", snapshotIds);
-}
 async function toggleFavorite(id, event) {
   if (event) event.stopPropagation();
   try { await apiFetch(`/api/assets/${encodeURIComponent(state.project)}/${encodeURIComponent(id)}/favorite`, { method: "POST" }); showToast(t("favAdded"), "success"); await loadAssets(); } catch (error) { showToast(error.message, "error"); }
 }
+
+// The design reference intentionally switches navigation at 768px.  Desktop
+// keeps the persistent rail; compact web views get a focusable drawer, scrim
+// and Escape exit rather than a squeezed desktop sidebar.
+const MOBILE_NAVIGATION_QUERY = "(max-width: 767px)";
+let mobileNavReturnFocus = null;
+function isMobileNavigationViewport() { return window.matchMedia(MOBILE_NAVIGATION_QUERY).matches; }
+function setMobileNavOpen(open, { restoreFocus = false } = {}) {
+  const mobile = isMobileNavigationViewport();
+  const next = mobile && Boolean(open);
+  document.body.classList.toggle("mobile-nav-open", next);
+  els.mobileNavToggle?.setAttribute("aria-expanded", String(next));
+  if (els.mobileNavScrim) els.mobileNavScrim.hidden = !next;
+  if (els.sidebar) {
+    els.sidebar.toggleAttribute("inert", mobile && !next);
+    els.sidebar.setAttribute("aria-hidden", String(mobile && !next));
+  }
+  if (next) {
+    mobileNavReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : els.mobileNavToggle;
+    requestAnimationFrame(() => els.mobileNavClose?.focus());
+  } else if (restoreFocus && mobileNavReturnFocus instanceof HTMLElement) {
+    mobileNavReturnFocus.focus();
+    mobileNavReturnFocus = null;
+  }
+}
+function syncMobileNavigation() { setMobileNavOpen(false); }
 
 // ===== Keyboard Shortcuts =====
 function setupKeyboardShortcuts() {
@@ -434,23 +353,27 @@ function setupKeyboardShortcuts() {
     // Phase 5B：ConfirmDialog 打开时页面背景不接收任何键盘操作（Escape 由
     // trapConfirmDialogFocus 消费；不新增第二套全局 Escape 路由）。
     if (confirmDialogState.pending) return;
+    if (event.key === "Escape" && document.body.classList.contains("mobile-nav-open")) {
+      event.preventDefault();
+      setMobileNavOpen(false, { restoreFocus: true });
+      return;
+    }
     if (event.target.matches?.("input, textarea, select")) {
       // Phase 5A：处于打开的锚定浮层内部（如筛选面板 facet 搜索）时，Escape 仍须能关闭
       // 宿主浮层；其余快捷键保持输入守卫，打字不触发全局快捷键。
       if (event.key !== "Escape" || !anchoredOverlayManager.containsTarget(event.target)) return;
     }
-    if (event.key === "/" && state.viewMode === "library" && !els.importModal?.classList.contains("open") && !els.groupModal?.classList.contains("open")) { event.preventDefault(); els.searchInput?.focus(); return; }
+    if (event.key === "/" && state.viewMode === "library" && !els.importModal?.classList.contains("open") && !els.groupModal?.classList.contains("open") && !els.accountModal?.classList.contains("open")) { event.preventDefault(); els.searchInput?.focus(); return; }
     if (event.key === "Escape") {
       // Phase 3A 运行时修复：bindEvents 先行注册的 Modal 焦点陷阱已消费本次 Escape
       // （preventDefault）时，本链不得再继续向下穿透（否则会关 Modal 同时退出查看模式）。
       if (event.defaultPrevented) return;
-      if (state.batchMode) { toggleBatchMode(); event.preventDefault(); return; }
       if (!els.imagePreviewModal?.hidden) { closeImagePreview(); event.preventDefault(); return; }
       if (els.importModal?.classList.contains("open")) { closeImportModal(); event.preventDefault(); return; }
       if (els.groupModal?.classList.contains("open")) { closeGroupModal(); event.preventDefault(); return; }
+      if (els.accountModal?.classList.contains("open")) { closeAccountModal(); event.preventDefault(); return; }
       // Phase 3A：Escape 先关最上层浮层（筛选面板/设置菜单），再退出查看模式——不得穿透。
       // Phase 5A：closePanel 统一路由到 anchoredOverlayManager（Settings 打开 Language 时 child 先关）。
-      if (!els.filterPanel?.hidden) { closePanel(els.filterPanel, els.filterToggle); event.preventDefault(); return; }
       if (!els.settingsMenu?.hidden) { closePanel(els.settingsMenu, els.settingsToggle); event.preventDefault(); return; }
       if (state.viewMode === "asset") { returnToLibrary(); event.preventDefault(); return; }
       if (state.detailOpen) { setDetailOpen(false); event.preventDefault(); return; }
@@ -478,7 +401,6 @@ function setupKeyboardShortcuts() {
       && els.imagePreviewModal?.hidden
       && !els.importModal?.classList.contains("open")
       && !els.groupModal?.classList.contains("open")
-      && els.filterPanel?.hidden
       && els.settingsMenu?.hidden
       && !event.target.closest?.("[contenteditable]")) {
       if (event.target.matches?.("input, textarea, select")) return; // 输入控件一律不触发 Viewer 快捷键
@@ -496,7 +418,6 @@ function setupKeyboardShortcuts() {
       if (event.key === "f" || event.key === "F") { event.preventDefault(); fitAssetView(true); return; }
     }
     if (state.viewMode === "library") handleLibraryKeyboardNavigation(event);
-    if (event.key === "b" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); toggleBatchMode(); }
   });
 }
 
@@ -507,7 +428,7 @@ const { resetImageZoom, zoomImage, panImagePreview, announceImagePreviewZoom, se
   IMAGE_PREVIEW_ZOOM_STEP, IMAGE_PREVIEW_PAN_STEP } = imagePreview;
 // ===== Inspector markup（检视器区块 markup helper，已提取至 inspector-markup.mjs，R1 批次 4）=====
 const inspectorMarkup = createInspectorMarkup({ state, t, referenceRightsMarkup });
-const { detailFileSectionMarkup, detailFavoriteSectionMarkup, detailPromptSectionMarkup, detailSourceSectionMarkup,
+const { detailFileSectionMarkup, detailPromptSectionMarkup, detailSourceSectionMarkup,
   detailVersionSectionMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, detailCowartSectionMarkup,
   detailNewVersionSectionMarkup, detailMoreSectionMarkup, versionPickerMarkup, versionHistoryMarkup,
   recipeHistoryMarkup, recipeHistoryDisclosureMarkup, categoryOptions, buildSourceRows, sourceName,
@@ -542,29 +463,8 @@ function deriveGalleryEmptyState() {
   if (state.galleryStatus === "loading") return "none";
   if (state.galleryStatus === "error") return "none";
   if (state.assets.length > 0) return "none";
-  const libraryTotal = Number(state.groups.total || 0);
-  const hasQuery = state.query.trim() !== "";
-  const hasFacet = FACET_KEYS.some((key) => state.facets[key]);
-  const refined = hasQuery || hasFacet || state.scope !== "all";
-  // A genuinely empty library wins over any refinement: importing is the only
-  // useful action when there is nothing to search.
-  if (!refined || libraryTotal === 0) {
-    if (libraryTotal === 0) return "library-empty";
-    // Total says assets exist, no refinement is active, yet the result is
-    // empty — a transient stat/count race. Never claim the library is empty;
-    // no-results is the conservative, recoverable message.
-    return "no-results";
-  }
-  // Any query or non-group facet means “no matches”, also when stacked on a
-  // scope or a group (a scoped empty state never hides an active search).
-  if (hasQuery || state.facets.source || state.facets.category || state.facets.style) return "no-results";
-  if (state.facets.group) {
-    if (state.scope !== "all") return "no-results";
-    const groupExists = state.groups.groups.some(([name]) => name === state.facets.group);
-    return groupExists ? "group-empty" : "no-results";
-  }
-  if (state.scope === "favorite") return "favorites-empty";
-  if (state.scope === "recent") return "recent-empty";
+  // The V2 Gallery deliberately uses one neutral recovery state for every
+  // zero-result scope.  Separate favorites/recent/group states are legacy UI.
   return "no-results";
 }
 
@@ -572,39 +472,9 @@ function deriveGalleryEmptyState() {
 function galleryEmptyMarkup() {
   const kind = deriveGalleryEmptyState();
   if (kind === "none") return "";
-  let title = "";
-  let description = "";
-  let actions = "";
-  if (kind === "library-empty") {
-    // Reuses the approved onboarding copy — the guided empty state is no
-    // longer dead code, and no duplicate synonym keys are introduced.
-    title = t("onboardTitle");
-    description = t("onboardHint");
-    actions = `<button class="btn-primary" type="button" data-action="empty-import">${escapeHtml(t("onboardImport"))}</button>${state.libraryPath ? `<button class="btn-secondary" type="button" data-action="empty-open-library">${escapeHtml(t("openLibrary"))}</button>` : ""}`;
-  } else if (kind === "no-results") {
-    title = t("noResultsTitle");
-    description = t("noResultsDescription");
-    actions = `<button class="btn-secondary" type="button" data-action="empty-clear">${escapeHtml(t("clearAll"))}</button>`;
-  } else if (kind === "favorites-empty") {
-    title = t("favoritesEmptyTitle");
-    description = t("favoritesEmptyDescription");
-    actions = `<button class="btn-secondary" type="button" data-action="empty-view-all">${escapeHtml(t("viewAllAssets"))}</button>`;
-  } else if (kind === "recent-empty") {
-    title = t("recentEmptyTitle");
-    // “Recent” is a real business window (assets created in the last 7 days),
-    // not “recently viewed” — the copy only describes that true semantic.
-    description = t("recentEmptyDescription");
-    actions = `<button class="btn-secondary" type="button" data-action="empty-view-all">${escapeHtml(t("viewAllAssets"))}</button>`;
-  } else if (kind === "group-empty") {
-    const groupName = humanizeFacetValue(state.facets.group);
-    title = t("groupEmptyTitle");
-    description = t("groupEmptyDescription", { name: groupName });
-    actions = `<button class="btn-secondary" type="button" data-action="empty-view-all">${escapeHtml(t("viewAllAssets"))}</button>`;
-  }
-  // The group name travels as an escaped dynamic parameter and stays fully
-  // reachable via title, however long it is.
-  const subjectTitle = kind === "group-empty" ? ` title="${escapeHtml(state.facets.group)}"` : "";
-  return `<div class="gallery-empty-state" data-empty-kind="${kind}"><div class="empty-state-copy"><h2${subjectTitle}>${escapeHtml(title)}</h2><p${subjectTitle}>${escapeHtml(description)}</p></div>${actions ? `<div class="empty-state-actions">${actions}</div>` : ""}</div>`;
+  // Faithful V2 recovery shell: package glyph, neutral copy, reset and import.
+  const packageOpenIcon = "<svg class=\"gallery-empty-icon\" width=\"48\" height=\"48\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 22v-9\"/><path d=\"M15.17 2.21a1.67 1.67 0 0 1 1.63 0L21 4.57a1.93 1.93 0 0 1 0 3.36L8.82 14.79a1.66 1.66 0 0 1-1.64 0L3 12.43a1.93 1.93 0 0 1 0-3.36z\"/><path d=\"M20 13v3.87a2.06 2.06 0 0 1-1.11 1.83l-6 3.08a1.93 1.93 0 0 1-1.78 0l-6-3.08A2.06 2.06 0 0 1 4 16.87V13\"/><path d=\"M21 12.43a1.93 1.93 0 0 0 0-3.36L8.83 2.21a1.64 1.64 0 0 0-1.63 0L3 4.57a1.93 1.93 0 0 0 0 3.36l12.18 6.86a1.64 1.64 0 0 0 1.63 0z\"/></svg>";
+  return "<div class=\"gallery-empty-state\" data-empty-kind=\"" + kind + "\">" + packageOpenIcon + "<div class=\"empty-state-copy\"><h2>" + escapeHtml(t("noResultsTitle")) + "</h2><p>" + escapeHtml(t("noResultsDescription")) + "</p></div><div class=\"empty-state-actions\"><button class=\"btn-secondary\" type=\"button\" data-action=\"empty-clear\">" + escapeHtml(t("resetFilters")) + "</button><button class=\"btn-primary\" type=\"button\" data-action=\"empty-import\">" + escapeHtml(t("onboardImport")) + "</button></div></div>";
 }
 
 /** Reuses the existing polite live region; never a second announcement system. */
@@ -645,15 +515,14 @@ function announceEmptyState(kind) {
 function resetLibraryRefinements() {
   state.query = "";
   if (els.searchInput) els.searchInput.value = "";
-  state.facetQuery = "";
-  if (els.facetSearchInput) els.facetSearchInput.value = "";
   state.scope = "all";
+  state.mediaKind = "all";
   clearFacets();
   // A reset restarts paging, and the viewer result-set semantics changed.
   state.nextCursor = null;
   if (state.viewMode === "asset") returnToLibrary();
   clearDetailSelection();
-  renderQuickFilters(); renderFilterPanel(); renderActiveFilters();
+  renderQuickFilters(); renderTypeFilters(); renderActiveFilters();
   announceGalleryStatus(t("statusRefinementsCleared"));
   void loadAssets().then((applied) => {
     if (!applied) return;
@@ -697,36 +566,22 @@ function addVoiceOverLabel(element, id, text) {
 
 function renderSettingsMenu() {
   if (!els.settingsMenu) return;
-  const projects = state.projects.length ? state.projects : [state.project];
-  const choices = [
-    ["system", `${t("systemLanguage")} · ${resolveLocale("system") === "zh" ? t("chinese") : t("english")}`],
-    ["zh", t("chinese")], ["en", t("english")]
-  ];
-  const currentLanguage = choices.find(([value]) => value === state.languagePreference) || choices[0];
-  const projectOptions = projects.map((project) => `<option value="${escapeHtml(project)}"${project === state.project ? " selected" : ""}>${escapeHtml(project)}</option>`).join("");
-  // Phase 5A / F-12：Settings=role=menu（action row 为 menuitem）；原生 select 保持 combobox 语义、
-  // segmented=role=radiogroup/radio（aria-checked + roving tabindex）；Language=menuitemradio + aria-checked。
-  const appearanceSectionHtml = `<section class="settings-section"><p>${t("appearance")}</p><div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("appearance"))}"><button class="segmented-btn${!state.darkMode ? " active" : ""}" type="button" role="radio" aria-checked="${!state.darkMode}" tabindex="${state.darkMode ? -1 : 0}" data-appearance-opt="light">${t("themeLight")}</button><button class="segmented-btn${state.darkMode ? " active" : ""}" type="button" role="radio" aria-checked="${state.darkMode}" tabindex="${state.darkMode ? 0 : -1}" data-appearance-opt="dark">${t("themeDark")}</button></div><div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("galleryDensity"))}"><button class="segmented-btn${state.galleryDensity === "image" ? " active" : ""}" type="button" role="radio" aria-checked="${state.galleryDensity === "image"}" tabindex="${state.galleryDensity === "image" ? 0 : -1}" data-density-opt="image">${t("densityImageOnly")}</button><button class="segmented-btn${state.galleryDensity === "info" ? " active" : ""}" type="button" role="radio" aria-checked="${state.galleryDensity === "info"}" tabindex="${state.galleryDensity === "info" ? 0 : -1}" data-density-opt="info">${t("densityWithInfo")}</button></div></section>`;
-  const diagnosticsSectionHtml = `<section class="settings-section"><button type="button" class="settings-diagnostics-toggle" role="menuitem" tabindex="-1" aria-expanded="${state.diagnosticsExpanded}" data-action="toggle-diagnostics">${state.diagnosticsExpanded ? t("hideDiagnostics") : t("showDiagnostics")}</button><div class="settings-diagnostics" id="diagnosticsPanel"${state.diagnosticsExpanded ? "" : " hidden"}><div id="diagnosticsContent">${state.diagnosticsExpanded ? `<p class="diag-loading">${t("diagLoading")}</p>` : ""}</div></div></section>`;
-  els.settingsMenu.innerHTML = `<section class="settings-section"><p>${t("project")}</p><div class="settings-project-row"><select id="projectSelect" data-project-select aria-label="${escapeHtml(t("project"))}">${projectOptions}</select><button class="icon-button quiet" type="button" role="menuitem" tabindex="-1" data-open-library title="${escapeHtml(t("openLibrary"))}" aria-label="${escapeHtml(t("openLibrary"))}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg></button></div></section><section class="settings-section settings-language-section"><p>${t("language")}</p><button class="settings-submenu-trigger" type="button" role="menuitem" tabindex="-1" data-language-menu aria-haspopup="menu" aria-expanded="false" aria-controls="languageMenu"><span>${escapeHtml(currentLanguage[1])}</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button><div class="language-menu anchored-overlay" id="languageMenu" role="menu" aria-label="${escapeHtml(t("language"))}" hidden>${choices.map(([value, label]) => `<button type="button" role="menuitemradio" aria-checked="${state.languagePreference === value}" tabindex="-1" data-locale="${value}">${escapeHtml(label)}<span aria-hidden="true">${state.languagePreference === value ? "✓" : ""}</span></button>`).join("")}</div></section>${appearanceSectionHtml}${diagnosticsSectionHtml}`;
-  const radioGroups = [...els.settingsMenu.querySelectorAll('[role="radiogroup"]')];
-  radioGroups.forEach((group, groupIndex) => {
-    const groupId = `settingsRadioGroupLabel-${groupIndex}`;
-    addVoiceOverLabel(group, groupId, group.getAttribute("aria-label"));
-    [...group.querySelectorAll('[role="radio"]')].forEach((radio, radioIndex) => {
-      addVoiceOverLabel(radio, `${groupId}-${radioIndex}`, radio.getAttribute("aria-label") || radio.textContent.trim());
-    });
-  });
-  const openLibraryButton = els.settingsMenu.querySelector("[data-open-library]");
-  addVoiceOverLabel(openLibraryButton, "settingsOpenLibraryLabel", openLibraryButton?.getAttribute("aria-label"));
-  const languageTrigger = els.settingsMenu.querySelector("[data-language-menu]");
-  addVoiceOverLabel(languageTrigger, "settingsLanguageTriggerLabel", languageTrigger?.textContent.trim());
-  [...els.settingsMenu.querySelectorAll('[role="menuitemradio"]')].forEach((item, index) => {
-    addVoiceOverLabel(item, `languageMenuItemLabel-${index}`, item.getAttribute("aria-label") || item.textContent.trim());
-  });
-  els.settingsMenu.querySelector(".settings-language-section")?.insertAdjacentHTML("beforebegin", renderCowartCanvasSettings());
-  primeSettingsRoving();
-  if (state.diagnosticsExpanded) fetchDiagnostics();
+  const settingIcon = (path) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="${path}"/></svg>`;
+  const radio = (selected, attribute, value, label) => `<button class="segmented-btn${selected ? " active" : ""}" type="button" role="radio" aria-checked="${selected}" tabindex="${selected ? 0 : -1}" ${attribute}="${value}">${label}</button>`;
+  const row = (icon, title, subtitle, control = "") => `<section class="settings-modal-row"><div class="settings-row-icon" aria-hidden="true">${icon}</div><div class="settings-row-copy"><h3>${title}</h3><p>${subtitle}</p></div>${control ? `<div class="settings-row-control">${control}</div>` : ""}</section>`;
+  const visualLocale = state.locale === "en" ? "en" : "zh";
+  const path = escapeHtml(state.libraryPath || state.codexImagesDir || "/Users/azhuilab/.mosa/assets");
+  const closeIcon = settingIcon("m6 6 12 12M18 6 6 18");
+  const rows = [
+    row(settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("themeMode"), state.darkMode ? t("themeDarkHint") : t("themeLightHint"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("themeMode"))}">${radio(!state.darkMode, "data-appearance-opt", "light", t("themeLight"))}${radio(state.darkMode, "data-appearance-opt", "dark", t("themeDark"))}</div>`),
+    row(settingIcon("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"), t("cardDensity"), state.galleryDensity === "image" ? t("densityImage") : t("densityInfo"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("cardDensity"))}">${radio(state.galleryDensity === "image", "data-density-opt", "image", t("densityImageControl"))}${radio(state.galleryDensity === "info", "data-density-opt", "info", t("densityInfoControl"))}</div>`),
+    row(settingIcon("M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("interfaceLanguage"), visualLocale === "en" ? t("english") : t("chinese"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("interfaceLanguage"))}">${radio(visualLocale === "zh", "data-locale", "zh", "中文")}${radio(visualLocale === "en", "data-locale", "en", "EN")}</div>`),
+    row(settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("libraryPath"), `<span class="settings-path">${path}</span>`, `<button class="settings-text-action" type="button" data-open-library>${t("change")}</button>`),
+    row(settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6"), t("storageEngine"), t("storageEngineValue")),
+    row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), t("versionValue"))
+  ].join("");
+  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" aria-describedby="settingsModalDescription" tabindex="-1"><header class="settings-modal-header"><div><h2 id="settingsModalTitle">${t("preferences")}</h2><p id="settingsModalDescription">${t("preferencesSubtitle")}</p></div><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${rows}</div></div>`;
+  syncSegmentedRadios(els.settingsMenu);
 }
 
 async function fetchDiagnostics() {
@@ -869,7 +724,7 @@ function handleLibraryKeyboardNavigation(event) {
 // second document listener or a second shortcut manager.
 function bindKeyboardNav(event) {
   if (confirmDialogState.pending || els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open")) return;
-  if (!els.imagePreviewModal?.hidden || !els.filterPanel?.hidden || !els.settingsMenu?.hidden) return;
+  if (!els.imagePreviewModal?.hidden || !els.settingsMenu?.hidden) return;
   if (event.target.closest?.("[contenteditable]")) return;
   if (event.target.closest?.("[role='tab']")) return;
   // Phase 3A：箭头键画廊导航仅属库内模式；查看模式下不切换选中资产（上一张/下一张属 Phase 3C）。
@@ -978,31 +833,46 @@ function updateCodexHint() {
 function updateViewTitle() {
   const titles = { all: t("allAssets"), favorite: t("favorites"), recent: t("recent") };
   els.viewTitle.textContent = titles[state.scope] || t("allAssets");
+  // Match V2 SearchBar's scope-aware hint without changing the shared search
+  // control or any query semantics.
+  if (els.searchInput) {
+    const activeGroup = String(state.facets.group || "").trim();
+    els.searchInput.placeholder = activeGroup
+      ? t("searchGroup", { group: activeGroup })
+      : state.scope === "favorite"
+        ? t("searchFavorite")
+        : state.scope === "recent"
+          ? t("searchRecent")
+          : t("searchAll");
+  }
   // A count of 0 while the first request is still open is the bug the audit saw
   // as "sidebar 405, workspace 0".
   els.assetCount.textContent = state.galleryStatus === "loading"
     ? t("galleryLoading")
-    : (state.galleryStatus === "error" ? "" : t("assetsCount", { count: state.pageTotal || state.assets.length }));
-  const facetCount = FACET_KEYS.filter((key) => state.facets[key]).length;
-  if (els.filterDot) {
-    els.filterDot.hidden = facetCount === 0;
-    els.filterDot.textContent = facetCount ? String(facetCount) : "";
-  }
-  els.filterToggle?.setAttribute("aria-pressed", String(facetCount > 0));
+    : (state.galleryStatus === "error" ? "" : t("resultCount", { count: state.pageTotal || state.assets.length }));
   renderActiveFilters();
 }
 
 /** The chips are the only place the full active query is spelled out. */
+function compactGenerationIdentifier(value) {
+  const identifier = String(value || "");
+  return identifier.length > 26 ? `${identifier.slice(0, 12)}…${identifier.slice(-8)}` : identifier;
+}
+
 function activeFilterChips() {
   const chips = [];
   if (state.query) chips.push({ kind: "query", label: t("chipSearch"), value: `“${state.query}”` });
   if (state.scope !== "all") chips.push({ kind: "scope", label: t("chipScope"), value: state.scope === "favorite" ? t("favorites") : t("recent") });
+  if (state.mediaKind && state.mediaKind !== "all") chips.push({ kind: "type", label: t("typeFilter"), value: state.mediaKind === "img" ? t("typeImages") : t("typeVideos") });
   const sourceLabels = Object.fromEntries(Object.entries(SOURCE_FACETS).map(([key, value]) => [value, t(`filter${key.charAt(0).toUpperCase()}${key.slice(1)}`)]));
   for (const key of FACET_KEYS) {
     const value = state.facets[key];
     if (!value) continue;
     const label = t(`chip${key.charAt(0).toUpperCase()}${key.slice(1)}`);
-    chips.push({ kind: key, label, value: key === "source" ? (sourceLabels[value] || value) : humanizeFacetValue(value) });
+    const readableValue = key === "source"
+      ? (sourceLabels[value] || value)
+      : (["conversation", "generationBatch"].includes(key) ? compactGenerationIdentifier(value) : humanizeFacetValue(value));
+    chips.push({ kind: key, label, value: readableValue });
   }
   return chips;
 }
@@ -1026,17 +896,21 @@ function removeFilterChip(kind) {
   if (kind === "__all") { clearAllFilters(); return; }
   if (kind === "query") { state.query = ""; if (els.searchInput) els.searchInput.value = ""; }
   else if (kind === "scope") state.scope = "all";
+  else if (kind === "type") { state.mediaKind = "all"; renderTypeFilters(); }
   else if (FACET_KEYS.includes(kind)) state.facets[kind] = "";
   else return;
   applyFilterChange();
 }
 
 function bindEvents() {
-  els.batchToggle?.addEventListener("click", toggleBatchMode);
-  els.batchSelectAll?.addEventListener("click", selectAllAssets);
-  els.batchFavorite?.addEventListener("click", () => { void batchFavorite(); });
-  els.batchArchive?.addEventListener("click", () => { void batchArchive(); });
-  els.batchCancel?.addEventListener("click", () => setBatchMode(false));
+  syncMobileNavigation();
+  els.mobileNavToggle?.addEventListener("click", () => setMobileNavOpen(true));
+  els.mobileNavClose?.addEventListener("click", () => setMobileNavOpen(false, { restoreFocus: true }));
+  els.mobileNavScrim?.addEventListener("click", () => setMobileNavOpen(false, { restoreFocus: true }));
+  els.sidebar?.addEventListener("click", (event) => {
+    if (!isMobileNavigationViewport()) return;
+    if (event.target.closest(".nav-item, .add-group-button, .settings-trigger")) setMobileNavOpen(false);
+  });
   els.searchInput?.addEventListener("input", debounce(async () => { state.query = els.searchInput.value; state.nextCursor = null;
     // Phase 3A：结果集语义已变化，退出查看模式（快照 requestKey 随之失效，恢复自动降级）。
     if (state.viewMode === "asset") returnToLibrary();
@@ -1051,11 +925,16 @@ function bindEvents() {
     void loadAssets();
   });
   els.themeToggle?.addEventListener("click", toggleDarkMode);
-  els.facetSearchInput?.addEventListener("input", debounce(() => { state.facetQuery = els.facetSearchInput.value; renderFilterPanel(); }, 120));
   els.activeFilters?.addEventListener("click", (event) => { const chip = event.target.closest("[data-chip]"); if (chip) removeFilterChip(chip.dataset.chip); });
   els.assetGrid?.addEventListener("click", (event) => {
+    const loadMoreButton = event.target.closest('[data-action="load-more"]');
+    if (loadMoreButton && state.nextCursor && !isLoadingMore) {
+      isLoadingMore = true;
+      loadMoreButton.disabled = true;
+      void loadAssets({ append: true }).finally(() => { isLoadingMore = false; });
+      return;
+    }
     if (event.target.closest('[data-action="retry"]')) window.location.reload();
-    if (event.target.closest('[data-action="load-more"]')) void loadAssets({ append: true });
     // F-08 空态操作：导入复用现有 Modal（不建第二套）；清除与查看全部共用
     // 同一个 reset helper，只触发一次刷新；打开素材库复用既有 API。
     if (event.target.closest('[data-action="empty-import"]')) { openImportModal(); return; }
@@ -1067,23 +946,22 @@ function bindEvents() {
   els.newAssetTopBtn?.addEventListener("click", openImportModal);
   els.quickFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) setFilter(button.dataset.filter); });
   els.sidebarGroupList?.addEventListener("click", (event) => {
-    if (event.target.closest('[data-action="open-all-groups"]')) {
-      // The sidebar only lists the busiest collections; the panel owns the full list.
-      // The document-level outside-click handler would close the panel again as this
-      // click keeps bubbling, so it must not reach it.
-      event.stopPropagation();
-      if (els.filterPanel?.hidden) togglePanel(els.filterPanel, els.filterToggle);
-      // Focused synchronously: an animation frame never runs while the window is hidden.
-      els.facetSearchInput?.focus();
-      return;
-    }
     const button = event.target.closest("[data-filter]"); if (button) setFilter(button.dataset.filter, button.dataset.value);
   });
-  els.filterToggle?.addEventListener("click", () => togglePanel(els.filterPanel, els.filterToggle));
-  els.clearFiltersBtn?.addEventListener("click", () => clearAllFilters());
-  els.sourceFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) setFilter(button.dataset.filter); });
-  [els.groupList, els.categoryList, els.styleList].forEach((list) => list?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) setFilter(button.dataset.filter, button.dataset.value); }));
-  els.settingsToggle?.addEventListener("click", () => togglePanel(els.settingsMenu, els.settingsToggle));
+  els.typeFilters?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-type]");
+    if (!button || button.dataset.type === state.mediaKind) return;
+    state.mediaKind = button.dataset.type;
+    renderTypeFilters();
+    applyFilterChange();
+  });
+  els.settingsToggle?.addEventListener("click", toggleSettingsModal);
+  els.accountToggle?.addEventListener("click", openAccountModal);
+  els.closeAccountModal?.addEventListener("click", closeAccountModal);
+  els.accountModal?.addEventListener("click", (event) => {
+    if (event.target === els.accountModal) { closeAccountModal(); return; }
+    if (event.target.closest("[data-account-action]")) showToast(t("accountUnavailable"));
+  });
   els.settingsMenu?.addEventListener("change", async (event) => {
     const select = event.target.closest("[data-project-select]");
     if (!select) return;
@@ -1095,6 +973,7 @@ function bindEvents() {
   });
   els.settingsMenu?.addEventListener("click", (event) => {
     const button = event.target.closest("button");
+    if (event.target === els.settingsMenu || button?.dataset.settingsClose !== undefined) { closeSettingsModal(); return; }
     // Theme/Density segmented buttons
     if (button?.dataset.appearanceOpt) {
       const newTheme = button.dataset.appearanceOpt;
@@ -1131,7 +1010,6 @@ function bindEvents() {
         content.innerHTML = `<p class="diag-loading">${t("diagLoading")}</p>`;
         fetchDiagnostics();
       }
-      anchoredOverlayManager.repositionOpen();
       return;
     }
 
@@ -1143,7 +1021,6 @@ function bindEvents() {
     }
     const localeButton = event.target.closest("[data-locale]");
     if (localeButton) {
-      anchoredOverlayManager.close("language", "selection"); // 关闭 child；保持 Settings，焦点由 setLanguage 重建后恢复
       return setLanguage(localeButton.dataset.locale);
     }
     const openLibraryButton = event.target.closest("[data-open-library]");
@@ -1155,6 +1032,13 @@ function bindEvents() {
   els.closeGroupModal?.addEventListener("click", closeGroupModal);
   els.cancelGroupBtn?.addEventListener("click", closeGroupModal);
   els.groupModal?.addEventListener("click", (event) => { if (event.target === els.groupModal) closeGroupModal(); });
+  els.groupModal?.addEventListener("click", (event) => {
+    const swatch = event.target.closest("[data-group-color]");
+    if (swatch) selectGroupColor(swatch.dataset.groupColor);
+  });
+  els.groupNameInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") { event.preventDefault(); void saveGroup(); }
+  });
   // Phase 5B / F-15：ConfirmDialog——Cancel/Confirm 结算唯一 pending Promise；Backdrop 点击只能取消，绝不确认。
   els.confirmDialogCancel?.addEventListener("click", () => closeConfirmDialog(false));
   els.confirmDialogConfirm?.addEventListener("click", () => closeConfirmDialog(true));
@@ -1192,11 +1076,13 @@ function bindEvents() {
   // Phase 5A / F-14：全局外部点击只保留一套（manager 统一路由 root/child 关闭策略）。
   document.addEventListener("click", (event) => anchoredOverlayManager.handleOutsidePointer(event.target));
   // Phase 5A / F-14：全局 resize 重定位只保留一套（viewport-change 只重定位，不自动关闭）。
-  window.addEventListener("resize", () => { anchoredOverlayManager.repositionOpen(); if (state.imagePreviewId) fitImagePreview(); });
+  window.addEventListener("resize", () => { anchoredOverlayManager.repositionOpen(); syncMobileNavigation(); if (state.imagePreviewId) fitImagePreview(); });
   // Phase 5B：ConfirmDialog 陷阱先于其余陷阱注册——Escape 优先级链最前（preventDefault +
   // stopPropagation，不穿透 Viewer/既有 Modal）；ConfirmDialog 未打开时后续陷阱照常工作。
   document.addEventListener("keydown", trapConfirmDialogFocus);
+  document.addEventListener("keydown", trapAccountModalFocus);
   document.addEventListener("keydown", trapImportModalFocus);
+  document.addEventListener("keydown", trapSettingsModalFocus);
   document.addEventListener("keydown", trapGroupModalFocus);
   document.addEventListener("keydown", trapImagePreviewFocus);
   document.addEventListener("keydown", (event) => {
@@ -1207,8 +1093,8 @@ function bindEvents() {
     if (!state.detailOpen) return;
     // Phase 3A：查看模式的 Escape 由 setupKeyboardShortcuts 的优先级链统一处理（先浮层后退出）。
     if (state.viewMode === "asset") return;
-    if (els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open") || !els.imagePreviewModal?.hidden) return;
-    if (!els.filterPanel?.hidden || !els.settingsMenu?.hidden) return;
+    if (els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open") || els.accountModal?.classList.contains("open") || !els.imagePreviewModal?.hidden) return;
+    if (!els.settingsMenu?.hidden) return;
     event.preventDefault();
     setDetailOpen(false);
   });
@@ -1253,12 +1139,8 @@ function setLanguage(value) {
   state.languagePreference = value;
   safeStorageSet("mosa.ui-language", value);
   applyLanguage();
-  // Phase 5A：applyLanguage 重建 Settings DOM（语言子菜单与入口按钮全部换新）——同步 manager
-  // 状态后，用稳定重查询 + requestAnimationFrame 把焦点恢复到新的语言入口；Settings 保持打开，
-  // 不保留断开的旧 DOM 引用。
-  anchoredOverlayManager.refreshAfterRebuild();
   requestAnimationFrame(() => {
-    if (els.settingsMenu && !els.settingsMenu.hidden) els.settingsMenu.querySelector("[data-language-menu]")?.focus();
+    if (els.settingsMenu && !els.settingsMenu.hidden) els.settingsMenu.querySelector(`[data-locale="${value === "en" ? "en" : "zh"}"]`)?.focus();
   });
   refreshBridgeStatus();
   showToast(t("languageChanged"), "success");
@@ -1286,7 +1168,7 @@ function clearFacets() {
 }
 
 function clearAllFilters() {
-  // F-08：清除一律收敛到单一 reset helper（query/输入框/facets/facetQuery/scope/分组，
+  // F-08：清除一律收敛到单一 reset helper（query/输入框/facets/scope/分组，
   // 一次刷新）；sort、density、theme、language、project 不受影响。
   resetLibraryRefinements();
 }
@@ -1297,19 +1179,33 @@ function applyFilterChange() {
   // Phase 3A：结果集语义已变化，退出查看模式。
   if (state.viewMode === "asset") returnToLibrary();
   clearDetailSelection();
-  renderQuickFilters(); renderFilterPanel(); renderActiveFilters(); loadAssets();
+  renderQuickFilters(); renderTypeFilters(); renderActiveFilters(); loadAssets();
+}
+
+function showRelatedGenerations(asset, mode) {
+  const conversationId = String(asset?.source?.conversation_id || "").trim();
+  const messageId = String(asset?.source?.message_id || "").trim();
+  if (!conversationId || (mode === "batch" && !messageId)) return;
+  state.scope = "all";
+  state.mediaKind = "all";
+  clearFacets();
+  state.facets.conversation = conversationId;
+  if (mode === "batch") state.facets.generationBatch = messageId;
+  applyFilterChange();
 }
 
 // Phase 5A / F-14：兼容 wrapper——既有调用点（Escape 优先级链、sidebar 打开全部分组）保留
 // 原字面签名；开关/定位/aria-expanded/hidden/return focus 全部路由到共享 anchoredOverlayManager，
 // 不再存在任何独立定位公式。
 function togglePanel(panel, trigger) {
+  if (panel === els.settingsMenu) { toggleSettingsModal(); return; }
   if (!panel) return;
   const overlayId = anchoredOverlayManager.idForPanel(panel);
   if (!overlayId) return;
   anchoredOverlayManager.toggle(overlayId); // trigger-toggle：root 互斥由 manager 统一处理
 }
 function closePanel(panel, trigger, reason = "escape") {
+  if (panel === els.settingsMenu) { closeSettingsModal({ restoreFocus: reason !== "outside-pointer" }); return; }
   if (!panel) return;
   const overlayId = anchoredOverlayManager.idForPanel(panel);
   if (!overlayId) return;
@@ -1472,6 +1368,15 @@ function renderQuickFilters() {
   renderSidebarGroups();
 }
 
+/** V2 FilterBar type filter: sync the 全部/图片/视频 pressed state. */
+function renderTypeFilters() {
+  els.typeFilters?.querySelectorAll("[data-type]").forEach((button) => {
+    const active = button.dataset.type === state.mediaKind;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+}
+
 /**
  * The sidebar keeps only the busiest collections; the complete list lives in the
  * filter panel so the two surfaces stop duplicating the same long list.
@@ -1479,63 +1384,13 @@ function renderQuickFilters() {
 function renderSidebarGroups() {
   if (!els.sidebarGroupList) return;
   const all = state.groups.groups;
-  const shown = all.slice(0, SIDEBAR_GROUP_LIMIT);
+  const shown = all;
   const items = shown.map(([name, count]) => {
     const active = state.facets.group === name;
-    return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="group" data-value="${escapeHtml(name)}" type="button" aria-pressed="${active}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-10Z"/></svg><span class="nav-item-text" title="${escapeHtml(name)}">${escapeHtml(name)}</span><span class="nav-count">${count}</span></button></li>`;
+    const color = colorForGroup(name);
+    return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="group" data-value="${escapeHtml(name)}" type="button" aria-pressed="${active}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(name)}">${escapeHtml(name)}</span><span class="nav-count">${count}</span></button></li>`;
   }).join("");
-  const overflow = all.length > shown.length
-    ? `<li><button class="nav-item nav-group-more" type="button" data-action="open-all-groups">${escapeHtml(t("allGroups", { count: all.length }))}</button></li>`
-    : "";
-  els.sidebarGroupList.innerHTML = `${items}${overflow}`;
-}
-
-function matchesFacetQuery(name) {
-  const needle = state.facetQuery.trim().toLowerCase();
-  if (!needle) return true;
-  return String(name).toLowerCase().includes(needle) || humanizeFacetValue(name).toLowerCase().includes(needle);
-}
-
-function renderFilterPanel() {
-  if (!els.sourceFilters) return;
-  const activeSource = state.facets.source;
-  const sources = [
-    ["all", t("filterAll"), state.groups.total, ""],
-    ["codex", t("filterCodex"), state.groups.codex, SOURCE_FACETS.codex],
-    ["cowart", t("filterCowart"), state.groups.cowart, SOURCE_FACETS.cowart],
-    ["grok", t("filterGrok"), state.groups.grok, SOURCE_FACETS.grok],
-  ];
-  els.sourceFilters.innerHTML = sources.map(([type, label, count, value]) => {
-    const active = value ? activeSource === value : !activeSource;
-    return `<button class="filter-pill${active ? " active" : ""}" data-filter="${type}" type="button" aria-pressed="${active}">${escapeHtml(label)} <span>${count}</span></button>`;
-  }).join("");
-  renderFilterList(els.groupList, state.groups.groups, "group", t("noGroups"));
-  renderFilterList(els.categoryList, state.groups.categories, "category", t("noCategories"));
-  renderFilterList(els.styleList, state.groups.styles, "style", t("noStyles"));
-  renderFacetTruncationHint();
-}
-
-/** A capped facet list has to say so rather than looking complete. */
-function renderFacetTruncationHint() {
-  if (!els.styleTruncated) return;
-  const total = Number(state.groups.styleTotal || 0);
-  const shown = state.groups.styles.length;
-  const truncated = total > shown;
-  els.styleTruncated.hidden = !truncated;
-  els.styleTruncated.textContent = truncated ? t("facetTruncated", { shown, total }) : "";
-}
-
-function renderFilterList(element, values, type, emptyText) {
-  if (!element) return;
-  if (!values.length) { element.innerHTML = `<li class="filter-empty">${escapeHtml(emptyText)}</li>`; return; }
-  const visible = values.filter(([name]) => matchesFacetQuery(name));
-  if (!visible.length) { element.innerHTML = `<li class="filter-empty">${escapeHtml(t("facetNoMatch"))}</li>`; return; }
-  element.innerHTML = visible.map(([name, count]) => {
-    const active = state.facets[type] === name;
-    const label = humanizeFacetValue(name);
-    // `title` keeps the stored value reachable when the display name differs.
-    return `<li><button class="filter-list-item${active ? " active" : ""}" data-filter="${type}" data-value="${escapeHtml(name)}" type="button" aria-pressed="${active}" title="${escapeHtml(name)}"><span>${escapeHtml(label)}</span><span>${count}</span></button></li>`;
-  }).join("");
+  els.sidebarGroupList.innerHTML = items;
 }
 
 let masonryResizeObserver = null;
@@ -1553,6 +1408,24 @@ function setupMasonryLayout() {
   schedule();
   masonryResizeObserver?.disconnect();
   if ("ResizeObserver" in window) { masonryResizeObserver = new ResizeObserver(schedule); masonryResizeObserver.observe(grid); }
+  setupInfiniteScroll();
+}
+
+let infiniteScrollObserver = null;
+let isLoadingMore = false;
+function setupInfiniteScroll() {
+  infiniteScrollObserver?.disconnect();
+  const sentinel = els.assetGrid?.querySelector('[data-sentinel="true"]');
+  if (!sentinel || !state.nextCursor) return;
+  infiniteScrollObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting && state.nextCursor && !isLoadingMore) {
+        isLoadingMore = true;
+        loadAssets({ append: true }).finally(() => { isLoadingMore = false; });
+      }
+    });
+  }, { rootMargin: "400px" });
+  infiniteScrollObserver.observe(sentinel);
 }
 
 /**
@@ -1602,38 +1475,49 @@ function renderGrid() {
     const badge = versionIndex > 1 ? t("versionLabelShort", { number: versionIndex }) : (asset.group || "");
     const info = `<div class="asset-card-info"><p class="asset-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</p><p class="asset-card-meta"><span>${escapeHtml(sourceLabel)}</span><span>${escapeHtml(date)}</span>${badge ? `<span class="asset-card-badge" title="${escapeHtml(badge)}">${escapeHtml(badge)}</span>` : ""}</p></div>`;
     const isFav = asset.favorite;
-    const isChecked = state.batchMode && state.selectedIds.has(asset.id);
-    const checkbox = state.batchMode ? `<input type="checkbox" class="card-checkbox" ${isChecked ? "checked" : ""} data-batch-id="${escapeHtml(asset.id)}" aria-label="${escapeHtml(t("selectAsset"))}" />` : "";
     const favoriteLabel = isFav ? t("removeFavorite") : t("addFavorite");
     // Phase 1C/1C.1 契约：.card-actions > button.card-action-btn.card-favorite / .card-quick-copy，
     // 业务 class 与 data 属性全部保留（现有事件绑定依赖）；aria-pressed 表达收藏态。
-    // Phase 1C.1：批量模式原生 disabled——退出 Tab 顺序、不可执行、不派发点击；
-    // 退出批量后 renderGrid 重渲染自动移除，单卡操作恢复可用。
-    const batchDisabled = state.batchMode ? " disabled" : "";
-    const favBtn = `<button class="card-action-btn card-favorite${isFav ? " is-fav" : ""}" type="button"${batchDisabled} data-fav-id="${escapeHtml(asset.id)}" aria-pressed="${Boolean(isFav)}" aria-label="${escapeHtml(favoriteLabel)}" title="${escapeHtml(favoriteLabel)}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.95 5.97 6.59.96-4.77 4.65 1.13 6.57L12 17.57l-5.9 3.08 1.13-6.57-4.77-4.65 6.59-.96L12 2.5z"/></svg></button>`;
-    const copyBtn = `<button class="card-action-btn card-quick-copy" type="button"${batchDisabled} data-copy="${escapeHtml(asset.prompt || "")}" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button>`;
+    const favBtn = `<button class="card-action-btn card-favorite${isFav ? " is-fav" : ""}" type="button" data-fav-id="${escapeHtml(asset.id)}" aria-pressed="${Boolean(isFav)}" aria-label="${escapeHtml(favoriteLabel)}" title="${escapeHtml(favoriteLabel)}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.95 5.97 6.59.96-4.77 4.65 1.13 6.57L12 17.57l-5.9 3.08 1.13-6.57-4.77-4.65 6.59-.96L12 2.5z"/></svg></button>`;
+    const copyBtn = `<button class="card-action-btn card-quick-copy" type="button" data-copy="${escapeHtml(asset.prompt || "")}" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button>`;
     const cardActions = `<div class="card-actions">${favBtn}${copyBtn}</div>`;
-    return `<article class="asset-card${selected ? " selected" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}" title="${escapeHtml(cardShortTitle(asset))}">${checkbox}<button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}">${media}<span class="card-scrim" aria-hidden="true"></span><span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`;
+    return `<article class="asset-card${selected ? " selected" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}" title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}">${media}<span class="card-scrim" aria-hidden="true"></span><span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`;
   }).join("");
-  els.assetGrid.innerHTML = `${cards}${state.nextCursor ? `<div class="asset-load-more"><button type="button" data-action="load-more">${t("loadMore")}</button></div>` : ""}`;
+  // 追加页会重建整个网格；必须保存实际的滚动容器，而不是不可滚动的
+  // .library-view 父元素，否则浏览器在清空子节点时会把 grid 的位置钳回顶部。
+  const isAppendMode = animate && animateFrom > 0;
+  const scrollContainer = els.assetGrid;
+  const savedScrollTop = isAppendMode ? scrollContainer.scrollTop : null;
+
+  els.assetGrid.innerHTML = `${cards}${state.nextCursor ? `<div class="asset-load-more"><button type="button" data-action="load-more">${escapeHtml(t("loadMore"))}</button></div><div class="infinite-scroll-sentinel" data-sentinel="true"></div>` : ""}`;
+
   setupMasonryLayout();
+  // setupMasonryLayout() queues its final row-span measurement for the next
+  // frame. Restore after that pass, once the replacement cards have restored
+  // enough scroll height for the prior position to be valid again.
+  if (savedScrollTop !== null) {
+    requestAnimationFrame(() => {
+      const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+      scrollContainer.scrollTop = Math.min(savedScrollTop, maxScrollTop);
+    });
+  }
   els.assetGrid.querySelectorAll(".asset-card-select").forEach((button) => {
-    // Phase 3A / D4：单击卡片主体进入专用大图查看模式；批量模式下单击保持批量选择优先。
+    // A normal card press opens the current asset in the V2 detail surface.
     button.addEventListener("click", () => {
       const id = button.closest(".asset-card")?.dataset.id;
       if (!id) return;
-      if (state.batchMode) { toggleAssetSelection(id); return; }
-      openAssetView(id, button);
+      void selectAsset(id);
     });
-    // 双击统一进入同一查看模式，不再弹出旧 lightbox 竞争（旧 lightbox 业务代码保留不删）。
-    button.addEventListener("dblclick", () => {
+    // 双击打开图片预览
+    button.addEventListener("dblclick", (event) => {
+      event.stopPropagation();
       const id = button.closest(".asset-card")?.dataset.id;
-      if (id && !state.batchMode) openAssetView(id, button);
+      if (!id) return;
+      openImagePreview(id, button);
     });
   });
   els.assetGrid.querySelectorAll(".card-quick-copy").forEach((button) => button.addEventListener("click", async (event) => { event.stopPropagation(); await runAction(async () => { await navigator.clipboard.writeText(button.dataset.copy || ""); showToast(t("copySuccess"), "success"); }); }));
   els.assetGrid.querySelectorAll(".card-favorite").forEach((button) => button.addEventListener("click", (event) => { event.stopPropagation(); void toggleFavorite(button.dataset.favId, event); }));
-  els.assetGrid.querySelectorAll(".card-checkbox").forEach((checkbox) => checkbox.addEventListener("change", (event) => { void toggleAssetSelection(checkbox.dataset.batchId, event); }));
 }
 
 /** Routed through the state machine so a later re-render cannot resurrect the skeleton. */
@@ -1686,7 +1570,8 @@ function selectedAsset() {
 function updateSelectedCard() { els.assetGrid?.querySelectorAll(".asset-card").forEach((card) => { const selected = card.dataset.id === state.selectedId; card.classList.toggle("selected", selected); card.querySelector(".asset-card-select")?.setAttribute("aria-pressed", String(selected)); }); }
 function setDetailOpen(open) {
   const wasOpen = state.detailOpen;
-  state.detailOpen = Boolean(open); els.appShell?.classList.toggle("details-open", state.detailOpen); els.detailPanel?.setAttribute("aria-hidden", String(!state.detailOpen));
+  state.detailOpen = Boolean(open); els.appShell?.classList.toggle("details-open", state.detailOpen); document.body.classList.toggle("detail-open", state.detailOpen); els.detailPanel?.setAttribute("aria-hidden", String(!state.detailOpen));
+  if (state.detailOpen) setMobileNavOpen(false);
   if (state.detailOpen) {
     if (!wasOpen) {
       const activeEl = document.activeElement;
@@ -1718,11 +1603,99 @@ function openImportModal() {
   els.importModal?.classList.add("open");
   els.importModal?.setAttribute("aria-hidden", "false");
   // Focused synchronously: an animation frame never runs while the window is hidden.
-  els.imagePathInput?.focus();
+  els.closeImportModal?.focus();
 }
 function closeImportModal() { announceGalleryStatus(""); els.importModal?.classList.remove("open"); els.importModal?.setAttribute("aria-hidden", "true"); if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus(); state.modalReturnFocus = null; }
-function openGroupModal() { state.modalReturnFocus = document.activeElement; els.groupModal?.classList.add("open"); els.groupModal?.setAttribute("aria-hidden", "false"); if (els.groupNameInput) els.groupNameInput.value = ""; requestAnimationFrame(() => els.groupNameInput?.focus()); }
+function openSettingsModal() {
+  if (!els.settingsMenu || !els.settingsMenu.hidden) return;
+  state.settingsReturnFocus = document.activeElement;
+  els.settingsMenu.hidden = false;
+  els.settingsToggle?.setAttribute("aria-expanded", "true");
+  requestAnimationFrame(() => els.settingsMenu?.querySelector("[data-settings-close]")?.focus());
+}
+function closeSettingsModal({ restoreFocus = true } = {}) {
+  if (!els.settingsMenu || els.settingsMenu.hidden) return;
+  els.settingsMenu.hidden = true;
+  els.settingsToggle?.setAttribute("aria-expanded", "false");
+  if (restoreFocus && state.settingsReturnFocus instanceof HTMLElement && state.settingsReturnFocus.isConnected) state.settingsReturnFocus.focus();
+  state.settingsReturnFocus = null;
+}
+function toggleSettingsModal() { if (els.settingsMenu?.hidden) openSettingsModal(); else closeSettingsModal(); }
+
+const GROUP_COLORS = ["#6366f1", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6", "#ec4899"];
+
+function groupColorStorageKey() { return `mosa.group-colors.${state.project}`; }
+function groupColorMap() {
+  try {
+    const parsed = JSON.parse(safeStorageGet(groupColorStorageKey()) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch { return {}; }
+}
+function deterministicGroupColor(name) {
+  let hash = 0;
+  for (const character of String(name || "")) hash = ((hash << 5) - hash + character.codePointAt(0)) | 0;
+  return GROUP_COLORS[Math.abs(hash) % GROUP_COLORS.length];
+}
+function colorForGroup(name) {
+  const stored = groupColorMap()[name];
+  return GROUP_COLORS.includes(stored) ? stored : deterministicGroupColor(name);
+}
+function saveGroupColor(name, color) {
+  const colors = groupColorMap();
+  colors[name] = GROUP_COLORS.includes(color) ? color : deterministicGroupColor(name);
+  safeStorageSet(groupColorStorageKey(), JSON.stringify(colors));
+}
+function selectGroupColor(color) {
+  if (!GROUP_COLORS.includes(color)) return;
+  els.groupModal?.querySelectorAll("[data-group-color]").forEach((button) => {
+    const selected = button.dataset.groupColor === color;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+}
+function selectedGroupColor() {
+  return els.groupModal?.querySelector("[data-group-color][aria-pressed='true']")?.dataset.groupColor || GROUP_COLORS[0];
+}
+function refreshAccountSummary() {
+  if (els.accountAssetCount) els.accountAssetCount.textContent = String(state.groups.total || state.assets.length || 0);
+  if (els.accountCollectionCount) els.accountCollectionCount.textContent = String(state.groups.groups.length || 0);
+}
+function openAccountModal() {
+  if (!els.accountModal || els.accountModal.classList.contains("open")) return;
+  state.accountReturnFocus = document.activeElement;
+  refreshAccountSummary();
+  els.accountModal.classList.add("open");
+  els.accountModal.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => els.closeAccountModal?.focus());
+}
+function closeAccountModal() {
+  if (!els.accountModal?.classList.contains("open")) return;
+  els.accountModal.classList.remove("open");
+  els.accountModal.setAttribute("aria-hidden", "true");
+  if (state.accountReturnFocus instanceof HTMLElement && state.accountReturnFocus.isConnected) state.accountReturnFocus.focus();
+  state.accountReturnFocus = null;
+}
+function openGroupModal() {
+  state.modalReturnFocus = document.activeElement;
+  els.groupModal?.classList.add("open");
+  els.groupModal?.setAttribute("aria-hidden", "false");
+  if (els.groupNameInput) els.groupNameInput.value = "";
+  selectGroupColor(GROUP_COLORS[0]);
+  requestAnimationFrame(() => els.groupNameInput?.focus());
+}
 function closeGroupModal() { els.groupModal?.classList.remove("open"); els.groupModal?.setAttribute("aria-hidden", "true"); if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus(); state.modalReturnFocus = null; }
+
+function trapAccountModalFocus(event) {
+  if (!els.accountModal?.classList.contains("open")) return;
+  if (event.key === "Escape") { event.preventDefault(); closeAccountModal(); return; }
+  if (event.key !== "Tab") return;
+  const focusable = [...els.accountModal.querySelectorAll("button:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((element) => !element.hasAttribute("hidden"));
+  if (!focusable.length) return;
+  const current = focusable.indexOf(document.activeElement);
+  const next = event.shiftKey ? (current <= 0 ? focusable.length - 1 : current - 1) : (current === focusable.length - 1 ? 0 : current + 1);
+  event.preventDefault();
+  focusable[next].focus();
+}
 
 function trapImportModalFocus(event) {
   if (!els.importModal?.classList.contains("open")) return;
@@ -1730,6 +1703,18 @@ function trapImportModalFocus(event) {
   if (event.key !== "Tab") return;
   const focusable = [...els.importModal.querySelectorAll("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((element) => !element.hasAttribute("hidden"));
   if (!focusable.length) return; const current = focusable.indexOf(document.activeElement); const next = event.shiftKey ? (current <= 0 ? focusable.length - 1 : current - 1) : (current === focusable.length - 1 ? 0 : current + 1); event.preventDefault(); focusable[next].focus();
+}
+
+function trapSettingsModalFocus(event) {
+  if (els.settingsMenu?.hidden) return;
+  if (event.key === "Escape") { event.preventDefault(); closeSettingsModal(); return; }
+  if (event.key !== "Tab") return;
+  const focusable = [...els.settingsMenu.querySelectorAll("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((element) => !element.hasAttribute("hidden"));
+  if (!focusable.length) return;
+  const current = focusable.indexOf(document.activeElement);
+  const next = event.shiftKey ? (current <= 0 ? focusable.length - 1 : current - 1) : (current === focusable.length - 1 ? 0 : current + 1);
+  event.preventDefault();
+  focusable[next].focus();
 }
 
 function trapGroupModalFocus(event) {
@@ -1745,13 +1730,14 @@ async function saveGroup() {
     const name = els.groupNameInput?.value.trim() || "";
     if (!name) throw new Error(t("groupNameRequired"));
     const result = await apiFetch("/api/groups", { method: "POST", body: { projectId: state.project, name } });
+    saveGroupColor(result.group.name, selectedGroupColor());
     closeGroupModal();
     await loadStats();
     showToast(`${t("groupCreated")}${result.group.name}`, "success");
     state.facets.group = result.group.name;
     state.nextCursor = null;
     clearDetailSelection();
-    renderQuickFilters(); renderFilterPanel(); renderActiveFilters(); await loadAssets();
+    renderQuickFilters(); renderActiveFilters(); await loadAssets();
   });
 }
 
@@ -1853,9 +1839,9 @@ function renderDetail() {
   if (!asset) { detailRenderedAssetId = null; els.detailPanel.innerHTML = `<div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t(state.assets.length ? "noSelection" : "noAssets")}</p><span>${t(state.assets.length ? "noSelectionHint" : "noAssetsHint")}</span></div>`; return; }
   const cachedHistory = versionHistoryForAsset(asset);
   const cachedRecipeHistory = recipeHistoryForAsset(asset) || recipeHistoryFromAsset(asset);
-  // Phase 4A：批准的单栏信息架构——十个语义区块按固定顺序渲染（文件事实/收藏/Prompt/
-  // 来源/版本/分组/标签/Cowart/新版本/更多），无 tab 角色、无隐藏面板、唯一纵向滚动容器。
-  els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}">${t("close")}</button></div><div class="detail-inspector-scroll">${detailFileSectionMarkup(asset)}${detailFavoriteSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup()}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}</div></div>`;
+  // Library v2 首屏把基础信息与收藏合为一个 Overview，避免旧版把收藏拆成独立区块。
+  // 后续九个语义区块保持单列、无 tab、唯一纵向滚动容器。
+  els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${detailFileSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup()}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}</div></div>`;
   const scroller = els.detailPanel.querySelector(".detail-inspector-scroll");
   if (scroller && keepScrollTop !== null) scroller.scrollTop = keepScrollTop;
   scroller?.querySelector(".cowart-insert-slot")?.append(createCowartInsertControl(asset));
@@ -2046,6 +2032,8 @@ function bindDetailEvents(asset, renderId) {
   // 素材、不返回 Library；loadAssets 后 renderDetail 重渲染按 asset.favorite 重绘本按钮。
   panel.querySelector('[data-action="toggle-favorite"]')?.addEventListener("click", (event) => toggleFavorite(asset.id, event));
   panel.querySelector('[data-action="copy-source"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(sourceCopyValue(asset.source)); showToast(t("originalPathCopied"), "success"); }));
+  panel.querySelector('[data-action="view-generation-session"]')?.addEventListener("click", () => showRelatedGenerations(asset, "session"));
+  panel.querySelector('[data-action="view-generation-batch"]')?.addEventListener("click", () => showRelatedGenerations(asset, "batch"));
   if (!isVideoAsset(asset)) {
     panel.querySelector(".detail-image")?.addEventListener("dblclick", (event) => openImagePreview(asset.id, event.currentTarget));
   }
@@ -2106,6 +2094,7 @@ function bindDetailEvents(asset, renderId) {
     }
   }));
   panel.querySelector('[data-action="copy-prompt"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(asset.prompt || ""); showToast(t("copySuccess"), "success"); }));
+  panel.querySelector('[data-action="copy-instruction"]')?.addEventListener("click", () => runAction(async () => { const instruction = String(asset.source?.user_message || asset.business_fields?.user_message || "").trim(); await navigator.clipboard.writeText(instruction); showToast(t("copySuccess"), "success"); }));
   panel.querySelector('[data-action="copy-path"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(asset.image_path); showToast(t("pathCopied"), "success"); }));
   panel.querySelector('[data-action="regenerate"]')?.addEventListener("click", (event) => {
     const trigger = event.currentTarget;
@@ -2332,7 +2321,7 @@ function referenceRightsMarkup(asset) {
   if (!references.length) return `<p class="empty-copy">${t("noReferences")}</p>`;
   const rows = references.map((reference, index) => {
     const linked = state.assets.find((item) => item.id === reference.asset_id);
-    const thumbnail = linked?.thumbnail_url || linked?.image_url;
+    const thumbnail = reference.attachment_url || linked?.thumbnail_url || linked?.image_url;
     const label = reference.asset_id || `${t("referenceHash")} ${String(reference.sha256 || "").slice(0, 8)}`;
     const media = thumbnail
       ? `<img src="${escapeHtml(thumbnail)}" alt="" loading="lazy" data-reference-label="${escapeHtml(label)}" />`

@@ -11,6 +11,7 @@ const contentSource = await readFile(new URL("../extensions/chatgpt-web-capture/
 const contentCss = await readFile(new URL("../extensions/chatgpt-web-capture/content.css", import.meta.url), "utf8");
 const optionsSource = await readFile(new URL("../extensions/chatgpt-web-capture/options.js", import.meta.url), "utf8");
 const optionsHtml = await readFile(new URL("../extensions/chatgpt-web-capture/options.html", import.meta.url), "utf8");
+const providerSource = await readFile(new URL("../extensions/chatgpt-web-capture/provider-sites.js", import.meta.url), "utf8");
 
 function createHookHarness(payload, conversationId = "conversation-test", options = {}) {
   const events = [];
@@ -110,6 +111,80 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
   assert.deepEqual(hook?.js, ["page-hook.js"]);
 });
 
+test("declares the supported Google image sites and provider content script", () => {
+  assert.equal(manifest.version, "0.11.0");
+  assert.deepEqual(
+    manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
+    ["https://gemini.google.com/*", "https://labs.google/*", "https://aistudio.google.com/*"],
+  );
+  for (const host of [
+    "https://gemini.google.com/*",
+    "https://labs.google/*",
+    "https://aistudio.google.com/*",
+    "https://*.googleusercontent.com/*",
+    "https://storage.googleapis.com/*",
+  ]) assert.ok(manifest.host_permissions.includes(host), `missing ${host}`);
+  assert.match(providerSource, /"gemini\.google\.com": "gemini"/);
+  assert.match(providerSource, /"labs\.google": "flow"/);
+  assert.match(providerSource, /"aistudio\.google\.com": "google-ai-studio"/);
+});
+
+test("Google adapters capture visible images with bounded Flow and AI Studio Prompt lookup", () => {
+  const executableProviderSource = providerSource.replace(/\/\/.*$/gm, "");
+  assert.match(providerSource, /const IMAGE_HOSTS/);
+  assert.match(providerSource, /getBoundingClientRect/);
+  assert.match(providerSource, /document\.images/);
+  assert.match(providerSource, /promptStatus: "not-available"/);
+  assert.match(providerSource, /promptSource: "provider-visible-image"/);
+  assert.match(providerSource, /promptStatus: "provider-visible-prompt"/);
+  assert.match(providerSource, /promptSource: "flow-visible-prompt"/);
+  assert.match(providerSource, /promptSource: "google-ai-studio-visible-user-prompt"/);
+  assert.match(providerSource, /FLOW_PROMPT_ANCHOR = \/reuse\\s\+prompt\/i/);
+  assert.match(providerSource, /FLOW_PROMPT_MAX_CHARS = 20_000/);
+  assert.match(providerSource, /FLOW_PROMPT_MAX_ANCESTORS = 14/);
+  assert.match(providerSource, /flowHasReusePromptAnchor/);
+  assert.match(providerSource, /flowReusePromptAnchorCount/);
+  assert.match(providerSource, /const buttonLike = tag === "button" \|\| tag === "a" \|\| role === "button" \|\| Boolean\(label\)/);
+  assert.match(providerSource, /flowNearbyPromptCard/);
+  assert.match(providerSource, /const reusePromptCards = promptCards\.filter/);
+  assert.match(providerSource, /if \(reusePromptCards\.length === 1\)/);
+  assert.match(providerSource, /AI_STUDIO_PROMPT_MAX_CHARS = 20_000/);
+  assert.match(providerSource, /AI_STUDIO_PROMPT_MAX_NODES = 12_000/);
+  assert.match(providerSource, /AI_STUDIO_MAX_PREVIOUS_TURNS = 16/);
+  assert.match(providerSource, /function aiStudioVisibleUserPromptForImage\(image\)/);
+  assert.match(providerSource, /ancestorWithTag\(image, "ms-chat-turn"\)/);
+  assert.match(providerSource, /sessionContent\?\.classList\?\.contains\("chat-session-content"\)/);
+  assert.match(providerSource, /directTurnContainer\(imageTurn, "model"\)/);
+  assert.match(providerSource, /directTurnContainer\(turn, "user"\)/);
+  assert.match(providerSource, /descendantsWithClass\(userContainer, "user-prompt-container"\)/);
+  assert.match(providerSource, /previous = previous\.previousElementSibling/);
+  assert.match(providerSource, /contenteditable/);
+  assert.match(providerSource, /"textarea"/);
+  assert.match(providerSource, /"mosa\.capture\.saveImage", "mosa\.capture\.saveImageWithPrompt"/);
+  assert.match(providerSource, /function supportedImageUrl\(value\)/);
+  assert.doesNotMatch(executableProviderSource, /innerText|textContent|innerHTML|querySelectorAll|conversation/);
+  assert.doesNotMatch(executableProviderSource, /document\.body\.innerText|document\.documentElement\.innerText/);
+});
+
+test("Google adapters read only eligible page-local bytes and keep CDN URLs remote", () => {
+  assert.match(providerSource, /src\.startsWith\("blob:"\)/);
+  assert.match(providerSource, /url\.origin !== location\.origin/);
+  assert.match(providerSource, /isAllowedLocalImageUrl/);
+  assert.match(providerSource, /url\.pathname === "\/fx\/api\/trpc\/media\.getMediaUrlRedirect"/);
+  assert.match(providerSource, /credentials: "same-origin"/);
+  assert.match(providerSource, /const bytes = await bytesFromVisibleImage\(source, img\)/);
+  assert.match(providerSource, /payload\.imageBase64 = bytes\.imageBase64/);
+  assert.match(providerSource, /payload\.imageUrl = source\.url/);
+  assert.match(providerSource, /if \(source\.kind === "local"\) \{/);
+  assert.match(providerSource, /!isVisibleGeneratedImage\(image\)/);
+  assert.match(providerSource, /if \(source\?\.kind !== "local" \|\| !isVisibleGeneratedImage\(img\)\)/);
+  assert.match(providerSource, /if \(!response\?\.ok\) seen\.delete\(source\.url\)/);
+  assert.match(providerSource, /\.catch\(\(\) => seen\.delete\(source\.url\)\)/);
+  assert.match(providerSource, /!changes\.autoCapture && !changes\.mosaBaseUrl && !changes\.mosaToken/);
+  assert.match(providerSource, /seen\.clear\(\);/);
+  assert.doesNotMatch(providerSource, /chrome\.cookies|document\.cookie|authorization/i);
+});
+
 test("uses safe local extension settings without a public Token default", () => {
   assert.match(backgroundSource, /mosaBaseUrl:\s*"http:\/\/127\.0\.0\.1:43517"/);
   assert.match(backgroundSource, /mosaToken:\s*""/);
@@ -120,6 +195,15 @@ test("uses safe local extension settings without a public Token default", () => 
   assert.doesNotMatch(contentSource, /chrome\.storage\.sync\.set/);
   assert.match(optionsSource, /chrome\.storage\.local\.set/);
   assert.match(optionsHtml, /type="password"/);
+});
+
+test("background forwards only the four fixed web-image provider IDs", () => {
+  assert.match(backgroundSource, /new Set\(\["chatgpt", "gemini", "flow", "google-ai-studio"\]\)/);
+  assert.match(backgroundSource, /const provider = String\(payload\.provider \|\| "chatgpt"\)/);
+  assert.match(backgroundSource, /if \(!WEB_IMAGE_PROVIDERS\.has\(provider\)\)/);
+  assert.match(backgroundSource, /fetchImageAsBase64\(payload\.imageUrl, \{ publicImage: provider !== "chatgpt" \}\)/);
+  assert.match(backgroundSource, /\.\.\.\(publicImage \? \[\] : \[\{ credentials: "include", cache: "no-cache" \}\]\)/);
+  assert.doesNotMatch(backgroundSource, /provider:\s*"chatgpt"/);
 });
 
 test("clears the legacy development Token and verifies the real ingest authorization path", () => {
@@ -184,10 +268,15 @@ test("archives one row per uploaded reference photo", () => {
 
   assert.match(contentSource, /isReference: isReferenceCandidate\(candidate\)/);
   assert.match(backgroundSource, /is_reference: Boolean\(payload\.isReference\)/);
+  assert.match(contentSource, /function hasVerifiedGenerationEvidence\(candidate\)/);
+  assert.match(contentSource, /if \(!hasVerifiedGenerationEvidence\(candidate\)\) return;/);
+  assert.match(contentSource, /if \(!hasVerifiedGenerationEvidence\(candidate\)\) continue;/);
+  assert.match(hookSource, /isGeneration: extra\.isGeneration === true/);
+  assert.match(hookSource, /if \(url && payload\.isGeneration\) post\("auto-image", payload\)/);
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.10.0");
+  assert.equal(manifest.version, "0.11.0");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);

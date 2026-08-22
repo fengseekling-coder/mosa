@@ -141,57 +141,35 @@ test("9. compact 960–1120 keeps three columns (no detail drop)", async () => {
   assert.doesNotMatch(rail, /\.detail \{[^}]*position: static/, "detail must not re-enter the document flow in the rail band");
 });
 
-// 10. Single-clicking a card body enters the dedicated view.
-test("10. single click on a card enters the asset view", async () => {
+// 10. Library v2 uses the inspector drawer as the single card destination.
+// The historical canvas viewer stays available for its own controls, but a card
+// press must never switch the primary UI away from the V2 gallery context.
+test("10. single click on a card opens the V2 detail inspector", async () => {
   const app = await readApp();
   const cards = sliceBetween(app, 'els.assetGrid.querySelectorAll(".asset-card-select")', 'querySelectorAll(".card-quick-copy")');
   assert.match(cards, /button\.addEventListener\("click", \(\) => \{\s+const id = button\.closest\("\.asset-card"\)\?\.dataset\.id;\s+if \(!id\) return;/,
     "card click resolves the asset id");
-  assert.match(cards, /openAssetView\(id, button\);/, "card click enters the asset view");
+  assert.match(cards, /void selectAsset\(id\);/, "card click opens the V2 detail inspector");
+  assert.doesNotMatch(cards, /openAssetView/, "card click does not enter the retired canvas viewer");
 });
 
-// 11. The card favourite quick action does not enter the view.
-test("11. favourite quick action does not enter the view", async () => {
+// 11. The card favourite quick action does not bubble.
+test("11. favourite quick action does not bubble", async () => {
   const app = await readApp();
-  const fav = sliceBetween(app, 'querySelectorAll(".card-favorite")', "card-checkbox");
+  const fav = sliceBetween(app, 'querySelectorAll(".card-favorite")', "});");
   assert.match(fav, /event\.stopPropagation\(\)/, "favourite click must not bubble to the card");
-  assert.doesNotMatch(fav, /openAssetView/, "favourite quick action must not enter the asset view");
 });
 
-// 12. The card copy quick action does not enter the view.
-test("12. copy quick action does not enter the view", async () => {
+// 12. The card copy quick action does not bubble.
+test("12. copy quick action does not bubble", async () => {
   const app = await readApp();
   const copy = sliceBetween(app, 'querySelectorAll(".card-quick-copy")', 'querySelectorAll(".card-favorite")');
   assert.match(copy, /event\.stopPropagation\(\)/, "copy click must not bubble to the card");
-  assert.doesNotMatch(copy, /openAssetView/, "copy quick action must not enter the asset view");
 });
 
-// 13. Batch mode wins over the view: a click selects instead of opening.
-test("13. batch mode takes precedence over the view", async () => {
-  const app = await readApp();
-  const viewer = await readAssetView();
-  const cards = sliceBetween(app, 'els.assetGrid.querySelectorAll(".asset-card-select")', 'querySelectorAll(".card-quick-copy")');
-  assert.match(cards, /if \(state\.batchMode\) \{ toggleAssetSelection\(id\); return; \}/,
-    "batch mode click toggles selection and never reaches openAssetView");
-  assert.match(functionBody(viewer, "openAssetView"), /if \(!id \|\| state\.batchMode \|\| state\.viewMode === "asset"\) return;/,
-    "openAssetView hard-guards batch mode and re-entry");
-});
-
-// 14. Double-click enters the same dedicated view — it no longer races the
-//     legacy lightbox (whose business code stays for the detail-panel path).
-test("14. double-click enters the same view without lightbox competition", async () => {
-  const app = await readApp();
-  const cards = sliceBetween(app, 'els.assetGrid.querySelectorAll(".asset-card-select")', 'querySelectorAll(".card-quick-copy")');
-  assert.match(cards, /button\.addEventListener\("dblclick", \(\) => \{\s+const id = button\.closest\("\.asset-card"\)\?\.dataset\.id;\s+if \(id && !state\.batchMode\) openAssetView\(id, button\);/,
-    "dblclick routes into the same asset view");
-  assert.doesNotMatch(cards, /openImagePreview/, "card dblclick must not open the legacy lightbox");
-  assert.match(functionBody(app, "bindDetailEvents"), /openImagePreview\(asset\.id, event\.currentTarget\)/,
-    "legacy lightbox stays wired for the detail-panel image path");
-});
-
-// 15. The return control is a native button whose accessible name contains the
+// 13. The return control is a native button whose accessible name contains the
 //     visible return semantics (label + scope), in both locales.
-test("15. return button exposes a complete accessible name", async () => {
+test("13. return button exposes a complete accessible name", async () => {
   const [html, i18n] = await Promise.all([readHtml(), readI18n()]);
   const slice = assetViewSlice(html);
   assert.match(slice, /<button class="toolbar-filter asset-view-back" id="assetViewBack" type="button">/,
@@ -204,28 +182,27 @@ test("15. return button exposes a complete accessible name", async () => {
   assert.match(i18n, /backToLibrary: "Back to library"/, "en backToLibrary copy");
 });
 
-// 16. Escape closes the topmost layer first: panels/menus before the view exit,
+// 14. Escape closes the topmost layer first: menus before the view exit,
 //     and the view exit before the legacy detail fallback.
-test("16. Escape layering: overlays first, view exit second", async () => {
+test("14. Escape layering: overlays first, view exit second", async () => {
   const app = await readApp();
   const shortcuts = functionBody(app, "setupKeyboardShortcuts");
-  const iFilter = shortcuts.indexOf("if (!els.filterPanel?.hidden)");
   const iSettings = shortcuts.indexOf("if (!els.settingsMenu?.hidden)");
   const iView = shortcuts.indexOf('if (state.viewMode === "asset") { returnToLibrary();');
   const iDetail = shortcuts.indexOf("if (state.detailOpen) { setDetailOpen(false);");
-  for (const [name, pos] of [["filter", iFilter], ["settings", iSettings], ["view", iView], ["detail", iDetail]]) {
+  for (const [name, pos] of [["settings", iSettings], ["view", iView], ["detail", iDetail]]) {
     assert.ok(pos > -1, `${name} Escape branch must exist`);
   }
-  assert.ok(iFilter < iSettings && iSettings < iView && iView < iDetail,
-    "Escape priority must be filter panel → settings menu → asset view → legacy detail");
+  assert.ok(iSettings < iView && iView < iDetail,
+    "Escape priority must be settings menu → asset view → legacy detail");
   const delegated = sliceBetween(app, 'document.addEventListener("keydown", trapImagePreviewFocus);', "bindDesktopIntegration();");
   assert.match(delegated, /if \(state\.viewMode === "asset"\) return;/,
     "the earlier-registered detail Escape listener must not fire through the asset view");
 });
 
-// 17. The snapshot records scrollTop exclusively through the shared real-scroller
+// 15. The snapshot records scrollTop exclusively through the shared real-scroller
 //     helper — never a direct assetGrid.scrollTop read, never window.scrollY.
-test("17. snapshot captures scrollTop via the shared scroller helper", async () => {
+test("15. snapshot captures scrollTop via the shared scroller helper", async () => {
   const viewer = await readAssetView();
   const body = functionBody(viewer, "openAssetView");
   assert.match(body, /scrollTop: getLibraryScrollContainer\(\)\.scrollTop/, "snapshot reads scrollTop through getLibraryScrollContainer()");
@@ -234,10 +211,10 @@ test("17. snapshot captures scrollTop via the shared scroller helper", async () 
     "scroll state never comes from the window");
 });
 
-// 18. scrollTop is restored through the same helper after the gallery is visible
+// 16. scrollTop is restored through the same helper after the gallery is visible
 //     and laid out again (double rAF — display:none clamps scrollTop to 0, fixed
 //     timeouts are banned), and focus is restored only after the scroll write.
-test("18. scrollTop restored via helper after re-layout, focus after scroll", async () => {
+test("16. scrollTop restored via helper after re-layout, focus after scroll", async () => {
   const viewer = await readAssetView();
   const body = functionBody(viewer, "returnToLibrary");
   const iRaf = body.indexOf("requestAnimationFrame(() => {");
@@ -335,15 +312,15 @@ test("27. the two modes are mutually exclusive in the tab order", async () => {
     "the shell mirrors the mode for styling hooks");
 });
 
-// 28. The global search stays in the sidebar (Phase 2A location contract intact).
-test("28. search stays in the sidebar", async () => {
+// 28. The global search lives in the topbar (V2 FilterBar location contract).
+test("28. search lives in the topbar", async () => {
   const html = await readHtml();
   assert.equal(html.match(/id="searchInput"/g).length, 1, "exactly one #searchInput in the document");
-  assert.ok(html.indexOf('class="sidebar"') < html.indexOf('id="searchInput"'), "search lives inside the sidebar");
-  assert.ok(html.indexOf('id="searchInput"') < html.indexOf('class="primary-nav"'), "search sits above the primary nav");
+  assert.ok(html.indexOf('<header class="topbar"') < html.indexOf('id="searchInput"'), "search lives inside the topbar");
+  assert.ok(html.indexOf('id="searchInput"') < html.indexOf('class="topbar-primary-group"'), "search sits before the primary group");
 });
 
-// 29. The topbar hierarchy (context + three action groups, six unique control
+// 29. The topbar hierarchy (context + three action groups, unique control
 //     IDs) is intact — the view adds no second competing toolbar.
 test("29. topbar hierarchy intact, single toolbar per mode", async () => {
   const html = await readHtml();
@@ -351,8 +328,9 @@ test("29. topbar hierarchy intact, single toolbar per mode", async () => {
   for (const group of ["topbar-utility-group", "topbar-work-group", "topbar-primary-group"]) {
     assert.equal(html.match(new RegExp(`class="${group}"`, "g")).length, 1, `${group} appears exactly once`);
   }
-  for (const id of ["bridgeStatus", "themeToggle", "batchToggle", "sortSelect", "filterToggle", "newAssetTopBtn"]) {
-    assert.equal(html.match(new RegExp(`id="${id}"`, "g")).length, 1, `#${id} must stay unique`);
+  // V2 removed batchToggle and filterToggle
+  for (const id of ["bridgeStatus", "themeToggle", "sortSelect", "newAssetTopBtn"]) {
+    assert.equal(html.match(new RegExp(`id="${id}"`, "g"))?.length || 0, 1, `#${id} must stay unique`);
   }
   const asset = assetViewSlice(html);
   assert.doesNotMatch(asset, /class="topbar/, "the asset view reuses no gallery topbar markup");
@@ -376,7 +354,7 @@ test("30. shell three-mode contract preserved", async () => {
 test("31. card quick-action contract preserved", async () => {
   const app = await readApp();
   assert.match(app, /<div class="card-actions">\$\{favBtn\}\$\{copyBtn\}<\/div>/, "card actions keep both quick buttons");
-  const fav = sliceBetween(app, 'querySelectorAll(".card-favorite")', "card-checkbox");
+  const fav = sliceBetween(app, 'querySelectorAll(".card-favorite")', "});");
   const copy = sliceBetween(app, 'querySelectorAll(".card-quick-copy")', 'querySelectorAll(".card-favorite")');
   assert.match(fav, /event\.stopPropagation\(\); void toggleFavorite/, "favourite keeps its bubbling guard and action");
   assert.match(copy, /event\.stopPropagation\(\); await runAction/, "copy keeps its bubbling guard and action");
@@ -422,7 +400,10 @@ test("34. package files stay untouched", async () => {
 test("35. Escape chain stops after a modal trap consumed the event", async () => {
   const app = await readApp();
   const shortcuts = functionBody(app, "setupKeyboardShortcuts");
-  const escapeBranch = sliceBetween(shortcuts, 'if (event.key === "Escape") {', "if (state.batchMode)");
+  // V2 removed batch mode, find the Escape branch up to the next major conditional
+  const escapeStart = shortcuts.indexOf('if (event.key === "Escape") {');
+  const escapeEnd = shortcuts.indexOf('if (event.key === "ArrowLeft"', escapeStart);
+  const escapeBranch = shortcuts.slice(escapeStart, escapeEnd);
   assert.match(escapeBranch, /if \(event\.defaultPrevented\) return;/,
     "Escape chain must bail on defaultPrevented before any overlay/view-exit branch");
 });

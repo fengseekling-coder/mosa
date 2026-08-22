@@ -59,6 +59,27 @@ test("normalizeAssetSort accepts the documented orders and falls back to newest"
 });
 
 for (const kind of ["sqlite", "json"]) {
+  test(`${kind} store filters generation sessions and reliable batches with AND semantics`, async (t) => {
+    const { root, projectRoot, sourcePath } = await makeRoot(t, `mosa-generation-filter-${kind}-`);
+    const libraryDir = join(root, "library");
+    const store = kind === "sqlite"
+      ? createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir })
+      : createJsonAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa") });
+    if (kind === "sqlite") t.after(() => store.close());
+
+    await store.createAsset({ assetId: "same-turn-a", imagePath: sourcePath, source: { type: "web-chatgpt", conversation_id: "conversation-a", message_id: "turn-1" } });
+    await store.createAsset({ assetId: "same-turn-b", imagePath: sourcePath, source: { type: "web-chatgpt", conversation_id: "conversation-a", message_id: "turn-1" } });
+    await store.createAsset({ assetId: "later-turn", imagePath: sourcePath, source: { type: "web-chatgpt", conversation_id: "conversation-a", message_id: "turn-2" } });
+    await store.createAsset({ assetId: "legacy-session-only", imagePath: sourcePath, source: { type: "web-chatgpt", conversation_id: "conversation-a" } });
+    await store.createAsset({ assetId: "same-turn-other-session", imagePath: sourcePath, source: { type: "web-chatgpt", conversation_id: "conversation-b", message_id: "turn-1" } });
+
+    const session = await store.listAssets({ projectId: "default", conversation: "conversation-a" });
+    assert.deepEqual(session.map((asset) => asset.id).sort(), ["later-turn", "legacy-session-only", "same-turn-a", "same-turn-b"]);
+
+    const batch = await store.listAssets({ projectId: "default", conversation: "conversation-a", generationBatch: "turn-1" });
+    assert.deepEqual(batch.map((asset) => asset.id).sort(), ["same-turn-a", "same-turn-b"]);
+  });
+
   test(`${kind} store sorts the whole query, not just the loaded page`, async (t) => {
     const { root, projectRoot, sourcePath } = await makeRoot(t, `mosa-sort-${kind}-`);
     const libraryDir = join(root, "library");

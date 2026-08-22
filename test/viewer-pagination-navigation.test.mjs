@@ -15,6 +15,7 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 const readApp = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
+const readGalleryApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
 const readApiClient = () => readFile(resolve(root, "app/api-client.mjs"), "utf8");
 const readLock = () => readFile(resolve(root, "package-lock.json"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
@@ -111,6 +112,18 @@ test("2. no limit=0", async () => {
   const paging = sliceBetween(apiClient, "function buildAssetPageParams", "let libraryRefreshInFlight");
   const load = stripJsComments(paging);
   assert.doesNotMatch(load, /limit.?=.?0|"0"/, "the paging path never requests an unlimited page");
+});
+
+// 2a. Infinite gallery loading rebuilds the cards, so the actual overflow
+// element—not its non-scrolling parent—must retain the prior position.
+test("2a. gallery append restores the grid scroll position", async () => {
+  const app = await readGalleryApp();
+  const render = functionBody(app, "renderGrid");
+  assert.match(render, /const scrollContainer = els\.assetGrid;/, "the grid itself owns overflow scrolling");
+  assert.match(render, /const savedScrollTop = isAppendMode \? scrollContainer\.scrollTop : null;/, "append captures the grid position before replacing cards");
+  assert.doesNotMatch(render, /els\.assetGrid\?\.parentElement/, "the non-scrolling library view must not receive scroll restoration");
+  assert.match(render, /setupMasonryLayout\(\);\s*\/\/ setupMasonryLayout/, "masonry layout runs before restoration is scheduled");
+  assert.match(render, /requestAnimationFrame\(\(\) => \{\s*const maxScrollTop = Math\.max\(0, scrollContainer\.scrollHeight - scrollContainer\.clientHeight\);\s*scrollContainer\.scrollTop = Math\.min\(savedScrollTop, maxScrollTop\);/, "restoration waits for the post-layout frame and stays within the new scroll range");
 });
 
 // 3. The Viewer total comes from state.pageTotal at open time.

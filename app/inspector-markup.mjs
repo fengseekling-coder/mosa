@@ -46,34 +46,76 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return `<div class="meta-row"><span class="meta-key">${t(key)}</span><span class="meta-val">${value === null ? `<span class="empty-copy">${t("notRecorded")}</span>` : escapeHtml(value)}</span></div>`;
   }
 
-  function detailFileSectionMarkup(asset) {
-    const title = asset.theme || asset.asset || asset.id;
-    const facts = [["fileDimensions", fileDimensionsText(asset)], ["fileFormat", fileFormatText(asset)], ["fileSize", fileSizeText(asset)]].map(([key, value]) => fileFactRowMarkup(key, value)).join("");
-    return `<section class="inspector-section" data-inspector-section="file"><div class="detail-image-wrap">${assetMediaPreviewMarkup(asset, "detail")}</div><div class="detail-head"><h3 id="detailTitle" tabindex="-1" title="${escapeHtml(title)}">${escapeHtml(title)}</h3><p>${escapeHtml(asset.id)} · ${formatDate(asset.created_at, state.locale)}</p></div><div class="detail-facts" role="group" aria-label="${escapeHtml(t("fileFacts"))}"><div class="meta-table">${facts}</div></div></section>`;
+  function fileAspectRatioText(asset) {
+    const width = Number(asset?.width);
+    const height = Number(asset?.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+    const gcd = (left, right) => right ? gcd(right, left % right) : left;
+    const divisor = gcd(Math.round(width), Math.round(height));
+    return `${Math.round(width) / divisor}:${Math.round(height) / divisor}`;
   }
 
-  function detailFavoriteSectionMarkup(asset) {
+  function fileFactTagMarkup(key, value) {
+    const text = value === null ? t("notRecorded") : value;
+    const label = `${t(key)}: ${text}`;
+    return `<span class="detail-fact-tag" aria-label="${escapeHtml(label)}">${escapeHtml(text)}</span>`;
+  }
+
+  function detailFavoriteButtonMarkup(asset) {
     const favorite = Boolean(asset.favorite);
-    return `<section class="inspector-section inspector-section-compact" data-inspector-section="favorite"><button class="detail-fav-btn${favorite ? " is-fav" : ""}" type="button" data-action="toggle-favorite" aria-pressed="${favorite}"><span aria-hidden="true">${favorite ? "★" : "☆"}</span> ${t(favorite ? "removeFavorite" : "addFavorite")}</button></section>`;
+    const actionLabel = t(favorite ? "removeFavorite" : "addFavorite");
+    const visibleLabel = t(favorite ? "favorited" : "addFavorite");
+    return `<button class="detail-fav-btn${favorite ? " is-fav" : ""}" type="button" data-action="toggle-favorite" aria-pressed="${favorite}" aria-label="${escapeHtml(actionLabel)}"><span aria-hidden="true">${favorite ? "★" : "☆"}</span><span>${escapeHtml(visibleLabel)}</span></button>`;
+  }
+
+  function detailFileSectionMarkup(asset) {
+    const title = asset.theme || asset.asset || asset.id;
+    const source = sourceName(asset.source || {});
+    const sourceRef = asset.source || {};
+    const openSourceButton = String(sourceRef.conversation_id || "").trim()
+      ? `<button class="section-head-copy detail-overview-open" type="button" data-action="view-generation-session" title="${escapeHtml(t("openOriginalConversation"))}" aria-label="${escapeHtml(t("openOriginalConversation"))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button>`
+      : "";
+    const facts = [
+      ["fileFormat", fileFormatText(asset)],
+      ["fileDimensions", fileDimensionsText(asset)],
+      ["aspectRatio", fileAspectRatioText(asset)],
+      ["fileSize", fileSizeText(asset)],
+      ["group", String(asset.group || "").trim() || t("notGrouped")],
+    ].map(([key, value]) => fileFactTagMarkup(key, value)).join("");
+    return `<section class="inspector-section detail-overview" data-inspector-section="file" aria-labelledby="assetOverviewTitle"><div class="detail-overview-heading"><h3 id="assetOverviewTitle">${t("fileFacts")}</h3><p title="${escapeHtml(`${source} · ${formatDate(asset.created_at, state.locale)}`)}">${escapeHtml(source)} · ${formatDate(asset.created_at, state.locale)}</p>${openSourceButton}</div><div class="detail-image-wrap">${assetMediaPreviewMarkup(asset, "detail")}</div><div class="detail-overview-title-row"><h3 id="detailTitle" tabindex="-1" title="${escapeHtml(title)}">${escapeHtml(title)}</h3>${detailFavoriteButtonMarkup(asset)}</div><div class="detail-facts" role="group" aria-label="${escapeHtml(t("assetMetadata"))}">${facts}</div></section>`;
   }
 
   function detailPromptSectionMarkup(asset) {
     const source = asset.source || {};
-    const promptUnavailable = (source.type === "web-chatgpt" || asset.source_type === "web-chatgpt")
+    const promptUnavailable = /^web-(?:chatgpt|gemini|flow|google-ai-studio)$/.test(source.type || asset.source_type || "")
       && source.prompt_status === "not-available";
     const promptText = asset.prompt
       ? escapeHtml(asset.prompt)
-      : `<span class="empty-copy">${t(promptUnavailable ? "chatgptPromptUnavailable" : "notRecorded")}</span>`;
+      : `<span class="empty-copy">${t(promptUnavailable ? "webPromptUnavailable" : "notRecorded")}</span>`;
+    const providerVisiblePrompt = asset.prompt && source.prompt_status === "provider-visible-prompt";
+    const providerVisiblePromptKey = source.provider === "google-ai-studio" || source.type === "web-google-ai-studio"
+      ? "googleAiStudioVisibleUserPromptUnverified"
+      : source.provider === "flow" || source.type === "web-flow"
+        ? "flowProviderVisiblePromptUnverified"
+        : "";
+    const promptProvenance = providerVisiblePrompt && providerVisiblePromptKey
+      ? `<p class="field-hint prompt-provenance">${escapeHtml(t(providerVisiblePromptKey))}</p>`
+      : "";
     // Prompt 不存在时复制按钮不渲染（避免死按钮与空复制成功提示）；用户指令作为独立子段，
     // 不伪装成生成 Prompt；复制 Prompt 只复制生成 Prompt。
     const copyButton = asset.prompt
       ? `<button class="section-head-copy" type="button" data-action="copy-prompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}">${COPY_ICON_SVG}</button>`
       : "";
     const userInstruction = String(source.user_message || asset.business_fields?.user_message || "").trim();
-    const userInstructionMarkup = userInstruction
-      ? `<div class="user-instruction"><div class="section-head"><h4>${t("userInstruction")}</h4></div><div class="prompt-box">${escapeHtml(userInstruction)}</div></div>`
-      : "";
-    return `<section class="inspector-section" data-inspector-section="prompt"><div class="section-head"><h4>${t("prompt")}</h4>${copyButton}</div><div class="prompt-box">${promptText}</div>${userInstructionMarkup}<details class="detail-disclosure"><summary>${t("recipeAndEditing")}</summary><div class="disclosure-content detail-fields">${editRecipeFieldsMarkup(asset)}<label class="field recipe-change-field"><span>${t("recipeChangeSummary")}</span><textarea data-recipe-change rows="2" placeholder="${escapeHtml(t("recipeChangePlaceholder"))}"></textarea></label><div class="recipe-save-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-recipe">${t("saveRecipe")}</button></div></div></details></section>`;
+    const instructionText = userInstruction
+      ? escapeHtml(userInstruction)
+      : `<span class="empty-copy">${t("userInstructionUnavailable")}</span>`;
+    // V2 keeps the user-instruction pair at a fixed position even when the
+    // upstream source has none.  This preserves the 224px composition instead
+    // of letting a legacy recipe disclosure rise into the V2 first view.
+    const userInstructionMarkup = `<div class="detail-prompt-subhead"><h4>${t("userInstruction")}</h4><button class="detail-copy-sub" type="button" data-action="copy-instruction" aria-label="${escapeHtml(t("userInstruction"))}"${userInstruction ? "" : " disabled"}>${COPY_ICON_SVG}</button></div><div class="prompt-box detail-instruction-box">${instructionText}</div>`;
+    const referenceRow = `<div class="detail-reference-row"><span class="detail-reference-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>${t("referenceImage")}</span><span class="detail-reference-value">${t("referenceUnused")}</span></div>`;
+    return `<section class="inspector-section detail-prompt-section" data-inspector-section="prompt"><div class="detail-prompt-head"><h3>${t("prompt")}</h3>${copyButton}</div><div class="prompt-box detail-prompt-box" role="textbox" aria-readonly="true">${promptText}</div>${promptProvenance}${userInstructionMarkup}${referenceRow}<details class="detail-disclosure"><summary>${t("recipeAndEditing")}</summary><div class="disclosure-content detail-fields">${editRecipeFieldsMarkup(asset)}<label class="field recipe-change-field"><span>${t("recipeChangeSummary")}</span><textarea data-recipe-change rows="2" placeholder="${escapeHtml(t("recipeChangePlaceholder"))}"></textarea></label><div class="recipe-save-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-recipe">${t("saveRecipe")}</button></div></div></details></section>`;
   }
 
   function editRecipeFieldsMarkup(asset) {
@@ -92,11 +134,16 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     const copyButton = sourceCopyValue(source)
       ? `<button class="section-head-copy" type="button" data-action="copy-source" title="${t("copyOriginalPath")}" aria-label="${t("copyOriginalPath")}">${COPY_ICON_SVG}</button>`
       : "";
-    return `<section class="inspector-section" data-inspector-section="source"><div class="section-head"><h4>${t("sourceInfo")}</h4>${copyButton}</div>${rowsMarkup}<details class="detail-disclosure" data-reference-rights-section><summary>${t("referenceRights")}</summary><div class="disclosure-content" data-reference-rights>${referenceRightsMarkup(asset)}</div></details></section>`;
+    const conversationId = String(source.conversation_id || "").trim();
+    const messageId = String(source.message_id || "").trim();
+    const sessionActions = conversationId
+      ? `<div class="detail-utility-actions generation-navigation" role="group" aria-label="${escapeHtml(t("generationNavigation"))}">${messageId ? `<button class="action-btn secondary" type="button" data-action="view-generation-batch">${t("viewGenerationBatch")}</button>` : ""}<button class="action-btn secondary" type="button" data-action="view-generation-session">${t("viewGenerationSession")}</button></div>`
+      : "";
+    return `<section class="inspector-section detail-source-section" data-inspector-section="source"><div class="detail-prompt-head"><h3>${t("sourceInfo")}</h3>${copyButton}</div>${rowsMarkup}${sessionActions}<details class="detail-disclosure" data-reference-rights-section><summary>${t("referenceRights")}</summary><div class="disclosure-content" data-reference-rights>${referenceRightsMarkup(asset)}</div></details></section>`;
   }
 
   function detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory) {
-    return `<section class="inspector-section" data-inspector-section="version"><div class="section-head"><h4>${t("tabVersions")}</h4></div><div class="version-picker" data-version-picker>${versionPickerMarkup(asset, cachedHistory)}</div><details class="detail-disclosure"><summary>${t("versionHistory")}</summary><div class="disclosure-content version-history-region" data-version-history aria-live="polite">${cachedHistory ? versionHistoryMarkup(cachedHistory, asset.id) : `<p class="version-history-status" role="status">${t("versionLoading")}</p>`}</div></details>${recipeHistoryDisclosureMarkup(cachedRecipeHistory)}</section>`;
+    return `<section class="inspector-section detail-version-section" data-inspector-section="version"><div class="detail-prompt-head"><h3>${t("tabVersions")}</h3></div><div class="version-picker" data-version-picker>${versionPickerMarkup(asset, cachedHistory)}</div><details class="detail-disclosure"><summary>${t("versionHistory")}</summary><div class="disclosure-content version-history-region" data-version-history aria-live="polite">${cachedHistory ? versionHistoryMarkup(cachedHistory, asset.id) : `<p class="version-history-status" role="status">${t("versionLoading")}</p>`}</div></details>${recipeHistoryDisclosureMarkup(cachedRecipeHistory)}</section>`;
   }
 
   // Phase 4B：版本选择器——原生 <select>（无自制 popover/listbox/菜单、无第三方 Select、
@@ -131,21 +178,21 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
 
   function detailGroupSectionMarkup(asset) {
     const group = String(asset.group || "").trim();
-    return `<section class="inspector-section inspector-section-compact" data-inspector-section="group"><div class="section-head"><h4>${t("group")}</h4></div><p class="inspector-readout">${group ? escapeHtml(group) : `<span class="empty-copy">${t("notGrouped")}</span>`}</p></section>`;
+    return `<section class="inspector-section detail-group-section" data-inspector-section="group"><div class="detail-prompt-head"><h3>${t("group")}</h3></div><p class="inspector-readout">${group ? escapeHtml(group) : `<span class="empty-copy">${t("notGrouped")}</span>`}</p></section>`;
   }
 
   // D2 冻结：标签保留右栏第 7 位，但当前没有标签数据模型——只显示书面占位说明，
   // 不渲染假标签 / 随机 chip / disabled 输入框 / 添加按钮。
   function detailTagsSectionMarkup() {
-    return `<section class="inspector-section" data-inspector-section="tags"><div class="section-head"><h4>${t("tags")}</h4></div><p class="empty-copy">${t("tagsUnavailable")}</p></section>`;
+    return `<section class="inspector-section detail-tags-section" data-inspector-section="tags"><div class="detail-prompt-head"><h3>${t("tags")}</h3></div><p class="empty-copy">${t("tagsUnavailable")}</p></section>`;
   }
 
   function detailCowartSectionMarkup() {
-    return `<section class="inspector-section" data-inspector-section="cowart"><div class="section-head"><h4>${t("insertCowart")}</h4></div><div class="cowart-insert-slot"></div></section>`;
+    return `<section class="inspector-section detail-cowart-section" data-inspector-section="cowart"><div class="detail-prompt-head"><h3>${t("insertCowart")}</h3></div><div class="cowart-insert-slot"></div></section>`;
   }
 
   function detailNewVersionSectionMarkup() {
-    return `<section class="inspector-section" data-inspector-section="new-version"><div class="section-head"><h4>${t("createNewVersion")}</h4></div><label class="field version-change-field"><span>${t("versionChange")}</span><textarea data-version-change rows="2" placeholder="${escapeHtml(t("versionChangePlaceholder"))}"></textarea></label><div class="new-version-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-version">${t("saveAsVersion")}</button></div></section>`;
+    return `<section class="inspector-section detail-regenerate-section" data-inspector-section="new-version"><div class="detail-regenerate-head"><h3>${t("regenerate")}</h3></div><div class="detail-regenerate-composer"><textarea data-version-change rows="3" placeholder="${escapeHtml(t("regeneratePlaceholder"))}"></textarea><div class="detail-regenerate-bar"><div class="detail-regenerate-controls"><button class="detail-composer-chip" type="button" data-action="select-model" aria-label="${escapeHtml(t("chooseModel"))}">${escapeHtml(t("chooseModel"))}<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button class="detail-composer-chip" type="button" data-action="select-ratio" aria-label="${escapeHtml(t("chooseRatio"))}">4:3<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="detail-composer-segmented" role="group" aria-label="${escapeHtml(t("chooseResolution"))}"><button class="detail-composer-seg" type="button" data-resolution="1K" aria-pressed="true">1K</button><button class="detail-composer-seg" type="button" data-resolution="2K" aria-pressed="false">2K</button><button class="detail-composer-seg" type="button" data-resolution="4K" aria-pressed="false">4K</button></div></div><button class="detail-composer-send" type="button" data-action="save-version" aria-label="${escapeHtml(t("generateAndSave"))}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div></div></section>`;
   }
 
   // Phase 4C：App/Web 原图能力集中判定——desktop-finder（Electron 注入 showItemInFolder 且
@@ -177,7 +224,8 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     const locationValue = imagePath
       ? escapeHtml(asset.image_path)
       : `<span class="empty-copy">${t("notRecorded")}</span>`;
-    return `<section class="inspector-section" data-inspector-section="more"><div class="section-head"><h4>${t("originalAndMore")}</h4></div><div class="original-media-action">${originalMediaActionMarkup(asset)}</div><details class="detail-disclosure" data-more-actions><summary>${t("moreActions")}</summary><div class="disclosure-content"><div class="detail-utility-actions"><button class="action-btn secondary" type="button" data-action="regenerate">${t("regenerate")}</button>${copyPathAction}</div><div class="more-location"><span class="meta-key">${t("imageLocation")}</span><div class="path-box detail-path-box">${locationValue}</div></div></div></details><div class="detail-danger-actions"><button class="action-btn danger" type="button" data-action="archive-asset">${t("batchArchive")}</button></div></section>`;
+    const folderAction = `<section class="inspector-section detail-folder-section"><button class="detail-folder-btn" type="button" data-action="show-in-finder"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>${t("showInFinder")}</button></section>`;
+    return `${folderAction}<section class="inspector-section" data-inspector-section="more"><div class="section-head"><h4>${t("originalAndMore")}</h4></div><div class="original-media-action">${originalMediaActionMarkup(asset)}</div><details class="detail-disclosure" data-more-actions><summary>${t("moreActions")}</summary><div class="disclosure-content"><div class="detail-utility-actions"><button class="action-btn secondary" type="button" data-action="regenerate">${t("regenerate")}</button>${copyPathAction}</div><div class="more-location"><span class="meta-key">${t("imageLocation")}</span><div class="path-box detail-path-box">${locationValue}</div></div></div></details><div class="detail-danger-actions"><button class="action-btn danger" type="button" data-action="archive-asset">${t("batchArchive")}</button></div></section>`;
   }
 
   function versionHistoryMarkup(history, selectedId) {
@@ -253,6 +301,7 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
         ["originalPath", source.path || source.grok_media_path],
       ];
     }
+    if (/^web-/.test(String(source.type || ""))) return [["sourceLabel", sourceName(source)], ["sessionId", source.conversation_id], ["generationBatch", source.message_id], ["model", source.model], ["generationTool", source.generation_tool]];
     return [["sourceLabel", sourceName(source)], ["originalPath", source.path], ["taskId", source.codex_task_id], ["generationTool", source.generation_tool], ["model", source.model]];
   }
   // 来源名称统一走 SOURCE_LABEL_KEYS 单一映射（与 assetSourceLabel 同口径）：web-chatgpt
@@ -291,5 +340,5 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return `<img class="thumb" src="${escapeHtml(url)}" alt="${escapeHtml(title)}" loading="lazy" />`;
   }
 
-  return { fileDimensionsText, fileFormatText, fileSizeText, formatFileSize, fileFactRowMarkup, detailFileSectionMarkup, detailFavoriteSectionMarkup, detailPromptSectionMarkup, editRecipeFieldsMarkup, detailSourceSectionMarkup, detailVersionSectionMarkup, versionPickerMarkup, versionOptionLabel, detailVersionSummaryMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, detailCowartSectionMarkup, detailNewVersionSectionMarkup, originalMediaCapability, originalMediaActionMarkup, detailMoreSectionMarkup, versionHistoryMarkup, recipeHistoryDisclosureMarkup, referenceRightsSummary, recipeHistoryMarkup, categoryOptions, buildSourceRows, sourceName, sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup };
+  return { fileDimensionsText, fileFormatText, fileSizeText, fileAspectRatioText, formatFileSize, fileFactRowMarkup, fileFactTagMarkup, detailFavoriteButtonMarkup, detailFileSectionMarkup, detailPromptSectionMarkup, editRecipeFieldsMarkup, detailSourceSectionMarkup, detailVersionSectionMarkup, versionPickerMarkup, versionOptionLabel, detailVersionSummaryMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, detailCowartSectionMarkup, detailNewVersionSectionMarkup, originalMediaCapability, originalMediaActionMarkup, detailMoreSectionMarkup, versionHistoryMarkup, recipeHistoryDisclosureMarkup, referenceRightsSummary, recipeHistoryMarkup, categoryOptions, buildSourceRows, sourceName, sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup };
 }

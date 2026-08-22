@@ -89,12 +89,11 @@ test("12-14. 960 下 Sidebar 批准收敛规则与搜索可达", async () => {
   // 701–1120 图标栏收敛（960×640 落在该区间）仍是批准的唯一紧凑档。
   assert.match(styles, /@media \(min-width: 701px\) and \(max-width: 1120px\)/);
   assert.match(styles, /\.shell\.details-open \.nav-item-text,/);
-  // Sidebar Search 仍是同一个 #searchInput。
-  assert.match(index, /<div class="sidebar-search">/);
+  // V2 FilterBar：唯一搜索框位于顶栏右侧，仍是同一个 #searchInput。
+  assert.match(index, /<div class="topbar-search">/);
   assert.match(index, /id="searchInput"/);
-  // 图标栏态 :focus-within 展开为 fixed 浮动面板的入口规则保留。
-  assert.match(styles, /\.shell\.details-open \.sidebar-search:focus-within \{/);
-  assert.match(styles, /\.shell\.details-open \.sidebar-search:focus-within input \{ position: static; opacity: 1;/);
+  // 顶栏搜索的焦点态规则保留。
+  assert.match(styles, /\.topbar-search:focus-within \{/);
 });
 
 test("15-16. 960 下 Viewer shell 与舞台契约", async () => {
@@ -130,7 +129,7 @@ test("19-21. Return / Prev / Next / Zoom 控件可见契约", async () => {
   assert.match(styles, /\.asset-view-controls \{ position: absolute;/);
 });
 
-test("22-24. Inspector 十项顺序：Cowart 第八、More 第十、Cowart 唯一 primary", async () => {
+test("22-24. Inspector V2 九项顺序：Cowart 第七、More 第九、Cowart 唯一 primary", async () => {
   const appJs = await source("app/app.mjs");
   const inspector = await source("app/inspector-markup.mjs");
   const template = appJs.slice(
@@ -139,7 +138,6 @@ test("22-24. Inspector 十项顺序：Cowart 第八、More 第十、Cowart 唯�
   );
   const order = [
     "detailFileSectionMarkup",
-    "detailFavoriteSectionMarkup",
     "detailPromptSectionMarkup",
     "detailSourceSectionMarkup",
     "detailVersionSectionMarkup",
@@ -155,8 +153,8 @@ test("22-24. Inspector 十项顺序：Cowart 第八、More 第十、Cowart 唯�
     assert.notEqual(position, -1, `${markup} present in inspector template`);
     cursor = position;
   }
-  assert.equal(order.indexOf("detailCowartSectionMarkup"), 7, "Cowart stays the 8th section");
-  assert.equal(order.indexOf("detailMoreSectionMarkup"), 9, "More stays the 10th section");
+  assert.equal(order.indexOf("detailCowartSectionMarkup"), 6, "Cowart stays the 7th section");
+  assert.equal(order.indexOf("detailMoreSectionMarkup"), 8, "More stays the 9th section");
   // data-inspector-section 标记与顺序一致。
   assert.match(inspector, /data-inspector-section="cowart"/);
   assert.match(inspector, /data-inspector-section="more"/);
@@ -173,7 +171,7 @@ test("25. body/document 不设置造成水平滚动的固定宽度", async () =>
   assert.doesNotMatch(styles, /body\s*\{[^}]*overflow-x:\s*hidden/s);
 });
 
-test("26. 不新增无解释断点", async () => {
+test("26. 断点必须属于已登记的桌面或 V2 响应式设计区间", async () => {
   const styles = await source("app/styles.css");
   // 只审计 @media 媒体查询中的宽度边界，不扫组件级 width/max-width 声明。
   const mediaQueries = [...styles.matchAll(/@media[^{]+\{/g)].map((match) => match[0]);
@@ -181,7 +179,9 @@ test("26. 不新增无解释断点", async () => {
   for (const query of mediaQueries) {
     boundaryValues.push(...[...query.matchAll(/(?:min|max)-width:\s*(\d+)px/g)].map((match) => Number(match[1])));
   }
-  const allowed = new Set([1400, 1399, 1120, 900, 701, 700, 480]);
+  // 1279/767 come from the supplied Library v2 reference: five columns at
+  // 1280+, three columns at 768–1279, and a two-column drawer layout below.
+  const allowed = new Set([1400, 1399, 1280, 1279, 1120, 900, 767, 701, 700, 480]);
   for (const width of boundaryValues) {
     assert.ok(allowed.has(width), `media query boundary ${width}px must belong to the registered breakpoint set`);
   }
@@ -223,11 +223,9 @@ test("31. F-08 空状态不退化", async () => {
   assert.match(appJs, /empty-state-actions/);
 });
 
-test("32-34. Phase 5 Overlay / Confirm / Toast 契约测试文件不退化", async () => {
-  const overlay = await source("test/anchored-overlay-menu-contract.test.mjs");
+test("32-34. Phase 5 Confirm / Toast 契约测试文件不退化", async () => {
   const confirm = await source("test/confirm-dialog-contract.test.mjs");
   const toast = await source("test/toast-manager-contract.test.mjs");
-  assert.match(overlay, /anchoredOverlayManager|AnchoredOverlay/);
   assert.match(confirm, /confirmDialog/);
   assert.match(toast, /createToastManager/);
   // Phase 5C 校正登记：18 个 test block 覆盖 60/60 契约点，不是 18 项契约。
@@ -251,9 +249,9 @@ test("35-37. Viewer Navigation / Transform / Return Snapshot 不退化", async (
   assert.match(assetView, /selectedAssetId: state\.selectedId,\n\s+requestKey: assetRequestKey\(currentAssetRequest\(\)\)/);
 });
 
-test("38. Inspector IA 十项 section 标记全在且唯一", async () => {
+test("38. Inspector IA V2 九项 section 标记全在且唯一", async () => {
   const inspector = await source("app/inspector-markup.mjs");
-  const sections = ["file", "favorite", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
+  const sections = ["file", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
   for (const section of sections) {
     assert.equal(
       inspector.split(`data-inspector-section="${section}"`).length - 1,

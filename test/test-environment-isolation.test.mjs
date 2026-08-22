@@ -18,6 +18,8 @@ const POLLUTED = {
   MOSA_COWART_ENDPOINT: "http://127.0.0.1:59999",
   MOSA_COWART_REGISTRY_PATH: "/private/tmp/mosa-invalid-registry-path.json",
   MOSA_PROJECT_DIR: "/private/tmp/mosa-polluted-project",
+  MOSA_WEB_CAPTURE_TOKEN: "polluted-web-capture-token",
+  MOSA_WEB_CAPTURE_ORIGINS: "chrome-extension://polluted-extension-id",
 };
 
 function baseEnv() {

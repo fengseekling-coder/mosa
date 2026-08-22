@@ -29,7 +29,7 @@
     "test:performance": "MOSA_PERF_TEST=1 node --test test/performance.test.mjs",
     "verify:codex": "node scripts/verify-codex-asset.mjs",
     "predesktop:start": "npm run build",
-    "desktop:start": "electron desktop/main.mjs",
+    "desktop:start": "node scripts/desktop-start.mjs",
     "predesktop:package": "npm run build",
     "desktop:package": "electron-forge package --platform darwin --arch arm64",
     "predesktop:make": "npm run build",

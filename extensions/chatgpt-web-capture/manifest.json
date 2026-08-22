@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "MOSA ChatGPT Capture",
-  "version": "0.10.0",
-  "description": "Archive ChatGPT generation images with message-scoped prompt and asset correlation.",
+  "name": "MOSA Web Capture",
+  "version": "0.11.0",
+  "description": "Archive generated images from ChatGPT, Gemini, Flow, and Google AI Studio to local MOSA.",
   "permissions": ["storage", "activeTab", "contextMenus"],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -11,6 +11,13 @@
     "https://*.openai.com/*",
     "https://*.oaistatic.com/*",
     "https://*.blob.core.windows.net/*",
+    "https://gemini.google.com/*",
+    "https://labs.google/*",
+    "https://aistudio.google.com/*",
+    "https://*.googleusercontent.com/*",
+    "https://*.ggpht.com/*",
+    "https://storage.googleapis.com/*",
+    "https://generativelanguage.googleapis.com/*",
     "http://127.0.0.1/*",
     "http://localhost/*"
   ],
@@ -37,6 +44,16 @@
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://gemini.google.com/*",
+        "https://labs.google/*",
+        "https://aistudio.google.com/*"
+      ],
+      "js": ["provider-sites.js"],
+      "run_at": "document_idle",
       "all_frames": false
     }
   ],

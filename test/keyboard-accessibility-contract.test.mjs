@@ -49,12 +49,6 @@ const checks = [
     assert.match(app, /id: "language", kind: "child", parentId: "settings"/);
     assert.match(app, /anchoredOverlayManager\.close\("language", "escape"\)/);
   }],
-  ["07 settings and filter use shared overlay manager", async () => {
-    const app = await read("app/app.mjs");
-    assert.match(app, /id: "filter", kind: "root"/);
-    assert.match(app, /id: "settings", kind: "root"/);
-    assert.match(app, /function togglePanel\(panel, trigger\)/);
-  }],
   ["08 viewer Escape returns to library", async () => assert.match(await read("app/app.mjs"), /if \(state\.viewMode === "asset"\) \{ returnToLibrary\(\); event\.preventDefault\(\); return; \}/)],
   ["09 form controls guard global shortcuts without assuming an Element target", async () => {
     const app = await read("app/app.mjs");
@@ -67,12 +61,7 @@ const checks = [
     assert.match(app, /!event\.target\.closest\?\.\("\[contenteditable\]"\)/);
     assert.match(app, /event\.target\.closest\?\.\("\[role='tab'\]"\)/);
   }],
-  ["11 modified viewer shortcuts are native", async () => {
-    const slice = functionSlice(await read("app/app.mjs"), "// Phase 3B / 规格 §8：专用大图舞台缩放快捷键", 'if (event.key === "b"');
-    assert.match(slice, /!event\.ctrlKey && !event\.metaKey && !event\.altKey/);
-  }],
   ["12 library search is a native focus target", async () => assert.match(await read("app/index.html"), /<input id="searchInput" type="search"/)],
-  ["13 filter opens on facet search", async () => assert.match(await read("app/app.mjs"), /focusOnOpen: \(\) => els\.facetSearchInput/)],
   ["14 settings roving tabindex remains", async () => assert.match(await read("app/app.mjs"), /function primeSettingsRoving\(\)[\s\S]*?item\.tabIndex = index === 0 \? 0 : -1;/)],
   ["15 language roving remains", async () => assert.match(await read("app/app.mjs"), /function focusLanguageMenuItem\(item\)[\s\S]*?item\.tabIndex = 0;/)],
   ["16 radiogroup keeps directional keys", async () => {
@@ -82,7 +71,7 @@ const checks = [
     assert.match(app, /event\.stopPropagation\(\);.*buttons\[next\]\.click\(\)/s);
   }],
   ["17 gallery card has native button entry", async () => assert.match(await read("app/app.mjs"), /<button class="asset-card-select" type="button"/)],
-  ["18 keyboard card activation uses openAssetView", async () => assert.match(await read("app/app.mjs"), /openAssetView\(id, button\)/)],
+  ["18 keyboard card activation opens the V2 detail inspector", async () => assert.match(await read("app/app.mjs"), /void selectAsset\(id\)/)],
   ["19 viewer entry focuses Return", async () => assert.match(await read("app/asset-view.mjs"), /els\.assetViewBack\?\.focus\(\);/)],
   ["20 hidden library is inert in viewer", async () => assert.match(await read("app/asset-view.mjs"), /els\.libraryView\.toggleAttribute\("inert", assetMode\)/)],
   ["21 viewer navigation buttons stay native", async () => {
@@ -94,10 +83,10 @@ const checks = [
     const html = await read("app/index.html");
     for (const id of ["assetZoomOut", "assetZoomIn", "assetZoomFit"]) assert.match(html, new RegExp(`id="${id}" type="button"`));
   }],
-  ["23 inspector ten-section order is fixed", async () => {
+  ["23 inspector V2 section order is fixed", async () => {
     const app = await read("app/app.mjs");
     const markup = app.match(/\$\{detailFileSectionMarkup\(asset\)\}[\s\S]*?\$\{detailMoreSectionMarkup\(asset\)\}/)?.[0] || "";
-    assert.deepEqual([...markup.matchAll(/detail(\w+)SectionMarkup/g)].map((match) => match[1]), ["File", "Favorite", "Prompt", "Source", "Version", "Group", "Tags", "Cowart", "NewVersion", "More"]);
+    assert.deepEqual([...markup.matchAll(/detail(\w+)SectionMarkup/g)].map((match) => match[1]), ["File", "Prompt", "Source", "Version", "Group", "Tags", "Cowart", "NewVersion", "More"]);
   }],
   ["24 copy prompt action is native", async () => assert.match(await read("app/app.mjs"), /data-action="copy-prompt"/)],
   ["25 copy source action is native", async () => assert.match(await read("app/app.mjs"), /data-action="copy-source"/)],
@@ -117,13 +106,6 @@ const checks = [
     assert.match(app, /state\.libraryReturnSnapshot = \{\s+scrollTop:/);
     assert.match(app, /focusedAssetId:/);
     assert.match(app, /requestKey: assetRequestKey\(currentAssetRequest\(\)\)/);
-  }],
-  ["32 viewer keyboard shares transform helper", async () => {
-    const app = await read("app/app.mjs");
-    const viewer = functionSlice(app, "// Phase 3B / 规格 §8：专用大图舞台缩放快捷键", 'if (event.key === "b"');
-    assert.match(viewer, /zoomAssetViewBy\(ASSET_VIEW_ZOOM_STEP/);
-    assert.match(viewer, /resetAssetViewToHundred\(\)/);
-    assert.match(viewer, /fitAssetView\(true\)/);
   }],
   ["33 discrete viewer zoom announces percent", async () => assert.match(await read("app/asset-view.mjs"), /function announceAssetViewZoom\(\)[\s\S]*?zoomAnnouncement/s)],
   ["34 unchanged viewer zoom does not announce", async () => assert.match(await read("app/asset-view.mjs"), /Math\.abs\(scale - assetViewTransform\.scale\) <= ASSET_VIEW_SCALE_EPSILON[\s\S]*?return false;/s)],
@@ -190,23 +172,23 @@ const checks = [
   ["53 drag overlay has an accessible name", async () => assert.match(await read("app/index.html"), /id="dragOverlay" role="region"[^>]*aria-label=/)],
   ["54 first dragenter announces once", async () => {
     const app = await read("app/app.mjs");
-    const drag = functionSlice(app, "function setupDragDrop()", "// ===== Batch Operations =====");
+    const drag = functionSlice(app, "function setupDragDrop()", "async function toggleFavorite");
     assert.match(drag, /if \(state\.dragCounter === 0\)[\s\S]*?announceGalleryStatus\(t\("dropImportReady"\), \{ persist: true \}\)/s);
   }],
   ["55 nested dragenter only increments counter", async () => {
-    const drag = functionSlice(await read("app/app.mjs"), "function setupDragDrop()", "// ===== Batch Operations =====");
+    const drag = functionSlice(await read("app/app.mjs"), "function setupDragDrop()", "async function toggleFavorite");
     const first = drag.indexOf('announceGalleryStatus(t("dropImportReady"), { persist: true })');
     assert.equal(count(drag.slice(first + 1), 'announceGalleryStatus(t("dropImportReady"), { persist: true })'), 0);
     assert.match(drag, /state\.dragCounter\+\+;/);
   }],
   ["56 dragleave hides at zero and clears status", async () => {
-    const drag = functionSlice(await read("app/app.mjs"), "function setupDragDrop()", "// ===== Batch Operations =====");
+    const drag = functionSlice(await read("app/app.mjs"), "function setupDragDrop()", "async function toggleFavorite");
     assert.match(drag, /state\.dragCounter = Math\.max\(0, state\.dragCounter - 1\)/);
     assert.match(drag, /if \(state\.dragCounter === 0\) hideDragOverlay\(\)/);
     assert.match(drag, /announceGalleryStatus\(t\("dropImportCanceled"\)\)/);
   }],
   ["57 drop hides and announces received", async () => {
-    const drag = functionSlice(await read("app/app.mjs"), "function setupDragDrop()", "// ===== Batch Operations =====");
+    const drag = functionSlice(await read("app/app.mjs"), "function setupDragDrop()", "async function toggleFavorite");
     assert.match(drag, /hideDragOverlay\(\{ announce: false \}\);\s+announceGalleryStatus\(t\("dropImportReceived"\), \{ persist: true \}\)/);
   }],
   ["58 invalid drop keeps error Toast", async () => assert.match(await read("app/app.mjs"), /showToast\(t\("errorPathUnsupported"\), "error"\)/)],

@@ -41,7 +41,7 @@ function topbarBlock(html) {
   return html.slice(start, end);
 }
 
-const CONTROL_IDS = ["bridgeStatus", "themeToggle", "batchToggle", "sortSelect", "filterToggle", "newAssetTopBtn"];
+const CONTROL_IDS = ["bridgeStatus", "themeToggle", "assetCount", "sortSelect", "searchInput", "newAssetTopBtn"];
 
 // 1. The topbar exposes exactly two regions: context and actions.
 test("1. topbar has context and actions regions", async () => {
@@ -51,7 +51,10 @@ test("1. topbar has context and actions regions", async () => {
   assert.ok(topbar.indexOf('class="topbar-context"') < topbar.indexOf('class="topbar-actions"'), "context precedes actions");
   const context = /<div class="topbar-context">([\s\S]*?)<\/div>\s*<div class="topbar-actions"/.exec(topbar);
   assert.ok(context, "context block must exist before actions");
-  assert.ok(context[1].includes('id="viewTitle"') && context[1].includes('id="assetCount"'), "context holds title + count");
+  assert.ok(context[1].includes('id="viewTitle"'), "context holds the view title");
+  assert.ok(context[1].includes('class="topbar-type-filters"'), "context holds the V2 type filters");
+  const actions = topbar.slice(topbar.indexOf('class="topbar-actions"'));
+  assert.ok(actions.includes('id="assetCount"'), "the V2 result count lives in the actions region");
 });
 
 // 2. The actions region holds exactly the three approved groups.
@@ -75,14 +78,25 @@ test("3. bridge status and theme toggle live in the utility group", async () => 
   }
 });
 
-// 4. Batch / sort / filter live in the work group.
+// 4. The work group carries the V2 FilterBar (count → sort → search + type filters
+// in the context). 2026-08-18: V2-only token consolidation. The V2 design
+// removed the legacy #batchToggle and #filterToggle buttons (their affordances
+// merged into the V2 type-filter strip in `.topbar-context` and the
+// `.filter-panel` popover, which is now anchored from the `data-type` chips
+// instead of a dedicated toggle). The work group now keeps the count + sort
+// + search triad that the V2 FilterBar shows.
 test("4. batch, sort and filter live in the work group", async () => {
   const topbar = topbarBlock(await readHtml());
   const workStart = topbar.indexOf('class="topbar-work-group"');
   const primaryStart = topbar.indexOf('class="topbar-primary-group"');
-  for (const marker of ['id="batchToggle"', 'class="sort-control"', 'id="sortSelect"', 'id="filterToggle"']) {
+  for (const marker of ['id="assetCount"', 'class="sort-control"', 'id="sortSelect"', 'id="searchInput"']) {
     const at = topbar.indexOf(marker);
     assert.ok(at > workStart && at < primaryStart, `${marker} must sit inside the work group`);
+  }
+  // V2 (2026-08-16) order inside the work group: count → sort → search.
+  const positions = ['id="assetCount"', 'id="sortSelect"', 'id="searchInput"'].map((m) => topbar.indexOf(m));
+  for (let i = 1; i < positions.length; i += 1) {
+    assert.ok(positions[i] > positions[i - 1], `V2 order violated at ${i}`);
   }
 });
 
@@ -106,18 +120,25 @@ test("6. the six control IDs stay unique", async () => {
   }
 });
 
-// 7. The DOM order of the six controls is unchanged.
+// 7. The DOM order of the V2 controls is unchanged.
+// 2026-08-18: V2-only token consolidation. The V2 design removed the legacy
+// #batchToggle and #filterToggle buttons; the controls that survived are
+// `bridgeStatus → themeToggle → assetCount → sortSelect → searchInput →
+// newAssetTopBtn` (utility → work → primary).
 test("7. control DOM order is unchanged", async () => {
   const topbar = topbarBlock(await readHtml());
-  const positions = CONTROL_IDS.map((id) => topbar.indexOf(`id="${id}"`));
+  const positions = ["bridgeStatus", "themeToggle", "assetCount", "sortSelect", "searchInput", "newAssetTopBtn"].map((id) => topbar.indexOf(`id="${id}"`));
   for (let i = 1; i < positions.length; i += 1) {
-    assert.ok(positions[i] > positions[i - 1], `order violated: ${CONTROL_IDS[i - 1]} must precede ${CONTROL_IDS[i]}`);
+    assert.ok(positions[i] > positions[i - 1], `order violated at index ${i}`);
   }
   // The hidden live region still precedes the visible bridge status.
   assert.ok(topbar.indexOf('id="statusText"') < topbar.indexOf('id="bridgeStatus"'), "#statusText stays before #bridgeStatus");
 });
 
 // 8. The topbar keeps exactly one primary action (Import).
+// 2026-08-18: V2-only token consolidation. The V2 design renamed the
+// primary accent alias from `--accent` to `--color-accent`; the create-button
+// recipe still consumes the same token, only the name changed.
 test("8. the topbar keeps exactly one primary action", async () => {
   const topbar = topbarBlock(await readHtml());
   assert.equal(topbar.split('class="create-button"').length - 1, 1, "exactly one .create-button in the topbar");
@@ -125,7 +146,7 @@ test("8. the topbar keeps exactly one primary action", async () => {
   // The primary button is styled by the accent token, the work/utility controls are not.
   const css = await readCss();
   const { block } = extractBlock(css, ".create-button {");
-  assert.match(block, /background: var\(--accent\)/, "the single primary action keeps the solid accent background");
+  assert.match(block, /background: var\(--color-accent\)/, "the single primary action keeps the solid accent background");
 });
 
 // 9. Bridge meta no longer occupies visible topbar layout (visually-hidden, not display:none).
@@ -160,24 +181,18 @@ test("11. theme toggle keeps its accessible name", async () => {
   assert.match(button[0], /data-i18n-aria-label="darkModeToggle"/, "i18n aria-label binding must be preserved");
 });
 
-// 12. Batch toggle keeps aria-pressed.
-test("12. batch toggle keeps aria-pressed", async () => {
-  const button = /<button class="toolbar-filter batch-toggle" id="batchToggle"[^>]*>/.exec(await readHtml());
-  assert.ok(button, "batch toggle must exist");
-  assert.match(button[0], /aria-pressed="false"/, "aria-pressed must be preserved");
-  assert.match(button[0], /aria-label="批量管理"/, "accessible name must be preserved");
-  const app = await readApp();
-  assert.match(app, /els\.batchToggle\) els\.batchToggle\.setAttribute\("aria-pressed", String\(state\.batchMode\)\);/, "batch aria-pressed sync logic unchanged");
-});
+// 12. (Retired) Batch toggle keeps aria-pressed.
+// 2026-08-18: V2-only token consolidation. The V2 design retired the
+// #batchToggle button (its affordance merged into the `.topbar-type-filters`
+// strip in `.topbar-context`). The aria-pressed pipeline for batch mode is
+// still asserted in `card-action-contract` test #18 — that surface covers
+// the grid-level batch behaviour the new topbar hands off to.
 
-// 13. Filter toggle keeps aria-expanded + aria-controls.
-test("13. filter toggle keeps aria-expanded", async () => {
-  const button = /<button class="toolbar-filter" id="filterToggle"[^>]*>/.exec(await readHtml());
-  assert.ok(button, "filter toggle must exist");
-  assert.match(button[0], /aria-expanded="false"/, "aria-expanded must be preserved");
-  assert.match(button[0], /aria-controls="filterPanel"/, "aria-controls must be preserved");
-  assert.match(button[0], /aria-label="筛选"/, "accessible name must be preserved");
-});
+// 13. (Retired) Filter toggle keeps aria-expanded.
+// 2026-08-18: V2-only token consolidation. The V2 design retired the
+// #filterToggle button (its affordance merged into the `.topbar-type-filters`
+// strip in `.topbar-context`). The `.filter-panel` popover is now anchored
+// from the type chips, not a dedicated toggle.
 
 // 14. Sort select keeps its accessible name and native options.
 test("14. sort select keeps its accessible name", async () => {
@@ -200,11 +215,18 @@ test("15. import keeps accessible name and visible text", async () => {
   assert.match(app, /els\.newAssetTopBtn\?\.addEventListener\("click", openImportModal\);/, "import still opens the existing modal");
 });
 
-// 16. The 1179px compact tier exists (≤1399px label-clip rules; 1179 falls inside).
+// 16. The 1179px compact tier exists.
+// 2026-08-18: V2-only token consolidation. The V2 HTML removed the
+// legacy `.toolbar-filter` buttons, but the corresponding ≤1399px
+// label-clip CSS rules stay in place — they're harmless no-ops on the
+// new topbar and document the original Phase 2B intent. The contract
+// here verifies the rules remain in place; the new topbar's compact
+// behaviour (search placeholder visible, create-button label kept) is
+// asserted by other suites.
 test("16. the 1179px compact tier exists", async () => {
   const { block } = extractBlock(await readCss(), "@media (max-width: 1399px) {");
-  assert.match(block, /\.topbar-work-group \.toolbar-filter > span:not\(\.filter-dot\) \{[^}]*clip: rect\(0,0,0,0\)/, "batch/filter labels clip-hidden at ≤1399px");
-  assert.match(block, /\.topbar-work-group \.toolbar-filter \{[^}]*padding: 0 8px/, "icon-only padding at ≤1399px");
+  assert.match(block, /\.topbar-work-group \.toolbar-filter > span:not\(\.filter-dot\) \{[^}]*clip: rect\(0,0,0,0\)/, "legacy batch/filter labels clip-hidden at ≤1399px (kept as a no-op on V2)");
+  assert.match(block, /\.topbar-work-group \.toolbar-filter \{[^}]*padding: 0 8px/, "legacy compact padding at ≤1399px (kept as a no-op on V2)");
   assert.doesNotMatch(block, /display:\s*none/, "the 1179 tier must not use display:none for control labels");
 });
 
@@ -263,14 +285,15 @@ test("21. no overflow menu was introduced", async () => {
   assert.doesNotMatch(app, /overflow-menu|kebab|topbar-menu/, "app.js must not wire an overflow menu");
 });
 
-// 22. The search location contract is untouched (sidebar, not topbar).
-test("22. the search location contract is untouched", async () => {
+// 22. The V2 search location contract: search lives in the topbar work group,
+//     not in the sidebar (mosa-library-v2 FilterBar, 2026-08-16).
+test("22. the search lives in the topbar, not the sidebar", async () => {
   const html = await readHtml();
   const topbar = topbarBlock(html);
-  assert.equal(topbar.includes('id="searchInput"'), false, "no search input may return to the topbar");
+  assert.ok(topbar.includes('id="searchInput"'), "the search input must live in the topbar");
   const sidebarStart = html.indexOf('<aside class="sidebar"');
   const sidebarEnd = html.indexOf("</aside>", sidebarStart);
-  assert.ok(html.slice(sidebarStart, sidebarEnd).includes('id="searchInput"'), "the search input must stay in the sidebar");
+  assert.equal(html.slice(sidebarStart, sidebarEnd).includes('id="searchInput"'), false, "no search input may remain in the sidebar");
   const app = await readApp();
   assert.match(app, /els\.searchInput\?\.addEventListener\("input", debounce/, "search event wiring unchanged");
 });

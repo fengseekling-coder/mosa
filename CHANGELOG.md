@@ -17,6 +17,10 @@ This file records user-visible changes. Operational deployment state and local p
 - Stores the extension address, Token, and auto-capture preference in Chrome local storage rather than synchronized storage.
 - Hardened extension reload handling so startup context loss is reported reliably and temporary settings failures cannot re-enable auto-capture or overwrite the saved preference.
 
+### Web image capture
+
+- Added Gemini, Flow, and Google AI Studio page support to the optional Chrome extension. These sites capture only user-visible generated images and page provenance; they do not inspect session APIs, credentials, or hidden prompts.
+
 ### Project documentation
 
 - Added security, privacy, support, contribution, commercial-licensing, and conduct policies.

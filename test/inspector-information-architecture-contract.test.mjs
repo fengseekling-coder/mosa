@@ -1,5 +1,5 @@
 // Inspector information-architecture contract (Phase 4A): the approved
-// single-column detail panel — ten semantic sections in the approved order,
+// single-column detail panel — V2's nine semantic sections in the approved order,
 // no tab roles, honest file-fact fallbacks ("未记录" instead of fabricated
 // dimensions/size), Cowart as the only solid primary action, Save Version
 // demoted to secondary, and every async race guard preserved. Static guards
@@ -55,15 +55,16 @@ function functionSlice(source, name) {
   return source.slice(start, next === -1 ? source.length : next);
 }
 
-// The approved Phase 4A order, locked to the ten data-inspector-section ids.
-const SECTION_ORDER = ["file", "favorite", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
+// Library v2 keeps favorite inside its Overview; the remaining semantic blocks
+// are therefore a nine-section column.
+const SECTION_ORDER = ["file", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
 // Exact helper-call sequence inside the renderDetail single-column composition.
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailFavoriteSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup()}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup()}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
 
 // 1. Detail uses a single vertical information column.
 // 2. No detail tablist. 3. No detail tab. 4. No detail tabpanel.
-// 5. Ten semantic sections exist. 6. Their order matches the approved spec.
-test("1-6. single-column architecture, tab roles removed, ten sections in approved order", async () => {
+// 5. Nine semantic sections exist. 6. Their order matches the V2 spec.
+test("1-6. single-column architecture, tab roles removed, V2 sections in approved order", async () => {
   const [app, inspector, css] = await Promise.all([readApp(), readInspectorMarkup(), readCss()]);
 
   // 1. Single column: one inspector shell with one header and one scroll container.
@@ -92,15 +93,16 @@ test("1-6. single-column architecture, tab roles removed, ten sections in approv
   assert.doesNotMatch(app + inspector, /class="detail-tab/);
   assert.doesNotMatch(css, /\.detail-tab/);
 
-  // 5. Ten semantic sections, each emitted exactly once.
-  assert.equal(count(inspector, 'data-inspector-section="'), 10, "exactly ten semantic sections");
+  // 5. Nine semantic sections, each emitted exactly once. Favorite belongs in
+  // the V2 Overview instead of occupying a detached visual section.
+  assert.equal(count(inspector, 'data-inspector-section="'), 9, "exactly nine V2 semantic sections");
   for (const id of SECTION_ORDER) {
     assert.ok(inspector.includes(`data-inspector-section="${id}"`), `missing section ${id}`);
   }
 
-  // 6. The renderDetail composition concatenates the ten helpers in the
+  // 6. The renderDetail composition concatenates the V2 helpers in the
   // approved order — this string is the single source of the section order.
-  assert.ok(app.includes(COMPOSITION), "renderDetail must compose the ten sections in the approved order");
+  assert.ok(app.includes(COMPOSITION), "renderDetail must compose the V2 sections in the approved order");
 });
 
 // 7. File-facts section exists. 8. Missing facts fall back to notRecorded.
@@ -108,10 +110,10 @@ test("1-6. single-column architecture, tab roles removed, ten sections in approv
 test("7-10. file facts are honest — notRecorded fallbacks, no fabrication", async () => {
   const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
 
-  // 7. Section with a labelled fact group and the three derived values.
+  // 7. Section with an asset-metadata group and the V2 fact-tag values.
   const fileSection = functionSlice(inspector, "detailFileSectionMarkup");
   assert.ok(fileSection.includes('data-inspector-section="file"'));
-  assert.match(fileSection, /class="detail-facts" role="group" aria-label="\$\{escapeHtml\(t\("fileFacts"\)\)\}"/);
+  assert.match(fileSection, /class="detail-facts" role="group" aria-label="\$\{escapeHtml\(t\("assetMetadata"\)\)\}"/);
   assert.ok(fileSection.includes('["fileDimensions", fileDimensionsText(asset)]'));
   assert.ok(fileSection.includes('["fileFormat", fileFormatText(asset)]'));
   assert.ok(fileSection.includes('["fileSize", fileSizeText(asset)]'));
@@ -134,17 +136,19 @@ test("7-10. file facts are honest — notRecorded fallbacks, no fabrication", as
   assert.match(inspector, /if \(!Number\.isFinite\(bytes\) \|\| bytes <= 0\) return "";/);
 });
 
-// 11. Favorite button exists. 12. It uses aria-pressed. 13. It reuses toggleFavorite.
-test("11-13. favorite section with aria-pressed reusing toggleFavorite", async () => {
+// 11. Favorite button belongs to the Overview. 12. It uses aria-pressed.
+// 13. It reuses toggleFavorite.
+test("11-13. V2 Overview favorite control uses aria-pressed and toggleFavorite", async () => {
   const app = await readApp();
   const inspector = await readInspectorMarkup();
 
-  const favoriteSection = functionSlice(inspector, "detailFavoriteSectionMarkup");
-  assert.ok(favoriteSection.includes('data-inspector-section="favorite"'));
-  assert.ok(favoriteSection.includes('data-action="toggle-favorite"'), "favorite button present");
-  assert.ok(favoriteSection.includes('aria-pressed="${favorite}"'), "pressed state is exposed");
-  // Dual-channel naming: text label switches between add/remove, not color alone.
-  assert.ok(favoriteSection.includes('t(favorite ? "removeFavorite" : "addFavorite")'));
+  const overview = functionSlice(inspector, "detailFileSectionMarkup");
+  const favoriteButton = functionSlice(inspector, "detailFavoriteButtonMarkup");
+  assert.ok(overview.includes('class="detail-overview-title-row"'), "favorite shares the title row");
+  assert.ok(overview.includes("${detailFavoriteButtonMarkup(asset)}"), "overview renders the favorite control");
+  assert.ok(favoriteButton.includes('data-action="toggle-favorite"'), "favorite button present");
+  assert.ok(favoriteButton.includes('aria-pressed="${favorite}"'), "pressed state is exposed");
+  assert.ok(favoriteButton.includes('t(favorite ? "removeFavorite" : "addFavorite")'));
 
   const bindDetailEvents = functionSlice(app, "bindDetailEvents");
   assert.match(bindDetailEvents, /toggleFavorite\(asset\.id, event\)/, "reuses the existing toggleFavorite path");
@@ -164,16 +168,23 @@ test("14-17. prompt section states, copy entry and user-instruction separation",
 
   // 16. The ChatGPT prompt-unavailable state stays distinct from "not recorded".
   assert.match(promptSection, /source\.prompt_status === "not-available"/);
-  assert.match(promptSection, /t\(promptUnavailable \? "chatgptPromptUnavailable" : "notRecorded"\)/);
-  assert.match(i18n, /chatgptPromptUnavailable: "ChatGPT 未暴露原始生图提示词"/);
-  assert.match(i18n, /chatgptPromptUnavailable: "ChatGPT did not expose the original image-generation prompt"/);
+  assert.match(promptSection, /t\(promptUnavailable \? "webPromptUnavailable" : "notRecorded"\)/);
+  assert.match(i18n, /webPromptUnavailable: "网页来源未暴露原始生图提示词"/);
+  assert.match(i18n, /webPromptUnavailable: "The web source did not expose the original image-generation prompt"/);
 
-  // 17. User instruction is its own labelled sub-section after the prompt box.
-  assert.match(promptSection, /const userInstructionMarkup = userInstruction/);
-  assert.match(promptSection, /<div class="user-instruction"><div class="section-head"><h4>\$\{t\("userInstruction"\)\}<\/h4><\/div>/);
-  assert.match(promptSection, /\$\{promptText\}<\/div>\$\{userInstructionMarkup\}/);
+  // 17. V2 always reserves the user-instruction pair after the prompt box.
+  // Missing upstream data must use the explicit V2 fallback rather than moving
+  // recipe controls into the fixed-height primary composition.
+  assert.match(promptSection, /const instructionText = userInstruction/);
+  assert.match(promptSection, /t\("userInstructionUnavailable"\)/);
+  assert.match(promptSection, /const userInstructionMarkup = `<div class="detail-prompt-subhead">/);
+  assert.match(promptSection, /<div class="detail-prompt-subhead"><h4>\$\{t\("userInstruction"\)\}<\/h4>/);
+  assert.match(promptSection, /detail-instruction-box/);
+  assert.match(promptSection, /\$\{promptText\}<\/div>\$\{promptProvenance\}\$\{userInstructionMarkup\}/);
   assert.match(i18n, /userInstruction: "用户指令"/);
   assert.match(i18n, /userInstruction: "User instruction"/);
+  assert.match(i18n, /userInstructionUnavailable: "未提供用户指令"/);
+  assert.match(i18n, /userInstructionUnavailable: "No user instruction provided"/);
 });
 
 // 18. Source section exists. 19. Source copy entry exists. 20. buildSourceRows kept.
@@ -190,6 +201,28 @@ test("18-20. source section keeps buildSourceRows and a conditional copy entry",
   assert.match(sourceSection, /<p class="empty-copy">\$\{t\("notRecorded"\)\}<\/p>/);
   const bindDetailEvents = functionSlice(app, "bindDetailEvents");
   assert.match(bindDetailEvents, /copy-source.*clipboard\.writeText\(sourceCopyValue\(asset\.source\)\)/s, "copy-source copies the original path");
+});
+
+test("source navigation exposes only reliable generation session and batch actions", async () => {
+  const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
+  const sourceSection = functionSlice(inspector, "detailSourceSectionMarkup");
+  const sourceRows = functionSlice(inspector, "buildSourceRows");
+  const navigation = functionSlice(app, "showRelatedGenerations");
+  const bindings = functionSlice(app, "bindDetailEvents");
+
+  assert.match(sourceRows, /\["sessionId", source\.conversation_id\]/);
+  assert.match(sourceRows, /\["generationBatch", source\.message_id\]/);
+  assert.match(sourceSection, /const sessionActions = conversationId/);
+  assert.match(sourceSection, /messageId \? `<button[^`]*data-action="view-generation-batch"/);
+  assert.match(sourceSection, /data-action="view-generation-session"/);
+  assert.match(navigation, /if \(!conversationId \|\| \(mode === "batch" && !messageId\)\) return;/);
+  assert.match(navigation, /state\.scope = "all";\s*state\.mediaKind = "all";\s*clearFacets\(\);\s*state\.facets\.conversation = conversationId;/);
+  assert.match(navigation, /if \(mode === "batch"\) state\.facets\.generationBatch = messageId;/);
+  assert.match(bindings, /view-generation-session[^\n]*showRelatedGenerations\(asset, "session"\)/);
+  assert.match(bindings, /view-generation-batch[^\n]*showRelatedGenerations\(asset, "batch"\)/);
+  for (const key of ["generationNavigation", "viewGenerationBatch", "viewGenerationSession"]) {
+    assert.equal(count(i18n, `${key}:`), 2, `${key} must exist in both locales`);
+  }
 });
 
 // 21. Version section position. 22. Version history stays on-demand.
@@ -287,12 +320,14 @@ test("32-33. new-version section position and secondary save action", async () =
   assert.ok(newVersionIndex > COMPOSITION.indexOf("detailCowartSectionMarkup"));
   assert.ok(newVersionIndex < COMPOSITION.indexOf("detailMoreSectionMarkup"));
 
-  // 33. The save button is secondary, paired with its change-note field whose
-  // accessible name comes from the label span (placeholder is not the name).
+  // 33. V2 regenerate composer: textarea with change-note, model/ratio/resolution
+  // controls, and a send button for generation.
   const newVersionSection = functionSlice(inspector, "detailNewVersionSectionMarkup");
   assert.ok(newVersionSection.includes('data-inspector-section="new-version"'));
-  assert.match(newVersionSection, /<button class="recipe-save-btn secondary" type="button" data-action="save-version">/);
-  assert.match(newVersionSection, /<label class="field version-change-field"><span>\$\{t\("versionChange"\)\}<\/span><textarea data-version-change/);
+  assert.match(newVersionSection, /detail-regenerate-composer/);
+  assert.match(newVersionSection, /<textarea data-version-change/);
+  assert.match(newVersionSection, /data-action="save-version"/);
+  assert.match(newVersionSection, /detail-composer-send/);
 });
 
 // 34. More is 10th. 35. Archive stays a separated danger action.
@@ -384,14 +419,10 @@ test("41-43. async race guards preserved", async () => {
 
 // 44. Viewer Navigation contract. 45. Viewer Transform contract.
 // 46. Return Snapshot contract. 47. Phase 1/2 contracts. All keep running.
+// V2 migration: large-view-* tests were removed during V2 cleanup.
 test("44-47. adjacent viewer and phase 1/2 contract files stay in the suite", async () => {
   for (const file of [
-    // 44. Viewer Navigation (Phase 3C).
-    "large-view-navigation-contract.test.mjs",
-    // 45. Viewer Transform (Phase 3B).
-    "large-view-interaction-contract.test.mjs",
-    // 46. Return Snapshot / viewer mode (Phase 3A).
-    "large-view-mode-contract.test.mjs",
+    // V2: large-view tests removed, Phase 1/2 contracts remain
     // 47. Phase 1/2 contracts.
     "ui-component-contract.test.mjs",
     "shell-layout-contract.test.mjs",
@@ -439,10 +470,13 @@ test("i18n. new Phase 4A keys are symmetric across zh and en", async () => {
   const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
 
   const pairs = [
-    [/fileFacts: "文件"/, /fileFacts: "File"/],
+    [/fileFacts: "基础信息"/, /fileFacts: "Overview"/],
+    [/favorited: "已收藏"/, /favorited: "Saved"/],
     [/fileDimensions: "尺寸"/, /fileDimensions: "Dimensions"/],
     [/fileFormat: "格式"/, /fileFormat: "Format"/],
     [/fileSize: "大小"/, /fileSize: "Size"/],
+    [/aspectRatio: "比例"/, /aspectRatio: "Ratio"/],
+    [/assetMetadata: "素材标签"/, /assetMetadata: "Asset metadata"/],
     [/tags: "标签"/, /tags: "Tags"/],
     [/createNewVersion: "创建新版本"/, /createNewVersion: "Create new version"/],
     [/moreActions: "更多操作"/, /moreActions: "More actions"/],

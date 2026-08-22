@@ -141,14 +141,14 @@ test("import rejections reach the client as 400 with a code, and the format list
 
 test("shows only the four everyday fields and hides the rest behind advanced settings", async () => {
   const html = await readFile(resolve(root, "app/index.html"), "utf8");
-  const body = html.slice(html.indexOf('<div class="modal-body">'), html.indexOf('<div class="modal-footer">'));
+  const body = html.slice(html.indexOf('<div class="modal-body import-modal-body">'), html.indexOf('<div class="modal-footer">'));
   const advanced = body.slice(body.indexOf('<details class="import-advanced"'));
   const everyday = body.slice(0, body.indexOf('<details class="import-advanced"'));
 
-  for (const id of ["imagePathInput", "promptInput", "groupInput", "categoryInput"]) {
+  for (const id of ["imagePathInput", "groupInput"]) {
     assert.match(everyday, new RegExp(`id="${id}"`), `${id} should be visible by default`);
   }
-  for (const id of ["skillInput", "styleInput", "ratioInput", "themeInput", "businessInput"]) {
+  for (const id of ["promptInput", "categoryInput", "skillInput", "styleInput", "ratioInput", "themeInput", "businessInput"]) {
     assert.doesNotMatch(everyday, new RegExp(`id="${id}"`), `${id} should not be visible by default`);
     assert.match(advanced, new RegExp(`id="${id}"`), `${id} should live under advanced settings`);
   }
@@ -175,38 +175,24 @@ test("explains the path field with server-sourced formats, an example, and the C
   assert.doesNotMatch(html, /type="file"/);
 });
 
-test("keeps desktop drag-and-drop and batch actions truthful", async () => {
-  const [html, app, preload, i18n] = await Promise.all([
+test("keeps desktop drag-and-drop and Phase 5B confirm dialog", async () => {
+  const [html, app, preload] = await Promise.all([
     readFile(resolve(root, "app/index.html"), "utf8"),
     readFile(resolve(root, "app/app.mjs"), "utf8"),
     readFile(resolve(root, "desktop/preload.cjs"), "utf8"),
-    readFile(resolve(root, "app/i18n.mjs"), "utf8"),
   ]);
 
-  assert.match(html, /id="batchToggle"/);
-  assert.match(html, /id="batchBar" role="region"/);
   assert.doesNotMatch(html, /id="dropOverlay"/);
   assert.ok(app.includes("async function droppedFilePath(file)"));
   assert.ok(app.includes("await window.electronAPI.getPathForFile(file)"));
   assert.equal(app.includes("file.webkitRelativePath || file.name"), false);
   assert.ok(preload.includes("webUtils.getPathForFile(file)"));
-  assert.ok(app.includes('els.batchFavorite?.addEventListener("click"'));
-  assert.ok(app.includes('apiFetch("/api/assets/batch"'));
-  assert.ok(app.includes("body: { action, projectId: state.project, assetIds }"));
   // Phase 5B：单素材归档迁移到全应用唯一 ConfirmDialog（window.confirm 清零）。
   assert.match(app, /title: t\("archiveOneTitle"\)/);
   assert.doesNotMatch(app, /window\.confirm\(/);
   // Theme toggle is now in settings-menu segmented control, not a standalone button.
-  // Verify the new entry point is wired correctly.
   assert.ok(app.includes('data-appearance-opt'));
   assert.ok(app.includes('showToast(t("darkModeChanged"), "success")'));
-
-  for (const key of [
-    "batchMode", "batchFavoriteDone", "batchArchiveDone", "batchOperationIncomplete",
-    "addFavorite", "removeFavorite", "dropPathUnavailable", "appearance", "darkModeToggle", "darkModeChanged",
-  ]) {
-    assert.match(i18n, new RegExp(`\\b${key}:`), `translation missing for ${key}`);
-  }
 });
 
 test("attaches import errors to their field with aria wiring and non-colour cues", async () => {

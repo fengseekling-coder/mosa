@@ -469,6 +469,18 @@
     )) || null;
   }
 
+  /**
+   * Automatic capture has a stricter contract than manual save: an image must
+   * be bound to a generation-tool result, rather than merely looking like a
+   * large ChatGPT asset. User uploads and normal visual-analysis attachments
+   * deliberately have no such evidence.
+   */
+  function hasVerifiedGenerationEvidence(candidate) {
+    if (isReferenceCandidate(candidate)) return false;
+    const bound = findBoundPromptForImage(candidate?.imageUrl || candidate?.key || "");
+    return Boolean(bound?.prompt && ["generation-tool-prompt", "visible-caption"].includes(bound.promptStatus));
+  }
+
   function promptQuality(promptStatus, prompt) {
     const rank = {
       "not-available": 0,
@@ -943,6 +955,7 @@
   function enqueueAuto(candidate, reason) {
     if (!autoCapture) return;
     if (!isArchiveWorthyCandidate(candidate, { manual: false })) return;
+    if (!hasVerifiedGenerationEvidence(candidate)) return;
     rememberCandidate(candidate);
     autoQueue = autoQueue
       .then(async () => {
@@ -1258,7 +1271,8 @@
       if (!autoCapture && !force) return;
 
       const candidates = collectDomCandidates();
-      // Auto-save only generation-sized images that are fully loaded.
+      // Size/URL only filters UI clutter. A bound generation event is required
+      // before auto-save, so user uploads in ordinary chats never enter MOSA.
       for (const candidate of candidates.slice(0, 6)) {
         if (!canAttempt(candidate)) continue;
         if (!isArchiveWorthyCandidate(candidate)) continue;
@@ -1266,6 +1280,7 @@
           if (!candidate.el.complete) continue;
           if (candidate.el.naturalWidth > 0 && candidate.el.naturalWidth < MIN_EDGE) continue;
         }
+        if (!hasVerifiedGenerationEvidence(candidate)) continue;
         enqueueAuto(candidate, "dom-scan");
       }
     }, force ? 120 : 600);
@@ -1321,10 +1336,12 @@
       return;
     }
 
-    // Network image URLs: only auto-ingest generation CDN URLs (never static UI).
+    // The hook emits this only after binding a tool-owned generation prompt to
+    // the asset. CDN/host alone is intentionally not treated as provenance.
     if (data.type === "auto-image" && data.payload?.imageUrl && autoCapture) {
       const imageUrl = String(data.payload.imageUrl);
       const meta = rememberMeta(data.payload);
+      if (meta.isGeneration !== true) return;
       if (!isLikelyGeneratedUrl(imageUrl)) return;
       if (enqueueDomCandidateForImage(imageUrl, "network-dom")) return;
       if (["generation-tool-prompt", "visible-caption"].includes(meta.promptStatus) && meta.prompt) {

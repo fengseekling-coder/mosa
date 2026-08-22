@@ -234,9 +234,13 @@
       capturedAt: new Date().toISOString(),
       via: extra.via || "network",
       bound: Boolean(p && identity.imageKey),
+      // A CDN URL is not proof of generation: ChatGPT serves uploads through
+      // the same asset path. Only a tool-owned generation prompt is evidence
+      // that this exact asset is an output we may auto-archive.
+      isGeneration: extra.isGeneration === true,
     };
     post("generation-meta", payload);
-    if (url) post("auto-image", payload);
+    if (url && payload.isGeneration) post("auto-image", payload);
   }
 
   function emitMessageBindings(node, inherited) {
@@ -318,6 +322,7 @@
         promptStatus: selected.promptStatus,
         model,
         via: "message-metadata-url",
+        isGeneration: selected.promptStatus === "generation-tool-prompt" || selected.promptStatus === "visible-caption",
       });
     }
     for (const assetId of assetIds) {
@@ -328,6 +333,7 @@
         promptStatus: selected.promptStatus,
         model,
         via: "message-metadata-asset",
+        isGeneration: selected.promptStatus === "generation-tool-prompt" || selected.promptStatus === "visible-caption",
       });
     }
     if (!imageUrls.size && !assetIds.size) {

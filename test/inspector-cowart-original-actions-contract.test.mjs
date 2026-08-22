@@ -40,26 +40,26 @@ function sliceBetween(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-// The approved inspector order, locked to the ten data-inspector-section ids.
-const SECTION_ORDER = ["file", "favorite", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailFavoriteSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup()}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+// Library v2 keeps favorite in the Overview instead of a detached section.
+const SECTION_ORDER = ["file", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup()}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
 
 // The insert-cowart click handler slice (event binding up to the next binding).
 function insertHandlerSlice(app) {
   return sliceBetween(app, 'panel.querySelector(\'[data-action="insert-cowart"]\')', 'panel.querySelector(\'[data-action="copy-prompt"]\')');
 }
 
-// 1. Cowart stays the 8th section. 2. Cowart stays the only primary. 53. Ten-section order.
-test("01-02,53. cowart section position, single primary, approved ten-section order", async () => {
+// 1. Cowart stays the 7th section. 2. Cowart stays the only primary. 53. V2 order.
+test("01-02,53. cowart section position, single primary, approved V2 section order", async () => {
   const app = await readApp();
   const inspector = await readInspectorMarkup();
 
   assert.ok(app.includes(COMPOSITION), "renderDetail composition sequence unchanged");
   const positions = SECTION_ORDER.map((id) => inspector.indexOf(`data-inspector-section="${id}"`));
-  assert.ok(positions.every((index) => index > -1), "all ten section ids still render");
+  assert.ok(positions.every((index) => index > -1), "all V2 section ids still render");
   assert.deepEqual([...positions].sort((a, b) => a - b), positions, "section order matches the approved sequence");
-  assert.equal(SECTION_ORDER[7], "cowart", "cowart stays the 8th section");
-  assert.equal(SECTION_ORDER[9], "more", "more stays the 10th section");
+  assert.equal(SECTION_ORDER[6], "cowart", "cowart stays the 7th section");
+  assert.equal(SECTION_ORDER[8], "more", "more stays the 9th section");
 
   assert.equal(count(app, "action-btn primary"), 1, "the Cowart insert button is the only solid primary");
   assert.doesNotMatch(app, /recipe-save-btn primary/);
@@ -266,12 +266,10 @@ test("54-58. Phase 1-4B neighbouring contracts and anchors stay intact", async (
   const inspector = await readInspectorMarkup();
   const viewer = await readAssetView();
 
+  // V2 migration: large-view-* tests were removed during V2 cleanup
   await Promise.all([
     access(resolve(root, "test/inspector-information-architecture-contract.test.mjs")),
     access(resolve(root, "test/inspector-version-workflow-contract.test.mjs")),
-    access(resolve(root, "test/large-view-navigation-contract.test.mjs")),
-    access(resolve(root, "test/large-view-interaction-contract.test.mjs")),
-    access(resolve(root, "test/large-view-mode-contract.test.mjs")),
     access(resolve(root, "test/accessibility-contract.test.mjs")),
   ]);
   assert.match(viewer, /assetViewSequence\.ids = state\.assets\.map\(\(asset\) => asset\.id\);/, "viewer navigation anchor intact");
@@ -324,8 +322,8 @@ test("styles. Phase 4C additions reuse tokens and keep the primary button width 
   assert.match(css, /\.cowart-insert-control \.action-btn\.primary \{ min-width: (1[6-9]|[2-9]\d)\d+px; \}/, "the primary button min-width covers the longest busy label so idle and busy stay the same width");
   assert.match(css, /\.cowart-target-readout \{[^}]*min-height: 36px;/, "the single-canvas readout matches control height");
   assert.match(css, /\.cowart-insert-status \{[^}]*grid-column: 1 \/ -1;/, "the status row spans the control");
-  assert.match(css, /\.cowart-insert-status\[data-type="success"\]::before \{ content: "✓ "; color: var\(--accent\); \}/, "success is not color-only");
-  assert.match(css, /\.cowart-insert-status\[data-type="error"\] \{ color: var\(--error\); \}/, "error uses the existing error token");
+  assert.match(css, /\.cowart-insert-status\[data-type="success"\]::before \{ content: "✓ "; color: var\(--color-accent\); \}/, "success is not color-only");
+  assert.match(css, /\.cowart-insert-status\[data-type="error"\] \{ color: var\(--color-danger\); \}/, "error uses the existing danger token");
   assert.match(css, /\.cowart-insert-status\[data-type="error"\]::before \{ content: "⚠ "; \}/, "error is not color-only");
   assert.match(css, /\.original-media-action \{ display: grid; margin-bottom: 10px; \}/, "the original entry keeps the 8px rhythm");
   assert.match(css, /\.more-location \{ display: grid; gap: 6px; margin-top: 8px; \}/, "the location row keeps the 8px rhythm");

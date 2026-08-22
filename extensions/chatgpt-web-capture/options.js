@@ -29,7 +29,7 @@ document.getElementById("save").addEventListener("click", async () => {
     mosaToken: token,
     autoCapture: autoCaptureEl.checked,
   });
-  setStatus("已保存。请刷新 ChatGPT 页面使内容脚本生效。", "success");
+  setStatus("已保存。请刷新支持的网页使内容脚本生效。", "success");
 });
 
 document.getElementById("test").addEventListener("click", async () => {

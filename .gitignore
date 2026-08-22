@@ -31,6 +31,10 @@ npm-debug.log*
 /tmp/
 /app/build-identity.json
 
+# Local source copies and rollback snapshots are not release artifacts.
+/app.mjs
+/app/_archive_2026-08-18-v2-cleanup/
+
 # Runtime library entries remain local.
 /mosa.db*
 /legacy-json-backup/

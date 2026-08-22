@@ -10,7 +10,7 @@ interface RecipeSnapshot {
   references: NormalizedReference[]; provenance: Provenance; change_summary: string; created_at: string;
 }
 interface Provenance { source_type: string; task_id: string; session_id: string; generation_call_id: string; }
-interface NormalizedReference { asset_id: string; sha256: string; role: string; scope: string[]; applied: boolean; allowed_uses: string[]; forbidden_uses: string[]; rights: Record<string, unknown>; }
+interface NormalizedReference { asset_id: string; reference_id?: string; sha256: string; attachment_url?: string; mime_type?: string; width?: number; height?: number; role: string; scope: string[]; applied: boolean; allowed_uses: string[]; forbidden_uses: string[]; rights: Record<string, unknown>; }
 interface Asset { id?: string; [key: string]: unknown; }
 interface DigestReference { asset_id: string; sha256: string; role: string; scope: string[]; applied: boolean; }
 
@@ -91,7 +91,16 @@ function normalizeReferences(value: unknown): NormalizedReference[] {
     if (typeof item === "string") return withRights({ asset_id: cleanText(item), sha256: "", role: "", scope: [], applied: true }, {});
     if (!isObject(item)) return null;
     const ref = item as Record<string, unknown>;
-    return withRights({ asset_id: cleanText(ref.asset_id || ref.assetId || ref.id || ref.reference_id), sha256: cleanText(ref.sha256 || ref.content_sha256 || ref.digest), role: cleanText(ref.role || ref.purpose || ref.use), scope: (Array.isArray(ref.scope || ref.applies_to) ? [...new Set(((ref.scope || ref.applies_to) as string[]).map(cleanText).filter(Boolean))] : []) as string[], applied: ref.applied !== false }, ref);
+    const base: Omit<NormalizedReference, "allowed_uses" | "forbidden_uses" | "rights"> = { asset_id: cleanText(ref.asset_id || ref.assetId || ref.id || ref.reference_id), sha256: cleanText(ref.sha256 || ref.content_sha256 || ref.digest), role: cleanText(ref.role || ref.purpose || ref.use), scope: (Array.isArray(ref.scope || ref.applies_to) ? [...new Set(((ref.scope || ref.applies_to) as string[]).map(cleanText).filter(Boolean))] : []) as string[], applied: ref.applied !== false };
+    const referenceId = cleanText(ref.reference_id);
+    const attachmentUrl = cleanText(ref.attachment_url);
+    const mimeType = cleanText(ref.mime_type);
+    if (referenceId) base.reference_id = referenceId;
+    if (attachmentUrl) base.attachment_url = attachmentUrl;
+    if (mimeType) base.mime_type = mimeType;
+    if (Number(ref.width) > 0) base.width = Number(ref.width);
+    if (Number(ref.height) > 0) base.height = Number(ref.height);
+    return withRights(base, ref);
   }).filter((r): r is NormalizedReference => r !== null).sort((l, r) => stableStringify(referenceDigestMaterial(l)).localeCompare(stableStringify(referenceDigestMaterial(r))));
 }
 

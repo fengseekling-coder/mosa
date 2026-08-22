@@ -5,6 +5,7 @@ const DEFAULTS = {
 };
 const STORAGE_KEYS = ["mosaBaseUrl", "mosaToken", "autoCapture"];
 const LEGACY_DEV_TOKEN = "mosa-web-capture-dev";
+const WEB_IMAGE_PROVIDERS = new Set(["chatgpt", "gemini", "flow", "google-ai-studio"]);
 let settingsMigration;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -84,7 +85,7 @@ function normalizeStoredToken(value) {
   return token === LEGACY_DEV_TOKEN ? "" : token;
 }
 
-async function fetchImageAsBase64(url) {
+async function fetchImageAsBase64(url, { publicImage = false } = {}) {
   if (!url || typeof url !== "string") throw new Error("Image URL is required.");
   if (url.startsWith("data:")) {
     const match = /^data:([^;]+);base64,(.+)$/i.exec(url);
@@ -93,9 +94,9 @@ async function fetchImageAsBase64(url) {
   }
 
   const attempts = [
-    { credentials: "include", cache: "no-cache" },
+    ...(publicImage ? [] : [{ credentials: "include", cache: "no-cache" }]),
     { credentials: "omit", cache: "no-cache" },
-    { credentials: "include", cache: "force-cache" },
+    ...(publicImage ? [] : [{ credentials: "include", cache: "force-cache" }]),
   ];
   let lastError = null;
   for (const init of attempts) {
@@ -128,15 +129,16 @@ async function ingestToMosa(payload = {}) {
 
   let imageBase64 = payload.imageBase64;
   let mimeType = payload.mimeType || "image/png";
+  const provider = String(payload.provider || "chatgpt").trim().toLowerCase();
+  if (!WEB_IMAGE_PROVIDERS.has(provider)) throw new Error("Unsupported web image provider.");
 
   // Prefer server-side (extension background) download for remote URLs.
   if (!imageBase64 && payload.imageUrl) {
-    const fetched = await fetchImageAsBase64(payload.imageUrl);
+    const fetched = await fetchImageAsBase64(payload.imageUrl, { publicImage: provider !== "chatgpt" });
     imageBase64 = fetched.imageBase64;
     mimeType = fetched.mimeType || mimeType;
   }
   if (!imageBase64) throw new Error("No image bytes to ingest.");
-
   let response;
   try {
     response = await fetch(`${baseUrl}/api/ingest/web-capture`, {
@@ -146,7 +148,7 @@ async function ingestToMosa(payload = {}) {
         authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        provider: "chatgpt",
+        provider,
         prompt: payload.prompt || "",
         prompt_status: payload.promptStatus || (payload.prompt ? "user-message" : "not-available"),
         user_message: payload.userMessage || payload.user_message || "",

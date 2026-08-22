@@ -30,7 +30,7 @@ npm start
 
 Choose a port that is not already used by another MOSA or legacy service. Bind only to `127.0.0.1`; MOSA is not designed for public exposure.
 
-`MOSA_WEB_CAPTURE_TOKEN` and `MOSA_WEB_CAPTURE_ORIGINS` are optional unless the ChatGPT extension is used. The origins value is a comma-separated list of exact `chrome-extension://<id>` or `moz-extension://<id>` origins. When the Token is unset, web capture must remain disabled; when the origin is absent, extension requests must be rejected. Never put the Token in a tracked file, command transcript, issue, or log.
+`MOSA_WEB_CAPTURE_TOKEN` and `MOSA_WEB_CAPTURE_ORIGINS` are optional unless the web-capture extension is used. The origins value is a comma-separated list of exact `chrome-extension://<id>` or `moz-extension://<id>` origins. When the Token is unset, web capture must remain disabled; when the origin is absent, extension requests must be rejected. Never put the Token in a tracked file, command transcript, issue, or log.
 
 ### macOS desktop shell
 
@@ -103,7 +103,7 @@ Expected conditions:
 - `lastError` is empty or `null`.
 - `cowartDiscovery` is enabled when the service can read local Codex session records.
 - `cowartInsert.available` is true only when the Cowart plugin endpoint is available.
-- `webCapture.enabled` is true only when `MOSA_WEB_CAPTURE_TOKEN` and at least one approved extension origin are explicitly configured; its providers list should contain `chatgpt`.
+- `webCapture.enabled` is true only when `MOSA_WEB_CAPTURE_TOKEN` and at least one approved extension origin are explicitly configured; its providers list should contain `chatgpt`, `gemini`, `flow`, and `google-ai-studio`.
 
 Run an integrity check whenever a migration, repair, or service incident is resolved:
 

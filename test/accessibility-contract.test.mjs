@@ -48,35 +48,31 @@ test("keeps the import flow keyboard-accessible", async () => {
 });
 
 test("keeps the gallery source-aware and the inspector optional", async () => {
-  const [html, app, config, inspector] = await Promise.all([
-    readFile(resolve(root, "app/index.html"), "utf8"),
+  const [app, config, inspector] = await Promise.all([
     readFile(resolve(root, "app/app.mjs"), "utf8"),
     readFile(resolve(root, "app/config.mjs"), "utf8"),
     readFile(resolve(root, "app/inspector-markup.mjs"), "utf8"),
   ]);
 
-  assert.match(html, /id="filterPanel"/);
-  assert.match(html, /class="toolbar-filter" id="filterToggle"/);
   // Source filtering now runs through the shared facet map instead of a chain of
   // literal params.set calls, but the same three source values stay reachable.
   // SOURCE_FACETS moved to app/config.mjs (R1 batch 2).
   assert.match(config, /export const SOURCE_FACETS = \{[^}]*cowart: "cowart-generated"/);
   assert.match(config, /export const SOURCE_FACETS = \{[^}]*grok: "grok-generated"/);
+  // V2: SOURCE_LABEL_KEYS maps source types to i18n keys
+  assert.match(config, /export const SOURCE_LABEL_KEYS = \{/);
+  assert.match(config, /"cowart-generated": "sourceCowart"/);
+  assert.match(config, /"grok-generated": "sourceGrok"/);
   assert.match(app, /function setDetailOpen\(open\)/);
   assert.match(app, /state\.detailOpen = Boolean\(open\)/);
   assert.match(app, /function updateSelectedCard\(\)/);
   assert.match(app, /updateSelectedCard\(\);/);
-  assert.match(app, /function renderFilterPanel\(\)/);
-  // Phase 5A / F-14：独立 positionFilterPanel 公式已收敛到共享 anchoredOverlayManager（唯一一套定位公式）。
-  assert.match(app, /const anchoredOverlayManager = createAnchoredOverlayManager\(\)/);
-  assert.match(app, /\["cowart", t\("filterCowart"\)/);
-  assert.match(app, /\["grok", t\("filterGrok"\)/);
   assert.match(inspector, /function isVideoAsset\(/);
   assert.match(inspector, /function assetMediaPreviewMarkup\(/);
   const i18n = await readFile(resolve(root, "app/i18n.mjs"), "utf8");
   assert.match(i18n, /userInstruction: "用户指令"/);
-  assert.match(i18n, /chatgptPromptUnavailable: "ChatGPT 未暴露原始生图提示词"/);
-  assert.match(inspector, /const userInstructionMarkup = userInstruction/);
+  assert.match(i18n, /webPromptUnavailable: "网页来源未暴露原始生图提示词"/);
+  assert.match(inspector, /const userInstructionMarkup = `<div class="detail-prompt-subhead">/);
   // Global bridge health ignores Grok-only failures while still exposing Grok metadata.
   assert.match(app, /const hasError = codex\?\.lastError \|\| cowart\?\.lastError;/);
   assert.doesNotMatch(app, /const hasError = codex\?\.lastError \|\| grok\?\.lastError \|\| cowart\?\.lastError;/);
@@ -95,7 +91,10 @@ test("keeps background library refreshes from replacing active edits", async () 
   assert.match(apiClient, /requestId !== assetRequestSequence/);
   assert.match(apiClient, /!options\.background \|\| assetsChanged/);
   assert.match(apiClient, /selectedChanged && !isDetailEditorActive\(\)/);
-  assert.match(apiClient, /state\.loadedPageCount > 1 \? Promise\.resolve\(true\) : loadAssets\(\{ background: true \}\)/);
+  assert.match(apiClient, /function refreshAssetPageTotalInBackground\(\)/);
+  assert.match(apiClient, /function requestAssetTotal\(request\)[\s\S]*?params\.set\("limit", "1"\)/);
+  assert.match(apiClient, /state\.pageTotal = total;[\s\S]*?updateViewTitle\(\)/);
+  assert.match(apiClient, /state\.loadedPageCount > 1 \? refreshAssetPageTotalInBackground\(\) : loadAssets\(\{ background: true \}\)/);
   assert.match(app, /field\.addEventListener\("input", \(\) => \{ state\.detailDirty = true; \}\)/);
 });
 
@@ -116,29 +115,21 @@ test("keeps the Cowart reuse path wired through the local runtime", async () => 
 });
 
 test("uses a single language chosen from system, Chinese, or English", async () => {
-  const [html, app, i18n, i18nRuntime, apiClient] = await Promise.all([
-    readFile(resolve(root, "app/index.html"), "utf8"),
+  const [app, i18n, i18nRuntime, apiClient] = await Promise.all([
     readFile(resolve(root, "app/app.mjs"), "utf8"),
     readFile(resolve(root, "app/i18n.mjs"), "utf8"),
     readFile(resolve(root, "app/i18n-runtime.mjs"), "utf8"),
     readFile(resolve(root, "app/api-client.mjs"), "utf8"),
   ]);
 
-  // Language menu buttons are dynamically generated in renderSettingsMenu()
-  // from a choices array that includes system, zh, and en options.
-  assert.match(app, /choices\s*=\s*\[/);
-  assert.match(app, /"system"[\s\S]*?"zh"[\s\S]*?"en"/);
-  assert.match(app, /data-locale="\$\{value\}"/);
+  // V2 uses segmented control in settings for language selection (zh/en only)
+  assert.match(app, /data-locale/);
   assert.match(app, /safeStorageGet\("mosa\.ui-language"\)/);
   assert.match(i18nRuntime, /export function resolveLocale\(value\)/);
   assert.match(i18nRuntime, /return function applyLanguage\(\)/);
   assert.match(app, /const applyLanguage = createLanguageApplier\(/);
   assert.match(app, /data-project-select/);
   assert.match(app, /data-open-library/);
-  assert.match(app, /data-language-menu/);
-  // Phase 5A / F-14：独立 positionLanguageMenu 公式已移除；语言子菜单作为 Settings 的 child
-  // 浮层经共享 manager 定位（向右优先、空间不足向左翻转）。
-  assert.match(app, /id: "language", kind: "child", parentId: "settings", placement: "right-start"/);
   assert.match(i18nRuntime, /document\.documentElement\.lang/);
   assert.match(i18n, /自动发现的 Cowart 画布/);
   assert.match(app, /function cowartCanvasListSignature\(canvases\)/);
@@ -163,7 +154,7 @@ test("keeps recipe version history navigable without replacing active edits", as
   assert.doesNotMatch(app + inspector, /style="/);
   assert.match(inspector, /<time datetime=/);
   assert.match(inspector, /aria-current="true"/);
-  assert.match(inspector, /<label class="field version-change-field">/);
+  assert.match(inspector, /data-version-change/);
   assert.match(app, /data-action="save-version"/);
   assert.match(app, /function readRecipeDraft\(panel\)/);
   assert.match(app, /body: \{ \.\.\.readRecipeDraft\(panel\), version_change: versionChange \}/);
@@ -243,7 +234,7 @@ test("provides an accessible single-column detail panel", async () => {
 
   // Phase 4A：三 Tab 合并为批准的单栏信息架构——无 tab 角色；#detailTitle 仍是焦点
   // 落点，分段用原生 disclosure（键盘可达），按压态用 aria-pressed 暴露。
-  assert.match(i18n, /assetInspector: "素材检视器"/);
+  assert.match(i18n, /assetInspector: "资产检视器"/);
   assert.match(i18n, /assetInspector: "Asset inspector"/);
   assert.match(app, /<div class="detail-inspector"><div class="detail-inspector-header">/);
   assert.match(app, /<div class="detail-inspector-scroll">/);

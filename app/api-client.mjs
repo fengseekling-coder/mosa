@@ -11,7 +11,6 @@ export function createApiClient(deps) {
     renderDetail,
     updateCodexHint,
     renderQuickFilters,
-    renderFilterPanel,
     renderGrid,
     updateViewTitle,
     renderErrorState,
@@ -67,7 +66,6 @@ export function createApiClient(deps) {
     state.groups = nextGroups;
     if (!options.background || changed) {
       renderQuickFilters();
-      renderFilterPanel();
     }
     return true;
   }
@@ -86,6 +84,7 @@ export function createApiClient(deps) {
     if (options.cursor) params.set("cursor", options.cursor);
     if (request.scope === "favorite") params.set("favorite", "1");
     else if (request.scope === "recent") params.set("recent", "1");
+    if (request.mediaKind && request.mediaKind !== "all") params.set("mediaKind", request.mediaKind);
     for (const key of FACET_KEYS) {
       if (request.facets[key]) params.set(key, request.facets[key]);
     }
@@ -94,6 +93,12 @@ export function createApiClient(deps) {
 
   function requestAssetPage(request, options = {}) {
     return apiFetch(`/api/assets?${buildAssetPageParams(request, options)}`);
+  }
+
+  function requestAssetTotal(request) {
+    const params = buildAssetPageParams(request);
+    params.set("limit", "1");
+    return apiFetch(`/api/assets?${params}`);
   }
 
   // Gallery busy is owned by the single results container. A completion may clear
@@ -167,13 +172,43 @@ export function createApiClient(deps) {
   }
 
   let libraryRefreshInFlight = false;
+  let backgroundTotalRequestSequence = 0;
+
+  /**
+   * When the user has loaded more than one page, replacing the card list would
+   * throw away those pages (and can move their scroll position). The gallery
+   * still needs the exact current result total, though, so fetch one row using
+   * the same query and update only its count. This leaves cards, cursors, and
+   * loadedPageCount untouched.
+   */
+  async function refreshAssetPageTotalInBackground() {
+    const requestId = ++backgroundTotalRequestSequence;
+    const request = currentAssetRequest();
+    let result;
+    try {
+      result = await requestAssetTotal(request);
+    } catch {
+      return false;
+    }
+    if (requestId !== backgroundTotalRequestSequence
+      || assetRequestKey(request) !== assetRequestKey(currentAssetRequest())) return false;
+
+    const total = Number(result.page?.total);
+    if (!Number.isFinite(total)) return false;
+    if (state.pageTotal !== total) {
+      state.pageTotal = total;
+      updateViewTitle();
+    }
+    return true;
+  }
+
   async function refreshLibraryInBackground() {
     if (document.hidden || libraryRefreshInFlight) return;
     libraryRefreshInFlight = true;
     try {
       await Promise.all([
         loadStats({ background: true }),
-        state.loadedPageCount > 1 ? Promise.resolve(true) : loadAssets({ background: true }),
+        state.loadedPageCount > 1 ? refreshAssetPageTotalInBackground() : loadAssets({ background: true }),
       ]);
     } catch {
       // A transient refresh failure should not interrupt the active library view.
@@ -183,11 +218,11 @@ export function createApiClient(deps) {
   }
 
   function currentAssetRequest() {
-    return { project: state.project, query: state.query, scope: state.scope, facets: { ...state.facets }, sort: state.sort };
+    return { project: state.project, query: state.query, scope: state.scope, mediaKind: state.mediaKind, facets: { ...state.facets }, sort: state.sort };
   }
 
   function assetRequestKey(request) {
-    return JSON.stringify([request.project, request.query, request.scope, ...FACET_KEYS.map((key) => request.facets[key] || ""), request.sort]);
+    return JSON.stringify([request.project, request.query, request.scope, request.mediaKind || "all", ...FACET_KEYS.map((key) => request.facets[key] || ""), request.sort]);
   }
 
   function assetListVersion(assets) {
@@ -200,6 +235,7 @@ export function createApiClient(deps) {
 
   return {
     apiFetch, loadProjects, loadCowartCanvases, loadStats, loadAssets, refreshLibraryInBackground,
-    buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion,
+    refreshAssetPageTotalInBackground,
+    buildAssetPageParams, requestAssetPage, requestAssetTotal, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion,
   };
 }

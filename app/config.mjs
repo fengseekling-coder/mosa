@@ -3,7 +3,7 @@
 export const SORT_ORDERS = ["newest", "oldest", "name"];
 export const SOURCE_FACETS = { codex: "codex-generated", cowart: "cowart-generated", grok: "grok-generated" };
 export const SCOPES = ["all", "favorite", "recent"];
-export const FACET_KEYS = ["source", "group", "category", "style"];
+export const FACET_KEYS = ["source", "group", "category", "style", "conversation", "generationBatch"];
 export const SIDEBAR_GROUP_LIMIT = 5;
 export const GALLERY_DENSITIES = ["image", "info"];
 export const CARD_TITLE_MAX = 52;
@@ -15,5 +15,8 @@ export const SOURCE_LABEL_KEYS = {
   "cowart-generated": "sourceCowart",
   "grok-generated": "sourceGrok",
   "web-chatgpt": "sourceWebChatgpt",
+  "web-gemini": "sourceWebGemini",
+  "web-flow": "sourceWebFlow",
+  "web-google-ai-studio": "sourceWebGoogleAiStudio",
   "local-file": "sourceManual",
 };

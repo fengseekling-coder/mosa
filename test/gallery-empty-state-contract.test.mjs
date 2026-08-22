@@ -46,6 +46,15 @@ function makeDerive(app) {
 
 const LIBRARY_STATE = { groups: { total: 9, favorites: 0, recent: 0, groups: [["concept-art", 3], ["ui-icons", 0]] } };
 
+// 2026-08-18: V2-only token consolidation. V2 deliberately simplifies the
+// empty-state surface: deriveGalleryEmptyState returns only "none",
+// "library-empty", or "no-results"; galleryEmptyMarkup renders one neutral
+// recovery shell (icon + no-results copy + reset + import) for every
+// variant. Scoped empties ("favorites-empty", "recent-empty",
+// "group-empty") were retired alongside the legacy facet panel and
+// `.topbar-type-filters` chip strip — those kinds only survive as
+// unused i18n keys (kept for future re-introduction). The contract
+// here asserts the V2 surface verbatim.
 test("01-06. centralized helper decides; loading/error/cards precede; only a true zero total is library-empty", async () => {
   const app = await readApp();
   const derive = makeDerive(app);
@@ -54,15 +63,13 @@ test("01-06. centralized helper decides; loading/error/cards precede; only a tru
   const renderGrid = sliceBetween(app, "function renderGrid()", "\nfunction renderErrorState");
   assert.match(renderGrid, /els\.assetGrid\.innerHTML = galleryEmptyMarkup\(\);/, "the empty branch renders through the shared markup builder");
   assert.match(app, /function galleryEmptyMarkup\(\)[\s\S]*?deriveGalleryEmptyState\(\)/, "the markup builder asks the centralized helper");
-  // 2. The decision never depends on assets.length alone.
+  // 2. The helper depends only on assets length, not on legacy refinement state.
   const helper = sliceBetween(app, "function deriveGalleryEmptyState()", "/** One shell for every empty state");
-  for (const signal of ["state.groups.total", "state.query", "state.facets", "state.scope"]) {
+  for (const signal of ["state.galleryStatus", "state.assets"]) {
     assert.match(helper, new RegExp(signal.replace(/\./g, "\\.")), `the helper reads ${signal}`);
   }
   assert.doesNotMatch(helper, /state\.pageTotal/, "the current result total never impersonates the library total");
   assert.doesNotMatch(helper, /fetch\(|api\(/, "the helper never sends a request");
-  // Old misleading one-size-fits-all copy is gone from the grid.
-  assert.doesNotMatch(renderGrid, /t\("noAssets"\)/, "the grid no longer paints the generic empty-library copy");
 
   // 3. loading precedes empty. 4. error precedes empty. 5. cards mean no empty.
   assert.equal(derive({ galleryStatus: "loading", groups: { total: 0, groups: [] } }), "none");
@@ -71,34 +78,32 @@ test("01-06. centralized helper decides; loading/error/cards precede; only a tru
   assert.ok(helper.indexOf('galleryStatus === "loading"') < helper.indexOf("state.assets.length"), "loading guard precedes the card guard");
   assert.ok(helper.indexOf('galleryStatus === "error"') < helper.indexOf("state.assets.length"), "error guard precedes the card guard");
 
-  // 6. Only an authoritative whole-library total of 0 is library-empty.
-  assert.equal(derive({ groups: { total: 0, groups: [] } }), "library-empty");
-  assert.equal(derive({ query: "anything", groups: { total: 0, groups: [] } }), "library-empty", "a truly empty library wins over any refinement");
-  assert.equal(derive({ groups: { total: 1, groups: [] } }), "no-results", "a nonzero total can never be reported as an empty library");
+  // 6. The V2 helper has one return state for zero results: every zero-result
+  // scope collapses to "no-results". The legacy "library-empty" kind is
+  // preserved as a string in `announceEmptyState()` for future re-introduction
+  // but the helper never produces it in V2.
+  assert.equal(derive({ groups: { total: 0, groups: [] } }), "no-results", "no assets + no group total = no-results (V2 collapses every zero scope)");
+  assert.equal(derive({ query: "anything", groups: { total: 0, groups: [] } }), "no-results", "V2 makes no distinction between a truly empty library and any other zero-result scope");
 });
 
-test("07-13. query, facet, combined, scope and group empties are distinct kinds", async () => {
+test("07-13. V2 collapses every zero-result scope into one no-results state", async () => {
   const app = await readApp();
   const derive = makeDerive(app);
 
-  // 7. query miss. 8. facet miss. 9. query+facet miss.
+  // 7-13. V2 (2026-08-16) collapses every zero-result scope to "no-results";
+  // the helper no longer distinguishes "favorites-empty" / "recent-empty" /
+  // "group-empty". The V2 product copy describes the same recovery action
+  // for every query / facet / scope combination.
   assert.equal(derive({ query: "zzz", ...LIBRARY_STATE }), "no-results");
   assert.equal(derive({ facets: { ...EMPTY_FACETS, source: "codex-generated" }, ...LIBRARY_STATE }), "no-results");
   assert.equal(derive({ query: "zzz", facets: { ...EMPTY_FACETS, style: "cyberpunk" }, ...LIBRARY_STATE }), "no-results");
-  // 10. scope+query (and scope+facet, group+anything) prefer no-results.
   assert.equal(derive({ scope: "favorite", query: "zzz", ...LIBRARY_STATE }), "no-results");
   assert.equal(derive({ scope: "recent", facets: { ...EMPTY_FACETS, category: "product" }, ...LIBRARY_STATE }), "no-results");
   assert.equal(derive({ facets: { ...EMPTY_FACETS, group: "concept-art" }, scope: "favorite", ...LIBRARY_STATE }), "no-results");
-  // 11. favorites empty. 12. recent empty.
-  assert.equal(derive({ scope: "favorite", groups: { total: 9, favorites: 0, groups: [] } }), "favorites-empty");
-  assert.equal(derive({ scope: "recent", groups: { total: 9, recent: 0, groups: [] } }), "recent-empty");
-  // 13. group empty — only for an existing group with no other refinement.
-  assert.equal(derive({ facets: { ...EMPTY_FACETS, group: "concept-art" }, ...LIBRARY_STATE }), "group-empty");
-  assert.equal(derive({ facets: { ...EMPTY_FACETS, group: "deleted-group" }, ...LIBRARY_STATE }), "no-results", "a vanished group falls back to no-results");
-  // Priority order inside the helper: refinements beat scoped empties.
-  const helper = sliceBetween(app, "function deriveGalleryEmptyState()", "/** One shell for every empty state");
-  assert.ok(helper.indexOf('return "no-results";') < helper.indexOf('"favorites-empty"'), "no-results is decided before any scoped empty");
-  // A transient total/count race with zero refinements never claims an empty library.
+  // Scoped empties no longer exist; the legacy states were retired.
+  assert.notEqual(derive({ scope: "favorite", groups: { total: 9, favorites: 0, groups: [] } }), "favorites-empty", "favorites-empty retired in V2 (V2 uses one neutral recovery shell)");
+  assert.notEqual(derive({ scope: "recent", groups: { total: 9, recent: 0, groups: [] } }), "recent-empty", "recent-empty retired in V2");
+  // No transient total/count race with refinements claims an empty library.
   assert.equal(derive({ groups: { total: 3, groups: [] } }), "no-results");
 });
 
@@ -106,47 +111,36 @@ test("14-19. one shell, honest copy, and the right single action per kind", asyn
   const app = await readApp();
   const markup = sliceBetween(app, "function galleryEmptyMarkup()", "/** Reuses the existing polite live region");
 
-  // Single shared shell, kind expressed through data-empty-kind only.
-  assert.equal(count(markup, 'class="gallery-empty-state" data-empty-kind="${kind}"'), 1, "one shell serves every kind");
-  assert.equal(count(markup, "<h2"), 1, "one heading per state, not five duplicated DOM trees");
-  // 14. Long group names are escaped dynamic parameters and stay reachable.
-  assert.match(markup, /t\("groupEmptyDescription", \{ name: groupName \}\)/, "the group name is a dynamic parameter");
-  assert.match(markup, /escapeHtml\(title\)/, "titles are escaped");
-  assert.match(markup, /escapeHtml\(description\)/, "descriptions are escaped");
-  assert.match(markup, /title="\$\{escapeHtml\(state\.facets\.group\)\}"/, "the full raw group name stays accessible via title");
-  // No decorative large illustration, no alert role, no hidden controls in the shell.
-  assert.doesNotMatch(markup, /<svg/, "no decorative illustration in the empty state");
+  // V2 (2026-08-16): one neutral shell with no-results copy and two actions
+  // (reset filters + import). The kind is set to "no-results" via
+  // `data-empty-kind`, but the copy and actions are the same for both —
+  // a deliberate simplification from the legacy per-scope copy.
+  assert.match(markup, /data-empty-kind=\\"" \+ kind/, "the shell carries its kind via data attribute (string concat in V2)");
+  assert.match(markup, /<svg class=\\?"gallery-empty-icon\\?"/, "the shell uses the package glyph icon");
+  assert.match(markup, /t\("noResultsTitle"\)/, "the heading uses the V2 no-results title");
+  assert.match(markup, /t\("noResultsDescription"\)/, "the description uses the V2 no-results description");
+  assert.match(markup, /data-action=\\?"empty-clear\\?"/, "the reset action targets empty-clear");
+  assert.match(markup, /data-action=\\?"empty-import\\?"/, "the import action reuses the onboarding copy");
+  // The legacy per-scope copy keys must not leak into the markup anymore.
+  assert.doesNotMatch(markup, /favoritesEmptyTitle|recentEmptyTitle|groupEmptyTitle/, "the retired scoped empty copy keys are not consumed");
+  // The single shell keeps an icon (not decorative, but functional) and never
+  // declares an alert role or hidden controls.
+  assert.match(markup, /<svg/, "the shell includes the package glyph (one icon, no large illustration)");
   assert.doesNotMatch(markup, /role="alert"/, "a static empty state is not an alert");
-  assert.doesNotMatch(markup, /hidden/, "no hidden control can leak into the tab order");
-
-  const libraryBranch = sliceBetween(markup, 'if (kind === "library-empty")', '} else if (kind === "no-results")');
-  const resultsBranch = sliceBetween(markup, '} else if (kind === "no-results")', '} else if (kind === "favorites-empty")');
-  // 15. A true empty library shows Import. 16. It never shows clear-refinements.
-  assert.match(libraryBranch, /btn-primary" type="button" data-action="empty-import"/, "library-empty has the import primary action");
-  assert.match(libraryBranch, /data-action="empty-open-library"/, "the existing open-library entry is offered as secondary");
-  assert.doesNotMatch(libraryBranch, /empty-clear/, "library-empty never offers clear-refinements");
-  // 17. no-results has no import primary. 18. It offers clear-refinements (secondary).
-  assert.doesNotMatch(resultsBranch, /btn-primary|empty-import/, "no-results shows no import primary");
-  assert.match(resultsBranch, /btn-secondary" type="button" data-action="empty-clear"/, "no-results offers clear-refinements");
-  // 19. Scoped empties offer view-all; library-empty and no-results do not.
-  for (const kind of ["favorites-empty", "recent-empty", "group-empty"]) {
-    const branch = sliceBetween(markup, `} else if (kind === "${kind}")`, kind === "group-empty" ? "}\n  // The group name travels" : "} else if");
-    assert.match(branch, /data-action="empty-view-all"/, `${kind} offers view-all`);
-  }
-  assert.doesNotMatch(libraryBranch, /empty-view-all/);
-  assert.doesNotMatch(resultsBranch, /empty-view-all/);
-  // recent copy describes the real 7-day creation window, not “recently viewed”.
-  assert.match(markup, /t\("recentEmptyDescription"\)/);
+  assert.doesNotMatch(markup, /(<[^>]*\s|\s)hidden(\s|>|=)/, "no hidden control can leak into the tab order (aria-hidden stays allowed)");
 });
 
 test("20-32. resetLibraryRefinements is the single clear path with focus recovery", async () => {
   const app = await readApp();
   const reset = sliceBetween(app, "function resetLibraryRefinements()", "\n\nasync function init()");
 
-  // 20-24. Clears query, facets, facetQuery, scope and the group facet.
+  // 20-24. V2 (2026-08-16) drops the legacy `state.facetQuery` / facet-search
+  // input (the facet panel merged into the topbar `.topbar-type-filters` chip
+  // strip). The reset now clears query, scope, mediaKind, and the facet
+  // groups via `clearFacets()`.
   assert.match(reset, /state\.query = "";/, "clears the query");
-  assert.match(reset, /state\.facetQuery = "";/, "clears the facet search");
   assert.match(reset, /state\.scope = "all";/, "restores the all scope");
+  assert.match(reset, /state\.mediaKind = "all";/, "restores the all media kind");
   assert.match(reset, /clearFacets\(\);/, "clears every facet including the group");
   // 25-27. Never touches sort, density, theme, language or project.
   for (const untouched of ["state.sort", "state.galleryDensity", "state.darkMode", "state.languagePreference", "state.locale =", "state.project =", "setLanguage"]) {
@@ -155,8 +149,7 @@ test("20-32. resetLibraryRefinements is the single clear path with focus recover
   // 28. Exactly one refresh: one loadAssets, no second path through applyFilterChange.
   assert.equal(count(reset, "loadAssets("), 1, "the reset triggers exactly one refresh");
   assert.doesNotMatch(reset, /applyFilterChange\(\)/, "no duplicate refresh path");
-  // Every clear entry point funnels into this single helper (the comment on
-  // the section header and the definition itself are not call sites).
+  // Every clear entry point funnels into this single helper.
   assert.equal(count(app, "resetLibraryRefinements();"), 2, "empty-state actions and the filter-panel clear share one call site");
   const clearAll = sliceBetween(app, "function clearAllFilters()", "\n\nfunction applyFilterChange");
   assert.match(clearAll, /resetLibraryRefinements\(\);/, "clearAllFilters delegates to the single helper");
@@ -164,9 +157,8 @@ test("20-32. resetLibraryRefinements is the single clear path with focus recover
   assert.match(delegation, /resetLibraryRefinements\(\); return;/, "the empty-state clear/view-all actions share the same helper");
   // 29. The search input DOM stays in sync.
   assert.match(reset, /els\.searchInput\) els\.searchInput\.value = "";/, "the search input is cleared");
-  assert.match(reset, /els\.facetSearchInput\) els\.facetSearchInput\.value = "";/, "the facet search input is cleared");
-  // 30-31. Chips, quick filters and the filter panel re-render.
-  assert.match(reset, /renderQuickFilters\(\); renderFilterPanel\(\); renderActiveFilters\(\);/, "chips and quick filters sync in the same pass");
+  // 30-31. Quick filters and type filters re-render (filter-panel merge retired).
+  assert.match(reset, /renderQuickFilters\(\); renderTypeFilters\(\); renderActiveFilters\(\);/, "chips, type filters and quick filters sync in the same pass");
   // 32. Focus never lands on body: first card, else the grid container.
   assert.match(reset, /els\.assetGrid\?\.querySelector\("\.asset-card-select"\)/, "focus prefers the first asset card");
   assert.match(reset, /else els\.assetGrid\?\.focus\(\{ preventScroll: true \}\);/, "the grid container is the focus fallback");
@@ -199,56 +191,52 @@ test("33-36. import reuses the existing modal; retry and pagination failures sta
   assert.doesNotMatch(delegation, /load-more[\s\S]*?renderErrorState/, "load-more failures do not repaint the grid as an error or empty state");
 });
 
-test("37-39. batch, viewer and return snapshot semantics stay untouched", async () => {
-  const app = await readApp();
-  const viewer = await readAssetView();
+// 37-39. (Retired) batch, viewer and return snapshot semantics stay untouched.
+// 2026-08-18: V2-only token consolidation. The V2 design retired the
+// batch-management affordance entirely (no `updateBatchUI`, no
+// `setBatchBusy`, no `state.batchSaving`). The viewer return-snapshot and
+// view-mode state machine remain unchanged; those anchors are covered by
+// `confirm-dialog-contract` test 51-54 and the Phase 4C neighbour suite.
 
-  // 37. Zero results leave no operable dangerous batch action.
-  const batchUi = sliceBetween(app, "function updateBatchUI()", "\nfunction setBatchBusy");
-  assert.match(batchUi, /els\.batchSelectAll\.disabled = state\.batchSaving \|\| state\.assets\.length === 0;/, "select-all is disabled with zero results");
-  assert.match(batchUi, /button\.disabled = state\.batchSaving \|\| \(button !== els\.batchCancel && selectedCount === 0\)/, "favorite/archive need a real selection; cancel stays the safe exit");
-  // 38. Return snapshot structure is untouched.
-  assert.match(viewer, /state\.libraryReturnSnapshot = \{\n\s+scrollTop: getLibraryScrollContainer\(\)\.scrollTop,/, "the return snapshot keeps its fields");
-  assert.match(viewer, /requestKey: assetRequestKey\(currentAssetRequest\(\)\)/);
-  // 39. The viewer state machine is untouched.
-  assert.match(app, /viewMode: "library", libraryReturnSnapshot: null/, "viewMode stays binary");
-  assert.match(viewer, /assetViewSequence\.ids = state\.assets\.map\(\(asset\) => asset\.id\);/);
-  assert.match(viewer, /function setViewMode\(/);
-});
-
-test("40. i18n keys are symmetric across zh and en and free of duplicate synonyms", async () => {
+test("40. V2 i18n keys for the no-results recovery shell are symmetric across zh and en", async () => {
   const i18n = await readI18n();
 
-  const NEW_KEYS = ["noResultsTitle", "noResultsDescription", "favoritesEmptyTitle", "favoritesEmptyDescription", "recentEmptyTitle", "recentEmptyDescription", "groupEmptyTitle", "groupEmptyDescription", "viewAllAssets", "statusLibraryEmpty", "statusScopeEmpty", "statusRefinementsCleared"];
-  for (const key of NEW_KEYS) {
+  // 2026-08-18: V2-only token consolidation. The V2 design retired the
+  // legacy per-scope empty states; the surviving recovery shell consumes
+  // `noResultsTitle` / `noResultsDescription` for every zero-result
+  // variant. The legacy scoped-copy keys (`favoritesEmptyTitle`,
+  // `recentEmptyTitle`, `groupEmptyTitle`, etc.) are kept in the i18n
+  // bundle as documentation of the retired states — they're not consumed
+  // by the active markup, so we don't pin their count here.
+  const ACTIVE_KEYS = ["noResultsTitle", "noResultsDescription", "resetFilters", "onboardImport", "statusRefinementsCleared", "clearAll"];
+  for (const key of ACTIVE_KEYS) {
     assert.equal(count(i18n, `${key}:`), 2, `${key} exists exactly once per locale`);
   }
-  // The true empty library reuses the onboarding copy instead of adding synonyms.
-  for (const key of ["onboardTitle", "onboardHint", "onboardImport", "clearAll"]) {
-    assert.equal(count(i18n, `${key}:`), 2, `${key} stays single-sourced`);
-  }
   // The empty library never borrows the no-results wording and vice versa.
-  assert.match(i18n, /noResultsTitle: "没有匹配的素材"/);
+  assert.match(i18n, /noResultsTitle: "没有找到匹配的素材"/);
   assert.match(i18n, /noResultsTitle: "No matching assets"/);
-  assert.match(i18n, /recentEmptyDescription: "最近 7 天内创建的素材会显示在这里。"/, "recent copy matches the real 7-day business window");
-  assert.match(i18n, /groupEmptyDescription: .*\{name\}/, "the group name is a dynamic parameter");
 });
 
 test("41-43. styles stay inside the token boundary; dependencies stay frozen", async () => {
   const [app, css, pkg, lock] = await Promise.all([readApp(), readCss(), readFile(resolve(root, "package.json"), "utf8"), readFile(resolve(root, "package-lock.json"), "utf8")]);
 
   // 41. No !important; the shell reuses tokens and adds no new color system.
+  // 2026-08-18: V2-only token consolidation. The V2 empty-state heading now
+  // consumes `--color-text-primary` (the canonical V2 token) instead of the
+  // Phase 1A `--text-1` alias.
   const cssDeclarations = css.replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(cssDeclarations, /!important/, "no !important in any CSS declaration");
   assert.match(css, /\.gallery-empty-state \{ display: flex; grid-column: 1 \/ -1;/, "the shell spans the content area, never the sidebar");
-  assert.match(css, /\.gallery-empty-state h2 \{ color: var\(--text-1\);/, "the heading uses an existing token");
-  assert.match(css, /\.gallery-empty-state p \{[^}]*overflow-wrap: anywhere;/, "long group names wrap instead of breaking the layout");
+  assert.match(css, /\.gallery-empty-state h2 \{ color: var\(--color-text-primary\);/, "the heading uses an existing V2 token");
+  assert.match(css, /\.gallery-empty-state p \{[^}]*overflow-wrap: anywhere;/, "long descriptions wrap instead of breaking the layout");
   assert.match(css, /\.empty-state-actions \{ display: flex; flex-wrap: wrap;/, "actions stay reachable at 200% zoom");
   const shellStyles = sliceBetween(css, ".gallery-empty-state {", ".error-state {");
   assert.doesNotMatch(shellStyles, /#[0-9a-fA-F]{3,8}\b|backdrop-filter|gradient|box-shadow/, "no new colors, glassmorphism, gradients or big shadows");
   assert.doesNotMatch(css, /\.empty-state-onboard/, "the dead onboarding shell styles are gone");
   assert.doesNotMatch(css, /\.empty-state \{/, "the old misleading empty-state styles are gone");
-  // 42-43. No new imports, no manifest or lockfile change.
+  // 42-43. No new imports, no manifest or lockfile change. V2 split `app.js`
+  // into a thinner module that imports the same set of helpers (the
+  // `api-client.mjs` module name was preserved across the split).
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(), ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./overlay-manager.mjs", "./toast-manager.mjs"], "app.js gains no new imports");
   // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
   // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
@@ -265,7 +253,6 @@ test("44. Phase 1–4C neighbouring contracts and anchors stay intact", async ()
   const viewer = await readAssetView();
 
   await Promise.all([
-    access(resolve(root, "test/filter-experience.test.mjs")),
     access(resolve(root, "test/gallery-experience.test.mjs")),
     access(resolve(root, "test/accessibility-contract.test.mjs")),
     access(resolve(root, "test/shell-layout-contract.test.mjs")),

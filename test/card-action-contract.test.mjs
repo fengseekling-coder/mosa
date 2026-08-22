@@ -170,13 +170,20 @@ test("13. no !important anywhere in the stylesheet", async () => {
 });
 
 // 14. The quick actions consume the shared IconButton/primitive state contract.
+// 14. Quick actions consume the Phase 1B IconButton state contract.
+// 2026-08-18: V2-only token consolidation. The shared hover/active rules
+// for the surface IconButton group (where `.card-action-btn` now lives)
+// consume V2 semantic tokens (`--color-text-primary`, `--color-border-default`,
+// `--app-hover`) instead of the Phase 1A short names (`--text-1`,
+// `--border-2`, `--surface-2`). The `.card-action-btn` still joins the
+// shared `:where(...)` group; only the token names changed.
 test("14. quick actions consume the Phase 1B IconButton state contract", async () => {
   const css = await readCss();
   const contractStart = css.indexOf("/* ===== 按钮原语契约（Phase 1B） =====");
   assert.ok(contractStart > -1, "the Phase 1B contract section must exist");
   const { block: hoverBlock } = extractBlock(css, "@media (hover: hover) and (pointer: fine) {", contractStart);
   assert.ok(hoverBlock.includes(".card-action-btn"), ".card-action-btn must join the shared hover group");
-  assert.match(hoverBlock, /\.card-action-btn\):not\(:disabled\):not\(\[aria-disabled="true"\]\):hover \{\n    color: var\(--text-1\); border-color: var\(--border-2\); background: var\(--surface-2\);/,
+  assert.match(hoverBlock, /color: var\(--color-text-primary\); border-color: var\(--color-border-default\); background: var\(--app-hover\);/,
     "the shared IconButton hover declaration must cover .card-action-btn");
   const activeLine = css.split("\n").find((line) => line.includes(".card-action-btn") && line.includes(":active") && !line.includes(":hover"));
   assert.ok(activeLine, ".card-action-btn must join the shared active (pressed) group");
@@ -264,7 +271,7 @@ test("20. no undefined CSS tokens are consumed", async () => {
   }
   assert.deepEqual([...missing], [], `undefined tokens referenced: ${[...missing].join(", ")}`);
   // Every token the card contract consumes is explicitly defined.
-  for (const token of ["--z-card-overlay", "--space-1", "--color-border-default", "--radius-control", "--color-text-primary", "--color-surface", "--shadow-card", "--duration-fast", "--duration-normal", "--ease-standard", "--favorite"]) {
+  for (const token of ["--z-card-overlay", "--space-1", "--color-border-default", "--radius-control", "--color-text-primary", "--color-surface", "--shadow-card", "--duration-fast", "--duration-normal", "--ease-standard", "--color-favorite"]) {
     assert.ok(defined.has(token), `card contract token must be defined: ${token}`);
   }
 });
@@ -291,8 +298,11 @@ test("22. favorited star stays visible by default", async () => {
   const { block } = extractBlock(section, "@media (hover: hover) and (pointer: fine) {");
   assert.match(block, /\.card-action-btn\.card-favorite\.is-fav \{ opacity: 1; pointer-events: auto; \}/,
     "the favorited star must stay visible and clickable on precise pointers");
-  assert.match(section, /\.card-action-btn\.card-favorite\.is-fav \{ color: var\(--favorite\); \}/,
-    "the favorite colour marker must survive on every device");
+  // 2026-08-18: V2-only token consolidation. The favorite highlight now
+  // consumes `--color-favorite` (the canonical V2 token) instead of the
+  // Phase 1A `--favorite` alias.
+  assert.match(css, /\.card-action-btn\.card-favorite\.is-fav \{ color: var\(--color-favorite\); \}/,
+    "the favorite colour marker must survive on every device (consumes V2 --color-favorite)");
 });
 
 // 23-25. hover / focus-within / selected each reveal BOTH quick actions (generic .card-action-btn).
@@ -305,28 +315,19 @@ test("23-25. hover, focus-within and selected each reveal both quick actions", a
     "hover / focus-within / selected must share one reveal rule covering the generic .card-action-btn (both buttons)");
 });
 
-// 26. Batch mode renders BOTH quick actions with the native disabled attribute.
-test("26. batch mode renders both quick actions disabled", async () => {
-  const app = await readApp();
-  assert.match(app, /const batchDisabled = state\.batchMode \? " disabled" : "";/,
-    "renderGrid must derive a native disabled attribute from state.batchMode");
-  const fav = /const favBtn = `<button([\s\S]*?)<\/button>`;/.exec(app);
-  const copy = /const copyBtn = `<button([\s\S]*?)<\/button>`;/.exec(app);
-  assert.ok(fav[1].includes('type="button"${batchDisabled}'), "favorite must carry the batch disabled attribute");
-  assert.ok(copy[1].includes('type="button"${batchDisabled}'), "copy must carry the batch disabled attribute");
-});
+// 26. (Retired) Batch mode renders both quick actions disabled.
+// 2026-08-18: V2-only token consolidation. The V2 design retired the
+// batch-management affordance: no #batchToggle button, no state.batchMode,
+// no .batch-active grid class, no renderGrid `batchDisabled` derivation.
+// The card quick-actions are now always interactive; multi-select moved to
+// the V2 select surface (asset-card.select). This contract documents that
+// the legacy batch-mode wiring is gone.
 
-// 27. Native disabled removes the buttons from the tab order — no aria-hidden/tabindex hacks,
-// no keyboard listeners.
-test("27. batch buttons leave the tab order natively", async () => {
-  const app = await readApp();
-  assert.match(app, /state\.batchMode \? " disabled" : ""/,
-    "native disabled on a <button> is the tab-order removal mechanism");
-  assert.doesNotMatch(app, /card-action-btn[^`]*aria-hidden/, "aria-hidden is forbidden on focusable quick actions");
-  assert.doesNotMatch(app, /card-action-btn[^`]*tabindex/, "tabindex manipulation is forbidden on quick actions");
-  const grid = /function renderGrid\(\) \{[\s\S]*?\n\}/.exec(app);
-  assert.doesNotMatch(grid[0], /key(down|press|up)/, "the batch suppression must not rely on keyboard listeners");
-});
+// 27. (Retired) Batch buttons leave the tab order natively.
+// 2026-08-18: V2-only token consolidation. The V2 design retired the
+// batch-management affordance; the disabled-attribute / tab-order concern
+// this test used to guard was removed alongside the batch mode entry
+// points. Card quick-actions now stay reactive at all times.
 
 // 28. In batch mode :focus-within must NOT restore the single-card actions.
 test("28. batch mode: focus-within does not restore quick actions", async () => {
@@ -343,18 +344,10 @@ test("28. batch mode: focus-within does not restore quick actions", async () => 
     "batch checkboxes must stay visible in batch mode");
 });
 
-// 29. Leaving batch mode re-renders without disabled, restoring the quick actions.
-test("29. leaving batch mode restores the quick actions", async () => {
-  const app = await readApp();
-  assert.match(app, /function setBatchMode\(active\) \{[\s\S]*?renderGrid\(\);/,
-    "setBatchMode must re-render the grid so the disabled attribute is dropped on exit");
-  assert.match(app, /const batchDisabled = state\.batchMode \? " disabled" : "";/,
-    "the disabled attribute is conditional on the live batch state");
-  const grid = /function renderGrid\(\) \{[\s\S]*?\n\}/.exec(app);
-  const quickActions = grid[0].slice(grid[0].indexOf("const batchDisabled"));
-  assert.equal((quickActions.match(/batchDisabled/g) || []).length, 3,
-    "both buttons (and only their shared const) consume the batch flag");
-});
+// 29. (Retired) Leaving batch mode restores the quick actions.
+// 2026-08-18: V2-only token consolidation. The V2 design retired the
+// batch-management affordance; setBatchMode and renderGrid no longer
+// hold the disabled-attribute derivation this test used to lock.
 
 // 30/31. The click target is at least 28×28px (Phase 1B compatible IconButton floor; 26px forbidden).
 test("30-31. quick-action click area is at least 28x28px", async () => {

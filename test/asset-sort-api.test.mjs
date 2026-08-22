@@ -9,11 +9,11 @@ import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+1CBR3wAAAABJRU5ErkJggg==", "base64");
 
 const FIXTURES = [
-  { assetId: "asset-a", theme: "Zebra crossing", style: "poster", created_at: "2026-01-05T00:00:00.000Z" },
-  { assetId: "asset-b", theme: "Alpine ridge", style: "poster", created_at: "2026-03-05T00:00:00.000Z" },
-  { assetId: "asset-c", theme: "Meadow light", style: "collage", created_at: "2026-02-05T00:00:00.000Z" },
-  { assetId: "asset-d", theme: "beacon dusk", style: "collage", created_at: "2026-05-05T00:00:00.000Z" },
-  { assetId: "asset-e", theme: "Canyon wall", style: "poster", created_at: "2026-04-05T00:00:00.000Z" },
+  { assetId: "asset-a", theme: "Zebra crossing", style: "poster", created_at: "2026-01-05T00:00:00.000Z", source: { conversation_id: "session-a", message_id: "turn-1" } },
+  { assetId: "asset-b", theme: "Alpine ridge", style: "poster", created_at: "2026-03-05T00:00:00.000Z", source: { conversation_id: "session-a", message_id: "turn-1" } },
+  { assetId: "asset-c", theme: "Meadow light", style: "collage", created_at: "2026-02-05T00:00:00.000Z", source: { conversation_id: "session-a", message_id: "turn-2" } },
+  { assetId: "asset-d", theme: "beacon dusk", style: "collage", created_at: "2026-05-05T00:00:00.000Z", source: { conversation_id: "session-b", message_id: "turn-1" } },
+  { assetId: "asset-e", theme: "Canyon wall", style: "poster", created_at: "2026-04-05T00:00:00.000Z", source: { conversation_id: "session-a" } },
 ];
 
 async function startSeededRuntime(t, prefix) {
@@ -99,6 +99,18 @@ test("GET /api/assets combines facets with sort and rejects a mismatched cursor"
   assert.ok(firstPage.page.nextCursor);
   const mismatched = await fetch(`${runtime.url}/api/assets?sort=name&limit=2&cursor=${encodeURIComponent(firstPage.page.nextCursor)}`);
   assert.equal(mismatched.status, 400, "a cursor from another order must not silently page the wrong ordering");
+});
+
+test("GET /api/assets exposes session and batch navigation as composable filters", async (t) => {
+  const runtime = await startSeededRuntime(t, "mosa-generation-api-");
+
+  const session = await drain(runtime.url, { conversation: "session-a", limit: "2" });
+  assert.deepEqual(session.ids, ["asset-e", "asset-b", "asset-c", "asset-a"]);
+  assert.equal(session.total, 4);
+
+  const batch = await drain(runtime.url, { conversation: "session-a", generationBatch: "turn-1", limit: "1" });
+  assert.deepEqual(batch.ids, ["asset-b", "asset-a"]);
+  assert.equal(batch.total, 2);
 });
 
 test("GET /api/groups reports the true style total behind a capped facet list", async (t) => {

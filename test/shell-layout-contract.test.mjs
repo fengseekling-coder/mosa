@@ -62,7 +62,10 @@ test("1-7. shell regions and panel token consumption", async () => {
 
   // 3–6. Widths resolve from token definitions, and narrow/compact variants drive
   // the ≤1120px media query — never repeated literals in Shell rules.
-  assert.match(css, /--sidebar-width: 232px;/);
+  // 2026-08-18: V2-only token consolidation. V2 collapses the Phase 1A
+  // 232px sidebar down to 220px (still on the 8pt grid). Narrow (208) and
+  // compact (56) stay identical; the inspector widths are unchanged.
+  assert.match(css, /--sidebar-width: 220px;/);
   assert.match(css, /--sidebar-width-narrow: 208px;/);
   assert.match(css, /--sidebar-width-compact: 56px;/);
   assert.match(css, /--inspector-width: 360px;/);
@@ -97,7 +100,6 @@ test("8-10, 19-21. three layout modes and breakpoint governance", async () => {
 
   // 10. Compact sidebar (icon rail) contract under details-open, 701–1120px.
   const mqCompact = blockAfter(css, "@media (min-width: 701px) and (max-width: 1120px)");
-  assert.match(mqCompact, /\.shell\.details-open \.sidebar-search/);
   assert.match(mqCompact, /\.shell\.details-open \.nav-item-text/);
 
   // 19. No hairline breakpoints anywhere in the stylesheet.
@@ -148,7 +150,8 @@ test("15-18. overlay levels and batch-bar compensation", async () => {
 
   assert.match(css, /--z-popover: 30;/);
   assert.match(blockAfter(css, ".filter-panel {"), /z-index: var\(--z-popover\)/);
-  assert.match(blockAfter(css, ".shell.details-open .sidebar-search:focus-within {"), /z-index: var\(--z-popover\)/);
+  // V2 FilterBar: the single search lives in the topbar; its focus state stays scoped.
+  assert.match(css, /\.topbar-search:focus-within \{[^}]*var\(--border-focus\)/);
 
   const detail = blockAfter(css, "\n.detail {");
   assert.match(detail, /overflow: hidden/);
@@ -161,9 +164,14 @@ test("15-18. overlay levels and batch-bar compensation", async () => {
   assert.match(blockAfter(css, ".shell:has(.grid.batch-active) .detail {"), /padding-bottom: var\(--statusbar-height\)/);
   // Off-state keeps only the regular breathing room — no residual batch padding.
   assert.match(blockAfter(css, ".grid {"), /padding: var\(--space-2\) 20px var\(--space-3\)/);
-  // The batch toggle still marks the grid (JS hook the CSS compensation relies on).
-  const app = await readApp();
-  assert.match(app, /classList\.toggle\("batch-active", state\.batchMode\)/);
+  // 2026-08-18: V2-only token consolidation. The V2 design removed the
+  // bottom statusbar / batch-bar chrome and the JS hook that toggled
+  // `.batch-active` on the grid. The CSS compensation rule below stays
+  // in place (token-driven, harmless when no element sets the class),
+  // and the contract now documents that V2 choice rather than asserting
+  // a JS hook that has been retired.
+  assert.match(css, /\.grid\.batch-active \{ padding-bottom: calc\(var\(--statusbar-height\) \+ var\(--space-2\)\); \}/,
+    "CSS compensation rule for the retired batch-bar stays in place");
 });
 
 // 22. O2 is closed in the implementation-decisions document.
@@ -182,9 +190,9 @@ test("23-25. adjacent Phase 2A/2B/1C contracts unaffected", async () => {
   const [html, css, app] = await Promise.all([readHtml(), readCss(), readApp()]);
 
   const sidebar = htmlSlice(html, '<aside class="sidebar"', '<main class="library">');
-  assert.ok(sidebar.includes('id="searchInput"'), "#searchInput must stay inside .sidebar");
   const topbar = htmlSlice(html, '<header class="topbar">', "</header>");
-  assert.equal(topbar.includes('id="searchInput"'), false, "no search input may return to the topbar");
+  assert.ok(topbar.includes('id="searchInput"'), "the V2 search input lives in the topbar");
+  assert.equal(sidebar.includes('id="searchInput"'), false, "no search input may remain in the sidebar");
 
   for (const group of ["topbar-utility-group", "topbar-work-group", "topbar-primary-group"]) {
     assert.match(html, new RegExp(`class="${group}"`));

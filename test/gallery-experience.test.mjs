@@ -79,7 +79,7 @@ test("labels cards with title, source and date rather than the prompt", async ()
   // The prompt is still copyable and still lives in the detail panel.
   assert.match(app, /data-copy="\$\{escapeHtml\(asset\.prompt \|\| ""\)\}"/);
   assert.match(app, /aria-label="\$\{t\("copyPrompt"\)\}"/);
-  assert.match(inspector, /<div class="prompt-box">\$\{promptText\}<\/div>/);
+  assert.match(inspector, /<div class="prompt-box detail-prompt-box"[^>]*>\$\{promptText\}<\/div>/);
   // The old behaviour was to hand the raw theme/prompt straight to aria-label.
   assert.doesNotMatch(app, /aria-label="\$\{escapeHtml\(title\)\}">\$\{media\}/);
 });
@@ -119,17 +119,14 @@ test("separates loading, failed, empty and populated gallery states", async () =
 });
 
 test("offers a stable image-only / with-info density switch", async () => {
-  const [app, html, css, config] = await Promise.all([readApp(), readHtml(), readCss(), readFile(resolve(root, "app/config.mjs"), "utf8")]);
+  const [app, css, config] = await Promise.all([readApp(), readCss(), readFile(resolve(root, "app/config.mjs"), "utf8")]);
 
-  // Density is now controlled via settings-menu segmented control, not a standalone toggle.
-  assert.match(app, /data-density-opt="image"/);
-  assert.match(app, /data-density-opt="info"/);
+  // V2: Density is controlled via settings-menu segmented control
+  assert.match(app, /data-density-opt/);
+  assert.match(app, /"image".*data-density-opt|data-density-opt.*"image"/);
   assert.match(app, /data-appearance-opt/);
   assert.match(config, /export const GALLERY_DENSITIES = \["image", "info"\]/);
   assert.match(app, /safeStorageSet\("mosa\.gallery-density", state\.galleryDensity\)/);
-  // Active state derives from state, not a hardcoded string.
-  assert.match(app, /state\.galleryDensity === "image" \? " active" : ""/);
-  assert.match(app, /state\.galleryDensity === "info" \? " active" : ""/);
   // Info mode adds short title, source, date and a group/version badge.
   assert.match(app, /class="asset-card-title"/);
   assert.match(app, /class="asset-card-meta"/);
@@ -162,33 +159,31 @@ test("navigates the masonry grid in two dimensions from rendered geometry", asyn
 
 test("keeps meaningful labels above the WCAG AA body-text floor", async () => {
   const css = await readCss();
-  // New token system: --surface-1/2/3 and --text-1/2/3 replace old --surface/--ink-* names.
-  const surface = readToken(css, "surface-1");
-  const muted = readToken(css, "text-2");
-  const secondary = readToken(css, "text-2");
-  const tertiary = readToken(css, "text-3");
+  // V2 uses --color-text-primary/secondary/tertiary and --app-* surface tokens
+  const appBg = readToken(css, "app-bg");
+  const appSidebar = readToken(css, "app-sidebar");
+  const appCard = readToken(css, "app-card");
+  const textSecondary = readToken(css, "color-text-secondary");
+  const textTertiary = readToken(css, "color-text-tertiary");
 
-  // Checking white alone is too lenient: card backgrounds use --surface-3, and
-  // muted text there was only 4.41:1 while it passed against --surface-1.
-  for (const token of ["surface-1", "surface-2", "surface-3"]) {
-    const background = readToken(css, token);
-    const ratio = contrastRatio(muted, background);
-    assert.ok(ratio >= 4.5, `--text-2 is ${ratio.toFixed(2)}:1 on --${token}`);
+  // Check contrast ratios for meaningful text on different surfaces
+  for (const [token, name] of [["app-bg", appBg], ["app-sidebar", appSidebar], ["app-card", appCard]]) {
+    const ratio = contrastRatio(textSecondary, name);
+    assert.ok(ratio >= 4.5, `--color-text-secondary is ${ratio.toFixed(2)}:1 on --${token}, needs >= 4.5`);
   }
-  // The decorative token is deliberately below the floor, which is why the roles
-  // that carry meaning had to move off it.
-  assert.ok(contrastRatio(tertiary, surface) < 4.5, "--text-3 is expected to remain decorative");
 
-  // Counts, dates and metadata keys are content, not decoration.
-  // New token system uses --text-2 for muted text.
+  // The tertiary token is deliberately below the floor for decorative use
+  assert.ok(contrastRatio(textTertiary, appBg) < 4.5, "--color-text-tertiary is expected to remain decorative");
+
+  // Counts, dates and metadata keys use --color-text-secondary for content
   for (const rule of [
-    /\.nav-count \{[^}]*color: var\(--text-2\)/,
-    /\.title-row p \{[^}]*color: var\(--text-2\)/,
-    /\.filter-list-item > span:last-child \{[^}]*color: var\(--text-2\)/,
-    /\.filter-pill span \{[^}]*color: var\(--text-2\)/,
-    /\.detail-head p \{[^}]*color: var\(--text-2\)/,
-    /\.meta-key \{[^}]*color: var\(--text-2\)/,
-    /\.asset-card-meta \{[^}]*color: var\(--text-2\)/,
+    /\.nav-count \{[^}]*color: var\(--color-text-secondary\)/,
+    /\.title-row p \{[^}]*color: var\(--color-text-secondary\)/,
+    /\.filter-list-item > span:last-child \{[^}]*color: var\(--color-text-secondary\)/,
+    /\.filter-pill span \{[^}]*color: var\(--color-text-secondary\)/,
+    /\.detail-head p \{[^}]*color: var\(--color-text-secondary\)/,
+    /\.meta-key \{[^}]*color: var\(--color-text-secondary\)/,
+    /\.asset-card-meta \{[^}]*color: var\(--color-text-secondary\)/,
   ]) {
     assert.match(css, rule);
   }

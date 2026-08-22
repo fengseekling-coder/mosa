@@ -146,24 +146,10 @@ test("24-25. anchored overlays close through the public API before opening", asy
 });
 
 // 26-29. window.confirm is gone; batch archive confirms on a selection snapshot.
-test("26-29. batch archive migrates with a selection snapshot", async () => {
-  const app = await readApp();
-  assert.doesNotMatch(app, /window\.confirm\(/, "no native confirm remains in the app");
-  const batch = functionSlice(app, "batchArchive");
-  assert.match(batch, /await requestConfirmation\(\{/, "batch archive confirms through the dialog");
-  assert.match(batch, /title: t\("archiveManyTitle", \{ count \}\)/, "title interpolates the snapshot count");
-  assert.match(batch, /tone: "danger"/, "batch archive keeps danger tone");
-  const snapshot = batch.indexOf("const snapshotIds = [...state.selectedIds]");
-  const confirm = batch.indexOf("await requestConfirmation");
-  const cancel = batch.indexOf("if (!confirmed) return;");
-  const run = batch.indexOf('runBatchOperation("archive", "batchArchiveDone", snapshotIds)');
-  assert.ok(snapshot > -1 && snapshot < confirm, "the ID snapshot is captured before the dialog opens");
-  assert.ok(cancel > confirm && cancel < run, "Cancel never reaches the batch API");
-  assert.ok(run > cancel, "Confirm reuses runBatchOperation with the snapshot only");
-  const runner = functionSlice(app, "runBatchOperation");
-  assert.match(runner, /const assetIds = ids \? \[\.\.\.ids\] : \[\.\.\.state\.selectedIds\];/,
-    "the runner accepts a snapshot and defaults to the live selection elsewhere");
-});
+// 2026-08-18: V2-only token consolidation. The V2 design retired the
+// batch-management affordance entirely; `batchArchive()` was removed from
+// `app.mjs` along with `state.selectedIds`. Single-asset archive still
+// goes through the dialog and is asserted in test 30-31 below.
 
 // 30-31. Single-asset archive confirms before the API and keeps everything on Cancel.
 test("30-31. single archive confirms before touching the API", async () => {
@@ -225,7 +211,11 @@ test("36-42. async dirty-navigation guard awaited at every call site", async () 
 test("43-44. contextKey guards keep stale results from acting", async () => {
   const app = await readApp();
   const viewer = await readAssetView();
-  assert.match(app, /contextKey: `\$\{state\.project\}:batch-archive`/, "batch contextKey");
+  // 2026-08-18: V2-only token consolidation. The V2 design retired the
+  // batch-management affordance; the `:batch-archive` contextKey was
+  // retired alongside `batchArchive()` and `state.selectedIds`. The
+  // single-asset, restricted-regenerate, and discard-version context keys
+  // remain — they guard the surviving async paths.
   assert.match(app, /contextKey: `\$\{asset\.project_id\}:\$\{asset\.id\}:archive-asset`/, "single archive contextKey");
   assert.match(app, /contextKey: `\$\{asset\.project_id\}:\$\{asset\.id\}:restricted-regenerate`/, "restricted regenerate contextKey");
   assert.match(app, /contextKey: `\$\{state\.project\}:\$\{state\.selectedId\}:discard-version`/, "discard navigation contextKey");
@@ -272,12 +262,37 @@ test("51-54. anchored overlay, viewer escape, version workflow, and return snaps
   const app = await readApp();
   const viewer = await readAssetView();
   const shortcuts = functionSlice(app, "setupKeyboardShortcuts");
-  const iFilter = shortcuts.indexOf("if (!els.filterPanel?.hidden)");
-  const iSettings = shortcuts.indexOf("if (!els.settingsMenu?.hidden)");
+  // 2026-08-18: V2-only token consolidation. The V2 design retired the
+  // standalone #filterPanel element (its affordance merged into the
+  // `.topbar-type-filters` strip in `.topbar-context`). The Escape chain
+  // now starts from the image-preview modal and walks through import /
+  // group / account / settings overlays before view-mode / detail-open
+  // fall-through. The contract pins the surviving branches.
+  const branches = [
+    ["!els.imagePreviewModal?.hidden", "imagePreview"],
+    ["els.importModal?.classList.contains(\"open\")", "importModal"],
+    ["els.groupModal?.classList.contains(\"open\")", "groupModal"],
+    ["els.accountModal?.classList.contains(\"open\")", "accountModal"],
+    ["!els.settingsMenu?.hidden", "settingsMenu"],
+  ];
+  // Only inspect positions that fall inside the Escape branch (after the
+  // first `if (event.key === "Escape")` marker) so we don't compare
+  // image-preview positions in the *second* Escape handler (the image
+  // zoom branch) against the modal branch above it.
+  const escapeBranchStart = shortcuts.indexOf("if (event.key === \"Escape\")");
+  assert.ok(escapeBranchStart > -1, "the Escape branch must exist");
+  const escapeBranch = shortcuts.slice(escapeBranchStart);
+  const positions = branches.map(([needle]) => escapeBranch.indexOf(needle));
+  for (let i = 0; i < branches.length; i += 1) {
+    assert.ok(positions[i] > -1, `Escape chain branch survives: ${branches[i][1]}`);
+  }
+  for (let i = 1; i < positions.length; i += 1) {
+    assert.ok(positions[i] > positions[i - 1], `Escape priority order: ${branches[i][1]} after ${branches[i - 1][1]}`);
+  }
   const iView = shortcuts.indexOf('if (state.viewMode === "asset") { returnToLibrary();');
   const iDetail = shortcuts.indexOf("if (state.detailOpen) { setDetailOpen(false);");
-  assert.ok(iFilter > -1 && iSettings > -1 && iView > -1 && iDetail > -1, "viewer Escape chain branches survive");
-  assert.ok(iFilter < iSettings && iSettings < iView && iView < iDetail, "Escape priority order unchanged");
+  assert.ok(iView > -1 && iDetail > -1, "view-mode and detail-open fallthroughs survive");
+  assert.ok(positions[positions.length - 1] < iView && iView < iDetail, "modal fallthroughs precede view-mode / detail fallthroughs");
   assert.match(shortcuts, /if \(event\.defaultPrevented\) return;/, "modal trap consumption still respected");
   assert.match(app, /select\.addEventListener\("change", \(\) => selectDetailVersion\(select\.value\)\);/, "version picker delegation intact");
   assert.match(app, /selectDetailVersion\(button\.dataset\.versionId\);/, "timeline delegation intact");
@@ -311,13 +326,16 @@ test("56-57. package manifest and lockfile unchanged", async () => {
 });
 
 // 58. The stylesheet stays free of !important while hosting the dialog styles.
+// 2026-08-18: V2-only token consolidation. The DestructiveButton recipe
+// now consumes V2 semantic tokens (`--color-danger`, `--app-card`) instead
+// of the Phase 1A short names (`--error`, `--surface-1`).
 test("58. dialog styles without !important", async () => {
   const css = await readCss();
   const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(withoutComments, /!important/, "stylesheet must stay free of !important");
   assert.match(css, /\.confirm-dialog-card \{ width: 400px; \}/, "dialog width suits 960×640");
   assert.match(css, /\.confirm-dialog-copy \{ padding: 20px 20px 16px; overflow-wrap: break-word; \}/, "copy wraps instead of overflowing");
-  assert.match(css, /\.btn-danger \{ border: 1px solid var\(--error\); color: var\(--error\); background: var\(--surface-1\); \}/,
+  assert.match(css, /\.btn-danger \{ border: 1px solid var\(--color-danger\); color: var\(--color-danger\); background: var\(--app-card\); \}/,
     "the danger confirm button consumes the approved DestructiveButton recipe");
   assert.match(css, /:where\(\.action-btn\.danger, \.batch-bar-btn\.danger, \.btn-danger\):not\(:disabled\):not\(\[aria-disabled="true"\]\):hover/,
     "danger hover stays inside the precise-pointer media guard");
