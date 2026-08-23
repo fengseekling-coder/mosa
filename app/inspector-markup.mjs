@@ -5,9 +5,9 @@
 // 直接来自 utils.mjs，SOURCE_LABEL_KEYS 来自 config.mjs。
 //
 // 文件事实推导规则（任务书第六节）：
-// - 尺寸 / 大小：服务端当前无持久化字段（width/height/size_bytes 均不下发），恒回退
-//   「未记录」；不用 naturalWidth 伪装持久化事实、不发 HEAD 请求、不把 business_fields
-//   自填 JSON 冒充文件事实、不显示 0 × 0 / NaN / undefined。
+// - 尺寸 / 大小：优先读取服务端规范字段；Web Capture 已持久化的文件事实位于
+//   business_fields（width/height/file_bytes），也作为后向兼容的可信来源。缺失时回退
+//   「未记录」；不用 naturalWidth 伪装持久化事实、不发 HEAD 请求、不显示 0 × 0 / NaN / undefined。
 // - 格式：仅当扩展名明确时确定性推导（大写扩展名），否则回退「未记录」。
 import { SOURCE_LABEL_KEYS } from "./config.mjs";
 import { escapeHtml, formatDate, formatDateTime } from "./utils.mjs";
@@ -15,9 +15,19 @@ import { escapeHtml, formatDate, formatDateTime } from "./utils.mjs";
 export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
   const COPY_ICON_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg>`;
 
+  function persistedPositiveNumber(asset, ...keys) {
+    for (const source of [asset, asset?.business_fields]) {
+      for (const key of keys) {
+        const value = Number(source?.[key]);
+        if (Number.isFinite(value) && value > 0) return value;
+      }
+    }
+    return null;
+  }
+
   function fileDimensionsText(asset) {
-    const width = Number(asset?.width);
-    const height = Number(asset?.height);
+    const width = persistedPositiveNumber(asset, "width");
+    const height = persistedPositiveNumber(asset, "height");
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
     return `${Math.round(width)} × ${Math.round(height)}`;
   }
@@ -28,7 +38,7 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
   }
 
   function fileSizeText(asset) {
-    const bytes = Number(asset?.size_bytes);
+    const bytes = persistedPositiveNumber(asset, "size_bytes", "file_bytes");
     return Number.isFinite(bytes) && bytes > 0 ? formatFileSize(bytes) : null;
   }
 
@@ -47,8 +57,8 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
   }
 
   function fileAspectRatioText(asset) {
-    const width = Number(asset?.width);
-    const height = Number(asset?.height);
+    const width = persistedPositiveNumber(asset, "width");
+    const height = persistedPositiveNumber(asset, "height");
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
     const gcd = (left, right) => right ? gcd(right, left % right) : left;
     const divisor = gcd(Math.round(width), Math.round(height));
@@ -194,7 +204,7 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
   }
 
   function detailNewVersionSectionMarkup() {
-    return `<section class="inspector-section detail-regenerate-section" data-inspector-section="new-version"><div class="detail-regenerate-head"><h3>${t("regenerate")}</h3></div><div class="detail-regenerate-composer"><textarea data-version-change rows="3" placeholder="${escapeHtml(t("regeneratePlaceholder"))}"></textarea><div class="detail-regenerate-bar"><div class="detail-regenerate-controls"><button class="detail-composer-chip" type="button" data-action="select-model" aria-label="${escapeHtml(t("chooseModel"))}">${escapeHtml(t("chooseModel"))}<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button class="detail-composer-chip" type="button" data-action="select-ratio" aria-label="${escapeHtml(t("chooseRatio"))}">4:3<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="detail-composer-segmented" role="group" aria-label="${escapeHtml(t("chooseResolution"))}"><button class="detail-composer-seg" type="button" data-resolution="1K" aria-pressed="true">1K</button><button class="detail-composer-seg" type="button" data-resolution="2K" aria-pressed="false">2K</button><button class="detail-composer-seg" type="button" data-resolution="4K" aria-pressed="false">4K</button></div></div><button class="detail-composer-send" type="button" data-action="save-version" aria-label="${escapeHtml(t("generateAndSave"))}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div></div></section>`;
+    return `<section class="inspector-section detail-regenerate-section" data-inspector-section="new-version"><div class="detail-regenerate-head"><h3>${t("regenerate")}</h3></div><div class="detail-regenerate-composer"><textarea data-version-change rows="3" placeholder="${escapeHtml(t("regeneratePlaceholder"))}"></textarea><div class="detail-regenerate-bar"><div class="detail-regenerate-controls"><label class="detail-composer-chip"><span class="visually-hidden">${escapeHtml(t("chooseModel"))}</span><select data-composer-select="model" aria-label="${escapeHtml(t("chooseModel"))}"><option value="auto">${escapeHtml(t("chooseModel"))}</option><option value="imagen-4">Imagen 4</option><option value="flux">Flux</option></select></label><label class="detail-composer-chip"><span class="visually-hidden">${escapeHtml(t("chooseRatio"))}</span><select data-composer-select="ratio" aria-label="${escapeHtml(t("chooseRatio"))}"><option value="4:3">4:3</option><option value="1:1">1:1</option><option value="16:9">16:9</option><option value="3:4">3:4</option></select></label><div class="detail-composer-segmented" role="group" aria-label="${escapeHtml(t("chooseResolution"))}"><button class="detail-composer-seg" type="button" data-resolution="1K" aria-pressed="true">1K</button><button class="detail-composer-seg" type="button" data-resolution="2K" aria-pressed="false">2K</button><button class="detail-composer-seg" type="button" data-resolution="4K" aria-pressed="false">4K</button></div></div><button class="detail-composer-send" type="button" data-action="save-version" aria-label="${escapeHtml(t("generateAndSave"))}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div></div></section>`;
   }
 
   // Phase 4C：App/Web 原图能力集中判定——desktop-finder（Electron 注入 showItemInFolder 且

@@ -2027,6 +2027,16 @@ function bindDetailEvents(asset, renderId) {
     field.addEventListener("input", () => { state.detailDirty = true; });
     field.addEventListener("change", () => { state.detailDirty = true; });
   });
+  panel.querySelectorAll("[data-composer-select]").forEach((select) => {
+    select.addEventListener("change", () => { state.detailDirty = true; });
+  });
+  panel.querySelectorAll("[data-resolution]").forEach((button) => button.addEventListener("click", () => {
+    panel.querySelectorAll("[data-resolution]").forEach((option) => {
+      const selected = option === button;
+      option.setAttribute("aria-pressed", String(selected));
+    });
+    state.detailDirty = true;
+  }));
   panel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => { if (state.viewMode === "asset") returnToLibrary(); else setDetailOpen(false); });
   // Phase 4A 区块 2：Detail 内收藏——复用既有 toggleFavorite（同一收藏 API），不切换
   // 素材、不返回 Library；loadAssets 后 renderDetail 重渲染按 asset.favorite 重绘本按钮。
@@ -2178,7 +2188,13 @@ function bindDetailEvents(asset, renderId) {
     try {
       const result = await apiFetch(`/api/assets/${encodeURIComponent(originProjectId)}/${encodeURIComponent(originAssetId)}/versions`, {
         method: "POST",
-        body: { ...readRecipeDraft(panel), version_change: versionChange },
+        body: {
+          ...readRecipeDraft(panel),
+          model: panel.querySelector('[data-composer-select="model"]')?.value || "auto",
+          ratio: panel.querySelector('[data-composer-select="ratio"]')?.value || "4:3",
+          resolution: panel.querySelector('[data-resolution][aria-pressed="true"]')?.dataset.resolution || "1K",
+          version_change: versionChange,
+        },
       });
       showToast(t("versionSaved"), "success");
       if (!isCurrentDetailAction(renderId, originProjectId, originAssetId)) return;
