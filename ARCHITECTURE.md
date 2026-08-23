@@ -1,7 +1,7 @@
 # MOSA 系统架构文档
 
-**版本**: v0.2.0  
-**日期**: 2026年8月22日  
+**版本**: v0.2.0
+**日期**: 2026年8月22日
 **维护者**: MOSA Team
 
 ---
@@ -1239,22 +1239,22 @@ function* traverseVersionTree(
 ): Generator<Asset> {
   const visited = new Set<string>();
   const stack: string[] = [rootId];
-  
+
   while (stack.length > 0) {
     const currentId = stack.pop()!;
     if (visited.has(currentId)) continue;
-    
+
     visited.add(currentId);
     const asset = assets.get(currentId);
     if (!asset) continue;
-    
+
     yield asset;
-    
+
     // 查找子版本（parent_version_id === currentId）
     const children = Array.from(assets.values())
       .filter(a => a.parent_version_id === currentId)
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
-    
+
     // 倒序压栈，确保正序弹出
     for (const child of children.reverse()) {
       stack.push(child.id);
@@ -1265,6 +1265,6 @@ function* traverseVersionTree(
 
 ---
 
-**文档版本**: 1.0  
-**最后更新**: 2026年8月22日  
+**文档版本**: 1.0
+**最后更新**: 2026年8月22日
 **维护**: MOSA Team
