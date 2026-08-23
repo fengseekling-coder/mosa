@@ -13,6 +13,7 @@ import { createConfirmDialog } from "./confirm-dialog.mjs";
 import { createImagePreviewViewer } from "./image-preview.mjs";
 import { createAssetViewer } from "./asset-view.mjs";
 import { createInspectorMarkup } from "./inspector-markup.mjs";
+import { assetTags, derivePromptTags, uniqueTags } from "./tag-utils.mjs";
 let statusAnnouncementTimer = null;
 let statusTextWriteTimer = null;
 let statusAnnouncementSequence = 0;
@@ -1341,7 +1342,7 @@ async function saveAsset() {
   }
   setImportBusy(true);
   try {
-    const result = await apiFetch("/api/assets/create", { method: "POST", body: { projectId: state.project, imagePath: els.imagePathInput.value, prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, ratio: els.ratioInput.value, theme: els.themeInput.value, group: els.groupInput.value, category: els.categoryInput.value, business_fields: businessFields } });
+    const result = await apiFetch("/api/assets/create", { method: "POST", body: { projectId: state.project, imagePath: els.imagePathInput.value, prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, ratio: els.ratioInput.value, theme: els.themeInput.value, group: els.groupInput.value, category: els.categoryInput.value, tags: uniqueTags([...(derivePromptTags({ prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, theme: els.themeInput.value, category: els.categoryInput.value }))]), business_fields: businessFields } });
     state.selectedId = result.asset.id;
     clearImportForm(); closeImportModal(); showToast(`${t("savedAsset")} · ${result.asset.id}`, "success");
     await loadStats(); await loadAssets();
@@ -1841,7 +1842,7 @@ function renderDetail() {
   const cachedRecipeHistory = recipeHistoryForAsset(asset) || recipeHistoryFromAsset(asset);
   // Library v2 首屏把基础信息与收藏合为一个 Overview，避免旧版把收藏拆成独立区块。
   // 后续九个语义区块保持单列、无 tab、唯一纵向滚动容器。
-  els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${detailFileSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup()}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}</div></div>`;
+  els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${detailFileSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}</div></div>`;
   const scroller = els.detailPanel.querySelector(".detail-inspector-scroll");
   if (scroller && keepScrollTop !== null) scroller.scrollTop = keepScrollTop;
   scroller?.querySelector(".cowart-insert-slot")?.append(createCowartInsertControl(asset));
@@ -2041,6 +2042,7 @@ function bindDetailEvents(asset, renderId) {
   // Phase 4A 区块 2：Detail 内收藏——复用既有 toggleFavorite（同一收藏 API），不切换
   // 素材、不返回 Library；loadAssets 后 renderDetail 重渲染按 asset.favorite 重绘本按钮。
   panel.querySelector('[data-action="toggle-favorite"]')?.addEventListener("click", (event) => toggleFavorite(asset.id, event));
+  panel.querySelector('[data-action="add-tag"]')?.addEventListener("click", () => openTagEditor(panel, asset, renderId));
   panel.querySelector('[data-action="copy-source"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(sourceCopyValue(asset.source)); showToast(t("originalPathCopied"), "success"); }));
   panel.querySelector('[data-action="view-generation-session"]')?.addEventListener("click", () => showRelatedGenerations(asset, "session"));
   panel.querySelector('[data-action="view-generation-batch"]')?.addEventListener("click", () => showRelatedGenerations(asset, "batch"));
@@ -2162,7 +2164,7 @@ function bindDetailEvents(asset, renderId) {
       const changeSummary = panel.querySelector("[data-recipe-change]")?.value.trim() || "";
       const result = await apiFetch(`/api/assets/${encodeURIComponent(originProjectId)}/${encodeURIComponent(originAssetId)}`, {
         method: "PATCH",
-        body: { ...readRecipeDraft(panel), ...(changeSummary ? { recipe_change_summary: changeSummary } : {}) },
+        body: { ...readRecipeDraft(panel), tags: uniqueTags([...(asset.tags || []), ...derivePromptTags(readRecipeDraft(panel))]), ...(changeSummary ? { recipe_change_summary: changeSummary } : {}) },
       });
       showToast(t("recipeSaved"), "success");
       if (!isCurrentDetailAction(renderId, originProjectId, originAssetId)) return;
@@ -2417,6 +2419,35 @@ function regenerationInstruction(asset, snapshot) {
     `business_fields: ${JSON.stringify(asset.business_fields || {})}`,
     `source: ${JSON.stringify(source)}`,
   ].filter((line, index, lines) => line || (index > 0 && lines[index - 1])).join("\n");
+}
+
+function openTagEditor(panel, asset, renderId) {
+  const section = panel.querySelector('[data-inspector-section="tags"]');
+  const list = section?.querySelector("[data-tags-list]");
+  const addButton = section?.querySelector('[data-action="add-tag"]');
+  if (!section || !list || !addButton || section.querySelector("[data-tag-editor]")) return;
+  const editor = document.createElement("form");
+  editor.className = "detail-tag-editor";
+  editor.dataset.tagEditor = "true";
+  editor.innerHTML = `<input type="text" maxlength="32" placeholder="${escapeHtml(t("tagInputPlaceholder"))}" aria-label="${escapeHtml(t("tagInputLabel"))}" /><button class="action-btn secondary" type="submit">${escapeHtml(t("saveTag"))}</button>`;
+  addButton.replaceWith(editor);
+  const input = editor.querySelector("input");
+  input?.focus();
+  editor.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const value = input?.value.trim() || "";
+    if (!value) { input?.focus(); return; }
+    runAction(async () => {
+      const tags = uniqueTags([...assetTags(asset), value]);
+      const result = await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}`, { method: "PATCH", body: { tags } });
+      if (!isCurrentDetailAction(renderId, asset.project_id, asset.id)) return;
+      state.detailAsset = result.asset;
+      const index = state.assets.findIndex((item) => item.id === asset.id);
+      if (index >= 0) state.assets[index] = result.asset;
+      showToast(t("tagSaved"), "success");
+      renderDetail();
+    });
+  });
 }
 
 function readRecipeDraft(panel) {

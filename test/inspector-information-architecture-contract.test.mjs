@@ -60,7 +60,7 @@ function functionSlice(source, name) {
 // are therefore a nine-section column.
 const SECTION_ORDER = ["file", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
 // Exact helper-call sequence inside the renderDetail single-column composition.
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup()}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
 
 // 1. Detail uses a single vertical information column.
 // 2. No detail tablist. 3. No detail tab. 4. No detail tabpanel.
@@ -274,8 +274,8 @@ test("24. group section is display-only", async () => {
   assert.match(groupSection, /t\("notGrouped"\)/, "empty group falls back to the notGrouped copy");
 });
 
-// 25. Tags section is 7th. 26. No input. 27. No fake chips. 28. No add button.
-test("25-28. tags section keeps its slot as a written placeholder only (D2)", async () => {
+// 25. Tags section is 7th. 26. Prompt-derived chips render. 27. The add action is persistent. 28. The section remains bounded.
+test("25-28. tags section renders prompt-derived chips and add action (D3)", async () => {
   const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
 
   // 25. Tags is the 7th section (after group, before cowart).
@@ -285,13 +285,16 @@ test("25-28. tags section keeps its slot as a written placeholder only (D2)", as
 
   const tagsSection = functionSlice(inspector, "detailTagsSectionMarkup");
   assert.ok(tagsSection.includes('data-inspector-section="tags"'));
-  // 26–28. A written placeholder only — no input, no fabricated chip, no add button.
-  assert.doesNotMatch(tagsSection, /<input|<textarea|<select/);
-  assert.doesNotMatch(tagsSection, /chip|tag-pill|badge/);
-  assert.doesNotMatch(tagsSection, /<button/);
-  assert.match(tagsSection, /<p class="empty-copy">\$\{t\("tagsUnavailable"\)\}<\/p>/);
-  assert.match(i18n, /tagsUnavailable: "标签功能尚未启用，当前素材未记录标签。"/);
-  assert.match(i18n, /tagsUnavailable: "Tags are not enabled yet\. No tags are recorded for this asset\."/);
+  // 26–28. Tags are derived from the asset prompt, the add action is always rendered,
+  // and the visual row is bounded by the implementation stylesheet.
+  assert.match(tagsSection, /assetTags\(asset\)/);
+  assert.match(tagsSection, /class="detail-tag"/);
+  assert.match(tagsSection, /data-action="add-tag"/);
+  assert.match(tagsSection, /t\("addTag"\)/);
+  const css = await readCss();
+  assert.match(css, /\.detail-tags-row \{[^}]*max-height: 56px/);
+  assert.match(i18n, /tagsAutoHint: "从提示词自动提取"/);
+  assert.match(i18n, /addTag: "添加标签"/);
 });
 
 // 29. Cowart is 8th. 30. The control renders once. 31. Cowart is the only primary.
@@ -471,7 +474,7 @@ test("48-51. hygiene: no !important, no undefined tokens, manifest and dependenc
 
   // 51. app.js gains no new imports (no new runtime dependencies).
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./overlay-manager.mjs", "./toast-manager.mjs"], "app.js gains no new imports");
+    ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./overlay-manager.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only the local tag utility");
 });
 
 // i18n symmetry: every new Phase 4A key ships in both languages, and no
