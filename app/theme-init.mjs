@@ -20,4 +20,7 @@
     // safe light default so the first paint is always valid.
   }
   document.documentElement.dataset.theme = theme;
+  if (typeof window !== "undefined" && window.electronAPI) {
+    document.documentElement.classList.add("electron-shell");
+  }
 })();

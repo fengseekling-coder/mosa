@@ -1115,7 +1115,9 @@ body.mosa-v2 {
   padding: 0 16px;
 }
 .mosa-v2 .brand { position: relative; }
-.mosa-v2 .brand-info h1 { margin-left: 76px; color: var(--color-text-primary); font-size: 13px; font-weight: 600; letter-spacing: 0; }.mosa-v2 .sidebar-library-title { padding: 0 16px 8px; color: var(--color-text-tertiary); font-size: 10px; font-weight: 400; line-height: 16px; letter-spacing: .04em; text-transform: uppercase; }
+.mosa-v2 .brand-info h1 { color: var(--color-text-primary); font-size: 13px; font-weight: 600; letter-spacing: 0; }
+html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
+.mosa-v2 .sidebar-library-title { padding: 0 16px 8px; color: var(--color-text-tertiary); font-size: 10px; font-weight: 400; line-height: 16px; letter-spacing: .04em; text-transform: uppercase; }
 .mosa-v2 .primary-nav { padding: 8px 12px 12px; }.mosa-v2 .nav-list { gap: 2px; }
 .mosa-v2 .nav-item, .mosa-v2 .add-group-button, .mosa-v2 .settings-trigger { min-height: 40px; border-radius: 6px; color: var(--color-text-secondary); font-size: 13px; font-weight: 400; }
 .mosa-v2 .nav-item { padding: 0 12px; }
@@ -1177,7 +1179,7 @@ body.mosa-v2 {
 .mosa-v2 .detail-inspector-header { min-height: 56px; padding: 0 16px; border-bottom: 0; color: var(--color-text-primary); background: transparent; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
 .mosa-v2 .detail-inspector-header .detail-close { display: flex; width: 32px; height: 32px; min-height: 32px; flex: 0 0 32px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 10px; color: #6e6e73; background: rgb(242 242 247 / .92); cursor: pointer; transition: background 200ms var(--ease-standard), color 200ms var(--ease-standard); }
 .mosa-v2 .detail-inspector-header .detail-close svg { width: 16px; height: 16px; }
-.mosa-v2 .detail .detail-overview { box-sizing: border-box; display: flex; height: 246px; flex-direction: column; gap: 12px; padding: 16px; border-top: 0; overflow: hidden; }
+.mosa-v2 .detail .detail-overview { box-sizing: border-box; display: flex; min-height: 248px; height: auto; flex-direction: column; gap: 12px; padding: 16px; border-top: 0; overflow: visible; }
 .mosa-v2 .detail .detail-overview-heading { display: flex; height: 18px; min-width: 0; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; }
 .mosa-v2 .detail .detail-overview-heading h3 { flex: 0 0 auto; margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 600; line-height: 18px; }
 .mosa-v2 .detail .detail-overview-heading p { min-width: 0; margin: 0; overflow: hidden; color: #6e6e73; font-size: 12px; line-height: 18px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
@@ -1208,15 +1210,15 @@ body.mosa-v2 {
 .mosa-v2 .detail .detail-prompt-head .section-head-copy { min-width: 18px; min-height: 18px; flex: 0 0 18px; padding: 0; border: 0; border-radius: 5px; color: #6e6e73; background: transparent; cursor: pointer; }
 .mosa-v2 .detail .detail-prompt-head .section-head-copy:disabled { opacity: .4; cursor: default; }
 
-/* V2 Prompt section: fixed 224px height, bordered prompt boxes */
-.mosa-v2 .detail .detail-prompt-section { box-sizing: border-box; display: flex; height: 224px; flex-direction: column; gap: 8px; padding: 12px 16px; overflow: hidden; }
-.mosa-v2 .detail .detail-prompt-box { box-sizing: border-box; display: flex; height: 48px; flex: 0 0 48px; align-items: center; overflow: hidden; padding: 0 12px; border: 1px solid rgb(60 60 67 / .16); border-radius: 12px; background: rgb(248 248 250 / .88); font-family: var(--font-family-ui); font-size: 12px; line-height: 18px; white-space: nowrap; }
+/* V2 Prompt section: content stays readable and the panel grows with it. */
+.mosa-v2 .detail .detail-prompt-section { box-sizing: border-box; display: flex; min-height: 224px; flex-direction: column; gap: 8px; padding: 12px 16px; }
+.mosa-v2 .detail .detail-prompt-box { box-sizing: border-box; display: block; min-height: 48px; max-height: 112px; flex: 0 1 auto; overflow-y: auto; overflow-x: hidden; padding: 8px 12px; border: 1px solid rgb(60 60 67 / .16); border-radius: 12px; background: rgb(248 248 250 / .88); font-family: var(--font-family-ui); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; white-space: normal; }
 .mosa-v2 .detail .detail-prompt-box .empty-copy { color: #8e8e93; }
 .mosa-v2 .detail .detail-prompt-subhead { display: flex; height: 18px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; }
 .mosa-v2 .detail .detail-prompt-subhead h4 { flex: 0 0 auto; margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 600; line-height: 18px; }
 .mosa-v2 .detail .detail-copy-sub { display: inline-grid; min-width: 18px; min-height: 18px; flex: 0 0 18px; padding: 0; place-items: center; border: 0; border-radius: 5px; color: #6e6e73; background: transparent; cursor: pointer; }
 .mosa-v2 .detail .detail-copy-sub:disabled { opacity: .4; cursor: default; }
-.mosa-v2 .detail .detail-instruction-box { box-sizing: border-box; display: flex; height: 48px; flex: 0 0 48px; align-items: center; overflow: hidden; padding: 0 12px; border: 1px solid rgb(60 60 67 / .16); border-radius: 12px; background: rgb(248 248 250 / .88); font-size: 12px; line-height: 18px; white-space: nowrap; }
+.mosa-v2 .detail .detail-instruction-box { min-height: 48px; max-height: 76px; flex: 0 1 auto; overflow-y: auto; overflow-x: hidden; padding: 8px 12px; border: 1px solid rgb(60 60 67 / .16); border-radius: 12px; background: rgb(248 248 250 / .88); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; white-space: normal; }
 .mosa-v2 .detail .detail-reference-row { display: flex; height: 36px; flex: 0 0 36px; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; padding: 0 12px; border: 0; border-radius: 10px; background: rgb(242 242 247 / .76); font-size: 12px; font-weight: 500; line-height: 18px; }
 .mosa-v2 .detail .detail-reference-label { display: flex; min-width: 0; align-items: center; gap: 4px; overflow: hidden; color: #6e6e73; }
 .mosa-v2 .detail .detail-reference-value { flex: 0 0 auto; color: #8e8e93; }
@@ -1228,20 +1230,28 @@ body.mosa-v2 {
 .mosa-v2 .detail .detail-regenerate-section { box-sizing: border-box; display: flex; height: 192px; flex-direction: column; padding: 16px; overflow: hidden; }
 .mosa-v2 .detail .detail-regenerate-head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; }
 .mosa-v2 .detail .detail-regenerate-head h3 { margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 600; line-height: 18px; }
-.mosa-v2 .detail .detail-regenerate-composer { position: relative; display: flex; height: 160px; flex: 0 0 160px; flex-direction: column; gap: 12px; overflow: hidden; padding: 12px; border: 1px solid rgb(60 60 67 / .16); border-radius: 16px; background: rgb(248 248 250 / .94); }
+.mosa-v2 .detail .detail-regenerate-composer { box-sizing: border-box; position: relative; display: flex; height: 160px; flex: 0 0 160px; flex-direction: column; gap: 12px; overflow: hidden; padding: 12px; border: 1px solid rgb(60 60 67 / .16); border-radius: 16px; background: rgb(248 248 250 / .94); }
 .mosa-v2 .detail .detail-regenerate-composer textarea { height: 88px; flex: 0 0 88px; width: 100%; resize: none; border: 0; background: transparent; padding: 0; outline: 0; color: var(--color-text-primary); font-size: 13px; line-height: 20px; }
+.mosa-v2 .detail .detail-regenerate-composer textarea:focus { border-color: transparent; box-shadow: none; outline: 0; }
 .mosa-v2 .detail .detail-regenerate-composer textarea::placeholder { color: #8e8e93; }
 .mosa-v2 .detail .detail-regenerate-bar { display: flex; height: 36px; flex: 0 0 36px; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; }
 .mosa-v2 .detail .detail-regenerate-controls { display: flex; min-width: 0; align-items: center; gap: 6px; overflow: hidden; }
 .mosa-v2 .detail .detail-composer-chip { display: flex; height: 28px; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 8px; border: 0; border-radius: 9px; color: #6e6e73; background: rgb(242 242 247 / .94); font-size: 12px; font-weight: 500; line-height: 18px; cursor: pointer; transition: background 200ms var(--ease-standard), color 200ms var(--ease-standard); }
+.mosa-v2 .detail .detail-composer-chip select { width: auto; height: 28px; padding: 0; border: 0; outline: 0; color: inherit; background: transparent; font-size: inherit; font-weight: inherit; cursor: pointer; }
+.mosa-v2 .detail .detail-composer-chip select:focus { border-color: transparent; box-shadow: none; outline: 0; }
+.mosa-v2 .detail .detail-composer-chip:hover { color: var(--color-text-primary); background: rgb(232 232 237 / .96); }
 .mosa-v2 .detail .detail-composer-segmented { display: flex; height: 28px; flex: 0 0 auto; align-items: center; overflow: hidden; padding: 2px; border: 0; border-radius: 9px; background: rgb(242 242 247 / .96); }
 .mosa-v2 .detail .detail-composer-seg { display: flex; height: 24px; width: 32px; flex: 0 0 32px; align-items: center; justify-content: center; border: 0; border-radius: 7px; color: #6e6e73; background: transparent; font-size: 11px; font-weight: 500; line-height: 16px; cursor: pointer; transition: background 150ms var(--ease-standard), color 150ms var(--ease-standard); }
 .mosa-v2 .detail .detail-composer-seg[aria-pressed="true"] { color: #2424ff; background: rgb(36 36 255 / .10); }
 .mosa-v2 .detail .detail-composer-send { display: flex; width: 32px; height: 32px; flex: 0 0 32px; align-items: center; justify-content: center; border: 0; border-radius: 16px; color: #fff; background: #2424ff; cursor: pointer; box-shadow: 0 4px 8px -3px rgb(36 36 255 / .24); transition: background 200ms var(--ease-standard); }
 
-/* V2 Folder action: fixed 72px height */
-.mosa-v2 .detail .detail-folder-section { box-sizing: border-box; display: flex; height: 72px; flex-direction: column; padding: 16px; overflow: hidden; }
-.mosa-v2 .detail .detail-folder-btn { display: flex; height: 40px; width: 100%; flex: 0 0 40px; align-items: center; justify-content: center; gap: 6px; overflow: hidden; border: 0; border-radius: 10px; color: #6e6e73; background: rgb(242 242 247 / .76); font-size: 13px; font-weight: 500; line-height: 18px; cursor: pointer; transition: background 200ms var(--ease-standard), color 200ms var(--ease-standard); }
+/* V2 Folder action: a quiet contained utility, without a section divider or a full-width CTA. */
+.mosa-v2 .detail .detail-folder-section { box-sizing: border-box; display: flex; min-height: 32px; flex-direction: column; margin: 0 16px 12px; }
+.mosa-v2 .detail .detail-folder-btn { display: inline-flex; height: 32px; width: max-content; max-width: 100%; flex: 0 0 32px; align-items: center; justify-content: center; gap: 7px; overflow: hidden; padding: 0 10px; border: 1px solid rgb(60 60 67 / .16); border-radius: 8px; color: #6e6e73; background: rgb(242 242 247 / .88); font-size: 12px; font-weight: 500; line-height: 16px; cursor: pointer; transition: background 200ms var(--ease-standard), color 200ms var(--ease-standard), border-color 200ms var(--ease-standard); }
+.mosa-v2 .detail .detail-folder-btn svg { flex: 0 0 15px; }
+.mosa-v2 .detail .detail-folder-btn:hover { color: var(--color-text-primary); border-color: rgb(60 60 67 / .24); background: rgb(232 232 237 / .96); }
+:root[data-theme="dark"] .mosa-v2 .detail .detail-folder-btn { border-color: rgb(255 255 255 / .10); background: rgb(255 255 255 / .10); }
+:root[data-theme="dark"] .mosa-v2 .detail .detail-folder-btn:hover { border-color: rgb(255 255 255 / .18); background: rgb(255 255 255 / .16); }
 
 /* V2 Source/Version/Group/Tags/Cowart/More sections: compact heading */
 .mosa-v2 .detail .detail-source-section, .mosa-v2 .detail .detail-version-section, .mosa-v2 .detail .detail-group-section, .mosa-v2 .detail .detail-tags-section, .mosa-v2 .detail .detail-cowart-section { padding: 12px 16px; }

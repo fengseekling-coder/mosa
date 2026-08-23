@@ -32,12 +32,15 @@ function runtimeOptions(root) {
  * the data-theme value the script would apply. Mirrors app.js which reads the
  * same `mosa-dark-mode` key and compares against the string "true".
  */
-function runThemeScript(localStorageMock) {
-  const documentMock = { documentElement: { dataset: {} } };
-  // new Function lets us inject localStorage/document as the script's globals.
-  const fn = new Function("localStorage", "document", themeScriptSource);
-  fn(localStorageMock, documentMock);
-  return documentMock.documentElement.dataset.theme;
+function runThemeScript(localStorageMock, electronAPI = undefined) {
+  const documentMock = { documentElement: { dataset: {}, classList: { added: [], add(value) { this.added.push(value); } } } };
+  // new Function lets us inject browser globals without requiring a real renderer.
+  const fn = new Function("localStorage", "document", "window", themeScriptSource);
+  fn(localStorageMock, documentMock, { electronAPI });
+  return {
+    theme: documentMock.documentElement.dataset.theme,
+    classes: documentMock.documentElement.classList.added,
+  };
 }
 
 function makeStore(storedValue) {
@@ -66,16 +69,28 @@ test("theme-init.mjs loads before the stylesheet in index.html", async () => {
 });
 
 test("theme-init applies dark only for the stored string 'true'", () => {
-  assert.equal(runThemeScript(makeStore("true")), "dark", '"true" -> dark');
-  assert.equal(runThemeScript(makeStore("false")), "light", '"false" -> light');
-  assert.equal(runThemeScript(makeStore(null)), "light", "null -> light");
-  assert.equal(runThemeScript(makeStore(undefined)), "light", "absent -> light");
-  assert.equal(runThemeScript(makeStore("1")), "light", "unexpected value -> light");
+  assert.equal(runThemeScript(makeStore("true")).theme, "dark", '"true" -> dark');
+  assert.equal(runThemeScript(makeStore("false")).theme, "light", '"false" -> light');
+  assert.equal(runThemeScript(makeStore(null)).theme, "light", "null -> light");
+  assert.equal(runThemeScript(makeStore(undefined)).theme, "light", "absent -> light");
+  assert.equal(runThemeScript(makeStore("1")).theme, "light", "unexpected value -> light");
+});
+
+test("theme-init marks only Electron renderers for desktop-only brand safe area", () => {
+  assert.deepEqual(runThemeScript(makeStore(undefined)).classes, [], "web has no desktop class");
+  assert.deepEqual(runThemeScript(makeStore(undefined), {}).classes, ["electron-shell"], "Electron gets desktop class");
 });
 
 test("theme-init falls back to light when localStorage is unavailable", () => {
   const throwingStore = { getItem: () => { throw new Error("localStorage denied"); } };
-  assert.equal(runThemeScript(throwingStore), "light", "read failure -> light fallback");
+  assert.equal(runThemeScript(throwingStore).theme, "light", "read failure -> light fallback");
+});
+
+test("brand safe-area offset remains desktop-only", async () => {
+  const css = await readFile(join(repositoryRoot, "app", "styles.css"), "utf8");
+  assert.match(css, /\.mosa-v2 \.brand-info h1 \{ color: var\(--color-text-primary\);/);
+  assert.match(css, /html\.electron-shell body\.mosa-v2 \.brand-info h1 \{ margin-left: 76px; \}/);
+  assert.doesNotMatch(css, /(?:^|\n)\.mosa-v2 \.brand-info h1 \{[^}]*margin-left/);
 });
 
 test("the runtime serves /theme-init.mjs same-origin for CSP compliance", async (t) => {

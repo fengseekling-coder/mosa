@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
+import { createInspectorMarkup } from "../app/inspector-markup.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
@@ -134,6 +135,15 @@ test("7-10. file facts are honest — notRecorded fallbacks, no fabrication", as
   // 10. File size requires a positive byte count; non-positive yields "" (→ null upstream).
   assert.match(inspector, /Number\.isFinite\(bytes\) && bytes > 0 \? formatFileSize\(bytes\) : null/);
   assert.match(inspector, /if \(!Number\.isFinite\(bytes\) \|\| bytes <= 0\) return "";/);
+
+  // Web Capture persists verified file facts in business_fields. The inspector
+  // must surface them instead of treating the asset as unknown.
+  const helpers = createInspectorMarkup({ state: { groups: { groups: [] } }, t: (key) => key, referenceRightsMarkup: () => "" });
+  const capturedAsset = { business_fields: { width: 768, height: 1376, file_bytes: 597543 } };
+  assert.equal(helpers.fileDimensionsText(capturedAsset), "768 × 1376");
+  assert.equal(helpers.fileAspectRatioText(capturedAsset), "24:43");
+  assert.equal(helpers.fileSizeText(capturedAsset), "584 KB");
+  assert.equal(helpers.fileDimensionsText({ business_fields: { width: 0, height: 1376 } }), null);
 });
 
 // 11. Favorite button belongs to the Overview. 12. It uses aria-pressed.
