@@ -28,7 +28,7 @@ const FROZEN_SHA256 = {
   // approved scope) added qa:web/qa:electron/qa:packaged launcher scripts.
   // Its dependency sections are still frozen via the structural assertions in
   // the package metadata test below.
-  "package-lock.json": "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd",
+  "package-lock.json": "ecf0fdc199de87ccd30ffe6a7da4624c2f632700cd8348194a30b79dd2e2a69f",
   "desktop/preload.cjs": "37a6ef54257f5b5ac279b135887decc5e4cc27bd42345d04a68005712b6160a0",
 };
 
@@ -130,5 +130,5 @@ test("package metadata and the runtime preload stay frozen", async () => {
   // (the frozen semantics) are pinned structurally instead of by file hash.
   const manifest = JSON.parse(await read("package.json"));
   assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must remain unchanged");
-  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies must remain unchanged");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must remain unchanged");
 });

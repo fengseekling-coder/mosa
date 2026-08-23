@@ -18,4 +18,5 @@ jobs:
       - run: npm run lint
       - run: npm run check
       - run: npm test
+      - run: npm run test:performance
       - run: npm run audit

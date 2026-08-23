@@ -113,10 +113,9 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
   const suppliedPromptStatus = String(input.prompt_status || input.promptStatus || "").trim();
   const promptSource = String(input.prompt_source || input.promptSource || "").trim();
   const trustedGenerationPrompt = ["generation-tool-prompt", "visible-caption"].includes(suppliedPromptStatus);
-  // Flow can expose a prompt card beside a generated-image group, and AI
-  // Studio can expose the preceding user prompt turn in the same chat session.
-  // Neither is verified to be the exact prompt executed by the provider.
-  const providerVisiblePrompt = ["flow", "google-ai-studio"].includes(provider)
+  // Gemini, Flow, and AI Studio can expose a narrowly associated visible user
+  // prompt. None is verified to be the exact prompt executed by the provider.
+  const providerVisiblePrompt = ["gemini", "flow", "google-ai-studio"].includes(provider)
     && suppliedPromptStatus === "provider-visible-prompt";
   if (!trustedGenerationPrompt && !providerVisiblePrompt) prompt = "";
   let promptStatus = PROMPT_STATUSES.has(suppliedPromptStatus) ? suppliedPromptStatus : prompt ? "user-message" : "not-available";

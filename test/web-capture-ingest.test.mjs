@@ -173,7 +173,7 @@ test("accepts the allowlisted generic providers with provider-derived metadata",
   }
 });
 
-test("persists Flow and AI Studio provider-visible prompts as unverified and rejects that status for Gemini", async (t) => {
+test("persists Gemini, Flow, and AI Studio provider-visible prompts as unverified", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-flow-prompt-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const image = await noiseImage(42);
@@ -228,24 +228,40 @@ test("persists Flow and AI Studio provider-visible prompts as unverified and rej
   assert.equal(aiStudio.asset.source?.prompt_status, "provider-visible-prompt");
   assert.equal(aiStudio.asset.source?.prompt_source, "google-ai-studio-visible-user-prompt");
 
-  // A non-Flow provider cannot use the Flow-only status. The prompt is
-  // stripped and remains unavailable even when its image bytes are new.
-  const other = await ingestWebCapture({
+  const gemini = await ingestWebCapture({
     store,
     tempRoot: join(root, "gemini"),
     input: {
       provider: "gemini",
       imageBytes: await noiseImage(149),
       mimeType: "image/png",
+      prompt: "A visible Gemini user prompt structurally associated with the image",
+      prompt_status: "provider-visible-prompt",
+      prompt_source: "gemini-visible-user-prompt",
+    },
+  });
+  assert.equal(gemini.status, "imported");
+  assert.equal(gemini.asset.prompt, "A visible Gemini user prompt structurally associated with the image");
+  assert.equal(gemini.asset.source?.prompt_status, "provider-visible-prompt");
+  assert.equal(gemini.asset.source?.prompt_source, "gemini-visible-user-prompt");
+
+  // An unrelated provider cannot claim the Google visible-prompt status.
+  const other = await ingestWebCapture({
+    store,
+    tempRoot: join(root, "chatgpt"),
+    input: {
+      provider: "chatgpt",
+      imageBytes: await noiseImage(150),
+      mimeType: "image/png",
       prompt: "This must not be persisted",
       prompt_status: "provider-visible-prompt",
-      prompt_source: "flow-visible-composer",
+      prompt_source: "gemini-visible-user-prompt",
     },
   });
   assert.equal(other.status, "imported");
   assert.equal(other.asset.prompt, "");
   assert.equal(other.asset.source?.prompt_status, "not-available");
-  assert.equal(other.asset.source?.prompt_source, "flow-visible-composer");
+  assert.equal(other.asset.source?.prompt_source, "gemini-visible-user-prompt");
 });
 
 test("does not let a Flow-only prompt upgrade a same-image asset from another provider", async (t) => {

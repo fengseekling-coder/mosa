@@ -1,7 +1,13 @@
 import { cp, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
-// @ts-ignore - unmigrated module
+
+/**
+ * sqlite-asset-store.mjs is intentionally kept as .mjs for gradual TypeScript migration.
+ * Type declarations are available in sqlite-asset-store.d.ts.
+ * The @ts-ignore is necessary because TypeScript cannot resolve .d.ts for .mjs imports.
+ */
+// @ts-ignore - .mjs module with separate .d.ts declaration
 import { createSqliteAssetStore } from "./sqlite-asset-store.mjs";
 
 interface LegacyMetadata { id: string; asset: string; parent_asset_id?: string; parentAssetId?: string; source?: Record<string, unknown>; [key: string]: unknown; }

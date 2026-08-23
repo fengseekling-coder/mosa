@@ -93,7 +93,9 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
       ? escapeHtml(asset.prompt)
       : `<span class="empty-copy">${t(promptUnavailable ? "webPromptUnavailable" : "notRecorded")}</span>`;
     const providerVisiblePrompt = asset.prompt && source.prompt_status === "provider-visible-prompt";
-    const providerVisiblePromptKey = source.provider === "google-ai-studio" || source.type === "web-google-ai-studio"
+    const providerVisiblePromptKey = source.provider === "gemini" || source.type === "web-gemini"
+      ? "geminiVisibleUserPromptUnverified"
+      : source.provider === "google-ai-studio" || source.type === "web-google-ai-studio"
       ? "googleAiStudioVisibleUserPromptUnverified"
       : source.provider === "flow" || source.type === "web-flow"
         ? "flowProviderVisiblePromptUnverified"

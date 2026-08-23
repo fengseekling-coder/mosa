@@ -1,10 +1,8 @@
 (() => {
   // Google keeps changing the markup of Gemini, Flow, and AI Studio. This
-  // adapter uses only rendered image data. Flow may additionally read the
-  // text of one structurally-associated Prompt card after a local Reuse Prompt
-  // anchor is confirmed. AI Studio may read only the nearest preceding user
-  // prompt turn in the same chat session as the generated image. Neither path
-  // scans the whole page, conversations outside that session, or editors.
+  // adapter uses only rendered image data. Gemini, Flow, and AI Studio may
+  // additionally read one structurally-associated visible user Prompt. None
+  // of these paths scans the whole page, other sessions, or editors.
   const SITE_BY_HOST = {
     "gemini.google.com": "gemini",
     "aistudio.google.com": "google-ai-studio",
@@ -33,14 +31,19 @@
   const FLOW_PROMPT_MAX_ANCESTORS = 14;
   const FLOW_PROMPT_MAX_NODES = 96;
   const FLOW_PROMPT_ANCHOR = /reuse\s+prompt/i;
-  const AI_STUDIO_PROMPT_MAX_CHARS = 20_000;
+  const GEMINI_PROMPT_MAX_CHARS = 24_000;
+  const GEMINI_MAX_PREVIOUS_TURNS = 8;
+  const AI_STUDIO_PROMPT_MAX_CHARS = 24_000;
   // AI Studio renders Markdown with a deeply expanded Angular node tree. This
   // budget applies only inside the already-selected single user-prompt block.
   const AI_STUDIO_PROMPT_MAX_NODES = 12_000;
   const AI_STUDIO_MAX_PREVIOUS_TURNS = 16;
   const MIN_EDGE = 512;
   const MIN_VISIBLE_AREA = 96 * 96;
+  const PROMPT_RETRY_DELAYS = [900, 2_700, 7_200];
+  const PROMPT_RETRY_PROVIDERS = new Set(["gemini", "flow", "google-ai-studio"]);
   const seen = new Set();
+  const promptRetryStates = new Map();
   let autoCapture = true;
   let scanTimer = null;
   let observer = null;
@@ -137,6 +140,13 @@
     return false;
   }
 
+  function flowNodeAllowsVisibleText(node) {
+    if (!node || node.nodeType !== 1) return false;
+    const style = typeof getComputedStyle === "function" ? getComputedStyle(node) : null;
+    if (style && (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0)) return false;
+    return elementAttribute(node, "aria-hidden").toLowerCase() !== "true";
+  }
+
   function flowNodeIsVisible(node) {
     if (!node || node.nodeType !== 1) return false;
     const style = typeof getComputedStyle === "function" ? getComputedStyle(node) : null;
@@ -170,6 +180,7 @@
       }
       if (current.nodeType !== 1) return;
       if (!includeControls && flowNodeIsExcludedFromPromptText(current)) return;
+      if (!flowNodeAllowsVisibleText(current)) return;
       for (const child of Array.from(current.childNodes || [])) visit(child);
     }
     visit(node);
@@ -184,6 +195,7 @@
       const current = stack.shift();
       if (!current || current.nodeType !== 1) continue;
       visited += 1;
+      if (!flowNodeAllowsVisibleText(current)) continue;
       const tag = String(current.tagName || "").toLowerCase();
       const role = elementAttribute(current, "role").toLowerCase();
       const label = [
@@ -206,23 +218,20 @@
   function flowPromptTextFromCard(card) {
     if (!flowNodeIsVisible(card)) return "";
     const raw = flowTextFromNode(card);
-    if (!raw || raw.length > FLOW_PROMPT_MAX_CHARS || !/\bprompt\b/i.test(raw)) return "";
+    if (!raw || raw.length > FLOW_PROMPT_MAX_CHARS) return "";
     const prompt = raw
       .replace(/^\s*prompt\s*:?\s*/i, "")
       .replace(/\s+prompt\s*:?\s*$/i, "")
       .trim();
-    if (!prompt || /^reuse\s+prompt$/i.test(prompt) || prompt.length > FLOW_PROMPT_MAX_CHARS) return "";
+    if (!prompt || prompt.length > FLOW_PROMPT_MAX_CHARS) return "";
     return prompt;
   }
 
   function flowNearbyPromptCard(image) {
     if (!image || !flowNodeIsVisible(image)) {
-      console.log("[MOSA Flow] Image not visible or invalid");
       return "";
     }
     let node = image;
-    let bestPrompt = "";
-    let debugInfo = { depths: [], foundCards: 0, foundReuseAnchors: 0 };
 
     for (let depth = 0; node && depth < FLOW_PROMPT_MAX_ANCESTORS; depth += 1) {
       const parent = node.parentElement;
@@ -233,36 +242,17 @@
         .map((candidate) => ({ candidate, prompt: flowPromptTextFromCard(candidate) }))
         .filter((entry) => entry.prompt);
 
-      debugInfo.foundCards += promptCards.length;
-      debugInfo.depths.push({ depth, cards: promptCards.length });
-
       // The sibling card itself holds the image's Reuse Prompt control. This
       // preserves a one-image-group association even when Flow wraps the
       // image grid and its Prompt card at different depths.
       const reusePromptCards = promptCards.filter((entry) => flowHasReusePromptAnchor(entry.candidate));
-      debugInfo.foundReuseAnchors += reusePromptCards.length;
 
       if (reusePromptCards.length === 1) {
-        console.log("[MOSA Flow] Found prompt with Reuse anchor at depth", depth, reusePromptCards[0].prompt.slice(0, 100));
         return reusePromptCards[0].prompt;
-      }
-
-      // Fallback: if we found prompt cards without Reuse anchor, remember the first one
-      if (!bestPrompt && promptCards.length > 0) {
-        bestPrompt = promptCards[0].prompt;
-        console.log("[MOSA Flow] Found fallback prompt at depth", depth, bestPrompt.slice(0, 100));
       }
       node = parent;
     }
-
-    console.log("[MOSA Flow] Prompt search complete:", {
-      ...debugInfo,
-      returnedFallback: !!bestPrompt,
-      promptLength: bestPrompt.length
-    });
-
-    // Return the fallback prompt if no Reuse anchor was found
-    return bestPrompt;
+    return "";
   }
 
   function flowVisiblePromptForImage(image) {
@@ -273,6 +263,28 @@
       promptStatus: "provider-visible-prompt",
       promptSource: "flow-visible-prompt",
     } : null;
+  }
+
+  function geminiVisibleUserPromptForImage(image) {
+    if (currentProvider() !== "gemini" || !isVisibleGeneratedImage(image)) return null;
+    const modelResponse = ancestorWithTag(image, "model-response");
+    if (!modelResponse || !flowNodeIsVisible(modelResponse)) return null;
+
+    let previous = modelResponse.previousElementSibling;
+    for (let count = 0; previous && count < GEMINI_MAX_PREVIOUS_TURNS; count += 1) {
+      if (String(previous.tagName || "").toLowerCase() === "user-query"
+        && flowNodeIsVisible(previous)
+        && flowNodeAllowsVisibleText(previous)) {
+        const prompt = flowTextFromNode(previous);
+        if (prompt && prompt.length <= GEMINI_PROMPT_MAX_CHARS) return {
+          prompt,
+          promptStatus: "provider-visible-prompt",
+          promptSource: "gemini-visible-user-prompt",
+        };
+      }
+      previous = previous.previousElementSibling;
+    }
+    return null;
   }
 
   function ancestorWithTag(node, tagName) {
@@ -335,6 +347,93 @@
     return null;
   }
 
+  function visiblePromptForProvider(provider, image) {
+    if (provider === "gemini") return geminiVisibleUserPromptForImage(image);
+    if (provider === "flow") return flowVisiblePromptForImage(image);
+    if (provider === "google-ai-studio") return aiStudioVisibleUserPromptForImage(image);
+    return null;
+  }
+
+  function imageForSource(sourceUrl) {
+    return Array.from(document.images || []).find((candidate) => imageSourceFor(candidate)?.url === sourceUrl) || null;
+  }
+
+  function promptRetryKey(provider, sourceUrl) {
+    return `${provider}:${sourceUrl}`;
+  }
+
+  function clearPromptRetry(key) {
+    const state = promptRetryStates.get(key);
+    if (!state) return;
+    for (const timer of state.timers) clearTimeout(timer);
+    promptRetryStates.delete(key);
+  }
+
+  function scheduleNextPromptRetry(state) {
+    if (!promptRetryStates.has(state.key)) return;
+    if (state.timerPending) return;
+    if (state.attempt >= PROMPT_RETRY_DELAYS.length) {
+      clearPromptRetry(state.key);
+      return;
+    }
+    const delay = PROMPT_RETRY_DELAYS[state.attempt];
+    state.attempt += 1;
+    state.timerPending = true;
+    const timer = setTimeout(() => {
+      state.timers.delete(timer);
+      state.timerPending = false;
+      attemptPromptUpgrade(state);
+    }, delay);
+    state.timers.add(timer);
+  }
+
+  function attemptPromptUpgrade(state) {
+    if (!promptRetryStates.has(state.key) || state.inFlight) return;
+    if (currentProvider() !== state.provider) {
+      clearPromptRetry(state.key);
+      return;
+    }
+    const image = imageForSource(state.sourceUrl);
+    if (!image || !isVisibleGeneratedImage(image)) {
+      scheduleNextPromptRetry(state);
+      return;
+    }
+    if (!visiblePromptForProvider(state.provider, image)) {
+      scheduleNextPromptRetry(state);
+      return;
+    }
+
+    state.inFlight = true;
+    clearPromptRetry(state.key);
+    sendCapture(state.provider, state.source, image)
+      .then(({ response }) => {
+        if (!response?.ok) seen.delete(state.sourceUrl);
+      })
+      .catch(() => seen.delete(state.sourceUrl));
+  }
+
+  function schedulePromptRetry(provider, source) {
+    if (!PROMPT_RETRY_PROVIDERS.has(provider) || !source?.url) return;
+    const key = promptRetryKey(provider, source.url);
+    if (promptRetryStates.has(key)) return;
+    const state = {
+      key,
+      provider,
+      source,
+      sourceUrl: source.url,
+      attempt: 0,
+      inFlight: false,
+      timerPending: false,
+      timers: new Set(),
+    };
+    promptRetryStates.set(key, state);
+    scheduleNextPromptRetry(state);
+  }
+
+  function attemptPendingPromptUpgrades() {
+    for (const state of [...promptRetryStates.values()]) attemptPromptUpgrade(state);
+  }
+
   function isVisibleGeneratedImage(img) {
     if (!(img instanceof HTMLImageElement) || !img.complete) return false;
     const width = Number(img.naturalWidth || img.width || 0);
@@ -381,7 +480,8 @@
   }
 
   async function sendCapture(provider, source, img) {
-    if (!extensionAlive()) return Promise.resolve({ ok: false, error: "MOSA extension is unavailable." });
+    if (!extensionAlive()) return { response: { ok: false, error: "MOSA extension is unavailable." }, hasPrompt: false };
+    const providerPrompt = visiblePromptForProvider(provider, img);
     const payload = {
       provider,
       mimeType: mimeTypeForUrl(source.url),
@@ -390,14 +490,7 @@
       promptSource: "provider-visible-image",
       capturedAt: new Date().toISOString(),
     };
-    if (provider === "flow") {
-      const flowPrompt = flowVisiblePromptForImage(img);
-      if (flowPrompt) Object.assign(payload, flowPrompt);
-    }
-    if (provider === "google-ai-studio") {
-      const aiStudioPrompt = aiStudioVisibleUserPromptForImage(img);
-      if (aiStudioPrompt) Object.assign(payload, aiStudioPrompt);
-    }
+    if (providerPrompt) Object.assign(payload, providerPrompt);
     if (source.kind === "local") {
       const bytes = await bytesFromVisibleImage(source, img);
       payload.mimeType = bytes.mimeType;
@@ -406,10 +499,11 @@
       // Public Google CDN sources retain the existing background download path.
       payload.imageUrl = source.url;
     }
-    return chrome.runtime.sendMessage({
+    const response = await chrome.runtime.sendMessage({
       type: "mosa.ingest",
       payload,
     });
+    return { response, hasPrompt: Boolean(providerPrompt?.prompt) };
   }
 
   function mimeTypeForUrl(imageUrl) {
@@ -429,13 +523,15 @@
       if (!source || seen.has(source.url)) continue;
       seen.add(source.url);
       sendCapture(provider, source, img)
-        .then((response) => {
+        .then(({ response, hasPrompt }) => {
           // Authentication, origin, or service failures must remain retryable.
           // The background returns them as { ok: false } rather than rejecting.
           if (!response?.ok) seen.delete(source.url);
+          else if (!hasPrompt) schedulePromptRetry(provider, source);
         })
         .catch(() => seen.delete(source.url));
     }
+    attemptPendingPromptUpgrades();
   }
 
   function scheduleScan() {
@@ -462,15 +558,13 @@
     if (!message || !["mosa.capture.saveImage", "mosa.capture.saveImageWithPrompt"].includes(message.type)) return false;
     const provider = currentProvider();
     const source = imageSource(message.imageUrl);
-    const image = source
-      ? Array.from(document.images || []).find((candidate) => imageSourceFor(candidate)?.url === source.url)
-      : null;
+    const image = source ? imageForSource(source.url) : null;
     if (!provider || !source || (source.kind === "local" && !isVisibleGeneratedImage(image))) {
       sendResponse({ ok: false, error: "请选择支持站点中的生成图片。" });
       return false;
     }
     sendCapture(provider, source, image)
-      .then((response) => sendResponse(response || { ok: true }))
+      .then(({ response }) => sendResponse(response || { ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
     return true;
   });
@@ -480,7 +574,9 @@
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ["src", "srcset", "style", "class"],
+    characterData: true,
+    attributeFilter: ["src", "srcset", "style", "class", "aria-label", "title", "data-tooltip", "aria-hidden", "hidden", "contenteditable"],
   });
+  document.addEventListener("load", scheduleScan, true);
   scheduleScan();
 })();

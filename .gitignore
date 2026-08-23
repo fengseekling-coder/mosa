@@ -13,6 +13,8 @@ npm-debug.log*
 /lib/*.js
 /lib/*.js.map
 /lib/*.d.ts
+# Allow manually-written declaration files for .mjs modules
+!/lib/sqlite-asset-store.d.ts
 /dist/
 
 # User libraries and private project material.
@@ -42,3 +44,7 @@ npm-debug.log*
 # Electron build output.
 /desktop/out/
 /out/
+
+# Test coverage reports.
+/coverage/
+/.nyc_output/
