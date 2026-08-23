@@ -157,7 +157,11 @@ test("keeps recipe version history navigable without replacing active edits", as
   assert.match(inspector, /data-version-change/);
   assert.match(app, /data-action="save-version"/);
   assert.match(app, /function readRecipeDraft\(panel\)/);
-  assert.match(app, /body: \{ \.\.\.readRecipeDraft\(panel\), version_change: versionChange \}/);
+  assert.match(app, /body: \{\s*\.\.\.readRecipeDraft\(panel\),/);
+  assert.match(app, /model: panel\.querySelector\('\[data-composer-select="model"\]'\)\?\.value \|\| "auto",/);
+  assert.match(app, /ratio: panel\.querySelector\('\[data-composer-select="ratio"\]'\)\?\.value \|\| "4:3",/);
+  assert.match(app, /resolution: panel\.querySelector\('\[data-resolution\]\[aria-pressed="true"\]'\)\?\.dataset\.resolution \|\| "1K",/);
+  assert.match(app, /version_change: versionChange,/);
   assert.match(app, /function activeRecipeSnapshot\(asset\)/);
   assert.match(app, /function regenerationInstruction\(asset, snapshot\)/);
   assert.match(app, /`assetId: \$\{JSON\.stringify\(asset\.id\)\}`/);
