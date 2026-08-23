@@ -1,8 +1,12 @@
 import { cp, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
-import type { SqliteAssetStore } from "./sqlite-asset-store.js";
 
+/**
+ * sqlite-asset-store.mjs is intentionally kept as .mjs for gradual TypeScript migration.
+ * Type declarations are available in sqlite-asset-store.d.ts.
+ * The @ts-ignore is necessary because TypeScript cannot resolve .d.ts for .mjs imports.
+ */
 // @ts-ignore - .mjs module with separate .d.ts declaration
 import { createSqliteAssetStore } from "./sqlite-asset-store.mjs";
 
