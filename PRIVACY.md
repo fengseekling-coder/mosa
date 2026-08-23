@@ -11,7 +11,7 @@ Depending on the features you enable, MOSA may read:
 - media and matching `chat_history.jsonl` records under the configured Grok sessions root;
 - the dedicated MOSA Cowart canvas and explicitly approved project canvases;
 - ChatGPT web images and message-scoped context sent by the optional Chrome extension;
-- user-visible generated images from Gemini, Flow, and Google AI Studio sent by the same extension; Flow may additionally send one narrowly associated visible Prompt card, and AI Studio may send the nearest preceding visible user Prompt turn in the same chat session. Both are marked as unverified.
+- user-visible generated images from Gemini, Flow, and Google AI Studio sent by the same extension; Gemini may additionally send the nearest preceding visible `user-query` within the generated image's local message structure, Flow may send one uniquely anchored visible Prompt card, and AI Studio may send the nearest preceding visible user Prompt turn in the same chat session. Each is marked as unverified.
 
 MOSA does not intentionally scan Downloads, Desktop, unrelated project folders, arbitrary browser pages, or source roots outside the documented allowlists.
 
@@ -46,7 +46,7 @@ When updating from an earlier prerelease extension, existing settings may be rea
 
 The extension does not request or store an OpenAI API Key or ChatGPT password. It operates inside the user's existing browser session, so each provider and its asset hosts remain governed by their own privacy terms.
 
-On Gemini (`gemini.google.com`), it captures only a loaded, sufficiently large image visible in the viewport. It does not inspect or transmit Prompt text, conversation text, DOM text, credentials, cookies, or API keys; the Prompt status is recorded as `not-available`.
+On Gemini (`gemini.google.com`), it may additionally capture only the nearest preceding rendered `user-query` associated with a visible image inside a `model-response`. It skips inputs, editors, hidden content, unrelated page regions, credentials, cookies, and API keys. This text is marked `provider-visible-prompt` and is not verified as the prompt actually executed for generation.
 
 On Google AI Studio (`aistudio.google.com`), it may additionally capture only the nearest preceding rendered user Prompt turn within the same `ms-chat-session` as a visible generated image. It skips controls, inputs, editors, hidden content, model thoughts, other sessions, cookies, credentials, and API keys. This text is marked `provider-visible-prompt` and is not verified as the prompt actually executed for generation.
 

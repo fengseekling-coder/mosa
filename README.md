@@ -74,7 +74,7 @@ When the configured port already serves the same MOSA library, the desktop app a
 
 - MOSA is a local Web UI bound to loopback; it is not a cloud service and must not be exposed through a public port or reverse proxy.
 - It reads only its configured Codex, Grok, and approved Cowart locations. It does not scan Downloads, Desktop, or arbitrary image folders.
-- Web Capture is optional and remains disabled until you configure both a local ingest Token and an approved extension origin. It sends captured image bytes and page provenance only to the configured local MOSA address. ChatGPT retains message-scoped context when available; Flow and Google AI Studio retain only narrowly associated visible Prompt text when it can be safely matched and mark it unverified; Gemini records no Prompt text.
+- Web Capture is optional and remains disabled until you configure both a local ingest Token and an approved extension origin. It sends captured image bytes and page provenance only to the configured local MOSA address. ChatGPT retains message-scoped context when available; Gemini, Flow, and Google AI Studio retain only narrowly associated visible user Prompt text when it can be safely matched and mark it unverified.
 - Eligible reference images are stored as private, content-hash-deduplicated generation-record attachments, not ordinary gallery assets.
 - MOSA adds no AI model, remote sync, embedding search, or automatic upload of your library.
 

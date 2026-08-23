@@ -1,6 +1,6 @@
 # MOSA Web Capture（0.11）
 
-把 **ChatGPT、Gemini、Flow 和 Google AI Studio 网页**中用户可见的生成图片归档到本机 MOSA。ChatGPT 支持提示词关联；Flow 与 Google AI Studio 只会保存和图片局部关联的页面可见 Prompt（明确标为未验证）；Gemini 只保存图片，不读取或发送 Prompt、页面文本或凭据。
+把 **ChatGPT、Gemini、Flow 和 Google AI Studio 网页**中用户可见的生成图片归档到本机 MOSA。ChatGPT 支持提示词关联；Gemini、Flow 与 Google AI Studio 只会保存和图片局部关联的页面可见 Prompt（明确标为未验证）。
 
 > 本扩展随 MOSA 一同采用 [PolyForm Noncommercial License 1.0.0](../../LICENSE)：允许非商业使用、修改和传播；商业用途须另行取得书面授权。
 
@@ -48,14 +48,14 @@ ChatGPT 中能够明确识别为本轮上传输入的参考图，会作为该轮
 
 第 3 条失败时右下角面板会显示原因，不再静默丢失。
 
-打开 Gemini（`gemini.google.com`）、Flow（`labs.google`）或 Google AI Studio（`aistudio.google.com`）出图后，扩展只对视口中已加载且达到最小尺寸的用户可见图片自动入库。Gemini 的 Prompt 状态固定为 `not-available`。Flow 仅在图片组有唯一、相邻的「Reuse Prompt」卡片时保存该卡片的可见 Prompt；AI Studio 只读取图片所在 `ms-chat-session` 内、图片 Model 回合之前最近的页面可见用户 Prompt 回合。二者均标记为「未验证为实际生图提示词」，不会读取输入框、编辑器、隐藏内容、模型思考、其他会话或登录信息。
+打开 Gemini（`gemini.google.com`）、Flow（`labs.google`）或 Google AI Studio（`aistudio.google.com`）出图后，扩展只对视口中已加载且达到最小尺寸的用户可见图片自动入库。Gemini 只读取生成图所属 `model-response` 前、同一局部消息结构中的最近可见 `user-query`；Flow 仅在图片组有唯一、相邻的「Reuse Prompt」卡片时保存该卡片的可见 Prompt；AI Studio 只读取图片所在 `ms-chat-session` 内、图片 Model 回合之前最近的页面可见用户 Prompt 回合。三者均标记为「未验证为实际生图提示词」，不会读取输入框、编辑器、隐藏内容、模型思考、其他会话或登录信息；若图片先于 Prompt 完成渲染，只会对同一图片的局部关联信息进行有界重试。
 
-在这三个 Google 站点上，也可右键生成图片后选择「保存图片到 MOSA」；Flow 与 AI Studio 手动保存时也只会按上述局部规则匹配 Prompt，未匹配则不保存文字。
+在这三个 Google 站点上，也可右键生成图片后选择「保存图片到 MOSA」；Gemini、Flow 与 AI Studio 手动保存时也只会按上述局部规则匹配 Prompt，未匹配则不保存文字。
 
 ## 数据与权限
 
 - 扩展只在清单声明的 ChatGPT、Gemini、Flow 和 Google AI Studio 域名中运行，并只把数据发送到选项中配置的本机 MOSA 地址。
-- ChatGPT 入库数据包括图片字节、匹配到的 Prompt/用户消息、页面 URL、会话/消息 ID、模型信息、采集时间和扩展版本；Gemini 只包括图片字节、站点标识、页面 URL、采集时间和扩展版本，Prompt 固定为 `not-available`；Flow 与 AI Studio 只有在上述局部匹配成功时才额外包括该页面可见 Prompt。
+- ChatGPT 入库数据包括图片字节、匹配到的 Prompt/用户消息、页面 URL、会话/消息 ID、模型信息、采集时间和扩展版本；Gemini、Flow 与 AI Studio 只有在上述局部匹配成功时才额外包括该页面可见 Prompt。
 - MOSA 地址、Token 和自动采集开关保存在 Chrome 本地存储，不使用同步存储。
 - 图片下载需要清单中列出的 OpenAI/Google 静态资源域名权限；本机通信只允许 `127.0.0.1` 或 `localhost`。
 - MOSA 不会因此获得任何受支持站点的账号密码或 API Key。完整说明见 [PRIVACY.md](../../PRIVACY.md)。

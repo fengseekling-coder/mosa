@@ -129,7 +129,7 @@ test("declares the supported Google image sites and provider content script", ()
   assert.match(providerSource, /"aistudio\.google\.com": "google-ai-studio"/);
 });
 
-test("Google adapters capture visible images with bounded Flow and AI Studio Prompt lookup", () => {
+test("Google adapters capture visible images with bounded Gemini, Flow, and AI Studio Prompt lookup", () => {
   const executableProviderSource = providerSource.replace(/\/\/.*$/gm, "");
   assert.match(providerSource, /const IMAGE_HOSTS/);
   assert.match(providerSource, /getBoundingClientRect/);
@@ -137,8 +137,14 @@ test("Google adapters capture visible images with bounded Flow and AI Studio Pro
   assert.match(providerSource, /promptStatus: "not-available"/);
   assert.match(providerSource, /promptSource: "provider-visible-image"/);
   assert.match(providerSource, /promptStatus: "provider-visible-prompt"/);
+  assert.match(providerSource, /promptSource: "gemini-visible-user-prompt"/);
   assert.match(providerSource, /promptSource: "flow-visible-prompt"/);
   assert.match(providerSource, /promptSource: "google-ai-studio-visible-user-prompt"/);
+  assert.match(providerSource, /function geminiVisibleUserPromptForImage\(image\)/);
+  assert.match(providerSource, /ancestorWithTag\(image, "model-response"\)/);
+  assert.match(providerSource, /String\(previous\.tagName \|\| ""\)\.toLowerCase\(\) === "user-query"/);
+  assert.match(providerSource, /GEMINI_PROMPT_MAX_CHARS = 24_000/);
+  assert.match(providerSource, /GEMINI_MAX_PREVIOUS_TURNS = 8/);
   assert.match(providerSource, /FLOW_PROMPT_ANCHOR = \/reuse\\s\+prompt\/i/);
   assert.match(providerSource, /FLOW_PROMPT_MAX_CHARS = 20_000/);
   assert.match(providerSource, /FLOW_PROMPT_MAX_ANCESTORS = 14/);
@@ -148,7 +154,10 @@ test("Google adapters capture visible images with bounded Flow and AI Studio Pro
   assert.match(providerSource, /flowNearbyPromptCard/);
   assert.match(providerSource, /const reusePromptCards = promptCards\.filter/);
   assert.match(providerSource, /if \(reusePromptCards\.length === 1\)/);
-  assert.match(providerSource, /AI_STUDIO_PROMPT_MAX_CHARS = 20_000/);
+  assert.doesNotMatch(providerSource, /!\/\\bprompt\\b\/i\.test\(raw\)/);
+  assert.doesNotMatch(providerSource, /bestPrompt/);
+  assert.doesNotMatch(providerSource, /console\.log/);
+  assert.match(providerSource, /AI_STUDIO_PROMPT_MAX_CHARS = 24_000/);
   assert.match(providerSource, /AI_STUDIO_PROMPT_MAX_NODES = 12_000/);
   assert.match(providerSource, /AI_STUDIO_MAX_PREVIOUS_TURNS = 16/);
   assert.match(providerSource, /function aiStudioVisibleUserPromptForImage\(image\)/);
@@ -162,6 +171,11 @@ test("Google adapters capture visible images with bounded Flow and AI Studio Pro
   assert.match(providerSource, /"textarea"/);
   assert.match(providerSource, /"mosa\.capture\.saveImage", "mosa\.capture\.saveImageWithPrompt"/);
   assert.match(providerSource, /function supportedImageUrl\(value\)/);
+  assert.match(providerSource, /const PROMPT_RETRY_DELAYS = \[900, 2_700, 7_200\]/);
+  assert.match(providerSource, /function schedulePromptRetry\(provider, source\)/);
+  assert.match(providerSource, /function attemptPendingPromptUpgrades\(\)/);
+  assert.match(providerSource, /characterData: true/);
+  assert.match(providerSource, /document\.addEventListener\("load", scheduleScan, true\)/);
   assert.doesNotMatch(executableProviderSource, /innerText|textContent|innerHTML|querySelectorAll|conversation/);
   assert.doesNotMatch(executableProviderSource, /document\.body\.innerText|document\.documentElement\.innerText/);
 });

@@ -91,7 +91,7 @@ npm start
 
 在扩展选项中填写实际 MOSA 地址和同一个 Token。未配置 Token 时服务端保持禁用；来源不在精确白名单中时，跨来源请求会被拒绝。
 
-扩展只向所配置的 `127.0.0.1` 或 `localhost` MOSA 地址发送图片字节和页面来源信息。ChatGPT 在可用时还会发送匹配到的 Prompt/用户消息、会话/消息 ID 与模型信息；Flow 仅在同一可见媒体卡片有唯一「Reuse Prompt」控件时保存其相邻可见 Prompt；Google AI Studio 仅保存图片所在会话内、图片 Model 回合之前最近的页面可见用户 Prompt 回合。二者都明确标为未验证实际生图提示词。Gemini 仅采集页面上可见的生成图片及页面来源；扩展不读取 Google 站点的会话接口、登录凭据、隐藏提示词、输入编辑器或模型思考。地址、Token 与自动采集开关保存在 Chrome 本地存储，不使用同步存储。完整边界见 [隐私说明](../PRIVACY.md) 和 [扩展指南](../extensions/chatgpt-web-capture/README.md)。
+扩展只向所配置的 `127.0.0.1` 或 `localhost` MOSA 地址发送图片字节和页面来源信息。ChatGPT 在可用时还会发送匹配到的 Prompt/用户消息、会话/消息 ID 与模型信息；Gemini 仅保存生成图所属 `model-response` 前、同一局部消息结构里的最近可见 `user-query`；Flow 仅在同一可见媒体卡片有唯一「Reuse Prompt」控件时保存其相邻可见 Prompt；Google AI Studio 仅保存图片所在会话内、图片 Model 回合之前最近的页面可见用户 Prompt 回合。三者都明确标为未验证实际生图提示词。扩展不读取 Google 站点的会话接口、登录凭据、隐藏提示词、输入编辑器或模型思考；若图片先于可匹配 Prompt 完成渲染，只会对同一图片的局部关联信息进行有界重试。地址、Token 与自动采集开关保存在 Chrome 本地存储，不使用同步存储。完整边界见 [隐私说明](../PRIVACY.md) 和 [扩展指南](../extensions/chatgpt-web-capture/README.md)。
 
 被可靠识别为生成输入的参考图会保存为“生成记录附件”，而不是独立素材：文件按内容 hash 去重，只绑定到同会话中随后产生的生成结果及其 recipe snapshot，不进入素材瀑布流、搜索、最近添加或素材总数。当前可靠自动识别以 ChatGPT 的上传输入为准；Flow、Gemini 不会仅凭页面先后顺序猜测参考关系。旧版已经入库的 `is_reference` 素材保持原样，MOSA 不自动迁移或删除现有库内容。
 
