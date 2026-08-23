@@ -151,7 +151,7 @@ test("15-18. overlay levels and batch-bar compensation", async () => {
   assert.match(css, /--z-popover: 30;/);
   assert.match(blockAfter(css, ".filter-panel {"), /z-index: var\(--z-popover\)/);
   // V2 FilterBar: the single search lives in the topbar; its focus state stays scoped.
-  assert.match(css, /\.topbar-search:focus-within \{[^}]*var\(--border-focus\)/);
+  assert.match(css, /\.topbar-search:focus-within \{[^}]*border-color: var\(--color-border-subtle\)/);
 
   const detail = blockAfter(css, "\n.detail {");
   assert.match(detail, /overflow: hidden/);

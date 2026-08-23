@@ -329,12 +329,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .topbar-result-count { flex: 0 0 auto; padding: 0 8px; color: var(--color-text-tertiary); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* V2 FilterBar：唯一搜索框位于顶栏右侧（筛选之后），256px 定宽、32px 高；
    图标装饰（aria-hidden），accessible name 由 input aria-label 提供；
-   清除沿用原生 type="search"；焦点态经 :focus-within 应用于容器。 */
-.topbar-search { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; width: 256px; height: var(--control-sm); padding: 0 12px; border: 1px solid var(--color-border-subtle); border-radius: 8px; color: var(--color-text-tertiary); background: var(--app-search); transition: border-color var(--duration-fast) var(--ease-standard), background var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
+   清除沿用原生 type="search"；焦点态只改变底色，不增加外扩描边或光晕。 */
+.topbar-search { display: flex; box-sizing: border-box; min-width: 0; flex: 0 1 256px; align-items: center; gap: 8px; width: 256px; height: var(--control-sm); padding: 0 12px; border: 1px solid var(--color-border-subtle); border-radius: 8px; color: var(--color-text-tertiary); background: var(--app-search); transition: background-color var(--duration-fast) var(--ease-standard); }
 .topbar-search-icon { flex: 0 0 auto; }
-.topbar-search input { min-width: 0; flex: 1; height: 100%; padding: 0; border: 0; outline: 0; color: var(--color-text-primary); background: transparent; font-size: 12px; }
+.topbar-search input { box-sizing: border-box; min-width: 0; flex: 1; height: 100%; padding: 0; border: 0; outline: 0; color: var(--color-text-primary); background: transparent; font-size: 12px; }
 .topbar-search input::placeholder { color: var(--color-text-tertiary); }
-.topbar-search:focus-within { border-color: var(--border-focus); background: var(--app-search-focus); box-shadow: 0 0 0 3px rgb(36 118 184 / .10); }
+.topbar-search input[type="search"]::-webkit-search-cancel-button { width: 14px; height: 14px; margin-inline-start: 6px; cursor: pointer; }
+.topbar-search:focus-within { border-color: var(--color-border-subtle); background: var(--app-search-focus); box-shadow: none; }
 .title-row { display: flex; min-width: 0; align-items: baseline; gap: 10px; }
 /* Phase 2B 运行时验证补钉：h2 作为 flex item 默认 min-width:auto（=min-content），
    nowrap 长标题拒绝收缩导致 ellipsis 不生效；补 min-width: 0 完成截断链
@@ -1142,9 +1143,8 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .type-filter { height: 32px; gap: 6px; padding: 0 12px; border-radius: 6px; font-size: 12px; }
 .mosa-v2 .type-filter.active { background: var(--app-chip-active); }
 .mosa-v2 .topbar-result-count { padding: 0 8px; color: var(--color-text-tertiary); font-size: 12px; }
-.mosa-v2 .topbar-search { width: 256px; height: 32px; gap: 8px; padding: 0 12px; border: 1px solid var(--color-border-subtle); border-radius: 8px; color: var(--color-text-tertiary); background: var(--app-search); }
-.mosa-v2 .topbar-search:focus-within { border-color: var(--border-focus); background: var(--app-search-focus); box-shadow: 0 0 0 3px rgb(36 118 184 / .10); }
-.mosa-v2 .topbar-search input { font-size: 12px; }
+.mosa-v2 .topbar-search input { box-sizing: border-box; border: 0; background: transparent; font-size: 12px; }
+.mosa-v2 .topbar-search input:focus, .mosa-v2 .topbar-search input:focus-visible { border-color: transparent; box-shadow: none; outline: 0; }
 
 .mosa-v2 .library { background: var(--app-bg); }
 .mosa-v2 .topbar { gap: 8px; min-height: 56px; padding: 12px 24px 16px; border: 0; background: transparent; }
@@ -1305,7 +1305,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
    as an additional navigation row. */
 .mosa-v2 .sidebar-group-heading { display: flex; align-items: center; justify-content: space-between; min-height: 32px; margin: 14px 12px 4px; }
 .mosa-v2 .sidebar-group-heading .nav-label { margin: 0; padding: 0; }
-.mosa-v2 .sidebar-group-heading .add-group-button { width: 32px; min-height: 32px; justify-content: center; padding: 0; border-radius: 6px; }
+.mosa-v2 .sidebar-group-heading .add-group-button { width: auto; min-width: 14px; height: 20px; min-height: 20px; justify-content: center; padding: 0; border-radius: 0; }
 
 /* Dark mode for V2 inspector sections */
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-head h3, :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-subhead h4, :root[data-theme="dark"] .mosa-v2 .detail .detail-regenerate-head h3 { color: #f5f5f7; }
@@ -1359,7 +1359,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .brand { justify-content: center; padding: 0; }
   .mosa-v2 .brand-info, .mosa-v2 .sidebar-library-title, .mosa-v2 .nav-item-text, .mosa-v2 .nav-count, .mosa-v2 .nav-label, .mosa-v2 .add-group-button span, .mosa-v2 .settings-trigger span { display: none; }
   .mosa-v2 .primary-nav, .mosa-v2 .sidebar-footer { padding: 8px; }.mosa-v2 .nav-item, .mosa-v2 .add-group-button, .mosa-v2 .settings-trigger { justify-content: center; padding: 0; }
-  .mosa-v2 .topbar { align-items: flex-start; flex-wrap: wrap; padding: 12px 16px; }.mosa-v2 .topbar-context { flex-basis: 100%; }.mosa-v2 .topbar-actions { width: 100%; flex-wrap: wrap; }.mosa-v2 .topbar-search { width: 100%; margin: 0 8px 8px; }
+  .mosa-v2 .topbar { align-items: flex-start; flex-wrap: wrap; padding: 12px 16px; }.mosa-v2 .topbar-context { flex-basis: 100%; }.mosa-v2 .topbar-actions { width: 100%; flex-wrap: wrap; }.mosa-v2 .topbar-search { width: 100%; margin: 0; }
   .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 16px 16px; }.mosa-v2 .detail { top: 8px; right: 8px; bottom: 8px; width: min(360px, calc(100vw - 80px)); border-radius: 20px; }
 }
 
@@ -1384,26 +1384,28 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 
 /* V2 collections: names are backed by the local library; the color is a
    presentation preference stored locally so it never changes library records. */
-.mosa-v2 .group-modal-card { width: min(380px, 100%); }
-.mosa-v2 .group-modal-card .modal-header { align-items: center; padding: 20px 24px 10px; border-bottom: 0; }
+.mosa-v2 .group-modal-card { width: min(344px, 100%); }
+.mosa-v2 .group-modal-card .modal-header { align-items: center; padding: 20px 20px 8px; border-bottom: 0; }
 .mosa-v2 .group-modal-card .modal-header h3 { margin: 0; color: var(--color-text-primary); font-size: 16px; font-weight: 600; line-height: 22px; }
-.mosa-v2 .group-modal-card .modal-header .icon-button { width: 28px; height: 28px; padding: 0; border: 0; color: var(--color-text-tertiary); background: transparent; }
-.mosa-v2 .group-modal-card .modal-body { padding: 18px 24px 20px; }
-.mosa-v2 .group-modal-card .field > span, .mosa-v2 .group-color-field > span { color: var(--color-text-secondary); font-size: 12px; font-weight: 500; }
-.mosa-v2 .group-modal-card .field input { height: 36px; border-radius: 6px; font-size: 13px; }
-.mosa-v2 .group-color-field { display: grid; gap: 8px; margin-top: 18px; }
-.mosa-v2 .group-color-options { display: flex; gap: 8px; }
+.mosa-v2 .group-modal-card .modal-header .icon-button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px; color: var(--color-text-tertiary); background: transparent; }
+.mosa-v2 .group-modal-card .modal-body { padding: 16px 20px 20px; }
+.mosa-v2 .group-modal-card .field { display: grid; gap: 7px; }
+.mosa-v2 .group-modal-card .field > span, .mosa-v2 .group-color-field > span { color: var(--color-text-secondary); font-size: 12px; font-weight: 500; line-height: 16px; }
+.mosa-v2 .group-modal-card .field input { width: 100%; box-sizing: border-box; height: 38px; padding: 0 11px; border-radius: 8px; font-size: 13px; }
+.mosa-v2 .group-modal-card .field input:focus { border-color: var(--color-border-subtle); box-shadow: none; }
+.mosa-v2 .group-color-field { display: grid; gap: 8px; margin-top: 20px; }
+.mosa-v2 .group-color-options { display: flex; gap: 10px; }
 .mosa-v2 [data-group-color="#6366f1"] { --group-color: #6366f1; }
 .mosa-v2 [data-group-color="#f59e0b"] { --group-color: #f59e0b; }
 .mosa-v2 [data-group-color="#10b981"] { --group-color: #10b981; }
 .mosa-v2 [data-group-color="#ef4444"] { --group-color: #ef4444; }
 .mosa-v2 [data-group-color="#8b5cf6"] { --group-color: #8b5cf6; }
 .mosa-v2 [data-group-color="#ec4899"] { --group-color: #ec4899; }
-.mosa-v2 .group-color-swatch { width: 28px; height: 28px; padding: 0; border: 2px solid transparent; border-radius: 50%; background: var(--group-color); box-shadow: 0 0 0 0 transparent; cursor: pointer; transition: box-shadow .15s ease, transform .15s ease; }
+.mosa-v2 .group-color-swatch { width: 26px; height: 26px; padding: 0; border: 2px solid transparent; border-radius: 50%; background: var(--group-color); box-shadow: 0 0 0 0 transparent; cursor: pointer; transition: box-shadow .15s ease, transform .15s ease; }
 .mosa-v2 .group-color-swatch.selected { border-color: var(--app-modal); box-shadow: 0 0 0 2px var(--group-color); }
 .mosa-v2 .group-color-swatch:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
-.mosa-v2 .group-modal-card .modal-footer { padding: 14px 24px 20px; border-top: 0; }
-.mosa-v2 .group-modal-card .btn-primary, .mosa-v2 .group-modal-card .btn-secondary { min-width: 72px; height: 32px; border-radius: 6px; }
+.mosa-v2 .group-modal-card .modal-footer { justify-content: flex-end; padding: 12px 20px 20px; border-top: 0; }
+.mosa-v2 .group-modal-card .btn-primary, .mosa-v2 .group-modal-card .btn-secondary { min-width: 76px; height: 34px; border-radius: 8px; }
 .mosa-v2 .nav-group-item { gap: 8px; }
 .mosa-v2 .nav-group-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--group-color); }
 
@@ -1609,4 +1611,121 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 
 @media (hover: hover) and (pointer: fine) {
   .mobile-nav-toggle:hover, .mobile-nav-close:hover { color: var(--color-text-primary); background: var(--app-hover); }
+}
+
+/* ===== Context Menu ===== */
+.context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 6px;
+  background: var(--app-menu);
+  border: 1px solid var(--border-menu);
+  border-radius: 12px;
+  box-shadow: var(--shadow-popover);
+  outline: none;
+  overflow: hidden;
+}
+
+.context-menu-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.context-menu-item:focus {
+  outline: none;
+  background: var(--app-hover);
+}
+
+.context-menu-item:disabled,
+.context-menu-item.disabled {
+  color: var(--color-text-tertiary);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.context-menu-item.danger {
+  color: var(--color-danger);
+}
+
+.context-menu-item.danger:focus {
+  background: var(--color-danger-subtle);
+}
+
+.context-menu-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+.context-menu-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.context-menu-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-menu-shortcut {
+  margin-left: auto;
+  padding-left: 20px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.context-menu-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  margin-left: auto;
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.context-menu-separator {
+  height: 1px;
+  margin: 6px 0;
+  background: var(--color-border-subtle);
+}
+
+.context-menu-submenu {
+  z-index: 10001;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .context-menu-item:not(:disabled):not(.disabled):hover {
+    background: var(--app-hover);
+  }
+
+  .context-menu-item.danger:not(:disabled):not(.disabled):hover {
+    background: var(--color-danger-subtle);
+  }
 }

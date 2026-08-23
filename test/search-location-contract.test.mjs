@@ -135,8 +135,10 @@ test("10. topbar search styles keep the V2 geometry", async () => {
   assert.match(block, /width: 256px/, "search container must keep the V2 256px width");
   assert.match(block, /height: var\(--control-sm\)/, "search container must consume the control-size token");
   assert.match(block, /border-radius: 8px/, "search container must keep the V2 8px radius");
-  assert.match(css, /\.topbar-search:focus-within \{[^}]*var\(--border-focus\)/, "focus must use the V2 border-focus token");
   assert.match(css, /\.topbar-search:focus-within \{[^}]*var\(--app-search-focus\)/, "focus must use the V2 search-focus surface");
+  assert.match(css, /\.topbar-search:focus-within \{[^}]*border-color: var\(--color-border-subtle\)/, "focus must retain the neutral border");
+  assert.match(css, /\.topbar-search:focus-within \{[^}]*box-shadow: none/, "focus must not add an outer glow");
+  assert.match(css, /\.mosa-v2 \.topbar-search input:focus, \.mosa-v2 \.topbar-search input:focus-visible \{[^}]*outline: 0/, "the input must not restore the global focus outline inside the search shell");
 });
 
 // 11. No second synced/duplicate search control exists anywhere in the shell.
