@@ -10,6 +10,7 @@
 //   「未记录」；不用 naturalWidth 伪装持久化事实、不发 HEAD 请求、不显示 0 × 0 / NaN / undefined。
 // - 格式：仅当扩展名明确时确定性推导（大写扩展名），否则回退「未记录」。
 import { SOURCE_LABEL_KEYS } from "./config.mjs";
+import { assetTags } from "./tag-utils.mjs";
 import { escapeHtml, formatDate, formatDateTime } from "./utils.mjs";
 
 export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
@@ -193,10 +194,11 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return `<section class="inspector-section detail-group-section" data-inspector-section="group"><div class="detail-prompt-head"><h3>${t("group")}</h3></div><p class="inspector-readout">${group ? escapeHtml(group) : `<span class="empty-copy">${t("notGrouped")}</span>`}</p></section>`;
   }
 
-  // D2 冻结：标签保留右栏第 7 位，但当前没有标签数据模型——只显示书面占位说明，
-  // 不渲染假标签 / 随机 chip / disabled 输入框 / 添加按钮。
-  function detailTagsSectionMarkup() {
-    return `<section class="inspector-section detail-tags-section" data-inspector-section="tags"><div class="detail-prompt-head"><h3>${t("tags")}</h3></div><p class="empty-copy">${t("tagsUnavailable")}</p></section>`;
+  function detailTagsSectionMarkup(asset) {
+    const tags = assetTags(asset).slice(0, 10);
+    const tagMarkup = tags.map((tag) => `<span class="detail-tag" data-tag-value="${escapeHtml(tag)}">${escapeHtml(tag)}</span>`).join("");
+    const emptyMarkup = tags.length ? "" : `<span class="empty-copy detail-tags-empty">${t("tagsEmpty")}</span>`;
+    return `<section class="inspector-section detail-tags-section" data-inspector-section="tags"><div class="detail-prompt-head"><h3>${t("tags")}</h3><span class="detail-tags-hint">${escapeHtml(t("tagsAutoHint"))}</span></div><div class="detail-tags-row" data-tags-list>${tagMarkup}${emptyMarkup}<button class="detail-tags-add" type="button" data-action="add-tag"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>${escapeHtml(t("addTag"))}</span></button></div></section>`;
   }
 
   function detailCowartSectionMarkup() {

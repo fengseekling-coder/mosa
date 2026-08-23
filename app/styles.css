@@ -612,6 +612,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .action-btn.primary { border-color: var(--color-accent); color: var(--color-accent-contrast); background: var(--color-accent); }
 .detail-fav-btn { display: inline-flex; height: 30px; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); color: var(--color-text-secondary); background: var(--app-card); cursor: pointer; font-size: 12px; font-weight: 500; }
 .detail-fav-btn.is-fav { color: var(--color-favorite); border-color: color-mix(in srgb, var(--color-favorite) 40%, transparent); background: color-mix(in srgb, var(--color-favorite) 10%, transparent); }
+.detail-tags-section .detail-prompt-head { align-items: baseline; }
+.detail-tags-hint { overflow: hidden; color: var(--color-text-tertiary); font-size: 10px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.detail-tags-row { display: flex; max-height: 56px; align-items: flex-start; gap: 6px; overflow: hidden; padding: 2px 0; flex-wrap: wrap; }
+.detail-tag { display: inline-flex; height: 24px; max-width: 120px; flex: 0 0 auto; align-items: center; overflow: hidden; padding: 0 8px; border: 1px solid var(--color-border-subtle); border-radius: 999px; color: var(--color-text-secondary); background: var(--app-sidebar); font-size: 11px; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
+.detail-tags-empty { height: 24px; display: inline-flex; align-items: center; }
+.detail-tags-add { display: inline-flex; height: 24px; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 7px; border: 1px dashed var(--color-border-default); border-radius: 999px; color: var(--color-accent); background: transparent; cursor: pointer; font-size: 11px; white-space: nowrap; }
+.detail-tags-add svg { flex: 0 0 auto; }
+.detail-tag-editor { display: inline-flex; height: 32px; flex: 0 0 100%; align-items: center; gap: 6px; }
+.detail-tag-editor input { min-width: 0; flex: 1; height: 32px; padding: 0 8px; border: 1px solid var(--color-accent); border-radius: var(--radius-control); color: var(--color-text-primary); background: var(--app-card); font-size: 11px; }
+.detail-tag-editor .action-btn { min-height: 32px; height: 32px; font-size: 11px; }
 
 /* Phase 4A 单栏区块：以间距与细边界分段（不做成独立大卡片；无渐变/毛玻璃/大阴影/
    新圆角体系）。十区块顺序由 app.js 的 data-inspector-section 语义标识锁定。 */

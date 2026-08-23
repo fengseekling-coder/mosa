@@ -234,10 +234,9 @@ test("41-43. styles stay inside the token boundary; dependencies stay frozen", a
   assert.doesNotMatch(shellStyles, /#[0-9a-fA-F]{3,8}\b|backdrop-filter|gradient|box-shadow/, "no new colors, glassmorphism, gradients or big shadows");
   assert.doesNotMatch(css, /\.empty-state-onboard/, "the dead onboarding shell styles are gone");
   assert.doesNotMatch(css, /\.empty-state \{/, "the old misleading empty-state styles are gone");
-  // 42-43. No new imports, no manifest or lockfile change. V2 split `app.js`
-  // into a thinner module that imports the same set of helpers (the
-  // `api-client.mjs` module name was preserved across the split).
-  assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(), ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./overlay-manager.mjs", "./toast-manager.mjs"], "app.js gains no new imports");
+  // 42-43. Only approved local helpers are imported; no manifest or lockfile
+  // change. `tag-utils.mjs` is the local tag normalization helper.
+  assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(), ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./overlay-manager.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
   // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
   // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
   // the dependency sections the freeze really guards stay byte-identical.
