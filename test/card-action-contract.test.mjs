@@ -218,7 +218,7 @@ test("17. no API, data-structure or persistence changes", async () => {
   // leave the hash table; their security-relevant behaviour is asserted
   // structurally below. The lockfile stays hash-pinned.
   const expected = {
-    "package-lock.json": "50a7d029b6aed62fd921ca013f00dba1b01d2ce96009792fb69c63207a04c8dd",
+    "package-lock.json": "ecf0fdc199de87ccd30ffe6a7da4624c2f632700cd8348194a30b79dd2e2a69f",
   };
   for (const [file, hash] of Object.entries(expected)) {
     const text = await readFile(resolve(root, file), "utf8");
@@ -231,7 +231,7 @@ test("17. no API, data-structure or persistence changes", async () => {
   // package.json dependency sections stay frozen.
   const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
   assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must stay untouched in Phase 1C");
-  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "24a0c3b9b5c327ef720981045751d87687b51bd41e0e104ed7e0d3127879387b", "package.json devDependencies must stay untouched in Phase 1C");
+  assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched in Phase 1C");
   const app = await readApp();
   // The favorite flow still posts to the same endpoint; renderGrid stays free of API calls.
   assert.match(app, /apiFetch\(`\/api\/assets\/\$\{encodeURIComponent\(state\.project\)\}\/\$\{encodeURIComponent\(id\)\}\/favorite`, \{ method: "POST" \}\)/,

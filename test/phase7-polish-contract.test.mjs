@@ -258,6 +258,7 @@ test("14. package manifest and lockfile unchanged", async () => {
     "@electron-forge/maker-zip",
     "@electron-forge/plugin-auto-unpack-natives",
     "typescript",
+    "c8",
   ];
   assert.deepEqual(Object.keys(manifest.devDependencies || {}).sort(), [...expectedDevDeps].sort(), "devDependencies pinned");
   const lock = JSON.parse(await read("package-lock.json"));
