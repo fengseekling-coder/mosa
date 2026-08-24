@@ -138,11 +138,11 @@ test("22-24. Inspector V2 九项顺序：Cowart 第七、More 第九、Cowart �
   );
   const order = [
     "detailFileSectionMarkup",
+    "detailTagsSectionMarkup",
     "detailPromptSectionMarkup",
     "detailSourceSectionMarkup",
     "detailVersionSectionMarkup",
     "detailGroupSectionMarkup",
-    "detailTagsSectionMarkup",
     "detailCowartSectionMarkup",
     "detailNewVersionSectionMarkup",
     "detailMoreSectionMarkup",

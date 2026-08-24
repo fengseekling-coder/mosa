@@ -58,9 +58,9 @@ function functionSlice(source, name) {
 
 // Library v2 keeps favorite inside its Overview; the remaining semantic blocks
 // are therefore a nine-section column.
-const SECTION_ORDER = ["file", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
+const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "cowart", "new-version", "more"];
 // Exact helper-call sequence inside the renderDetail single-column composition.
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
 
 // 1. Detail uses a single vertical information column.
 // 2. No detail tablist. 3. No detail tab. 4. No detail tabpanel.
@@ -241,7 +241,7 @@ test("21-23. version section position and on-demand history disclosures", async 
   const app = await readApp();
   const inspector = await readInspectorMarkup();
 
-  // 21. Version is the 5th section (after source, before group).
+  // 21. Version sits after source and before group in the V2 column.
   const versionIndex = COMPOSITION.indexOf("detailVersionSectionMarkup");
   assert.ok(versionIndex > COMPOSITION.indexOf("detailSourceSectionMarkup"));
   assert.ok(versionIndex < COMPOSITION.indexOf("detailGroupSectionMarkup"));
@@ -278,10 +278,11 @@ test("24. group section is display-only", async () => {
 test("25-28. tags section renders prompt-derived chips and add action (D3)", async () => {
   const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
 
-  // 25. Tags is the 7th section (after group, before cowart).
+  // 25. Tags sits after file (overview) and before prompt so it lands directly
+  // under the basic information block.
   const tagsIndex = COMPOSITION.indexOf("detailTagsSectionMarkup");
-  assert.ok(tagsIndex > COMPOSITION.indexOf("detailGroupSectionMarkup"));
-  assert.ok(tagsIndex < COMPOSITION.indexOf("detailCowartSectionMarkup"));
+  assert.ok(tagsIndex > COMPOSITION.indexOf("detailFileSectionMarkup"));
+  assert.ok(tagsIndex < COMPOSITION.indexOf("detailPromptSectionMarkup"));
 
   const tagsSection = functionSlice(inspector, "detailTagsSectionMarkup");
   assert.ok(tagsSection.includes('data-inspector-section="tags"'));
@@ -302,9 +303,9 @@ test("29-31. cowart section renders once and stays the only solid primary action
   const app = await readApp();
   const inspector = await readInspectorMarkup();
 
-  // 29. Cowart is the 8th section (after tags, before new-version).
+  // 29. Cowart sits after group, before new-version.
   const cowartIndex = COMPOSITION.indexOf("detailCowartSectionMarkup");
-  assert.ok(cowartIndex > COMPOSITION.indexOf("detailTagsSectionMarkup"));
+  assert.ok(cowartIndex > COMPOSITION.indexOf("detailGroupSectionMarkup"));
   assert.ok(cowartIndex < COMPOSITION.indexOf("detailNewVersionSectionMarkup"));
 
   // 30. One mount slot in the section markup, one append call in renderDetail.

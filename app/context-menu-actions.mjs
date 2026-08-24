@@ -3,8 +3,54 @@
  * Defines all context menu items and their actions
  */
 
-export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation }) {
+export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, getGroupColor, saveGroupColor }) {
   const { apiFetch } = apiClient;
+  // getGroupColor falls back to the deterministic palette so call sites can rely
+  // on a single source of truth for group colors (mirrors app.mjs colorForGroup).
+  const resolveGroupColor = typeof getGroupColor === "function" ? getGroupColor : () => "#6366f1";
+
+  // Same-origin download of a stored media file; the browser/Electron save
+  // dialog picks the destination, so no server-side export surface is needed.
+  function downloadAssetFile(asset) {
+    if (!asset?.image_url) return;
+    const link = document.createElement("a");
+    link.href = asset.image_url;
+    link.download = asset.asset || asset.id;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  function downloadJson(fileName, payload) {
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function safeFileToken(value) {
+    return String(value || "").replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "group";
+  }
+
+  // Full manifest of one group via the existing paged asset query. The cap keeps
+  // a runaway cursor loop bounded; local groups are far below it.
+  async function fetchGroupAssets(groupName) {
+    const collected = [];
+    let cursor = "";
+    while (collected.length < 5000) {
+      const params = new URLSearchParams({ project: state.project, group: groupName, limit: "100" });
+      if (cursor) params.set("cursor", cursor);
+      const result = await apiFetch(`/api/assets?${params}`);
+      collected.push(...(result.assets || []));
+      cursor = result.page?.nextCursor || "";
+      if (!cursor) break;
+    }
+    return collected;
+  }
 
   /**
    * Get navigation item context menu
@@ -27,13 +73,14 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
           action: async () => {
             await runAction(async () => {
-              const result = await apiFetch("/api/groups", {
+              const newName = `${item.name} ${t("copy")}`;
+              await apiFetch("/api/groups", {
                 method: "POST",
-                body: {
-                  name: `${item.name} ${t("copy")}`,
-                  color: item.color,
-                },
+                body: { name: newName },
               });
+              // The store keeps colors in the per-project palette (localStorage),
+              // not in the create-group API, so duplicate the swatch here too.
+              if (typeof saveGroupColor === "function" && item.color) saveGroupColor(newName, item.color);
               showToast(t("groupDuplicated"), "success");
               window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
             });
@@ -44,8 +91,12 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5-5 5 5"/><path d="M12 5v12"/></svg>',
           action: async () => {
             await runAction(async () => {
-              const result = await apiFetch(`/api/groups/${encodeURIComponent(item.id)}/export`, {
-                method: "POST",
+              const assets = await fetchGroupAssets(item.name);
+              downloadJson(`mosa-group-${safeFileToken(item.name)}.json`, {
+                exportedAt: new Date().toISOString(),
+                project: state.project,
+                group: item.name,
+                assets,
               });
               showToast(t("exportStarted"), "success");
             });
@@ -56,10 +107,9 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           label: t("groupStats"),
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="m7 16 4-4 4 4 6-6"/></svg>',
           action: async () => {
-            await runAction(async () => {
-              const result = await apiFetch(`/api/groups/${encodeURIComponent(item.id)}/stats`);
-              showToast(`${item.name}: ${result.count} ${t("assets")}, ${result.size}`, "default");
-            });
+            // The sidebar group entry already carries the live count from
+            // GET /api/groups; no per-group stats endpoint exists to call.
+            showToast(`${item.name}: ${item.count} ${t("assets")}`, "default");
           },
         },
         { separator: true },
@@ -128,7 +178,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
                 await apiFetch("/api/open-folder", {
                   method: "POST",
                   body: {
-                    path: asset.path,
+                    path: asset.image_path,
                     reveal: true
                   },
                 });
@@ -150,8 +200,14 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           label: t("copyPath"),
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
           action: async () => {
-            await navigator.clipboard.writeText(asset.path);
-            showToast(t("pathCopied"), "success");
+            // SQLite store uses image_path (and inspector markup does the same);
+            // keep the contract consistent across every call site.
+            try {
+              await navigator.clipboard.writeText(asset.image_path);
+              showToast(t("pathCopied"), "success");
+            } catch {
+              showToast(t("copyFailed"), "error");
+            }
           },
         },
         { separator: true }
@@ -204,23 +260,28 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           },
         },
         { separator: true },
-        ...state.groups.groups.map((group) => ({
-          label: group.name,
-          icon: `<svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="${group.color}"/></svg>`,
-          action: async () => {
-            const assets = isMultiple ? selectedAssets : [asset];
-            await runAction(async () => {
-              for (const a of assets) {
-                await apiFetch(`/api/assets/${encodeURIComponent(a.project_id)}/${encodeURIComponent(a.id)}`, {
-                  method: "PATCH",
-                  body: { group: group.name },
-                });
-              }
-              showToast(t("movedToGroup"), "success");
-              window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
-            });
-          },
-        })),
+        ...state.groups.groups.map(([groupName, count]) => {
+          // Source of truth for group colors lives in app.mjs colorForGroup so
+          // the saved palette and the rendered swatch never diverge.
+          const savedColor = resolveGroupColor(groupName);
+          return {
+            label: groupName,
+            icon: `<svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="${savedColor}"/></svg>`,
+            action: async () => {
+              const assets = isMultiple ? selectedAssets : [asset];
+              await runAction(async () => {
+                for (const a of assets) {
+                  await apiFetch(`/api/assets/${encodeURIComponent(a.project_id)}/${encodeURIComponent(a.id)}`, {
+                    method: "PATCH",
+                    body: { group: groupName },
+                  });
+                }
+                showToast(t("movedToGroup"), "success");
+                window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
+              });
+            },
+          };
+        }),
       ],
     });
 
@@ -241,8 +302,12 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
           disabled: !asset.prompt,
           action: async () => {
-            await navigator.clipboard.writeText(asset.prompt || "");
-            showToast(t("promptCopied"), "success");
+            try {
+              await navigator.clipboard.writeText(asset.prompt || "");
+              showToast(t("promptCopied"), "success");
+            } catch {
+              showToast(t("copyFailed"), "error");
+            }
           },
         },
         {
@@ -251,12 +316,11 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           disabled: !state.cowartInsertAvailable,
           action: async () => {
             await runAction(async () => {
-              const result = await apiFetch("/api/cowart-insert", {
+              // Same contract as the inspector's insert button: the canvas target
+              // rides in the body, the asset is identified by the URL.
+              await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/insert-cowart`, {
                 method: "POST",
-                body: {
-                  assetId: asset.id,
-                  targetId: state.cowartInsertTargetId,
-                },
+                body: { placement: "right", targetId: state.cowartInsertTargetId },
               });
               showToast(t("insertedToCowart"), "success");
             });
@@ -275,9 +339,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         const assets = isMultiple ? selectedAssets : [asset];
         await runAction(async () => {
           for (const a of assets) {
-            await apiFetch(`/api/assets/${encodeURIComponent(a.project_id)}/${encodeURIComponent(a.id)}/export`, {
-              method: "POST",
-            });
+            downloadAssetFile(a);
           }
           showToast(isMultiple ? t("exportStartedMultiple") : t("exportStarted"), "success");
         });

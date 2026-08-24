@@ -41,9 +41,9 @@ function sliceBetween(source, startMarker, endMarker) {
 }
 
 // Library v2 keeps favorite inside Overview, leaving nine semantic sections.
-const SECTION_ORDER = ["file", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
+const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "cowart", "new-version", "more"];
 // Exact helper-call sequence inside the renderDetail single-column composition.
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
 
 // 1. Native select exists. 2-3. No hand-rolled listbox / version popover.
 // 4. Picker lives inside the version section. 5. Current version is selected.
@@ -303,13 +303,14 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
   const inspector = await readInspectorMarkup();
   const viewer = await readAssetView();
 
-  // 39-42. The composition sequence and section ids are unchanged; version is
-  // now 4th, new-version 8th, more 9th after favorite joined Overview.
+  // 39-42. The composition sequence and section ids are unchanged after the
+  // tags-under-overview reordering; version now sits after source, more still
+  // closes the column.
   assert.ok(app.includes(COMPOSITION), "renderDetail composition sequence unchanged");
   const positions = SECTION_ORDER.map((id) => inspector.indexOf(`data-inspector-section="${id}"`));
   assert.ok(positions.every((index) => index > -1), "all V2 section ids still render");
   assert.deepEqual([...positions].sort((a, b) => a - b), positions, "section order matches the approved sequence");
-  assert.equal(SECTION_ORDER[3], "version", "version stays the 4th section");
+  assert.equal(SECTION_ORDER[4], "version", "version stays the 5th section");
   assert.equal(SECTION_ORDER[7], "new-version", "new-version stays the 8th section");
   assert.equal(SECTION_ORDER[8], "more", "more stays the 9th section");
 

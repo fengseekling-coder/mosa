@@ -216,6 +216,8 @@
           </div>
         </header>
         <div class="active-filters" id="activeFilters" data-i18n-aria-label="activeFilters" aria-label="当前筛选" hidden></div>
+        <button class="toolbar-icon" id="filterToggle" type="button" aria-expanded="false" aria-controls="filterPanel" hidden data-i18n-aria-label="toggleFilters" aria-label="切换筛选面板" data-i18n-title="toggleFilters" title="切换筛选面板"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4"/></svg></button>
+        <section class="filter-panel" id="filterPanel" aria-label="筛选" hidden></section>
         <section class="grid" id="assetGrid" data-i18n-aria-label="assetList" aria-label="素材列表" aria-busy="true" tabindex="-1"></section>
         </section>
         <!-- 专用大图查看模式骨架（Phase 3A）：单一返回操作（可见文本=返回语义+范围名，

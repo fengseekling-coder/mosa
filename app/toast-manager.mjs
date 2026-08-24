@@ -216,6 +216,13 @@ export function createToastManager(deps) {
     for (const entry of [...entries.values()]) {
       clearTimeout(entry.timer);
       clearTimeout(entry.leaveTimer);
+      entry.timer = null;
+      entry.leaveTimer = null;
+      // Drop any pending transitionend listener so a CSS glitch doesn't fire
+      // finalize() against an entry that the manager no longer tracks.
+      if (entry.element) {
+        entry.element.replaceWith(entry.element.cloneNode(true));
+      }
       entry.state = "removed";
       entry.dismissedReason = entry.dismissedReason || reason;
       entry.element?.remove();

@@ -359,6 +359,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
    index.html 中 #bridgeStatusMeta 携带 .visually-hidden，辅助技术仍可读取；详细诊断由设置诊断区承担。 */
 .bridge-status-meta { overflow: hidden; color: var(--color-text-tertiary); text-overflow: ellipsis; }
 .toolbar-icon { display: inline-grid; width: 28px; height: 28px; flex: 0 0 auto; padding: 0; place-items: center; border: 0; border-radius: var(--radius-control); color: var(--color-text-tertiary); background: transparent; cursor: pointer; transition: background-color .12s ease, color .12s ease; }
+.toolbar-icon[hidden] { display: none; }
 .theme-icon-sun { display: none; }
 [data-theme="dark"] .theme-icon-moon { display: none; }
 [data-theme="dark"] .theme-icon-sun { display: block; }
@@ -824,6 +825,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 .image-preview-stage.zoomed.dragging { cursor: grabbing; }
 .image-preview-stage img { display: block; width: auto; height: auto; max-width: none; max-height: none; object-fit: contain; }
 .image-preview-stage video { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
+.image-preview-stage > [hidden] { display: none; }
 .image-preview-controls { position: absolute; z-index: 2; bottom: 24px; left: 50%; display: flex; gap: 6px; padding: 6px; border-radius: var(--radius-panel); background: var(--color-media-surface); transform: translateX(-50%); backdrop-filter: blur(10px); }
 .image-preview-controls button { display: flex; width: 36px; height: 36px; align-items: center; justify-content: center; border: 0; border-radius: var(--radius-control); color: var(--color-media-text); background: transparent; cursor: pointer; font-size: 16px; }
 .image-preview-controls button:hover { background: color-mix(in srgb, var(--color-media-text) 15%, transparent); }
@@ -1272,14 +1274,14 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail-inspector-scroll { display: flex; flex-direction: column; }
 .mosa-v2 .detail-inspector-scroll > .inspector-section { flex: 0 0 auto; }
 .mosa-v2 .detail-overview { order: 1; }
-.mosa-v2 .detail-prompt-section { order: 2; }
-.mosa-v2 .detail-regenerate-section { order: 3; }
-.mosa-v2 .detail-folder-section { order: 4; }
-.mosa-v2 .detail-source-section { order: 5; }
-.mosa-v2 .detail-version-section { order: 6; }
-.mosa-v2 .detail-group-section { order: 7; }
-.mosa-v2 .detail-tags-section { order: 8; }
-.mosa-v2 .detail-cowart-section { order: 9; }
+.mosa-v2 .detail-tags-section { order: 2; }
+.mosa-v2 .detail-prompt-section { order: 3; }
+.mosa-v2 .detail-source-section { order: 4; }
+.mosa-v2 .detail-version-section { order: 5; }
+.mosa-v2 .detail-group-section { order: 6; }
+.mosa-v2 .detail-cowart-section { order: 7; }
+.mosa-v2 .detail-regenerate-section { order: 8; }
+.mosa-v2 .detail-folder-section { order: 9; }
 .mosa-v2 .detail [data-inspector-section="more"] { order: 10; }
 
 /* The V2 FilterBar begins with type filters; the retained heading is still
@@ -1605,7 +1607,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-source-section,
 .mosa-v2 .detail .detail-version-section,
 .mosa-v2 .detail .detail-group-section,
-.mosa-v2 .detail .detail-tags-section,
 .mosa-v2 .detail .detail-cowart-section,
 .mosa-v2 .detail [data-inspector-section="more"] { display: none; }
 

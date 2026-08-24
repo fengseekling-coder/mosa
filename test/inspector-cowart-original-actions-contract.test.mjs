@@ -41,8 +41,8 @@ function sliceBetween(source, startMarker, endMarker) {
 }
 
 // Library v2 keeps favorite in the Overview instead of a detached section.
-const SECTION_ORDER = ["file", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "cowart", "new-version", "more"];
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
 
 // The insert-cowart click handler slice (event binding up to the next binding).
 function insertHandlerSlice(app) {

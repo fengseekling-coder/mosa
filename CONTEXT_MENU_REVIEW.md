@@ -1,6 +1,6 @@
 # MOSA 右键菜单功能审查报告
 
-**审查日期**: 2026-08-23
+**审查日期**: 2026-08-23（初次审查）/ 2026-08-24（分组问题修复）
 **审查范围**: 右键菜单功能的完整实现
 **状态**: ✅ 通过（已修复发现的问题）
 
@@ -8,7 +8,7 @@
 
 ## 📋 审查总结
 
-右键菜单功能的核心实现**质量良好**，架构设计清晰，国际化支持完善。发现了 3 个需要修复的问题，均已在本次审查中修复完成。
+右键菜单功能的核心实现**质量良好**，架构设计清晰，国际化支持完善。发现了 4 个需要修复的问题，均已在审查中修复完成。
 
 ### 审查指标
 
@@ -122,6 +122,79 @@ const allowedPaths = [
 ---
 
 ## 🔧 已修复的问题
+
+### 问题 0：右键菜单分组子菜单不显示（2026-08-24 修复）
+
+**位置**: `app/context-menu-actions.mjs` 第 207 行
+
+**问题描述**：
+用户右键点击素材卡片，选择"移动到分组"时，子菜单只显示"原点"（noGroup），不显示任何实际的分组列表。
+
+**根本原因**：
+数据结构不匹配。`state.groups.groups` 是一个二维数组 `[[name, count], ...]`，但代码期望它是对象数组 `[{name, color}, ...]`。
+
+```javascript
+// ❌ 错误的代码（假设是对象）
+...state.groups.groups.map((group) => ({
+  label: group.name,              // undefined！group 是数组
+  icon: `...$group.color}...`,    // undefined！
+  action: async () => {
+    body: { group: group.name }   // undefined！
+  }
+}))
+```
+
+**实际数据结构**：
+```javascript
+// 来自 lib/sqlite-asset-store.mjs 第 273 行
+const groups = database.prepare(`
+  SELECT g.name, COUNT(a.id) AS count
+  ...
+`).all(cleanProjectId).map((row) => [row.name, row.count]);
+// 返回: [["工作", 5], ["个人", 3], ["学习", 7]]
+```
+
+**修复方案**：
+1. 使用数组解构正确提取 `groupName` 和 `count`
+2. 从 `localStorage` 读取用户保存的分组颜色
+3. 使用 `groupName` 作为菜单标签和 API 参数
+
+**修复后代码**：
+```javascript
+// ✅ 正确的代码
+...state.groups.groups.map(([groupName, count]) => {
+  // 从 localStorage 读取保存的分组颜色
+  const savedColor = localStorage.getItem(`mosa.group-color.${state.project}.${groupName}`) || "#6366f1";
+  return {
+    label: groupName,
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="${savedColor}"/></svg>`,
+    action: async () => {
+      const assets = isMultiple ? selectedAssets : [asset];
+      await runAction(async () => {
+        for (const a of assets) {
+          await apiFetch(`/api/assets/${encodeURIComponent(a.project_id)}/${encodeURIComponent(a.id)}`, {
+            method: "PATCH",
+            body: { group: groupName },
+          });
+        }
+        showToast(t("movedToGroup"), "success");
+        window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
+      });
+    },
+  };
+})
+```
+
+**影响**:
+- ✅ 用户现在可以看到所有分组选项
+- ✅ 分组颜色正确显示（从 localStorage 读取）
+- ✅ 点击分组可以正确移动素材
+
+**测试验证**：
+- ✅ ESLint 通过（无错误）
+- ✅ 所有测试通过（740/742）
+
+---
 
 ### 问题 1：Toast 提示使用了不存在的国际化 key
 
