@@ -14,6 +14,9 @@ import { createImagePreviewViewer } from "./image-preview.mjs";
 import { createAssetViewer } from "./asset-view.mjs";
 import { createInspectorMarkup } from "./inspector-markup.mjs";
 import { assetTags, derivePromptTags, uniqueTags } from "./tag-utils.mjs";
+import { createContextMenu } from "./context-menu.mjs";
+import { createContextMenuActions } from "./context-menu-actions.mjs";
+import { bindContextMenuEvents } from "./context-menu-bindings.mjs";
 let statusAnnouncementTimer = null;
 let statusTextWriteTimer = null;
 let statusAnnouncementSequence = 0;
@@ -748,6 +751,18 @@ function showToast(message, type = "default") { return toastManager.show(message
 // 不向 UI 暴露、不参与任何业务决策。
 window.__mosaToastDebug = () => toastManager.snapshot();
 
+// ===== Context Menu =====
+const contextMenu = createContextMenu();
+const contextMenuActions = createContextMenuActions({
+  state,
+  els,
+  t,
+  apiClient,
+  showToast,
+  runAction,
+  requestConfirmation,
+});
+
 function isDetailEditorActive() {
   const active = document.activeElement;
   return state.detailDirty || (active instanceof HTMLElement && Boolean(els.detailPanel?.contains(active) && active.closest("[data-edit], [data-version-change], [data-recipe-change]")));
@@ -1078,6 +1093,19 @@ function bindEvents() {
   document.addEventListener("click", (event) => anchoredOverlayManager.handleOutsidePointer(event.target));
   // Phase 5A / F-14：全局 resize 重定位只保留一套（viewport-change 只重定位，不自动关闭）。
   window.addEventListener("resize", () => { anchoredOverlayManager.repositionOpen(); syncMobileNavigation(); if (state.imagePreviewId) fitImagePreview(); });
+
+  bindContextMenuEvents({
+    state,
+    els,
+    contextMenu,
+    contextMenuActions,
+    loadAssets,
+    loadStats,
+    selectAsset,
+    openAssetView,
+    showToast,
+    t,
+  });
   // Phase 5B：ConfirmDialog 陷阱先于其余陷阱注册——Escape 优先级链最前（preventDefault +
   // stopPropagation，不穿透 Viewer/既有 Modal）；ConfirmDialog 未打开时后续陷阱照常工作。
   document.addEventListener("keydown", trapConfirmDialogFocus);

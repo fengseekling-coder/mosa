@@ -1,1270 +1,322 @@
-# MOSA 系统架构文档
+# MOSA 系统架构
 
-**版本**: v0.2.0
-**日期**: 2026年8月22日
-**维护者**: MOSA Team
+本文档描述仓库当前实现，而不是未来重构方案。产品版本以根目录
+`package.json` 的 `version` 字段为准（当前为 `0.2.0`）。运行时要求 Node.js
+22 或更高版本；桌面开发与本地打包使用 Electron Forge 的 macOS arm64 目标。
 
----
+## 1. 系统定位
 
-## 目录
+MOSA 是一个本地优先的创意资产库。它把图像和视频原件、可获得的 Prompt、
+生成工具上下文、来源信息、标签和版本历史保存在本地，提供浏览、搜索、归档、
+版本化和重新插入 Cowart 的能力。MOSA 不生成媒体、不提供云端同步，也不把
+素材库自动上传到远端服务。
 
-1. [系统概览](#1-系统概览)
-2. [整体架构](#2-整体架构)
-3. [核心组件](#3-核心组件)
-4. [数据流](#4-数据流)
-5. [存储架构](#5-存储架构)
-6. [集成架构](#6-集成架构)
-7. [部署架构](#7-部署架构)
+默认服务只绑定 `127.0.0.1`。浏览器扩展是可选集成，只有在显式配置本地
+ingest Token 和允许的扩展 origin 后才启用。
 
----
+## 2. 运行时分层
 
-## 1. 系统概览
-
-### 1.1 系统定位
-
-MOSA 是一个**本地优先的创意资产管理库**，专注于自动收集和管理 AI 生成的图像和视频，同时保留完整的生成上下文、Prompt 和版本历史。
-
-### 1.2 核心价值
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        MOSA 核心价值链                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  生成工具        自动收集        智能管理        重用与迭代   │
-│  ────────  →   ─────────  →   ─────────  →   ─────────    │
-│  Codex            桥接           SQLite          Canvas      │
-│  Grok            监听           FTS5搜索         MCP         │
-│  ChatGPT         验证           版本树           HTTP API    │
-│  Gemini          去重           标签系统         Web UI      │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 1.3 技术栈概览
-
-```
-┌──────────────────────── 技术栈分层 ────────────────────────┐
-│                                                             │
-│  前端层        React 18 + TypeScript + Tailwind CSS        │
-│  ├─ Web UI:   Zustand + Lucide + Vite                     │
-│  └─ Desktop:  Electron 43 (macOS)                         │
-│                                                             │
-│  服务层        Node.js 22 + TypeScript                     │
-│  ├─ HTTP:     Express-like Router                         │
-│  ├─ MCP:      Model Context Protocol Server              │
-│  └─ Bridge:   File System Watchers + Pollers             │
-│                                                             │
-│  数据层        SQLite 3 + FTS5                            │
-│  ├─ Store:    better-sqlite3                             │
-│  ├─ Search:   Full-Text Search                           │
-│  └─ Assets:   Original + WebP Previews                   │
-│                                                             │
-│  集成层        Chrome Extension + Canvas Bridge           │
-│  ├─ Web:      Optional Chrome Extension                  │
-│  └─ Cowart:   Canvas Discovery + Insertion               │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 2. 整体架构
-
-### 2.1 系统架构图
-
-```
-┌───────────────────────────────────────────────────────────────────────────┐
-│                            MOSA 系统架构                                    │
-└───────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          客户端层 (Client Layer)                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌────────────┐ │
-│  │   Web UI     │  │   Desktop    │  │  MCP Client  │  │  Browser   │ │
-│  │   (React)    │  │  (Electron)  │  │   (Codex)    │  │ Extension  │ │
-│  │ 127.0.0.1:   │  │   macOS      │  │              │  │  (Chrome)  │ │
-│  │   43517      │  │   App        │  │              │  │            │ │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬─────┘ │
-│         │                 │                 │                 │       │
-└─────────┼─────────────────┼─────────────────┼─────────────────┼───────┘
-          │                 │                 │                 │
-          │ HTTP            │ HTTP            │ stdio           │ HTTP
-          │                 │                 │                 │
-┌─────────┼─────────────────┼─────────────────┼─────────────────┼───────┐
-│         ▼                 ▼                 ▼                 ▼       │
-│  ┌──────────────────────────────────────────────────────────────┐    │
-│  │                    服务层 (Service Layer)                     │    │
-│  ├──────────────────────────────────────────────────────────────┤    │
-│  │                                                              │    │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │    │
-│  │  │ HTTP Server │  │ MCP Server  │  │  Runtime    │         │    │
-│  │  │  (Express)  │  │   (stdio)   │  │  Manager    │         │    │
-│  │  │   Port:     │  │             │  │             │         │    │
-│  │  │   43517     │  │             │  │  Isolation  │         │    │
-│  │  └─────┬───────┘  └─────┬───────┘  └─────┬───────┘         │    │
-│  │        │                │                │                 │    │
-│  │        └────────────────┼────────────────┘                 │    │
-│  │                         │                                  │    │
-│  │  ┌──────────────────────┴────────────────────────────┐    │    │
-│  │  │            核心服务 (Core Services)               │    │    │
-│  │  ├───────────────────────────────────────────────────┤    │    │
-│  │  │                                                   │    │    │
-│  │  │  • Asset CRUD                                    │    │    │
-│  │  │  • Search & Filter (FTS5)                       │    │    │
-│  │  │  • Version Management                            │    │    │
-│  │  │  • Tag Management                                │    │    │
-│  │  │  • Recipe Snapshot                               │    │    │
-│  │  │                                                   │    │    │
-│  │  └───────────────────────┬───────────────────────────┘    │    │
-│  │                          │                                │    │
-│  └──────────────────────────┼────────────────────────────────┘    │
-│                             │                                     │
-└─────────────────────────────┼─────────────────────────────────────┘
-                              │
-┌─────────────────────────────┼─────────────────────────────────────┐
-│                             ▼                                     │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │               桥接层 (Bridge Layer)                         │  │
-│  ├────────────────────────────────────────────────────────────┤  │
-│  │                                                            │  │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │  │
-│  │  │    Codex     │  │     Grok     │  │    Cowart    │    │  │
-│  │  │   Bridge     │  │   Bridge     │  │   Bridge     │    │  │
-│  │  │              │  │              │  │              │    │  │
-│  │  │  • Watcher   │  │  • Watcher   │  │  • Canvas    │    │  │
-│  │  │  • Poller    │  │  • Poller    │  │    Discovery │    │  │
-│  │  │  • Metadata  │  │  • Session   │  │  • Registry  │    │  │
-│  │  │    Extract   │  │    Parser    │  │  • Insert    │    │  │
-│  │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘    │  │
-│  │         │                 │                 │            │  │
-│  │  ┌──────┴─────────────────┴─────────────────┴───────┐    │  │
-│  │  │              Web Capture Bridge                   │    │  │
-│  │  │  • Chrome Extension Ingest                       │    │  │
-│  │  │  • Token Auth                                     │    │  │
-│  │  │  • Image Validation                               │    │  │
-│  │  └───────────────────────┬───────────────────────────┘    │  │
-│  │                          │                                │  │
-│  └──────────────────────────┼────────────────────────────────┘  │
-│                             │                                   │
-└─────────────────────────────┼───────────────────────────────────┘
-                              │
-┌─────────────────────────────┼───────────────────────────────────┐
-│                             ▼                                   │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │              数据层 (Data Layer)                            │ │
-│  ├────────────────────────────────────────────────────────────┤ │
-│  │                                                            │ │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │ │
-│  │  │   SQLite     │  │  File System │  │   Derivative │    │ │
-│  │  │   Database   │  │   Storage    │  │    Worker    │    │ │
-│  │  │              │  │              │  │              │    │ │
-│  │  │  • mosa.db   │  │  • original/ │  │  • WebP      │    │ │
-│  │  │  • FTS5      │  │  • previews/ │  │    Preview   │    │ │
-│  │  │  • Metadata  │  │  • thumbnails│  │  • Thumbnail │    │ │
-│  │  │  • Versions  │  │              │  │    Generation│    │ │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘    │ │
-│  │                                                            │ │
-│  │  Storage Location: ~/MOSA Library/                        │ │
-│  │                                                            │ │
-│  └────────────────────────────────────────────────────────────┘ │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────┐
-│                   外部数据源 (External Sources)                  │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ~/.codex/generated_images/    (Codex Generated Images)        │
-│  ~/.codex/sessions/            (Codex Session Logs)            │
-│  ~/.grok/sessions/             (Grok Build CLI Media)          │
-│  ~/.codex/cowart-data/         (Cowart Canvas Data)            │
-│  Chrome Extension              (Web Capture: ChatGPT/Gemini)   │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### 2.2 架构特点
-
-**分层职责**
-- **客户端层**: 多端支持（Web/Desktop/MCP/Extension）
-- **服务层**: HTTP/MCP 双协议服务
-- **桥接层**: 自动化数据收集与验证
-- **数据层**: SQLite 持久化 + 文件系统存储
-
-**核心原则**
-- ✅ **本地优先**: 所有数据存储在本地
-- ✅ **隐私保护**: 仅监听 127.0.0.1，不暴露公网
-- ✅ **自动化**: 零配置自动收集
-- ✅ **可扩展**: 插件式桥接架构
-
----
-
-## 3. 核心组件
-
-### 3.1 组件清单
-
-```
-┌─────────────────────── MOSA 核心组件 ────────────────────────┐
-│                                                              │
-│  服务层组件 (lib/)                                            │
-│  ├─ mosa-runtime.mjs           运行时管理器                  │
-│  ├─ server-security.mjs         安全守卫                     │
-│  ├─ runtime-lock.mjs            端口锁定                     │
-│  └─ runtime-bridges.mjs         桥接管理                     │
-│                                                              │
-│  数据组件                                                     │
-│  ├─ asset-sort.mjs              资产排序                     │
-│  ├─ recipe-snapshot.mjs         版本快照                     │
-│  ├─ library-migration.mjs       数据迁移                     │
-│  └─ derivative-worker.mjs       图像处理                     │
-│                                                              │
-│  桥接组件                                                     │
-│  ├─ codex-image-bridge.ts       Codex 图像桥接               │
-│  ├─ grok-media-bridge.ts        Grok 媒体桥接                │
-│  ├─ cowart-bridge.ts            Cowart 画布桥接              │
-│  ├─ cowart-bridge-manager.ts    画布管理器                   │
-│  ├─ cowart-canvas-discovery.ts  画布发现                     │
-│  ├─ cowart-project-registry.ts  项目注册表                   │
-│  └─ web-capture-ingest.ts       Web 捕获入口                 │
-│                                                              │
-│  集成组件                                                     │
-│  ├─ codex-hardlink.ts           Codex 硬链接                 │
-│  ├─ codex-image-bridge.ts       Codex MCP 客户端             │
-│  ├─ cowart-mcp-client.ts        Cowart MCP 客户端            │
-│  ├─ cowart-insert.ts            画布插入                     │
-│  └─ reference-attachment-store.ts 引用存储                   │
-│                                                              │
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ 客户端                                                      │
+│  浏览器静态 UI         Electron 桌面壳        MCP stdio 客户端 │
+│  app/index.html        desktop/main.mjs       Codex 等工具   │
+└───────────────┬──────────────────┬──────────────────┬────────┘
+                │ HTTP              │ HTTP              │ JSON-RPC/stdio
+                ▼                   ▼                   ▼
+┌──────────────────────────────────────────────────────────────┐
+│ MOSA 本地运行时                                              │
+│  server.mjs → lib/mosa-runtime.mjs                           │
+│  Node node:http、静态资源处理、API 分发、运行时锁和安全边界   │
+└───────────────┬──────────────────┬──────────────────┬────────┘
+                │                  │                  │
+                ▼                  ▼                  ▼
+        资产存储与 API       桥接与发现          衍生任务 worker
+        SQLite/JSON 回退      Codex/Grok/Cowart    sharp 图像处理
+        better-sqlite3        可选 Web Capture     原图不被改写
+                │
+                ▼
+┌──────────────────────────────────────────────────────────────┐
+│ 本地文件系统                                                 │
+│  SQLite 数据库、原图、预览、缩略图、Prompt/来源和迁移备份      │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 组件依赖关系
+### 2.1 客户端
 
-```
-                    ┌─────────────────┐
-                    │  mosa-runtime   │
-                    │    (启动器)      │
-                    └────────┬────────┘
-                             │
-                ┌────────────┼────────────┐
-                │            │            │
-        ┌───────▼──────┐ ┌──▼──────┐ ┌──▼──────────┐
-        │ HTTP Server  │ │  MCP    │ │   Bridges   │
-        │              │ │ Server  │ │   Manager   │
-        └──────┬───────┘ └──┬──────┘ └──┬──────────┘
-               │            │            │
-               └────────────┼────────────┘
-                            │
-                   ┌────────▼─────────┐
-                   │   Core Services  │
-                   │                  │
-                   │  • Asset CRUD    │
-                   │  • Search        │
-                   │  • Version Mgmt  │
-                   └────────┬─────────┘
-                            │
-                   ┌────────▼─────────┐
-                   │   SQLite Store   │
-                   │   + File System  │
-                   └──────────────────┘
-```
+Web UI 是原生浏览器模块，不依赖前端打包器或组件运行时：
 
----
+- `app/index.html` 提供 DOM 结构和入口。
+- `app/app.mjs` 负责页面状态、事件绑定、导航和 API 调用。
+- `app/api-client.mjs` 封装服务请求；其他 `app/*.mjs` 提供查看器、上下文
+  菜单、确认框、Toast、国际化、主题和检查器等模块。
+- `app/styles.css` 提供全部界面样式。
+- `app/theme-init.mjs` 在首屏前应用主题；`index.html` 通过同源静态服务加载
+  模块和样式。
 
-## 4. 数据流
+Electron 桌面壳由 `desktop/main.mjs`、`desktop/preload.cjs` 和
+`desktop/service-manager.mjs` 组成。它加载同一套 `app/` UI，并通过受限的
+preload API 处理桌面能力（例如文件导入暂存、Finder 操作和通知）；业务数据
+仍由同一个本地 HTTP 运行时提供。
 
-### 4.1 Codex 图像收集流程
+### 2.2 本地 HTTP 运行时
 
-```
-┌──────────────────── Codex 图像自动收集流程 ─────────────────────┐
-│                                                                 │
-│  Step 1: 生成触发                                               │
-│  ────────────────────────────────────────────────────────       │
-│                                                                 │
-│     Codex Desktop                                               │
-│         │                                                       │
-│         │ 生成图像                                               │
-│         ▼                                                       │
-│  ~/.codex/generated_images/<task-id>/<image>.png               │
-│  ~/.codex/sessions/<session-id>.jsonl                          │
-│         │                                                       │
-│         │ fs.watch / polling                                   │
-│         ▼                                                       │
-│                                                                 │
-│  Step 2: 桥接监听                                               │
-│  ────────────────────────────────────────────────────────       │
-│                                                                 │
-│  ┌─────────────────────────────────────────┐                   │
-│  │      Codex Image Bridge                 │                   │
-│  ├─────────────────────────────────────────┤                   │
-│  │                                         │                   │
-│  │  1. 检测新图像文件                       │                   │
-│  │     └─ 扫描 generated_images/           │                   │
-│  │                                         │                   │
-│  │  2. 提取 Task ID                        │                   │
-│  │     └─ 从路径中解析                      │                   │
-│  │                                         │                   │
-│  │  3. 读取 Session 记录                   │                   │
-│  │     └─ ~/.codex/sessions/<id>.jsonl    │                   │
-│  │                                         │                   │
-│  │  4. 匹配 Prompt                         │                   │
-│  │     ├─ image_generation_end.revised_prompt (优先)           │
-│  │     ├─ task user prompt (回退)          │                   │
-│  │     └─ not-available (无匹配)           │                   │
-│  │                                         │                   │
-│  │  5. 计算内容哈希                        │                   │
-│  │     └─ SHA256(image bytes)             │                   │
-│  │                                         │                   │
-│  │  6. 去重检查                            │                   │
-│  │     ├─ 路径去重                         │                   │
-│  │     └─ 内容哈希去重                     │                   │
-│  │                                         │                   │
-│  └─────────────────┬───────────────────────┘                   │
-│                    │                                           │
-│                    │ 验证通过                                   │
-│                    ▼                                           │
-│                                                                 │
-│  Step 3: 资产创建                                               │
-│  ────────────────────────────────────────────────────────       │
-│                                                                 │
-│  ┌─────────────────────────────────────────┐                   │
-│  │         Asset Store                     │                   │
-│  ├─────────────────────────────────────────┤                   │
-│  │                                         │                   │
-│  │  1. 创建资产记录                        │                   │
-│  │     └─ INSERT INTO assets ...          │                   │
-│  │                                         │                   │
-│  │  2. 硬链接/复制原图                     │                   │
-│  │     └─ ~/MOSA Library/assets/original/ │                   │
-│  │                                         │                   │
-│  │  3. 生成 WebP 预览                      │                   │
-│  │     ├─ 1600px (previews/)              │                   │
-│  │     └─ 400px (thumbnails/)             │                   │
-│  │                                         │                   │
-│  │  4. 建立 FTS5 索引                      │                   │
-│  │     └─ Prompt + Tags + Metadata        │                   │
-│  │                                         │                   │
-│  │  5. 保存 Provenance                    │                   │
-│  │     ├─ source_type: codex-generated    │                   │
-│  │     ├─ task_id                         │                   │
-│  │     ├─ session_path                    │                   │
-│  │     ├─ prompt_status                   │                   │
-│  │     └─ model                           │                   │
-│  │                                         │                   │
-│  └─────────────────┬───────────────────────┘                   │
-│                    │                                           │
-│                    │ 完成                                       │
-│                    ▼                                           │
-│                                                                 │
-│  Step 4: 可供使用                                               │
-│  ────────────────────────────────────────────────────────       │
-│                                                                 │
-│     ✅ Web UI 可见                                              │
-│     ✅ MCP 可查询                                               │
-│     ✅ 可搜索/过滤                                              │
-│     ✅ 可版本管理                                               │
-│     ✅ 可插入 Cowart                                            │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+`server.mjs` 是服务入口，调用 `lib/mosa-runtime.mjs` 的
+`startMosaRuntime()`。运行时使用 Node 内置 `node:http` 创建服务器，使用
+`lib/api-routes.mjs` 将请求分发到：
+
+- `lib/api/asset-routes.mjs`：素材创建、查询、元数据、归档、复制和版本。
+- `lib/api/library-routes.mjs`：项目、分组、库路径和受限文件夹操作。
+- `lib/api/bridge-routes.mjs`：健康检查、桥接状态、网页捕获和 Cowart 画布。
+- `lib/http-response.mjs`：JSON 请求体读取、响应和 HTTP 错误处理。
+
+同一运行时还负责静态 UI、`/library/` 下的原图和衍生图读取、内容安全策略、
+loopback origin 检查、运行时锁和桥接生命周期。服务启动时监听
+`127.0.0.1:43517`；可通过 `MOSA_PORT` 覆盖，端口为 `0` 时由操作系统分配。
+
+### 2.3 MCP
+
+`mcp/server.mjs` 是独立的 JSON-RPC over stdio MCP 服务。它直接使用资产存储，
+不创建额外的 HTTP 端口。当前工具覆盖：
+
+- `asset_create`、`asset_list`、`asset_get`
+- `asset_update_metadata`、`asset_attach_prompt`
+- `asset_archive`、`asset_duplicate`
+- `asset_version_create`、`asset_version_history`、`asset_recipe_history`
+
+服务声明的 MCP server version 为 `0.1.0`；产品版本仍以 `package.json` 为准。
+
+## 3. 仓库模块与构建
+
+```text
+app/                     原生模块 UI、HTML 和 CSS
+server.mjs               本地 Web 服务 CLI 入口
+lib/mosa-runtime.mjs     HTTP 运行时编排和静态资源服务
+lib/api-routes.mjs       API 总分发
+lib/api/*.mjs            素材、库和桥接路由
+lib/asset-store.mjs      存储选择和 JSON 兼容实现
+lib/sqlite-asset-store.mjs SQLite 实现（better-sqlite3）
+lib/*.mjs                Node 运行时模块
+lib/*.ts                 TypeScript 源码；构建后生成运行时 JS/声明文件
+desktop/                 Electron 主进程、preload、服务管理和 Forge 配置
+mcp/server.mjs           MCP stdio 服务
+extensions/              可选 Chrome Web Capture 扩展
+scripts/                 构建、启动、迁移、验证和 QA 脚本
+test/                    Node 测试和契约测试
 ```
 
-### 4.2 Web Capture 流程
+根目录 `tsconfig.json` 将 `lib/**/*.ts` 编译为 ES2022/Node16 模块。
+`npm run build` 先运行 TypeScript 编译，再由
+`scripts/write-build-identity.mjs` 写入构建身份。运行服务、MCP 或桌面壳前，
+必须让对应的构建步骤完成；源码中的 TypeScript 文件是修改入口，编译生成的
+JS 和声明文件不是独立的架构层。
 
-```
-┌──────────────────── Web Capture 数据流 ─────────────────────────┐
-│                                                                 │
-│  Browser                Chrome Extension          MOSA Server  │
-│  ────────               ────────────────          ───────────  │
-│                                                                 │
-│  ChatGPT/                                                       │
-│  Gemini/                                                        │
-│  Flow                                                           │
-│     │                                                           │
-│     │ 1. 生成图像                                                │
-│     │    (用户请求)                                              │
-│     ▼                                                           │
-│  页面 DOM                                                        │
-│     │                                                           │
-│     │ 2. Content Script 注入                                    │
-│     ▼                                                           │
-│  ┌────────────────────────┐                                    │
-│  │  Content Script        │                                    │
-│  ├────────────────────────┤                                    │
-│  │ • 监听 DOM 变化         │                                    │
-│  │ • 识别生成图像          │                                    │
-│  │ • 提取 Prompt (ChatGPT) │                                    │
-│  │ • 提取页面元数据        │                                    │
-│  └────────┬───────────────┘                                    │
-│           │                                                    │
-│           │ 3. 发送到 Background                                │
-│           ▼                                                    │
-│  ┌────────────────────────┐                                    │
-│  │  Background Script     │                                    │
-│  ├────────────────────────┤                                    │
-│  │ • 下载图像 Blob         │                                    │
-│  │ • 组装请求体            │                                    │
-│  │ • 附加 Token            │                                    │
-│  └────────┬───────────────┘                                    │
-│           │                                                    │
-│           │ 4. POST /api/ingest/web-capture                    │
-│           │    Bearer: <token>                                 │
-│           ▼                                                    │
-│                              ┌─────────────────────────┐       │
-│                              │  Web Capture Ingest     │       │
-│                              ├─────────────────────────┤       │
-│                              │ 1. 验证 Origin          │       │
-│                              │ 2. 验证 Token           │       │
-│                              │ 3. 验证 MIME Type       │       │
-│                              │ 4. 验证图像尺寸         │       │
-│                              │ 5. 验证文件大小         │       │
-│                              │ 6. 解码图像            │       │
-│                              └────────┬────────────────┘       │
-│                                       │                        │
-│                                       │ 5. 验证通过             │
-│                                       ▼                        │
-│                              ┌─────────────────────────┐       │
-│                              │   Asset Store           │       │
-│                              ├─────────────────────────┤       │
-│                              │ • 创建资产              │       │
-│                              │ • 保存图像              │       │
-│                              │ • 记录 Provenance       │       │
-│                              │   - source_type:        │       │
-│                              │     web-chatgpt/        │       │
-│                              │     web-gemini/...      │       │
-│                              │   - page_url            │       │
-│                              │   - conversation_id     │       │
-│                              │   - message_id          │       │
-│                              │   - model               │       │
-│                              └────────┬────────────────┘       │
-│                                       │                        │
-│           ┌───────────────────────────┘                        │
-│           │ 6. 返回结果                                         │
-│           ▼                                                    │
-│  ┌────────────────────────┐                                    │
-│  │  Background Script     │                                    │
-│  │  (显示通知)             │                                    │
-│  └────────────────────────┘                                    │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+可确认的本地脚本入口：
+
+```text
+npm start                 启动 Node 本地服务
+npm run mcp               启动 MCP stdio 服务
+npm run desktop:start     启动 Electron 本地开发壳
+npm run desktop:package   Forge 打包 macOS arm64 应用目录
+npm run desktop:make      Forge 生成 macOS arm64 ZIP
+npm run build             编译 TypeScript 并写入构建身份
 ```
 
-### 4.3 MCP 查询流程
+`desktop/forge.config.mjs` 配置 Electron Forge、原生模块解包和 macOS arm64
+依赖筛选。仓库提供的是本地开发/打包流程；本地构建不等同于已签名、已公证的
+发布安装包。
 
-```
-┌──────────────────── MCP 查询数据流 ─────────────────────────────┐
-│                                                                 │
-│  Codex            MCP Protocol           MOSA Server           │
-│  ─────            ────────────           ───────────           │
-│                                                                 │
-│  用户提问                                                        │
-│     │                                                           │
-│     │ "显示所有角色设计资产"                                      │
-│     ▼                                                           │
-│  Codex Agent                                                    │
-│     │                                                           │
-│     │ 1. 调用 MCP 工具                                           │
-│     │    asset_list(filters: { tags: ['角色设计'] })            │
-│     ▼                                                           │
-│  ┌────────────────────────┐                                    │
-│  │   MCP Client (Codex)   │                                    │
-│  │   stdio transport      │                                    │
-│  └────────┬───────────────┘                                    │
-│           │                                                    │
-│           │ 2. JSON-RPC over stdio                             │
-│           │    {                                               │
-│           │      "jsonrpc": "2.0",                             │
-│           │      "method": "tools/call",                       │
-│           │      "params": {                                   │
-│           │        "name": "asset_list",                       │
-│           │        "arguments": { ... }                        │
-│           │      }                                             │
-│           │    }                                               │
-│           ▼                                                    │
-│                              ┌─────────────────────────┐       │
-│                              │    MCP Server           │       │
-│                              │   (mcp/server.mjs)      │       │
-│                              └────────┬────────────────┘       │
-│                                       │                        │
-│                                       │ 3. 路由到处理器         │
-│                                       ▼                        │
-│                              ┌─────────────────────────┐       │
-│                              │  Tool Handler           │       │
-│                              │  (asset_list)           │       │
-│                              └────────┬────────────────┘       │
-│                                       │                        │
-│                                       │ 4. 调用 Store           │
-│                                       ▼                        │
-│                              ┌─────────────────────────┐       │
-│                              │   SQLite Store          │       │
-│                              ├─────────────────────────┤       │
-│                              │ SELECT * FROM assets    │       │
-│                              │ WHERE tags MATCH        │       │
-│                              │   '角色设计'             │       │
-│                              │ ORDER BY created_at     │       │
-│                              │ LIMIT 100               │       │
-│                              └────────┬────────────────┘       │
-│                                       │                        │
-│                                       │ 5. 返回结果             │
-│           ┌───────────────────────────┘                        │
-│           │ {                                                  │
-│           │   "content": [                                     │
-│           │     { "type": "text",                              │
-│           │       "text": "Found 12 assets..." }              │
-│           │   ]                                                │
-│           │ }                                                  │
-│           ▼                                                    │
-│  ┌────────────────────────┐                                    │
-│  │   MCP Client (Codex)   │                                    │
-│  └────────┬───────────────┘                                    │
-│           │                                                    │
-│           │ 6. 解析并呈现                                       │
-│           ▼                                                    │
-│  Codex Agent                                                    │
-│     │                                                           │
-│     │ 7. 展示给用户                                             │
-│     ▼                                                           │
-│  用户看到结果                                                    │
-│  • 12 个角色设计资产                                            │
-│  • 每个带有 Prompt、标签、缩略图                                 │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+## 4. 服务生命周期
+
+### 4.1 Node 服务
+
+`startMosaRuntime()` 的主要顺序如下：
+
+1. 解析项目根、库目录、端口、Codex/Grok 会话目录和可选桥接配置。
+2. 先执行运行时隔离检查，再取得该库的运行时锁，避免同一库重复写入。
+3. 选择已完成迁移的 SQLite 库，或使用兼容的 JSON 存储；确保 `default` 项目
+   存在。
+4. 启动 Codex、Grok、Cowart、Cowart discovery 桥接（可按配置禁用），启动
+   持久化衍生任务 worker。
+5. 创建 Node HTTP 服务并监听 loopback，返回 `url`、端口、库目录、存储类型和
+   `stop()`。
+
+停止时，运行时先关闭 HTTP 服务，再停止 worker 和所有桥接，最后关闭存储并
+释放运行时锁。服务不会为释放端口而终止未验证的其他进程。
+
+### 4.2 Electron 服务归属
+
+Electron 启动时由 `desktop/service-manager.mjs` 探测
+`GET /api/health`（必要时使用库路径和桥接状态兼容探测）：
+
+- 已有服务且产品身份和库目录相同：桌面壳附着到该服务，不拥有它。
+- 没有可附着的服务：桌面壳启动并拥有一个本地运行时，退出时停止自己拥有
+  的运行时。
+- 端口被其他服务占用，或 MOSA 服务使用了不同库：报告冲突，不替换或终止
+  原服务。
+
+桌面默认使用 `127.0.0.1:43517` 和 `$HOME/MOSA Library`；如需独立运行时，
+使用 `MOSA_DESKTOP_PORT` 和 `MOSA_LIBRARY_DIR` 明确指定。
+
+## 5. 存储与媒体处理
+
+### 5.1 存储选择
+
+`lib/asset-store.mjs` 的 `createAssetStore()` 在指定库目录中检测已完成的
+SQLite 迁移：
+
+- 已完成迁移时，使用 `lib/sqlite-asset-store.mjs` 和 `better-sqlite3`。
+- 新库或迁移尚未完成时，保留 JSON 兼容存储，以便先检查再迁移；不会因为
+  升级程序而自动删除旧数据。
+
+SQLite 数据库路径为 `$HOME/MOSA Library/mosa.db`（也可由
+`MOSA_LIBRARY_DIR` 指定）。当前 SQLite 实现的 `CURRENT_SCHEMA_VERSION` 为
+`3`，启用 WAL、外键和 busy timeout。主要表和索引包括：
+
+- `projects`、`groups`、`assets`：项目、分组、素材原数据、哈希、来源和状态。
+- `tags`、`asset_tags`：标签关联。
+- `asset_versions`：父子版本关系和变更摘要。
+- `recipe_snapshots`：不可变的生成配方快照，包括 Prompt、模型、提供方、技能、
+  比例、主题、引用和 provenance。
+- `derivative_jobs`：可恢复的预览/缩略图任务。
+- `migration_issues`、`library_meta`、`schema_migrations`：迁移和 schema 状态。
+- `asset_fts`：SQLite FTS5 trigram 全文索引，用于资产文本搜索。
+
+### 5.2 文件与衍生物
+
+迁移完成的库使用如下逻辑布局（`$HOME` 只是示例根目录）：
+
+```text
+$HOME/MOSA Library/
+├── mosa.db
+├── assets/<project-id>/       原始媒体和衍生文件
+├── .web-capture-tmp/          网页捕获暂存区
+└── legacy-json-backup/        迁移产生的 JSON 备份
 ```
 
-### 4.4 版本管理流程
+资产原件按内容哈希和安全文件名写入库中；原始图像字节不被预览生成覆盖。
+`lib/derivative-worker.ts` 使用 `sharp` 异步处理图像预览和缩略图，并将任务
+状态写入 SQLite，重启后可继续处理。视频不经过 `sharp` 或转码，按原始媒体
+提供播放。
 
-```
-┌──────────────────── 资产版本管理流程 ───────────────────────────┐
-│                                                                 │
-│  Step 1: 原始资产创建                                            │
-│  ────────────────────────────────────────────────────────       │
-│                                                                 │
-│     Codex/Grok 生成                                             │
-│         │                                                       │
-│         ▼                                                       │
-│  ┌─────────────────┐                                            │
-│  │  Asset v0 (根)   │  id: asset-001                            │
-│  │  "太空猫.png"    │  version_root_id: asset-001               │
-│  │                 │  parent_version_id: NULL                  │
-│  │  Prompt: "太空猫 │  version_change: NULL                     │
-│  │  宇航员造型"     │                                            │
-│  └─────────────────┘                                            │
-│         │                                                       │
-│         │                                                       │
-│  Step 2: 编辑 Prompt (Recipe Snapshot)                          │
-│  ────────────────────────────────────────────────────────       │
-│         │                                                       │
-│         │ POST /api/assets/:id/versions                         │
-│         │ {                                                     │
-│         │   "version_change": "调整颜色为暖色调",                │
-│         │   "prompt": "太空猫宇航员造型，暖色调",                │
-│         │   "imagePath": null  // 无新图，仅保存配方             │
-│         │ }                                                     │
-│         ▼                                                       │
-│  ┌─────────────────┐                                            │
-│  │  Asset v1       │  id: asset-002                            │
-│  │  (Recipe 快照)   │  version_root_id: asset-001               │
-│  │                 │  parent_version_id: asset-001             │
-│  │  Prompt: "太空猫 │  version_change: "调整颜色为暖色调"        │
-│  │  宇航员，暖色调" │  image_path: 指向 v0 的图（快照）          │
-│  └─────────────────┘                                            │
-│         │                                                       │
-│         │                                                       │
-│  Step 3: 生成新版本 (New Child)                                 │
-│  ────────────────────────────────────────────────────────       │
-│         │                                                       │
-│         │ 用户基于 v1 Prompt 重新生成                            │
-│         │ POST /api/assets/:id/versions                         │
-│         │ {                                                     │
-│         │   "version_change": "生成暖色调版本",                  │
-│         │   "imagePath": "/new/warm-space-cat.png"            │
-│         │ }                                                     │
-│         ▼                                                       │
-│  ┌─────────────────┐                                            │
-│  │  Asset v2       │  id: asset-003                            │
-│  │  "暖色调猫.png"  │  version_root_id: asset-001               │
-│  │                 │  parent_version_id: asset-002             │
-│  │  Prompt: "太空猫 │  version_change: "生成暖色调版本"          │
-│  │  宇航员，暖色调" │  image_path: assets/.../warm-cat.png      │
-│  └─────────────────┘                                            │
-│         │                                                       │
-│         │                                                       │
-│  Step 4: 分支版本 (从 v0 分支)                                  │
-│  ────────────────────────────────────────────────────────       │
-│         │                                                       │
-│  ┌─────────────────┐    用户回到 v0，创建另一个分支              │
-│  │  Asset v0       │◄───┐                                      │
-│  └─────────────────┘    │                                      │
-│         │               │ POST /api/assets/asset-001/versions  │
-│         │               │ {                                    │
-│         ├───────────────┘   "version_change": "添加背景星空",   │
-│         │                   "prompt": "太空猫...,背景星空"      │
-│         │                 }                                    │
-│         ▼                                                       │
-│  ┌─────────────────┐                                            │
-│  │  Asset v3       │  id: asset-004                            │
-│  │  "星空背景.png"  │  version_root_id: asset-001               │
-│  │                 │  parent_version_id: asset-001             │
-│  │  Prompt: "太空猫 │  version_change: "添加背景星空"            │
-│  │  ...,背景星空"   │                                            │
-│  └─────────────────┘                                            │
-│                                                                 │
-│  版本树结构:                                                     │
-│  ──────────                                                     │
-│                                                                 │
-│          asset-001 (v0 根)                                      │
-│              │                                                  │
-│              ├─── asset-002 (v1 Recipe)                        │
-│              │         │                                       │
-│              │         └─── asset-003 (v2 New Image)          │
-│              │                                                 │
-│              └─── asset-004 (v3 Branch)                        │
-│                                                                 │
-│  查询版本历史:                                                   │
-│  ─────────────                                                  │
-│                                                                 │
-│  GET /api/assets/:project/:asset/versions                      │
-│  → 返回深度优先遍历的完整版本树                                  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+HTTP 读取路径由 `lib/mosa-runtime.mjs` 实现：
+
+```text
+/library/:project/images/:file         原始媒体
+/library/:project/previews/:id.webp    图像预览
+/library/:project/thumbnails/:id.webp  图像缩略图
+/library/:project/references/:file     Web Capture 引用附件
 ```
 
----
+迁移和维护通过 `bin/mosa.mjs` 提供：
 
-## 5. 存储架构
-
-### 5.1 SQLite 数据库架构
-
-```sql
-┌──────────────────── SQLite 数据库结构 ──────────────────────────┐
-│                                                                 │
-│  数据库: ~/MOSA Library/mosa.db                                  │
-│  版本: Schema v2                                                 │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  核心表                                                          │
-│  ──────                                                          │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  assets (主表)                                           │   │
-│  ├─────────────────────────────────────────────────────────┤   │
-│  │  id                 TEXT PRIMARY KEY                    │   │
-│  │  project_id         TEXT NOT NULL                       │   │
-│  │  asset              TEXT                                │   │
-│  │  prompt             TEXT                                │   │
-│  │  theme              TEXT                                │   │
-│  │  skill              TEXT                                │   │
-│  │  ratio              TEXT                                │   │
-│  │  tags               TEXT (JSON array)                   │   │
-│  │  created_at         TEXT                                │   │
-│  │  updated_at         TEXT                                │   │
-│  │  archived           INTEGER DEFAULT 0                   │   │
-│  │  favorite           INTEGER DEFAULT 0                   │   │
-│  │  image_path         TEXT                                │   │
-│  │  source_type        TEXT                                │   │
-│  │  source             TEXT (JSON)                         │   │
-│  │  business_fields    TEXT (JSON)                         │   │
-│  │                                                          │   │
-│  │  -- 版本管理字段                                         │   │
-│  │  version_root_id    TEXT                                │   │
-│  │  parent_version_id  TEXT                                │   │
-│  │  version_change     TEXT                                │   │
-│  │  duplicated_from    TEXT                                │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  assets_fts (FTS5 全文搜索)                              │   │
-│  ├─────────────────────────────────────────────────────────┤   │
-│  │  id                 (引用 assets.id)                     │   │
-│  │  prompt             (全文索引)                           │   │
-│  │  theme              (全文索引)                           │   │
-│  │  skill              (全文索引)                           │   │
-│  │  tags               (全文索引)                           │   │
-│  │  asset              (全文索引)                           │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  schema_version (迁移跟踪)                               │   │
-│  ├─────────────────────────────────────────────────────────┤   │
-│  │  version            INTEGER PRIMARY KEY                 │   │
-│  │  applied_at         TEXT                                │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  索引                                                            │
-│  ──                                                              │
-│                                                                 │
-│  CREATE INDEX idx_assets_project ON assets(project_id);        │
-│  CREATE INDEX idx_assets_created ON assets(created_at);        │
-│  CREATE INDEX idx_assets_archived ON assets(archived);         │
-│  CREATE INDEX idx_assets_favorite ON assets(favorite);         │
-│  CREATE INDEX idx_assets_source_type ON assets(source_type);   │
-│  CREATE INDEX idx_assets_version_root ON                       │
-│      assets(version_root_id);                                  │
-│  CREATE INDEX idx_assets_parent_version ON                     │
-│      assets(parent_version_id);                                │
-│                                                                 │
-│  查询示例                                                        │
-│  ────────                                                        │
-│                                                                 │
-│  -- 全文搜索                                                     │
-│  SELECT * FROM assets                                           │
-│  WHERE id IN (                                                  │
-│    SELECT id FROM assets_fts                                    │
-│    WHERE assets_fts MATCH 'space AND cat'                       │
-│  );                                                             │
-│                                                                 │
-│  -- 版本树查询                                                   │
-│  WITH RECURSIVE version_tree AS (                               │
-│    SELECT * FROM assets WHERE id = ?                            │
-│    UNION ALL                                                    │
-│    SELECT a.* FROM assets a                                     │
-│    JOIN version_tree vt ON a.parent_version_id = vt.id         │
-│  )                                                              │
-│  SELECT * FROM version_tree;                                    │
-│                                                                 │
-│  -- 游标分页                                                     │
-│  SELECT * FROM assets                                           │
-│  WHERE (created_at, id) < (?, ?)                                │
-│  ORDER BY created_at DESC, id DESC                              │
-│  LIMIT 100;                                                     │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+```text
+mosa migrate [--dry-run] [--resume] [--library <path>]
+mosa verify [--library <path>]
+mosa thumbnails <rebuild|repair> [--library <path>]
 ```
 
-### 5.2 文件系统结构
+## 6. API 边界
 
-```
-┌──────────────────── 文件系统布局 ───────────────────────────────┐
-│                                                                 │
-│  ~/MOSA Library/                                                │
-│  ├── mosa.db                      # SQLite 数据库               │
-│  │                                                              │
-│  ├── assets/                      # 资产存储                    │
-│  │   └── <project_id>/           # 项目目录                    │
-│  │       ├── original/            # 原始图像（从不修改）         │
-│  │       │   └── <hash>.png                                    │
-│  │       ├── previews/            # WebP 预览 (1600px)         │
-│  │       │   └── <hash>.webp                                   │
-│  │       └── thumbnails/          # WebP 缩略图 (400px)        │
-│  │           └── <hash>.webp                                   │
-│  │                                                              │
-│  └── legacy-json-backup/          # 迁移前的 JSON 备份          │
-│      ├── assets.json                                            │
-│      └── prompts/                                               │
-│                                                                 │
-│  存储策略:                                                       │
-│  ─────────                                                       │
-│                                                                 │
-│  1. 原始文件保护                                                 │
-│     • 同文件系统: 硬链接 (ln)                                     │
-│     • 跨文件系统: 复制                                            │
-│     • 权限: 只读                                                 │
-│     • 命名: SHA256 内容哈希                                      │
-│                                                                 │
-│  2. 预览生成                                                     │
-│     • 格式: WebP (高质量压缩)                                     │
-│     • 预览: 1600px 长边                                          │
-│     • 缩略图: 400px 长边                                         │
-│     • 异步处理: Derivative Worker                               │
-│                                                                 │
-│  3. 去重机制                                                     │
-│     • 路径去重: image_path 索引                                  │
-│     • 内容去重: SHA256 哈希对比                                  │
-│     • 来源追踪: source.content_sha256                           │
-│                                                                 │
-│  4. 空间优化                                                     │
-│     • 硬链接节省空间                                             │
-│     • WebP 比 PNG 小 25-35%                                     │
-│     • 延迟生成缩略图                                             │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+以下为当前路由分组；具体字段和状态码以 `lib/api/*.mjs` 为准。
 
----
+| 范围 | 当前能力 |
+| --- | --- |
+| `/api/health`、`/api/diagnostics` | 产品/构建身份、库目录、存储和诊断信息 |
+| `/api/assets` | 分页列表、搜索和筛选；创建、读取、元数据更新、收藏、归档、批量操作、复制 |
+| `/api/assets/:project/:asset/versions` | 读取版本树或创建子版本 |
+| `/api/assets/:project/:asset/recipes` | 读取生成配方快照历史 |
+| `/api/projects`、`/api/groups` | 列出项目、列出或创建分组 |
+| `/api/library-path`、`/api/open-folder` | 返回库边界信息；只允许打开受信任的库/来源目录 |
+| `/api/bridges` 及单个 bridge 路由 | Codex、Grok、Cowart、Web Capture 和 discovery 状态 |
+| `/api/ingest/web-capture` | 通过 Token 和 origin 校验接收网页捕获 |
+| `/api/cowart-canvases` | 列出、注册和移除受信任的 Cowart 画布 |
 
-## 6. 集成架构
+所有普通 API 请求保持同源/loopback 边界。Web Capture 的预检和跨 origin 请求
+只有在 origin 位于显式允许列表时才放行；请求仍须提供 ingest Token。响应还
+设置 CSP、`nosniff` 和同源资源策略等安全头。
 
-### 6.1 MCP 集成
+## 7. 桥接与数据流
 
-```
-┌──────────────────── MCP 服务器架构 ─────────────────────────────┐
-│                                                                 │
-│  传输协议: stdio                                                 │
-│  协议: JSON-RPC 2.0                                              │
-│  入口: mcp/server.mjs                                            │
-│                                                                 │
-│  ┌───────────────────────────────────────────────────────┐     │
-│  │                 MCP Tools (9个工具)                    │     │
-│  ├───────────────────────────────────────────────────────┤     │
-│  │                                                        │     │
-│  │  资产管理                                               │     │
-│  │  ├─ asset_create          创建新资产                   │     │
-│  │  ├─ asset_list            查询资产列表                 │     │
-│  │  ├─ asset_get             获取单个资产                 │     │
-│  │  ├─ asset_update_metadata 更新元数据                   │     │
-│  │  ├─ asset_attach_prompt   附加 Prompt                 │     │
-│  │  ├─ asset_archive         归档资产                     │     │
-│  │  └─ asset_duplicate       复制资产                     │     │
-│  │                                                        │     │
-│  │  版本管理                                               │     │
-│  │  ├─ asset_version_create  创建新版本                   │     │
-│  │  └─ asset_version_history 查询版本历史                 │     │
-│  │                                                        │     │
-│  └────────────────────────────────────────────────────────┘     │
-│                                                                 │
-│  调用示例:                                                       │
-│  ─────────                                                       │
-│                                                                 │
-│  {                                                              │
-│    "jsonrpc": "2.0",                                            │
-│    "id": 1,                                                     │
-│    "method": "tools/call",                                      │
-│    "params": {                                                  │
-│      "name": "asset_list",                                      │
-│      "arguments": {                                             │
-│        "projectId": "default",                                  │
-│        "filters": {                                             │
-│          "tags": ["角色设计"],                                  │
-│          "source_type": "codex-generated"                       │
-│        },                                                       │
-│        "limit": 50,                                             │
-│        "cursor": null                                           │
-│      }                                                          │
-│    }                                                            │
-│  }                                                              │
-│                                                                 │
-│  响应示例:                                                       │
-│  ────────                                                        │
-│                                                                 │
-│  {                                                              │
-│    "jsonrpc": "2.0",                                            │
-│    "id": 1,                                                     │
-│    "result": {                                                  │
-│      "content": [                                               │
-│        {                                                        │
-│          "type": "text",                                        │
-│          "text": "Found 12 assets matching criteria..."        │
-│        }                                                        │
-│      ],                                                         │
-│      "isError": false                                           │
-│    }                                                            │
-│  }                                                              │
-│                                                                 │
-│  配置:                                                           │
-│  ─────                                                           │
-│                                                                 │
-│  codex mcp add mosa \                                           │
-│    --env MOSA_PROJECT_DIR=/path/to/workspace \                 │
-│    -- node /path/to/mosa/mcp/server.mjs                        │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+### 7.1 Codex
 
-### 6.2 Cowart 集成
+`lib/codex-image-bridge.ts` 监视配置的 Codex 生成图像目录，默认是
+`$HOME/.codex/generated_images`，并读取配置的会话目录（默认
+`$HOME/.codex/sessions`）匹配任务、Prompt、模型和生成时间。它同时使用文件
+watcher 与轮询，并按内容哈希和来源路径去重；找不到可靠 Prompt 时记录不可用，
+不会凭空生成 Prompt。
 
-```
-┌──────────────────── Cowart Canvas 集成架构 ─────────────────────┐
-│                                                                 │
-│  发现机制                                                        │
-│  ────────                                                        │
-│                                                                 │
-│  1. 专用画布 (Always Active)                                     │
-│     ~/.codex/cowart-data/mosa/                                  │
-│     • 自动监听                                                   │
-│     • 无需注册                                                   │
-│                                                                 │
-│  2. 项目画布 (Event-Based Discovery)                             │
-│     ┌────────────────────────────────────────┐                 │
-│     │  Codex Session Event                   │                 │
-│     │  • render_cowart_canvas_widget         │                 │
-│     │  • cowart_launcher                     │                 │
-│     └──────────────┬─────────────────────────┘                 │
-│                    │                                            │
-│                    ▼                                            │
-│     ┌────────────────────────────────────────┐                 │
-│     │  Canvas Discovery                      │                 │
-│     │  1. 验证画布标记文件                    │                 │
-│     │  2. 检查 pages/ 目录                   │                 │
-│     │  3. 注册到 Registry                    │                 │
-│     └──────────────┬─────────────────────────┘                 │
-│                    │                                            │
-│                    ▼                                            │
-│     ┌────────────────────────────────────────┐                 │
-│     │  Project Registry                      │                 │
-│     │  ~/.codex/mosa/cowart-projects.json    │                 │
-│     │  {                                     │                 │
-│     │    "projects": {                       │                 │
-│     │      "/path/to/project": {             │                 │
-│     │        "canvasDir": "...",             │                 │
-│     │        "discovered": "2026-08-22",     │                 │
-│     │        "verified": true                │                 │
-│     │      }                                 │                 │
-│     │    }                                   │                 │
-│     │  }                                     │                 │
-│     └────────────────────────────────────────┘                 │
-│                                                                 │
-│  插入流程                                                        │
-│  ────────                                                        │
-│                                                                 │
-│  Web UI                    MOSA Server           Cowart Canvas  │
-│  ───────                   ───────────           ──────────────  │
-│                                                                 │
-│  用户点击                                                        │
-│  "插入到画布"                                                    │
-│      │                                                           │
-│      │ POST /api/cowart-insert                                  │
-│      ▼                                                           │
-│                ┌───────────────────────────┐                    │
-│                │  Cowart Insert Handler    │                    │
-│                ├───────────────────────────┤                    │
-│                │ 1. 验证画布已注册           │                    │
-│                │ 2. 验证 MCP 可用           │                    │
-│                │ 3. 调用 MCP                │                    │
-│                └───────┬───────────────────┘                    │
-│                        │                                        │
-│                        │ MCP: cowart_add_media                  │
-│                        ▼                                        │
-│                ┌───────────────────────────┐                    │
-│                │   Cowart MCP Client       │                    │
-│                │   (stdio transport)       │                    │
-│                └───────┬───────────────────┘                    │
-│                        │                                        │
-│                        │ JSON-RPC                               │
-│                        ▼                                        │
-│                                            Cowart Plugin        │
-│                                                │                │
-│                                                │ 写入画布        │
-│                                                ▼                │
-│                                            pages/<page>.json    │
-│                                            {                    │
-│                                              "shapes": [        │
-│                                                {                │
-│                                                  "type": "image"│
-│                                                  "props": {     │
-│                                                    "url": "..." │
-│                                                    "mosaId": ...│
-│                                                  }              │
-│                                                }                │
-│                                              ]                  │
-│                                            }                    │
-│                                                                 │
-│  去重机制:                                                       │
-│  • 插入时附加 mosaId                                             │
-│  • Cowart Bridge 检查 mosaId                                     │
-│  • 跳过已知的 MOSA 来源图像                                      │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+### 7.2 Grok Build CLI
 
----
+`lib/grok-media-bridge.ts` 读取配置的 `$HOME/.grok/sessions`（可由
+`GROK_SESSIONS_DIR` 覆盖），只发现会话目录中的图像和视频，并从同会话的
+`chat_history.jsonl` 提取可匹配的工具上下文。来源路径必须位于受信任的会话
+根目录内。
 
-## 7. 部署架构
+### 7.3 Cowart
 
-### 7.1 开发模式
+`lib/cowart-bridge.ts` 归档受信任画布快照中的图像；
+`lib/cowart-canvas-discovery.ts` 可从近期 Codex 会话发现 Cowart 项目；
+`lib/cowart-bridge-manager.ts` 管理主画布和已注册外部项目；
+`lib/cowart-mcp-client.ts` 以 stdio 调用 Cowart MCP 工具完成画布状态读取和
+素材插入。
 
-```
-┌──────────────────── 开发模式部署 ───────────────────────────────┐
-│                                                                 │
-│  Terminal 1: MOSA Server                                        │
-│  ─────────────────────────                                      │
-│                                                                 │
-│  $ cd mosa                                                      │
-│  $ npm ci                                                       │
-│  $ npm start                                                    │
-│                                                                 │
-│  ✓ MOSA: http://127.0.0.1:43517                                 │
-│  ✓ Library: ~/MOSA Library                                      │
-│  ✓ Bridges: Codex ✓ | Grok ✓ | Cowart ✓                        │
-│                                                                 │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │  服务运行中                                             │    │
-│  │  • HTTP Server on :43517                              │    │
-│  │  • Watching ~/.codex/generated_images/                │    │
-│  │  • Watching ~/.grok/sessions/                         │    │
-│  │  • Monitoring Cowart canvases                         │    │
-│  └────────────────────────────────────────────────────────┘    │
-│                                                                 │
-│  ─────────────────────────────────────────────────────────      │
-│                                                                 │
-│  Terminal 2: UI Development (Optional)                          │
-│  ──────────────────────────────────────                         │
-│                                                                 │
-│  $ cd ui-design-mockups/mosa-library-v2                         │
-│  $ npm install                                                  │
-│  $ npm run dev                                                  │
-│                                                                 │
-│  ✓ Vite: http://127.0.0.1:5174                                  │
-│  ✓ Proxy to :43517 for API                                      │
-│                                                                 │
-│  ─────────────────────────────────────────────────────────      │
-│                                                                 │
-│  Browser: http://127.0.0.1:43517                                │
-│           (或 :5174 用于 UI 开发)                                │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+默认管理画布目录为 `$HOME/.codex/cowart-data/mosa`。外部画布必须通过路径、
+目录标记、非 symlink 和项目内边界校验；不可信条目可以移除，但不会启动 watcher
+或交给 MCP 写入。Cowart MCP 服务路径可用 `COWART_MCP_SERVER_PATH` 指定。
 
-### 7.2 桌面应用模式
+### 7.4 Web Capture
 
-```
-┌──────────────────── macOS 桌面应用部署 ─────────────────────────┐
-│                                                                 │
-│  构建:                                                           │
-│  ────                                                            │
-│                                                                 │
-│  $ cd mosa                                                      │
-│  $ npm run desktop:make                                         │
-│                                                                 │
-│  输出:                                                           │
-│  ────                                                            │
-│                                                                 │
-│  out/                                                           │
-│  ├── MOSA-darwin-arm64/                                         │
-│  │   └── MOSA.app                    # macOS 应用               │
-│  └── make/                                                      │
-│      └── zip/darwin/arm64/                                      │
-│          └── MOSA-darwin-arm64-0.2.0.zip                        │
-│                                                                 │
-│  运行时行为:                                                     │
-│  ──────────                                                      │
-│                                                                 │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │         MOSA.app (Electron Shell)                      │    │
-│  ├────────────────────────────────────────────────────────┤    │
-│  │                                                        │    │
-│  │  启动检查:                                              │    │
-│  │  ├─ 端口 43517 是否已占用?                             │    │
-│  │  │  ├─ 是: 验证是否同一 Library                       │    │
-│  │  │  │  ├─ 是: 附加模式 (Attach)                       │    │
-│  │  │  │  │     • 打开 Web UI                            │    │
-│  │  │  │  │     • 退出时不停止服务                        │    │
-│  │  │  │  │                                              │    │
-│  │  │  │  └─ 否: 端口冲突 (报错)                         │    │
-│  │  │  │                                                  │    │
-│  │  │  └─ 否: 拥有模式 (Owned)                           │    │
-│  │  │        • 启动 MOSA 服务                            │    │
-│  │  │        • 打开 Web UI                               │    │
-│  │  │        • 退出时停止服务                             │    │
-│  │  │                                                     │    │
-│  │  默认配置:                                              │    │
-│  │  • Library: ~/MOSA Library                            │    │
-│  │  • Port: 43517                                        │    │
-│  │  • 所有桥接启用                                         │    │
-│  │                                                        │    │
-│  └────────────────────────────────────────────────────────┘    │
-│                                                                 │
-│  安装:                                                           │
-│  ────                                                            │
-│                                                                 │
-│  1. 解压 MOSA-darwin-arm64-0.2.0.zip                            │
-│  2. 拖动 MOSA.app 到 Applications                               │
-│  3. 首次运行: 右键 > 打开 (绕过 Gatekeeper)                      │
-│     (未签名/未公证)                                              │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+`extensions/chatgpt-web-capture/` 是可选浏览器扩展，当前 provider 为 ChatGPT、
+Gemini、Flow 和 Google AI Studio。扩展只向配置的本地 MOSA 地址发送捕获的图像
+字节和页面来源；服务端 `lib/web-capture-ingest.ts` 使用 `sharp` 校验格式、
+尺寸、像素数和 MIME，并用 SHA-256 去重。
 
-### 7.3 生产部署建议
+Web Capture 必须同时配置：
 
-```
-┌──────────────────── 生产部署最佳实践 ───────────────────────────┐
-│                                                                 │
-│  ⚠️  重要安全提示                                                │
-│  ──────────────────                                             │
-│                                                                 │
-│  MOSA 设计为本地使用，不应暴露到公网:                             │
-│                                                                 │
-│  ❌ 不要使用反向代理                                             │
-│  ❌ 不要绑定到 0.0.0.0                                           │
-│  ❌ 不要开放防火墙端口                                           │
-│  ❌ 不要在多用户环境运行                                         │
-│                                                                 │
-│  ✅ 推荐部署方式                                                 │
-│  ──────────────                                                  │
-│                                                                 │
-│  1. 个人工作站 (推荐)                                            │
-│     • macOS Desktop App                                        │
-│     • 或 npm start 后台运行                                     │
-│     • 仅本地 127.0.0.1 访问                                     │
-│                                                                 │
-│  2. 专用开发机器                                                 │
-│     • SSH 隧道访问                                              │
-│     • systemd/launchd 守护进程                                  │
-│     • 定期备份 ~/MOSA Library                                   │
-│                                                                 │
-│  systemd 服务示例 (Linux):                                       │
-│  ────────────────────────────                                   │
-│                                                                 │
-│  [Unit]                                                         │
-│  Description=MOSA Asset Library                                │
-│  After=network.target                                          │
-│                                                                 │
-│  [Service]                                                      │
-│  Type=simple                                                    │
-│  User=<your-user>                                               │
-│  WorkingDirectory=/path/to/mosa                                │
-│  Environment="MOSA_LIBRARY_DIR=/home/<user>/MOSA Library"      │
-│  ExecStart=/usr/bin/node server.mjs                            │
-│  Restart=on-failure                                            │
-│  RestartSec=10                                                 │
-│                                                                 │
-│  [Install]                                                      │
-│  WantedBy=multi-user.target                                    │
-│                                                                 │
-│  launchd plist 示例 (macOS):                                     │
-│  ──────────────────────────                                     │
-│                                                                 │
-│  <?xml version="1.0" encoding="UTF-8"?>                        │
-│  <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"          │
-│   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">            │
-│  <plist version="1.0">                                          │
-│  <dict>                                                         │
-│    <key>Label</key>                                            │
-│    <string>com.mosa.server</string>                            │
-│    <key>ProgramArguments</key>                                 │
-│    <array>                                                      │
-│      <string>/usr/local/bin/node</string>                      │
-│      <string>/path/to/mosa/server.mjs</string>                 │
-│    </array>                                                     │
-│    <key>WorkingDirectory</key>                                 │
-│    <string>/path/to/mosa</string>                              │
-│    <key>RunAtLoad</key>                                        │
-│    <true/>                                                      │
-│    <key>KeepAlive</key>                                        │
-│    <true/>                                                      │
-│  </dict>                                                        │
-│  </plist>                                                       │
-│                                                                 │
-│  备份策略:                                                       │
-│  ────────                                                        │
-│                                                                 │
-│  • 定期备份 ~/MOSA Library/                                      │
-│  • SQLite 在线备份: .backup 命令                                 │
-│  • 原始图像可选择性备份                                          │
-│  • 版本控制 cowart-projects.json                                │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+- `MOSA_WEB_CAPTURE_TOKEN`：请求的 Bearer 或 `x-mosa-token` 凭据；
+- `MOSA_WEB_CAPTURE_ORIGINS`：精确的 `chrome-extension://...` 或
+  `moz-extension://...` origin 列表。
 
----
+ChatGPT 在可用时保留消息范围上下文；其他 provider 只保留能安全匹配的、页面
+可见的局部 Prompt，并明确标为未验证的 provider-visible Prompt。参考图像进入
+独立的私有引用附件存储，不自动成为普通画廊素材。
 
-## 附录 A: 环境变量参考
+## 8. 配置与隐私边界
+
+运行时支持的主要环境变量如下；路径应由使用者在本机配置，不要把真实路径或
+Token 写入公共文档、日志或仓库：
+
+| 变量 | 用途 |
+| --- | --- |
+| `MOSA_PORT` | Node 服务端口，默认 `43517` |
+| `MOSA_DESKTOP_PORT` | Electron 壳使用的端口，默认 `43517` |
+| `MOSA_LIBRARY_DIR` | SQLite/库目录；显式指定后用于库隔离和迁移 |
+| `MOSA_PROJECT_DIR` | 项目根目录覆盖 |
+| `CODEX_SESSIONS_DIR` | Codex 会话目录覆盖 |
+| `GROK_SESSIONS_DIR` | Grok 会话目录覆盖 |
+| `COWART_MOSA_CANVAS_DIR` | MOSA 管理画布目录覆盖 |
+| `COWART_MCP_SERVER_PATH` | Cowart MCP 服务路径覆盖 |
+| `MOSA_DISABLE_BRIDGES` | 禁用指定桥接的逗号分隔列表 |
+| `MOSA_WEB_CAPTURE_TOKEN` | 启用网页捕获的本地 Token |
+| `MOSA_WEB_CAPTURE_ORIGINS` | 网页捕获允许的扩展 origin 列表 |
+
+MOSA 只读取已配置的 Codex、Grok 和 Cowart 位置，不扫描 Downloads、Desktop
+或任意图片目录。导入路径、画布路径、外部来源和打开文件夹操作均经过边界
+校验；运行时隔离检查在写入库或监听端口前失败即停止。请把 Prompt、会话 ID、
+页面 URL、素材和 Token 视为私人数据。
+
+## 9. 相关验证
+
+源码或依赖变化后，使用仓库定义的检查：
 
 ```bash
-# 核心配置
-MOSA_PROJECT_DIR=/path/to/workspace      # 工作区根目录
-MOSA_PROJECT_ID=default                  # 项目ID
-MOSA_PORT=43517                          # HTTP端口
-MOSA_LIBRARY_DIR=~/MOSA Library          # 库位置
-
-# 数据源
-CODEX_GENERATED_IMAGES_DIR=~/.codex/generated_images
-CODEX_SESSIONS_DIR=~/.codex/sessions
-GROK_SESSIONS_DIR=~/.grok/sessions
-
-# Web Capture (可选)
-MOSA_WEB_CAPTURE_TOKEN=your-random-secret
-MOSA_WEB_CAPTURE_ORIGINS=chrome-extension://id
-
-# Cowart 集成
-COWART_MOSA_CANVAS_DIR=~/.codex/cowart-data/mosa
-MOSA_COWART_REGISTRY_PATH=~/.codex/mosa/cowart-projects.json
-COWART_MCP_SERVER_PATH=/path/to/cowart/mcp/server
-
-# 桥接控制
-MOSA_DISABLED_BRIDGES=codex,grok,cowart,web  # 禁用指定桥接
-
-# 运行时
-MOSA_RUNTIME_MODE=production|development
-MOSA_QA_RUN=1                           # QA模式
-MOSA_USER_DATA=/custom/path             # 自定义用户数据目录
+npm run build
+npm test
+npm run lint
+npm run check
+git diff --check
 ```
 
----
-
-## 附录 B: API 端点参考
-
-### HTTP API
-
-```
-GET  /api/library-path              获取库路径
-GET  /api/bridges                   桥接状态
-GET  /api/cowart-canvases          Cowart画布列表
-GET  /api/web-capture               Web Capture状态
-
-GET  /api/assets                    资产列表 (cursor分页)
-POST /api/assets                    创建资产
-GET  /api/assets/:project/:asset    获取单个资产
-PUT  /api/assets/:project/:asset/metadata  更新元数据
-POST /api/assets/:project/:asset/prompt    附加Prompt
-POST /api/assets/:project/:asset/archive   归档
-POST /api/assets/:project/:asset/duplicate 复制
-
-GET  /api/assets/:project/:asset/versions       版本历史
-POST /api/assets/:project/:asset/versions       创建版本
-
-POST /api/ingest/web-capture        Web捕获入口
-POST /api/cowart-insert             插入到Cowart
-
-GET  /library/:project/images/:file  原始图像
-```
-
-### MCP Tools
-
-```
-asset_create(projectId, imagePath, prompt, ...)
-asset_list(projectId, filters, limit, cursor)
-asset_get(projectId, assetId)
-asset_update_metadata(projectId, assetId, metadata)
-asset_attach_prompt(projectId, assetId, prompt)
-asset_archive(projectId, assetId)
-asset_duplicate(projectId, assetId)
-asset_version_create(projectId, assetId, versionChange, imagePath?)
-asset_version_history(projectId, assetId)
-```
-
----
-
-## 附录 C: 关键算法
-
-### 版本树深度优先遍历
-
-```typescript
-// 深度优先遍历版本树
-function* traverseVersionTree(
-  rootId: string,
-  assets: Map<string, Asset>
-): Generator<Asset> {
-  const visited = new Set<string>();
-  const stack: string[] = [rootId];
-
-  while (stack.length > 0) {
-    const currentId = stack.pop()!;
-    if (visited.has(currentId)) continue;
-
-    visited.add(currentId);
-    const asset = assets.get(currentId);
-    if (!asset) continue;
-
-    yield asset;
-
-    // 查找子版本（parent_version_id === currentId）
-    const children = Array.from(assets.values())
-      .filter(a => a.parent_version_id === currentId)
-      .sort((a, b) => b.created_at.localeCompare(a.created_at));
-
-    // 倒序压栈，确保正序弹出
-    for (const child of children.reverse()) {
-      stack.push(child.id);
-    }
-  }
-}
-```
-
----
-
-**文档版本**: 1.0
-**最后更新**: 2026年8月22日
-**维护**: MOSA Team
+上述命令验证构建、Node 测试、ESLint、源文件边界和补丁空白；真实桌面包、
+浏览器扩展重载和已登录网页上的 Web Capture 仍需按相应指南单独验证。

@@ -137,6 +137,12 @@ test("import rejections reach the client as 400 with a code, and the format list
   const archive = await batch({ action: "archive", projectId: "default", assetIds: [asset.id] });
   assert.equal(archive.status, 200);
   assert.deepEqual((await archive.json()).results, [{ id: asset.id, archived: true }]);
+
+  const deleted = await fetch(`${runtime.url}/api/assets/default/${encodeURIComponent(asset.id)}`, { method: "DELETE" });
+  assert.equal(deleted.status, 200);
+  assert.deepEqual((await deleted.json()).result, { id: asset.id, project_id: "default", deleted: true });
+  const missing = await fetch(`${runtime.url}/api/assets/default/${encodeURIComponent(asset.id)}`);
+  assert.equal(missing.status, 404);
 });
 
 test("shows only the four everyday fields and hides the rest behind advanced settings", async () => {

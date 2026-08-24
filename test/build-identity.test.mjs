@@ -75,22 +75,23 @@ test("getBuildIdentity returns unknown for fields that are not strings", async (
   resetBuildIdentityCache();
 });
 
-test("computeUiFingerprint hashes index.html, styles.css, and app.mjs", async () => {
+test("computeUiFingerprint hashes the browser entry files and every local ES module", async () => {
   const tempAppDir = await makeTempDir("mosa-fingerprint-");
   t_after_cleanup(tempAppDir);
   await writeFile(join(tempAppDir, "index.html"), "<html></html>");
   await writeFile(join(tempAppDir, "styles.css"), "body{}");
   await writeFile(join(tempAppDir, "app.mjs"), "console.log();");
+  await writeFile(join(tempAppDir, "feature.mjs"), "export const enabled = true;");
   const fp1 = computeUiFingerprint(tempAppDir);
   assert.match(fp1, /^[0-9a-f]{64}$/);
 
-  // Changing any file changes the fingerprint.
-  await writeFile(join(tempAppDir, "app.mjs"), "console.log('changed');");
+  // Changing an imported module changes the fingerprint too.
+  await writeFile(join(tempAppDir, "feature.mjs"), "export const enabled = false;");
   const fp2 = computeUiFingerprint(tempAppDir);
   assert.notEqual(fp1, fp2);
 
   // Reverting restores the original fingerprint.
-  await writeFile(join(tempAppDir, "app.mjs"), "console.log();");
+  await writeFile(join(tempAppDir, "feature.mjs"), "export const enabled = true;");
   const fp3 = computeUiFingerprint(tempAppDir);
   assert.equal(fp1, fp3);
 });
@@ -106,7 +107,7 @@ test("the repository app/ directory has a build-identity.json with valid fields"
   resetBuildIdentityCache();
 });
 
-test("uiFingerprint in build-identity.json matches the actual content of index.html + styles.css + app.mjs", async () => {
+test("uiFingerprint in build-identity.json matches the actual browser-delivered app shell", async () => {
   const appDir = join(repositoryRoot, "app");
   resetBuildIdentityCache();
   const identity = getBuildIdentity(appDir);

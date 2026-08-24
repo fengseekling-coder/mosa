@@ -4,17 +4,17 @@
  * Build-time script that generates `app/build-identity.json` containing:
  *   - productVersion  (from package.json)
  *   - gitSha          (from git, or "unknown")
- *   - uiFingerprint   (SHA-256 of index.html + styles.css + app.mjs content)
+ *   - uiFingerprint   (SHA-256 of all browser-delivered app shell files)
  *
  * Run as part of `npm run build` so both the web runtime and the packaged
  * desktop app carry an immutable record of what UI they were built with.
  */
 
 import { execSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { computeUiFingerprint } from "../lib/build-identity.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
@@ -34,15 +34,10 @@ try {
 }
 
 // --- uiFingerprint ---------------------------------------------------
-// Hash the three core UI files so any change to the visual layer produces
-// a new fingerprint.  Order matters: index.html → styles.css → app.mjs.
-const UI_FILES = ["index.html", "styles.css", "app.mjs"];
-const hash = createHash("sha256");
-for (const name of UI_FILES) {
-  const content = readFileSync(join(appDir, name));
-  hash.update(content);
+const uiFingerprint = computeUiFingerprint(appDir);
+if (uiFingerprint === "unknown") {
+  throw new Error("Cannot compute MOSA UI fingerprint: required app shell files are missing or unreadable.");
 }
-const uiFingerprint = hash.digest("hex");
 
 // --- Write -----------------------------------------------------------
 const identity = { productVersion, gitSha, uiFingerprint };

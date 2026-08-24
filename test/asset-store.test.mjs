@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import Database from "better-sqlite3";
 import { createAssetStore } from "../lib/asset-store.mjs";
+import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 
 // createAssetStore falls back to process.env.MOSA_LIBRARY_DIR, so path-selection
 // tests must neutralise it; node:test runs tests in-file sequentially, and each
@@ -202,6 +203,30 @@ test("imports a Codex default generated image and preserves its provenance", asy
   const codexOnly = await store.listAssets({ projectId: "default", source: "codex-generated" });
   assert.deepEqual(codexOnly.map((item) => item.id), ["codex-fixture"]);
 });
+
+for (const kind of ["json", "sqlite"]) {
+  test(`${kind} deleteAsset removes managed files without deleting the source`, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), `mosa-delete-${kind}-`));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const projectRoot = join(root, "project");
+    const managerDir = join(projectRoot, "mosa");
+    const libraryDir = join(root, "library");
+    const sourcePath = join(projectRoot, "generated-images", "delete-source.png");
+    await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+    await writeFile(sourcePath, "delete fixture");
+    const store = kind === "sqlite"
+      ? createSqliteAssetStore({ projectRoot, managerDir, libraryDir })
+      : createAssetStore({ projectRoot, managerDir });
+    if (kind === "sqlite") t.after(() => store.close());
+
+    const asset = await store.createAsset({ assetId: `delete-${kind}`, imagePath: sourcePath, prompt: "remove me" });
+    await store.deleteAsset("default", asset.id);
+    await assert.rejects(store.getAsset("default", asset.id), /not found/i);
+    await assert.rejects(stat(asset.image_path), { code: "ENOENT" });
+    if (asset.prompt_path) await assert.rejects(stat(asset.prompt_path), { code: "ENOENT" });
+    await stat(sourcePath);
+  });
+}
 
 test("JSON recipe snapshots change only with generation inputs and remain immutable", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-recipes-json-"));
