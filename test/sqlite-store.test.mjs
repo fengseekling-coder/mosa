@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
-import { copyFile, mkdtemp, mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import sharp from "sharp";
 import { createDerivativeWorker, processDerivativeJob } from "../lib/derivative-worker.js";
@@ -50,6 +50,61 @@ test("SQLite store keeps archive, duplicate, version, and cursor contracts", asy
   assert.deepEqual(active.map((asset) => asset.id).sort(), [child.id, parent.id].sort());
   const activeSearch = await store.listAssetPage({ projectId: "default", query: "mechanical", limit: 2 });
   assert.equal(activeSearch.page.total, 2, "an archived match invalidates the cached FTS count");
+});
+
+test("SQLite deleting a group clears asset assignments and its search index", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-delete-group-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, ONE_PIXEL_PNG);
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir: join(root, "library") });
+  t.after(() => store.close());
+
+  await store.createGroup({ projectId: "default", name: "Aurora" });
+  const asset = await store.createAsset({ assetId: "grouped-fixture", imagePath: sourcePath, prompt: "group deletion fixture", group: "Aurora" });
+  assert.equal((await store.listAssetPage({ projectId: "default", query: "Aurora", limit: 10 })).page.total, 1);
+
+  await store.deleteGroup("default", "Aurora");
+
+  assert.equal((await store.getAsset("default", asset.id)).group, "");
+  assert.equal((await store.listAssetPage({ projectId: "default", query: "Aurora", limit: 10 })).page.total, 0, "the removed group is no longer searchable");
+  assert.deepEqual((await store.listGroups("default")).groups, []);
+
+  await store.createGroup({ projectId: "default", name: "Aurora" });
+  assert.deepEqual((await store.listGroups("default")).groups, [["Aurora", 0]]);
+});
+
+test("SQLite deleteAsset commits the row before unlinking files", async (t) => {
+  const source = await readFile(new URL("../lib/sqlite-asset-store.mjs", import.meta.url), "utf8");
+  const start = source.indexOf("async deleteAsset(projectId, assetId)");
+  const end = source.indexOf("async duplicateAsset(projectId, assetId, input = {})", start);
+  assert.ok(start > -1 && end > start, "deleteAsset is present");
+  const body = source.slice(start, end);
+  const transactionAt = body.indexOf("database.transaction(");
+  const unlinkAt = body.lastIndexOf("unlink(filePath)");
+  assert.ok(transactionAt > -1 && unlinkAt > -1, "deleteAsset still deletes rows and files");
+  assert.ok(transactionAt < unlinkAt, "the asset row is removed before originals are unlinked");
+
+  const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-delete-asset-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, ONE_PIXEL_PNG);
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir: join(root, "library") });
+  t.after(() => store.close());
+
+  const asset = await store.createAsset({ assetId: "delete-row-first", imagePath: sourcePath, prompt: "delete order fixture" });
+  const imageDir = dirname(asset.image_path);
+  await chmod(imageDir, 0o555);
+  try {
+    await store.deleteAsset("default", asset.id);
+    await assert.rejects(store.getAsset("default", asset.id), /not found/i);
+  } finally {
+    await chmod(imageDir, 0o755);
+  }
 });
 
 test("SQLite recipe snapshots change only with generation inputs and remain immutable", async (t) => {

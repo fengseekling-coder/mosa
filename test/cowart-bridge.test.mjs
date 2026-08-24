@@ -35,9 +35,48 @@ test("archives Cowart page assets once and keeps MOSA-origin images out", async 
   assert.equal(first.imported[0].source.cowart_annotation_source_shape_id, "shape:source");
   assert.equal(first.imported[0].ratio, "1:1");
 
+  await store.archiveAsset("default", first.imported[0].id);
   const second = await reconcileCowartAssets({ store, canvasDir });
   assert.equal(second.imported.length, 0);
   assert.equal(second.skipped.filter((item) => item.reason === "already-archived").length, 1);
+});
+
+test("continues Cowart reconciliation after one asset import fails", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-cowart-import-failure-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const canvasDir = join(root, "cowart-data", "mosa");
+  const pageDir = join(canvasDir, "pages", "page");
+  const pageAssetsDir = join(pageDir, "assets");
+  const failedPath = join(pageAssetsDir, "a-fails.png");
+  const succeedingPath = join(pageAssetsDir, "b-succeeds.png");
+  await mkdir(pageAssetsDir, { recursive: true });
+  await writeFile(failedPath, "fixture failed Cowart image", "utf8");
+  await writeFile(succeedingPath, "fixture succeeding Cowart image", "utf8");
+  await writeFile(join(pageDir, "cowart-canvas.json"), JSON.stringify({
+    store: {
+      "asset:a-fails": { id: "asset:a-fails", typeName: "asset", type: "image", props: { name: "a-fails.png", src: "/page-assets/page/a-fails.png" }, meta: {} },
+      "shape:a-fails": { id: "shape:a-fails", typeName: "shape", type: "image", props: { assetId: "asset:a-fails", w: 100, h: 100, altText: "失败候选" }, meta: {} },
+      "asset:b-succeeds": { id: "asset:b-succeeds", typeName: "asset", type: "image", props: { name: "b-succeeds.png", src: "/page-assets/page/b-succeeds.png" }, meta: {} },
+      "shape:b-succeeds": { id: "shape:b-succeeds", typeName: "shape", type: "image", props: { assetId: "asset:b-succeeds", w: 100, h: 100, altText: "继续归档候选" }, meta: {} },
+    },
+  }), "utf8");
+
+  const createCalls = [];
+  const store = {
+    cowartCanvasDir: canvasDir,
+    async listAssets() { return []; },
+    async createAsset(params) {
+      createCalls.push(params.imagePath);
+      if (params.imagePath === failedPath) throw new Error("fixture import failure");
+      return { id: "succeeded", image_path: params.imagePath };
+    },
+  };
+
+  const result = await reconcileCowartAssets({ store, canvasDir });
+  assert.deepEqual(createCalls, [failedPath, succeedingPath]);
+  assert.deepEqual(result.skipped, [{ path: failedPath, reason: "import-failed" }]);
+  assert.deepEqual(result.imported, [{ id: "succeeded", image_path: succeedingPath }]);
 });
 
 test("watches a Cowart page directory and archives a later image", async (t) => {

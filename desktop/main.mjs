@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, ipcMain, clipboard, session, shell, Notification, globalShortcut } from "electron";
+import { app, BrowserWindow, Menu, dialog, ipcMain, clipboard, session, shell, Notification } from "electron";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
@@ -92,7 +92,6 @@ let shuttingDown = false;
 let shutdownPromise = null;
 let windowPromise = null;
 let ipcRegistered = false;
-let shortcutsRegistered = false;
 let updatesChecked = false;
 let currentLocale = "zh"; // safe default matching original Chinese-only notifications
 const rendererConsoleErrors = new Set();
@@ -126,7 +125,6 @@ if (!app.requestSingleInstanceLock()) {
     event.preventDefault();
     shuttingDown = true;
     stopBridgeNotificationPoll();
-    globalShortcut.unregisterAll();
     void stopOwnedRuntime().catch(console.error).finally(() => app.exit(0));
   });
 }
@@ -335,13 +333,6 @@ function registerIPC() {
   });
 }
 
-function registerGlobalShortcuts() {
-  if (shortcutsRegistered) return;
-  shortcutsRegistered = true;
-  globalShortcut.register("CommandOrControl+N", () => sendToWindow("menu-import"));
-  globalShortcut.register("CommandOrControl+F", () => sendToWindow("menu-search"));
-}
-
 function openMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show();
@@ -431,7 +422,6 @@ async function createMainWindow() {
 
   buildMenu();
   registerIPC();
-  registerGlobalShortcuts();
   await mainWindow.loadURL(service.url);
   mainWindow.show();
 

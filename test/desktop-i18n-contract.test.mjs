@@ -99,6 +99,13 @@ test("main localizes custom menu labels without changing roles or accelerators",
   assert.match(menu, /setImmediate\(\(\) =>/);
 });
 
+test("main keeps MOSA shortcuts scoped to its application menu", async () => {
+  const main = await read("desktop/main.mjs");
+
+  assert.doesNotMatch(main, /\bglobalShortcut\b/);
+  assert.doesNotMatch(main, /registerGlobalShortcuts/);
+});
+
 test("set-locale validates sender and locale, rebuilds once, and is idempotent", async () => {
   const main = await read("desktop/main.mjs");
   const handler = sliceBetween(main, 'ipcMain.handle("set-locale"', "\n  });");

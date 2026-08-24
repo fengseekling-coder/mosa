@@ -340,3 +340,17 @@ test("58. dialog styles without !important", async () => {
   assert.match(css, /:where\(\.action-btn\.danger, \.batch-bar-btn\.danger, \.btn-danger\):not\(:disabled\):not\(\[aria-disabled="true"\]\):hover/,
     "danger hover stays inside the precise-pointer media guard");
 });
+
+test("context-menu bulk archive and delete pass the selected count into titles", async () => {
+  const source = await readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8");
+  const { default: translations } = await import(pathToFileURL(resolve(root, "app/i18n.mjs")).href);
+
+  assert.match(translations.zh.archiveAssetsTitle, /\{count\}/);
+  assert.match(translations.en.archiveAssetsTitle, /\{count\}/);
+  assert.match(translations.zh.deleteAssetsTitle, /\{count\}/);
+  assert.match(translations.en.deleteAssetsTitle, /\{count\}/);
+  assert.match(source, /t\("archiveAssetsTitle", \{ count: assets\.length \}\)/);
+  assert.match(source, /t\("deleteAssetsTitle", \{ count: assets\.length \}\)/);
+  assert.doesNotMatch(source, /t\("archiveAssetsTitle"\)/);
+  assert.doesNotMatch(source, /t\("deleteAssetsTitle"\)/);
+});

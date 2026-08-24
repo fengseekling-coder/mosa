@@ -76,15 +76,19 @@ export async function reconcileCowartAssets(options: { store: Store; canvasDir: 
   const { store, canvasDir, projectId = DEFAULT_PROJECT_ID, cowartProjectDir = null, sourceId = null } = options;
   const candidates = await readCowartAssetCandidates(canvasDir);
   const trustedPagesRoot = join(resolve(canvasDir), "pages");
-  const currentAssets = await store.listAssets({ projectId });
-  const knownSourcePaths = new Set(currentAssets.map((a) => (a.source?.cowart_page_asset_path || a.source?.path) as string).filter(Boolean).map((v) => resolve(v)));
+  const [currentAssets, archivedAssets] = await Promise.all([store.listAssets({ projectId }), store.listAssets({ projectId, archived: true })]);
+  const knownSourcePaths = new Set([...currentAssets, ...archivedAssets].map((a) => (a.source?.cowart_page_asset_path || a.source?.path) as string).filter(Boolean).map((v) => resolve(v)));
   const imported: unknown[] = []; const skipped: Array<{ path: string; reason: string }> = [];
 
   for (const candidate of candidates) {
     if (candidate.mosaAssetId) { skipped.push({ path: candidate.imagePath, reason: "mosa-origin" }); continue; }
     if (knownSourcePaths.has(candidate.imagePath)) { skipped.push({ path: candidate.imagePath, reason: "already-archived" }); continue; }
-    const asset = await store.createAsset({ projectId, imagePath: candidate.imagePath, prompt: candidate.altText, skill: "Cowart automatic bridge", ratio: candidate.ratio, theme: candidate.altText, sourceType: "cowart-generated", business_fields: { auto_archived: true, prompt_status: "Cowart canvas only provides alt text" }, source: { generation_tool: "cowart", cowart_source_id: sourceId, cowart_project_dir: cowartProjectDir, cowart_canvas_dir: candidate.canvasDir, cowart_page_id: candidate.pageId, cowart_page_asset_path: candidate.imagePath, cowart_page_asset_url: candidate.assetUrl, cowart_asset_id: candidate.cowartAssetId, cowart_shape_id: candidate.shapeId, cowart_shape_meta: candidate.shapeMeta, cowart_annotation_source_shape_id: candidate.annotationSourceShapeId || null, replaced_ai_image_holder: candidate.replacedAiImageHolder || null, prompt_status: "canvas-alt-text-only" } }, { trustedSourceRoots: [trustedPagesRoot] });
-    knownSourcePaths.add(candidate.imagePath); imported.push(asset);
+    try {
+      const asset = await store.createAsset({ projectId, imagePath: candidate.imagePath, prompt: candidate.altText, skill: "Cowart automatic bridge", ratio: candidate.ratio, theme: candidate.altText, sourceType: "cowart-generated", business_fields: { auto_archived: true, prompt_status: "Cowart canvas only provides alt text" }, source: { generation_tool: "cowart", cowart_source_id: sourceId, cowart_project_dir: cowartProjectDir, cowart_canvas_dir: candidate.canvasDir, cowart_page_id: candidate.pageId, cowart_page_asset_path: candidate.imagePath, cowart_page_asset_url: candidate.assetUrl, cowart_asset_id: candidate.cowartAssetId, cowart_shape_id: candidate.shapeId, cowart_shape_meta: candidate.shapeMeta, cowart_annotation_source_shape_id: candidate.annotationSourceShapeId || null, replaced_ai_image_holder: candidate.replacedAiImageHolder || null, prompt_status: "canvas-alt-text-only" } }, { trustedSourceRoots: [trustedPagesRoot] });
+      knownSourcePaths.add(candidate.imagePath); imported.push(asset);
+    } catch {
+      skipped.push({ path: candidate.imagePath, reason: "import-failed" });
+    }
   }
   return { imported, skipped, candidates: candidates.length };
 }
