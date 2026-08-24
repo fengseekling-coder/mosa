@@ -3,6 +3,7 @@
 - 状态：**已批准 / 冻结（frozen）**
 - 批准日期：2026-08-01
 - 适用分支：`agent/macos-desktop-shell-v2`（mosa-desktop-worktree）
+- 本仓库只跟踪这一份实施决策。下列上游规格与下游审计文件不在本仓库中，仅作历史出处。
 - 上游依据：`docs/product-design/MOSA-产品设计规格-v1.md`、`docs/product-design/MOSA-研发任务与验收-v1.md`、`docs/product-design/assets/mosa-large-view-approved-v1.png`
 - 下游消费：`docs/ui-audit/10-prioritized-design-audit.md`（发现定级）、`docs/ui-audit/12-design-system-migration-plan.md`（令牌迁移）、`docs/ui-audit/13-implementation-roadmap.md`（阶段路线）、`docs/ui-audit/14-phase-0-baseline-plan.md`（Gate-0 基线）、`docs/ui-audit/15-phase-1-task-breakdown.md`（Phase 1 任务）
 - 变更规则：任何对本文件决策的修改必须走产品规格修订流程；代码不得先于决策变更。

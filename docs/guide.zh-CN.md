@@ -18,7 +18,7 @@ MOSA 采用 [PolyForm Noncommercial License 1.0.0](../LICENSE)，属于源码可
 - **网页生图扩展**可选，用于把 ChatGPT、Gemini、Flow 和 Google AI Studio 的网页成图及其可用上下文发送到本机 MOSA。
 - **MOSA** 负责自动收集、归档、检索、版本管理和回插。
 
-MOSA 当前是本地 Web 应用，不是云服务或 macOS `.app`。它不包含额外 AI 模型、Embedding 搜索或远程同步，也不调用 Grok API，也不应通过公网或反向代理暴露。
+MOSA 当前是绑定 `127.0.0.1` 的本地 Web 应用，也可从源码启动开发用的 Electron 桌面壳；仓库尚未发布签名或公证的安装包。它不是云服务，不包含额外 AI 模型、Embedding 搜索或远程同步，也不调用 Grok API，也不应通过公网或反向代理暴露。
 
 ## 环境要求
 
