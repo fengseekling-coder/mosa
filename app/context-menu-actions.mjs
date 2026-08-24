@@ -357,7 +357,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         action: async () => {
           const assets = isMultiple ? selectedAssets : [asset];
           const confirmed = await requestConfirmation({
-            title: isMultiple ? t("archiveAssetsTitle") : t("archiveAssetTitle"),
+            title: isMultiple ? t("archiveAssetsTitle", { count: assets.length }) : t("archiveAssetTitle"),
             description: isMultiple ? t("archiveAssetsDescription") : t("archiveAssetDescription"),
             confirmLabel: t("archive"),
             tone: "danger",
@@ -382,7 +382,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         action: async () => {
           const assets = isMultiple ? selectedAssets : [asset];
           const confirmed = await requestConfirmation({
-            title: isMultiple ? t("deleteAssetsTitle") : t("deleteAssetTitle"),
+            title: isMultiple ? t("deleteAssetsTitle", { count: assets.length }) : t("deleteAssetTitle"),
             description: isMultiple ? t("deleteAssetsDescription") : t("deleteAssetDescription"),
             confirmLabel: t("delete"),
             tone: "danger",
