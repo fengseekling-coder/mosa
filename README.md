@@ -84,6 +84,8 @@ See [PRIVACY.md](PRIVACY.md) for the full data boundary and [SECURITY.md](SECURI
 
 - [中文使用指南](docs/guide.zh-CN.md): setup, sources, local library, search, versions, MCP, and maintenance.
 - [Operations guide](docs/operations.md): migration, verification, bridge health, recovery, and managed local service boundaries.
+- [Architecture](ARCHITECTURE.md): current runtime, storage, and integration layout.
+- [Context menu](docs/context-menu.md): sidebar, card, and empty-grid actions.
 - [Web Capture extension guide](extensions/chatgpt-web-capture/README.md): local setup, permissions, capture behavior, and limitations.
 - [Privacy policy](PRIVACY.md): data sources, local storage, extension permissions, and network boundaries.
 - [Security policy](SECURITY.md): supported versions and private vulnerability reporting.
