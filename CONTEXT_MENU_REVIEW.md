@@ -1,7 +1,7 @@
 # MOSA 右键菜单功能审查报告
 
-**审查日期**: 2026-08-23  
-**审查范围**: 右键菜单功能的完整实现  
+**审查日期**: 2026-08-23
+**审查范围**: 右键菜单功能的完整实现
 **状态**: ✅ 通过（已修复发现的问题）
 
 ---
@@ -144,7 +144,7 @@ showToast(t("openedInFinder"), "success");  // ❌ key 不存在
 try {
   await apiFetch("/api/open-folder", {
     method: "POST",
-    body: { 
+    body: {
       path: asset.path,
       reveal: true
     },
@@ -262,7 +262,7 @@ npm run lint
 ```javascript
 await apiFetch("/api/open-folder", {
   method: "POST",
-  body: { 
+  body: {
     path: asset.path,      // 传递完整文件路径
     reveal: true           // 标记需要高亮文件
   },
@@ -309,20 +309,20 @@ const allowedPaths = [
 ```javascript
 export function resolveAllowedFolderPath(requestedPath, allowedPaths) {
   const candidate = resolve(requestedPath);
-  
+
   for (const allowedPath of allowedPaths) {
     const root = resolve(String(allowedPath));
     const pathFromRoot = relative(root, candidate);
-    
+
     // 检查候选路径是否在允许的根目录下
-    if (pathFromRoot === "" || 
-        (!pathFromRoot.startsWith(`..${sep}`) && 
-         pathFromRoot !== ".." && 
+    if (pathFromRoot === "" ||
+        (!pathFromRoot.startsWith(`..${sep}`) &&
+         pathFromRoot !== ".." &&
          !isAbsolute(pathFromRoot))) {
       return candidate;
     }
   }
-  
+
   return null;  // 路径不在白名单内
 }
 ```
@@ -404,10 +404,10 @@ export function resolveAllowedFolderPath(requestedPath, allowedPaths) {
    **文档中的方案**（第 59-67 行）:
    ```javascript
    // 提取文件的父目录
-   const dirPath = lastSlashIndex > 0 
-     ? filePath.substring(0, lastSlashIndex) 
+   const dirPath = lastSlashIndex > 0
+     ? filePath.substring(0, lastSlashIndex)
      : filePath;
-   
+
    await apiFetch("/api/open-folder", {
      method: "POST",
      body: { path: dirPath },  // 传递目录路径
@@ -418,14 +418,14 @@ export function resolveAllowedFolderPath(requestedPath, allowedPaths) {
    ```javascript
    await apiFetch("/api/open-folder", {
      method: "POST",
-     body: { 
+     body: {
        path: asset.path,    // 传递文件路径
        reveal: true         // 使用 reveal 标志
      },
    });
    ```
 
-   **分析**: 
+   **分析**:
    - 实际实现更优雅，直接传递文件路径 + `reveal: true`
    - 后端使用 `open -R` 命令高亮文件
    - 文档需要更新以反映实际实现
@@ -500,7 +500,7 @@ export function resolveAllowedFolderPath(requestedPath, allowedPaths) {
 function showSubmenu(parentItem, items) {
   // 移除现有子菜单，避免重复
   document.querySelectorAll(".context-menu-submenu").forEach(sub => sub.remove());
-  
+
   // 创建新子菜单
   const submenu = document.createElement("div");
   // ...
@@ -755,6 +755,6 @@ FIX_RESTART_REQUIRED.md           → 删除（临时文档）
 
 ---
 
-**审查人员**: Kiro AI Assistant  
-**审查完成时间**: 2026-08-23 12:44 PM (UTC-7)  
+**审查人员**: Kiro AI Assistant
+**审查完成时间**: 2026-08-23 12:44 PM (UTC-7)
 **下次审查建议**: 在添加新菜单项或修改核心逻辑后

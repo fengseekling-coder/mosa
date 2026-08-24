@@ -81,13 +81,13 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
                 method: "DELETE",
               });
               showToast(t("groupDeleted"), "success");
-              
+
               // Clear group filter if the deleted group was active
               if (state.facets.group === item.name) {
                 state.facets.group = "";
                 state.nextCursor = null;
               }
-              
+
               window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
               window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
             } catch (error) {
@@ -127,7 +127,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               try {
                 await apiFetch("/api/open-folder", {
                   method: "POST",
-                  body: { 
+                  body: {
                     path: asset.path,
                     reveal: true
                   },
