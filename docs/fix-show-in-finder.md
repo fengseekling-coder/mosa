@@ -15,7 +15,7 @@ POST /api/open-folder 403 (Forbidden)
 2. **安全限制过严**: 后端只允许访问以下目录：
    - MOSA 库目录 (`store.managerDir`)
    - 项目目录 (`store.projectDir()`)
-   
+
    但素材的原始文件可能位于：
    - Codex 生成目录 (`store.codexImagesDir`)
    - Grok 会话目录 (`grokSessionsDir`)
@@ -138,6 +138,6 @@ npm start
 
 ---
 
-**修复日期**: 2026-08-23  
-**影响范围**: 右键菜单功能  
+**修复日期**: 2026-08-23
+**影响范围**: 右键菜单功能
 **状态**: ✅ 已修复并构建
