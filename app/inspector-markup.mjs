@@ -96,6 +96,13 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return `<section class="inspector-section detail-overview" data-inspector-section="file" aria-labelledby="assetOverviewTitle"><div class="detail-overview-heading"><h3 id="assetOverviewTitle">${t("fileFacts")}</h3><p title="${escapeHtml(`${source} · ${formatDate(asset.created_at, state.locale)}`)}">${escapeHtml(source)} · ${formatDate(asset.created_at, state.locale)}</p>${openSourceButton}</div><div class="detail-image-wrap">${assetMediaPreviewMarkup(asset, "detail")}</div><div class="detail-overview-title-row"><h3 id="detailTitle" tabindex="-1" title="${escapeHtml(title)}">${escapeHtml(title)}</h3>${detailFavoriteButtonMarkup(asset)}</div><div class="detail-facts" role="group" aria-label="${escapeHtml(t("assetMetadata"))}">${facts}</div></section>`;
   }
 
+  function detailTagsSectionMarkup(asset) {
+    const tags = assetTags(asset).slice(0, 10);
+    const tagMarkup = tags.map((tag) => `<span class="detail-tag" data-tag-value="${escapeHtml(tag)}">${escapeHtml(tag)}</span>`).join("");
+    const emptyMarkup = tags.length ? "" : `<span class="empty-copy detail-tags-empty">${t("tagsEmpty")}</span>`;
+    return `<section class="inspector-section detail-tags-section" data-inspector-section="tags"><div class="detail-prompt-head"><h3>${t("tags")}</h3><span class="detail-tags-hint">${escapeHtml(t("tagsAutoHint"))}</span></div><div class="detail-tags-row" data-tags-list>${tagMarkup}${emptyMarkup}<button class="detail-tags-add" type="button" data-action="add-tag"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>${escapeHtml(t("addTag"))}</span></button></div></section>`;
+  }
+
   function detailPromptSectionMarkup(asset) {
     const source = asset.source || {};
     const promptUnavailable = /^web-(?:chatgpt|gemini|flow|google-ai-studio)$/.test(source.type || asset.source_type || "")
@@ -192,13 +199,6 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
   function detailGroupSectionMarkup(asset) {
     const group = String(asset.group || "").trim();
     return `<section class="inspector-section detail-group-section" data-inspector-section="group"><div class="detail-prompt-head"><h3>${t("group")}</h3></div><p class="inspector-readout">${group ? escapeHtml(group) : `<span class="empty-copy">${t("notGrouped")}</span>`}</p></section>`;
-  }
-
-  function detailTagsSectionMarkup(asset) {
-    const tags = assetTags(asset).slice(0, 10);
-    const tagMarkup = tags.map((tag) => `<span class="detail-tag" data-tag-value="${escapeHtml(tag)}">${escapeHtml(tag)}</span>`).join("");
-    const emptyMarkup = tags.length ? "" : `<span class="empty-copy detail-tags-empty">${t("tagsEmpty")}</span>`;
-    return `<section class="inspector-section detail-tags-section" data-inspector-section="tags"><div class="detail-prompt-head"><h3>${t("tags")}</h3><span class="detail-tags-hint">${escapeHtml(t("tagsAutoHint"))}</span></div><div class="detail-tags-row" data-tags-list>${tagMarkup}${emptyMarkup}<button class="detail-tags-add" type="button" data-action="add-tag"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>${escapeHtml(t("addTag"))}</span></button></div></section>`;
   }
 
   function detailCowartSectionMarkup() {

@@ -441,6 +441,9 @@
       capturedAt: String(item.capturedAt || new Date().toISOString()),
       via: String(item.via || "network"),
       bound: Boolean(item.bound || (prompt && imageUrl)),
+      // page-hook only emits auto-image events with isGeneration === true; carry
+      // the field through so the auto-image listener below can see it.
+      isGeneration: Boolean(item.isGeneration),
     };
     networkMeta.push(entry);
     if (networkMeta.length > 120) networkMeta.splice(0, networkMeta.length - 120);
@@ -1169,22 +1172,46 @@
     return Boolean(ensureControlPanel());
   }
 
-  async function runManualAction(action) {
+  async function runManualAction(action, { imageUrl } = {}) {
     if (contextLost || !extensionAlive()) {
       markContextLost();
       throw new Error(CONTEXT_LOST_MESSAGE);
     }
 
+    // Right-click "save image" targets a specific src; prefer it over the
+    // generic viewport heuristic so the user gets the picture they clicked.
+    let target = null;
+    if (imageUrl) {
+      target = domCandidateForImage(imageUrl, { manual: true })
+        || collectDomCandidates({ manual: true }).find((candidate) => (
+          candidate.imageUrl === imageUrl || candidate.key === imageUrl
+        ))
+        || null;
+    }
+
     const candidates = collectDomCandidates({ manual: true });
-    if (!candidates.length) {
+    if (!candidates.length && !target) {
       const message = "没找到可保存的大图：请等图片加载完成后再试";
       showToast(message, true);
       setStatus("未找到图片", true);
       throw new Error(message);
     }
 
+    if (action === "save-image" || action === "save-image-with-prompt") {
+      if (!target) target = currentViewportCandidate(candidates);
+      if (!target) throw new Error("未找到当前可见图片");
+      const result = await ingestCandidate(target, { reason: "manual-context" });
+      return {
+        action,
+        attempted: 1,
+        completed: 1,
+        failed: 0,
+        result,
+      };
+    }
+
     if (action === "save-visible") {
-      const current = currentViewportCandidate(candidates);
+      const current = target || currentViewportCandidate(candidates);
       if (!current) throw new Error("未找到当前可见图片");
       const result = await ingestCandidate(current, { reason: "manual-popup" });
       return {
@@ -1245,7 +1272,7 @@
     const action = actionByType[message.type];
     if (!action) return false;
 
-    runManualAction(action)
+    runManualAction(action, { imageUrl: message.imageUrl })
       .then((result) => sendResponse({ ok: true, result, state: pageState() }))
       .catch((error) => sendResponse({
         ok: false,

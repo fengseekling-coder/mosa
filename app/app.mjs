@@ -21,6 +21,7 @@ let statusAnnouncementTimer = null;
 let statusTextWriteTimer = null;
 let statusAnnouncementSequence = 0;
 let statusAnnouncementActive = false;
+let libraryRefreshTimer = null;
 let persistentStatus = { value: "", stateName: "neutral" };
 
 // Clear and repopulate the shared status node in separate DOM mutations. This
@@ -57,6 +58,10 @@ const state = {
   dragCounter: 0,
   darkMode: safeStorageGet("mosa-dark-mode") === "true", diagnosticsExpanded: false, settingsReturnFocus: null, accountReturnFocus: null,
   imageZoom: 1, imagePanX: 0, imagePanY: 0, imageDragging: false,
+  // Bulk-selection gate. The viewer short-circuits while batch mode is active so
+  // selected cards never auto-open the asset view mid-selection; this defaults to
+  // false because batch UI isn't yet wired up (see Bug D in the audit report).
+  batchMode: false,
   // Phase 3A / D4：专用大图查看模式最小状态——viewMode 二值（library/asset）+ 进入时的
   // 画廊返回快照。不复刻搜索/筛选/排序状态、不深拷贝 state、无第二套 selectedAsset、无平行 Router。
   viewMode: "library", libraryReturnSnapshot: null,
@@ -83,7 +88,7 @@ const els = {
   searchInput: document.querySelector("#searchInput"), quickFilters: document.querySelector("#quickFilters"),
   typeFilters: document.querySelector(".topbar-type-filters"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
-  activeFilters: document.querySelector("#activeFilters"), sortSelect: document.querySelector("#sortSelect"), themeToggle: document.querySelector("#themeToggle"),
+  activeFilters: document.querySelector("#activeFilters"), filterPanel: document.querySelector("#filterPanel"), filterToggle: document.querySelector("#filterToggle"), sortSelect: document.querySelector("#sortSelect"), themeToggle: document.querySelector("#themeToggle"),
   accountToggle: document.querySelector("#accountToggle"), accountModal: document.querySelector("#accountModal"), closeAccountModal: document.querySelector("#closeAccountModal"), accountAssetCount: document.querySelector("#accountAssetCount"), accountCollectionCount: document.querySelector("#accountCollectionCount"), settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), addGroupBtn: document.querySelector("#addGroupBtn"), sidebarGroupList: document.querySelector("#sidebarGroupList"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
   viewTitle: document.querySelector("#viewTitle"), assetCount: document.querySelector("#assetCount"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
@@ -357,6 +362,21 @@ function setupKeyboardShortcuts() {
     // Phase 5B：ConfirmDialog 打开时页面背景不接收任何键盘操作（Escape 由
     // trapConfirmDialogFocus 消费；不新增第二套全局 Escape 路由）。
     if (confirmDialogState.pending) return;
+    // Disabled context-menu shortcuts (pasteFromClipboard / selectAll) advertise
+    // ⌘V / ⌘A but never implement them. Block the browser defaults so users
+    // don't accidentally select all DOM text or trip paste-handlers that the
+    // app does not own.
+    if ((event.metaKey || event.ctrlKey) && (event.key === "a" || event.key === "A" || event.key === "v" || event.key === "V")) {
+      if (event.target.matches?.("input, textarea, select, [contenteditable]")) return;
+      // In Electron, the paste event handler in bindDesktopIntegration imports
+      // a pasted image from the clipboard. Calling preventDefault() here would
+      // suppress that paste event entirely, so let it through on the desktop.
+      if (event.key === "v" || event.key === "V") {
+        if (window.electronAPI) return;
+      }
+      event.preventDefault();
+      return;
+    }
     if (event.key === "Escape" && document.body.classList.contains("mobile-nav-open")) {
       event.preventDefault();
       setMobileNavOpen(false, { restoreFocus: true });
@@ -537,26 +557,28 @@ function resetLibraryRefinements() {
 }
 
 async function init() {
-  applyLanguage();
-  applyDarkMode();
-  bindEvents();
-  setupDragDrop();
-  setupKeyboardShortcuts();
-  setupImageZoomPan();
-  renderGrid();
-  try {
-    await Promise.all([loadProjects(), loadCowartCanvases()]);
-    await loadStats();
-    await loadAssets();
-    setDetailOpen(false);
-    await refreshBridgeStatus();
-    bridgeStatusPoller.start();
-    setInterval(refreshLibraryInBackground, 2500);
-  } catch (error) {
-    renderErrorState(error);
-    setStatus(t("statusUnavailable"), "error");
+    applyLanguage();
+    applyDarkMode();
+    bindEvents();
+    setupDragDrop();
+    setupKeyboardShortcuts();
+    setupImageZoomPan();
+    renderGrid();
+    try {
+      await Promise.all([loadProjects(), loadCowartCanvases()]);
+      await loadStats();
+      await loadAssets();
+      setDetailOpen(false);
+      await refreshBridgeStatus();
+      bridgeStatusPoller.start();
+      // Single interval: dedupe on hot-reload / repeated init() and stop on unload.
+      if (libraryRefreshTimer) clearInterval(libraryRefreshTimer);
+      libraryRefreshTimer = setInterval(refreshLibraryInBackground, 2500);
+    } catch (error) {
+      renderErrorState(error);
+      setStatus(t("statusUnavailable"), "error");
+    }
   }
-}
 
 function addVoiceOverLabel(element, id, text) {
   if (!element || !text) return;
@@ -574,7 +596,7 @@ function renderSettingsMenu() {
   const radio = (selected, attribute, value, label) => `<button class="segmented-btn${selected ? " active" : ""}" type="button" role="radio" aria-checked="${selected}" tabindex="${selected ? 0 : -1}" ${attribute}="${value}">${label}</button>`;
   const row = (icon, title, subtitle, control = "") => `<section class="settings-modal-row"><div class="settings-row-icon" aria-hidden="true">${icon}</div><div class="settings-row-copy"><h3>${title}</h3><p>${subtitle}</p></div>${control ? `<div class="settings-row-control">${control}</div>` : ""}</section>`;
   const visualLocale = state.locale === "en" ? "en" : "zh";
-  const path = escapeHtml(state.libraryPath || state.codexImagesDir || "/Users/azhuilab/.mosa/assets");
+  const path = escapeHtml(state.libraryPath || state.codexImagesDir || "—");
   const closeIcon = settingIcon("m6 6 12 12M18 6 6 18");
   const rows = [
     row(settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("themeMode"), state.darkMode ? t("themeDarkHint") : t("themeLightHint"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("themeMode"))}">${radio(!state.darkMode, "data-appearance-opt", "light", t("themeLight"))}${radio(state.darkMode, "data-appearance-opt", "dark", t("themeDark"))}</div>`),
@@ -761,6 +783,8 @@ const contextMenuActions = createContextMenuActions({
   showToast,
   runAction,
   requestConfirmation,
+  getGroupColor: colorForGroup,
+  saveGroupColor,
 });
 
 function isDetailEditorActive() {
@@ -775,7 +799,13 @@ const bridgeStatusPoller = createBridgeStatusPoller({
 });
 
 // Stop polling when the page goes away and drop any response that lands afterwards.
-window.addEventListener("pagehide", () => bridgeStatusPoller.stop());
+window.addEventListener("pagehide", () => {
+  bridgeStatusPoller.stop();
+  if (libraryRefreshTimer) {
+    clearInterval(libraryRefreshTimer);
+    libraryRefreshTimer = null;
+  }
+});
 
 function refreshBridgeStatus() {
   return bridgeStatusPoller.refresh();
@@ -1870,7 +1900,7 @@ function renderDetail() {
   const cachedRecipeHistory = recipeHistoryForAsset(asset) || recipeHistoryFromAsset(asset);
   // Library v2 首屏把基础信息与收藏合为一个 Overview，避免旧版把收藏拆成独立区块。
   // 后续九个语义区块保持单列、无 tab、唯一纵向滚动容器。
-  els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${detailFileSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}</div></div>`;
+  els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}</div></div>`;
   const scroller = els.detailPanel.querySelector(".detail-inspector-scroll");
   if (scroller && keepScrollTop !== null) scroller.scrollTop = keepScrollTop;
   scroller?.querySelector(".cowart-insert-slot")?.append(createCowartInsertControl(asset));

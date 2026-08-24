@@ -53,7 +53,7 @@ const checks = [
   ["09 form controls guard global shortcuts without assuming an Element target", async () => {
     const app = await read("app/app.mjs");
     assert.match(app, /if \(event\.target\.matches\?\.\("input, textarea, select"\)\)/);
-    assert.equal(count(app, "event.target.matches?.("), 3);
+    assert.equal(count(app, "event.target.matches?.("), 4);
     assert.doesNotMatch(app, /event\.target\.matches\(/);
   }],
   ["10 contenteditable guard exists", async () => {
@@ -86,7 +86,7 @@ const checks = [
   ["23 inspector V2 section order is fixed", async () => {
     const app = await read("app/app.mjs");
     const markup = app.match(/\$\{detailFileSectionMarkup\(asset\)\}[\s\S]*?\$\{detailMoreSectionMarkup\(asset\)\}/)?.[0] || "";
-    assert.deepEqual([...markup.matchAll(/detail(\w+)SectionMarkup/g)].map((match) => match[1]), ["File", "Prompt", "Source", "Version", "Group", "Tags", "Cowart", "NewVersion", "More"]);
+    assert.deepEqual([...markup.matchAll(/detail(\w+)SectionMarkup/g)].map((match) => match[1]), ["File", "Tags", "Prompt", "Source", "Version", "Group", "Cowart", "NewVersion", "More"]);
   }],
   ["24 copy prompt action is native", async () => assert.match(await read("app/app.mjs"), /data-action="copy-prompt"/)],
   ["25 copy source action is native", async () => assert.match(await read("app/app.mjs"), /data-action="copy-source"/)],

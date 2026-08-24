@@ -3,7 +3,9 @@ import { createServer } from "node:http";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { PassThrough } from "node:stream";
 import test from "node:test";
+import { pipeStreamToResponse } from "../lib/http-response.mjs";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
 
 const repositoryRoot = resolve(new URL("..", import.meta.url).pathname);
@@ -51,6 +53,35 @@ function close(server) {
     server.close((error) => error ? rejectClose(error) : resolveClose());
   });
 }
+
+test("turns a reference stream error into 500 without taking down the HTTP server", async (t) => {
+  let requests = 0;
+  const server = createServer((_req, res) => {
+    requests += 1;
+    if (requests > 1) {
+      res.end("healthy");
+      return;
+    }
+
+    const stream = new PassThrough();
+    res.statusCode = 200;
+    res.setHeader("content-type", "image/png");
+    pipeStreamToResponse(stream, res, {
+      errorPayload: { error: "Reference attachment unavailable" },
+    });
+    queueMicrotask(() => stream.destroy(new Error("reference file disappeared")));
+  });
+  await listen(server);
+  t.after(() => close(server));
+
+  const failed = await fetch(`http://127.0.0.1:${server.address().port}/library/default/references/missing.png`);
+  assert.equal(failed.status, 500);
+  assert.deepEqual(await failed.json(), { error: "Reference attachment unavailable" });
+
+  const healthy = await fetch(`http://127.0.0.1:${server.address().port}/health`);
+  assert.equal(healthy.status, 200);
+  assert.equal(await healthy.text(), "healthy");
+});
 
 test("starts, identifies itself, stops idempotently, and restarts", async (t) => {
   const root = await makeTemporaryRoot(t, "mosa-runtime-");

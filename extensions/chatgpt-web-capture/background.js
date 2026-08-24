@@ -266,16 +266,15 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 chrome.contextMenus?.onClicked?.addListener(async (info, tab) => {
   if (!tab?.id) return;
-  if (info.menuItemId === "mosa-save-image") {
+  const captureType = info.menuItemId === "mosa-save-image-prompt"
+    ? "mosa.capture.saveImageWithPrompt"
+    : "mosa.capture.saveImage";
+  try {
     await chrome.tabs.sendMessage(tab.id, {
-      type: "mosa.capture.saveImage",
+      type: captureType,
       imageUrl: info.srcUrl || "",
     });
-  }
-  if (info.menuItemId === "mosa-save-image-prompt") {
-    await chrome.tabs.sendMessage(tab.id, {
-      type: "mosa.capture.saveImageWithPrompt",
-      imageUrl: info.srcUrl || "",
-    });
+  } catch {
+    // Page is not ready or not a supported tab — nothing to surface here.
   }
 });

@@ -98,11 +98,11 @@ test("4. Inspector V2 Overview and section order are unchanged", async () => {
   const render = functionSlice(app, "renderDetail");
   const order = [
     "detailFileSectionMarkup",
+    "detailTagsSectionMarkup",
     "detailPromptSectionMarkup",
     "detailSourceSectionMarkup",
     "detailVersionSectionMarkup",
     "detailGroupSectionMarkup",
-    "detailTagsSectionMarkup",
     "detailCowartSectionMarkup",
     "detailNewVersionSectionMarkup",
     "detailMoreSectionMarkup",

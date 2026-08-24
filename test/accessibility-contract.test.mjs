@@ -43,6 +43,7 @@ test("keeps the import flow keyboard-accessible", async () => {
   assert.match(app, /event\.key === "Escape"/);
   assert.match(css, /button:focus-visible/);
   assert.match(css, /\.image-preview-stage img \{[^}]*max-width: none;[^}]*max-height: none;/);
+  assert.match(css, /\.image-preview-stage > \[hidden\] \{ display: none; \}/, "inactive preview media must not create a second grid item");
   assert.match(css, /\.image-preview-stage \{[^}]*padding: clamp\(24px, 5vw, 88px\);/);
   assert.match(css, /@media \(max-width: 700px\)/);
 });
