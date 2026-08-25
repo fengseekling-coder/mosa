@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -119,8 +119,9 @@ test("records a reliable capture session without inventing a generation batch", 
   const root = await mkdtemp(join(tmpdir(), "mosa-web-session-only-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   let created;
+  let createOptions;
   const store = {
-    createAsset: async (input) => { created = input; return { id: input.assetId, ...input, source: { ...input.source } }; },
+    createAsset: async (input, options) => { created = input; createOptions = options; return { id: input.assetId, ...input, source: { ...input.source } }; },
     listAssets: async () => [],
     findAssetByContentHash: async () => null,
   };
@@ -137,6 +138,33 @@ test("records a reliable capture session without inventing a generation batch", 
   assert.equal(created.source.capture_session_id, "chatgpt:conversation-without-turn");
   assert.equal(created.source.message_id, null);
   assert.equal(created.source.generation_batch_id, null);
+  assert.deepEqual(createOptions, { trustedSourceRoots: [join(root, "capture")], ingestMode: "automatic" });
+});
+
+test("skips suppressed web captures and removes their temporary file", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-suppressed-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const tempRoot = join(root, "capture");
+  let createOptions;
+  const store = {
+    createAsset: async (_input, options) => {
+      createOptions = options;
+      throw Object.assign(new Error("suppressed"), { code: "AUTOMATIC_IMPORT_SUPPRESSED" });
+    },
+    listAssets: async () => [],
+    findAssetByContentHash: async () => null,
+  };
+
+  const result = await ingestWebCapture({
+    store,
+    tempRoot,
+    input: { provider: "chatgpt", imageBase64: SAMPLE_PNG_BASE64, mimeType: "image/jpeg" },
+  });
+  assert.equal(result.status, "skipped");
+  assert.equal(result.reason, "suppressed-after-delete");
+  assert.ok(result.contentHash);
+  assert.deepEqual(createOptions, { trustedSourceRoots: [tempRoot], ingestMode: "automatic" });
+  assert.deepEqual(await readdir(tempRoot), []);
 });
 
 test("accepts the allowlisted generic providers with provider-derived metadata", async (t) => {

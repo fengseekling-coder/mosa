@@ -219,8 +219,11 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
         content_sha256: contentHash,
         pixel_sha256: pixelHash || null,
       },
-    }, { trustedSourceRoots: [tempRoot] });
+    }, { trustedSourceRoots: [tempRoot], ingestMode: "automatic" });
     return { status: "imported", asset, contentHash };
+  } catch (error) {
+    if (isAutomaticImportSuppressed(error)) return { status: "skipped", reason: "suppressed-after-delete", contentHash };
+    throw error;
   } finally { await rm(tempPath, { force: true }).catch(() => {}); }
 }
 
@@ -235,6 +238,10 @@ function webCaptureError(message: string, statusCode: number, code: string): Err
   error.statusCode = statusCode;
   error.code = code;
   return error;
+}
+
+function isAutomaticImportSuppressed(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "AUTOMATIC_IMPORT_SUPPRESSED");
 }
 
 async function inspectImageBytes(imageBytes: Buffer): Promise<{ format: string; width: number; height: number; pixelHash: string }> {

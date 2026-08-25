@@ -171,7 +171,7 @@ SQLite 迁移：
 
 SQLite 数据库路径为 `$HOME/MOSA Library/mosa.db`（也可由
 `MOSA_LIBRARY_DIR` 指定）。当前 SQLite 实现的 `CURRENT_SCHEMA_VERSION` 为
-`3`，启用 WAL、外键和 busy timeout。主要表和索引包括：
+`4`，启用 WAL、外键和 busy timeout。主要表和索引包括：
 
 - `projects`、`groups`、`assets`：项目、分组、素材原数据、哈希、来源和状态。
 - `tags`、`asset_tags`：标签关联。
@@ -179,6 +179,8 @@ SQLite 数据库路径为 `$HOME/MOSA Library/mosa.db`（也可由
 - `recipe_snapshots`：不可变的生成配方快照，包括 Prompt、模型、提供方、技能、
   比例、主题、引用和 provenance。
 - `derivative_jobs`：可恢复的预览/缩略图任务。
+- `automatic_ingest_suppressions`：用户删除后按内容/像素哈希抑制自动重新收录的
+  轻量记录；不保存图片、Prompt 或原始 URL。
 - `migration_issues`、`library_meta`、`schema_migrations`：迁移和 schema 状态。
 - `asset_fts`：SQLite FTS5 trigram 全文索引，用于资产文本搜索。
 

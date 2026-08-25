@@ -50,6 +50,38 @@ test("archives Codex generated images with task metadata and avoids duplicates",
   assert.equal(second.skipped[0].reason, "already-archived");
 });
 
+test("passes automatic ingest mode and continues after a suppressed Codex image", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-codex-suppressed-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const imagesDir = join(root, "generated_images");
+  const firstPath = join(imagesDir, "task-a", "first.png");
+  const secondPath = join(imagesDir, "task-b", "second.png");
+  await mkdir(join(imagesDir, "task-a"), { recursive: true });
+  await mkdir(join(imagesDir, "task-b"), { recursive: true });
+  await writeFile(firstPath, pngFixture(800, 800));
+  await writeFile(secondPath, pngFixture(640, 480));
+
+  const calls = [];
+  const store = {
+    codexImagesDir: imagesDir,
+    async listAssets() { return []; },
+    async createAsset(params, options) {
+      calls.push({ params, options });
+      if (calls.length === 1) throw Object.assign(new Error("suppressed"), { code: "AUTOMATIC_IMPORT_SUPPRESSED" });
+      return { id: "codex-imported", ...params };
+    },
+  };
+
+  const result = await reconcileCodexGeneratedImages({ store, imagesDir, sessionsDir: join(root, "sessions") });
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map((call) => call.options), [
+    { trustedSourceRoots: [imagesDir], ingestMode: "automatic" },
+    { trustedSourceRoots: [imagesDir], ingestMode: "automatic" },
+  ]);
+  assert.equal(result.skipped.filter((item) => item.reason === "suppressed-after-delete").length, 1);
+  assert.equal(result.imported.length, 1);
+});
+
 test("upgrades an archived task instruction to the matching image generation prompt", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
   t.after(() => rm(root, { recursive: true, force: true }));

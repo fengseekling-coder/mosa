@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -129,6 +129,34 @@ async function createGrokSessionFixture(root, {
 
   return { sessionsDir, sessionPath, mediaPath, imagesDir, videosDir };
 }
+
+test("passes automatic ingest mode and continues after a suppressed Grok media item", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-grok-suppressed-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const first = await createGrokSessionFixture(root, { sessionId: "019f8f50-1f0d-7983-ab3f-544a0b5f7578", imageName: "first.png" });
+  const second = await createGrokSessionFixture(root, { sessionId: "019f8f50-1f0d-7983-ab3f-544a0b5f7579", imageName: "second.png" });
+  await writeFile(second.mediaPath, pngFixture(640, 480));
+
+  const calls = [];
+  const store = {
+    async listAssets() { return []; },
+    async createAsset(params, options) {
+      calls.push({ params, options });
+      if (calls.length === 1) throw Object.assign(new Error("suppressed"), { code: "AUTOMATIC_IMPORT_SUPPRESSED" });
+      return { id: "grok-imported", ...params };
+    },
+  };
+
+  const sessionsRoot = await realpath(first.sessionsDir);
+  const result = await reconcileGrokMedia({ store, sessionsDir: first.sessionsDir });
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map((call) => call.options), [
+    { trustedSourceRoots: [sessionsRoot], ingestMode: "automatic" },
+    { trustedSourceRoots: [sessionsRoot], ingestMode: "automatic" },
+  ]);
+  assert.equal(result.skipped.filter((item) => item.reason === "suppressed-after-delete").length, 1);
+  assert.equal(result.imported.length, 1);
+});
 
 test("archives Grok images with tool prompt and avoids duplicates on restart", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
