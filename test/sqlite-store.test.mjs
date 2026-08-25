@@ -445,11 +445,11 @@ test("SQLite schema v1 upgrades once without changing completed migration state"
   const parentIndex = upgraded.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'asset_versions_parent_idx'").get();
   upgraded.close();
 
-  assert.equal(schemaAfterUpgrade.value, "3");
+  assert.equal(schemaAfterUpgrade.value, "4");
   assert.notEqual(schemaAfterUpgrade.updated_at, originalTimestamp);
   assert.deepEqual(migrationState, { value: "completed", updated_at: originalTimestamp });
   assert.deepEqual(migrationDetails, { value: '{"verified":true}', updated_at: originalTimestamp });
-  assert.deepEqual(migrationVersions, [1, 2, 3]);
+  assert.deepEqual(migrationVersions, [1, 2, 3, 4]);
   assert.equal(parentIndex.name, "asset_versions_parent_idx");
 
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
@@ -507,16 +507,16 @@ test("SQLite refuses to downgrade a newer schema", async (t) => {
   future.exec(`
     CREATE TABLE library_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-    INSERT INTO library_meta (key, value, updated_at) VALUES ('schema_version', '4', 'future');
+    INSERT INTO library_meta (key, value, updated_at) VALUES ('schema_version', '5', 'future');
   `);
   future.close();
 
   assert.throws(
     () => createSqliteAssetStore({ projectRoot: root, managerDir: join(root, "mosa"), libraryDir }),
-    /schema version 4 is newer than supported version 3/,
+    /schema version 5 is newer than supported version 4/,
   );
   const inspected = new Database(databasePath, { readonly: true });
-  assert.deepEqual(inspected.prepare("SELECT value, updated_at FROM library_meta WHERE key = 'schema_version'").get(), { value: "4", updated_at: "future" });
+  assert.deepEqual(inspected.prepare("SELECT value, updated_at FROM library_meta WHERE key = 'schema_version'").get(), { value: "5", updated_at: "future" });
   inspected.close();
 });
 

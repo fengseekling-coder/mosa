@@ -84,10 +84,10 @@ export async function reconcileCowartAssets(options: { store: Store; canvasDir: 
     if (candidate.mosaAssetId) { skipped.push({ path: candidate.imagePath, reason: "mosa-origin" }); continue; }
     if (knownSourcePaths.has(candidate.imagePath)) { skipped.push({ path: candidate.imagePath, reason: "already-archived" }); continue; }
     try {
-      const asset = await store.createAsset({ projectId, imagePath: candidate.imagePath, prompt: candidate.altText, skill: "Cowart automatic bridge", ratio: candidate.ratio, theme: candidate.altText, sourceType: "cowart-generated", business_fields: { auto_archived: true, prompt_status: "Cowart canvas only provides alt text" }, source: { generation_tool: "cowart", cowart_source_id: sourceId, cowart_project_dir: cowartProjectDir, cowart_canvas_dir: candidate.canvasDir, cowart_page_id: candidate.pageId, cowart_page_asset_path: candidate.imagePath, cowart_page_asset_url: candidate.assetUrl, cowart_asset_id: candidate.cowartAssetId, cowart_shape_id: candidate.shapeId, cowart_shape_meta: candidate.shapeMeta, cowart_annotation_source_shape_id: candidate.annotationSourceShapeId || null, replaced_ai_image_holder: candidate.replacedAiImageHolder || null, prompt_status: "canvas-alt-text-only" } }, { trustedSourceRoots: [trustedPagesRoot] });
+      const asset = await store.createAsset({ projectId, imagePath: candidate.imagePath, prompt: candidate.altText, skill: "Cowart automatic bridge", ratio: candidate.ratio, theme: candidate.altText, sourceType: "cowart-generated", business_fields: { auto_archived: true, prompt_status: "Cowart canvas only provides alt text" }, source: { generation_tool: "cowart", cowart_source_id: sourceId, cowart_project_dir: cowartProjectDir, cowart_canvas_dir: candidate.canvasDir, cowart_page_id: candidate.pageId, cowart_page_asset_path: candidate.imagePath, cowart_page_asset_url: candidate.assetUrl, cowart_asset_id: candidate.cowartAssetId, cowart_shape_id: candidate.shapeId, cowart_shape_meta: candidate.shapeMeta, cowart_annotation_source_shape_id: candidate.annotationSourceShapeId || null, replaced_ai_image_holder: candidate.replacedAiImageHolder || null, prompt_status: "canvas-alt-text-only" } }, { trustedSourceRoots: [trustedPagesRoot], ingestMode: "automatic" });
       knownSourcePaths.add(candidate.imagePath); imported.push(asset);
-    } catch {
-      skipped.push({ path: candidate.imagePath, reason: "import-failed" });
+    } catch (error) {
+      skipped.push({ path: candidate.imagePath, reason: isAutomaticImportSuppressed(error) ? "suppressed-after-delete" : "import-failed" });
     }
   }
   return { imported, skipped, candidates: candidates.length };
@@ -137,3 +137,4 @@ function ratioFromShape(shape: CanvasStoreRecord | null): string {
 
 function gcd(left: number, right: number): number { let a = Math.abs(left); let b = Math.abs(right); while (b) [a, b] = [b, a % b]; return a || 1; }
 function isSafeChildPath(parent: string, child: string): boolean { const p = relative(parent, child); return Boolean(p) && !p.startsWith("..") && !p.includes(`..${sep}`); }
+function isAutomaticImportSuppressed(error: unknown): boolean { return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "AUTOMATIC_IMPORT_SUPPRESSED"); }

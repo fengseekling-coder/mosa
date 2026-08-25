@@ -63,11 +63,13 @@ test("continues Cowart reconciliation after one asset import fails", async (t) =
   }), "utf8");
 
   const createCalls = [];
+  const createOptions = [];
   const store = {
     cowartCanvasDir: canvasDir,
     async listAssets() { return []; },
-    async createAsset(params) {
+    async createAsset(params, options) {
       createCalls.push(params.imagePath);
+      createOptions.push(options);
       if (params.imagePath === failedPath) throw new Error("fixture import failure");
       return { id: "succeeded", image_path: params.imagePath };
     },
@@ -75,8 +77,53 @@ test("continues Cowart reconciliation after one asset import fails", async (t) =
 
   const result = await reconcileCowartAssets({ store, canvasDir });
   assert.deepEqual(createCalls, [failedPath, succeedingPath]);
+  assert.deepEqual(createOptions, [
+    { trustedSourceRoots: [join(canvasDir, "pages")], ingestMode: "automatic" },
+    { trustedSourceRoots: [join(canvasDir, "pages")], ingestMode: "automatic" },
+  ]);
   assert.deepEqual(result.skipped, [{ path: failedPath, reason: "import-failed" }]);
   assert.deepEqual(result.imported, [{ id: "succeeded", image_path: succeedingPath }]);
+});
+
+test("skips a suppressed Cowart asset and continues to the next candidate", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-cowart-suppressed-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const canvasDir = join(root, "cowart-data", "mosa");
+  const pageDir = join(canvasDir, "pages", "page");
+  const pageAssetsDir = join(pageDir, "assets");
+  const firstPath = join(pageAssetsDir, "a-suppressed.png");
+  const secondPath = join(pageAssetsDir, "b-imported.png");
+  await mkdir(pageAssetsDir, { recursive: true });
+  await writeFile(firstPath, "fixture suppressed Cowart image", "utf8");
+  await writeFile(secondPath, "fixture imported Cowart image", "utf8");
+  await writeFile(join(pageDir, "cowart-canvas.json"), JSON.stringify({
+    store: {
+      "asset:a-suppressed": { id: "asset:a-suppressed", typeName: "asset", type: "image", props: { name: "a-suppressed.png", src: "/page-assets/page/a-suppressed.png" }, meta: {} },
+      "shape:a-suppressed": { id: "shape:a-suppressed", typeName: "shape", type: "image", props: { assetId: "asset:a-suppressed", w: 100, h: 100, altText: "已删除后抑制" }, meta: {} },
+      "asset:b-imported": { id: "asset:b-imported", typeName: "asset", type: "image", props: { name: "b-imported.png", src: "/page-assets/page/b-imported.png" }, meta: {} },
+      "shape:b-imported": { id: "shape:b-imported", typeName: "shape", type: "image", props: { assetId: "asset:b-imported", w: 100, h: 100, altText: "继续归档" }, meta: {} },
+    },
+  }), "utf8");
+
+  const calls = [];
+  const store = {
+    cowartCanvasDir: canvasDir,
+    async listAssets() { return []; },
+    async createAsset(params, options) {
+      calls.push({ params, options });
+      if (params.imagePath === firstPath) throw Object.assign(new Error("suppressed"), { code: "AUTOMATIC_IMPORT_SUPPRESSED" });
+      return { id: "cowart-imported", image_path: params.imagePath };
+    },
+  };
+
+  const result = await reconcileCowartAssets({ store, canvasDir });
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map((call) => call.options), [
+    { trustedSourceRoots: [join(canvasDir, "pages")], ingestMode: "automatic" },
+    { trustedSourceRoots: [join(canvasDir, "pages")], ingestMode: "automatic" },
+  ]);
+  assert.deepEqual(result.skipped, [{ path: firstPath, reason: "suppressed-after-delete" }]);
+  assert.deepEqual(result.imported, [{ id: "cowart-imported", image_path: secondPath }]);
 });
 
 test("watches a Cowart page directory and archives a later image", async (t) => {
