@@ -3,7 +3,9 @@
 > **Local visual memory for AI creation.**
 > 把 AI 生成的每一张图，连同 Prompt、来源和版本，留在自己的 Mac 上。
 
-MOSA is a local-first creative asset library. It works alongside Codex, Cowart, the local Grok Build CLI, and an optional Web Capture browser extension for ChatGPT, Gemini, Flow, and Google AI Studio. Those tools create; MOSA keeps the context you need to find, understand, and continue the work.
+MOSA is a local-first library for AI-generated images, videos, Prompts, provenance, and version history. It keeps creative output from Codex, Grok Build CLI, Cowart, and an optional Web Capture extension for ChatGPT, Gemini, Flow, and Google AI Studio in one library on your Mac.
+
+**Local-first · Prompt & provenance · Version history · No MOSA cloud account**
 
 [Quick start](#quick-start) · [中文使用指南](docs/guide.zh-CN.md) · [Privacy](PRIVACY.md) · [Documentation](#documentation)
 
@@ -11,7 +13,7 @@ MOSA is a local-first creative asset library. It works alongside Codex, Cowart, 
 
 An image alone rarely tells you how to use it again. The Prompt may be in another conversation, the source tool may be forgotten, and the version you actually want may be buried among near-duplicates.
 
-MOSA reconnects the asset with its available Prompt, generation context, provenance, and version history — all in a library you control locally.
+MOSA reconnects each asset with the context that makes it reusable: its available Prompt, generation source, provenance, and version history. The library remains under your control on your machine.
 
 ## What you can do
 
