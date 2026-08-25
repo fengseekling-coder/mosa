@@ -7,7 +7,6 @@
      2. The intermediate legacy rules now consume the same V2
         token names that the .mosa-v2 selectors were already
         using, so the whole file resolves to a single visual.
-   Archived pre-cleanup snapshot: app/_archive_2026-08-18-v2-cleanup/
    ============================================================ */
 
 /* ===== 设计令牌：浅色 ===== */
@@ -588,22 +587,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .detail-head p { margin-top: 3px; color: var(--color-text-secondary); font-size: 11px; }
 .detail-utility-actions { display: flex; gap: 6px; }
 .detail-utility-actions .action-btn { flex: 1; }
-.cowart-insert-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
-.cowart-target-select { min-width: 0; min-height: 36px; padding: 0 24px 0 9px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); color: var(--color-text-secondary); background: var(--app-card); font-size: 11px; font-weight: 500; }
-.cowart-target-select:disabled { cursor: not-allowed; opacity: .48; }
-/* Phase 4C：Busy 期间按钮文案变长（正在插入…/Inserting…），min-width 取中英 busy 文案
-   最大宽度，使 idle 与 busy 同宽、主按钮零跳动；三种目标区共用 8px 网格与既有 token。 */
-.cowart-insert-control .action-btn.primary { min-width: 160px; }
-.cowart-insert-hint, .cowart-target-readout { margin: 0; font-size: 11px; line-height: 1.6; }
-.cowart-insert-hint { color: var(--color-text-tertiary); }
-.cowart-target-readout { display: flex; min-width: 0; min-height: 36px; align-items: center; gap: 6px; color: var(--color-text-secondary); }
-.cowart-target-readout .cowart-target-label { flex: 0 0 auto; color: var(--color-text-tertiary); }
-.cowart-target-readout .cowart-target-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cowart-insert-status { grid-column: 1 / -1; margin: 2px 0 0; font-size: 11px; line-height: 1.6; color: var(--color-text-secondary); }
-.cowart-insert-status[data-type="success"] { color: var(--color-text-secondary); }
-.cowart-insert-status[data-type="success"]::before { content: "✓ "; color: var(--color-accent); }
-.cowart-insert-status[data-type="error"] { color: var(--color-danger); }
-.cowart-insert-status[data-type="error"]::before { content: "⚠ "; }
 /* Phase 4C More 终态：原图入口默认可见（次级层级），更多操作收进原生 disclosure。 */
 .original-media-action { display: grid; margin-bottom: 10px; }
 .original-media-link { text-decoration: none; }
@@ -1179,7 +1162,8 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   --color-media-border: rgb(255 255 255 / 0.24);
   --color-media-text: #ffffff;
 }
-.mosa-v2 .detail .inspector-section { padding: 16px; border-top-color: rgb(60 60 67 / .12); }.mosa-v2 .detail .inspector-section:first-child { padding-top: 16px; }.mosa-v2 .detail .detail-image-wrap { overflow: hidden; border-radius: 12px; }.mosa-v2 .detail .detail-head { padding: 12px 0 0; }.mosa-v2 .detail .detail-head h3 { font-size: 15px; font-weight: 600; }
+.mosa-v2 .detail .inspector-section { padding: 16px; border-top: 0; }.mosa-v2 .detail .inspector-section:first-child { padding-top: 16px; }
+.mosa-v2 .detail .detail-image-wrap, .mosa-v2 .detail .detail-disclosure { border-bottom: 0; border-top: 0; }.mosa-v2 .detail .detail-image-wrap { overflow: hidden; border-radius: 12px; }.mosa-v2 .detail .detail-head { padding: 12px 0 0; }.mosa-v2 .detail .detail-head h3 { font-size: 15px; font-weight: 600; }
 .mosa-v2 .detail .detail-head p, .mosa-v2 .detail .meta-key, .mosa-v2 .detail .meta-val { color: #6e6e73; font-size: 12px; }:root[data-theme="dark"] .mosa-v2 .detail .detail-head p, :root[data-theme="dark"] .mosa-v2 .detail .meta-key, :root[data-theme="dark"] .mosa-v2 .detail .meta-val { color: #d1d1d6; }
 .mosa-v2 .detail .prompt-box, .mosa-v2 .detail .user-instruction .prompt-box, .mosa-v2 .detail textarea, .mosa-v2 .detail input, .mosa-v2 .detail select { border-color: rgb(60 60 67 / .16); border-radius: 12px; background: rgb(248 248 250 / .88); }:root[data-theme="dark"] .mosa-v2 .detail .prompt-box, :root[data-theme="dark"] .mosa-v2 .detail .user-instruction .prompt-box, :root[data-theme="dark"] .mosa-v2 .detail textarea, :root[data-theme="dark"] .mosa-v2 .detail input, :root[data-theme="dark"] .mosa-v2 .detail select { border-color: rgb(255 255 255 / .10); color: #f5f5f7; background: rgb(255 255 255 / .06); }
 .mosa-v2 .detail .detail-close, .mosa-v2 .detail .section-head-copy, .mosa-v2 .detail .detail-fav-btn { border-radius: 10px; }
@@ -1191,12 +1175,12 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail-inspector-header { min-height: 56px; padding: 0 16px; border-bottom: 0; color: var(--color-text-primary); background: transparent; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
 .mosa-v2 .detail-inspector-header .detail-close { display: flex; width: 32px; height: 32px; min-height: 32px; flex: 0 0 32px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 10px; color: #6e6e73; background: rgb(242 242 247 / .92); cursor: pointer; transition: background 200ms var(--ease-standard), color 200ms var(--ease-standard); }
 .mosa-v2 .detail-inspector-header .detail-close svg { width: 16px; height: 16px; }
-.mosa-v2 .detail .detail-overview { box-sizing: border-box; display: flex; min-height: 248px; height: auto; flex-direction: column; gap: 12px; padding: 16px; border-top: 0; overflow: visible; }
+.mosa-v2 .detail .detail-overview { box-sizing: border-box; display: flex; min-height: 0; height: auto; flex-direction: column; gap: 12px; padding: 16px 16px 0; border-top: 0; overflow: visible; }
 .mosa-v2 .detail .detail-overview-heading { display: flex; height: 18px; min-width: 0; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; }
 .mosa-v2 .detail .detail-overview-heading h3 { flex: 0 0 auto; margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 600; line-height: 18px; }
 .mosa-v2 .detail .detail-overview-heading p { min-width: 0; margin: 0; overflow: hidden; color: #6e6e73; font-size: 12px; line-height: 18px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .mosa-v2 .detail .detail-overview-heading .detail-overview-open { min-width: 18px; min-height: 18px; flex: 0 0 18px; padding: 0; border: 0; border-radius: 5px; color: #6e6e73; background: transparent; cursor: pointer; }
-.mosa-v2 .detail .detail-overview .detail-image-wrap { width: 100%; min-height: 112px; height: 112px; max-height: 112px; flex: 0 0 112px; border: 0; border-radius: 12px; background: var(--app-search); }
+.mosa-v2 .detail .detail-overview .detail-image-wrap { width: 100%; min-height: 0; height: auto; max-height: none; flex: 0 0 auto; aspect-ratio: var(--detail-preview-aspect, 9 / 16); border: 0; border-radius: 12px; background: var(--app-search); }
 .mosa-v2 .detail .detail-overview .detail-image { width: 100%; height: 100%; max-height: none; object-fit: cover; }
 .mosa-v2 .detail .detail-overview-title-row { display: flex; height: 24px; min-width: 0; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; }
 .mosa-v2 .detail .detail-overview-title-row h3 { min-width: 0; margin: 0; overflow: hidden; color: var(--color-text-primary); font-size: 15px; font-weight: 600; letter-spacing: 0; line-height: 24px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1208,7 +1192,11 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-fav-btn > span:first-child { font-size: 15px; line-height: 1; }
 .mosa-v2 .detail .detail-fav-btn.is-fav { border: 0; color: #2424ff; background: rgb(36 36 255 / .10); }
 .mosa-v2 .detail .detail-facts { display: flex; min-width: 0; height: 24px; flex: 0 0 auto; gap: 4px; padding: 0; overflow-x: auto; overflow-y: hidden; }
-.mosa-v2 .detail .detail-fact-tag { display: inline-flex; min-height: 24px; flex: 0 0 auto; align-items: center; padding: 0 8px; border-radius: 8px; color: #6e6e73; background: rgb(242 242 247 / .90); font-size: 11px; font-weight: 500; line-height: 16px; white-space: nowrap; }
+.mosa-v2 .detail .detail-fact-tag, .mosa-v2 .detail .detail-tag { display: inline-flex; min-height: 24px; flex: 0 0 auto; align-items: center; padding: 0 8px; border: 1px solid var(--color-border-subtle); border-radius: 999px; color: var(--color-text-secondary); background: var(--app-sidebar); font-size: 11px; line-height: 1; white-space: nowrap; }
+.mosa-v2 .detail .detail-tags-section { display: flex; min-width: 0; min-height: 24px; align-items: flex-start; padding: 0 16px 16px; border-top: 0; }
+.mosa-v2 .detail .detail-tags-row { display: flex; min-width: 0; align-items: flex-start; gap: 6px; padding: 2px 0; overflow: visible; flex-wrap: wrap; }
+.mosa-v2 .detail .detail-tags-empty { height: 24px; align-items: center; }
+.mosa-v2 .detail .detail-tags-add { display: inline-flex; height: 24px; min-height: 24px; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 8px; border: 1px dashed var(--color-border-default); border-radius: 999px; color: var(--color-accent); background: transparent; font-size: 11px; white-space: nowrap; }
 :root[data-theme="dark"] .mosa-v2 .detail-inspector-header { color: #f5f5f7; }
 :root[data-theme="dark"] .mosa-v2 .detail-inspector-header .detail-close, :root[data-theme="dark"] .mosa-v2 .detail .detail-fav-btn, :root[data-theme="dark"] .mosa-v2 .detail .detail-fact-tag { color: #d1d1d6; background: rgb(255 255 255 / .10); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-overview-heading h3, :root[data-theme="dark"] .mosa-v2 .detail .detail-overview-title-row h3 { color: #f5f5f7; }
@@ -1238,35 +1226,23 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
    part of the V2 Prompt composition. */
 .mosa-v2 .detail-prompt-section > .detail-disclosure { display: none; }
 
-/* V2 Regenerate composer: fixed 192px height */
-.mosa-v2 .detail .detail-regenerate-section { box-sizing: border-box; display: flex; height: 192px; flex-direction: column; padding: 16px; overflow: hidden; }
-.mosa-v2 .detail .detail-regenerate-head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; }
+/* V2 version composer: MOSA stores a recipe/version record here; it does not
+   invoke an image-generation model. Keep the copy and controls aligned with
+   that real capability instead of styling removed model/resolution controls. */
+.mosa-v2 .detail .detail-regenerate-section { box-sizing: border-box; display: flex; min-height: 0; flex-direction: column; padding: 16px; overflow: visible; }
+.mosa-v2 .detail .detail-regenerate-head { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; }
 .mosa-v2 .detail .detail-regenerate-head h3 { margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 600; line-height: 18px; }
-.mosa-v2 .detail .detail-regenerate-composer { box-sizing: border-box; position: relative; display: flex; height: 160px; flex: 0 0 160px; flex-direction: column; gap: 12px; overflow: hidden; padding: 12px; border: 1px solid rgb(60 60 67 / .16); border-radius: 16px; background: rgb(248 248 250 / .94); }
-.mosa-v2 .detail .detail-regenerate-composer textarea { height: 88px; flex: 0 0 88px; width: 100%; resize: none; border: 0; background: transparent; padding: 0; outline: 0; color: var(--color-text-primary); font-size: 13px; line-height: 20px; }
+.mosa-v2 .detail .detail-version-truth-note { margin: 4px 0 12px; color: var(--color-text-tertiary); font-size: 11px; line-height: 18px; }
+.mosa-v2 .detail .detail-regenerate-composer { box-sizing: border-box; position: relative; display: flex; min-height: 132px; flex-direction: column; gap: 12px; overflow: hidden; padding: 12px; border: 1px solid rgb(60 60 67 / .16); border-radius: 16px; background: rgb(248 248 250 / .94); }
+.mosa-v2 .detail .detail-regenerate-composer textarea { width: 100%; min-height: 72px; flex: 1 1 72px; resize: vertical; border: 0; background: transparent; padding: 0; outline: 0; color: var(--color-text-primary); font-size: 13px; line-height: 20px; }
 .mosa-v2 .detail .detail-regenerate-composer textarea:focus { border-color: transparent; box-shadow: none; outline: 0; }
 .mosa-v2 .detail .detail-regenerate-composer textarea::placeholder { color: #8e8e93; }
-.mosa-v2 .detail .detail-regenerate-bar { display: flex; height: 36px; flex: 0 0 36px; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; }
-.mosa-v2 .detail .detail-regenerate-controls { display: flex; min-width: 0; align-items: center; gap: 6px; overflow: hidden; }
-.mosa-v2 .detail .detail-composer-chip { display: flex; height: 28px; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 8px; border: 0; border-radius: 9px; color: #6e6e73; background: rgb(242 242 247 / .94); font-size: 12px; font-weight: 500; line-height: 18px; cursor: pointer; transition: background 200ms var(--ease-standard), color 200ms var(--ease-standard); }
-.mosa-v2 .detail .detail-composer-chip select { width: auto; height: 28px; padding: 0; border: 0; outline: 0; color: inherit; background: transparent; font-size: inherit; font-weight: inherit; cursor: pointer; }
-.mosa-v2 .detail .detail-composer-chip select:focus { border-color: transparent; box-shadow: none; outline: 0; }
-.mosa-v2 .detail .detail-composer-chip:hover { color: var(--color-text-primary); background: rgb(232 232 237 / .96); }
-.mosa-v2 .detail .detail-composer-segmented { display: flex; height: 28px; flex: 0 0 auto; align-items: center; overflow: hidden; padding: 2px; border: 0; border-radius: 9px; background: rgb(242 242 247 / .96); }
-.mosa-v2 .detail .detail-composer-seg { display: flex; height: 24px; width: 32px; flex: 0 0 32px; align-items: center; justify-content: center; border: 0; border-radius: 7px; color: #6e6e73; background: transparent; font-size: 11px; font-weight: 500; line-height: 16px; cursor: pointer; transition: background 150ms var(--ease-standard), color 150ms var(--ease-standard); }
-.mosa-v2 .detail .detail-composer-seg[aria-pressed="true"] { color: #2424ff; background: rgb(36 36 255 / .10); }
-.mosa-v2 .detail .detail-composer-send { display: flex; width: 32px; height: 32px; flex: 0 0 32px; align-items: center; justify-content: center; border: 0; border-radius: 16px; color: #fff; background: #2424ff; cursor: pointer; box-shadow: 0 4px 8px -3px rgb(36 36 255 / .24); transition: background 200ms var(--ease-standard); }
-
-/* V2 Folder action: a quiet contained utility, without a section divider or a full-width CTA. */
-.mosa-v2 .detail .detail-folder-section { box-sizing: border-box; display: flex; min-height: 32px; flex-direction: column; margin: 0 16px 12px; }
-.mosa-v2 .detail .detail-folder-btn { display: inline-flex; height: 32px; width: max-content; max-width: 100%; flex: 0 0 32px; align-items: center; justify-content: center; gap: 7px; overflow: hidden; padding: 0 10px; border: 1px solid rgb(60 60 67 / .16); border-radius: 8px; color: #6e6e73; background: rgb(242 242 247 / .88); font-size: 12px; font-weight: 500; line-height: 16px; cursor: pointer; transition: background 200ms var(--ease-standard), color 200ms var(--ease-standard), border-color 200ms var(--ease-standard); }
-.mosa-v2 .detail .detail-folder-btn svg { flex: 0 0 15px; }
-.mosa-v2 .detail .detail-folder-btn:hover { color: var(--color-text-primary); border-color: rgb(60 60 67 / .24); background: rgb(232 232 237 / .96); }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-folder-btn { border-color: rgb(255 255 255 / .10); background: rgb(255 255 255 / .10); }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-folder-btn:hover { border-color: rgb(255 255 255 / .18); background: rgb(255 255 255 / .16); }
+.mosa-v2 .detail .detail-regenerate-bar { display: flex; min-height: 32px; align-items: center; justify-content: flex-end; gap: 8px; overflow: visible; }
+.mosa-v2 .detail .detail-save-version { min-height: 32px; }
 
 /* V2 Source/Version/Group/Tags/Cowart/More sections: compact heading */
-.mosa-v2 .detail .detail-source-section, .mosa-v2 .detail .detail-version-section, .mosa-v2 .detail .detail-group-section, .mosa-v2 .detail .detail-tags-section, .mosa-v2 .detail .detail-cowart-section { padding: 12px 16px; }
+.mosa-v2 .detail .detail-source-section, .mosa-v2 .detail .detail-version-section, .mosa-v2 .detail .detail-group-section { padding: 12px 16px; }
+.mosa-v2 .detail .detail-tags-section { padding: 4px 16px 16px; border-top: 0; }
 
 /* The first scroll viewport follows the V2 DetailView exactly: overview,
    prompt, regenerate, then the folder action.  The provenance/version areas
@@ -1279,10 +1255,8 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail-source-section { order: 4; }
 .mosa-v2 .detail-version-section { order: 5; }
 .mosa-v2 .detail-group-section { order: 6; }
-.mosa-v2 .detail-cowart-section { order: 7; }
-.mosa-v2 .detail-regenerate-section { order: 8; }
-.mosa-v2 .detail-folder-section { order: 9; }
-.mosa-v2 .detail [data-inspector-section="more"] { order: 10; }
+.mosa-v2 .detail-regenerate-section { order: 7; }
+.mosa-v2 .detail [data-inspector-section="more"] { order: 8; }
 
 /* The V2 FilterBar begins with type filters; the retained heading is still
    present for accessibility and runtime state, but is not a second visual
@@ -1311,16 +1285,12 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 
 /* Dark mode for V2 inspector sections */
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-head h3, :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-subhead h4, :root[data-theme="dark"] .mosa-v2 .detail .detail-regenerate-head h3 { color: #f5f5f7; }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-head .section-head-copy, :root[data-theme="dark"] .mosa-v2 .detail .detail-copy-sub, :root[data-theme="dark"] .mosa-v2 .detail .detail-composer-chip, :root[data-theme="dark"] .mosa-v2 .detail .detail-composer-seg { color: #d1d1d6; background: rgb(255 255 255 / .10); }
+:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-head .section-head-copy, :root[data-theme="dark"] .mosa-v2 .detail .detail-copy-sub { color: #d1d1d6; background: rgb(255 255 255 / .10); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box, :root[data-theme="dark"] .mosa-v2 .detail .detail-instruction-box, :root[data-theme="dark"] .mosa-v2 .detail .detail-regenerate-composer { border-color: rgb(255 255 255 / .10); color: #f5f5f7; background: rgb(255 255 255 / .06); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box .empty-copy { color: #6e6e73; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-row { background: rgb(255 255 255 / .08); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-label { color: #d1d1d6; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-value { color: #6e6e73; }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-composer-segmented { background: rgb(255 255 255 / .08); }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-composer-seg[aria-pressed="true"] { color: #7e7eff; background: rgb(126 126 255 / .18); }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-composer-send { background: #2424ff; }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-folder-btn { color: #d1d1d6; background: rgb(255 255 255 / .08); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-regenerate-composer textarea { color: #f5f5f7; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-regenerate-composer textarea::placeholder { color: #6e6e73; }
 
@@ -1607,7 +1577,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-source-section,
 .mosa-v2 .detail .detail-version-section,
 .mosa-v2 .detail .detail-group-section,
-.mosa-v2 .detail .detail-cowart-section,
 .mosa-v2 .detail [data-inspector-section="more"] { display: none; }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1719,6 +1688,288 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 
 .context-menu-submenu {
   z-index: 10001;
+}
+
+/* Inspector scale: all spatial values resolve to the 4px base unit. */
+.mosa-v2 {
+  --inspector-unit: 4px;
+  --inspector-space-1: calc(var(--inspector-unit) * 1);
+  --inspector-space-2: calc(var(--inspector-unit) * 2);
+  --inspector-space-3: calc(var(--inspector-unit) * 3);
+  --inspector-space-4: calc(var(--inspector-unit) * 4);
+  --inspector-space-6: calc(var(--inspector-unit) * 6);
+  --inspector-space-8: calc(var(--inspector-unit) * 8);
+  --inspector-radius-sm: 8px;
+  --inspector-radius-md: 12px;
+  --inspector-radius-lg: 16px;
+  --inspector-material: color-mix(in srgb, var(--app-card) 92%, transparent);
+  --inspector-divider: color-mix(in srgb, var(--color-text-primary) 10%, transparent);
+}
+
+.mosa-v2 .detail {
+  border-left-color: var(--inspector-divider);
+  background: color-mix(in srgb, var(--app-bg) 96%, var(--app-card));
+}
+.mosa-v2 .detail-inspector {
+  isolation: isolate;
+}
+.mosa-v2 .detail-inspector-header {
+  min-height: 56px;
+  padding: 0 var(--inspector-space-4);
+  border-bottom: 1px solid var(--inspector-divider);
+  background: color-mix(in srgb, var(--app-bg) 82%, transparent);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+}
+.mosa-v2 .detail-inspector-header > span {
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 24px;
+}
+.mosa-v2 .detail-inspector-header .detail-close {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  border: 0;
+  border-radius: var(--inspector-radius-sm);
+  background: var(--app-search);
+  transition: transform var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+.mosa-v2 .detail-inspector-scroll {
+  scroll-padding: var(--inspector-space-4);
+  scrollbar-gutter: stable;
+}
+.mosa-v2 .detail-inspector-scroll > .inspector-section {
+  box-sizing: border-box;
+  border-top: 1px solid var(--inspector-divider);
+}
+.mosa-v2 .detail-inspector-scroll > .inspector-section:first-child {
+  border-top: 0;
+}
+.mosa-v2 .detail .detail-overview {
+  gap: var(--inspector-space-3);
+  padding: var(--inspector-space-4) var(--inspector-space-4) 0;
+}
+.mosa-v2 .detail .detail-overview-heading {
+  height: 20px;
+}
+.mosa-v2 .detail .detail-overview-heading h3,
+.mosa-v2 .detail .detail-prompt-head h3,
+.mosa-v2 .detail .detail-prompt-subhead h4 {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 20px;
+}
+.mosa-v2 .detail .detail-overview-heading p {
+  font-size: 11px;
+  line-height: 20px;
+}
+.mosa-v2 .detail .detail-overview .detail-image-wrap {
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  flex: 0 0 auto;
+  aspect-ratio: var(--detail-preview-aspect, 9 / 16);
+  border-radius: var(--inspector-radius-md);
+  background: var(--app-search);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text-primary) 6%, transparent);
+}
+.mosa-v2 .detail .detail-overview .detail-image {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: cover;
+}
+.mosa-v2 .detail .detail-overview-title-row {
+  height: 28px;
+  gap: var(--inspector-space-2);
+}
+.mosa-v2 .detail .detail-overview-title-row h3 {
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 20px;
+}
+.mosa-v2 .detail .detail-facts {
+  height: 28px;
+  gap: var(--inspector-space-1);
+}
+.mosa-v2 .detail .detail-fact-tag,
+.mosa-v2 .detail .detail-tag {
+  min-height: 28px;
+  padding: 0 var(--inspector-space-2);
+  border-color: var(--inspector-divider);
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.mosa-v2 .detail .detail-tags-section {
+  padding: var(--inspector-space-1) var(--inspector-space-4) var(--inspector-space-3);
+  border-top: 0;
+}
+.mosa-v2 .detail .detail-tags-row {
+  gap: var(--inspector-space-1);
+  padding: 0;
+}
+.mosa-v2 .detail .detail-tag,
+.mosa-v2 .detail .detail-tags-add {
+  height: 24px;
+  min-height: 24px;
+}
+.mosa-v2 .detail .detail-tags-add {
+  padding-inline: var(--inspector-space-2);
+}
+.mosa-v2 .detail .detail-prompt-section {
+  min-height: 0;
+  gap: var(--inspector-space-2);
+  padding: var(--inspector-space-4);
+  border-top: 0;
+  border-bottom: 0;
+}
+.mosa-v2 .detail .detail-prompt-section + .detail-regenerate-section {
+  border-top: 0;
+}
+.mosa-v2 .detail .detail-prompt-head,
+.mosa-v2 .detail .detail-prompt-subhead {
+  height: 18px;
+}
+.mosa-v2 .detail .detail-prompt-head h3,
+.mosa-v2 .detail .detail-prompt-subhead h4 {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.mosa-v2 .detail .detail-prompt-head {
+  margin-bottom: 0;
+}
+.mosa-v2 .detail .detail-prompt-box,
+.mosa-v2 .detail .detail-instruction-box {
+  min-height: 52px;
+  padding: var(--inspector-space-2) var(--inspector-space-3);
+  border-color: var(--inspector-divider);
+  border-radius: var(--inspector-radius-md);
+  background: var(--inspector-material);
+  font-size: 12px;
+  line-height: 20px;
+}
+.mosa-v2 .detail .detail-prompt-box {
+  max-height: 120px;
+}
+.mosa-v2 .detail .detail-instruction-box {
+  max-height: 80px;
+}
+.mosa-v2 .detail .detail-reference-row {
+  height: 40px;
+  flex-basis: 40px;
+  padding-inline: var(--inspector-space-3);
+  border: 1px solid var(--inspector-divider);
+  border-radius: var(--inspector-radius-sm);
+}
+.mosa-v2 .detail .detail-source-section,
+.mosa-v2 .detail .detail-version-section,
+.mosa-v2 .detail .detail-group-section {
+  padding: var(--inspector-space-4);
+}
+.mosa-v2 .detail .detail-regenerate-section {
+  height: auto;
+  min-height: 0;
+  padding: var(--inspector-space-4);
+}
+.mosa-v2 .detail .detail-regenerate-composer {
+  min-height: 132px;
+  gap: var(--inspector-space-3);
+  padding: var(--inspector-space-3);
+  border-color: var(--inspector-divider);
+  border-radius: var(--inspector-radius-lg);
+  background: var(--inspector-material);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+}
+.mosa-v2 .detail .detail-regenerate-bar {
+  min-height: 32px;
+  gap: var(--inspector-space-2);
+}
+.mosa-v2 .detail .detail-version-truth-note {
+  margin: var(--inspector-space-1) 0 var(--inspector-space-3);
+}
+.mosa-v2 .detail .detail-save-version {
+  min-height: 32px;
+  border-radius: var(--inspector-radius-sm);
+  transition: transform var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .mosa-v2 .detail-inspector-header .detail-close:hover {
+    color: var(--color-text-primary);
+    background: var(--app-search-focus);
+  }
+}
+.mosa-v2 .detail-inspector-header .detail-close:active,
+.mosa-v2 .detail .detail-save-version:active,
+.mosa-v2 .detail .detail-fav-btn:active,
+.mosa-v2 .detail .section-head-copy:active,
+.mosa-v2 .detail .detail-tags-add:active {
+  transform: scale(.96);
+}
+.mosa-v2 .detail-inspector-header,
+.mosa-v2 .detail .detail-overview,
+.mosa-v2 .detail .detail-prompt-section,
+.mosa-v2 .detail .detail-regenerate-section {
+  animation: inspector-materialize var(--duration-normal) var(--ease-standard) both;
+}
+@keyframes inspector-materialize {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+:root[data-theme="dark"] .mosa-v2 .detail {
+  background: color-mix(in srgb, var(--app-bg) 94%, #000);
+}
+:root[data-theme="dark"] .mosa-v2 .detail-inspector-header {
+  background: color-mix(in srgb, var(--app-bg) 80%, transparent);
+}
+:root[data-theme="dark"] .mosa-v2 .detail .detail-regenerate-composer {
+  box-shadow: 0 8px 24px rgb(0 0 0 / 24%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .mosa-v2 .detail-inspector-header,
+  .mosa-v2 .detail .detail-prompt-box,
+  .mosa-v2 .detail .detail-instruction-box,
+  .mosa-v2 .detail .detail-regenerate-composer {
+    background: var(--app-card);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .asset-card,
+  .card-action-btn,
+  .toast,
+  .asset-view-control,
+  .nav-item,
+  .icon-button,
+  .segmented-btn,
+  .toolbar-icon,
+  .create-button,
+  .card-checkbox,
+  .action-btn,
+  .mini-btn,
+  .prompt-text,
+  .btn-primary,
+  .btn-danger,
+  .mosa-v2 .detail-inspector-header,
+  .mosa-v2 .detail .detail-overview,
+  .mosa-v2 .detail .detail-prompt-section,
+  .mosa-v2 .detail .detail-regenerate-section {
+    animation: none;
+    transition: none;
+  }
+  .mosa-v2 .detail-inspector-header .detail-close:active,
+  .mosa-v2 .detail .detail-save-version:active,
+  .mosa-v2 .detail .detail-fav-btn:active,
+  .mosa-v2 .detail .section-head-copy:active,
+  .mosa-v2 .detail .detail-tags-add:active {
+    transform: none;
+  }
 }
 
 @media (hover: hover) and (pointer: fine) {

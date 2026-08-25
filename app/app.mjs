@@ -52,7 +52,7 @@ const state = {
   project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, detailAsset: null, versionHistory: null, recipeHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
-  groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [], styleTotal: 0 }, cowartInsertAvailable: false, cowartInsertTargetId: safeStorageGet("mosa.cowart-insert-target") || "mosa", cowartInsertFeedback: null,
+  groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [], styleTotal: 0 },
   galleryStatus: "loading", galleryError: null, galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")),
   libraryPath: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
   dragCounter: 0,
@@ -453,7 +453,7 @@ const { resetImageZoom, zoomImage, panImagePreview, announceImagePreviewZoom, se
 // ===== Inspector markup（检视器区块 markup helper，已提取至 inspector-markup.mjs，R1 批次 4）=====
 const inspectorMarkup = createInspectorMarkup({ state, t, referenceRightsMarkup });
 const { detailFileSectionMarkup, detailPromptSectionMarkup, detailSourceSectionMarkup,
-  detailVersionSectionMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, detailCowartSectionMarkup,
+  detailVersionSectionMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup,
   detailNewVersionSectionMarkup, detailMoreSectionMarkup, versionPickerMarkup, versionHistoryMarkup,
   recipeHistoryMarkup, recipeHistoryDisclosureMarkup, categoryOptions, buildSourceRows, sourceName,
   sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup, formatFileSize, fileDimensionsText, fileFormatText,
@@ -643,57 +643,6 @@ function cowartCanvasLabel(canvas = {}) {
   return t("projectCanvas", { name });
 }
 
-// Phase 4C：集中式可用画布判定——trusted === false 或 enabled === false 的画布永远不会
-// 成为可选/可执行目标；仅「被发现」不等于「可插入」。只读取 state.cowartCanvases，不修改
-// 原始数据、不复制后端安全规则（后端 resolveCowartInsertCanvas 仍独立拒绝 untrusted 目标）。
-function usableCowartCanvases() {
-  return state.cowartCanvases.filter((canvas) => canvas && canvas.trusted !== false && canvas.enabled !== false);
-}
-
-// 目标优先级：当前素材 source.cowart_source_id → 已持久化用户选择 → MOSA 专用画布 →
-// 第一项可用画布。原目标不再可用时回退到下一合法目标——非法 ID 绝不发送到 insert API。
-function cowartInsertTargetIdFor(asset) {
-  const usable = usableCowartCanvases();
-  const sourceId = typeof asset?.source?.cowart_source_id === "string" ? asset.source.cowart_source_id : "";
-  const requestedId = sourceId || state.cowartInsertTargetId;
-  if (usable.some((canvas) => canvas.id === requestedId)) return requestedId;
-  return usable.find((canvas) => canvas.id === "mosa")?.id || usable[0]?.id || "";
-}
-
-// 内联反馈仅对应当前 project + asset；Bridge 轮询重绘同素材时从 state 恢复，不产生残留。
-function cowartInsertFeedbackFor(asset) {
-  const feedback = state.cowartInsertFeedback;
-  if (!feedback || !asset) return null;
-  return feedback.assetKey === `${asset.project_id}\u0000${asset.id}` ? feedback : null;
-}
-
-// Phase 4C 控件终态：可选目标区（多画布原生 select / 单画布只读目标 / 不可用可见说明）
-// + 插入按钮 + 内联状态行。不可用时不渲染空 select；单画布不渲染无意义的单项 select。
-// request generation 与 setCowartInsertBusy/renderCowartInsertStatus 协同保证一次点击
-// 只发一次 POST、Busy 期间不可重复触发、晚到的旧响应不污染新素材。
-let cowartInsertRequestSequence = 0;
-
-function createCowartInsertControl(asset) {
-  const usable = usableCowartCanvases();
-  const targetId = cowartInsertTargetIdFor(asset);
-  if (targetId) state.cowartInsertTargetId = targetId;
-  const available = state.cowartInsertAvailable && usable.length > 0;
-
-  let targetMarkup = "";
-  if (available && usable.length > 1) {
-    targetMarkup = `<label class="visually-hidden" for="cowartInsertTarget">${escapeHtml(t("cowartInsertTarget"))}</label><select id="cowartInsertTarget" class="cowart-target-select" data-cowart-insert-target aria-label="${escapeHtml(t("cowartInsertTarget"))}">${usable.map((canvas) => `<option value="${escapeHtml(canvas.id)}"${canvas.id === targetId ? " selected" : ""}>${escapeHtml(cowartCanvasLabel(canvas))}</option>`).join("")}</select>`;
-  } else if (available) {
-    targetMarkup = `<p class="cowart-target-readout" data-cowart-target-readout><span class="cowart-target-label">${escapeHtml(t("cowartInsertTarget"))}</span><span class="cowart-target-name">${escapeHtml(cowartCanvasLabel(usable[0]))}</span></p>`;
-  } else {
-    targetMarkup = `<p class="cowart-insert-hint" data-cowart-connect-hint>${escapeHtml(t("cowartConnectHint"))}</p>`;
-  }
-  const feedback = cowartInsertFeedbackFor(asset);
-  const control = document.createElement("div");
-  control.className = "cowart-insert-control";
-  control.innerHTML = `${targetMarkup}<button class="action-btn primary" type="button" data-action="insert-cowart"${available ? "" : " disabled"} aria-disabled="${!available}" title="${escapeHtml(available ? t("insertCowart") : t("cowartInsertUnavailable"))}">${escapeHtml(t("insertCowart"))}</button><p class="cowart-insert-status" data-cowart-insert-status data-type="${feedback?.type || ""}" role="status"${feedback ? "" : " hidden"}>${escapeHtml(feedback?.message || "")}</p>`;
-  return control;
-}
-
 const ARROW_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 // Cards in the same masonry column share a left edge to within a rounding error.
 const COLUMN_TOLERANCE_PX = 4;
@@ -811,16 +760,14 @@ function refreshBridgeStatus() {
   return bridgeStatusPoller.refresh();
 }
 
-function applyBridgeStatus({ codex, grok, cowart, cowartInsert } = {}) {
+function applyBridgeStatus({ codex, grok, cowart } = {}) {
     const nextCanvases = Array.isArray(cowart?.sources) ? cowart.sources : [];
     const canvasesChanged = cowartCanvasListSignature(nextCanvases) !== cowartCanvasListSignature(state.cowartCanvases);
-    const availabilityChanged = state.cowartInsertAvailable !== Boolean(cowartInsert?.available);
     if (canvasesChanged) {
       state.cowartCanvases = nextCanvases;
       renderSettingsMenu();
       if (state.detailOpen && !isDetailEditorActive()) renderDetail();
     }
-    state.cowartInsertAvailable = Boolean(cowartInsert?.available);
     // Required bridges only: a Grok-only failure must not force global error status.
     const hasError = codex?.lastError || cowart?.lastError;
     const codexOn = Boolean(codex?.enabled);
@@ -828,10 +775,10 @@ function applyBridgeStatus({ codex, grok, cowart, cowartInsert } = {}) {
     const grokOn = Boolean(grok?.enabled);
     const importedCount = Number(cowart?.totalImported || 0) + Number(codex?.totalImported || 0) + Number(grok?.totalImported || 0);
     const monitoredCount = Number(cowart?.monitoredCount || 0);
-    // Grok is optional: global readiness only requires Codex + Cowart (+ insert when available).
+    // Grok is optional: global readiness only requires Codex + Cowart.
     if (hasError) setStatus(t("statusBridgeError"), "error");
-    else if (codexOn && cowartOn && state.cowartInsertAvailable) setStatus(t("statusReady"), "ok");
-    else if (codexOn || cowartOn || grokOn) setStatus(state.cowartInsertAvailable ? t("statusBridgePartial") : t("statusCowartInsertUnavailable"), "warn");
+    else if (codexOn && cowartOn) setStatus(t("statusReady"), "ok");
+    else if (codexOn || cowartOn || grokOn) setStatus(t("statusBridgePartial"), "warn");
     else setStatus(t("statusBridgeOff"), "warn");
     if (els.bridgeStatusMeta) {
       const meta = [];
@@ -845,19 +792,11 @@ function applyBridgeStatus({ codex, grok, cowart, cowartInsert } = {}) {
       if (grok?.lastError) meta.push(String(grok.lastError));
       els.bridgeStatusMeta.textContent = meta.join(" · ");
     }
-    updateCowartInsertControls();
-    // Phase 4C：可用性翻转（MCP 连接/断开）改变控件结构（说明 ↔ 目标区），需要重建
-    // Detail；签名未变的常规轮询只经 updateCowartInsertControls 同步 disabled 状态。
-    if (!canvasesChanged && availabilityChanged && state.detailOpen && !isDetailEditorActive()) renderDetail();
 }
 
 function applyBridgeStatusFailure() {
-    const availabilityChanged = state.cowartInsertAvailable;
-    state.cowartInsertAvailable = false;
     if (els.bridgeStatusMeta) els.bridgeStatusMeta.textContent = "";
     setStatus(t("statusUnavailable"), "error");
-    updateCowartInsertControls();
-    if (availabilityChanged && state.detailOpen && !isDetailEditorActive()) renderDetail();
 }
 
 function cowartCanvasListSignature(canvases) {
@@ -1645,8 +1584,6 @@ function setDetailOpen(open) {
     if (!wasOpen) els.detailPanel?.querySelector("#detailTitle")?.focus();
   } else {
     state.detailDirty = false;
-    // Phase 4C：返回 Library / 关闭检视器时清理 Cowart 内联反馈（不持久化到磁盘）。
-    state.cowartInsertFeedback = null;
     const returnEl = state.detailReturnFocus;
     state.detailReturnFocus = null;
     if (returnEl instanceof HTMLElement && returnEl.isConnected) returnEl.focus();
@@ -1884,9 +1821,6 @@ function renderDetail() {
   if (!els.detailPanel) return;
   const renderId = ++detailRenderSequence;
   const asset = selectedAsset();
-  // Phase 4C：Cowart 内联反馈仅属当前 project + asset——切换素材/无选中时清理，
-  // 同素材重绘（Bridge 轮询/收藏/语言切换）保留。
-  if (state.cowartInsertFeedback && (!asset || state.cowartInsertFeedback.assetKey !== `${asset.project_id}\u0000${asset.id}`)) state.cowartInsertFeedback = null;
   // Re-rendering replaces the whole panel, so a focus that lived inside it
   // would fall back to <body>. Arrow-key gallery browsing re-renders on every
   // step; keep the keyboard anchored on the detail title instead.
@@ -1900,11 +1834,13 @@ function renderDetail() {
   const cachedRecipeHistory = recipeHistoryForAsset(asset) || recipeHistoryFromAsset(asset);
   // Library v2 首屏把基础信息与收藏合为一个 Overview，避免旧版把收藏拆成独立区块。
   // 后续九个语义区块保持单列、无 tab、唯一纵向滚动容器。
-  els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}</div></div>`;
+  els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}</div></div>`;
+  const previewAspect = els.detailPanel.querySelector("[data-detail-preview-aspect]");
+  if (previewAspect?.dataset.detailPreviewAspect) {
+    previewAspect.style.setProperty("--detail-preview-aspect", previewAspect.dataset.detailPreviewAspect);
+  }
   const scroller = els.detailPanel.querySelector(".detail-inspector-scroll");
   if (scroller && keepScrollTop !== null) scroller.scrollTop = keepScrollTop;
-  scroller?.querySelector(".cowart-insert-slot")?.append(createCowartInsertControl(asset));
-  updateCowartInsertControls();
   bindDetailEvents(asset, renderId);
   bindVersionPickerEvents();
   bindVersionHistoryEvents(cachedHistory);
@@ -1918,30 +1854,6 @@ function renderDetail() {
 }
 
 let versionHistoryRequestSequence = 0;
-function setCowartInsertBusy(control, busy) {
-  if (!control) return;
-  const button = control.querySelector('[data-action="insert-cowart"]');
-  const target = control.querySelector("[data-cowart-insert-target]");
-  if (busy) control.setAttribute("aria-busy", "true");
-  else control.removeAttribute("aria-busy");
-  if (button) {
-    button.disabled = busy || !state.cowartInsertAvailable;
-    button.setAttribute("aria-disabled", String(button.disabled));
-    button.textContent = busy ? t("insertingCowart") : t("insertCowart");
-  }
-  if (target) target.disabled = busy || !state.cowartInsertAvailable;
-}
-function renderCowartInsertStatus() {
-  const status = els.detailPanel?.querySelector("[data-cowart-insert-status]");
-  if (!status) return;
-  const feedback = state.cowartInsertFeedback
-    && state.cowartInsertFeedback.assetKey === `${state.project}\u0000${state.selectedId}`
-    ? state.cowartInsertFeedback
-    : null;
-  status.dataset.type = feedback?.type || "";
-  status.textContent = feedback?.message || "";
-  status.hidden = !feedback;
-}
 function versionHistoryForAsset(asset) {
   const history = state.versionHistory;
   if (!history || history.project_id !== asset.project_id) return null;
@@ -2086,16 +1998,6 @@ function bindDetailEvents(asset, renderId) {
     field.addEventListener("input", () => { state.detailDirty = true; });
     field.addEventListener("change", () => { state.detailDirty = true; });
   });
-  panel.querySelectorAll("[data-composer-select]").forEach((select) => {
-    select.addEventListener("change", () => { state.detailDirty = true; });
-  });
-  panel.querySelectorAll("[data-resolution]").forEach((button) => button.addEventListener("click", () => {
-    panel.querySelectorAll("[data-resolution]").forEach((option) => {
-      const selected = option === button;
-      option.setAttribute("aria-pressed", String(selected));
-    });
-    state.detailDirty = true;
-  }));
   panel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => { if (state.viewMode === "asset") returnToLibrary(); else setDetailOpen(false); });
   // Phase 4A 区块 2：Detail 内收藏——复用既有 toggleFavorite（同一收藏 API），不切换
   // 素材、不返回 Library；loadAssets 后 renderDetail 重渲染按 asset.favorite 重绘本按钮。
@@ -2113,55 +2015,6 @@ function bindDetailEvents(asset, renderId) {
     const result = await window.electronAPI.showItemInFolder(asset.image_path);
     if (result?.ok) { showToast(t("shownInFinder"), "success"); return; }
     throw new Error(t("showInFinderFailed"));
-  }));
-  panel.querySelector("[data-cowart-insert-target]")?.addEventListener("change", (event) => {
-    state.cowartInsertTargetId = event.target.value;
-    safeStorageSet("mosa.cowart-insert-target", state.cowartInsertTargetId);
-  });
-  panel.querySelector('[data-action="insert-cowart"]')?.addEventListener("click", () => runAction(async () => {
-    const originProjectId = asset.project_id;
-    const originAssetId = asset.id;
-    const assetKey = `${originProjectId}\u0000${originAssetId}`;
-    // Phase 4C：targetId 只取集中式 helper 的合法目标——没有合法目标绝不发请求；
-    // 一次点击一次 POST（Busy 期间按钮 disabled + request generation 双保险）。
-    const targetId = cowartInsertTargetIdFor(asset);
-    if (!targetId || !state.cowartInsertAvailable) return;
-    const requestId = ++cowartInsertRequestSequence;
-    const control = panel.querySelector(".cowart-insert-control");
-    const button = panel.querySelector('[data-action="insert-cowart"]');
-    const hadFocus = document.activeElement === button;
-    state.cowartInsertFeedback = null;
-    renderCowartInsertStatus();
-    setCowartInsertBusy(control, true);
-    showToast(t("insertingCowart"));
-    // 请求竞态 guard：request generation + 当前 Detail project/id 双校验，晚到的旧素材
-    // 响应（成功或失败）不得污染新素材的反馈。
-    const isCurrentResponse = () => requestId === cowartInsertRequestSequence && isCurrentDetailSelection(originProjectId, originAssetId);
-    const isConnectedControl = () => isCurrentResponse() && Boolean(control?.isConnected);
-    try {
-      const result = await apiFetch(`/api/assets/${encodeURIComponent(originProjectId)}/${encodeURIComponent(originAssetId)}/insert-cowart`, { method: "POST", body: { placement: "right", targetId } });
-      if (!isCurrentResponse()) return;
-      const canvas = result.canvas || {};
-      const message = t("insertedCowart", { page: canvas.pageId || "Cowart", x: Math.round(canvas.bounds?.x || 0), y: Math.round(canvas.bounds?.y || 0) });
-      state.cowartInsertFeedback = { assetKey, type: "success", message };
-      showToast(message, "success");
-      // 不调用 loadAssets、不改变 Viewer Sequence / Return Snapshot / selectedAsset；
-      // 只刷新桥接状态。签名未变时 Detail 不重建，反馈经 renderCowartInsertStatus 落回。
-      await refreshBridgeStatus();
-      if (isCurrentResponse()) renderCowartInsertStatus();
-    } catch (error) {
-      if (!isCurrentResponse()) return;
-      state.cowartInsertFeedback = { assetKey, type: "error", message: error.message };
-      renderCowartInsertStatus();
-      throw error;
-    } finally {
-      // 只恢复仍连接且仍属当前素材的控件；Busy 期间 disabled 使焦点掉到 body 时，
-      // 完成后把焦点恢复到同一个插入按钮（preventScroll 不打乱 Inspector scrollTop）。
-      if (isConnectedControl()) {
-        setCowartInsertBusy(control, false);
-        if (hadFocus) button?.focus({ preventScroll: true });
-      }
-    }
   }));
   panel.querySelector('[data-action="copy-prompt"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(asset.prompt || ""); showToast(t("copySuccess"), "success"); }));
   panel.querySelector('[data-action="copy-instruction"]')?.addEventListener("click", () => runAction(async () => { const instruction = String(asset.source?.user_message || asset.business_fields?.user_message || "").trim(); await navigator.clipboard.writeText(instruction); showToast(t("copySuccess"), "success"); }));
@@ -2250,9 +2103,6 @@ function bindDetailEvents(asset, renderId) {
         method: "POST",
         body: {
           ...readRecipeDraft(panel),
-          model: panel.querySelector('[data-composer-select="model"]')?.value || "auto",
-          ratio: panel.querySelector('[data-composer-select="ratio"]')?.value || "4:3",
-          resolution: panel.querySelector('[data-resolution][aria-pressed="true"]')?.dataset.resolution || "1K",
           version_change: versionChange,
         },
       });
@@ -2545,19 +2395,6 @@ function isCurrentDetailAction(renderId, projectId, assetId) {
 
 function isCurrentDetailSelection(projectId, assetId) {
   return state.project === projectId && state.selectedId === assetId;
-}
-
-function updateCowartInsertControls() {
-  const button = els.detailPanel?.querySelector('[data-action="insert-cowart"]');
-  const target = els.detailPanel?.querySelector("[data-cowart-insert-target]");
-  if (!button) return;
-  // Busy 期间 disabled/文案由 setCowartInsertBusy 独占管理——Bridge 轮询触发的可用性
-  // 同步不得提前重新启用插入中的控件。
-  if (button.closest(".cowart-insert-control")?.getAttribute("aria-busy") === "true") return;
-  button.disabled = !state.cowartInsertAvailable;
-  button.setAttribute("aria-disabled", String(button.disabled));
-  button.title = state.cowartInsertAvailable ? t("insertCowart") : t("cowartInsertUnavailable");
-  if (target) target.disabled = !state.cowartInsertAvailable;
 }
 
 function setStatus(value, stateName = "neutral") {

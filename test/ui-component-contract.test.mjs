@@ -317,7 +317,7 @@ test("out-of-scope files stay locked and the Phase 1C card contract is stable", 
   // Phase 1C.1 re-locks: child-button disclosure granularity, 28px click area (Phase 1B
   // compatible IconButton floor), and the batch-disabled suppression variants.
   // 2026-08-18: V2-only token consolidation. After the Phase 1A → V2 cleanup
-  // (cleanup archive: app/_archive_2026-08-18-v2-cleanup) the .card-action-btn
+  // the .card-action-btn
   // rules are restyled into the canonical V2 floating-chip form: 32px
   // diameter, transparent inner border, `rgb(0 0 0 / .42)` background with
   // a 12px backdrop blur. The favorite highlight consumes `--color-favorite`

@@ -34,7 +34,7 @@ test("JSON runtime without any libraryDir keeps assets under managerDir/assets",
   assert.equal(store.projectDir("default"), join(managerDir, "assets", "default"));
 });
 
-test("an explicit options.libraryDir roots JSON assets at libraryDir/assets", async (t) => {
+test("a fresh explicit options.libraryDir starts directly in SQLite", async (t) => {
   withoutMosaLibraryDir(t);
   const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -43,14 +43,15 @@ test("an explicit options.libraryDir roots JSON assets at libraryDir/assets", as
   const managerDir = join(projectRoot, "mosa");
   const libraryDir = join(root, "library");
   const store = createAssetStore({ projectRoot, managerDir, libraryDir });
+  t.after(() => store.close());
 
-  assert.equal(store.storageKind, "json");
+  assert.equal(store.storageKind, "sqlite");
   assert.equal(store.libraryDir, resolve(libraryDir));
   assert.equal(store.assetsRoot, join(resolve(libraryDir), "assets"));
-  assert.equal(store.projectDir("default"), join(resolve(libraryDir), "assets", "default"));
+  assert.equal(store.databasePath, join(resolve(libraryDir), "mosa.db"));
 });
 
-test("MOSA_LIBRARY_DIR alone roots JSON assets at libraryDir/assets", async (t) => {
+test("a fresh MOSA_LIBRARY_DIR starts directly in SQLite", async (t) => {
   const saved = process.env.MOSA_LIBRARY_DIR;
   const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
   process.env.MOSA_LIBRARY_DIR = join(root, "env-library");
@@ -63,36 +64,38 @@ test("MOSA_LIBRARY_DIR alone roots JSON assets at libraryDir/assets", async (t) 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const store = createAssetStore({ projectRoot, managerDir });
+  t.after(() => store.close());
 
-  assert.equal(store.storageKind, "json");
+  assert.equal(store.storageKind, "sqlite");
   assert.equal(store.libraryDir, resolve(join(root, "env-library")));
   assert.equal(store.assetsRoot, join(resolve(join(root, "env-library")), "assets"));
 });
 
-test("a runtime-style default libraryDir (explicitLibraryDir: null) keeps JSON assets under managerDir/assets", async (t) => {
+test("a runtime-style fresh default libraryDir starts directly in SQLite", async (t) => {
   withoutMosaLibraryDir(t);
   const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
   t.after(() => rm(root, { recursive: true, force: true }));
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
-  // startMosaRuntime always resolves a default libraryDir for SQLite detection and
-  // locking; explicitLibraryDir: null records that the user never configured one, so
-  // the implicit default must not reroot the JSON assets away from managerDir/assets.
+  // startMosaRuntime always resolves a default libraryDir. A genuinely fresh
+  // library now goes straight to SQLite; explicitLibraryDir only helps locate
+  // legacy JSON data and no longer forces a JSON birth for new users.
+  const libraryDir = join(root, "default-library");
   const store = createAssetStore({
     projectRoot,
     managerDir,
-    libraryDir: join(root, "default-library"),
+    libraryDir,
     explicitLibraryDir: null,
   });
+  t.after(() => store.close());
 
-  assert.equal(store.storageKind, "json");
-  assert.equal(store.libraryDir, null);
-  assert.equal(store.assetsRoot, join(managerDir, "assets"));
-  assert.equal(store.projectDir("default"), join(managerDir, "assets", "default"));
+  assert.equal(store.storageKind, "sqlite");
+  assert.equal(store.libraryDir, resolve(libraryDir));
+  assert.equal(store.assetsRoot, join(resolve(libraryDir), "assets"));
 });
 
-test("an explicit explicitLibraryDir roots JSON assets at libraryDir/assets", async (t) => {
+test("a fresh explicit explicitLibraryDir also starts directly in SQLite", async (t) => {
   withoutMosaLibraryDir(t);
   const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -106,11 +109,27 @@ test("an explicit explicitLibraryDir roots JSON assets at libraryDir/assets", as
     libraryDir,
     explicitLibraryDir: libraryDir,
   });
+  t.after(() => store.close());
 
-  assert.equal(store.storageKind, "json");
+  assert.equal(store.storageKind, "sqlite");
   assert.equal(store.libraryDir, resolve(libraryDir));
   assert.equal(store.assetsRoot, join(resolve(libraryDir), "assets"));
-  assert.equal(store.projectDir("default"), join(resolve(libraryDir), "assets", "default"));
+});
+
+test("legacy JSON data keeps an explicit library on JSON until migration completes", async (t) => {
+  withoutMosaLibraryDir(t);
+  const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const libraryDir = join(root, "library");
+  await mkdir(join(libraryDir, "assets", "default", "metadata"), { recursive: true });
+  await writeFile(join(libraryDir, "assets", "default", "groups.json"), "[]\n", "utf8");
+
+  const store = createAssetStore({ projectRoot, managerDir, libraryDir, explicitLibraryDir: libraryDir });
+  assert.equal(store.storageKind, "json");
+  assert.equal(store.libraryDir, resolve(libraryDir));
 });
 
 test("a default libraryDir still selects a completed SQLite library when nothing is explicit", async (t) => {

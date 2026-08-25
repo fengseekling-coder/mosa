@@ -23,6 +23,8 @@
     "build": "tsc && node scripts/write-build-identity.mjs",
     "pretest": "npm run build",
     "test": "node --import ./test/clean-test-env.mjs --test",
+    "pretest:e2e": "npm run build",
+    "test:e2e": "node scripts/e2e-critical-flows.mjs",
     "test:coverage": "c8 --reporter=html --reporter=text npm test",
     "lint": "eslint .",
     "check": "node scripts/check-source.mjs",
@@ -35,9 +37,11 @@
     "desktop:package": "electron-forge package --platform darwin --arch arm64",
     "predesktop:make": "npm run build",
     "desktop:make": "electron-forge make --platform darwin --arch arm64",
+    "desktop:release": "MOSA_RELEASE_BUILD=1 electron-forge make --platform darwin --arch arm64",
     "qa:web": "node scripts/qa-launcher.mjs --type web",
     "qa:electron": "node scripts/qa-launcher.mjs --type electron --no-build",
-    "qa:packaged": "node scripts/qa-launcher.mjs --type packaged --no-build"
+    "qa:packaged": "node scripts/qa-launcher.mjs --type packaged --no-build",
+    "qa:packaged:smoke": "node scripts/packaged-smoke.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.1",

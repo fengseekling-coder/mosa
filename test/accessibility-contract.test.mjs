@@ -79,7 +79,7 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
   assert.doesNotMatch(app, /const hasError = codex\?\.lastError \|\| grok\?\.lastError \|\| cowart\?\.lastError;/);
   assert.match(app, /if \(grok\?\.lastWarning\) meta\.push\(String\(grok\.lastWarning\)\);/);
   assert.match(app, /if \(grok\?\.lastError\) meta\.push\(String\(grok\.lastError\)\);/);
-  assert.match(app, /else if \(codexOn && cowartOn && state\.cowartInsertAvailable\) setStatus\(t\("statusReady"\), "ok"\);/);
+  assert.match(app, /else if \(codexOn && cowartOn\) setStatus\(t\("statusReady"\), "ok"\);/);
 });
 
 test("keeps background library refreshes from replacing active edits", async () => {
@@ -97,22 +97,6 @@ test("keeps background library refreshes from replacing active edits", async () 
   assert.match(apiClient, /state\.pageTotal = total;[\s\S]*?updateViewTitle\(\)/);
   assert.match(apiClient, /state\.loadedPageCount > 1 \? refreshAssetPageTotalInBackground\(\) : loadAssets\(\{ background: true \}\)/);
   assert.match(app, /field\.addEventListener\("input", \(\) => \{ state\.detailDirty = true; \}\)/);
-});
-
-test("keeps the Cowart reuse path wired through the local runtime", async () => {
-  const [app, runtime, assetRoutes] = await Promise.all([
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
-    readFile(resolve(root, "lib/mosa-runtime.mjs"), "utf8"),
-    readFile(resolve(root, "lib/api/asset-routes.mjs"), "utf8"),
-  ]);
-
-  assert.match(app, /data-action="insert-cowart"/);
-  assert.match(app, /data-cowart-insert-target/);
-  assert.match(app, /\/insert-cowart/);
-  assert.match(runtime, /handleApiRequest/);
-  assert.match(assetRoutes, /insert_cowart_image/);
-  assert.match(assetRoutes, /mosaAssetId/);
-  assert.match(assetRoutes, /Cowart insertion target is not registered/);
 });
 
 test("uses a single language chosen from system, Chinese, or English", async () => {
@@ -159,9 +143,9 @@ test("keeps recipe version history navigable without replacing active edits", as
   assert.match(app, /data-action="save-version"/);
   assert.match(app, /function readRecipeDraft\(panel\)/);
   assert.match(app, /body: \{\s*\.\.\.readRecipeDraft\(panel\),/);
-  assert.match(app, /model: panel\.querySelector\('\[data-composer-select="model"\]'\)\?\.value \|\| "auto",/);
-  assert.match(app, /ratio: panel\.querySelector\('\[data-composer-select="ratio"\]'\)\?\.value \|\| "4:3",/);
-  assert.match(app, /resolution: panel\.querySelector\('\[data-resolution\]\[aria-pressed="true"\]'\)\?\.dataset\.resolution \|\| "1K",/);
+  assert.doesNotMatch(inspector, /Imagen 4|Flux|data-composer-select|data-resolution/);
+  assert.match(inspector, /createRecipeVersionDescription/);
+  assert.match(inspector, /saveAsVersion/);
   assert.match(app, /version_change: versionChange,/);
   assert.match(app, /function activeRecipeSnapshot\(asset\)/);
   assert.match(app, /function regenerationInstruction\(asset, snapshot\)/);
@@ -295,6 +279,5 @@ test("ensures minimum touch target sizes for accessibility", async () => {
   // Using min-height (not fixed height) so content can expand naturally.
   assert.match(css, /\.action-btn \{[^}]*min-height:\s*36px/);
   assert.match(css, /\.detail-close \{[^}]*min-height:\s*36px/);
-  assert.match(css, /\.cowart-target-select \{[^}]*min-height:\s*36px/);
   assert.match(css, /\.section-head-copy \{[^}]*min-height:\s*36px/);
 });

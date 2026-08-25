@@ -86,13 +86,11 @@ const checks = [
   ["23 inspector V2 section order is fixed", async () => {
     const app = await read("app/app.mjs");
     const markup = app.match(/\$\{detailFileSectionMarkup\(asset\)\}[\s\S]*?\$\{detailMoreSectionMarkup\(asset\)\}/)?.[0] || "";
-    assert.deepEqual([...markup.matchAll(/detail(\w+)SectionMarkup/g)].map((match) => match[1]), ["File", "Tags", "Prompt", "Source", "Version", "Group", "Cowart", "NewVersion", "More"]);
+    assert.deepEqual([...markup.matchAll(/detail(\w+)SectionMarkup/g)].map((match) => match[1]), ["File", "Tags", "Prompt", "Source", "Version", "Group", "NewVersion", "More"]);
   }],
   ["24 copy prompt action is native", async () => assert.match(await read("app/app.mjs"), /data-action="copy-prompt"/)],
   ["25 copy source action is native", async () => assert.match(await read("app/app.mjs"), /data-action="copy-source"/)],
   ["26 copy path action is native", async () => assert.match(await read("app/app.mjs"), /data-action="copy-path"/)],
-  ["27 Cowart target is reachable", async () => assert.match(await read("app/app.mjs"), /data-cowart-insert-target/)],
-  ["28 Cowart insert is reachable", async () => assert.match(await read("app/app.mjs"), /data-action="insert-cowart"/)],
   ["29 More disclosure is native", async () => assert.match(await read("app/inspector-markup.mjs"), /data-more-actions/)],
   ["30 App/Web original media split remains", async () => {
     const app = await read("app/app.mjs");
@@ -213,7 +211,6 @@ const checks = [
     assert.match(app, /const assetViewTransform = \{ mode: "fit", scale: 1/);
     assert.match(app, /function applyAssetViewTransform\(\)/);
   }],
-  ["68 Cowart insert path remains local", async () => assert.match(await read("app/app.mjs"), /\/insert-cowart/)],
   ["69 native minimum window contract remains external", async () => assert.match(await read("test/minimum-window-responsive-contract.test.mjs"), /minWidth|960/)],
   ["70 added i18n keys are symmetric", async () => {
     const i18n = await read("app/i18n.mjs");
@@ -267,6 +264,6 @@ const checks = [
 
 for (const [label, check] of checks) test(label, check);
 
-test("Phase 6B contract matrix contains at least 70 checks", () => {
-  assert.ok(checks.length >= 70, `expected at least 70 checks, got ${checks.length}`);
+test("Phase 6B contract matrix contains at least 67 checks", () => {
+  assert.ok(checks.length >= 67, `expected at least 67 checks, got ${checks.length}`);
 });

@@ -406,11 +406,16 @@ test("runtime storage selection cannot bypass migration completion", async (t) =
   const managerDir = join(projectRoot, "mosa");
   const libraryDir = join(root, "library");
 
+  const setup = createSqliteAssetStore({ projectRoot, managerDir, libraryDir });
+  await setup.setMigrationState("migrating", { verified: false });
+  setup.close();
+
   const beforeMigration = createAssetStore({ projectRoot, managerDir, libraryDir, storage: "sqlite" });
   assert.equal(beforeMigration.storageKind, "json");
-  const setup = createSqliteAssetStore({ projectRoot, managerDir, libraryDir });
-  await setup.setMigrationState("completed", { verified: true });
-  setup.close();
+
+  const completed = createSqliteAssetStore({ projectRoot, managerDir, libraryDir });
+  await completed.setMigrationState("completed", { verified: true });
+  completed.close();
   const afterMigration = createAssetStore({ projectRoot, managerDir, libraryDir, storage: "json" });
   assert.equal(afterMigration.storageKind, "sqlite");
   afterMigration.close();

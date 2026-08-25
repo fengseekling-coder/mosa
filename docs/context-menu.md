@@ -30,7 +30,6 @@ MOSA 现已支持完整的右键菜单功能，为导航栏和素材库提供快
 
 #### 创作相关
 - **复制提示词** - 复制生成时使用的 Prompt
-- **插入到 Cowart** - 直接插入到 Cowart 画布（需要 Cowart 可用）
 
 #### 导出与删除
 - **导出素材** - 导出单个素材及其元数据
@@ -103,7 +102,6 @@ app/
 - `/api/assets/:projectId/:assetId` - 更新素材
 - `/api/groups` - 管理分组
 - `/api/open-folder` - 打开文件夹
-- `/api/cowart-insert` - 插入到 Cowart
 
 ### 国际化支持
 完整的中英文双语支持：

@@ -8,8 +8,8 @@ import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
 import { parseDisabledBridges } from "../lib/runtime-bridges.mjs";
 import { cleanupOrphanStagedFiles, importStagingDir, stageFileForImport, STAGING_EXTENSIONS, writeStagedPng } from "../lib/import-staging.mjs";
 import { startMosaService } from "./service-manager.mjs";
-import { getNotificationText, getNotificationTextForAssetsImported } from "./notification-i18n.mjs";
-import { getDesktopText } from "./notification-i18n.mjs";
+import { getDesktopText, getNotificationTextForAssetsImported } from "./notification-i18n.mjs";
+import { resolveAllowedFolderPath } from "../lib/server-security.js";
 
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
 // The parent of this module's own directory is the application root: the
@@ -92,7 +92,6 @@ let shuttingDown = false;
 let shutdownPromise = null;
 let windowPromise = null;
 let ipcRegistered = false;
-let updatesChecked = false;
 let currentLocale = "zh"; // safe default matching original Chinese-only notifications
 const rendererConsoleErrors = new Set();
 const MAX_RENDERER_CONSOLE_ERRORS = 32;
@@ -325,7 +324,9 @@ function registerIPC() {
     if (!isAbsolute(target) || /^[a-z][a-z0-9+.-]*:/i.test(target)) return { ok: false, reason: "invalid" };
     if (!existsSync(target)) return { ok: false, reason: "missing" };
     try {
-      shell.showItemInFolder(target);
+      const allowedTarget = resolveAllowedFolderPath(target, [libraryDir]);
+      if (!allowedTarget) return { ok: false, reason: "not-allowed" };
+      shell.showItemInFolder(allowedTarget);
       return { ok: true };
     } catch {
       return { ok: false, reason: "unavailable" };
@@ -426,7 +427,6 @@ async function createMainWindow() {
   mainWindow.show();
 
   startBridgeNotificationPoll(service.port);
-  void checkForUpdates();
 }
 
 function denyBrowserPermissions() {
@@ -482,30 +482,6 @@ function stopBridgeNotificationPoll() {
   }
 }
 
-async function checkForUpdates() {
-  if (updatesChecked) return;
-  updatesChecked = true;
-  try {
-    const { autoUpdater } = await import("electron-updater");
-    autoUpdater.logger = { info: () => {}, warn: console.warn, error: console.error };
-    autoUpdater.on("update-available", () => {
-      if (Notification.isSupported()) {
-        const body = getNotificationText("updateAvailable", currentLocale);
-        new Notification({ title: "MOSA", body, silent: true }).show();
-      }
-    });
-    autoUpdater.on("update-downloaded", () => {
-      if (Notification.isSupported()) {
-        const body = getNotificationText("updateDownloaded", currentLocale);
-        new Notification({ title: "MOSA", body, silent: true }).show();
-      }
-    });
-    autoUpdater.checkForUpdatesAndNotify().catch(() => {});
-  } catch {
-    // electron-updater is optional; silently ignore if not installed.
-  }
-}
-
 function stopOwnedRuntime() {
   if (shutdownPromise) return shutdownPromise;
   shutdownPromise = service?.mode === "owned" ? service.stop() : Promise.resolve();
@@ -514,6 +490,14 @@ function stopOwnedRuntime() {
 
 function reportStartupFailure(error) {
   const message = error instanceof Error ? error.message : String(error);
+  // A shutdown can race an in-flight BrowserWindow.loadURL(). In that case
+  // Electron rejects the load promise because the local runtime is being
+  // stopped intentionally. Treat it as shutdown noise rather than surfacing a
+  // false "MOSA cannot start" dialog to the user.
+  if (shuttingDown) {
+    console.info(`[MOSA] startup load aborted during shutdown: ${message}`);
+    return;
+  }
   dialog.showErrorBox(getDesktopText("startupErrorTitle", currentLocale), message);
   shuttingDown = true;
   stopBridgeNotificationPoll();

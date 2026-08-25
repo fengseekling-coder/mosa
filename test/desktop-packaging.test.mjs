@@ -11,6 +11,7 @@ import forgeConfig, {
 const isIgnored = (path) => packageIgnorePatterns.some((pattern) => pattern.test(path));
 
 test("packages MOSA with ASAR and unpacked native dependencies", () => {
+  assert.equal(forgeConfig.outDir, "out");
   assert.equal(forgeConfig.packagerConfig.name, "MOSA");
   assert.equal(forgeConfig.packagerConfig.appBundleId, "com.azhuilab.mosa");
   const sign = forgeConfig.packagerConfig.osxSign;
@@ -181,12 +182,27 @@ test("keeps the desktop window single-instance and sandboxed", async () => {
   assert.match(source, /setPermissionCheckHandler\(\(\) => false\)/);
   assert.match(source, /setPermissionRequestHandler\(\(_webContents, _permission, callback\) => callback\(false\)\)/);
   assert.match(source, /app\.exit\(0\)/);
+  assert.match(
+    source,
+    /if \(shuttingDown\) \{[\s\S]*startup load aborted during shutdown/,
+    "shutdown must not surface a false startup error dialog",
+  );
 
   const appSource = await readFile(resolve(import.meta.dirname, "..", "app", "app.mjs"), "utf8");
   const index = await readFile(resolve(import.meta.dirname, "..", "app", "index.html"), "utf8");
   assert.doesNotMatch(appSource, /window\.open\(/);
   assert.match(appSource, /openImagePreview\(asset\.id, event\.currentTarget\)/);
   assert.match(index, /<video id="imagePreviewVideo" controls playsinline hidden>/);
+});
+
+test("packaged smoke waits for the real renderer and tears Electron down before cleanup", async () => {
+  const source = await readFile(resolve(import.meta.dirname, "..", "scripts", "packaged-smoke.mjs"), "utf8");
+  assert.match(source, /--remote-debugging-port=/, "packaged smoke must inspect the packaged renderer");
+  assert.match(source, /waitForRenderer\(/, "packaged smoke must wait for renderer readiness");
+  assert.match(source, /document\.querySelector\('#appShell'\)/, "renderer readiness must require the real MOSA app shell");
+  assert.match(source, /window\.electronAPI/, "renderer readiness must verify preload exposure");
+  assert.match(source, /await stopChild\(child\)/, "cleanup must wait for Electron teardown");
+  assert.match(source, /SIGKILL/, "teardown must have a bounded hard-stop fallback");
 });
 
 test("the packaged app includes build-identity.json in app/", () => {
@@ -227,7 +243,7 @@ test("exposes only the minimal show-in-folder capability to the renderer", async
   assert.match(handler, /!isAbsolute\(target\)/, "rejects a relative path");
   assert.match(handler, /\^\[a-z\]\[a-z0-9\+\.\-\]\*:\/i\.test\(target\)/, "rejects URL input");
   assert.match(handler, /!existsSync\(target\)/, "rejects a missing file");
-  assert.match(handler, /shell\.showItemInFolder\(target\)/, "uses shell.showItemInFolder");
+  assert.match(handler, /shell\.showItemInFolder\(allowedTarget\)/, "uses shell.showItemInFolder only after boundary validation");
   assert.doesNotMatch(handler, /openExternal/, "never opens local paths through shell.openExternal");
   assert.match(handler, /return \{ ok: true \}/, "success resolves ok");
   assert.match(handler, /catch \{\n\s+return \{ ok: false, reason: "unavailable" \}/, "failures resolve a structured reason instead of throwing");

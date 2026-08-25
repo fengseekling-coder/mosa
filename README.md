@@ -25,7 +25,7 @@ Search and browse one local library with thumbnails, previews, tags, favorites, 
 
 ### Continue without starting over
 
-Save a recipe, create a new version, inspect the version tree, or insert an approved asset back into Cowart. Your next iteration starts from context, not from a mystery image.
+Save a recipe, create a new version, inspect the version tree. Your next iteration starts from context, not from a mystery image.
 
 ## Fits into your workflow
 
@@ -34,7 +34,7 @@ Save a recipe, create a new version, inspect the version tree, or insert an appr
 | **Codex Desktop** | Generated images and the matching local generation context when available |
 | **ChatGPT, Gemini, Flow, or Google AI Studio in Chrome** | Optional visible web-generated images and conservative page-scoped context through the local extension |
 | **Grok Build CLI** | Images and videos from local sessions, with matched tool context when available |
-| **Cowart** | Approved canvas snapshots and a safe path to insert a library asset back into a canvas |
+| **Cowart** | Approved canvas snapshots archived from Cowart into the library |
 
 MOSA does not generate media or replace any of these tools. It is the place where their visual output becomes a reusable body of work.
 

@@ -84,7 +84,7 @@ export function createWebCaptureIngest(options: { store?: Store; libraryDir?: st
   const state: { enabled: boolean; providers: string[]; lastIngestAt: string | null; lastImportCount: number; totalImported: number; totalSkipped: number; lastError: string | null; lastSkippedReason: string | null } = { enabled: Boolean(token) && allowedOriginCount > 0, providers: Object.keys(PROVIDER_CONFIG), lastIngestAt: null, lastImportCount: 0, totalImported: 0, totalSkipped: 0, lastError: null, lastSkippedReason: null };
   function status(): Record<string, unknown> { return { ...state, tokenConfigured: Boolean(token), originConfigured: allowedOriginCount > 0, allowedOriginCount }; }
   function assertToken(provided: string): void {
-    if (!token) { const e = new Error("Web capture is disabled until MOSA_WEB_CAPTURE_TOKEN is configured.") as Error & { statusCode: number; code: string }; e.statusCode = 503; e.code = "WEB_CAPTURE_DISABLED"; throw e; }
+    if (!token) { const e = new Error("Web capture is disabled until MOSA_WEB_CAPTURE_TOKEN is configured.") as Error & { statusCode: number; code: string; expose: boolean }; e.statusCode = 503; e.code = "WEB_CAPTURE_DISABLED"; e.expose = true; throw e; }
     if (!safeTokenEqual(String(provided || "").trim(), token)) { const e = new Error("Unauthorized web capture token.") as Error & { statusCode: number; code: string }; e.statusCode = 401; e.code = "WEB_CAPTURE_UNAUTHORIZED"; throw e; }
   }
   async function ingest(input: WebCaptureInput = {}, authToken = ""): Promise<IngestResult> {

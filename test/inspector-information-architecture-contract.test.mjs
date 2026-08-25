@@ -1,8 +1,8 @@
 // Inspector information-architecture contract (Phase 4A): the approved
-// single-column detail panel — V2's nine semantic sections in the approved order,
+// single-column detail panel — V2's eight semantic sections in the approved order,
 // no tab roles, honest file-fact fallbacks ("未记录" instead of fabricated
-// dimensions/size), Cowart as the only solid primary action, Save Version
-// demoted to secondary, and every async race guard preserved. Static guards
+// dimensions/size), Save Version demoted to secondary, and every async race
+// guard preserved. Static guards
 // only — Node standard library, no network access. Locks concrete DOM, order,
 // state and helpers (never a whole-file SHA of app.js / styles.css).
 import assert from "node:assert/strict";
@@ -57,10 +57,10 @@ function functionSlice(source, name) {
 }
 
 // Library v2 keeps favorite inside its Overview; the remaining semantic blocks
-// are therefore a nine-section column.
-const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "cowart", "new-version", "more"];
+// are therefore an eight-section column.
+const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "new-version", "more"];
 // Exact helper-call sequence inside the renderDetail single-column composition.
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
 
 // 1. Detail uses a single vertical information column.
 // 2. No detail tablist. 3. No detail tab. 4. No detail tabpanel.
@@ -94,9 +94,9 @@ test("1-6. single-column architecture, tab roles removed, V2 sections in approve
   assert.doesNotMatch(app + inspector, /class="detail-tab/);
   assert.doesNotMatch(css, /\.detail-tab/);
 
-  // 5. Nine semantic sections, each emitted exactly once. Favorite belongs in
+  // 5. Eight semantic sections, each emitted exactly once. Favorite belongs in
   // the V2 Overview instead of occupying a detached visual section.
-  assert.equal(count(inspector, 'data-inspector-section="'), 9, "exactly nine V2 semantic sections");
+  assert.equal(count(inspector, 'data-inspector-section="'), 8, "exactly eight V2 semantic sections");
   for (const id of SECTION_ORDER) {
     assert.ok(inspector.includes(`data-inspector-section="${id}"`), `missing section ${id}`);
   }
@@ -298,53 +298,28 @@ test("25-28. tags section renders prompt-derived chips and add action (D3)", asy
   assert.match(i18n, /addTag: "添加标签"/);
 });
 
-// 29. Cowart is 8th. 30. The control renders once. 31. Cowart is the only primary.
-test("29-31. cowart section renders once and stays the only solid primary action", async () => {
-  const app = await readApp();
+// 32. Save Version is 8th. 33. The action describes the version operation MOSA actually performs.
+test("32-33. new-version section position and honest save action", async () => {
   const inspector = await readInspectorMarkup();
 
-  // 29. Cowart sits after group, before new-version.
-  const cowartIndex = COMPOSITION.indexOf("detailCowartSectionMarkup");
-  assert.ok(cowartIndex > COMPOSITION.indexOf("detailGroupSectionMarkup"));
-  assert.ok(cowartIndex < COMPOSITION.indexOf("detailNewVersionSectionMarkup"));
-
-  // 30. One mount slot in the section markup, one append call in renderDetail.
-  const cowartSection = functionSlice(inspector, "detailCowartSectionMarkup");
-  assert.ok(cowartSection.includes('data-inspector-section="cowart"'));
-  assert.equal(count(app, "cowart-insert-slot") + count(inspector, "cowart-insert-slot"), 2, "one slot in markup + one mount query");
-  assert.equal(count(app, "createCowartInsertControl("), 2, "one declaration + one mount call");
-  assert.equal(count(app, ".append(createCowartInsertControl("), 1, "the control is mounted exactly once");
-
-  // 31. The Cowart insert button is the only solid primary in the whole panel:
-  // every save action (recipe / version / reference-rights) is secondary.
-  const control = functionSlice(app, "createCowartInsertControl");
-  assert.match(control, /<button class="action-btn primary" type="button" data-action="insert-cowart"/);
-  assert.equal(count(app, "action-btn primary"), 1, "no other action-btn primary may exist");
-  assert.doesNotMatch(app, /recipe-save-btn primary/);
-  const helperRegion = sliceBetween(inspector, "  function fileDimensionsText(", "  function assetMediaPreviewMarkup");
-  assert.doesNotMatch(helperRegion, /primary/, "no section helper may render a primary action");
-});
-
-// 32. Save Version is 9th. 33. Save Version uses the secondary style.
-test("32-33. new-version section position and secondary save action", async () => {
-  const inspector = await readInspectorMarkup();
-
-  // 32. New-version is the 9th section (after cowart, before more).
+  // 32. New-version is the 8th section (after group, before more).
   const newVersionIndex = COMPOSITION.indexOf("detailNewVersionSectionMarkup");
-  assert.ok(newVersionIndex > COMPOSITION.indexOf("detailCowartSectionMarkup"));
+  assert.ok(newVersionIndex > COMPOSITION.indexOf("detailGroupSectionMarkup"));
   assert.ok(newVersionIndex < COMPOSITION.indexOf("detailMoreSectionMarkup"));
 
-  // 33. V2 regenerate composer: textarea with change-note, model/ratio/resolution
-  // controls, and a send button for generation.
+  // 33. Version composer contains only the change note and explicit save action;
+  // it must not imply that MOSA calls an image-generation model.
   const newVersionSection = functionSlice(inspector, "detailNewVersionSectionMarkup");
   assert.ok(newVersionSection.includes('data-inspector-section="new-version"'));
   assert.match(newVersionSection, /detail-regenerate-composer/);
   assert.match(newVersionSection, /<textarea data-version-change/);
   assert.match(newVersionSection, /data-action="save-version"/);
-  assert.match(newVersionSection, /detail-composer-send/);
+  assert.match(newVersionSection, /detail-save-version/);
+  assert.match(newVersionSection, /createRecipeVersionDescription/);
+  assert.doesNotMatch(newVersionSection, /Imagen 4|Flux|data-composer-select|data-resolution|detail-composer-send/);
 });
 
-// 34. More is 10th. 35. Archive stays a separated danger action.
+// 34. More is 9th. 35. Archive stays a separated danger action.
 test("34-35. more section last, archive kept as a separated danger action", async () => {
   const inspector = await readInspectorMarkup();
 

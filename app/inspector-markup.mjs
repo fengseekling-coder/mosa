@@ -79,10 +79,23 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return `<button class="detail-fav-btn${favorite ? " is-fav" : ""}" type="button" data-action="toggle-favorite" aria-pressed="${favorite}" aria-label="${escapeHtml(actionLabel)}"><span aria-hidden="true">${favorite ? "★" : "☆"}</span><span>${escapeHtml(visibleLabel)}</span></button>`;
   }
 
+  const MAX_DETAIL_PREVIEW_ASPECT = 9 / 16;
+
+  function detailPreviewAspectRatio(asset) {
+    const width = persistedPositiveNumber(asset, "width");
+    const height = persistedPositiveNumber(asset, "height");
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return "9 / 16";
+    }
+    const assetAspect = width / height;
+    return assetAspect >= MAX_DETAIL_PREVIEW_ASPECT ? `${width} / ${height}` : "9 / 16";
+  }
+
   function detailFileSectionMarkup(asset) {
     const title = asset.theme || asset.asset || asset.id;
     const source = sourceName(asset.source || {});
     const sourceRef = asset.source || {};
+    const previewAspectRatio = detailPreviewAspectRatio(asset);
     const openSourceButton = String(sourceRef.conversation_id || "").trim()
       ? `<button class="section-head-copy detail-overview-open" type="button" data-action="view-generation-session" title="${escapeHtml(t("openOriginalConversation"))}" aria-label="${escapeHtml(t("openOriginalConversation"))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button>`
       : "";
@@ -93,14 +106,14 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
       ["fileSize", fileSizeText(asset)],
       ["group", String(asset.group || "").trim() || t("notGrouped")],
     ].map(([key, value]) => fileFactTagMarkup(key, value)).join("");
-    return `<section class="inspector-section detail-overview" data-inspector-section="file" aria-labelledby="assetOverviewTitle"><div class="detail-overview-heading"><h3 id="assetOverviewTitle">${t("fileFacts")}</h3><p title="${escapeHtml(`${source} · ${formatDate(asset.created_at, state.locale)}`)}">${escapeHtml(source)} · ${formatDate(asset.created_at, state.locale)}</p>${openSourceButton}</div><div class="detail-image-wrap">${assetMediaPreviewMarkup(asset, "detail")}</div><div class="detail-overview-title-row"><h3 id="detailTitle" tabindex="-1" title="${escapeHtml(title)}">${escapeHtml(title)}</h3>${detailFavoriteButtonMarkup(asset)}</div><div class="detail-facts" role="group" aria-label="${escapeHtml(t("assetMetadata"))}">${facts}</div></section>`;
+    return `<section class="inspector-section detail-overview" data-inspector-section="file" aria-labelledby="assetOverviewTitle"><div class="detail-overview-heading"><h3 id="assetOverviewTitle">${t("fileFacts")}</h3><p title="${escapeHtml(`${source} · ${formatDate(asset.created_at, state.locale)}`)}">${escapeHtml(source)} · ${formatDate(asset.created_at, state.locale)}</p>${openSourceButton}</div><div class="detail-image-wrap" data-detail-preview-aspect="${escapeHtml(previewAspectRatio)}">${assetMediaPreviewMarkup(asset, "detail")}</div><div class="detail-overview-title-row"><h3 id="detailTitle" tabindex="-1" title="${escapeHtml(title)}">${escapeHtml(title)}</h3>${detailFavoriteButtonMarkup(asset)}</div><div class="detail-facts" role="group" aria-label="${escapeHtml(t("assetMetadata"))}">${facts}</div></section>`;
   }
 
   function detailTagsSectionMarkup(asset) {
     const tags = assetTags(asset).slice(0, 10);
     const tagMarkup = tags.map((tag) => `<span class="detail-tag" data-tag-value="${escapeHtml(tag)}">${escapeHtml(tag)}</span>`).join("");
     const emptyMarkup = tags.length ? "" : `<span class="empty-copy detail-tags-empty">${t("tagsEmpty")}</span>`;
-    return `<section class="inspector-section detail-tags-section" data-inspector-section="tags"><div class="detail-prompt-head"><h3>${t("tags")}</h3><span class="detail-tags-hint">${escapeHtml(t("tagsAutoHint"))}</span></div><div class="detail-tags-row" data-tags-list>${tagMarkup}${emptyMarkup}<button class="detail-tags-add" type="button" data-action="add-tag"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>${escapeHtml(t("addTag"))}</span></button></div></section>`;
+    return `<section class="inspector-section detail-tags-section" data-inspector-section="tags" aria-label="${escapeHtml(t("tags"))}"><div class="detail-tags-row" data-tags-list>${tagMarkup}${emptyMarkup}<button class="detail-tags-add" type="button" data-action="add-tag"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>${escapeHtml(t("addTag"))}</span></button></div></section>`;
   }
 
   function detailPromptSectionMarkup(asset) {
@@ -201,12 +214,8 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return `<section class="inspector-section detail-group-section" data-inspector-section="group"><div class="detail-prompt-head"><h3>${t("group")}</h3></div><p class="inspector-readout">${group ? escapeHtml(group) : `<span class="empty-copy">${t("notGrouped")}</span>`}</p></section>`;
   }
 
-  function detailCowartSectionMarkup() {
-    return `<section class="inspector-section detail-cowart-section" data-inspector-section="cowart"><div class="detail-prompt-head"><h3>${t("insertCowart")}</h3></div><div class="cowart-insert-slot"></div></section>`;
-  }
-
   function detailNewVersionSectionMarkup() {
-    return `<section class="inspector-section detail-regenerate-section" data-inspector-section="new-version"><div class="detail-regenerate-head"><h3>${t("regenerate")}</h3></div><div class="detail-regenerate-composer"><textarea data-version-change rows="3" placeholder="${escapeHtml(t("regeneratePlaceholder"))}"></textarea><div class="detail-regenerate-bar"><div class="detail-regenerate-controls"><label class="detail-composer-chip"><span class="visually-hidden">${escapeHtml(t("chooseModel"))}</span><select data-composer-select="model" aria-label="${escapeHtml(t("chooseModel"))}"><option value="auto">${escapeHtml(t("chooseModel"))}</option><option value="imagen-4">Imagen 4</option><option value="flux">Flux</option></select></label><label class="detail-composer-chip"><span class="visually-hidden">${escapeHtml(t("chooseRatio"))}</span><select data-composer-select="ratio" aria-label="${escapeHtml(t("chooseRatio"))}"><option value="4:3">4:3</option><option value="1:1">1:1</option><option value="16:9">16:9</option><option value="3:4">3:4</option></select></label><div class="detail-composer-segmented" role="group" aria-label="${escapeHtml(t("chooseResolution"))}"><button class="detail-composer-seg" type="button" data-resolution="1K" aria-pressed="true">1K</button><button class="detail-composer-seg" type="button" data-resolution="2K" aria-pressed="false">2K</button><button class="detail-composer-seg" type="button" data-resolution="4K" aria-pressed="false">4K</button></div></div><button class="detail-composer-send" type="button" data-action="save-version" aria-label="${escapeHtml(t("generateAndSave"))}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div></div></section>`;
+    return `<section class="inspector-section detail-regenerate-section" data-inspector-section="new-version"><div class="detail-regenerate-head"><h3>${t("createRecipeVersion")}</h3></div><p class="detail-version-truth-note">${t("createRecipeVersionDescription")}</p><div class="detail-regenerate-composer"><textarea data-version-change rows="3" placeholder="${escapeHtml(t("versionChangePlaceholder"))}"></textarea><div class="detail-regenerate-bar"><button class="action-btn primary detail-save-version" type="button" data-action="save-version">${t("saveAsVersion")}</button></div></div></section>`;
   }
 
   // Phase 4C：App/Web 原图能力集中判定——desktop-finder（Electron 注入 showItemInFolder 且
@@ -238,8 +247,7 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     const locationValue = imagePath
       ? escapeHtml(asset.image_path)
       : `<span class="empty-copy">${t("notRecorded")}</span>`;
-    const folderAction = `<section class="inspector-section detail-folder-section"><button class="detail-folder-btn" type="button" data-action="show-in-finder"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>${t("showInFinder")}</button></section>`;
-    return `${folderAction}<section class="inspector-section" data-inspector-section="more"><div class="section-head"><h4>${t("originalAndMore")}</h4></div><div class="original-media-action">${originalMediaActionMarkup(asset)}</div><details class="detail-disclosure" data-more-actions><summary>${t("moreActions")}</summary><div class="disclosure-content"><div class="detail-utility-actions"><button class="action-btn secondary" type="button" data-action="regenerate">${t("regenerate")}</button>${copyPathAction}</div><div class="more-location"><span class="meta-key">${t("imageLocation")}</span><div class="path-box detail-path-box">${locationValue}</div></div></div></details><div class="detail-danger-actions"><button class="action-btn danger" type="button" data-action="archive-asset">${t("batchArchive")}</button></div></section>`;
+    return `<section class="inspector-section" data-inspector-section="more"><div class="section-head"><h4>${t("originalAndMore")}</h4></div><div class="original-media-action">${originalMediaActionMarkup(asset)}</div><details class="detail-disclosure" data-more-actions><summary>${t("moreActions")}</summary><div class="disclosure-content"><div class="detail-utility-actions"><button class="action-btn secondary" type="button" data-action="regenerate">${t("regenerate")}</button>${copyPathAction}</div><div class="more-location"><span class="meta-key">${t("imageLocation")}</span><div class="path-box detail-path-box">${locationValue}</div></div></div></details><div class="detail-danger-actions"><button class="action-btn danger" type="button" data-action="archive-asset">${t("batchArchive")}</button></div></section>`;
   }
 
   function versionHistoryMarkup(history, selectedId) {
@@ -354,5 +362,5 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return `<img class="thumb" src="${escapeHtml(url)}" alt="${escapeHtml(title)}" loading="lazy" />`;
   }
 
-  return { fileDimensionsText, fileFormatText, fileSizeText, fileAspectRatioText, formatFileSize, fileFactRowMarkup, fileFactTagMarkup, detailFavoriteButtonMarkup, detailFileSectionMarkup, detailPromptSectionMarkup, editRecipeFieldsMarkup, detailSourceSectionMarkup, detailVersionSectionMarkup, versionPickerMarkup, versionOptionLabel, detailVersionSummaryMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, detailCowartSectionMarkup, detailNewVersionSectionMarkup, originalMediaCapability, originalMediaActionMarkup, detailMoreSectionMarkup, versionHistoryMarkup, recipeHistoryDisclosureMarkup, referenceRightsSummary, recipeHistoryMarkup, categoryOptions, buildSourceRows, sourceName, sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup };
+  return { fileDimensionsText, fileFormatText, fileSizeText, fileAspectRatioText, formatFileSize, fileFactRowMarkup, fileFactTagMarkup, detailFavoriteButtonMarkup, detailFileSectionMarkup, detailPromptSectionMarkup, editRecipeFieldsMarkup, detailSourceSectionMarkup, detailVersionSectionMarkup, versionPickerMarkup, versionOptionLabel, detailVersionSummaryMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, detailNewVersionSectionMarkup, originalMediaCapability, originalMediaActionMarkup, detailMoreSectionMarkup, versionHistoryMarkup, recipeHistoryDisclosureMarkup, referenceRightsSummary, recipeHistoryMarkup, categoryOptions, buildSourceRows, sourceName, sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup };
 }

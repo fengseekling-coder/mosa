@@ -23,7 +23,6 @@ function runtimeOptions(root) {
     grokSessionsDir: join(root, "grok-sessions"),
     cowartCanvasDir: join(root, "cowart-canvas"),
     cowartRegistryPath: join(root, "state", "cowart-projects.json"),
-    cowartMcpServerPath: join(root, "missing-cowart-mcp-server.mjs"),
   };
 }
 

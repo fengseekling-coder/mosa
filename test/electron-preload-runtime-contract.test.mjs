@@ -73,7 +73,9 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(finderHandler, /event\.sender !== mainWindow\.webContents/);
   assert.match(finderHandler, /!isAbsolute\(target\)/);
   assert.match(finderHandler, /!existsSync\(target\)/);
-  assert.match(finderHandler, /shell\.showItemInFolder\(target\)/);
+  assert.match(finderHandler, /resolveAllowedFolderPath\(target, \[libraryDir\]\)/);
+  assert.match(finderHandler, /shell\.showItemInFolder\(allowedTarget\)/);
+  assert.match(finderHandler, /reason: "not-allowed"/);
   assert.doesNotMatch(finderHandler, /openExternal/);
 
   assert.match(main, /minWidth: 960,/);
