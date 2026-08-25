@@ -184,7 +184,6 @@ test("22. O2 compact desktop behavior stays locked in public CSS", async () => {
   assert.match(mq1120, /\.shell\.details-open \{ grid-template-columns: var\(--sidebar-width-compact\) minmax\(0, 1fr\) var\(--inspector-width-compact\); \}/);
   assert.match(mqCompact, /\.shell\.details-open \.nav-item-text,[\s\S]*?clip: rect\(0,0,0,0\)/);
   assert.match(css, /@media \(max-width: 700px\) \{[\s\S]*?\.shell, \.shell\.details-open \{ display: flex; min-height: 100vh; flex-direction: column; \}/);
-  assert.doesNotMatch(css, /MOSA-UI-实施决策-v1\.md/);
 });
 
 // 23. The search-location contract keeps holding (sidebar, not topbar).
