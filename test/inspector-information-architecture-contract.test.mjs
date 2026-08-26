@@ -153,9 +153,9 @@ test("7-10. file facts are honest — notRecorded fallbacks, no fabrication", as
   assert.equal(helpers.fileSizeText(capturedAsset), "584 KB");
   assert.equal(helpers.fileDimensionsText({ business_fields: { width: 0, height: 1376 } }), null);
 
-  // Preview geometry follows the real asset ratio up through 9:16. Wider
-  // assets are capped to a 9:16 viewport and fill that viewport with cover.
-  assert.match(inspector, /return assetAspect <= MAX_DETAIL_PREVIEW_ASPECT \? `\$\{width\} \/ \$\{height\}` : "9 \/ 16";/);
+  // Preview geometry keeps the real ratio for 2:3, 3:4 and wider assets. Only
+  // assets taller than 9:16 are capped to a 9:16 viewport and filled with cover.
+  assert.match(inspector, /return assetAspect >= MIN_DETAIL_PREVIEW_ASPECT \? `\$\{width\} \/ \$\{height\}` : "9 \/ 16";/);
   assert.match(css, /\.mosa-v2 \.detail \.detail-overview \.detail-image-wrap \{[\s\S]*?aspect-ratio: var\(--detail-preview-aspect, 9 \/ 16\);[\s\S]*?overflow: hidden;/);
   assert.match(css, /\.mosa-v2 \.detail \.detail-overview \.detail-image \{[\s\S]*?object-fit: cover;/);
 });
