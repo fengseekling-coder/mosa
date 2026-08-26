@@ -102,7 +102,11 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return `<button class="detail-fav-btn${favorite ? " is-fav" : ""}" type="button" data-action="toggle-favorite" aria-pressed="${favorite}" aria-label="${escapeHtml(actionLabel)}"><span aria-hidden="true">${favorite ? "★" : "☆"}</span><span>${escapeHtml(visibleLabel)}</span></button>`;
   }
 
-  const MAX_DETAIL_PREVIEW_ASPECT = 9 / 16;
+  // 9:16 is the tallest preview viewport we allow. Assets that are less tall
+  // than that (for example 2:3, 3:4, 1:1, 16:9) keep their real aspect ratio,
+  // so the thumbnail has no letterboxing. Assets taller than 9:16 are capped
+  // to a 9:16 viewport; object-fit: cover then fills the viewport by cropping.
+  const MIN_DETAIL_PREVIEW_ASPECT = 9 / 16;
 
   function detailPreviewAspectRatio(asset) {
     const width = persistedPositiveNumber(asset, "width");
@@ -111,7 +115,7 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
       return "9 / 16";
     }
     const assetAspect = width / height;
-    return assetAspect <= MAX_DETAIL_PREVIEW_ASPECT ? `${width} / ${height}` : "9 / 16";
+    return assetAspect >= MIN_DETAIL_PREVIEW_ASPECT ? `${width} / ${height}` : "9 / 16";
   }
 
   function detailFileSectionMarkup(asset) {
