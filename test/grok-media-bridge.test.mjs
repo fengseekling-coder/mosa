@@ -158,6 +158,31 @@ test("passes automatic ingest mode and continues after a suppressed Grok media i
   assert.equal(result.imported.length, 1);
 });
 
+test("retries a deterministic Grok asset id collision through automatic identity dedupe", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-grok-id-race-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const fixture = await createGrokSessionFixture(root);
+  const assetIds = [];
+  const store = {
+    async listAssets() { return []; },
+    async createAsset(params) {
+      assetIds.push(params.assetId);
+      if (assetIds.length === 1) throw Object.assign(new Error("winner reserved the compact id"), { code: "ASSET_ALREADY_EXISTS" });
+      throw Object.assign(new Error("same pixels won elsewhere"), {
+        code: "AUTOMATIC_INGEST_DUPLICATE",
+        identityKind: "pixel",
+      });
+    },
+  };
+
+  const result = await reconcileGrokMedia({ store, sessionsDir: fixture.sessionsDir });
+  assert.equal(assetIds.length, 2);
+  assert.notEqual(assetIds[1], assetIds[0]);
+  assert.match(assetIds[1], new RegExp(`^${assetIds[0]}-[a-f0-9]{8}$`));
+  assert.equal(result.imported.length, 0);
+  assert.equal(result.skipped[0].reason, "already-archived-same-pixels");
+});
+
 test("archives Grok images with tool prompt and avoids duplicates on restart", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
   t.after(() => rm(root, { recursive: true, force: true }));

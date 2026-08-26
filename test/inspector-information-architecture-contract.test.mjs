@@ -72,6 +72,7 @@ test("1-6. single-column architecture, tab roles removed, V2 sections in approve
   const renderDetail = functionSlice(app, "renderDetail");
   assert.ok(renderDetail.includes('<div class="detail-inspector"><div class="detail-inspector-header">'), "inspector shell with fixed header");
   assert.ok(renderDetail.includes('<div class="detail-inspector-scroll">'), "single scroll container in markup");
+  assert.ok(renderDetail.includes('${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}'), "file facts and tags stay adjacent without an extra overview wrapper");
   assert.equal(count(app, 'class="detail-inspector-scroll"'), 1, "exactly one scroll container is rendered");
   const scroller = blockAfter(css, ".detail-inspector-scroll {");
   assert.match(scroller, /overflow-y: auto/);
@@ -104,12 +105,17 @@ test("1-6. single-column architecture, tab roles removed, V2 sections in approve
   // 6. The renderDetail composition concatenates the V2 helpers in the
   // approved order — this string is the single source of the section order.
   assert.ok(app.includes(COMPOSITION), "renderDetail must compose the V2 sections in the approved order");
+  assert.match(css, /--inspector-unit:\s*4px/);
+  assert.doesNotMatch(app, /detail-overview-card/, "the inspector must not add an extra outer card wrapper around overview content");
+  assert.match(css, /\.mosa-v2 \.detail-inspector-scroll > \.inspector-section \{[\s\S]*?flex: 0 0 auto;/, "semantic sections must not shrink out of the flex scroll column");
+  assert.match(css, /\.mosa-v2 \.detail-inspector-scroll \{[\s\S]*?gap: 0;[\s\S]*?padding: 0 0 var\(--inspector-space-6\);/);
+  assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-section \{[\s\S]*?border-top: 1px solid var\(--inspector-divider\);[\s\S]*?border-radius: 0;[\s\S]*?background: transparent;/);
 });
 
 // 7. File-facts section exists. 8. Missing facts fall back to notRecorded.
 // 9. No fabricated 0×0 dimensions. 10. No fabricated file size.
 test("7-10. file facts are honest — notRecorded fallbacks, no fabrication", async () => {
-  const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
+  const [app, inspector, i18n, css] = await Promise.all([readApp(), readInspectorMarkup(), readI18n(), readCss()]);
 
   // 7. Section with an asset-metadata group and the V2 fact-tag values.
   const fileSection = functionSlice(inspector, "detailFileSectionMarkup");
@@ -141,9 +147,17 @@ test("7-10. file facts are honest — notRecorded fallbacks, no fabrication", as
   const helpers = createInspectorMarkup({ state: { groups: { groups: [] } }, t: (key) => key, referenceRightsMarkup: () => "" });
   const capturedAsset = { business_fields: { width: 768, height: 1376, file_bytes: 597543 } };
   assert.equal(helpers.fileDimensionsText(capturedAsset), "768 × 1376");
-  assert.equal(helpers.fileAspectRatioText(capturedAsset), "24:43");
+  assert.equal(helpers.fileAspectRatioText(capturedAsset), "9:16");
+  assert.equal(helpers.fileAspectRatioText({ business_fields: { width: 1487, height: 1058 } }), "7:5");
+  assert.equal(helpers.fileAspectRatioText({ business_fields: { width: 1020, height: 2080 } }), "51:104", "do not force a common ratio when the export is not close enough");
   assert.equal(helpers.fileSizeText(capturedAsset), "584 KB");
   assert.equal(helpers.fileDimensionsText({ business_fields: { width: 0, height: 1376 } }), null);
+
+  // Preview geometry follows the real asset ratio up through 9:16. Wider
+  // assets are capped to a 9:16 viewport and fill that viewport with cover.
+  assert.match(inspector, /return assetAspect <= MAX_DETAIL_PREVIEW_ASPECT \? `\$\{width\} \/ \$\{height\}` : "9 \/ 16";/);
+  assert.match(css, /\.mosa-v2 \.detail \.detail-overview \.detail-image-wrap \{[\s\S]*?aspect-ratio: var\(--detail-preview-aspect, 9 \/ 16\);[\s\S]*?overflow: hidden;/);
+  assert.match(css, /\.mosa-v2 \.detail \.detail-overview \.detail-image \{[\s\S]*?object-fit: cover;/);
 });
 
 // 11. Favorite button belongs to the Overview. 12. It uses aria-pressed.

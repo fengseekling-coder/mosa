@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, extname, join, resolve, sep } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+import { PIXEL_HASH_VERSION, safePixelDigest } from "./image-pixel-hash.js";
 
 type ReferenceInput = {
   projectId?: string;
@@ -22,6 +24,8 @@ export type ReferenceAttachment = {
   id: string;
   project_id: string;
   content_sha256: string;
+  pixel_sha256: string;
+  pixel_hash_version: string;
   file_name: string;
   mime_type: string;
   width: number;
@@ -42,21 +46,27 @@ export function createReferenceAttachmentStore(libraryDir: string) {
   // other's metadata entry.
   let saveQueue: Promise<unknown> = Promise.resolve();
 
-  function save(input: ReferenceInput): Promise<{ attachment: ReferenceAttachment; created: boolean }> {
-    const pending = saveQueue.then(() => saveUnlocked(input));
+  function save(input: ReferenceInput): Promise<{ attachment: ReferenceAttachment; created: boolean; duplicateKind?: "content" | "pixel" }> {
+    const pending = saveQueue.then(() => withProjectWriteLock(root, input.projectId || "default", () => saveUnlocked(input)));
     saveQueue = pending.catch(() => undefined);
     return pending;
   }
 
-  async function saveUnlocked(input: ReferenceInput): Promise<{ attachment: ReferenceAttachment; created: boolean }> {
+  async function saveUnlocked(input: ReferenceInput): Promise<{ attachment: ReferenceAttachment; created: boolean; duplicateKind?: "content" | "pixel" }> {
     const projectId = cleanSegment(input.projectId || "default", "default");
     const projectRoot = join(root, projectId);
     const filesRoot = join(projectRoot, "files");
     const indexPath = join(projectRoot, "index.json");
     await mkdir(filesRoot, { recursive: true });
     const contentHash = createHash("sha256").update(input.bytes).digest("hex");
-    const existing = (await list(projectId)).find((item) => item.content_sha256 === contentHash);
-    if (existing) return { attachment: existing, created: false };
+    const pixelHash = await safePixelDigest(input.bytes).catch(() => "");
+    const indexed = await list(projectId);
+    const existingByContent = indexed.find((item) => item.content_sha256 === contentHash);
+    if (existingByContent) return { attachment: existingByContent, created: false, duplicateKind: "content" };
+    const existingByPixel = pixelHash
+      ? indexed.find((item) => item.pixel_hash_version === PIXEL_HASH_VERSION && item.pixel_sha256 === pixelHash)
+      : undefined;
+    if (existingByPixel) return { attachment: existingByPixel, created: false, duplicateKind: "pixel" };
 
     const extension = safeExtension(input.extension);
     const id = `ref-${contentHash.slice(0, 24)}`;
@@ -73,6 +83,8 @@ export function createReferenceAttachmentStore(libraryDir: string) {
       id,
       project_id: projectId,
       content_sha256: contentHash,
+      pixel_sha256: pixelHash,
+      pixel_hash_version: pixelHash ? PIXEL_HASH_VERSION : "",
       file_name: fileName,
       mime_type: String(input.mimeType || "application/octet-stream"),
       width: Number(input.width || 0),
@@ -101,6 +113,8 @@ export function createReferenceAttachmentStore(libraryDir: string) {
       return parsed.filter((item) => item && typeof item === "object").map((item) => ({
         ...item,
         project_id: cleanProjectId,
+        pixel_sha256: String(item.pixel_sha256 || ""),
+        pixel_hash_version: String(item.pixel_hash_version || ""),
         attachment_url: attachmentUrl(cleanProjectId, cleanSegment(item.file_name, "reference.bin")),
       }));
     } catch (error) {
@@ -136,4 +150,39 @@ function safeExtension(value: string): string {
 
 function attachmentUrl(projectId: string, fileName: string): string {
   return `/library/${encodeURIComponent(projectId)}/references/${encodeURIComponent(fileName)}`;
+}
+
+async function withProjectWriteLock<T>(root: string, projectId: string, task: () => Promise<T>): Promise<T> {
+  const projectRoot = join(root, cleanSegment(projectId, "default"));
+  const lockPath = join(projectRoot, ".index.lock");
+  await mkdir(projectRoot, { recursive: true });
+  for (let attempt = 0; attempt < 250; attempt += 1) {
+    let handle;
+    try {
+      handle = await open(lockPath, "wx");
+      await handle.writeFile(`${process.pid}:${Date.now()}\n`, "utf8");
+    } catch (error) {
+      await handle?.close().catch(() => {});
+      if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
+      try {
+        const lockStat = await stat(lockPath);
+        if (Date.now() - lockStat.mtimeMs > 30_000) {
+          await unlink(lockPath).catch(() => {});
+          continue;
+        }
+      } catch (statError) {
+        if ((statError as NodeJS.ErrnoException)?.code === "ENOENT") continue;
+        throw statError;
+      }
+      await delay(20);
+      continue;
+    }
+    try {
+      return await task();
+    } finally {
+      await handle.close().catch(() => {});
+      await unlink(lockPath).catch(() => {});
+    }
+  }
+  throw new Error("Reference attachment index is busy.");
 }

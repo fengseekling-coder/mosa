@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import sharp from "sharp";
 import { createdAtTimestamp } from "./recent-window.js";
 import { createReferenceAttachmentStore, type ReferenceAttachment } from "./reference-attachment-store.js";
+import { PIXEL_HASH_VERSION, safePixelDigest } from "./image-pixel-hash.js";
 
 const DEFAULT_PROJECT_ID = "default";
 const PROVIDER_CONFIG = {
@@ -63,6 +64,7 @@ interface Store {
   listAssets(filters: Metadata): Promise<StoredAsset[]>;
   updateMetadata?(projectId: string, assetId: string, metadata: Metadata): Promise<StoredAsset>;
   findAssetByContentHash?(projectId: string, contentHash: string): Promise<StoredAsset | null>;
+  findAssetByPixelHash?(projectId: string, pixelHash: string): Promise<StoredAsset | null>;
   libraryDir?: string;
   assetsRoot?: string;
   [key: string]: unknown;
@@ -81,6 +83,7 @@ export function createWebCaptureIngest(options: { store?: Store; libraryDir?: st
   const tokenSource = Object.hasOwn(options, "token") ? options.token : process.env.MOSA_WEB_CAPTURE_TOKEN;
   const token = String(tokenSource || "").trim();
   const allowedOriginCount = Array.isArray(options.allowedOrigins) ? options.allowedOrigins.length : 0;
+  let ingestQueue: Promise<void> = Promise.resolve();
   const state: { enabled: boolean; providers: string[]; lastIngestAt: string | null; lastImportCount: number; totalImported: number; totalSkipped: number; lastError: string | null; lastSkippedReason: string | null } = { enabled: Boolean(token) && allowedOriginCount > 0, providers: Object.keys(PROVIDER_CONFIG), lastIngestAt: null, lastImportCount: 0, totalImported: 0, totalSkipped: 0, lastError: null, lastSkippedReason: null };
   function status(): Record<string, unknown> { return { ...state, tokenConfigured: Boolean(token), originConfigured: allowedOriginCount > 0, allowedOriginCount }; }
   function assertToken(provided: string): void {
@@ -89,7 +92,9 @@ export function createWebCaptureIngest(options: { store?: Store; libraryDir?: st
   }
   async function ingest(input: WebCaptureInput = {}, authToken = ""): Promise<IngestResult> {
     assertToken(authToken);
-    try { const result = await ingestWebCapture({ store, referenceStore, tempRoot, projectId, input }); state.lastIngestAt = new Date().toISOString(); state.lastError = null; if (result.status === "imported") { state.lastImportCount = 1; state.totalImported += 1; state.lastSkippedReason = null; } else { state.lastImportCount = 0; state.totalSkipped += 1; state.lastSkippedReason = result.reason || "skipped"; } return result; } catch (error) { state.lastError = error instanceof Error ? error.message : String(error); throw error; }
+    const run = ingestQueue.then(() => ingestWebCapture({ store, referenceStore, tempRoot, projectId, input }));
+    ingestQueue = run.then(() => undefined, () => undefined);
+    try { const result = await run; state.lastIngestAt = new Date().toISOString(); state.lastError = null; if (result.status === "imported") { state.lastImportCount = 1; state.totalImported += 1; state.lastSkippedReason = null; } else { state.lastImportCount = 0; state.totalSkipped += 1; state.lastSkippedReason = result.reason || "skipped"; } return result; } catch (error) { state.lastError = error instanceof Error ? error.message : String(error); throw error; }
   }
   return { ingest, status, assertToken, readReference: referenceStore.read, tempRoot, token };
 }
@@ -140,7 +145,11 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
     });
     return {
       status: saved.created ? "imported" : "skipped",
-      reason: saved.created ? undefined : "reference-already-archived-same-content",
+      reason: saved.created
+        ? undefined
+        : saved.duplicateKind === "pixel"
+          ? "reference-already-archived-same-pixels"
+          : "reference-already-archived-same-content",
       attachment: saved.attachment,
       contentHash,
     };
@@ -174,9 +183,10 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
   const tempName = `${providerConfig.tempPrefix}-${Date.now()}-${randomBytes(4).toString("hex")}${ext}`; const tempPath = join(tempRoot, tempName);
   await writeFile(tempPath, imageBytes);
   try {
-    const assetId = sanitizeAssetId(input.assetId || `${providerConfig.assetIdPrefix}-${contentHash.slice(0, 12)}`, providerConfig.assetIdPrefix);
+    const explicitAssetId = String(input.assetId || "").trim();
+    let assetId = sanitizeAssetId(explicitAssetId || `${providerConfig.assetIdPrefix}-${contentHash.slice(0, 12)}`, providerConfig.assetIdPrefix);
     const references = await turnReferences(projectAssets, referenceStore, projectId, { conversationId, capturedAt, selfAssetId: assetId });
-    const asset = await store.createAsset({
+    const assetInput = {
       projectId,
       imagePath: tempPath,
       assetId,
@@ -218,11 +228,41 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
         capture_extension_version: String(input.extensionVersion || input.extension_version || ""),
         content_sha256: contentHash,
         pixel_sha256: pixelHash || null,
+        pixel_hash_version: pixelHash ? PIXEL_HASH_VERSION : null,
       },
-    }, { trustedSourceRoots: [tempRoot], ingestMode: "automatic" });
+    };
+    let asset: StoredAsset;
+    try {
+      asset = await store.createAsset(assetInput, { trustedSourceRoots: [tempRoot], ingestMode: "automatic" });
+    } catch (error) {
+      // The compact deterministic ID is useful for ordinary captures, but two
+      // independent runtimes can reserve the same filename before either one
+      // publishes metadata. A unique candidate lets both attempts reach the
+      // store's transactional content/pixel identity check. It also keeps a
+      // genuine short-hash collision importable instead of misclassifying it.
+      if (explicitAssetId || !isAssetAlreadyExists(error)) throw error;
+      assetId = sanitizeAssetId(`${providerConfig.assetIdPrefix}-${contentHash.slice(0, 24)}-${randomBytes(4).toString("hex")}`, providerConfig.assetIdPrefix);
+      asset = await store.createAsset({ ...assetInput, assetId }, { trustedSourceRoots: [tempRoot], ingestMode: "automatic" });
+    }
     return { status: "imported", asset, contentHash };
   } catch (error) {
     if (isAutomaticImportSuppressed(error)) return { status: "skipped", reason: "suppressed-after-delete", contentHash };
+    if (isAutomaticIngestDuplicate(error)) {
+      const duplicateId = String((error as { assetId?: unknown }).assetId || "");
+      const duplicate = duplicateId
+        ? (await projectAssets()).find((asset) => asset.id === duplicateId)
+          || await findArchivedDuplicate(store, projectId, contentHash, pixelHash, projectAssets)
+        : await findArchivedDuplicate(store, projectId, contentHash, pixelHash, projectAssets);
+      if (duplicate) {
+        const sameBytes = duplicate.source?.content_sha256 === contentHash;
+        return {
+          status: "skipped",
+          reason: sameBytes ? "already-archived-same-content" : "already-archived-same-pixels",
+          asset: duplicate,
+          contentHash,
+        };
+      }
+    }
     throw error;
   } finally { await rm(tempPath, { force: true }).catch(() => {}); }
 }
@@ -242,6 +282,14 @@ function webCaptureError(message: string, statusCode: number, code: string): Err
 
 function isAutomaticImportSuppressed(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "AUTOMATIC_IMPORT_SUPPRESSED");
+}
+
+function isAutomaticIngestDuplicate(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "AUTOMATIC_INGEST_DUPLICATE");
+}
+
+function isAssetAlreadyExists(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "ASSET_ALREADY_EXISTS");
 }
 
 async function inspectImageBytes(imageBytes: Buffer): Promise<{ format: string; width: number; height: number; pixelHash: string }> {
@@ -266,7 +314,7 @@ async function inspectImageBytes(imageBytes: Buffer): Promise<{ format: string; 
       format: String(metadata.format || ""),
       width,
       height: frameHeight,
-      pixelHash: await pixelDigest(imageBytes),
+      pixelHash: await safePixelDigest(imageBytes, { limitInputPixels: WEB_CAPTURE_MAX_IMAGE_PIXELS }),
     };
   } catch (error: unknown) {
     if ((error as { code?: string })?.code === "WEB_CAPTURE_PIXEL_LIMIT") throw error;
@@ -286,10 +334,6 @@ async function inspectImageBytes(imageBytes: Buffer): Promise<{ format: string; 
   }
 }
 
-async function pixelDigest(imageBytes: Buffer): Promise<string> {
-  try { const { data, info } = await sharp(imageBytes, { failOn: "error", limitInputPixels: WEB_CAPTURE_MAX_IMAGE_PIXELS }).removeAlpha().raw().toBuffer({ resolveWithObject: true }); return createHash("sha256").update(`${info.width}x${info.height}x${info.channels}:`).update(data).digest("hex"); } catch { return ""; }
-}
-
 function decodeImageBytes(input: WebCaptureInput): Buffer {
   if (Buffer.isBuffer(input.imageBytes)) return input.imageBytes;
   if (input.imageBytes instanceof Uint8Array) return Buffer.from(input.imageBytes);
@@ -303,7 +347,28 @@ function normalizeMime(value: string): string { const m = String(value || "image
 function onceProjectListing(store: Store, projectId: string): () => Promise<StoredAsset[]> { let pending: Promise<StoredAsset[]> | null = null; return () => { if (!pending) pending = Promise.all([store.listAssets({ projectId }), store.listAssets({ projectId, archived: true }).catch(() => [])]).then(([a, b]) => [...a, ...b]); return pending; }; }
 async function findArchivedDuplicate(store: Store, projectId: string, contentHash: string, pixelHash: string, projectAssets: () => Promise<StoredAsset[]>): Promise<StoredAsset | null> {
   const byBytes = typeof store.findAssetByContentHash === "function" ? await store.findAssetByContentHash(projectId, contentHash) : (await projectAssets()).find((a) => a.source?.content_sha256 === contentHash) || null;
-  if (byBytes) return byBytes; if (!pixelHash) return null; return (await projectAssets()).find((a) => a.source?.pixel_sha256 === pixelHash) || null;
+  if (byBytes) return byBytes;
+  if (!pixelHash) return null;
+  const indexedMatch = typeof store.findAssetByPixelHash === "function"
+    ? await store.findAssetByPixelHash(projectId, pixelHash)
+    : (await projectAssets()).find((a) => a.source?.pixel_sha256 === pixelHash) || null;
+  if (indexedMatch && await isTrustedPixelMatch(store, indexedMatch, pixelHash)) return indexedMatch;
+  const candidates = (await projectAssets()).filter((asset) => asset.source?.pixel_sha256 === pixelHash && asset.id !== indexedMatch?.id);
+  for (const candidate of candidates) if (await isTrustedPixelMatch(store, candidate, pixelHash)) return candidate;
+  return null;
+}
+
+async function isTrustedPixelMatch(store: Store, asset: StoredAsset, pixelHash: string): Promise<boolean> {
+  if (asset.source?.pixel_hash_version === PIXEL_HASH_VERSION) return true;
+  const imagePath = typeof asset.image_path === "string" ? asset.image_path : "";
+  if (!imagePath) return false;
+  const trusted = await safePixelDigest(imagePath, { limitInputPixels: WEB_CAPTURE_MAX_IMAGE_PIXELS }).then((hash) => hash === pixelHash, () => false);
+  if (!trusted) return false;
+  if (typeof store.updateMetadata === "function") {
+    const nextSource = { ...(asset.source || {}), pixel_sha256: pixelHash, pixel_hash_version: PIXEL_HASH_VERSION };
+    await store.updateMetadata(asset.project_id, asset.id, { source: nextSource }).then(() => { asset.source = nextSource; }, () => {});
+  }
+  return true;
 }
 
 const MAX_TURN_REFERENCES = 8;

@@ -163,6 +163,7 @@
   --space-1: 8px;
   --space-2: 16px;
   --space-3: 24px;
+  --gallery-gap: 12px;
 
   /* --- 控件尺寸 --- */
   --control-sm: 32px;
@@ -389,7 +390,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .filter-chip-clear { min-height: 26px; flex: 0 0 auto; padding: 0 8px; border: 0; border-radius: 999px; color: var(--color-accent-active); background: transparent; cursor: pointer; font-size: 11px; font-weight: 550; white-space: nowrap; }
 
 /* ===== 瀑布流图库（CSS grid 1px 行高 + JS span 计算，行优先、分页友好） ===== */
-.grid { display: grid; flex: 1; min-width: 0; grid-auto-flow: dense; grid-auto-rows: 1px; grid-template-columns: repeat(4, minmax(0, 1fr)); align-content: start; column-gap: 10px; row-gap: 0; overflow: auto; padding: var(--space-2) 20px var(--space-3); background: var(--app-bg); }
+.grid { display: grid; flex: 1; min-width: 0; grid-auto-flow: dense; grid-auto-rows: 1px; grid-template-columns: repeat(4, minmax(0, 1fr)); align-content: start; column-gap: var(--gallery-gap); row-gap: 0; overflow: auto; padding: var(--space-2) 20px var(--space-3); background: var(--app-bg); }
 /* Phase 2C / Batch bar 底部补偿（任务十二）：批量条（--statusbar-height + 1px 边框）
    出现时末行卡片让位，关闭后仅保留 --space-3 常规呼吸位，不残留多余底部空白；
    补偿全部消费 Token，无魔法值。batch-active 挂在 .grid 上（app.js 既有行为，不改 JS），
@@ -467,7 +468,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .infinite-scroll-sentinel { grid-column: 1 / -1; height: 1px; pointer-events: none; }
 
 /* 骨架屏：父网格为 1px 行高，子元素必须声明行跨度 */
-.gallery-skeleton { display: grid; grid-column: 1 / -1; grid-row: span 620; grid-template-columns: repeat(4, minmax(0, 1fr)); align-content: start; column-gap: 10px; row-gap: 10px; }
+.gallery-skeleton { display: grid; grid-column: 1 / -1; grid-row: span 620; grid-template-columns: repeat(4, minmax(0, 1fr)); align-content: start; column-gap: var(--gallery-gap, 12px); row-gap: var(--gallery-gap, 12px); }
 @media (max-width: 1400px) { .gallery-skeleton { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .gallery-skeleton { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .asset-skeleton { height: 220px; border-radius: var(--radius-control); background: linear-gradient(100deg, var(--app-hover) 30%, var(--app-hover) 50%, var(--app-hover) 70%); background-size: 300% 100%; animation: skeleton-sheen 1.4s var(--ease-standard) infinite; }
@@ -1143,12 +1144,12 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .filter-dot { min-width: 15px; height: 15px; color: #fff; background: #2424ff; }
 
 .mosa-v2 .active-filters { margin: -8px 24px 4px; }.mosa-v2 .filter-chip { min-height: 28px; border-color: var(--color-border-subtle); color: var(--color-text-secondary); background: var(--app-card); }
-.mosa-v2 .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); column-gap: 12px; padding: 0 24px 24px; background: transparent; }
-.mosa-v2 .asset-card { margin-bottom: 12px; transition: transform 200ms var(--ease-standard), box-shadow 200ms var(--ease-standard); }
+.mosa-v2 .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); column-gap: var(--gallery-gap); row-gap: 0; padding: 0 24px 24px; background: transparent; }
+.mosa-v2 .asset-card { margin-bottom: 0; transition: transform 200ms var(--ease-standard), box-shadow 200ms var(--ease-standard); }
 .mosa-v2 .asset-card-select { border-radius: 12px; background: var(--app-card); box-shadow: none; }.mosa-v2 .asset-card-select::after { border-radius: 12px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .04); }.mosa-v2 .asset-card.selected .asset-card-select { box-shadow: none; }
 .mosa-v2 .asset-card .thumb, .mosa-v2 .asset-card .thumb img, .mosa-v2 .asset-card .thumb-video { border-radius: 12px; }.mosa-v2 .asset-card-info, .mosa-v2 .grid[data-density="info"] .asset-card-info { display: none; }.mosa-v2 .card-scrim { opacity: 0; }.mosa-v2 .asset-card.selected .card-check { display: none; }
 .mosa-v2 .card-actions { top: 12px; right: 12px; gap: 0; opacity: .9; }.mosa-v2 .card-action-btn { width: 32px; height: 32px; border: 0; border-radius: 50%; color: rgb(255 255 255 / .84); background: rgb(0 0 0 / .42); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }.mosa-v2 .card-favorite.is-fav { color: #fff; background: #eab308; }.mosa-v2 .card-quick-copy { display: none; }.mosa-v2 .card-checkbox { border-radius: 50%; }
-.mosa-v2 .gallery-skeleton { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; padding: 0; }.mosa-v2 .asset-skeleton { border-radius: 8px; background: linear-gradient(100deg, var(--app-search) 30%, var(--app-search-focus) 45%, var(--app-search) 60%); }.mosa-v2 .gallery-empty-state, .mosa-v2 .error-state { color: var(--color-text-tertiary); }.mosa-v2 .empty-state-actions .btn-primary { background: #2424ff; }
+.mosa-v2 .gallery-skeleton { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--gallery-gap); padding: 0; }.mosa-v2 .asset-skeleton { border-radius: 8px; background: linear-gradient(100deg, var(--app-search) 30%, var(--app-search-focus) 45%, var(--app-search) 60%); }.mosa-v2 .gallery-empty-state, .mosa-v2 .error-state { color: var(--color-text-tertiary); }.mosa-v2 .empty-state-actions .btn-primary { background: #2424ff; }
 
 .mosa-v2 .filter-panel, .mosa-v2 .settings-menu { border: 1px solid rgb(255 255 255 / .68); border-radius: 16px; background: rgb(from var(--app-menu) r g b / .92); box-shadow: 0 18px 42px -10px rgb(0 0 0 / .16); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); }
 .mosa-v2 .filter-panel { top: 68px; right: 24px; width: min(300px, calc(100vw - 40px)); padding: 14px; }.mosa-v2 .filter-panel-head { border-bottom-color: var(--color-border-subtle); }.mosa-v2 .filter-panel-search input { min-height: 32px; border-radius: 8px; background: var(--app-search); }.mosa-v2 .filter-list-item.active, .mosa-v2 .filter-pill.active { color: #2424ff; border-color: transparent; background: rgb(36 36 255 / .10); }
@@ -1563,8 +1564,9 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .topbar-work-group { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
   .mosa-v2 .topbar-result-count { margin-right: auto; padding-left: 0; }
   .mosa-v2 .topbar-search { box-sizing: border-box; width: 100%; order: 4; }
-  .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 0 16px 16px; }
-  .mosa-v2 .asset-card { margin-bottom: 10px; }
+  .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 16px 16px; }
+  .mosa-v2 .grid { column-gap: var(--gallery-gap); row-gap: 0; }
+  .mosa-v2 .gallery-skeleton { gap: var(--gallery-gap); }
   .mosa-v2 .detail { top: 12px; right: 12px; bottom: 12px; width: min(360px, calc(100vw - 24px)); border-radius: 24px; }
   .mosa-v2.mobile-nav-open .mobile-nav-toggle { display: none; }
   .mosa-v2.detail-open .mobile-nav-toggle { display: none; }
@@ -1697,29 +1699,30 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   --inspector-space-2: calc(var(--inspector-unit) * 2);
   --inspector-space-3: calc(var(--inspector-unit) * 3);
   --inspector-space-4: calc(var(--inspector-unit) * 4);
+  --inspector-space-5: calc(var(--inspector-unit) * 5);
   --inspector-space-6: calc(var(--inspector-unit) * 6);
   --inspector-space-8: calc(var(--inspector-unit) * 8);
   --inspector-radius-sm: 8px;
   --inspector-radius-md: 12px;
   --inspector-radius-lg: 16px;
-  --inspector-material: color-mix(in srgb, var(--app-card) 92%, transparent);
+  --inspector-surface: color-mix(in srgb, var(--app-card) 98%, var(--app-bg));
+  --inspector-field: color-mix(in srgb, var(--app-bg) 88%, var(--app-card));
   --inspector-divider: color-mix(in srgb, var(--color-text-primary) 10%, transparent);
 }
 
 .mosa-v2 .detail {
   border-left-color: var(--inspector-divider);
-  background: color-mix(in srgb, var(--app-bg) 96%, var(--app-card));
+  background: var(--app-card);
 }
 .mosa-v2 .detail-inspector {
   isolation: isolate;
+  animation: inspector-materialize var(--duration-normal) var(--ease-standard) both;
 }
 .mosa-v2 .detail-inspector-header {
   min-height: 56px;
   padding: 0 var(--inspector-space-4);
   border-bottom: 1px solid var(--inspector-divider);
-  background: color-mix(in srgb, var(--app-bg) 82%, transparent);
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  background: var(--app-card);
 }
 .mosa-v2 .detail-inspector-header > span {
   font-size: 17px;
@@ -1736,19 +1739,26 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   transition: transform var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
 .mosa-v2 .detail-inspector-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0 0 var(--inspector-space-6);
   scroll-padding: var(--inspector-space-4);
   scrollbar-gutter: stable;
+  background: var(--app-card);
 }
 .mosa-v2 .detail-inspector-scroll > .inspector-section {
   box-sizing: border-box;
-  border-top: 1px solid var(--inspector-divider);
-}
-.mosa-v2 .detail-inspector-scroll > .inspector-section:first-child {
+  min-width: 0;
+  flex: 0 0 auto;
   border-top: 0;
 }
 .mosa-v2 .detail .detail-overview {
   gap: var(--inspector-space-3);
-  padding: var(--inspector-space-4) var(--inspector-space-4) 0;
+  padding: var(--inspector-space-5) var(--inspector-space-4) var(--inspector-space-2);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .mosa-v2 .detail .detail-overview-heading {
   height: 20px;
@@ -1771,6 +1781,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   max-height: none;
   flex: 0 0 auto;
   aspect-ratio: var(--detail-preview-aspect, 9 / 16);
+  overflow: hidden;
   border-radius: var(--inspector-radius-md);
   background: var(--app-search);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text-primary) 6%, transparent);
@@ -1782,7 +1793,8 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   object-fit: cover;
 }
 .mosa-v2 .detail .detail-overview-title-row {
-  height: 28px;
+  min-height: 28px;
+  height: auto;
   gap: var(--inspector-space-2);
 }
 .mosa-v2 .detail .detail-overview-title-row h3 {
@@ -1790,9 +1802,18 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   font-weight: 650;
   line-height: 20px;
 }
-.mosa-v2 .detail .detail-facts {
+.mosa-v2 .detail .detail-fav-btn {
   height: 28px;
-  gap: var(--inspector-space-1);
+  min-height: 28px;
+  padding: 0 var(--inspector-space-2);
+  border-radius: var(--inspector-radius-sm);
+  background: transparent;
+}
+.mosa-v2 .detail .detail-facts {
+  height: auto;
+  gap: var(--inspector-space-2);
+  flex-wrap: wrap;
+  overflow: visible;
 }
 .mosa-v2 .detail .detail-fact-tag,
 .mosa-v2 .detail .detail-tag {
@@ -1804,67 +1825,85 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   font-variant-numeric: tabular-nums;
 }
 .mosa-v2 .detail .detail-tags-section {
-  padding: var(--inspector-space-1) var(--inspector-space-4) var(--inspector-space-3);
+  padding: 0 var(--inspector-space-4) var(--inspector-space-5);
   border-top: 0;
+  background: transparent;
 }
 .mosa-v2 .detail .detail-tags-row {
-  gap: var(--inspector-space-1);
+  gap: var(--inspector-space-2);
   padding: 0;
 }
 .mosa-v2 .detail .detail-tag,
 .mosa-v2 .detail .detail-tags-add {
-  height: 24px;
-  min-height: 24px;
+  height: 28px;
+  min-height: 28px;
 }
 .mosa-v2 .detail .detail-tags-add {
   padding-inline: var(--inspector-space-2);
+  border-style: solid;
 }
 .mosa-v2 .detail .detail-prompt-section {
   min-height: 0;
-  gap: var(--inspector-space-2);
-  padding: var(--inspector-space-4);
-  border-top: 0;
-  border-bottom: 0;
+  gap: var(--inspector-space-3);
+  padding: var(--inspector-space-5) var(--inspector-space-4);
+  border: 0;
+  border-top: 1px solid var(--inspector-divider);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .mosa-v2 .detail .detail-prompt-section + .detail-regenerate-section {
-  border-top: 0;
+  border-top: 1px solid var(--inspector-divider);
 }
 .mosa-v2 .detail .detail-prompt-head,
 .mosa-v2 .detail .detail-prompt-subhead {
-  height: 18px;
+  height: 28px;
+  min-height: 28px;
 }
 .mosa-v2 .detail .detail-prompt-head h3,
 .mosa-v2 .detail .detail-prompt-subhead h4 {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 18px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
 }
 .mosa-v2 .detail .detail-prompt-head {
   margin-bottom: 0;
 }
+.mosa-v2 .detail .detail-prompt-head .section-head-copy,
+.mosa-v2 .detail .detail-copy-sub {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  flex-basis: 28px;
+  place-items: center;
+  border-radius: var(--inspector-radius-sm);
+}
 .mosa-v2 .detail .detail-prompt-box,
 .mosa-v2 .detail .detail-instruction-box {
-  min-height: 52px;
-  padding: var(--inspector-space-2) var(--inspector-space-3);
+  min-height: 72px;
+  padding: var(--inspector-space-3) var(--inspector-space-4);
   border-color: var(--inspector-divider);
   border-radius: var(--inspector-radius-md);
-  background: var(--inspector-material);
+  background: var(--inspector-field);
   font-size: 12px;
   line-height: 20px;
 }
 .mosa-v2 .detail .detail-prompt-box {
-  max-height: 120px;
+  max-height: 160px;
 }
 .mosa-v2 .detail .detail-instruction-box {
-  max-height: 80px;
+  min-height: 88px;
+  max-height: 120px;
 }
 .mosa-v2 .detail .detail-reference-row {
-  height: 40px;
-  flex-basis: 40px;
+  height: 44px;
+  flex-basis: 44px;
   padding-inline: var(--inspector-space-3);
   border: 1px solid var(--inspector-divider);
-  border-radius: var(--inspector-radius-sm);
+  border-radius: var(--inspector-radius-md);
+  background: var(--inspector-field);
 }
 .mosa-v2 .detail .detail-source-section,
 .mosa-v2 .detail .detail-version-section,
@@ -1874,34 +1913,48 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-regenerate-section {
   height: auto;
   min-height: 0;
-  padding: var(--inspector-space-4);
+  padding: var(--inspector-space-5) var(--inspector-space-4);
+  border: 0;
+  border-top: 1px solid var(--inspector-divider);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .mosa-v2 .detail .detail-regenerate-composer {
-  min-height: 132px;
+  min-height: 160px;
   gap: var(--inspector-space-3);
-  padding: var(--inspector-space-3);
+  padding: var(--inspector-space-4);
   border-color: var(--inspector-divider);
-  border-radius: var(--inspector-radius-lg);
-  background: var(--inspector-material);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+  border-radius: var(--inspector-radius-md);
+  background: var(--inspector-field);
+  box-shadow: none;
+}
+.mosa-v2 .detail .detail-regenerate-composer textarea {
+  min-height: 88px;
+  line-height: 20px;
 }
 .mosa-v2 .detail .detail-regenerate-bar {
-  min-height: 32px;
+  min-height: 36px;
   gap: var(--inspector-space-2);
 }
 .mosa-v2 .detail .detail-version-truth-note {
   margin: var(--inspector-space-1) 0 var(--inspector-space-3);
 }
 .mosa-v2 .detail .detail-save-version {
-  min-height: 32px;
+  min-height: 36px;
+  padding-inline: var(--inspector-space-4);
   border-radius: var(--inspector-radius-sm);
   transition: transform var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard);
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .mosa-v2 .detail-inspector-header .detail-close:hover {
+  .mosa-v2 .detail-inspector-header .detail-close:hover,
+  .mosa-v2 .detail .detail-fav-btn:hover,
+  .mosa-v2 .detail .detail-prompt-head .section-head-copy:hover,
+  .mosa-v2 .detail .detail-copy-sub:hover,
+  .mosa-v2 .detail .detail-tags-add:hover {
     color: var(--color-text-primary);
-    background: var(--app-search-focus);
+    background: var(--app-hover);
   }
 }
 .mosa-v2 .detail-inspector-header .detail-close:active,
@@ -1911,24 +1964,15 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-tags-add:active {
   transform: scale(.96);
 }
-.mosa-v2 .detail-inspector-header,
-.mosa-v2 .detail .detail-overview,
-.mosa-v2 .detail .detail-prompt-section,
-.mosa-v2 .detail .detail-regenerate-section {
-  animation: inspector-materialize var(--duration-normal) var(--ease-standard) both;
-}
 @keyframes inspector-materialize {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
 :root[data-theme="dark"] .mosa-v2 .detail {
-  background: color-mix(in srgb, var(--app-bg) 94%, #000);
+  background: var(--app-card);
 }
 :root[data-theme="dark"] .mosa-v2 .detail-inspector-header {
-  background: color-mix(in srgb, var(--app-bg) 80%, transparent);
-}
-:root[data-theme="dark"] .mosa-v2 .detail .detail-regenerate-composer {
-  box-shadow: 0 8px 24px rgb(0 0 0 / 24%);
+  background: var(--app-card);
 }
 @media (prefers-reduced-transparency: reduce) {
   .mosa-v2 .detail-inspector-header,
@@ -1956,10 +2000,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .prompt-text,
   .btn-primary,
   .btn-danger,
-  .mosa-v2 .detail-inspector-header,
-  .mosa-v2 .detail .detail-overview,
-  .mosa-v2 .detail .detail-prompt-section,
-  .mosa-v2 .detail .detail-regenerate-section {
+  .mosa-v2 .detail-inspector {
     animation: none;
     transition: none;
   }

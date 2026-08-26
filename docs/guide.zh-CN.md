@@ -128,9 +128,10 @@ asset_archive
 asset_duplicate
 asset_version_create
 asset_version_history
+asset_recipe_history
 ```
 
-`asset_list` 和 `GET /api/assets` 支持 `limit` 与 `cursor` 分页，默认 100 条、最大 250 条。创建子版本时，使用 `asset_version_create` 并传入真实图片路径和非空 `version_change`。
+`asset_list` 和 `GET /api/assets` 支持 `limit` 与 `cursor` 分页，默认 100 条、最大 250 条。创建子版本时，使用 `asset_version_create` 并传入真实图片路径和非空 `version_change`；需要读取某个素材的不可变配方快照历史时，使用 `asset_recipe_history`。
 
 ## 健康检查与维护
 

@@ -130,13 +130,16 @@ test("19-21. Return / Prev / Next / Zoom 控件可见契约", async () => {
   assert.match(styles, /\.asset-view-controls \{ position: absolute;/);
 });
 
-test("22-24. Inspector V2 九项顺序：Cowart 第七、More 第九、Cowart 唯一 primary", async () => {
+test("22-24. Inspector V2 八项顺序：File/Tags 直接进入滚动列，More 收尾", async () => {
   const appJs = await source("app/app.mjs");
   const inspector = await source("app/inspector-markup.mjs");
+  const scrollStart = appJs.indexOf('detail-inspector-scroll">');
   const template = appJs.slice(
-    appJs.indexOf("detail-inspector-scroll\">${detailFileSectionMarkup"),
-    appJs.indexOf("</div></div>`", appJs.indexOf("detail-inspector-scroll\">${detailFileSectionMarkup")),
+    scrollStart,
+    appJs.indexOf("</div></div>`", scrollStart),
   );
+  assert.notEqual(scrollStart, -1, "inspector scroll template exists");
+  assert.match(template, /\$\{detailFileSectionMarkup\(asset\)\}\$\{detailTagsSectionMarkup\(asset\)\}/, "File and Tags enter the scroll column directly");
   const order = [
     "detailFileSectionMarkup",
     "detailTagsSectionMarkup",

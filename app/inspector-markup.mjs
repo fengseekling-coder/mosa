@@ -61,9 +61,32 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     const width = persistedPositiveNumber(asset, "width");
     const height = persistedPositiveNumber(asset, "height");
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+    const roundedWidth = Math.round(width);
+    const roundedHeight = Math.round(height);
+    const actual = roundedWidth / roundedHeight;
+    // File dimensions are often off by a few pixels from the intended canvas
+    // ratio after export/re-encode. Prefer a familiar small ratio when it is
+    // genuinely close; otherwise keep the exact reduced ratio rather than
+    // inventing a misleading approximation.
+    const commonRatios = [
+      [1, 2], [9, 16], [3, 5], [2, 3], [5, 7], [3, 4], [4, 5],
+      [1, 1],
+      [5, 4], [4, 3], [7, 5], [3, 2], [5, 3], [16, 9], [2, 1], [21, 9],
+    ];
+    let nearest = null;
+    let nearestError = Number.POSITIVE_INFINITY;
+    for (const [left, right] of commonRatios) {
+      const ratio = left / right;
+      const relativeError = Math.abs(actual - ratio) / ratio;
+      if (relativeError < nearestError) {
+        nearest = [left, right];
+        nearestError = relativeError;
+      }
+    }
+    if (nearest && nearestError <= 0.015) return `${nearest[0]}:${nearest[1]}`;
     const gcd = (left, right) => right ? gcd(right, left % right) : left;
-    const divisor = gcd(Math.round(width), Math.round(height));
-    return `${Math.round(width) / divisor}:${Math.round(height) / divisor}`;
+    const divisor = gcd(roundedWidth, roundedHeight);
+    return `${roundedWidth / divisor}:${roundedHeight / divisor}`;
   }
 
   function fileFactTagMarkup(key, value) {
@@ -88,7 +111,7 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
       return "9 / 16";
     }
     const assetAspect = width / height;
-    return assetAspect >= MAX_DETAIL_PREVIEW_ASPECT ? `${width} / ${height}` : "9 / 16";
+    return assetAspect <= MAX_DETAIL_PREVIEW_ASPECT ? `${width} / ${height}` : "9 / 16";
   }
 
   function detailFileSectionMarkup(asset) {

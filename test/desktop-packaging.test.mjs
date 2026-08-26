@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import forgeConfig, {
+  macReleasePackagingConfig,
   packageIgnorePatterns,
   preparePackagedRuntime,
 } from "../desktop/forge.config.mjs";
@@ -32,6 +33,45 @@ test("packages MOSA with ASAR and unpacked native dependencies", () => {
   assert.deepEqual(forgeConfig.packagerConfig.ignore, packageIgnorePatterns);
   assert.equal(forgeConfig.plugins.some((plugin) => plugin.name === "auto-unpack-natives"), true);
   assert.equal(forgeConfig.makers.some((maker) => maker.name === "zip"), true);
+});
+
+test("release packaging fails closed when Apple signing credentials are incomplete", () => {
+  assert.throws(
+    () => macReleasePackagingConfig({ MOSA_RELEASE_BUILD: "1" }),
+    /MOSA release build requires: MOSA_MACOS_SIGN_IDENTITY, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID/,
+  );
+  assert.throws(
+    () => macReleasePackagingConfig({
+      MOSA_RELEASE_BUILD: "1",
+      MOSA_MACOS_SIGN_IDENTITY: "Developer ID Application: Example",
+      APPLE_ID: "release@example.com",
+      APPLE_TEAM_ID: "TEAM123456",
+    }),
+    /APPLE_APP_SPECIFIC_PASSWORD/,
+  );
+});
+
+test("release packaging enables Developer ID hardened signing and notarization", () => {
+  const config = macReleasePackagingConfig({
+    MOSA_RELEASE_BUILD: "1",
+    MOSA_MACOS_SIGN_IDENTITY: "Developer ID Application: Example (TEAM123456)",
+    APPLE_ID: "release@example.com",
+    APPLE_APP_SPECIFIC_PASSWORD: "app-specific-password",
+    APPLE_TEAM_ID: "TEAM123456",
+  });
+
+  assert.equal(config.osxSign.identity, "Developer ID Application: Example (TEAM123456)");
+  assert.equal(config.osxSign.identityValidation, true);
+  assert.equal(config.osxSign.preAutoEntitlements, true);
+  assert.equal(config.osxSign.strictVerify, true);
+  assert.equal(config.osxSign.continueOnError, false);
+  assert.deepEqual(config.osxSign.optionsForFile("/tmp/MOSA.app"), { hardenedRuntime: true });
+  assert.deepEqual(config.osxNotarize, {
+    appleId: "release@example.com",
+    appleIdPassword: "app-specific-password",
+    teamId: "TEAM123456",
+  });
+  assert.equal("tool" in config.osxNotarize, false, "Forge uses the current notarization credential shape");
 });
 
 test("desktop package excludes every non-runtime project surface", () => {

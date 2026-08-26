@@ -34,6 +34,35 @@ test("JSON runtime without any libraryDir keeps assets under managerDir/assets",
   assert.equal(store.projectDir("default"), join(managerDir, "assets", "default"));
 });
 
+test("JSON group stats expose automatic source buckets for sidebar navigation", async (t) => {
+  withoutMosaLibraryDir(t);
+  const root = await mkdtemp(join(tmpdir(), "mosa-source-groups-json-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, "fixture", "utf8");
+  const store = createAssetStore({ projectRoot, managerDir });
+
+  await store.createAsset({ assetId: "chatgpt-1", imagePath: sourcePath, sourceType: "web-chatgpt" });
+  await store.createAsset({ assetId: "chatgpt-2", imagePath: sourcePath, sourceType: "web-chatgpt" });
+  await store.createAsset({ assetId: "gemini-1", imagePath: sourcePath, sourceType: "web-gemini" });
+  await store.createAsset({
+    assetId: "chatgpt-legacy",
+    imagePath: sourcePath,
+    sourceType: "mosa-preserved-copy",
+    source: { provider: "chatgpt", generation_tool: "web-ui" },
+  });
+
+  const stats = await store.listGroups("default");
+  assert.deepEqual(stats.sourceTypes, [["web-chatgpt", 3], ["web-gemini", 1]]);
+  assert.deepEqual(
+    (await store.listAssets({ projectId: "default", source: "web-chatgpt" })).map((asset) => asset.id).sort(),
+    ["chatgpt-1", "chatgpt-2", "chatgpt-legacy"],
+  );
+});
+
 test("a fresh explicit options.libraryDir starts directly in SQLite", async (t) => {
   withoutMosaLibraryDir(t);
   const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));

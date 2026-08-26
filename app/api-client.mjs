@@ -61,7 +61,7 @@ export function createApiClient(deps) {
     state.codexImagesDir = library?.codexGeneratedImagesDir || "";
     state.supportedMediaExtensions = Array.isArray(library?.supportedMediaExtensions) ? library.supportedMediaExtensions : [];
     updateCodexHint();
-    const nextGroups = { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, grok: 0, groups: [], categories: [], styles: [], styleTotal: 0, ...(result.groups || {}) };
+    const nextGroups = { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, grok: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0, ...(result.groups || {}) };
     const changed = JSON.stringify(nextGroups) !== JSON.stringify(state.groups);
     state.groups = nextGroups;
     if (!options.background || changed) {

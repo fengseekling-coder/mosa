@@ -40,7 +40,7 @@ function sliceBetween(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-// Library v2 keeps favorite inside Overview, leaving nine semantic sections.
+// Library v2 keeps favorite inside the file overview, leaving eight semantic sections.
 const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "new-version", "more"];
 // Exact helper-call sequence inside the renderDetail single-column composition.
 const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
@@ -273,13 +273,14 @@ test("34-38. Phase 4A correction gates hold", async () => {
   assert.doesNotMatch(i18n, /notGrouped: "No collection"/);
 
   // 36. Source naming resolves through the single SOURCE_LABEL_KEYS map —
-  // web-chatgpt shows as ChatGPT, never as a manual import.
+  // web-chatgpt is explicitly identified as the web source, never as a manual import.
   const sourceNameFn = functionSlice(inspector, "sourceName");
   assert.match(sourceNameFn, /SOURCE_LABEL_KEYS\[type\] \? t\(SOURCE_LABEL_KEYS\[type\]\) : \(type \|\| t\("sourceUnknown"\)\)/, "sourceName reuses the single label map");
   assert.doesNotMatch(sourceNameFn, /sourceManual/, "sourceName never falls back to manual import");
   // SOURCE_LABEL_KEYS moved to app/config.mjs (R1 batch 2).
   assert.match(config, /"web-chatgpt": "sourceWebChatgpt"/, "web-chatgpt mapped to its own label key");
-  assert.equal(count(i18n, 'sourceWebChatgpt: "ChatGPT"'), 2, "web-chatgpt label is ChatGPT in both locales");
+  assert.equal(count(i18n, 'sourceWebChatgpt: "ChatGPT 网页版"'), 1, "Chinese names the ChatGPT web source explicitly");
+  assert.equal(count(i18n, 'sourceWebChatgpt: "ChatGPT Web"'), 1, "English names the ChatGPT web source explicitly");
 
   // 37. Copying a source uses sourceCopyValue (path → grok_media_path → ""),
   // the same precedence as the displayed originalPath row.
@@ -292,7 +293,7 @@ test("34-38. Phase 4A correction gates hold", async () => {
   assert.match(sourceSection, /const copyButton = sourceCopyValue\(source\)\n\s+\? `<button class="section-head-copy" type="button" data-action="copy-source"/, "empty sources get no copy button");
 });
 
-// 39-42. The nine V2 inspector sections keep their approved order.
+// 39-42. The eight V2 inspector sections keep their approved order.
 // 43-46. The neighbouring contract suites keep their anchors in app.js.
 // 47. package.json and the lockfile are untouched. 48. No new dependency.
 test("39-48. layout order, neighbouring contracts, and dependency freeze", async () => {
@@ -300,9 +301,8 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
   const inspector = await readInspectorMarkup();
   const viewer = await readAssetView();
 
-  // 39-42. The composition sequence and section ids are unchanged after the
-  // tags-under-overview reordering; version now sits after source, more still
-  // closes the column.
+  // 39-42. The composition sequence and section ids stay in the approved
+  // order; version sits after source, more still closes the column.
   assert.ok(app.includes(COMPOSITION), "renderDetail composition sequence unchanged");
   const positions = SECTION_ORDER.map((id) => inspector.indexOf(`data-inspector-section="${id}"`));
   assert.ok(positions.every((index) => index > -1), "all V2 section ids still render");

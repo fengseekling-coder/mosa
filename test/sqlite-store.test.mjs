@@ -52,6 +52,34 @@ test("SQLite store keeps archive, duplicate, version, and cursor contracts", asy
   assert.equal(activeSearch.page.total, 2, "an archived match invalidates the cached FTS count");
 });
 
+test("SQLite group stats expose automatic source buckets for sidebar navigation", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-source-groups-sqlite-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, ONE_PIXEL_PNG);
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir: join(root, "library") });
+  t.after(() => store.close());
+
+  await store.createAsset({ assetId: "chatgpt-1", imagePath: sourcePath, sourceType: "web-chatgpt" });
+  await store.createAsset({ assetId: "chatgpt-2", imagePath: sourcePath, sourceType: "web-chatgpt" });
+  await store.createAsset({ assetId: "gemini-1", imagePath: sourcePath, sourceType: "web-gemini" });
+  await store.createAsset({
+    assetId: "chatgpt-legacy",
+    imagePath: sourcePath,
+    sourceType: "mosa-preserved-copy",
+    source: { provider: "chatgpt", generation_tool: "web-ui" },
+  });
+
+  const stats = await store.listGroups("default");
+  assert.deepEqual(stats.sourceTypes, [["web-chatgpt", 3], ["web-gemini", 1]]);
+  assert.deepEqual(
+    (await store.listAssets({ projectId: "default", source: "web-chatgpt" })).map((asset) => asset.id).sort(),
+    ["chatgpt-1", "chatgpt-2", "chatgpt-legacy"],
+  );
+});
+
 test("SQLite deleting a group clears asset assignments and its search index", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-delete-group-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -448,14 +476,18 @@ test("SQLite schema v1 upgrades once without changing completed migration state"
   const migrationDetails = upgraded.prepare("SELECT value, updated_at FROM library_meta WHERE key = 'migration_details'").get();
   const migrationVersions = upgraded.prepare("SELECT version FROM schema_migrations ORDER BY version").all().map((row) => row.version);
   const parentIndex = upgraded.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'asset_versions_parent_idx'").get();
+  const pixelColumn = upgraded.prepare("SELECT name FROM pragma_table_info('assets') WHERE name = 'pixel_sha256'").get();
+  const pixelIndex = upgraded.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'assets_project_pixel_hash_idx'").get();
   upgraded.close();
 
-  assert.equal(schemaAfterUpgrade.value, "4");
+  assert.equal(schemaAfterUpgrade.value, "6");
   assert.notEqual(schemaAfterUpgrade.updated_at, originalTimestamp);
   assert.deepEqual(migrationState, { value: "completed", updated_at: originalTimestamp });
   assert.deepEqual(migrationDetails, { value: '{"verified":true}', updated_at: originalTimestamp });
-  assert.deepEqual(migrationVersions, [1, 2, 3, 4]);
+  assert.deepEqual(migrationVersions, [1, 2, 3, 4, 5, 6]);
   assert.equal(parentIndex.name, "asset_versions_parent_idx");
+  assert.equal(pixelColumn.name, "pixel_sha256");
+  assert.equal(pixelIndex.name, "assets_project_pixel_hash_idx");
 
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
   createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir }).close();
@@ -465,6 +497,65 @@ test("SQLite schema v1 upgrades once without changing completed migration state"
     schemaAfterUpgrade,
   );
   reopened.close();
+});
+
+test("SQLite schema v5 upgrades suppression identity to include pixel hash version", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-schema-v5-suppression-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const libraryDir = join(root, "library");
+  const databasePath = join(libraryDir, "mosa.db");
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir });
+  await store.recordAutomaticIngestSuppression("default", {
+    pixel_sha256: "d".repeat(64),
+    pixel_hash_version: "opaque-static-v1",
+    deleted_at: "2026-08-20T00:00:00.000Z",
+  });
+  store.close();
+
+  const legacy = new Database(databasePath);
+  legacy.exec(`
+    DROP INDEX automatic_suppressions_project_content_idx;
+    DROP INDEX automatic_suppressions_project_pixel_idx;
+    DROP INDEX automatic_suppressions_project_deleted_idx;
+    ALTER TABLE automatic_ingest_suppressions RENAME TO automatic_ingest_suppressions_v6;
+    CREATE TABLE automatic_ingest_suppressions (
+      project_id TEXT NOT NULL,
+      content_sha256 TEXT NOT NULL DEFAULT '',
+      pixel_sha256 TEXT NOT NULL DEFAULT '',
+      pixel_hash_version TEXT NOT NULL DEFAULT '',
+      deleted_at TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT 'user-deleted',
+      PRIMARY KEY (project_id, content_sha256, pixel_sha256),
+      CHECK (content_sha256 != '' OR pixel_sha256 != '')
+    );
+    INSERT INTO automatic_ingest_suppressions
+      SELECT project_id, content_sha256, pixel_sha256, pixel_hash_version, deleted_at, reason
+      FROM automatic_ingest_suppressions_v6;
+    DROP TABLE automatic_ingest_suppressions_v6;
+    CREATE INDEX automatic_suppressions_project_content_idx ON automatic_ingest_suppressions(project_id, content_sha256, deleted_at DESC);
+    CREATE INDEX automatic_suppressions_project_pixel_idx ON automatic_ingest_suppressions(project_id, pixel_sha256, deleted_at DESC);
+    CREATE INDEX automatic_suppressions_project_deleted_idx ON automatic_ingest_suppressions(project_id, deleted_at DESC, content_sha256, pixel_sha256);
+    DELETE FROM schema_migrations WHERE version = 6;
+    UPDATE library_meta SET value = '5' WHERE key = 'schema_version';
+  `);
+  legacy.close();
+
+  const upgradedStore = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir });
+  upgradedStore.close();
+  const upgraded = new Database(databasePath, { readonly: true });
+  const primaryKey = upgraded.prepare("SELECT name FROM pragma_table_info('automatic_ingest_suppressions') WHERE pk > 0 ORDER BY pk").all().map((row) => row.name);
+  const row = upgraded.prepare("SELECT pixel_sha256, pixel_hash_version, deleted_at FROM automatic_ingest_suppressions").get();
+  const schemaVersion = upgraded.prepare("SELECT value FROM library_meta WHERE key = 'schema_version'").get().value;
+  upgraded.close();
+
+  assert.deepEqual(primaryKey, ["project_id", "content_sha256", "pixel_sha256", "pixel_hash_version"]);
+  assert.deepEqual(row, {
+    pixel_sha256: "d".repeat(64),
+    pixel_hash_version: "opaque-static-v1",
+    deleted_at: "2026-08-20T00:00:00.000Z",
+  });
+  assert.equal(schemaVersion, "6");
 });
 
 test("SQLite schema v2 migration backfills current recipes for existing assets", async (t) => {
@@ -512,16 +603,16 @@ test("SQLite refuses to downgrade a newer schema", async (t) => {
   future.exec(`
     CREATE TABLE library_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-    INSERT INTO library_meta (key, value, updated_at) VALUES ('schema_version', '5', 'future');
+    INSERT INTO library_meta (key, value, updated_at) VALUES ('schema_version', '7', 'future');
   `);
   future.close();
 
   assert.throws(
     () => createSqliteAssetStore({ projectRoot: root, managerDir: join(root, "mosa"), libraryDir }),
-    /schema version 5 is newer than supported version 4/,
+    /schema version 7 is newer than supported version 6/,
   );
   const inspected = new Database(databasePath, { readonly: true });
-  assert.deepEqual(inspected.prepare("SELECT value, updated_at FROM library_meta WHERE key = 'schema_version'").get(), { value: "5", updated_at: "future" });
+  assert.deepEqual(inspected.prepare("SELECT value, updated_at FROM library_meta WHERE key = 'schema_version'").get(), { value: "7", updated_at: "future" });
   inspected.close();
 });
 

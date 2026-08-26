@@ -139,6 +139,14 @@ test("offers a stable image-only / with-info density switch", async () => {
   // Masonry row spans must not depend solely on an animation frame: those are
   // suspended while the window is hidden, and the cards collapse to a few pixels.
   assert.match(app, /const schedule = \(\) => \{ layoutMasonry\(\); requestAnimationFrame\(layoutMasonry\); \};/);
+  // Gallery spacing is one 4px-based token in both axes. The masonry grid keeps
+  // row-gap at zero and reserves the same visual gap in each computed row span.
+  assert.match(css, /--gallery-gap:\s*12px;/);
+  assert.match(css, /\.grid \{[^}]*column-gap: var\(--gallery-gap\); row-gap: 0;/);
+  assert.match(css, /\.mosa-v2 \.asset-card \{ margin-bottom: 0;/);
+  assert.match(app, /getPropertyValue\("--gallery-gap"\)/);
+  assert.match(app, /Math\.ceil\(height \+ galleryGap\)/);
+  assert.doesNotMatch(css, /\.mosa-v2 \.grid[^}]*gap: 10px/);
 });
 
 test("navigates the masonry grid in two dimensions from rendered geometry", async () => {

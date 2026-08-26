@@ -1,7 +1,7 @@
 import { createLanguageApplier, createT, resolveLocale } from "./i18n-runtime.mjs";
 import { createBridgeStatusPoller } from "./bridge-status-poller.mjs";
 import {
-  FACET_KEYS, LIVE_REGION_WRITE_DELAY, SCOPES, SKELETON_TILE_COUNT, SOURCE_FACETS, SOURCE_LABEL_KEYS, STATUS_ANNOUNCEMENT_DURATION,
+  FACET_KEYS, LIVE_REGION_WRITE_DELAY, SCOPES, SIDEBAR_SOURCE_TYPES, SKELETON_TILE_COUNT, SOURCE_FACETS, SOURCE_LABEL_KEYS, STATUS_ANNOUNCEMENT_DURATION,
 } from "./config.mjs";
 import {
   cardShortTitle, debounce, escapeHtml, formatDate, humanizeFacetValue, normalizeDensity, normalizeSort, safeStorageGet, safeStorageSet,
@@ -44,7 +44,12 @@ const anchoredOverlayManager = createAnchoredOverlayManager();
 
 function assetSourceLabel(asset = {}) {
   const type = String(asset.source?.type || asset.sourceType || "");
-  return SOURCE_LABEL_KEYS[type] ? t(SOURCE_LABEL_KEYS[type]) : (type || t("sourceUnknown"));
+  return sourceTypeLabel(type);
+}
+
+function sourceTypeLabel(type) {
+  const cleanType = String(type || "");
+  return SOURCE_LABEL_KEYS[cleanType] ? t(SOURCE_LABEL_KEYS[cleanType]) : (cleanType || t("sourceUnknown"));
 }
 
 const preference = safeStorageGet("mosa.ui-language") || "system";
@@ -52,7 +57,7 @@ const state = {
   project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, detailAsset: null, versionHistory: null, recipeHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
-  groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, groups: [], categories: [], styles: [], styleTotal: 0 },
+  groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0 },
   galleryStatus: "loading", galleryError: null, galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")),
   libraryPath: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
   dragCounter: 0,
@@ -619,7 +624,7 @@ async function fetchDiagnostics() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     const fingerprint = data.uiFingerprint === "unknown" ? data.uiFingerprint : `${String(data.uiFingerprint).slice(0, 12)}...`;
-    content.innerHTML = `<dl><dt>${t("diagVersion")}</dt><dd>${escapeHtml(data.productVersion)}</dd><dt>${t("diagGitSha")}</dt><dd>${escapeHtml(data.gitSha)}</dd><dt>${t("diagUiFingerprint")}</dt><dd>${escapeHtml(fingerprint)}</dd><dt>${t("diagLibraryDir")}</dt><dd>${escapeHtml(data.libraryDir)}</dd><dt>${t("diagStorage")}</dt><dd>${escapeHtml(data.storage)}</dd></dl>`;
+    content.innerHTML = `<dl><dt>${t("diagVersion")}</dt><dd>${escapeHtml(data.productVersion)}</dd><dt>${t("diagMcpVersion")}</dt><dd>${escapeHtml(data.mcpServerVersion)}</dd><dt>${t("diagGitSha")}</dt><dd>${escapeHtml(data.gitSha)}</dd><dt>${t("diagUiFingerprint")}</dt><dd>${escapeHtml(fingerprint)}</dd><dt>${t("diagLibraryDir")}</dt><dd>${escapeHtml(data.libraryDir)}</dd><dt>${t("diagStorage")}</dt><dd>${escapeHtml(data.storage)}</dd></dl>`;
   } catch {
     content.innerHTML = `<p class="diag-error">${t("diagError")}</p>`;
   } finally {
@@ -849,13 +854,12 @@ function activeFilterChips() {
   if (state.query) chips.push({ kind: "query", label: t("chipSearch"), value: `“${state.query}”` });
   if (state.scope !== "all") chips.push({ kind: "scope", label: t("chipScope"), value: state.scope === "favorite" ? t("favorites") : t("recent") });
   if (state.mediaKind && state.mediaKind !== "all") chips.push({ kind: "type", label: t("typeFilter"), value: state.mediaKind === "img" ? t("typeImages") : t("typeVideos") });
-  const sourceLabels = Object.fromEntries(Object.entries(SOURCE_FACETS).map(([key, value]) => [value, t(`filter${key.charAt(0).toUpperCase()}${key.slice(1)}`)]));
   for (const key of FACET_KEYS) {
     const value = state.facets[key];
     if (!value) continue;
     const label = t(`chip${key.charAt(0).toUpperCase()}${key.slice(1)}`);
     const readableValue = key === "source"
-      ? (sourceLabels[value] || value)
+      ? sourceTypeLabel(value)
       : (["conversation", "generationBatch"].includes(key) ? compactGenerationIdentifier(value) : humanizeFacetValue(value));
     chips.push({ kind: key, label, value: readableValue });
   }
@@ -1375,24 +1379,33 @@ function renderTypeFilters() {
   });
 }
 
-/**
- * The sidebar keeps only the busiest collections; the complete list lives in the
- * filter panel so the two surfaces stop duplicating the same long list.
- */
+/** The sidebar groups automatic assets by their actual capture / bridge source. */
 function renderSidebarGroups() {
   if (!els.sidebarGroupList) return;
-  const all = state.groups.groups;
-  const shown = all;
-  const items = shown.map(([name, count]) => {
-    const active = state.facets.group === name;
-    const color = colorForGroup(name);
-    return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="group" data-value="${escapeHtml(name)}" type="button" aria-pressed="${active}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(name)}">${escapeHtml(name)}</span><span class="nav-count">${count}</span></button></li>`;
+  const counts = new Map(Array.isArray(state.groups.sourceTypes) ? state.groups.sourceTypes : []);
+  const shown = SIDEBAR_SOURCE_TYPES
+    .map((sourceType) => [sourceType, Number(counts.get(sourceType) || 0)])
+    .filter(([, count]) => count > 0);
+  const items = shown.map(([sourceType, count]) => {
+    const active = state.facets.source === sourceType;
+    const label = sourceTypeLabel(sourceType);
+    const color = deterministicGroupColor(sourceType);
+    return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="source" data-value="${escapeHtml(sourceType)}" type="button" aria-pressed="${active}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(label)}">${escapeHtml(label)}</span><span class="nav-count">${count}</span></button></li>`;
   }).join("");
   els.sidebarGroupList.innerHTML = items;
 }
 
 let masonryResizeObserver = null;
-function layoutMasonry() { els.assetGrid?.querySelectorAll(".asset-card").forEach((card) => { const height = card.getBoundingClientRect().height || 0; if (height) card.style.gridRowEnd = `span ${Math.ceil(height + 8)}`; }); }
+function layoutMasonry() {
+  const grid = els.assetGrid;
+  if (!grid) return;
+  const gridStyles = getComputedStyle(grid);
+  const galleryGap = Number.parseFloat(gridStyles.getPropertyValue("--gallery-gap")) || Number.parseFloat(gridStyles.columnGap) || 0;
+  grid.querySelectorAll(".asset-card").forEach((card) => {
+    const height = card.getBoundingClientRect().height || 0;
+    if (height) card.style.gridRowEnd = `span ${Math.ceil(height + galleryGap)}`;
+  });
+}
 function setupMasonryLayout() {
   const grid = els.assetGrid; if (!grid) return;
   // Lay out once synchronously and again on the next frame. Animation frames are
@@ -1832,8 +1845,7 @@ function renderDetail() {
   if (!asset) { detailRenderedAssetId = null; els.detailPanel.innerHTML = `<div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t(state.assets.length ? "noSelection" : "noAssets")}</p><span>${t(state.assets.length ? "noSelectionHint" : "noAssetsHint")}</span></div>`; return; }
   const cachedHistory = versionHistoryForAsset(asset);
   const cachedRecipeHistory = recipeHistoryForAsset(asset) || recipeHistoryFromAsset(asset);
-  // Library v2 首屏把基础信息与收藏合为一个 Overview，避免旧版把收藏拆成独立区块。
-  // 后续九个语义区块保持单列、无 tab、唯一纵向滚动容器。
+  // Library v2 保持单层详情容器：语义区块直接进入唯一滚动列，不再额外包卡片壳。
   els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}</div></div>`;
   const previewAspect = els.detailPanel.querySelector("[data-detail-preview-aspect]");
   if (previewAspect?.dataset.detailPreviewAspect) {

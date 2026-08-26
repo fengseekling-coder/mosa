@@ -1,9 +1,10 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { homedir } from "node:os";
 import { basename, extname, join, relative, resolve, sep } from "node:path";
+import { PIXEL_HASH_VERSION, safePixelDigest } from "./image-pixel-hash.js";
 
 const IMAGE_EXTENSIONS = new Set([".apng", ".avif", ".gif", ".jpg", ".jpeg", ".png", ".svg", ".webp"]);
 const DEFAULT_PROJECT_ID = "default";
@@ -64,6 +65,7 @@ export async function reconcileCodexGeneratedImages(options: { store: Store; ima
   }
   const knownPaths = new Set(assetsBySourcePath.keys());
   const contentHashes = knownHashesOpt || await existingContentHashes(store, projectId, allAssets);
+  const pixelHashes = new Set(allAssets.filter((asset) => asset.source?.pixel_hash_version === PIXEL_HASH_VERSION).map((asset) => asset.source?.pixel_sha256 as string).filter(Boolean));
   const taskIds = new Set(candidates.map((c) => c.taskId).filter(Boolean) as string[]);
   const taskMetadata = await readCodexTaskMetadata(sessionsDir, taskIds);
   const imported: unknown[] = []; const skipped: Array<{ path: string; reason: string; error?: string }> = []; const updated: string[] = [];
@@ -78,8 +80,10 @@ export async function reconcileCodexGeneratedImages(options: { store: Store; ima
     }
     let contentHash: string; try { contentHash = await sha256File(candidate.imagePath); } catch (error) { skipped.push({ path: candidate.imagePath, reason: "not-ready", error: error instanceof Error ? error.message : String(error) }); continue; }
     if (contentHashes.has(contentHash)) { skipped.push({ path: candidate.imagePath, reason: "already-archived-same-content" }); knownPaths.add(candidate.imagePath); continue; }
+    const pixelHash = extname(candidate.imagePath).toLowerCase() === ".svg" ? "" : await safePixelDigest(candidate.imagePath).catch(() => "");
+    if (pixelHash && pixelHashes.has(pixelHash)) { skipped.push({ path: candidate.imagePath, reason: "already-archived-same-pixels" }); knownPaths.add(candidate.imagePath); continue; }
     const imageInfo = await readImageInfo(candidate.imagePath, candidate.fileStat);
-    try { const asset = await store.createAsset({ projectId, imagePath: candidate.imagePath, asset: candidate.fileName, assetId: `codex-${candidate.taskId || "image"}-${candidate.fileStem}`, prompt: generation.prompt, skill: "Codex automatic archive", ratio: imageInfo.ratio, theme: promptTheme(String(generation.prompt || "")), tags: ["codex", "auto-archived"], created_at: candidate.generatedAt, sourceType: "codex-generated", business_fields: { auto_archived: true, prompt_status: generation.promptStatus, file_bytes: candidate.fileStat.size, width: imageInfo.width, height: imageInfo.height, mime_type: imageInfo.mimeType }, source: { generation_tool: "codex-imagegen", codex_image_path: candidate.imagePath, codex_task_id: candidate.taskId || null, codex_output_file: candidate.fileName, codex_generated_at: candidate.generatedAt, codex_session_path: generation.sessionPath, codex_session_updated_at: generation.sessionUpdatedAt, codex_image_generation_call_id: generation.callId, codex_image_generated_at: generation.generatedAt, model: generation.model, prompt_status: generation.promptStatus, content_sha256: contentHash, image_metadata: imageInfo } }, { trustedSourceRoots: [root], ingestMode: "automatic" }); knownPaths.add(candidate.imagePath); assetsBySourcePath.set(candidate.imagePath, asset); contentHashes.add(contentHash); imported.push(asset); } catch (error) { if (isAutomaticImportSuppressed(error)) skipped.push({ path: candidate.imagePath, reason: "suppressed-after-delete" }); else skipped.push({ path: candidate.imagePath, reason: "import-failed", error: error instanceof Error ? error.message : String(error) }); }
+    try { const asset = await createAutomaticAssetWithCollisionFallback(store, { projectId, imagePath: candidate.imagePath, asset: candidate.fileName, assetId: `codex-${candidate.taskId || "image"}-${candidate.fileStem}`, prompt: generation.prompt, skill: "Codex automatic archive", ratio: imageInfo.ratio, theme: promptTheme(String(generation.prompt || "")), tags: ["codex", "auto-archived"], created_at: candidate.generatedAt, sourceType: "codex-generated", business_fields: { auto_archived: true, prompt_status: generation.promptStatus, file_bytes: candidate.fileStat.size, width: imageInfo.width, height: imageInfo.height, mime_type: imageInfo.mimeType }, source: { generation_tool: "codex-imagegen", codex_image_path: candidate.imagePath, codex_task_id: candidate.taskId || null, codex_output_file: candidate.fileName, codex_generated_at: candidate.generatedAt, codex_session_path: generation.sessionPath, codex_session_updated_at: generation.sessionUpdatedAt, codex_image_generation_call_id: generation.callId, codex_image_generated_at: generation.generatedAt, model: generation.model, prompt_status: generation.promptStatus, content_sha256: contentHash, pixel_sha256: pixelHash || null, pixel_hash_version: pixelHash ? PIXEL_HASH_VERSION : null, image_metadata: imageInfo } }, { trustedSourceRoots: [root], ingestMode: "automatic" }); knownPaths.add(candidate.imagePath); assetsBySourcePath.set(candidate.imagePath, asset); contentHashes.add(contentHash); if (pixelHash) pixelHashes.add(pixelHash); imported.push(asset); } catch (error) { if (isAutomaticImportSuppressed(error)) skipped.push({ path: candidate.imagePath, reason: "suppressed-after-delete" }); else if (isAutomaticIngestDuplicate(error)) skipped.push({ path: candidate.imagePath, reason: automaticDuplicateReason(error) }); else skipped.push({ path: candidate.imagePath, reason: "import-failed", error: error instanceof Error ? error.message : String(error) }); }
   }
   return { imported, skipped, updated, candidates: candidates.length };
 }
@@ -177,3 +181,14 @@ async function walkFiles(root: string): Promise<string[]> { let entries; try { e
 export async function sha256File(filePath: string): Promise<string> { return createHash("sha256").update(await readFile(filePath)).digest("hex"); }
 function isSafeChildPath(parent: string, child: string): boolean { const p = relative(parent, child); return Boolean(p) && !p.startsWith("..") && !p.includes(`..${sep}`); }
 function isAutomaticImportSuppressed(error: unknown): boolean { return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "AUTOMATIC_IMPORT_SUPPRESSED"); }
+function isAutomaticIngestDuplicate(error: unknown): boolean { return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "AUTOMATIC_INGEST_DUPLICATE"); }
+function automaticDuplicateReason(error: unknown): string { return (error as { identityKind?: unknown })?.identityKind === "pixel" ? "already-archived-same-pixels" : "already-archived-same-content"; }
+async function createAutomaticAssetWithCollisionFallback(store: Store, input: Record<string, unknown>, options: Record<string, unknown>): Promise<StoredAsset> {
+  try {
+    return await store.createAsset(input, options);
+  } catch (error) {
+    if (!error || typeof error !== "object" || (error as { code?: unknown }).code !== "ASSET_ALREADY_EXISTS") throw error;
+    const baseId = String(input.assetId || "codex-image").slice(0, 140);
+    return store.createAsset({ ...input, assetId: `${baseId}-${randomUUID().slice(0, 8)}` }, options);
+  }
+}
