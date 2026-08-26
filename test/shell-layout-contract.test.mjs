@@ -174,13 +174,16 @@ test("15-18. overlay levels and batch-bar compensation", async () => {
     "CSS compensation rule for the retired batch-bar stays in place");
 });
 
-// 22. O2 is closed in the implementation-decisions document.
-test("22. O2 decision closed", async () => {
-  const decisions = await readFile(resolve(root, "docs/product-design/MOSA-UI-实施决策-v1.md"), "utf8");
-  assert.match(decisions, /O2（关闭于 Phase 2C）/);
-  assert.match(decisions, /960×640 是桌面产品最低验收尺寸/);
-  assert.match(decisions, /900–959 属 Web 回退区/);
-  assert.doesNotMatch(decisions, /\| O2 \|/);
+// 22. The public CSS keeps the O2 compact-desktop decision executable after
+// the internal implementation-decision note was removed from the repository.
+test("22. O2 compact desktop behavior stays locked in public CSS", async () => {
+  const css = await readCss();
+  const mq1120 = blockAfter(css, "@media (max-width: 1120px)");
+  const mqCompact = blockAfter(css, "@media (min-width: 701px) and (max-width: 1120px)");
+
+  assert.match(mq1120, /\.shell\.details-open \{ grid-template-columns: var\(--sidebar-width-compact\) minmax\(0, 1fr\) var\(--inspector-width-compact\); \}/);
+  assert.match(mqCompact, /\.shell\.details-open \.nav-item-text,[\s\S]*?clip: rect\(0,0,0,0\)/);
+  assert.match(css, /@media \(max-width: 700px\) \{[\s\S]*?\.shell, \.shell\.details-open \{ display: flex; min-height: 100vh; flex-direction: column; \}/);
 });
 
 // 23. The search-location contract keeps holding (sidebar, not topbar).

@@ -1,6 +1,6 @@
 # Changelog
 
-This file records user-visible changes. Operational deployment state and local paths belong in `HANDOFF.md`, not here.
+This file records user-visible changes. Internal deployment notes, local paths, and development handoffs are intentionally not tracked in the public repository.
 
 ## 0.2.0 — Unreleased / 待发布
 
