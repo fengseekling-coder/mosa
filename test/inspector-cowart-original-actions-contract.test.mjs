@@ -4,9 +4,8 @@ import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 
-// Phase 4C 守护契约：Cowart 全状态（不可用/单画布/多画布/Busy/Success/Error/目标持久化/
-// 竞态 guard）、原图 App/Web 能力适配（desktop-finder / web-open / unavailable）、More 区
-// 最终形态（原生 details/summary + 独立 danger 区）与 Phase 1–4B 边界冻结。
+// Phase 4C 守护契约：原图 App/Web 能力适配（desktop-finder / web-open / unavailable）、
+// More 区最终形态（原生 details/summary + 独立 danger 区）与 Phase 1–4B 边界冻结。
 // Node 标准库、零网络、源码切片断言；不用整文件 SHA 代替行为契约（package/lockfile 除外）。
 
 const root = resolve(import.meta.dirname, "..");
@@ -41,146 +40,11 @@ function sliceBetween(source, startMarker, endMarker) {
 }
 
 // Library v2 keeps favorite in the Overview instead of a detached section.
-const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "cowart", "new-version", "more"];
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailCowartSectionMarkup()}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
-
-// The insert-cowart click handler slice (event binding up to the next binding).
-function insertHandlerSlice(app) {
-  return sliceBetween(app, 'panel.querySelector(\'[data-action="insert-cowart"]\')', 'panel.querySelector(\'[data-action="copy-prompt"]\')');
-}
-
-// 1. Cowart stays the 7th section. 2. Cowart stays the only primary. 53. V2 order.
-test("01-02,53. cowart section position, single primary, approved V2 section order", async () => {
-  const app = await readApp();
-  const inspector = await readInspectorMarkup();
-
-  assert.ok(app.includes(COMPOSITION), "renderDetail composition sequence unchanged");
-  const positions = SECTION_ORDER.map((id) => inspector.indexOf(`data-inspector-section="${id}"`));
-  assert.ok(positions.every((index) => index > -1), "all V2 section ids still render");
-  assert.deepEqual([...positions].sort((a, b) => a - b), positions, "section order matches the approved sequence");
-  assert.equal(SECTION_ORDER[6], "cowart", "cowart stays the 7th section");
-  assert.equal(SECTION_ORDER[8], "more", "more stays the 9th section");
-
-  assert.equal(count(app, "action-btn primary"), 1, "the Cowart insert button is the only solid primary");
-  assert.doesNotMatch(app, /recipe-save-btn primary/);
-});
-
-// 3-5. Usable-canvas judgement is a single centralized helper that filters untrusted/disabled.
-test("03-05. usable canvases come from one centralized helper with trust/enabled guards", async () => {
-  const app = await readApp();
-
-  const helper = functionSlice(app, "usableCowartCanvases");
-  assert.match(helper, /state\.cowartCanvases\.filter/, "helper reads state.cowartCanvases");
-  assert.match(helper, /canvas\.trusted !== false/, "untrusted canvases never become targets");
-  assert.match(helper, /canvas\.enabled !== false/, "disabled canvases never become targets");
-
-  const control = functionSlice(app, "createCowartInsertControl");
-  const targetFor = functionSlice(app, "cowartInsertTargetIdFor");
-  assert.match(control, /usableCowartCanvases\(\)/, "control uses the centralized helper");
-  assert.match(targetFor, /usableCowartCanvases\(\)/, "target resolution uses the centralized helper");
-  // Discovered-but-untrusted/disabled must not leak into options through any other path.
-  assert.doesNotMatch(control, /state\.cowartCanvases\.map/, "options are never built from raw sources");
-});
-
-// 6-8. Unavailable state: native disabled, visible explanation, no empty select.
-test("06-08. unavailable state disables the button, explains visibly, renders no empty select", async () => {
-  const app = await readApp();
-  const control = functionSlice(app, "createCowartInsertControl");
-
-  assert.match(control, /\$\{available \? "" : " disabled"\} aria-disabled="\$\{!available\}"/, "disabled and aria-disabled stay in sync");
-  assert.match(control, /data-cowart-connect-hint/, "unavailable shows a visible explanation");
-  assert.match(control, /\$\{escapeHtml\(t\("cowartConnectHint"\)\)\}/, "the hint is the connect copy, not title-only");
-  assert.match(control, /available && usable\.length > 1/, "a select renders only for multiple usable canvases");
-  assert.match(control, /state\.cowartInsertAvailable && usable\.length > 0/, "unavailable means no usable canvas or insert unavailable");
-});
-
-// 9-10. Single canvas: read-only target readout instead of a pointless one-option select.
-test("09-10. single canvas shows a read-only target name, not a one-option select", async () => {
-  const app = await readApp();
-  const control = functionSlice(app, "createCowartInsertControl");
-
-  assert.match(control, /else if \(available\) \{\n\s+targetMarkup = `<p class="cowart-target-readout" data-cowart-target-readout>/, "single canvas renders a readout");
-  assert.match(control, /cowartCanvasLabel\(usable\[0\]\)/, "the readout names the target canvas");
-  assert.match(control, /cowartInsertTarget/, "the readout is labelled with the target semantics");
-});
-
-// 11-15. Multiple canvases: native select of exactly the usable canvases, current target
-// selected, selection persisted, illegal targets fall back to a legal one.
-test("11-15. multi-canvas select lists only usable canvases, selects, persists, falls back", async () => {
-  const app = await readApp();
-  const control = functionSlice(app, "createCowartInsertControl");
-  const targetFor = functionSlice(app, "cowartInsertTargetIdFor");
-
-  assert.match(control, /<select id="cowartInsertTarget" class="cowart-target-select" data-cowart-insert-target/, "multi-canvas renders a native select");
-  assert.match(control, /usable\.map\(\(canvas\) => `<option value=/, "options come from the usable list only");
-  assert.match(control, /canvas\.id === targetId \? " selected" : ""/, "the current target is selected");
-  assert.match(app, /safeStorageSet\("mosa\.cowart-insert-target", state\.cowartInsertTargetId\)/, "selection is persisted");
-  assert.match(targetFor, /usable\.some\(\(canvas\) => canvas\.id === requestedId\)/, "persisted/source target must still be usable");
-  assert.match(targetFor, /usable\.find\(\(canvas\) => canvas\.id === "mosa"\)\?\.id \|\| usable\[0\]\?\.id \|\| ""/, "illegal targets fall back to the MOSA canvas or the first usable canvas");
-  assert.match(control, /if \(targetId\) state\.cowartInsertTargetId = targetId;/, "fallback updates state so an illegal id is never sent");
-});
-
-// 16-18. Busy: aria-busy on the control, button + select locked, no duplicate POST.
-test("16-18. busy locks the control with aria-busy and prevents duplicate POSTs", async () => {
-  const app = await readApp();
-  const busy = functionSlice(app, "setCowartInsertBusy");
-  const handler = insertHandlerSlice(app);
-
-  assert.match(busy, /control\.setAttribute\("aria-busy", "true"\)/, "busy sets aria-busy on the control");
-  assert.match(busy, /button\.disabled = busy \|\| !state\.cowartInsertAvailable/, "busy disables the button");
-  assert.match(busy, /target\.disabled = busy \|\| !state\.cowartInsertAvailable/, "busy disables the target select");
-  assert.match(busy, /busy \? t\("insertingCowart"\) : t\("insertCowart"\)/, "busy swaps the button label");
-  assert.match(handler, /setCowartInsertBusy\(control, true\)/, "the handler enters busy before the request");
-  assert.match(handler, /const requestId = \+\+cowartInsertRequestSequence/, "request generation guard exists");
-  assert.match(handler, /if \(!targetId \|\| !state\.cowartInsertAvailable\) return;/, "no request without a legal target");
-  // While busy the button is natively disabled, so a second click cannot dispatch.
-  const updater = functionSlice(app, "updateCowartInsertControls");
-  assert.match(updater, /aria-busy"\) === "true"\) return;/, "bridge polling never re-enables a busy control");
-});
-
-// 19-23. Success/error inline feedback bound to the current asset key; stale responses
-// from an older asset never pollute the new one; error stays retryable.
-test("19-23. inline feedback is asset-scoped, race-guarded, and retryable", async () => {
-  const app = await readApp();
-  const handler = insertHandlerSlice(app);
-
-  assert.match(handler, /state\.cowartInsertFeedback = \{ assetKey, type: "success", message \}/, "success stores inline feedback");
-  assert.match(handler, /state\.cowartInsertFeedback = \{ assetKey, type: "error", message: error\.message \}/, "error stores inline feedback");
-  assert.match(handler, /const assetKey = `\$\{originProjectId\}\\u0000\$\{originAssetId\}`/, "feedback is bound to the asset key");
-  assert.match(handler, /requestId === cowartInsertRequestSequence && isCurrentDetailSelection\(originProjectId, originAssetId\)/, "late responses are dropped for other assets");
-  assert.match(handler, /finally \{/, "busy always resolves");
-  assert.match(handler, /setCowartInsertBusy\(control, false\)/, "controls recover after success or error");
-  assert.match(handler, /if \(hadFocus\) button\?\.focus\(\{ preventScroll: true \}\)/, "focus returns to the same button without scrolling");
-  assert.match(handler, /if \(!isCurrentResponse\(\)\) return;/, "stale success and stale error both bail out");
-
-  const status = functionSlice(app, "renderCowartInsertStatus");
-  assert.match(status, /state\.cowartInsertFeedback\.assetKey === `\$\{state\.project\}\\u0000\$\{state\.selectedId\}`/, "the status row only shows the current asset's feedback");
-  assert.match(status, /status\.hidden = !feedback/, "no feedback means a hidden status row");
-
-  const feedbackFor = functionSlice(app, "cowartInsertFeedbackFor");
-  assert.match(feedbackFor, /feedback\.assetKey === `\$\{asset\.project_id\}\\u0000\$\{asset\.id\}`/, "redraws restore feedback only for the same asset");
-
-  // Feedback lifecycle: cleared on a new insert, on asset switch, and on close.
-  assert.match(handler, /state\.cowartInsertFeedback = null;\n\s+renderCowartInsertStatus\(\);/, "a new insert clears old feedback first");
-  assert.match(app, /state\.cowartInsertFeedback\.assetKey !== `\$\{asset\.project_id\}\\u0000\$\{asset\.id\}`\)\) state\.cowartInsertFeedback = null;/, "switching assets clears feedback in renderDetail");
-  assert.match(app, /返回 Library \/ 关闭检视器时清理 Cowart 内联反馈/, "closing the inspector clears feedback");
-  assert.doesNotMatch(app, /safeStorageSet\([^)]*cowartInsertFeedback|localStorage\.setItem\([^)]*cowartInsertFeedback/, "feedback is never persisted to disk");
-});
-
-// 24-28. The insert flow keeps the existing API contract and never touches viewer state.
-test("24-28. insert keeps the API contract and leaves viewer/library state untouched", async () => {
-  const app = await readApp();
-  const handler = insertHandlerSlice(app);
-
-  assert.match(handler, /\/api\/assets\/\$\{encodeURIComponent\(originProjectId\)\}\/\$\{encodeURIComponent\(originAssetId\)\}\/insert-cowart/, "the existing insert-cowart API is used");
-  assert.match(handler, /body: \{ placement: "right", targetId \}/, "the request body carries placement and targetId");
-  assert.doesNotMatch(handler, /loadAssets\(/, "insert never reloads the asset list");
-  assert.doesNotMatch(handler, /assetViewSequence\.|libraryReturnSnapshot =|state\.selectedId =/, "insert never touches the viewer sequence, return snapshot, or selection");
-  assert.match(handler, /await refreshBridgeStatus\(\)/, "only the bridge status refreshes after success");
-});
+const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "new-version", "more"];
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
 
 // 29-35. Desktop capability: preload exposes only showItemInFolder; main validates sender,
-// absolute path, and existence, and uses shell.showItemInFolder — never openExternal.
+// absolute path, existence, and the shared library boundary before using shell.showItemInFolder.
 test("29-35. show-item-in-folder IPC is minimal, validated, and shell-correct", async () => {
   const [preload, main] = await Promise.all([readPreload(), readMain()]);
 
@@ -195,11 +59,13 @@ test("29-35. show-item-in-folder IPC is minimal, validated, and shell-correct", 
   assert.match(handler, /!isAbsolute\(target\)/, "relative paths are rejected");
   assert.match(handler, /\^\[a-z\]\[a-z0-9\+\.\-\]\*:\/i\.test\(target\)/, "URL-like input is rejected");
   assert.match(handler, /!existsSync\(target\)/, "missing files are rejected");
-  assert.match(handler, /shell\.showItemInFolder\(target\)/, "the native API is shell.showItemInFolder");
+  assert.match(handler, /resolveAllowedFolderPath\(target, \[libraryDir\]\)/, "Finder uses the shared filesystem boundary");
+  assert.match(handler, /shell\.showItemInFolder\(allowedTarget\)/, "the native API receives the canonical allowed path");
   assert.doesNotMatch(handler, /openExternal/, "local paths never go through shell.openExternal");
   assert.match(handler, /return \{ ok: true \}/, "success returns a structured ok result");
   assert.match(handler, /reason: "missing"/, "missing files return a structured reason");
   assert.match(handler, /reason: "invalid"/, "invalid input returns a structured reason");
+  assert.match(handler, /reason: "not-allowed"/, "out-of-library paths return a structured reason");
   assert.match(handler, /reason: "unavailable"/, "unavailable capability returns a structured reason");
   assert.doesNotMatch(handler, /writeFile|mkdir|rename|unlink|fetch\(/, "the handler never creates, modifies, moves, or downloads files");
 });
@@ -232,7 +98,7 @@ test("36-43. original media capability adapts between App and Web without dead c
   assert.match(markup, /if \(capability === "web-open"\) return/, "web returns early");
 
   // The Finder handler never leaks the absolute path into a toast.
-  const finderHandler = sliceBetween(app, '[data-action="show-in-finder"]', "[data-cowart-insert-target]");
+  const finderHandler = sliceBetween(app, '[data-action="show-in-finder"]', '[data-action="copy-prompt"]');
   assert.match(finderHandler, /window\.electronAPI\.showItemInFolder\(asset\.image_path\)/, "the handler invokes the IPC with the asset path");
   assert.match(finderHandler, /showToast\(t\("shownInFinder"\), "success"\)/, "the success toast is a fixed string");
   assert.doesNotMatch(finderHandler, /showToast\([^)]*image_path/, "no absolute path in any toast");
@@ -299,36 +165,27 @@ test("59-60. dependency freeze: manifest, lockfile, and app.js imports unchanged
 });
 
 // i18n: every new key exists in both locales, symmetric, and no duplicate synonyms.
-test("i18n. new cowart/original-media keys are symmetric across zh and en", async () => {
+test("i18n. new original-media keys are symmetric across zh and en", async () => {
   const i18n = await readI18n();
 
-  const NEW_KEYS = ["cowartConnectHint", "showInFinder", "shownInFinder", "showInFinderFailed", "openOriginal", "originalUnavailable", "originalAndMore"];
+  const NEW_KEYS = ["showInFinder", "shownInFinder", "showInFinderFailed", "openOriginal", "originalUnavailable", "originalAndMore"];
   for (const key of NEW_KEYS) {
     assert.equal(count(i18n, `${key}:`), 2, `${key} exists exactly once per locale`);
   }
   // Reused keys stay single-sourced — no duplicate synonyms were introduced.
-  for (const key of ["insertCowart", "insertingCowart", "insertedCowart", "cowartInsertUnavailable", "cowartInsertTarget", "moreActions", "imageLocation", "regenerate", "copyPath"]) {
+  for (const key of ["moreActions", "imageLocation", "regenerate", "copyPath"]) {
     assert.equal(count(i18n, `${key}:`), 2, `${key} stays exactly one entry per locale`);
   }
-  // The connect hint copy matches the approved wording.
-  assert.match(i18n, /cowartConnectHint: "打开或连接 Cowart 画布后即可插入"/);
-  assert.match(i18n, /cowartConnectHint: "Open or connect a Cowart canvas to insert"/);
 });
 
-// Styles: the new cowart/original-media styling stays inside the design-token boundary.
-test("styles. Phase 4C additions reuse tokens and keep the primary button width stable", async () => {
+// Styles: the new original-media styling stays inside the design-token boundary.
+test("styles. Phase 4C additions reuse tokens and stay within the boundary", async () => {
   const css = await readCss();
 
-  assert.match(css, /\.cowart-insert-control \.action-btn\.primary \{ min-width: (1[6-9]|[2-9]\d)\d+px; \}/, "the primary button min-width covers the longest busy label so idle and busy stay the same width");
-  assert.match(css, /\.cowart-target-readout \{[^}]*min-height: 36px;/, "the single-canvas readout matches control height");
-  assert.match(css, /\.cowart-insert-status \{[^}]*grid-column: 1 \/ -1;/, "the status row spans the control");
-  assert.match(css, /\.cowart-insert-status\[data-type="success"\]::before \{ content: "✓ "; color: var\(--color-accent\); \}/, "success is not color-only");
-  assert.match(css, /\.cowart-insert-status\[data-type="error"\] \{ color: var\(--color-danger\); \}/, "error uses the existing danger token");
-  assert.match(css, /\.cowart-insert-status\[data-type="error"\]::before \{ content: "⚠ "; \}/, "error is not color-only");
   assert.match(css, /\.original-media-action \{ display: grid; margin-bottom: 10px; \}/, "the original entry keeps the 8px rhythm");
   assert.match(css, /\.more-location \{ display: grid; gap: 6px; margin-top: 8px; \}/, "the location row keeps the 8px rhythm");
   const cssDeclarations = css.replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(cssDeclarations, /!important/, "no !important in any CSS declaration");
-  const phase4cStyles = sliceBetween(css, "/* Phase 4C：Busy", ".action-btn {");
+  const phase4cStyles = sliceBetween(css, "/* Phase 4C More 终态", ".action-btn {");
   assert.doesNotMatch(phase4cStyles, /#[0-9a-fA-F]{3,8}\b|backdrop-filter|gradient/, "Phase 4C styles introduce no new colors, glassmorphism, or gradients");
 });

@@ -40,6 +40,7 @@
   const AI_STUDIO_MAX_PREVIOUS_TURNS = 16;
   const MIN_EDGE = 512;
   const MIN_VISIBLE_AREA = 96 * 96;
+  const CAPTURE_CONCURRENCY = 2;
   const PROMPT_RETRY_DELAYS = [900, 2_700, 7_200];
   const PROMPT_RETRY_PROVIDERS = new Set(["gemini", "flow", "google-ai-studio"]);
   const seen = new Set();
@@ -47,6 +48,21 @@
   let autoCapture = true;
   let scanTimer = null;
   let observer = null;
+  let captureInFlight = 0;
+  const captureWaiters = [];
+
+  async function withCaptureSlot(task) {
+    if (captureInFlight >= CAPTURE_CONCURRENCY) {
+      await new Promise((resolveSlot) => captureWaiters.push(resolveSlot));
+    }
+    captureInFlight += 1;
+    try {
+      return await task();
+    } finally {
+      captureInFlight -= 1;
+      captureWaiters.shift()?.();
+    }
+  }
 
   function currentProvider() {
     const host = String(location.hostname || "").toLowerCase();
@@ -480,30 +496,32 @@
   }
 
   async function sendCapture(provider, source, img) {
-    if (!extensionAlive()) return { response: { ok: false, error: "MOSA extension is unavailable." }, hasPrompt: false };
-    const providerPrompt = visiblePromptForProvider(provider, img);
-    const payload = {
-      provider,
-      mimeType: mimeTypeForUrl(source.url),
-      pageUrl: location.href,
-      promptStatus: "not-available",
-      promptSource: "provider-visible-image",
-      capturedAt: new Date().toISOString(),
-    };
-    if (providerPrompt) Object.assign(payload, providerPrompt);
-    if (source.kind === "local") {
-      const bytes = await bytesFromVisibleImage(source, img);
-      payload.mimeType = bytes.mimeType;
-      payload.imageBase64 = bytes.imageBase64;
-    } else {
-      // Public Google CDN sources retain the existing background download path.
-      payload.imageUrl = source.url;
-    }
-    const response = await chrome.runtime.sendMessage({
-      type: "mosa.ingest",
-      payload,
+    return withCaptureSlot(async () => {
+      if (!extensionAlive()) return { response: { ok: false, error: "MOSA extension is unavailable." }, hasPrompt: false };
+      const providerPrompt = visiblePromptForProvider(provider, img);
+      const payload = {
+        provider,
+        mimeType: mimeTypeForUrl(source.url),
+        pageUrl: location.href,
+        promptStatus: "not-available",
+        promptSource: "provider-visible-image",
+        capturedAt: new Date().toISOString(),
+      };
+      if (providerPrompt) Object.assign(payload, providerPrompt);
+      if (source.kind === "local") {
+        const bytes = await bytesFromVisibleImage(source, img);
+        payload.mimeType = bytes.mimeType;
+        payload.imageBase64 = bytes.imageBase64;
+      } else {
+        // Public Google CDN sources retain the existing background download path.
+        payload.imageUrl = source.url;
+      }
+      const response = await chrome.runtime.sendMessage({
+        type: "mosa.ingest",
+        payload,
+      });
+      return { response, hasPrompt: Boolean(providerPrompt?.prompt) };
     });
-    return { response, hasPrompt: Boolean(providerPrompt?.prompt) };
   }
 
   function mimeTypeForUrl(imageUrl) {

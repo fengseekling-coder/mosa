@@ -236,9 +236,6 @@ test("49-51. existing call sites stay compatible", async () => {
   assert.match(app, /function showToast\(message, type = "default"\)/, "(message, type) signature preserved");
   assert.match(app, /async function runAction\(action\) \{ try \{ await action\(\); \} catch \(error\) \{ showToast\(error\.message, "error"\); \} \}/,
     "runAction still reports through showToast only — no second error pipeline");
-  assert.match(app, /state\.cowartInsertFeedback = \{ assetKey, type: "success", message \};/, "Cowart inline success feedback kept");
-  assert.match(app, /state\.cowartInsertFeedback = \{ assetKey, type: "error", message: error\.message \};/, "Cowart inline error feedback kept");
-  assert.match(app, /renderCowartInsertStatus\(\);/, "Cowart inline renderer kept — the manager does not replace it");
   const successCalls = count(app, '"success")');
   const errorCalls = count(app, '"error")');
   assert.ok(successCalls >= 20, `success call sites preserved (${successCalls} >= 20)`);

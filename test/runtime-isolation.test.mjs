@@ -43,7 +43,6 @@ function runtimeOptions(root) {
     grokSessionsDir: join(root, "grok-sessions"),
     cowartCanvasDir: join(root, "cowart-canvas"),
     cowartRegistryPath: join(root, "state", "cowart-projects.json"),
-    cowartMcpServerPath: join(root, "missing-cowart-mcp-server.mjs"),
   };
 }
 
@@ -243,17 +242,15 @@ describe("environment-only server startup isolation", () => {
     );
   });
 
-  it("JSON fallback aligns health and library-path endpoints with effective data directory", async (t) => {
+  it("fresh default startup selects SQLite without touching manager assets", async (t) => {
     const tempHome = await mkdtemp(join(tmpdir(), "mosa-no-lib-home-"));
     t.after(() => rm(tempHome, { recursive: true, force: true }));
 
     // Canonical assets/default hash before: we expect no writes on startup
     const managerAssetsBefore = await snapshotDirectory(join(repositoryRoot, "assets", "default"));
 
-    // Spawn server.mjs WITHOUT MOSA_LIBRARY_DIR:
-    // - HOME points to temporary dir, so runtime locks into <temp>/MOSA Library
-    // - All bridges disabled via env flag
-    // - All external paths point under this temp home
+    // Spawn server.mjs WITHOUT MOSA_LIBRARY_DIR. A fresh install should create
+    // SQLite under <temp>/MOSA Library rather than falling back to manager JSON.
     const child = spawn(process.execPath, ["server.mjs"], {
       cwd: repositoryRoot,
       env: {
@@ -261,7 +258,7 @@ describe("environment-only server startup isolation", () => {
         PATH: process.env.PATH,
         MOSA_PORT: "0",
         MOSA_PROJECT_DIR: repositoryRoot,
-        // NO MOSA_LIBRARY_DIR set → JSON fallback
+        // NO MOSA_LIBRARY_DIR set → fresh default SQLite library
         MOSA_DISABLE_BRIDGES: DISABLEABLE_BRIDGES.join(","),
         CODEX_SESSIONS_DIR: join(tempHome, ".codex", "sessions"),
         GROK_SESSIONS_DIR: join(tempHome, ".grok", "sessions"),
@@ -279,40 +276,39 @@ describe("environment-only server startup isolation", () => {
     const library = await (await fetch(`${url}/api/library-path`)).json();
     const page = await fetch(`${url}/`);
 
-    // Core assertion: both endpoints report the SAME effective library directory
+    // Both diagnostics must report the same fresh SQLite library.
     assert.equal(
       health.libraryDir,
       library.libraryDir,
-      "health.libraryDir must equal library-path.libraryDir in JSON fallback",
+      "health.libraryDir must equal library-path.libraryDir",
     );
-
-    // Expected effectiveLibraryDir is dirname(store.assetsRoot)
-    // Since assetsRoot defaults to managerDir/assets, effectiveLibraryDir = managerDir = repositoryRoot
-    const expectedEffectiveLibraryDir = repositoryRoot;
+    const expectedEffectiveLibraryDir = join(tempHome, "MOSA Library");
     assert.equal(
       health.libraryDir,
       expectedEffectiveLibraryDir,
-      "effective libraryDir in JSON fallback must be dirname(assetsRoot) = managerDir",
+      "fresh default library must live under the isolated home",
     );
+    assert.equal(health.storage, "sqlite");
+    assert.equal(library.storage, "sqlite");
 
     // Path must match join(effectiveLibraryDir, "assets", "default")
     const expectedProjectPath = join(expectedEffectiveLibraryDir, "assets", "default");
     assert.equal(
       library.path,
       expectedProjectPath,
-      "library-path.path must equal join(effectiveLibraryDir, 'assets', 'default')",
+      "library-path.path must point at the SQLite asset root",
     );
 
     // Page served successfully
     assert.equal(page.status, 200);
-    assert.match(await page.text(), /app\.js/, "server.mjs JSON fallback must serve UI shell");
+    assert.match(await page.text(), /app\.js/, "fresh server startup must serve UI shell");
 
     // Verify canonical assets/default was NOT mutated (no writes on pure read)
     const managerAssetsAfter = await snapshotDirectory(join(repositoryRoot, "assets", "default"));
     assert.deepEqual(
       managerAssetsAfter,
       managerAssetsBefore,
-      "JSON fallback startup must not write to canonical assets/default",
+      "fresh SQLite startup must not write to canonical assets/default",
     );
   });
 

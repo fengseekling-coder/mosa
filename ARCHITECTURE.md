@@ -7,8 +7,8 @@
 ## 1. 系统定位
 
 MOSA 是一个本地优先的创意资产库。它把图像和视频原件、可获得的 Prompt、
-生成工具上下文、来源信息、标签和版本历史保存在本地，提供浏览、搜索、归档、
-版本化和重新插入 Cowart 的能力。MOSA 不生成媒体、不提供云端同步，也不把
+生成工具上下文、来源信息、标签和版本历史保存在本地，提供浏览、搜索、归档
+和版本化的能力。MOSA 不生成媒体、不提供云端同步，也不把
 素材库自动上传到远端服务。
 
 默认服务只绑定 `127.0.0.1`。浏览器扩展是可选集成，只有在显式配置本地
@@ -260,12 +260,9 @@ watcher 与轮询，并按内容哈希和来源路径去重；找不到可靠 Pr
 `lib/cowart-bridge.ts` 归档受信任画布快照中的图像；
 `lib/cowart-canvas-discovery.ts` 可从近期 Codex 会话发现 Cowart 项目；
 `lib/cowart-bridge-manager.ts` 管理主画布和已注册外部项目；
-`lib/cowart-mcp-client.ts` 以 stdio 调用 Cowart MCP 工具完成画布状态读取和
-素材插入。
 
 默认管理画布目录为 `$HOME/.codex/cowart-data/mosa`。外部画布必须通过路径、
-目录标记、非 symlink 和项目内边界校验；不可信条目可以移除，但不会启动 watcher
-或交给 MCP 写入。Cowart MCP 服务路径可用 `COWART_MCP_SERVER_PATH` 指定。
+目录标记、非 symlink 和项目内边界校验；不可信条目可以移除，但不会启动 watcher。
 
 ### 7.4 Web Capture
 
@@ -298,7 +295,6 @@ Token 写入公共文档、日志或仓库：
 | `CODEX_SESSIONS_DIR` | Codex 会话目录覆盖 |
 | `GROK_SESSIONS_DIR` | Grok 会话目录覆盖 |
 | `COWART_MOSA_CANVAS_DIR` | MOSA 管理画布目录覆盖 |
-| `COWART_MCP_SERVER_PATH` | Cowart MCP 服务路径覆盖 |
 | `MOSA_DISABLE_BRIDGES` | 禁用指定桥接的逗号分隔列表 |
 | `MOSA_WEB_CAPTURE_TOKEN` | 启用网页捕获的本地 Token |
 | `MOSA_WEB_CAPTURE_ORIGINS` | 网页捕获允许的扩展 origin 列表 |

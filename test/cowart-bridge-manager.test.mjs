@@ -6,7 +6,6 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { createAssetStore } from "../lib/asset-store.mjs";
 import { createCowartBridgeManager } from "../lib/cowart-bridge-manager.js";
-import { resolveCowartInsertCanvas } from "../lib/cowart-insert.js";
 import { createCowartProjectRegistry } from "../lib/cowart-project-registry.js";
 
 test("archives registered project-local Cowart canvases", async (t) => {
@@ -160,10 +159,6 @@ test("legacy registry entries without a trusted Cowart canvas stay lazy at start
   assert.deepEqual(await readdir(join(noMarkerProject, "canvas")), []);
   assert.deepEqual(await readdir(externalCanvas), ["cowart-view-state.json"], "startup must not write through the symlinked canvas");
   assert.equal(await readFile(registryPath, "utf8"), registryBytesBefore, "startup must not rewrite the registry");
-
-  // Untrusted entries stay listed but must never be usable as MCP insert targets.
-  assert.equal(resolveCowartInsertCanvas(status.sources, symlinkedSource.id), null);
-  assert.equal(resolveCowartInsertCanvas(status.sources)?.id, "mosa", "the managed MOSA canvas remains insertable");
 
   // The entries remain visible and removable.
   const [firstEntry] = await registry.list();

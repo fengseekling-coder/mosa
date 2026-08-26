@@ -64,7 +64,7 @@ test("7-9. preload 路径与安全 WebPreferences 不变", async () => {
   assert.match(main, /sandbox: true/);
 });
 
-test("10-11. Finder IPC 与其余 Desktop IPC 不变", async () => {
+test("10-11. Finder IPC 收紧边界且其余 Desktop IPC 不变", async () => {
   const main = await source("desktop/main.mjs");
   const preload = await source("desktop/preload.cjs");
   // Finder 能力契约（与 desktop-packaging 契约一致，不放宽）。
@@ -74,7 +74,8 @@ test("10-11. Finder IPC 与其余 Desktop IPC 不变", async () => {
   assert.match(handler, /event\.sender !== mainWindow\.webContents/);
   assert.match(handler, /!isAbsolute\(target\)/);
   assert.match(handler, /!existsSync\(target\)/);
-  assert.match(handler, /shell\.showItemInFolder\(target\)/);
+  assert.match(handler, /resolveAllowedFolderPath\(target, \[libraryDir\]\)/);
+  assert.match(handler, /shell\.showItemInFolder\(allowedTarget\)/);
   assert.doesNotMatch(handler, /openExternal/);
   // 其余既有 IPC 通道与 preload 暴露面不变。
   for (const channel of ["open-file-dialog", "paste-image", "set-locale"]) {
@@ -129,13 +130,16 @@ test("19-21. Return / Prev / Next / Zoom 控件可见契约", async () => {
   assert.match(styles, /\.asset-view-controls \{ position: absolute;/);
 });
 
-test("22-24. Inspector V2 九项顺序：Cowart 第七、More 第九、Cowart 唯一 primary", async () => {
+test("22-24. Inspector V2 八项顺序：File/Tags 直接进入滚动列，More 收尾", async () => {
   const appJs = await source("app/app.mjs");
   const inspector = await source("app/inspector-markup.mjs");
+  const scrollStart = appJs.indexOf('detail-inspector-scroll">');
   const template = appJs.slice(
-    appJs.indexOf("detail-inspector-scroll\">${detailFileSectionMarkup"),
-    appJs.indexOf("</div></div>`", appJs.indexOf("detail-inspector-scroll\">${detailFileSectionMarkup")),
+    scrollStart,
+    appJs.indexOf("</div></div>`", scrollStart),
   );
+  assert.notEqual(scrollStart, -1, "inspector scroll template exists");
+  assert.match(template, /\$\{detailFileSectionMarkup\(asset\)\}\$\{detailTagsSectionMarkup\(asset\)\}/, "File and Tags enter the scroll column directly");
   const order = [
     "detailFileSectionMarkup",
     "detailTagsSectionMarkup",
@@ -143,7 +147,6 @@ test("22-24. Inspector V2 九项顺序：Cowart 第七、More 第九、Cowart �
     "detailSourceSectionMarkup",
     "detailVersionSectionMarkup",
     "detailGroupSectionMarkup",
-    "detailCowartSectionMarkup",
     "detailNewVersionSectionMarkup",
     "detailMoreSectionMarkup",
   ];
@@ -153,14 +156,9 @@ test("22-24. Inspector V2 九项顺序：Cowart 第七、More 第九、Cowart �
     assert.notEqual(position, -1, `${markup} present in inspector template`);
     cursor = position;
   }
-  assert.equal(order.indexOf("detailCowartSectionMarkup"), 6, "Cowart stays the 7th section");
-  assert.equal(order.indexOf("detailMoreSectionMarkup"), 8, "More stays the 9th section");
+  assert.equal(order.indexOf("detailMoreSectionMarkup"), 7, "More stays the 8th section");
   // data-inspector-section 标记与顺序一致。
-  assert.match(inspector, /data-inspector-section="cowart"/);
   assert.match(inspector, /data-inspector-section="more"/);
-  // 「插入 Cowart」仍是检视器内唯一 action-btn primary。
-  assert.equal(appJs.split("action-btn primary").length - 1, 1);
-  assert.match(appJs, /action-btn primary" type="button" data-action="insert-cowart"/);
 });
 
 test("25. body/document 不设置造成水平滚动的固定宽度", async () => {
@@ -249,9 +247,9 @@ test("35-37. Viewer Navigation / Transform / Return Snapshot 不退化", async (
   assert.match(assetView, /selectedAssetId: state\.selectedId,\n\s+requestKey: assetRequestKey\(currentAssetRequest\(\)\)/);
 });
 
-test("38. Inspector IA V2 九项 section 标记全在且唯一", async () => {
+test("38. Inspector IA V2 八项 section 标记全在且唯一", async () => {
   const inspector = await source("app/inspector-markup.mjs");
-  const sections = ["file", "prompt", "source", "version", "group", "tags", "cowart", "new-version", "more"];
+  const sections = ["file", "prompt", "source", "version", "group", "tags", "new-version", "more"];
   for (const section of sections) {
     assert.equal(
       inspector.split(`data-inspector-section="${section}"`).length - 1,

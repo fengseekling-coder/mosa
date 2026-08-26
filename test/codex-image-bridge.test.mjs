@@ -82,6 +82,36 @@ test("passes automatic ingest mode and continues after a suppressed Codex image"
   assert.equal(result.imported.length, 1);
 });
 
+test("retries a deterministic Codex asset id collision through automatic identity dedupe", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-codex-id-race-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const imagesDir = join(root, "generated_images");
+  const imagePath = join(imagesDir, "task-a", "same.png");
+  await mkdir(join(imagesDir, "task-a"), { recursive: true });
+  await writeFile(imagePath, pngFixture(640, 480));
+
+  const assetIds = [];
+  const store = {
+    codexImagesDir: imagesDir,
+    async listAssets() { return []; },
+    async createAsset(params) {
+      assetIds.push(params.assetId);
+      if (assetIds.length === 1) throw Object.assign(new Error("winner reserved the compact id"), { code: "ASSET_ALREADY_EXISTS" });
+      throw Object.assign(new Error("same content won elsewhere"), {
+        code: "AUTOMATIC_INGEST_DUPLICATE",
+        identityKind: "content",
+      });
+    },
+  };
+
+  const result = await reconcileCodexGeneratedImages({ store, imagesDir, sessionsDir: join(root, "sessions") });
+  assert.equal(assetIds.length, 2);
+  assert.notEqual(assetIds[1], assetIds[0]);
+  assert.match(assetIds[1], new RegExp(`^${assetIds[0]}-[a-f0-9]{8}$`));
+  assert.equal(result.imported.length, 0);
+  assert.equal(result.skipped[0].reason, "already-archived-same-content");
+});
+
 test("upgrades an archived task instruction to the matching image generation prompt", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
   t.after(() => rm(root, { recursive: true, force: true }));

@@ -4,10 +4,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 import * as desktopI18n from "../desktop/notification-i18n.mjs";
-import {
-  getNotificationText,
-  getNotificationTextForAssetsImported,
-} from "../desktop/notification-i18n.mjs";
+import { getNotificationTextForAssetsImported } from "../desktop/notification-i18n.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const read = (relativePath) => readFile(resolve(root, relativePath), "utf8");
@@ -57,13 +54,11 @@ test("getDesktopText resolves desktop labels in zh/en and falls back safely", ()
   );
 });
 
-test("notification helpers keep their existing API and output", () => {
-  assert.equal(getNotificationText("updateAvailable", "zh"), "有新版本可用，正在下载…");
-  assert.equal(getNotificationText("updateDownloaded", "en"), "New version downloaded. It will be installed on restart.");
-  assert.equal(getNotificationText("updateAvailable", "ja"), "有新版本可用，正在下载…");
+test("asset-import notification helper keeps localized output without updater copy", () => {
   assert.equal(getNotificationTextForAssetsImported(1, "en"), "1 new asset imported");
   assert.equal(getNotificationTextForAssetsImported(12, "en"), "12 new assets imported");
   assert.equal(getNotificationTextForAssetsImported(3, "ja"), "3 个新素材已导入");
+  assert.equal("getNotificationText" in desktopI18n, false, "removed updater helper is not kept as dead API");
 });
 
 test("main localizes custom menu labels without changing roles or accelerators", async () => {

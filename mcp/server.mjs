@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssetStore } from "../lib/asset-store.mjs";
+import { MCP_SERVER_VERSION } from "../lib/version-identities.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || process.cwd());
@@ -291,7 +292,7 @@ async function handleRequest(message) {
     sendResult(id, {
       protocolVersion: params?.protocolVersion || "2025-11-25",
       capabilities: { tools: {} },
-      serverInfo: { name: "MOSA MCP", version: "0.1.0" },
+      serverInfo: { name: "MOSA MCP", version: MCP_SERVER_VERSION },
       instructions: "Save generated images with the effective prompt, distinct user prompt when available, negative constraints, reference hashes, and generation provenance. MOSA records immutable recipe snapshots automatically. Use asset_version_create with the generated imagePath and a version_change summary when creating a child asset version, and asset_recipe_history when an exact prior recipe is needed. Images from Codex's default ~/.codex/generated_images task folders are accepted and their source path is recorded."
     });
     return;

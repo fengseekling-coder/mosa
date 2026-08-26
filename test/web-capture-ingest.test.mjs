@@ -394,6 +394,56 @@ test("archives one asset when the same picture arrives in two encodings", async 
   }
 });
 
+test("serializes concurrent web captures so identical content is imported once", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-concurrent-dedupe-"));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  try {
+    await store.ensureProject("default");
+    const capture = createWebCaptureIngest({
+      store,
+      libraryDir,
+      projectId: "default",
+      token: "test-token",
+      allowedOrigins: ["chrome-extension://test"],
+    });
+    const input = { provider: "chatgpt", imageBase64: SAMPLE_PNG_BASE64, mimeType: "image/jpeg" };
+    const results = await Promise.all([
+      capture.ingest(input, "test-token"),
+      capture.ingest(input, "test-token"),
+    ]);
+    assert.deepEqual(results.map((result) => result.status).sort(), ["imported", "skipped"]);
+    assert.equal(results.find((result) => result.status === "skipped")?.reason, "already-archived-same-content");
+    assert.equal((await store.listAssets({ projectId: "default" })).length, 1);
+  } finally {
+    store.close?.();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("independent web capture queues remain idempotent for the same deterministic asset id", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-independent-race-"));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  try {
+    await store.ensureProject("default");
+    const tempRoot = join(libraryDir, ".web-capture-tmp");
+    const input = { provider: "chatgpt", imageBase64: SAMPLE_PNG_BASE64, mimeType: "image/jpeg" };
+    const results = await Promise.all([
+      ingestWebCapture({ store, tempRoot, projectId: "default", input }),
+      ingestWebCapture({ store, tempRoot, projectId: "default", input }),
+    ]);
+    assert.deepEqual(results.map((result) => result.status).sort(), ["imported", "skipped"]);
+    assert.equal(results.find((result) => result.status === "skipped")?.reason, "already-archived-same-content");
+    assert.equal((await store.listAssets({ projectId: "default" })).length, 1);
+  } finally {
+    store.close?.();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("archives a reference as a deduplicated attachment without adding a library asset", async () => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-reference-"));
   const libraryDir = join(root, "library");
@@ -942,13 +992,38 @@ test("serializes concurrent reference attachment index updates", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-reference-concurrent-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const referenceStore = createReferenceAttachmentStore(root);
+  const independentStore = createReferenceAttachmentStore(root);
   const [first, second] = await Promise.all([
     referenceStore.save(referenceFixture(await noiseImage(60), "c1", "2026-08-13T10:00:00.000Z")),
-    referenceStore.save(referenceFixture(await noiseImage(61), "c1", "2026-08-13T10:00:01.000Z")),
+    independentStore.save(referenceFixture(await noiseImage(61), "c1", "2026-08-13T10:00:01.000Z")),
   ]);
   assert.equal(first.created, true);
   assert.equal(second.created, true);
   assert.deepEqual(new Set((await referenceStore.list("default")).map((item) => item.id)), new Set([first.attachment.id, second.attachment.id]));
+});
+
+test("reference attachments dedupe re-encodes by current display pixels", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-reference-pixels-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const raw = Buffer.alloc(32 * 24 * 4);
+  for (let i = 0; i < raw.length; i += 4) {
+    raw[i] = (i * 17) & 255;
+    raw[i + 1] = (i * 29) & 255;
+    raw[i + 2] = (i * 43) & 255;
+    raw[i + 3] = i % 20 === 0 ? 128 : 255;
+  }
+  const firstBytes = await sharp(raw, { raw: { width: 32, height: 24, channels: 4 } }).png({ compressionLevel: 9 }).toBuffer();
+  const secondBytes = await sharp(raw, { raw: { width: 32, height: 24, channels: 4 } }).png({ compressionLevel: 1 }).toBuffer();
+  assert.notDeepEqual(firstBytes, secondBytes);
+
+  const referenceStore = createReferenceAttachmentStore(root);
+  const first = await referenceStore.save(referenceFixture(firstBytes, "c1", "2026-08-13T10:00:00.000Z"));
+  const second = await referenceStore.save(referenceFixture(secondBytes, "c1", "2026-08-13T10:00:01.000Z"));
+  assert.equal(first.created, true);
+  assert.equal(second.created, false);
+  assert.equal(second.duplicateKind, "pixel");
+  assert.equal(second.attachment.id, first.attachment.id);
+  assert.equal((await referenceStore.list("default")).length, 1);
 });
 
 test("a capture with no conversation identifier links nothing", async (t) => {

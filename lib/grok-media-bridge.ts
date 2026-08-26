@@ -1,10 +1,11 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, watch, type FSWatcher } from "node:fs";
 import { lstat, mkdir, readFile, readdir, realpath, stat } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
+import { PIXEL_HASH_VERSION, safePixelDigest } from "./image-pixel-hash.js";
 
 const IMAGE_EXTENSIONS = new Set([".apng", ".avif", ".gif", ".jpg", ".jpeg", ".png", ".svg", ".webp"]);
 const VIDEO_EXTENSIONS = new Set([".m4v", ".mov", ".mp4", ".webm"]);
@@ -57,6 +58,7 @@ export async function reconcileGrokMedia(options: { store: Store; sessionsDir: s
   const knownPaths = new Set<string>(); const assetsBySourcePath = new Map<string, typeof allAssets[number]>(); const assetsByContentHash = new Map<string, typeof allAssets[number]>();
   for (const asset of allAssets) { for (const path of [asset.source?.path, asset.source?.grok_media_path].filter(Boolean)) { const resolved = resolve(path as string); knownPaths.add(resolved); assetsBySourcePath.set(resolved, asset); } if (asset.source?.content_sha256) assetsByContentHash.set(asset.source.content_sha256 as string, asset); }
   const contentHashes = knownHashesOpt || await existingContentHashes(store, projectId, allAssets);
+  const pixelHashes = new Set(allAssets.filter((asset) => asset.source?.pixel_hash_version === PIXEL_HASH_VERSION).map((asset) => asset.source?.pixel_sha256 as string).filter(Boolean));
   const sessionIds = new Set(candidates.map((c) => c.sessionId).filter(Boolean));
   const { sessions: sessionMetadata, warnings } = await readGrokSessionMetadata(rootReal, sessionIds, candidates);
   const imported: unknown[] = []; const skipped: Array<{ path: string; reason: string; error?: string }> = [...discoverySkipped]; const updated: string[] = [];
@@ -83,8 +85,16 @@ export async function reconcileGrokMedia(options: { store: Store; sessionsDir: s
       knownPaths.add(candidate.mediaPath);
       continue;
     }
+    const pixelHash = candidate.mediaKind === "image" && extname(candidate.mediaPath).toLowerCase() !== ".svg"
+      ? await safePixelDigest(candidate.mediaPath).catch(() => "")
+      : "";
+    if (pixelHash && pixelHashes.has(pixelHash)) {
+      skipped.push({ path: candidate.mediaPath, reason: "already-archived-same-pixels" });
+      knownPaths.add(candidate.mediaPath);
+      continue;
+    }
     const mediaInfo = await readMediaInfo(candidate.mediaPath, candidate.fileStat, candidate.mediaKind);
-    try { const asset = await store.createAsset({ projectId, imagePath: candidate.mediaPath, asset: candidate.fileName, assetId: buildGrokAssetId(candidate), prompt: generation.prompt, skill: "Grok automatic archive", ratio: mediaInfo.ratio || generation.aspectRatio || "", theme: promptTheme(generation.prompt), tags: ["grok", "auto-archived", candidate.mediaKind], created_at: candidate.generatedAt, sourceType: "grok-generated", business_fields: { auto_archived: true, media_kind: candidate.mediaKind, prompt_status: generation.promptStatus, file_bytes: candidate.fileStat.size, width: mediaInfo.width, height: mediaInfo.height, mime_type: mediaInfo.mimeType }, source: { generation_tool: generation.toolName || `grok-${candidate.mediaKind}`, media_kind: candidate.mediaKind, grok_media_path: candidate.mediaPath, grok_session_id: candidate.sessionId || null, grok_session_path: generation.sessionPath || candidate.sessionPath || null, grok_session_folder: candidate.mediaFolder, grok_output_file: candidate.fileName, grok_generated_at: candidate.generatedAt, grok_tool_call_id: generation.callId, model: generation.model, prompt_status: generation.promptStatus, content_sha256: contentHash, media_metadata: mediaInfo } }, { trustedSourceRoots: [rootReal], ingestMode: "automatic" }); knownPaths.add(candidate.mediaPath); contentHashes.add(contentHash); imported.push(asset); } catch (error) { if (isAutomaticImportSuppressed(error)) skipped.push({ path: candidate.mediaPath, reason: "suppressed-after-delete" }); else skipped.push({ path: candidate.mediaPath, reason: "import-failed", error: error instanceof Error ? error.message : String(error) }); }
+    try { const asset = await createAutomaticAssetWithCollisionFallback(store, { projectId, imagePath: candidate.mediaPath, asset: candidate.fileName, assetId: buildGrokAssetId(candidate), prompt: generation.prompt, skill: "Grok automatic archive", ratio: mediaInfo.ratio || generation.aspectRatio || "", theme: promptTheme(generation.prompt), tags: ["grok", "auto-archived", candidate.mediaKind], created_at: candidate.generatedAt, sourceType: "grok-generated", business_fields: { auto_archived: true, media_kind: candidate.mediaKind, prompt_status: generation.promptStatus, file_bytes: candidate.fileStat.size, width: mediaInfo.width, height: mediaInfo.height, mime_type: mediaInfo.mimeType }, source: { generation_tool: generation.toolName || `grok-${candidate.mediaKind}`, media_kind: candidate.mediaKind, grok_media_path: candidate.mediaPath, grok_session_id: candidate.sessionId || null, grok_session_path: generation.sessionPath || candidate.sessionPath || null, grok_session_folder: candidate.mediaFolder, grok_output_file: candidate.fileName, grok_generated_at: candidate.generatedAt, grok_tool_call_id: generation.callId, model: generation.model, prompt_status: generation.promptStatus, content_sha256: contentHash, pixel_sha256: pixelHash || null, pixel_hash_version: pixelHash ? PIXEL_HASH_VERSION : null, media_metadata: mediaInfo } }, { trustedSourceRoots: [rootReal], ingestMode: "automatic" }); knownPaths.add(candidate.mediaPath); contentHashes.add(contentHash); if (pixelHash) pixelHashes.add(pixelHash); imported.push(asset); } catch (error) { if (isAutomaticImportSuppressed(error)) skipped.push({ path: candidate.mediaPath, reason: "suppressed-after-delete" }); else if (isAutomaticIngestDuplicate(error)) skipped.push({ path: candidate.mediaPath, reason: automaticDuplicateReason(error) }); else skipped.push({ path: candidate.mediaPath, reason: "import-failed", error: error instanceof Error ? error.message : String(error) }); }
   }
   return { imported, skipped, updated, candidates: candidates.length, warnings };
 }
@@ -302,5 +312,16 @@ async function walkFiles(root: string): Promise<string[]> { let entries; try { e
 export async function sha256File(filePath: string): Promise<string> { const hash = createHash("sha256"); await pipeline(createReadStream(filePath), hash); return hash.digest("hex"); }
 function isSafeChildPath(parent: string, child: string): boolean { const p = relative(resolve(parent), resolve(child)); return Boolean(p) && !p.startsWith("..") && !p.includes(`..${sep}`); }
 function isAutomaticImportSuppressed(error: unknown): boolean { return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "AUTOMATIC_IMPORT_SUPPRESSED"); }
+function isAutomaticIngestDuplicate(error: unknown): boolean { return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "AUTOMATIC_INGEST_DUPLICATE"); }
+function automaticDuplicateReason(error: unknown): string { return (error as { identityKind?: unknown })?.identityKind === "pixel" ? "already-archived-same-pixels" : "already-archived-same-content"; }
+async function createAutomaticAssetWithCollisionFallback(store: Store, input: Record<string, unknown>, options: Record<string, unknown>): Promise<Record<string, unknown>> {
+  try {
+    return await store.createAsset(input, options);
+  } catch (error) {
+    if (!error || typeof error !== "object" || (error as { code?: unknown }).code !== "ASSET_ALREADY_EXISTS") throw error;
+    const baseId = String(input.assetId || "grok-media").slice(0, 140);
+    return store.createAsset({ ...input, assetId: `${baseId}-${randomUUID().slice(0, 8)}` }, options);
+  }
+}
 async function isCanonicalChildPath(parentReal: string, childPath: string): Promise<boolean> { try { return isSafeChildPath(parentReal, await realpath(childPath)); } catch { return false; } }
 export const __test = { isSafeChildPath, isCanonicalChildPath, sessionMediaLocation, buildGrokAssetId, sha256File, MEDIA_EXTENSIONS, VIDEO_EXTENSIONS, dirname, assertSafeSessionFile, upgradeGenerationMetadata };

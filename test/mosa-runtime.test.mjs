@@ -26,7 +26,6 @@ function runtimeOptions(root, overrides = {}) {
     grokSessionsDir: join(root, "grok-sessions"),
     cowartCanvasDir: join(root, "cowart-canvas"),
     cowartRegistryPath: join(root, "state", "cowart-projects.json"),
-    cowartMcpServerPath: join(root, "missing-cowart-mcp-server.mjs"),
     ...overrides,
   };
 }
@@ -89,13 +88,13 @@ test("starts, identifies itself, stops idempotently, and restarts", async (t) =>
   const first = await startMosaRuntime(options);
   t.after(() => first.stop());
 
-  assert.equal(first.storage, "json");
+  assert.equal(first.storage, "sqlite");
   const response = await fetch(`${first.url}/api/health`);
   assert.equal(response.status, 200);
   const health = await response.json();
   assert.equal(health.product, "mosa");
   assert.equal(health.libraryDir, options.libraryDir);
-  assert.equal(health.storage, "json");
+  assert.equal(health.storage, "sqlite");
   assert.equal(typeof health.productVersion, "string");
   assert.equal(typeof health.gitSha, "string");
   assert.equal(typeof health.uiFingerprint, "string");
@@ -118,12 +117,14 @@ test("starts, identifies itself, stops idempotently, and restarts", async (t) =>
   }
 });
 
-test("an explicit runtime libraryDir reroots JSON assets into libraryDir/assets", async (t) => {
+test("an explicit runtime libraryDir keeps detected legacy JSON assets in place", async (t) => {
   const root = await makeTemporaryRoot(t, "mosa-runtime-explicit-library-");
   const options = runtimeOptions(root);
   // Let the store derive assetsRoot from the explicit libraryDir instead of the
   // desktop-style override used by the shared fixture options.
   delete options.assetsRoot;
+  await mkdir(join(options.libraryDir, "assets", "default"), { recursive: true });
+  await writeFile(join(options.libraryDir, "assets", "default", "groups.json"), "[]\n", "utf8");
   const runtime = await startMosaRuntime(options);
   t.after(() => runtime.stop());
 

@@ -12,7 +12,10 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - **More creation sources, one local library.** Add optional Web Capture for ChatGPT, Gemini, Flow, and Google AI Studio; local Grok Build CLI image and video archiving; and safer project-local Cowart canvas discovery alongside Codex image collection.
 - **A library built for reuse.** Add verified JSON-to-SQLite migration, FTS5 search, stable pagination, WebP previews and thumbnails, tags, favorites, and provenance while preserving originals.
 - **Version history that keeps the why.** Add asset-based recipe version trees, REST and MCP version APIs, and bilingual UI flows for browsing versions and creating the next one.
-- **Return work to the canvas.** Add controlled insertion from MOSA into approved Cowart canvases, with provenance and deduplication to avoid re-importing the same asset.
+
+### Removed / 移除
+
+- Removed controlled insertion from MOSA into Cowart canvases to focus this release on asset collection, archiving, and version management. Cowart canvas archiving (collecting snapshots into the library) is unchanged.
 
 ### Web image capture
 

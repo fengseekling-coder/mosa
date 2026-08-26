@@ -103,7 +103,6 @@ test("4. Inspector V2 Overview and section order are unchanged", async () => {
     "detailSourceSectionMarkup",
     "detailVersionSectionMarkup",
     "detailGroupSectionMarkup",
-    "detailCowartSectionMarkup",
     "detailNewVersionSectionMarkup",
     "detailMoreSectionMarkup",
   ];
@@ -113,7 +112,7 @@ test("4. Inspector V2 Overview and section order are unchanged", async () => {
     assert.notEqual(at, -1, `${name} present in order`);
     cursor = at + 1;
   }
-  const sectionTags = ["file", "prompt", "source", "version", "group", "tags", "cowart", "more"];
+  const sectionTags = ["file", "prompt", "source", "version", "group", "tags", "more"];
   for (const tag of sectionTags) {
     assert.ok(inspector.includes(`data-inspector-section="${tag}"`), `semantic section tag ${tag} intact`);
   }

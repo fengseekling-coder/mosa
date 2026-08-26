@@ -1,7 +1,6 @@
 /**
  * Desktop notification internationalization module.
- * Exports pure functions to resolve notification bodies by key and locale.
- * Supported notification keys: "assetsImported", "updateAvailable", "updateDownloaded"
+ * Exports pure functions for the desktop notifications MOSA actually emits.
  * Desktop menu labels are resolved separately so native role items can follow
  * the renderer's app locale without changing the notification API.
  * Supports {count} placeholder for dynamically-counted messages.
@@ -11,14 +10,10 @@
 const translations = {
   zh: {
     assetsImported: "{count} 个新素材已导入",
-    updateAvailable: "有新版本可用，正在下载…",
-    updateDownloaded: "新版本已下载，重启后将自动安装。",
   },
   en: {
     assetsImported: "{count} new assets imported",
     assetsImportedSingular: "1 new asset imported",
-    updateAvailable: "A new version is available, downloading…",
-    updateDownloaded: "New version downloaded. It will be installed on restart.",
   },
 };
 
@@ -86,26 +81,6 @@ const desktopTranslations = {
     startupErrorTitle: "MOSA could not start",
   },
 };
-
-/**
- * Resolve a notification template by key and locale.
- *
- * @param {string} key - One of: "assetsImported", "updateAvailable", "updateDownloaded"
- * @param {string} locale - Target locale, expected "zh" or "en"
- * @returns {string} - Template string (may include placeholders like {count})
- * @throws Will throw if key is unknown. Unsupported locales use the Chinese
- * fallback to preserve the previous first-run behavior.
- */
-export function getNotificationText(key, locale) {
-  if (!Object.prototype.hasOwnProperty.call(translations.zh, key)) {
-    throw new Error(`Unsupported notification key: ${key}`);
-  }
-
-  if (locale === "zh" || locale === "en") {
-    return translations[locale][key] ?? translations.en[key];
-  }
-  return translations.zh[key];
-}
 
 /**
  * Resolve a native desktop label. Unknown keys fail loudly so adding a menu

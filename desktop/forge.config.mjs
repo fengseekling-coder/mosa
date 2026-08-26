@@ -38,6 +38,56 @@ const BUILD_ONLY_RUNTIME_PATHS = [
   "node_modules/semver/README.md",
 ];
 
+const AD_HOC_SIGN_CONFIG = {
+  identity: "-",
+  identityValidation: false,
+  preAutoEntitlements: false,
+  // Electron's nested binaries arrive hardened under an upstream identity.
+  // A local ad-hoc package must clear that flag on every signed component.
+  optionsForFile: () => ({
+    hardenedRuntime: false,
+    additionalArguments: ["--options=0"],
+  }),
+  strictVerify: true,
+  continueOnError: false,
+};
+
+export function macReleasePackagingConfig(env = process.env) {
+  if (env.MOSA_RELEASE_BUILD !== "1") return { osxSign: AD_HOC_SIGN_CONFIG };
+
+  const identity = String(env.MOSA_MACOS_SIGN_IDENTITY || "").trim();
+  const appleId = String(env.APPLE_ID || "").trim();
+  const appleIdPassword = String(env.APPLE_APP_SPECIFIC_PASSWORD || "").trim();
+  const teamId = String(env.APPLE_TEAM_ID || "").trim();
+  const missing = [
+    ["MOSA_MACOS_SIGN_IDENTITY", identity],
+    ["APPLE_ID", appleId],
+    ["APPLE_APP_SPECIFIC_PASSWORD", appleIdPassword],
+    ["APPLE_TEAM_ID", teamId],
+  ].filter(([, value]) => !value).map(([name]) => name);
+  if (missing.length) {
+    throw new Error(`MOSA release build requires: ${missing.join(", ")}`);
+  }
+
+  return {
+    osxSign: {
+      identity,
+      identityValidation: true,
+      preAutoEntitlements: true,
+      optionsForFile: () => ({ hardenedRuntime: true }),
+      strictVerify: true,
+      continueOnError: false,
+    },
+    osxNotarize: {
+      appleId,
+      appleIdPassword,
+      teamId,
+    },
+  };
+}
+
+const macPackaging = macReleasePackagingConfig();
+
 export async function preparePackagedRuntime(buildPath) {
   await Promise.all(
     BUILD_ONLY_RUNTIME_PATHS.map((path) =>
@@ -75,22 +125,13 @@ export const packageIgnorePatterns = [
 ];
 
 export default {
+  // Forge normally writes to repository-local out/. QA environments may route
+  // generated packages elsewhere without changing the release layout.
+  outDir: process.env.MOSA_FORGE_OUT_DIR || "out",
   packagerConfig: {
     name: "MOSA",
     appBundleId: "com.azhuilab.mosa",
-    osxSign: {
-      identity: "-",
-      identityValidation: false,
-      preAutoEntitlements: false,
-      // Electron's nested binaries arrive hardened under an upstream identity.
-      // A local ad-hoc package must clear that flag on every signed component.
-      optionsForFile: () => ({
-        hardenedRuntime: false,
-        additionalArguments: ["--options=0"],
-      }),
-      strictVerify: true,
-      continueOnError: false,
-    },
+    ...macPackaging,
     ignore: packageIgnorePatterns,
     asar: {
       // sharp's native binding loads this sibling dylib at runtime.

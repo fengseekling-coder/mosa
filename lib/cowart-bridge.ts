@@ -1,6 +1,8 @@
 import { watch, type FSWatcher } from "node:fs";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { basename, extname, join, relative, resolve, sep } from "node:path";
+import { PIXEL_HASH_VERSION, safePixelDigest } from "./image-pixel-hash.js";
 
 const IMAGE_EXTENSIONS = new Set([".apng", ".avif", ".gif", ".jpg", ".jpeg", ".png", ".svg", ".webp"]);
 const DEFAULT_PROJECT_ID = "default";
@@ -77,17 +79,37 @@ export async function reconcileCowartAssets(options: { store: Store; canvasDir: 
   const candidates = await readCowartAssetCandidates(canvasDir);
   const trustedPagesRoot = join(resolve(canvasDir), "pages");
   const [currentAssets, archivedAssets] = await Promise.all([store.listAssets({ projectId }), store.listAssets({ projectId, archived: true })]);
-  const knownSourcePaths = new Set([...currentAssets, ...archivedAssets].map((a) => (a.source?.cowart_page_asset_path || a.source?.path) as string).filter(Boolean).map((v) => resolve(v)));
+  const allAssets = [...currentAssets, ...archivedAssets];
+  const assetsBySourcePath = new Map<string, typeof allAssets[number]>();
+  for (const asset of allAssets) {
+    const sourcePath = (asset.source?.cowart_page_asset_path || asset.source?.path) as string;
+    if (sourcePath) assetsBySourcePath.set(resolve(sourcePath), asset);
+  }
+  const knownContentHashes = new Set(allAssets.map((asset) => asset.source?.content_sha256 as string).filter(Boolean));
+  const knownPixelHashes = new Set(allAssets
+    .filter((asset) => asset.source?.pixel_hash_version === PIXEL_HASH_VERSION)
+    .map((asset) => asset.source?.pixel_sha256 as string)
+    .filter(Boolean));
   const imported: unknown[] = []; const skipped: Array<{ path: string; reason: string }> = [];
 
   for (const candidate of candidates) {
     if (candidate.mosaAssetId) { skipped.push({ path: candidate.imagePath, reason: "mosa-origin" }); continue; }
-    if (knownSourcePaths.has(candidate.imagePath)) { skipped.push({ path: candidate.imagePath, reason: "already-archived" }); continue; }
+    let contentHash: string;
+    try { contentHash = createHash("sha256").update(await readFile(candidate.imagePath)).digest("hex"); }
+    catch { skipped.push({ path: candidate.imagePath, reason: "not-ready" }); continue; }
+    const existingAtPath = assetsBySourcePath.get(candidate.imagePath);
+    const existingPathHash = String(existingAtPath?.source?.content_sha256 || "");
+    if (existingAtPath && (!existingPathHash || existingPathHash === contentHash)) { skipped.push({ path: candidate.imagePath, reason: "already-archived" }); continue; }
+    if (knownContentHashes.has(contentHash)) { skipped.push({ path: candidate.imagePath, reason: "already-archived-same-content" }); continue; }
+    const pixelHash = extname(candidate.imagePath).toLowerCase() === ".svg"
+      ? ""
+      : await safePixelDigest(candidate.imagePath).catch(() => "");
+    if (pixelHash && knownPixelHashes.has(pixelHash)) { skipped.push({ path: candidate.imagePath, reason: "already-archived-same-pixels" }); continue; }
     try {
-      const asset = await store.createAsset({ projectId, imagePath: candidate.imagePath, prompt: candidate.altText, skill: "Cowart automatic bridge", ratio: candidate.ratio, theme: candidate.altText, sourceType: "cowart-generated", business_fields: { auto_archived: true, prompt_status: "Cowart canvas only provides alt text" }, source: { generation_tool: "cowart", cowart_source_id: sourceId, cowart_project_dir: cowartProjectDir, cowart_canvas_dir: candidate.canvasDir, cowart_page_id: candidate.pageId, cowart_page_asset_path: candidate.imagePath, cowart_page_asset_url: candidate.assetUrl, cowart_asset_id: candidate.cowartAssetId, cowart_shape_id: candidate.shapeId, cowart_shape_meta: candidate.shapeMeta, cowart_annotation_source_shape_id: candidate.annotationSourceShapeId || null, replaced_ai_image_holder: candidate.replacedAiImageHolder || null, prompt_status: "canvas-alt-text-only" } }, { trustedSourceRoots: [trustedPagesRoot], ingestMode: "automatic" });
-      knownSourcePaths.add(candidate.imagePath); imported.push(asset);
+      const asset = await store.createAsset({ projectId, imagePath: candidate.imagePath, prompt: candidate.altText, skill: "Cowart automatic bridge", ratio: candidate.ratio, theme: candidate.altText, sourceType: "cowart-generated", business_fields: { auto_archived: true, prompt_status: "Cowart canvas only provides alt text" }, source: { generation_tool: "cowart", cowart_source_id: sourceId, cowart_project_dir: cowartProjectDir, cowart_canvas_dir: candidate.canvasDir, cowart_page_id: candidate.pageId, cowart_page_asset_path: candidate.imagePath, cowart_page_asset_url: candidate.assetUrl, cowart_asset_id: candidate.cowartAssetId, cowart_shape_id: candidate.shapeId, cowart_shape_meta: candidate.shapeMeta, cowart_annotation_source_shape_id: candidate.annotationSourceShapeId || null, replaced_ai_image_holder: candidate.replacedAiImageHolder || null, prompt_status: "canvas-alt-text-only", content_sha256: contentHash, pixel_sha256: pixelHash || null, pixel_hash_version: pixelHash ? PIXEL_HASH_VERSION : null } }, { trustedSourceRoots: [trustedPagesRoot], ingestMode: "automatic" });
+      knownContentHashes.add(contentHash); if (pixelHash) knownPixelHashes.add(pixelHash); imported.push(asset);
     } catch (error) {
-      skipped.push({ path: candidate.imagePath, reason: isAutomaticImportSuppressed(error) ? "suppressed-after-delete" : "import-failed" });
+      skipped.push({ path: candidate.imagePath, reason: isAutomaticImportSuppressed(error) ? "suppressed-after-delete" : isAutomaticIngestDuplicate(error) ? automaticDuplicateReason(error) : "import-failed" });
     }
   }
   return { imported, skipped, candidates: candidates.length };
@@ -138,3 +160,5 @@ function ratioFromShape(shape: CanvasStoreRecord | null): string {
 function gcd(left: number, right: number): number { let a = Math.abs(left); let b = Math.abs(right); while (b) [a, b] = [b, a % b]; return a || 1; }
 function isSafeChildPath(parent: string, child: string): boolean { const p = relative(parent, child); return Boolean(p) && !p.startsWith("..") && !p.includes(`..${sep}`); }
 function isAutomaticImportSuppressed(error: unknown): boolean { return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "AUTOMATIC_IMPORT_SUPPRESSED"); }
+function isAutomaticIngestDuplicate(error: unknown): boolean { return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "AUTOMATIC_INGEST_DUPLICATE"); }
+function automaticDuplicateReason(error: unknown): string { return (error as { identityKind?: unknown })?.identityKind === "pixel" ? "already-archived-same-pixels" : "already-archived-same-content"; }

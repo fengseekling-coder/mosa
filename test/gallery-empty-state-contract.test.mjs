@@ -262,7 +262,6 @@ test("44. Phase 1–4C neighbouring contracts and anchors stay intact", async ()
   // Anchors those contracts rely on.
   assert.match(app, /if \(kind === "__all"\) \{ clearAllFilters\(\); return; \}/, "the chip clear-all entry survives");
   assert.match(app, /if \(state\.galleryStatus === "loading"\) \{ els\.assetGrid\.innerHTML = gallerySkeletonMarkup\(\); return; \}/, "the skeleton branch survives");
-  assert.match(app, /action-btn primary/, "the inspector primary button survives");
   assert.match(viewer, /state\.libraryReturnSnapshot = \{/);
   assert.match(inspector, /function detailMoreSectionMarkup\(asset\)/);
 });

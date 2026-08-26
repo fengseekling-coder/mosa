@@ -7,11 +7,10 @@
  *
  *   node scripts/backfill-pixel-hashes.mjs [--apply] [--library <path>] [--project <id>]
  */
-import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import sharp from "sharp";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
+import { PIXEL_HASH_VERSION, safePixelDigest } from "../lib/image-pixel-hash.js";
 
 const options = parseArgs(process.argv.slice(2));
 const store = createSqliteAssetStore({
@@ -28,12 +27,19 @@ try {
   const byPixelHash = new Map();
   let hashed = 0;
   let written = 0;
-  let unreadable = 0;
+  let clearedUnsafe = 0;
+  let unhashed = 0;
 
   for (const asset of assets) {
     const pixelHash = await pixelDigest(asset.image_path || asset.original_path);
     if (!pixelHash) {
-      unreadable += 1;
+      unhashed += 1;
+      if (options.apply && asset.source?.pixel_sha256) {
+        await store.updateMetadata(asset.project_id, asset.id, {
+          source: { ...(asset.source || {}), pixel_sha256: null, pixel_hash_version: null },
+        });
+        clearedUnsafe += 1;
+      }
       continue;
     }
     hashed += 1;
@@ -42,7 +48,12 @@ try {
 
     if (options.apply && asset.source?.pixel_sha256 !== pixelHash) {
       await store.updateMetadata(asset.project_id, asset.id, {
-        source: { ...(asset.source || {}), pixel_sha256: pixelHash },
+        source: { ...(asset.source || {}), pixel_sha256: pixelHash, pixel_hash_version: PIXEL_HASH_VERSION },
+      });
+      written += 1;
+    } else if (options.apply && asset.source?.pixel_hash_version !== PIXEL_HASH_VERSION) {
+      await store.updateMetadata(asset.project_id, asset.id, {
+        source: { ...(asset.source || {}), pixel_hash_version: PIXEL_HASH_VERSION },
       });
       written += 1;
     }
@@ -61,7 +72,8 @@ try {
     mode: options.apply ? "apply" : "report",
     assets: assets.length,
     hashed,
-    unreadable,
+    unhashed,
+    unsafePixelHashesCleared: clearedUnsafe,
     pixelHashesWritten: written,
     duplicateGroups: duplicates,
   }, null, 2));
@@ -73,11 +85,7 @@ try {
 async function pixelDigest(imagePath) {
   if (!imagePath) return "";
   try {
-    const { data, info } = await sharp(imagePath).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-    return createHash("sha256")
-      .update(`${info.width}x${info.height}x${info.channels}:`)
-      .update(data)
-      .digest("hex");
+    return await safePixelDigest(imagePath);
   } catch {
     return "";
   }

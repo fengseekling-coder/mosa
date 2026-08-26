@@ -2,6 +2,18 @@
 // 骨架渲染常量在模块作用域 export，天然先于任何调用绑定，不存在 temporal dead zone。
 export const SORT_ORDERS = ["newest", "oldest", "name"];
 export const SOURCE_FACETS = { codex: "codex-generated", cowart: "cowart-generated", grok: "grok-generated" };
+// Sidebar source groups are deterministic provenance buckets, not user-created
+// collections. Keep this list limited to automatic AI capture / bridge sources so
+// historical local imports do not leak back into the primary navigation.
+export const SIDEBAR_SOURCE_TYPES = [
+  "web-chatgpt",
+  "web-gemini",
+  "web-flow",
+  "web-google-ai-studio",
+  "codex-generated",
+  "grok-generated",
+  "cowart-generated",
+];
 export const SCOPES = ["all", "favorite", "recent"];
 export const FACET_KEYS = ["source", "group", "category", "style", "conversation", "generationBatch"];
 export const SIDEBAR_GROUP_LIMIT = 5;

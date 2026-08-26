@@ -309,22 +309,6 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               showToast(t("copyFailed"), "error");
             }
           },
-        },
-        {
-          label: t("insertToCowart"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>',
-          disabled: !state.cowartInsertAvailable,
-          action: async () => {
-            await runAction(async () => {
-              // Same contract as the inspector's insert button: the canvas target
-              // rides in the body, the asset is identified by the URL.
-              await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/insert-cowart`, {
-                method: "POST",
-                body: { placement: "right", targetId: state.cowartInsertTargetId },
-              });
-              showToast(t("insertedToCowart"), "success");
-            });
-          },
         }
       );
 

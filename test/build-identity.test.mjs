@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import { getBuildIdentity, resetBuildIdentityCache, computeUiFingerprint } from "../lib/build-identity.mjs";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
+import { MCP_SERVER_VERSION } from "../lib/version-identities.mjs";
 
 const repositoryRoot = resolve(new URL("..", import.meta.url).pathname);
 
@@ -29,7 +30,6 @@ function runtimeOptions(root, overrides = {}) {
     grokSessionsDir: join(root, "grok-sessions"),
     cowartCanvasDir: join(root, "cowart-canvas"),
     cowartRegistryPath: join(root, "state", "cowart-projects.json"),
-    cowartMcpServerPath: join(root, "missing-cowart-mcp-server.mjs"),
     ...overrides,
   };
 }
@@ -117,7 +117,7 @@ test("uiFingerprint in build-identity.json matches the actual browser-delivered 
   resetBuildIdentityCache();
 });
 
-test("/api/health returns productVersion, gitSha, and uiFingerprint matching build-identity.json", async (t) => {
+test("/api/health returns product, MCP, Git, and UI build identities", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-health-build-id-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const service = await startMosaRuntime(runtimeOptions(root));
@@ -128,6 +128,7 @@ test("/api/health returns productVersion, gitSha, and uiFingerprint matching bui
   const health = await response.json();
   assert.equal(health.product, "mosa");
   assert.equal(typeof health.productVersion, "string");
+  assert.equal(health.mcpServerVersion, MCP_SERVER_VERSION);
   assert.equal(typeof health.gitSha, "string");
   assert.equal(typeof health.uiFingerprint, "string");
 

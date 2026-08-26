@@ -199,6 +199,43 @@ test("Google adapters read only eligible page-local bytes and keep CDN URLs remo
   assert.doesNotMatch(providerSource, /chrome\.cookies|document\.cookie|authorization/i);
 });
 
+test("Google adapter capture work is limited to two concurrent tasks", async () => {
+  assert.match(providerSource, /const CAPTURE_CONCURRENCY = 2/);
+  assert.match(providerSource, /return withCaptureSlot\(async \(\) => \{/);
+
+  const helperSource = [
+    /const CAPTURE_CONCURRENCY = 2;/.exec(providerSource)?.[0],
+    /let captureInFlight = 0;/.exec(providerSource)?.[0],
+    /const captureWaiters = \[\];/.exec(providerSource)?.[0],
+    /async function withCaptureSlot\(task\) \{[\s\S]*?\n  \}/.exec(providerSource)?.[0],
+  ].filter(Boolean).join("\n");
+  assert.match(helperSource, /withCaptureSlot/);
+
+  const context = { Promise };
+  vm.runInNewContext(`${helperSource}\nthis.withCaptureSlot = withCaptureSlot;`, context, { filename: "provider-capture-limit.js" });
+
+  let active = 0;
+  let maxActive = 0;
+  const releases = [];
+  const tasks = Array.from({ length: 5 }, (_, index) => context.withCaptureSlot(async () => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolveTask) => releases.push(resolveTask));
+    active -= 1;
+    return index;
+  }));
+
+  await setImmediate();
+  assert.equal(active, 2);
+  assert.equal(maxActive, 2);
+  while (releases.length || active) {
+    releases.shift()?.();
+    await setImmediate();
+  }
+  assert.deepEqual(await Promise.all(tasks), [0, 1, 2, 3, 4]);
+  assert.equal(maxActive, 2);
+});
+
 test("uses safe local extension settings without a public Token default", () => {
   assert.match(backgroundSource, /mosaBaseUrl:\s*"http:\/\/127\.0\.0\.1:43517"/);
   assert.match(backgroundSource, /mosaToken:\s*""/);

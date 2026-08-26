@@ -1,4 +1,5 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { realpathSync } from "node:fs";
 
 export function isAllowedLocalOrigin(origin: unknown, port: number | string): boolean {
   if (!origin) return true;
@@ -32,14 +33,19 @@ export function resolveAllowedFolderPath(requestedPath: unknown, allowedPaths: u
 
   let candidate: string;
   try {
-    candidate = resolve(requestedPath);
+    candidate = realpathSync(resolve(requestedPath));
   } catch {
     return null;
   }
 
   for (const allowedPath of allowedPaths) {
     if (!allowedPath) continue;
-    const root = resolve(String(allowedPath));
+    let root;
+    try {
+      root = realpathSync(resolve(String(allowedPath)));
+    } catch {
+      continue;
+    }
     const pathFromRoot = relative(root, candidate);
     if (pathFromRoot === "" || (!pathFromRoot.startsWith(`..${sep}`) && pathFromRoot !== ".." && !isAbsolute(pathFromRoot))) {
       return candidate;

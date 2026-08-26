@@ -8,6 +8,8 @@ import test from "node:test";
 import { handleAssetRoute } from "../lib/api/asset-routes.mjs";
 import { createJsonAssetStore } from "../lib/asset-store.mjs";
 import { createSqliteAssetStore, sqliteDatabasePath } from "../lib/sqlite-asset-store.mjs";
+import { PIXEL_HASH_VERSION, safePixelDigest } from "../lib/image-pixel-hash.js";
+import sharp from "sharp";
 
 const PIXEL_HASH = "b".repeat(64);
 const SECOND_PIXEL_HASH = "c".repeat(64);
@@ -46,6 +48,79 @@ function automaticInput(sourcePath, assetId, source = {}) {
 }
 
 for (const kind of ["json", "sqlite"]) {
+  test(`${kind} revalidates a current pixel hash when its claimed content changed`, async (t) => {
+    const { store, sourcePath } = await setupStore(t, `${kind}-stale-current-pixel`);
+    const png = await sharp({
+      create: { width: 8, height: 8, channels: 3, background: { r: 17, g: 61, b: 149 } },
+    }).png().toBuffer();
+    await writeFile(sourcePath, png);
+    const actualPixelHash = await safePixelDigest(png);
+    const stalePixelHash = "d".repeat(64);
+    await store.recordAutomaticIngestSuppression("default", {
+      pixel_sha256: stalePixelHash,
+      pixel_hash_version: PIXEL_HASH_VERSION,
+    });
+
+    const asset = await store.createAsset(
+      automaticInput(sourcePath, `${kind}-stale-current-pixel`, {
+        content_sha256: "e".repeat(64),
+        pixel_sha256: stalePixelHash,
+        pixel_hash_version: PIXEL_HASH_VERSION,
+      }),
+      { ingestMode: "automatic" },
+    );
+
+    assert.equal(asset.source.pixel_sha256, actualPixelHash);
+    assert.equal(asset.source.pixel_hash_version, PIXEL_HASH_VERSION);
+  });
+
+  test(`${kind} deletion upgrades a legacy pixel identity from the managed image`, async (t) => {
+    const { store, sourcePath } = await setupStore(t, `${kind}-delete-legacy-pixel`);
+    const png = await sharp({
+      create: { width: 9, height: 7, channels: 3, background: { r: 201, g: 99, b: 31 } },
+    }).png().toBuffer();
+    await writeFile(sourcePath, png);
+    const currentPixelHash = await safePixelDigest(png);
+    const asset = await store.createAsset(
+      automaticInput(sourcePath, `${kind}-delete-legacy-pixel`, { pixel_sha256: PIXEL_HASH }),
+      { ingestMode: "automatic" },
+    );
+    await store.deleteAsset("default", asset.id);
+    const [suppression] = await store.listAutomaticIngestSuppressions("default");
+    assert.equal(suppression.pixel_sha256, currentPixelHash);
+    assert.equal(suppression.pixel_hash_version, PIXEL_HASH_VERSION);
+  });
+
+  test(`${kind} automatic ingest is idempotent under concurrent writes with different asset ids`, async (t) => {
+    const { store, sourcePath } = await setupStore(t, `${kind}-duplicate-race`);
+    const results = await Promise.allSettled([
+      store.createAsset(automaticInput(sourcePath, `${kind}-race-a`), { ingestMode: "automatic" }),
+      store.createAsset(automaticInput(sourcePath, `${kind}-race-b`), { ingestMode: "automatic" }),
+    ]);
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    const rejected = results.find((result) => result.status === "rejected");
+    assert.equal(rejected?.reason?.code, "AUTOMATIC_INGEST_DUPLICATE");
+    assert.equal((await store.listAssets({ projectId: "default" })).length, 1);
+  });
+
+  test(`${kind} does not trust a legacy pixel hash as the current pixel identity`, async (t) => {
+    const { store, sourcePath } = await setupStore(t, `${kind}-pixel-version`);
+    await store.createAsset(
+      automaticInput(sourcePath, `${kind}-legacy-pixel`, { pixel_sha256: PIXEL_HASH }),
+      { ingestMode: "automatic" },
+    );
+    await writeFile(sourcePath, "different bytes with a deliberately reused test pixel hash", "utf8");
+    const current = await store.createAsset(
+      automaticInput(sourcePath, `${kind}-current-pixel`, {
+        pixel_sha256: PIXEL_HASH,
+        pixel_hash_version: PIXEL_HASH_VERSION,
+      }),
+      { ingestMode: "automatic" },
+    );
+    assert.equal(current.id, `${kind}-current-pixel`);
+    assert.equal((await store.listAssets({ projectId: "default" })).length, 2);
+  });
+
   test(`${kind} deletion suppresses the same automatic content and manual import restores it`, async (t) => {
     const { store, sourcePath } = await setupStore(t, kind);
 
@@ -171,6 +246,41 @@ test("SQLite clears only the requested pixel-only suppression", async (t) => {
   assert.deepEqual(
     (await store.listAutomaticIngestSuppressions("default")).map((record) => record.pixel_sha256),
     [SECOND_PIXEL_HASH],
+  );
+});
+
+test("SQLite keeps pixel-only suppressions from different hash versions independent", async (t) => {
+  const { store, sourcePath } = await setupStore(t, "sqlite-pixel-version-clear");
+  await store.recordAutomaticIngestSuppression("default", { pixel_sha256: PIXEL_HASH });
+  await store.recordAutomaticIngestSuppression("default", {
+    pixel_sha256: PIXEL_HASH,
+    pixel_hash_version: PIXEL_HASH_VERSION,
+  });
+
+  assert.equal((await store.listAutomaticIngestSuppressions("default")).length, 2);
+  assert.equal(await store.clearAutomaticIngestSuppression("default", {
+    pixel_sha256: PIXEL_HASH,
+    pixel_hash_version: PIXEL_HASH_VERSION,
+  }), 1);
+  assert.deepEqual(
+    (await store.listAutomaticIngestSuppressions("default")).map((record) => record.pixel_hash_version),
+    [""],
+  );
+
+  await store.recordAutomaticIngestSuppression("default", {
+    pixel_sha256: PIXEL_HASH,
+    pixel_hash_version: PIXEL_HASH_VERSION,
+  });
+  await store.createAsset(
+    automaticInput(sourcePath, "manual-versioned-pixel-clear", {
+      pixel_sha256: PIXEL_HASH,
+      pixel_hash_version: PIXEL_HASH_VERSION,
+    }),
+    { ingestMode: "manual" },
+  );
+  assert.deepEqual(
+    (await store.listAutomaticIngestSuppressions("default")).map((record) => record.pixel_hash_version),
+    [""],
   );
 });
 

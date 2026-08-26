@@ -20,3 +20,20 @@ jobs:
       - run: npm test
       - run: npm run test:performance
       - run: npm run audit
+
+  desktop-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: node -e "require('electron')"
+      - run: node -e "if (process.arch !== 'arm64') throw new Error('Expected arm64 macOS runner')"
+      - run: node --test test/desktop-packaging.test.mjs test/electron-preload-runtime-contract.test.mjs
+      - run: npm run test:e2e
+      - run: npm run desktop:package
+      - run: codesign --verify --deep --strict --verbose=2 out/MOSA-darwin-arm64/MOSA.app
+      - run: npm run qa:packaged:smoke

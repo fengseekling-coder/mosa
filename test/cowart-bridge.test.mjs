@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import sharp from "sharp";
 import { createAssetStore } from "../lib/asset-store.mjs";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 import { createCowartAssetBridge, reconcileCowartAssets } from "../lib/cowart-bridge.js";
@@ -39,6 +40,70 @@ test("archives Cowart page assets once and keeps MOSA-origin images out", async 
   const second = await reconcileCowartAssets({ store, canvasDir });
   assert.equal(second.imported.length, 0);
   assert.equal(second.skipped.filter((item) => item.reason === "already-archived").length, 1);
+});
+
+test("deduplicates Cowart copies by content even when their page asset paths differ", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-cowart-content-dedupe-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const canvasDir = join(root, "cowart-data", "mosa");
+  const pageDir = join(canvasDir, "pages", "page");
+  const pageAssetsDir = join(pageDir, "assets");
+  await mkdir(pageAssetsDir, { recursive: true });
+  const bytes = Buffer.from("same Cowart image bytes under two file names");
+  await writeFile(join(pageAssetsDir, "first.png"), bytes);
+  await writeFile(join(pageAssetsDir, "renamed-copy.png"), bytes);
+  await writeFile(join(pageDir, "cowart-canvas.json"), JSON.stringify({
+    store: {
+      "asset:first": { id: "asset:first", typeName: "asset", type: "image", props: { name: "first.png", src: "/page-assets/page/first.png" }, meta: {} },
+      "shape:first": { id: "shape:first", typeName: "shape", type: "image", props: { assetId: "asset:first", w: 100, h: 100, altText: "first" }, meta: {} },
+      "asset:copy": { id: "asset:copy", typeName: "asset", type: "image", props: { name: "renamed-copy.png", src: "/page-assets/page/renamed-copy.png" }, meta: {} },
+      "shape:copy": { id: "shape:copy", typeName: "shape", type: "image", props: { assetId: "asset:copy", w: 100, h: 100, altText: "copy" }, meta: {} },
+    },
+  }), "utf8");
+
+  const store = createAssetStore({ projectRoot, managerDir, cowartCanvasDir: canvasDir });
+  const result = await reconcileCowartAssets({ store, canvasDir });
+  assert.equal(result.imported.length, 1);
+  assert.equal(result.skipped.filter((item) => item.reason === "already-archived-same-content").length, 1);
+  assert.equal((await store.listAssets({ projectId: "default" })).length, 1);
+});
+
+test("deduplicates Cowart re-encodes by current display pixels", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-cowart-pixel-dedupe-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const canvasDir = join(root, "cowart-data", "mosa");
+  const pageDir = join(canvasDir, "pages", "page");
+  const pageAssetsDir = join(pageDir, "assets");
+  await mkdir(pageAssetsDir, { recursive: true });
+  const raw = Buffer.alloc(64 * 48 * 4);
+  for (let i = 0; i < raw.length; i += 4) {
+    raw[i] = (i * 11) & 255;
+    raw[i + 1] = (i * 23) & 255;
+    raw[i + 2] = (i * 47) & 255;
+    raw[i + 3] = i % 28 === 0 ? 144 : 255;
+  }
+  const firstBytes = await sharp(raw, { raw: { width: 64, height: 48, channels: 4 } }).png({ compressionLevel: 9 }).toBuffer();
+  const secondBytes = await sharp(raw, { raw: { width: 64, height: 48, channels: 4 } }).png({ compressionLevel: 1 }).toBuffer();
+  await writeFile(join(pageAssetsDir, "first.png"), firstBytes);
+  await writeFile(join(pageAssetsDir, "reencoded.png"), secondBytes);
+  await writeFile(join(pageDir, "cowart-canvas.json"), JSON.stringify({
+    store: {
+      "asset:first": { id: "asset:first", typeName: "asset", type: "image", props: { name: "first.png", src: "/page-assets/page/first.png" }, meta: {} },
+      "shape:first": { id: "shape:first", typeName: "shape", type: "image", props: { assetId: "asset:first", w: 64, h: 48, altText: "first" }, meta: {} },
+      "asset:copy": { id: "asset:copy", typeName: "asset", type: "image", props: { name: "reencoded.png", src: "/page-assets/page/reencoded.png" }, meta: {} },
+      "shape:copy": { id: "shape:copy", typeName: "shape", type: "image", props: { assetId: "asset:copy", w: 64, h: 48, altText: "copy" }, meta: {} },
+    },
+  }), "utf8");
+
+  const store = createAssetStore({ projectRoot, managerDir, cowartCanvasDir: canvasDir });
+  const result = await reconcileCowartAssets({ store, canvasDir });
+  assert.equal(result.imported.length, 1);
+  assert.equal(result.skipped.filter((item) => item.reason === "already-archived-same-pixels").length, 1);
+  assert.equal((await store.listAssets({ projectId: "default" })).length, 1);
 });
 
 test("continues Cowart reconciliation after one asset import fails", async (t) => {
