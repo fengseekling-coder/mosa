@@ -16,7 +16,14 @@ export function createCriticalUiFlowSource({ mode, fixturePath, searchTerm, vers
       }
       await sleep(100);
     }
-    throw new Error('Timed out waiting for ' + label + (lastError ? ': ' + lastError.message : ''));
+    const diagnostic = {
+      selectedId: document.querySelector('.asset-card.selected')?.dataset.id || '',
+      detailTitle: document.querySelector('#detailTitle')?.textContent || '',
+      toast: document.querySelector('.toast-message, .toast')?.textContent || '',
+      confirmOpen: document.querySelector('#confirmDialog')?.classList.contains('open') || false,
+      detailBusy: document.querySelector('#detailPanel [aria-busy="true"]')?.getAttribute('data-action') || '',
+    };
+    throw new Error('Timed out waiting for ' + label + (lastError ? ': ' + lastError.message : '') + ' diagnostic=' + JSON.stringify(diagnostic));
   }
   function setValue(selector, value) {
     const element = document.querySelector(selector);
@@ -36,8 +43,17 @@ export function createCriticalUiFlowSource({ mode, fixturePath, searchTerm, vers
   }
   async function search() {
     setValue('#searchInput', config.searchTerm);
+    // The search handler is debounced. A pre-existing card can satisfy the
+    // result-count assertion before the query has actually committed, which
+    // lets the delayed search clear an Inspector opened by the next step. Wait
+    // for the query chip first, then for the corresponding request to settle.
     await waitFor(
-      () => document.querySelectorAll('.asset-card').length >= (config.mode === 'verify' ? 2 : 1),
+      () => document.querySelector('[data-chip="query"]')?.textContent?.includes(config.searchTerm),
+      'committed search query',
+    );
+    await waitFor(
+      () => document.querySelector('#assetGrid')?.getAttribute('aria-busy') === 'false'
+        && document.querySelectorAll('.asset-card').length >= (config.mode === 'verify' ? 2 : 1),
       'search results',
     );
   }
@@ -50,7 +66,11 @@ export function createCriticalUiFlowSource({ mode, fixturePath, searchTerm, vers
     );
   }
 
-  await waitFor(() => document.querySelector('#newAssetTopBtn'), 'MOSA application shell');
+  await waitFor(
+    () => document.querySelector('#newAssetTopBtn')
+      && document.querySelector('#assetGrid')?.getAttribute('aria-busy') === 'false',
+    'initialized MOSA application shell',
+  );
 
   if (config.mode === 'exercise') {
     click('#newAssetTopBtn');

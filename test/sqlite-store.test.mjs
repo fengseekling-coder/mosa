@@ -12,6 +12,119 @@ import { createSqliteAssetStore, sqliteDatabasePath } from "../lib/sqlite-asset-
 
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+1CBR3wAAAABJRU5ErkJggg==", "base64");
 
+test("SQLite materializes search and filter scalars without changing search semantics", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-search-scalars-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const libraryDir = join(root, "library");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, ONE_PIXEL_PNG);
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir });
+
+  await store.createAsset({
+    assetId: "scalar-search",
+    imagePath: sourcePath,
+    prompt: "minimal identity study",
+    tags: ["LaunchMark"],
+    business_fields: { campaign: "AuroraCampaign" },
+    group: "Brand",
+    category: "identity",
+    style: "minimal",
+    favorite: true,
+    source: {
+      type: "local-file", provider: "chatgpt", media_kind: "video", custom_label: "NebulaSource",
+      conversation_id: "conversation-scalar", message_id: "batch-scalar",
+    },
+  });
+  assert.deepEqual((await store.listAssets({ projectId: "default", query: "launchmark" })).map((asset) => asset.id), ["scalar-search"]);
+  assert.deepEqual((await store.listAssets({ projectId: "default", query: "auroracampaign" })).map((asset) => asset.id), ["scalar-search"]);
+  assert.deepEqual((await store.listAssets({ projectId: "default", query: "nebulasource" })).map((asset) => asset.id), ["scalar-search"]);
+  assert.deepEqual((await store.listAssets({ projectId: "default", source: "web-chatgpt" })).map((asset) => asset.id), ["scalar-search"]);
+  assert.deepEqual((await store.listAssets({ projectId: "default", mediaKind: "video" })).map((asset) => asset.id), ["scalar-search"]);
+  assert.deepEqual((await store.listAssets({ projectId: "default", conversation: "conversation-scalar" })).map((asset) => asset.id), ["scalar-search"]);
+  assert.deepEqual((await store.listAssets({ projectId: "default", conversation: "conversation-scalar", generationBatch: "batch-scalar" })).map((asset) => asset.id), ["scalar-search"]);
+  store.close();
+
+  const database = new Database(sqliteDatabasePath(libraryDir), { readonly: true });
+  const row = database.prepare(`
+    SELECT tags_text, business_search_text, source_search_text, media_kind, source_group, conversation_id, generation_batch
+    FROM assets WHERE project_id = 'default' AND id = 'scalar-search'
+  `).get();
+  const planDetails = (sql, ...params) => database.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params).map((entry) => entry.detail).join("\n");
+  const conversationPlan = planDetails(
+    "SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND conversation_id = ? ORDER BY created_at DESC, id DESC LIMIT 101",
+    "default", "conversation-scalar",
+  );
+  const batchPlan = planDetails(
+    "SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND conversation_id = ? AND generation_batch = ? ORDER BY created_at DESC, id DESC LIMIT 101",
+    "default", "conversation-scalar", "batch-scalar",
+  );
+  const mediaPlan = planDetails(
+    "SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND media_kind = ? ORDER BY created_at DESC, id DESC LIMIT 101",
+    "default", "video",
+  );
+  const sourcePlan = planDetails(
+    "SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND source_group = ? ORDER BY created_at DESC, id DESC LIMIT 101",
+    "default", "web-chatgpt",
+  );
+  const groupPlan = planDetails(
+    "SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND group_name = ? ORDER BY created_at DESC, id DESC LIMIT 101",
+    "default", "Brand",
+  );
+  const categoryPlan = planDetails(
+    "SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND category = ? ORDER BY created_at DESC, id DESC LIMIT 101",
+    "default", "identity",
+  );
+  const stylePlan = planDetails(
+    "SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND style = ? ORDER BY created_at DESC, id DESC LIMIT 101",
+    "default", "minimal",
+  );
+  const favoritePlan = planDetails(
+    "SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND (rating > 0 OR favorite = 1) ORDER BY created_at DESC, id DESC LIMIT 101",
+    "default",
+  );
+  const defaultPlan = planDetails(
+    "SELECT id FROM assets WHERE project_id = ? AND archived = 0 ORDER BY created_at DESC, id DESC LIMIT 101",
+    "default",
+  );
+  const namePlan = planDetails(
+    "SELECT id FROM assets WHERE project_id = ? AND archived = 0 ORDER BY sort_name ASC, id ASC LIMIT 101",
+    "default",
+  );
+  const ftsPlan = planDetails(`
+    WITH ranked AS MATERIALIZED (
+      SELECT a.id, a.created_at, 1 AS _search_score
+      FROM asset_fts f JOIN assets a ON a.project_id = f.project_id AND a.id = f.asset_id
+      WHERE a.project_id = ? AND a.archived = 0 AND f.project_id = ? AND f.content MATCH ?
+    )
+    SELECT * FROM ranked WHERE _search_score > 0
+    ORDER BY _search_score DESC, created_at DESC, id DESC LIMIT 101
+  `, "default", "default", '"launchmark"');
+  database.close();
+  assert.match(row.tags_text, /LaunchMark/);
+  assert.match(row.business_search_text, /AuroraCampaign/);
+  assert.match(row.source_search_text, /NebulaSource/);
+  assert.equal(row.media_kind, "video");
+  assert.equal(row.source_group, "web-chatgpt");
+  assert.equal(row.conversation_id, "conversation-scalar");
+  assert.equal(row.generation_batch, "batch-scalar");
+  assert.match(conversationPlan, /assets_project_conversation_idx/);
+  assert.match(batchPlan, /assets_project_conversation_batch_idx/);
+  assert.match(mediaPlan, /assets_project_media_kind_idx/);
+  assert.match(sourcePlan, /assets_project_source_group_idx/);
+  assert.match(groupPlan, /assets_project_group_created_idx/);
+  assert.match(categoryPlan, /assets_project_category_created_idx/);
+  assert.match(stylePlan, /assets_project_style_created_idx/);
+  assert.match(favoritePlan, /assets_project_favorite_created_idx/);
+  assert.match(defaultPlan, /assets_project_created_idx/);
+  assert.match(namePlan, /assets_project_name_idx/);
+  assert.match(ftsPlan, /VIRTUAL TABLE INDEX/);
+  for (const plan of [conversationPlan, batchPlan, mediaPlan, sourcePlan, groupPlan, categoryPlan, stylePlan, favoritePlan, defaultPlan, namePlan]) {
+    assert.doesNotMatch(plan, /USE TEMP B-TREE FOR ORDER BY/);
+  }
+});
+
 test("SQLite store keeps archive, duplicate, version, and cursor contracts", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -480,11 +593,11 @@ test("SQLite schema v1 upgrades once without changing completed migration state"
   const pixelIndex = upgraded.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'assets_project_pixel_hash_idx'").get();
   upgraded.close();
 
-  assert.equal(schemaAfterUpgrade.value, "6");
+  assert.equal(schemaAfterUpgrade.value, "8");
   assert.notEqual(schemaAfterUpgrade.updated_at, originalTimestamp);
   assert.deepEqual(migrationState, { value: "completed", updated_at: originalTimestamp });
   assert.deepEqual(migrationDetails, { value: '{"verified":true}', updated_at: originalTimestamp });
-  assert.deepEqual(migrationVersions, [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(migrationVersions, [1, 2, 3, 4, 5, 6, 7, 8]);
   assert.equal(parentIndex.name, "asset_versions_parent_idx");
   assert.equal(pixelColumn.name, "pixel_sha256");
   assert.equal(pixelIndex.name, "assets_project_pixel_hash_idx");
@@ -555,7 +668,50 @@ test("SQLite schema v5 upgrades suppression identity to include pixel hash versi
     pixel_hash_version: "opaque-static-v1",
     deleted_at: "2026-08-20T00:00:00.000Z",
   });
-  assert.equal(schemaVersion, "6");
+  assert.equal(schemaVersion, "8");
+});
+
+test("SQLite schema v7 backfills conversation and generation-batch scalars", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-schema-v7-query-scalars-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const libraryDir = join(root, "library");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, ONE_PIXEL_PNG);
+
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir });
+  await store.createAsset({
+    assetId: "legacy-query-scalars",
+    imagePath: sourcePath,
+    source: { type: "web-chatgpt", conversation_id: "legacy-conversation", message_id: "legacy-batch" },
+  });
+  store.close();
+
+  const databasePath = sqliteDatabasePath(libraryDir);
+  const legacy = new Database(databasePath);
+  legacy.exec(`
+    UPDATE assets SET conversation_id = '', generation_batch = '' WHERE id = 'legacy-query-scalars';
+    DELETE FROM schema_migrations WHERE version = 8;
+    UPDATE library_meta SET value = '7' WHERE key = 'schema_version';
+  `);
+  legacy.close();
+
+  const upgraded = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir });
+  assert.deepEqual(
+    (await upgraded.listAssets({ projectId: "default", conversation: "legacy-conversation", generationBatch: "legacy-batch" })).map((asset) => asset.id),
+    ["legacy-query-scalars"],
+  );
+  upgraded.close();
+
+  const inspected = new Database(databasePath, { readonly: true });
+  const scalars = inspected.prepare("SELECT conversation_id, generation_batch FROM assets WHERE id = 'legacy-query-scalars'").get();
+  const schemaVersion = inspected.prepare("SELECT value FROM library_meta WHERE key = 'schema_version'").get().value;
+  const migrations = inspected.prepare("SELECT version FROM schema_migrations ORDER BY version").all().map((row) => row.version);
+  inspected.close();
+  assert.deepEqual(scalars, { conversation_id: "legacy-conversation", generation_batch: "legacy-batch" });
+  assert.equal(schemaVersion, "8");
+  assert.ok(migrations.includes(8));
 });
 
 test("SQLite schema v2 migration backfills current recipes for existing assets", async (t) => {
@@ -603,16 +759,16 @@ test("SQLite refuses to downgrade a newer schema", async (t) => {
   future.exec(`
     CREATE TABLE library_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-    INSERT INTO library_meta (key, value, updated_at) VALUES ('schema_version', '7', 'future');
+    INSERT INTO library_meta (key, value, updated_at) VALUES ('schema_version', '9', 'future');
   `);
   future.close();
 
   assert.throws(
     () => createSqliteAssetStore({ projectRoot: root, managerDir: join(root, "mosa"), libraryDir }),
-    /schema version 7 is newer than supported version 6/,
+    /schema version 9 is newer than supported version 8/,
   );
   const inspected = new Database(databasePath, { readonly: true });
-  assert.deepEqual(inspected.prepare("SELECT value, updated_at FROM library_meta WHERE key = 'schema_version'").get(), { value: "7", updated_at: "future" });
+  assert.deepEqual(inspected.prepare("SELECT value, updated_at FROM library_meta WHERE key = 'schema_version'").get(), { value: "9", updated_at: "future" });
   inspected.close();
 });
 
@@ -666,6 +822,8 @@ test("derivative job writes WebP previews without changing the original", async 
   const updated = await store.getAsset("default", asset.id);
   assert.match(updated.thumbnail_url, /thumbnails\/image\.webp$/);
   assert.match(updated.preview_url, /previews\/image\.webp$/);
+  assert.equal(updated.business_fields.width, 1200);
+  assert.equal(updated.business_fields.height, 800);
   const [thumbnail, preview] = await Promise.all([sharp(updated.thumbnail_path).metadata(), sharp(updated.preview_path).metadata()]);
   assert.equal(thumbnail.format, "webp");
   assert.ok(thumbnail.width <= 400 && thumbnail.height <= 400);

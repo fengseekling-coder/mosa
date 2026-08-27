@@ -16,8 +16,19 @@ type ReferenceInput = {
   pageUrl?: string;
   conversationId?: string;
   messageId?: string;
+  generationContextId?: string;
   capturedAt: string;
   userMessage?: string;
+};
+
+export type ReferenceUsage = {
+  generation_context_id: string;
+  provider: string;
+  page_url: string;
+  conversation_id: string;
+  message_id: string;
+  captured_at: string;
+  user_message: string;
 };
 
 export type ReferenceAttachment = {
@@ -37,6 +48,7 @@ export type ReferenceAttachment = {
   captured_at: string;
   user_message: string;
   attachment_url: string;
+  usages: ReferenceUsage[];
 };
 
 export function createReferenceAttachmentStore(libraryDir: string) {
@@ -61,12 +73,19 @@ export function createReferenceAttachmentStore(libraryDir: string) {
     const contentHash = createHash("sha256").update(input.bytes).digest("hex");
     const pixelHash = await safePixelDigest(input.bytes).catch(() => "");
     const indexed = await list(projectId);
+    const usage = referenceUsage(input);
     const existingByContent = indexed.find((item) => item.content_sha256 === contentHash);
-    if (existingByContent) return { attachment: existingByContent, created: false, duplicateKind: "content" };
+    if (existingByContent) {
+      const attachment = await appendReferenceUsage(indexPath, indexed, existingByContent, usage);
+      return { attachment, created: false, duplicateKind: "content" };
+    }
     const existingByPixel = pixelHash
       ? indexed.find((item) => item.pixel_hash_version === PIXEL_HASH_VERSION && item.pixel_sha256 === pixelHash)
       : undefined;
-    if (existingByPixel) return { attachment: existingByPixel, created: false, duplicateKind: "pixel" };
+    if (existingByPixel) {
+      const attachment = await appendReferenceUsage(indexPath, indexed, existingByPixel, usage);
+      return { attachment, created: false, duplicateKind: "pixel" };
+    }
 
     const extension = safeExtension(input.extension);
     const id = `ref-${contentHash.slice(0, 24)}`;
@@ -96,11 +115,10 @@ export function createReferenceAttachmentStore(libraryDir: string) {
       captured_at: String(input.capturedAt || new Date().toISOString()),
       user_message: String(input.userMessage || ""),
       attachment_url: attachmentUrl(projectId, fileName),
+      usages: [usage],
     };
     const items = [...await list(projectId), attachment];
-    const indexTemporary = `${indexPath}.${randomUUID()}.tmp`;
-    await writeFile(indexTemporary, `${JSON.stringify(items, null, 2)}\n`, "utf8");
-    await rename(indexTemporary, indexPath);
+    await writeReferenceIndex(indexPath, items);
     return { attachment, created: true };
   }
 
@@ -116,6 +134,7 @@ export function createReferenceAttachmentStore(libraryDir: string) {
         pixel_sha256: String(item.pixel_sha256 || ""),
         pixel_hash_version: String(item.pixel_hash_version || ""),
         attachment_url: attachmentUrl(cleanProjectId, cleanSegment(item.file_name, "reference.bin")),
+        usages: normalizeReferenceUsages(item),
       }));
     } catch (error) {
       if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return [];
@@ -150,6 +169,64 @@ function safeExtension(value: string): string {
 
 function attachmentUrl(projectId: string, fileName: string): string {
   return `/library/${encodeURIComponent(projectId)}/references/${encodeURIComponent(fileName)}`;
+}
+
+function referenceUsage(input: ReferenceInput): ReferenceUsage {
+  return {
+    generation_context_id: String(input.generationContextId || ""),
+    provider: String(input.provider || ""),
+    page_url: String(input.pageUrl || ""),
+    conversation_id: String(input.conversationId || ""),
+    message_id: String(input.messageId || ""),
+    captured_at: String(input.capturedAt || new Date().toISOString()),
+    user_message: String(input.userMessage || ""),
+  };
+}
+
+function normalizeReferenceUsages(item: Record<string, unknown>): ReferenceUsage[] {
+  const raw = Array.isArray(item.usages) ? item.usages : [];
+  const usages = raw.filter((usage) => usage && typeof usage === "object").map((usage) => {
+    const value = usage as Record<string, unknown>;
+    return {
+      generation_context_id: String(value.generation_context_id || ""),
+      provider: String(value.provider || item.provider || ""),
+      page_url: String(value.page_url || item.page_url || ""),
+      conversation_id: String(value.conversation_id || item.conversation_id || ""),
+      message_id: String(value.message_id || item.message_id || ""),
+      captured_at: String(value.captured_at || item.captured_at || ""),
+      user_message: String(value.user_message || item.user_message || ""),
+    };
+  });
+  if (usages.length) return usages;
+  return [{
+    generation_context_id: "",
+    provider: String(item.provider || ""),
+    page_url: String(item.page_url || ""),
+    conversation_id: String(item.conversation_id || ""),
+    message_id: String(item.message_id || ""),
+    captured_at: String(item.captured_at || ""),
+    user_message: String(item.user_message || ""),
+  }];
+}
+
+function referenceUsageKey(usage: ReferenceUsage): string {
+  if (usage.generation_context_id) return `context:${usage.generation_context_id}`;
+  return [usage.conversation_id, usage.message_id, usage.captured_at].join("\u0000");
+}
+
+async function appendReferenceUsage(indexPath: string, indexed: ReferenceAttachment[], existing: ReferenceAttachment, usage: ReferenceUsage): Promise<ReferenceAttachment> {
+  const usages = normalizeReferenceUsages(existing as unknown as Record<string, unknown>);
+  if (usages.some((item) => referenceUsageKey(item) === referenceUsageKey(usage))) return existing;
+  const updated = { ...existing, usages: [...usages, usage].slice(-100) };
+  const items = indexed.map((item) => item.id === existing.id ? updated : item);
+  await writeReferenceIndex(indexPath, items);
+  return updated;
+}
+
+async function writeReferenceIndex(indexPath: string, items: ReferenceAttachment[]): Promise<void> {
+  const indexTemporary = `${indexPath}.${randomUUID()}.tmp`;
+  await writeFile(indexTemporary, `${JSON.stringify(items, null, 2)}\n`, "utf8");
+  await rename(indexTemporary, indexPath);
 }
 
 async function withProjectWriteLock<T>(root: string, projectId: string, task: () => Promise<T>): Promise<T> {

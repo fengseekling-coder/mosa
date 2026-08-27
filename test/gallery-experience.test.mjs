@@ -88,7 +88,7 @@ test("separates loading, failed, empty and populated gallery states", async () =
   const [app, css, apiClient] = await Promise.all([readApp(), readCss(), readApiClient()]);
 
   assert.match(app, /galleryStatus: "loading"/);
-  assert.match(app, /if \(state\.galleryStatus === "loading"\) \{ els\.assetGrid\.innerHTML = gallerySkeletonMarkup\(\); return; \}/);
+  assert.match(app, /if \(state\.galleryStatus === "loading"\) \{ els\.assetGrid\.innerHTML = gallerySkeletonMarkup\(\); restoreGridFallbackFocus\(\); return; \}/);
   assert.match(app, /if \(state\.galleryStatus === "error"\)/);
   // The empty state is only reachable after a request has actually answered.
   const renderGrid = /function renderGrid\(\)[\s\S]*?\n}\n/.exec(app)?.[0] || "";
@@ -136,9 +136,12 @@ test("offers a stable image-only / with-info density switch", async () => {
   assert.match(css, /\.asset-card-info \{ display: none;/);
   assert.match(css, /\.grid\[data-density="info"\] \.asset-card-info \{ display: block; \}/);
   assert.match(app, /els\.assetGrid\.dataset\.density = state\.galleryDensity/);
-  // Masonry row spans must not depend solely on an animation frame: those are
-  // suspended while the window is hidden, and the cards collapse to a few pixels.
-  assert.match(app, /const schedule = \(\) => \{ layoutMasonry\(\); requestAnimationFrame\(layoutMasonry\); \};/);
+  // Masonry row spans must not depend solely on an animation frame: the first
+  // full pass is synchronous, while later image decodes repair only their own
+  // cards instead of triggering a whole-grid measurement storm.
+  assert.match(app, /function setupMasonryLayout\(options = \{\}\) \{[\s\S]*?layoutMasonry\(layoutTargets\);/);
+  assert.match(app, /if \(card\) scheduleMasonryLayout\(card\);/);
+  assert.doesNotMatch(app, /addEventListener\("load",\s*schedule/);
   // Gallery spacing is one 4px-based token in both axes. The masonry grid keeps
   // row-gap at zero and reserves the same visual gap in each computed row span.
   assert.match(css, /--gallery-gap:\s*12px;/);

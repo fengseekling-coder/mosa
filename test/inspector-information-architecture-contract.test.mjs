@@ -209,6 +209,25 @@ test("14-17. prompt section states, copy entry and user-instruction separation",
   assert.match(i18n, /userInstruction: "User instruction"/);
   assert.match(i18n, /userInstructionUnavailable: "未提供用户指令"/);
   assert.match(i18n, /userInstructionUnavailable: "No user instruction provided"/);
+
+  // The primary prompt composition shows real generation references instead of
+  // the old hard-coded "unused" claim. Web assets distinguish loading, empty,
+  // and populated reference states while recipe history loads asynchronously.
+  assert.match(promptSection, /data-prompt-references/);
+  assert.match(inspector, /function promptReferencesMarkup\(asset\)/);
+  assert.match(inspector, /reference\.attachment_url \|\| linked\?\.thumbnail_url \|\| linked\?\.image_url/);
+  assert.match(inspector, /data-reference-thumb-img/);
+  assert.match(inspector, /data-reference-thumb-fallback/);
+  assert.match(inspector, /t\("referenceLoading"\)/);
+  assert.match(inspector, /t\("referenceNone"\)/);
+  assert.doesNotMatch(promptSection, /t\("referenceUnused"\)/);
+  assert.match(app, /function renderPromptReferencesRegion\(asset, error = null\)/);
+  assert.match(app, /renderPromptReferencesRegion\(asset, error\)/);
+  assert.match(app, /t\("referenceLoadFailed"\)/);
+  assert.match(app, /function bindReferenceThumbnailFallbacks\(root\)/);
+  assert.match(app, /classList\.add\("is-load-error"\)/);
+  assert.match(i18n, /referenceLoadFailed: "读取失败"/);
+  assert.match(i18n, /referenceLoadFailed: "Failed to load"/);
 });
 
 // 18. Source section exists. 19. Source copy entry exists. 20. buildSourceRows kept.
@@ -300,9 +319,13 @@ test("25-28. tags section renders prompt-derived chips and add action (D3)", asy
 
   const tagsSection = functionSlice(inspector, "detailTagsSectionMarkup");
   assert.ok(tagsSection.includes('data-inspector-section="tags"'));
-  // 26–28. Tags are derived from the asset prompt, the add action is always rendered,
-  // and the visual row is bounded by the implementation stylesheet.
+  // 26–28. The source chip is always first, prompt-derived tags follow it, the
+  // add action is always rendered, and the visual row stays bounded.
   assert.match(tagsSection, /assetTags\(asset\)/);
+  assert.match(tagsSection, /const sourceMarkup = `<span class="detail-tag detail-source-tag"/);
+  assert.match(tagsSection, /\$\{sourceMarkup\}\$\{tagMarkup\}/, "source chip precedes normal tags");
+  assert.match(tagsSection, /sourceType === "web-chatgpt"[^\n]*return "GPT"/);
+  assert.match(tagsSection, /sourceType === "codex-generated"[^\n]*return "Codex"/);
   assert.match(tagsSection, /class="detail-tag"/);
   assert.match(tagsSection, /data-action="add-tag"/);
   assert.match(tagsSection, /t\("addTag"\)/);
@@ -464,7 +487,7 @@ test("48-51. hygiene: no !important, no undefined tokens, manifest and dependenc
 
   // 51. app.js gains no new imports (no new runtime dependencies).
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./overlay-manager.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only the local tag utility");
+    ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
 });
 
 // i18n symmetry: every new Phase 4A key ships in both languages, and no

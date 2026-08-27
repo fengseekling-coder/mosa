@@ -160,9 +160,11 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
         </button>
         <div class="brand">
-          <div class="brand-info"><h1>MOSA</h1></div>
+          <div class="brand-info">
+            <h1>MOSA</h1>
+            <p class="sidebar-library-title" data-i18n="brandSubtitle">创作资产库</p>
+          </div>
         </div>
-        <p class="sidebar-library-title" data-i18n="brandSubtitle">创作资产库</p>
 
         <nav class="primary-nav" data-i18n-aria-label="library" aria-label="素材库">
           <ul class="nav-list" id="quickFilters">
@@ -263,8 +265,7 @@
         </section>
       </main>
 
-      <!-- Phase 5A / F-14：筛选面板是非模态 dialog 语义（不是菜单）；定位/碰撞/外部点击/
-           Escape 统一由 anchoredOverlayManager 处理（运行时内联 top/left 覆盖静态 fallback）。 -->
+      <!-- 素材检视器独立于画廊滚动容器。 -->
       <aside class="detail" id="detailPanel" data-i18n-aria-label="assetInspector" aria-label="素材检视器" aria-hidden="true"></aside>
     </div>
     <div class="settings-menu" id="settingsMenu" data-i18n-aria-label="settings" aria-label="设置" hidden></div>

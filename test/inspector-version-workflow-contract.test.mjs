@@ -154,12 +154,18 @@ test("15-19. one centralized version-switch helper with dirty guard", async () =
   // restored, no navigation).
   assert.match(helper, /target\.id === state\.selectedId\) \{ restoreVersionPickerValue\(\); return true; \}/, "same-version selection is a no-op");
 
-  // 18. The existing confirmDetailNavigation dirty guard is reused — no second
-  // dirty state, no new confirm copy. Phase 5B: the guard is async and awaits the
-  // single app-wide ConfirmDialog Promise; window.confirm is gone.
-  assert.match(helper, /if \(!await confirmDetailNavigation\(target\.id\)\) \{ restoreVersionPickerValue\(\); return false; \}/, "dirty guard blocks the switch");
+  // 18. The existing confirmDetailNavigation guard is reused — no second dirty
+  // state, no new confirm copy. Auto-save: the guard flushes the pending debounced
+  // draft before switching; a failed flush returns false and blocks the switch
+  // (the draft stays dirty for a retry instead of being discarded).
+  assert.match(helper, /if \(!await confirmDetailNavigation\(target\.id\)\) \{ restoreVersionPickerValue\(\); return false; \}/, "a failed flush blocks the switch");
   assert.doesNotMatch(helper, /detailDirty\s*=|window\.confirm\(/, "helper neither owns dirty state nor introduces a new confirm");
-  assert.match(app, /async function confirmDetailNavigation\(nextAssetId\) \{[\s\S]*?if \(!state\.detailDirty \|\| nextAssetId === state\.selectedId\) return true;\s*\n\s*return requestConfirmation\(\{[\s\S]*?discardChangesTitle[\s\S]*?\}\);\s*\n\}/, "shared dirty guard keeps its single confirm copy via requestConfirmation");
+  assert.match(app, /async function confirmDetailNavigation\(\) \{[\s\S]*?return flushInspectorSave\(\);\s*\n\}/,
+    "shared guard flushes the pending auto-save; it never discards or commits before the caller succeeds");
+  assert.doesNotMatch(functionSlice(app, "confirmDetailNavigation"), /state\.detailDirty\s*=\s*false/,
+    "a failed flush must leave the draft dirty for a retry");
+  assert.match(helper, /isCurrentDetailSelection\(originProjectId, originAssetId\)[\s\S]*?discardDetailDraft\(\);[\s\S]*?state\.selectedId = target\.id;/,
+    "version switching commits discard only after confirmation and stale-context validation");
 
   // 19. Cancel (or an unknown target) restores the select's displayed value.
   assert.match(helper, /if \(!target\) \{ restoreVersionPickerValue\(\); return false; \}/, "unknown target restores the select value");
@@ -223,21 +229,23 @@ test("24-33. recipe save and save-as-version stay split", async () => {
   assert.ok(newVersionSection.includes("data-version-change"), "version-change textarea stays in the new-version section");
   assert.doesNotMatch(promptSection, /data-version-change/, "recipe disclosure no longer hosts data-version-change");
 
-  // 26-30. The two save handlers read disjoint fields and call disjoint APIs.
-  const saveRecipe = sliceBetween(app, "panel.querySelector('[data-action=\"save-recipe\"]')?.addEventListener", "panel.querySelector('[data-action=\"save-version\"]')?.addEventListener");
+  // 26-30. The recipe auto-save path and the save-version handler read disjoint
+  // fields and call disjoint APIs. save-recipe is now a manual flush trigger; the
+  // actual recipe PATCH lives in persistInspectorDraft (the debounced auto-save).
+  const persist = sliceBetween(app, "async function persistInspectorDraft(panel, asset, renderId)", "async function flushInspectorSave()");
   const saveVersion = sliceBetween(app, "panel.querySelector('[data-action=\"save-version\"]')?.addEventListener", "bindReferenceRightsEvents(panel, asset, renderId);");
   // 26.
-  assert.doesNotMatch(saveRecipe, /data-version-change/, "save-recipe never reads data-version-change");
-  assert.match(saveRecipe, /panel\.querySelector\("\[data-recipe-change\]"\)\?\.value\.trim\(\) \|\| ""/, "save-recipe reads its own summary field");
+  assert.doesNotMatch(persist, /data-version-change/, "recipe auto-save never reads data-version-change");
+  assert.match(persist, /panel\.querySelector\("\[data-recipe-change\]"\)\?\.value\.trim\(\) \|\| ""/, "recipe auto-save reads its own summary field");
   // 27.
   assert.doesNotMatch(saveVersion, /data-recipe-change/, "save-version never reads data-recipe-change");
   assert.match(saveVersion, /panel\.querySelector\("\[data-version-change\]"\)\?\.value\.trim\(\) \|\| ""/, "save-version reads its own summary field");
   // 28.
   assert.doesNotMatch(app, /Recipe updated in MOSA/, "no hardcoded English recipe summary");
-  assert.match(saveRecipe, /\.\.\.\(changeSummary \? \{ recipe_change_summary: changeSummary \} : \{\}\)/, "empty summary omits recipe_change_summary (server default applies)");
+  assert.match(persist, /changeSummary \? \{ recipe_change_summary: changeSummary \} : \{\}/, "empty summary omits recipe_change_summary (server default applies)");
   // 29-30.
-  assert.doesNotMatch(saveRecipe, /\/versions/, "save-recipe never calls the versions API");
-  assert.match(saveRecipe, /method: "PATCH"/, "save-recipe keeps the PATCH path");
+  assert.doesNotMatch(persist, /\/versions/, "recipe auto-save never calls the versions API");
+  assert.match(persist, /method: "PATCH"/, "recipe auto-save keeps the PATCH path");
   assert.match(saveVersion, /\/versions`, \{\s*\n\s*method: "POST"/, "save-version keeps posting to the versions API");
   assert.match(saveVersion, /version_change: versionChange/, "save-version keeps the version_change payload");
 
@@ -332,7 +340,7 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
   // 48. app.js gains no new imports (no new runtime dependencies, no
   // third-party Select component).
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./overlay-manager.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only the local tag utility");
+    ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
 });
 
 // Picker/recipe styles stay inside the approved boundary: native select reuses

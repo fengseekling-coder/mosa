@@ -236,7 +236,7 @@ test("41-43. styles stay inside the token boundary; dependencies stay frozen", a
   assert.doesNotMatch(css, /\.empty-state \{/, "the old misleading empty-state styles are gone");
   // 42-43. Only approved local helpers are imported; no manifest or lockfile
   // change. `tag-utils.mjs` is the local tag normalization helper.
-  assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(), ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./overlay-manager.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
+  assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(), ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
   // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
   // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
   // the dependency sections the freeze really guards stay byte-identical.
@@ -260,8 +260,8 @@ test("44. Phase 1–4C neighbouring contracts and anchors stay intact", async ()
     access(resolve(root, "test/inspector-cowart-original-actions-contract.test.mjs")),
   ]);
   // Anchors those contracts rely on.
-  assert.match(app, /if \(kind === "__all"\) \{ clearAllFilters\(\); return; \}/, "the chip clear-all entry survives");
-  assert.match(app, /if \(state\.galleryStatus === "loading"\) \{ els\.assetGrid\.innerHTML = gallerySkeletonMarkup\(\); return; \}/, "the skeleton branch survives");
+  assert.match(app, /if \(kind === "__all"\) \{ await clearAllFilters\(\); return; \}/, "the chip clear-all entry survives with dirty-safe async reset");
+  assert.match(app, /if \(state\.galleryStatus === "loading"\) \{ els\.assetGrid\.innerHTML = gallerySkeletonMarkup\(\); restoreGridFallbackFocus\(\); return; \}/, "the skeleton branch survives and does not drop focus to body");
   assert.match(viewer, /state\.libraryReturnSnapshot = \{/);
   assert.match(inspector, /function detailMoreSectionMarkup\(asset\)/);
 });

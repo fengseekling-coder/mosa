@@ -6,6 +6,8 @@
 export function createContextMenu() {
   let currentMenu = null;
   let currentTarget = null;
+  let currentSubmenu = null;
+  let currentSubmenuParent = null;
 
   /**
    * Create and show a context menu
@@ -68,6 +70,7 @@ export function createContextMenu() {
       }
 
       if (item.submenu) {
+        menuItem._submenuItems = item.submenu;
         const arrow = document.createElement("span");
         arrow.className = "context-menu-arrow";
         arrow.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>';
@@ -81,7 +84,9 @@ export function createContextMenu() {
           if (item.submenu) {
             showSubmenu(menuItem, item.submenu);
           } else if (item.action) {
+            const returnTarget = currentTarget;
             hide();
+            focusContextTarget(returnTarget);
             await item.action();
           }
         });
@@ -117,7 +122,8 @@ export function createContextMenu() {
     };
 
     const keyHandler = (e) => {
-      handleKeyDown(e, menu);
+      const activeMenu = document.activeElement?.closest?.(".context-menu") || menu;
+      handleKeyDown(e, activeMenu);
     };
 
     setTimeout(() => {
@@ -136,7 +142,9 @@ export function createContextMenu() {
 
   function showSubmenu(parentItem, items) {
     // Remove existing submenus
-    document.querySelectorAll(".context-menu-submenu").forEach((sub) => sub.remove());
+    currentSubmenu?.remove();
+    currentSubmenu = null;
+    currentSubmenuParent = null;
 
     const submenu = document.createElement("div");
     submenu.className = "context-menu context-menu-submenu";
@@ -180,7 +188,9 @@ export function createContextMenu() {
       if (!item.disabled && item.action) {
         menuItem.addEventListener("click", async (e) => {
           e.stopPropagation();
+          const returnTarget = currentTarget;
           hide();
+          focusContextTarget(returnTarget);
           await item.action();
         });
       }
@@ -189,6 +199,8 @@ export function createContextMenu() {
     });
 
     document.body.appendChild(submenu);
+    currentSubmenu = submenu;
+    currentSubmenuParent = parentItem;
 
     // Position submenu next to parent item
     const rect = parentItem.getBoundingClientRect();
@@ -220,13 +232,13 @@ export function createContextMenu() {
   }
 
   function handleKeyDown(e, menu) {
-    const items = Array.from(menu.querySelectorAll(".context-menu-item:not(.disabled)"));
+    const items = Array.from(menu.children).filter((item) => item.classList?.contains("context-menu-item") && !item.disabled);
     const currentIndex = items.findIndex((item) => item === document.activeElement);
 
     switch (e.key) {
       case "Escape":
         e.preventDefault();
-        hide();
+        hide({ restoreFocus: true });
         break;
       case "ArrowDown":
         e.preventDefault();
@@ -247,27 +259,46 @@ export function createContextMenu() {
       case "ArrowRight":
         if (document.activeElement?.classList.contains("has-submenu")) {
           e.preventDefault();
-          const submenu = document.querySelector(".context-menu-submenu");
-          submenu?.querySelector(".context-menu-item:not(.disabled)")?.focus();
+          if (currentSubmenuParent !== document.activeElement && Array.isArray(document.activeElement._submenuItems)) {
+            showSubmenu(document.activeElement, document.activeElement._submenuItems);
+          }
+          currentSubmenu?.querySelector(".context-menu-item:not(.disabled)")?.focus();
         }
         break;
       case "ArrowLeft":
         if (menu.classList.contains("context-menu-submenu")) {
           e.preventDefault();
-          hide();
-          currentMenu?.querySelector(".context-menu-item:focus, .context-menu-item.has-submenu")?.focus();
+          const parent = currentSubmenuParent;
+          currentSubmenu?.remove();
+          currentSubmenu = null;
+          currentSubmenuParent = null;
+          parent?.focus();
         }
         break;
     }
   }
 
-  function hide() {
+  function hide({ restoreFocus = false } = {}) {
+    const returnTarget = currentTarget;
     document.querySelectorAll(".context-menu").forEach((menu) => {
       if (menu._cleanup) menu._cleanup();
       menu.remove();
     });
     currentMenu = null;
+    currentSubmenu = null;
+    currentSubmenuParent = null;
     currentTarget = null;
+    if (restoreFocus) focusContextTarget(returnTarget);
+  }
+
+  function focusContextTarget(target) {
+    if (!(target instanceof HTMLElement) || !target.isConnected) return false;
+    const focusTarget = target.matches("button, input, select, textarea, [tabindex]")
+      ? target
+      : target.querySelector?.(".asset-card-select, button, [tabindex]");
+    if (!(focusTarget instanceof HTMLElement) || !focusTarget.isConnected) return false;
+    focusTarget.focus({ preventScroll: true });
+    return true;
   }
 
   return { show, hide };

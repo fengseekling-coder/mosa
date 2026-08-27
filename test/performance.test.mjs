@@ -7,7 +7,7 @@ import { performance } from "node:perf_hooks";
 import Database from "better-sqlite3";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 
-test("50k SQLite library starts under 3s and FTS P95 is under 100ms", { skip: process.env.MOSA_PERF_TEST !== "1" }, async (t) => {
+test("50k SQLite library uses indexed filters, starts under 3s, and keeps search P95 under 100ms", { skip: process.env.MOSA_PERF_TEST !== "1" }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-perf-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const projectRoot = join(root, "project");
@@ -18,22 +18,63 @@ test("50k SQLite library starts under 3s and FTS P95 is under 100ms", { skip: pr
   store.close();
   const database = new Database(join(libraryDir, "mosa.db"));
   const timestamp = new Date().toISOString();
+  const timestampEpoch = Date.parse(timestamp);
   database.prepare("INSERT INTO projects (id, created_at) VALUES ('default', ?)").run(timestamp);
   const insertAsset = database.prepare(`
     INSERT INTO assets (
       project_id, id, asset, original_path, content_sha256, prompt, skill, style, ratio, business_fields_json, theme,
-      favorite, archived, group_name, category, rating, version_change, source_type, source_json, metadata_json, search_text, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, '', '', '', '{}', '', 0, 0, '', '', 0, '', 'benchmark', '{}', '{}', ?, ?, ?)
+      favorite, archived, group_name, category, rating, version_change, source_type, source_json, metadata_json, search_text,
+      tags_text, business_search_text, source_search_text, media_kind, source_group, conversation_id, generation_batch,
+      created_at, created_at_epoch, updated_at, sort_name
+    ) VALUES (
+      @project_id, @id, @asset, @original_path, 'benchmark', @prompt, '', @style, '', '{}', '',
+      @favorite, 0, @group_name, @category, 0, '', 'web-chatgpt', '{"type":"web-chatgpt"}', '{}', @search_text,
+      '', '', 'web-chatgpt', @media_kind, 'web-chatgpt', @conversation_id, @generation_batch,
+      @created_at, @created_at_epoch, @updated_at, @sort_name
+    )
   `);
   const insertFts = database.prepare("INSERT INTO asset_fts (project_id, asset_id, content) VALUES ('default', ?, ?)");
   database.transaction(() => {
     for (let index = 0; index < 50_000; index += 1) {
       const id = `asset-${index}`;
       const content = `red mechanical future city variant ${index}`;
-      insertAsset.run("default", id, `${id}.png`, `/bench/${id}.png`, "benchmark", content, content, timestamp, timestamp);
+      insertAsset.run({
+        project_id: "default",
+        id,
+        asset: `${id}.png`,
+        original_path: `/bench/${id}.png`,
+        prompt: content,
+        style: `style-${index % 20}`,
+        favorite: index % 17 === 0 ? 1 : 0,
+        group_name: `group-${index % 25}`,
+        category: `category-${index % 10}`,
+        search_text: content,
+        media_kind: index % 4 === 0 ? "video" : "image",
+        conversation_id: `conversation-${index % 100}`,
+        generation_batch: `batch-${index % 10}`,
+        created_at: timestamp,
+        created_at_epoch: timestampEpoch,
+        updated_at: timestamp,
+        sort_name: id,
+      });
       insertFts.run(id, content);
     }
   })();
+  const planDetails = (sql, ...params) => database.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params).map((row) => row.detail).join("\n");
+  const plans = [
+    ["conversation", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND conversation_id = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "conversation-7"), "assets_project_conversation_idx"],
+    ["batch", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND conversation_id = ? AND generation_batch = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "conversation-7", "batch-7"), "assets_project_conversation_batch_idx"],
+    ["source", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND source_group = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "web-chatgpt"), "assets_project_source_group_idx"],
+    ["media", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND media_kind = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "video"), "assets_project_media_kind_idx"],
+    ["group", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND group_name = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "group-7"), "assets_project_group_created_idx"],
+    ["category", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND category = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "category-7"), "assets_project_category_created_idx"],
+    ["style", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND style = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "style-7"), "assets_project_style_created_idx"],
+    ["favorite", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND (rating > 0 OR favorite = 1) ORDER BY created_at DESC, id DESC LIMIT 101", "default"), "assets_project_favorite_created_idx"],
+  ];
+  for (const [name, plan, indexName] of plans) {
+    assert.match(plan, new RegExp(indexName), `${name} plan must use ${indexName}: ${plan}`);
+    assert.doesNotMatch(plan, /USE TEMP B-TREE FOR ORDER BY/, `${name} plan must preserve index order: ${plan}`);
+  }
   database.close();
 
   const startupStarted = performance.now();
@@ -49,6 +90,26 @@ test("50k SQLite library starts under 3s and FTS P95 is under 100ms", { skip: pr
   }
   samples.sort((a, b) => a - b);
   const p95 = samples[Math.ceil(samples.length * 0.95) - 1];
+  const filterSamples = [];
+  const filterCases = [
+    { conversation: "conversation-7" },
+    { conversation: "conversation-7", generationBatch: "batch-7" },
+    { source: "web-chatgpt" },
+    { mediaKind: "video" },
+    { group: "group-7" },
+    { category: "category-7" },
+    { style: "style-7" },
+    { favorite: true },
+  ];
+  for (const filters of filterCases) {
+    const started = performance.now();
+    const result = await reopened.listAssetPage({ projectId: "default", ...filters, limit: 100 });
+    filterSamples.push(performance.now() - started);
+    assert.ok(result.assets.length > 0);
+  }
+  filterSamples.sort((a, b) => a - b);
+  const filterP95 = filterSamples[Math.ceil(filterSamples.length * 0.95) - 1];
   assert.ok(startupMs < 3000, `startup ${startupMs.toFixed(1)}ms exceeded 3000ms`);
   assert.ok(p95 < 100, `search P95 ${p95.toFixed(1)}ms exceeded 100ms`);
+  assert.ok(filterP95 < 50, `indexed-filter P95 ${filterP95.toFixed(1)}ms exceeded 50ms`);
 });

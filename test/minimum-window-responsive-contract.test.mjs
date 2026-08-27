@@ -199,12 +199,13 @@ test("27. 959 Web fallback 保持（Electron 钳制 960 之外 Web 仍回退）"
   assert.match(assetView, /≤959px/);
 });
 
-test("28-30. Overlay max-height / ConfirmDialog viewport-safe / Toast fixed 栈保持", async () => {
+test("28-30. Surface max-height / ConfirmDialog viewport-safe / Toast fixed 栈保持", async () => {
   const styles = await source("app/styles.css");
-  // Overlay：viewport-safe max-height 与 manager 内联坐标契约保持。
+  // Legacy filter/settings fallback geometry remains viewport-safe even though
+  // the old anchored-overlay runtime has been retired from V2.
   assert.match(styles, /\.filter-panel \{[^}]*max-height: min\(580px, calc\(100vh - 76px\)\)/);
   assert.match(styles, /\.settings-menu \{[^}]*max-height: calc\(100vh - 56px\)/);
-  assert.match(styles, /\.anchored-overlay \{ position: fixed;/);
+  assert.doesNotMatch(styles, /\.anchored-overlay/);
   // ConfirmDialog：modal-overlay padding 20px + modal-card max-width/max-height 保证视口安全。
   assert.match(styles, /\.modal-overlay \{ position: fixed;[^}]*padding: 20px;/);
   assert.match(styles, /\.modal-card \{[^}]*max-width: 100%; max-height: min\(760px, 88vh\)/);

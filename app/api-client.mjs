@@ -44,7 +44,7 @@ export function createApiClient(deps) {
     const result = await apiFetch("/api/cowart-canvases");
     state.cowartCanvases = result.canvases || [];
     renderSettingsMenu();
-    if (state.detailOpen) renderDetail();
+    if (state.detailOpen && !isDetailEditorActive()) renderDetail();
   }
 
   let statsRequestSequence = 0;
@@ -52,15 +52,19 @@ export function createApiClient(deps) {
     const requestId = ++statsRequestSequence;
     const project = state.project;
     const [library, result] = await Promise.all([
-      apiFetch(`/api/library-path?project=${encodeURIComponent(project)}`).catch(() => null),
+      options.background
+        ? Promise.resolve(null)
+        : apiFetch(`/api/library-path?project=${encodeURIComponent(project)}`).catch(() => null),
       apiFetch(`/api/groups?project=${encodeURIComponent(project)}`)
     ]);
     if (requestId !== statsRequestSequence || project !== state.project) return false;
 
-    state.libraryPath = library?.path || "";
-    state.codexImagesDir = library?.codexGeneratedImagesDir || "";
-    state.supportedMediaExtensions = Array.isArray(library?.supportedMediaExtensions) ? library.supportedMediaExtensions : [];
-    updateCodexHint();
+    if (library) {
+      state.libraryPath = library.path || "";
+      state.codexImagesDir = library.codexGeneratedImagesDir || "";
+      state.supportedMediaExtensions = Array.isArray(library.supportedMediaExtensions) ? library.supportedMediaExtensions : [];
+      updateCodexHint();
+    }
     const nextGroups = { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, grok: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0, ...(result.groups || {}) };
     const changed = JSON.stringify(nextGroups) !== JSON.stringify(state.groups);
     state.groups = nextGroups;
@@ -71,6 +75,12 @@ export function createApiClient(deps) {
   }
 
   let assetRequestSequence = 0;
+  // Tracks the last result-set semantics that successfully committed to the
+  // gallery. Refreshes of the same query/scope/sort must keep the user's
+  // viewport; genuine result-set changes (search/filter/sort/project) start at
+  // the top. This centralizes scroll policy instead of relying on individual
+  // mutation handlers to remember to restore scroll after a full card rebuild.
+  let lastCommittedAssetRequestKey = null;
 
   // BUG-10（Batch 2A）：Gallery 与 Viewer 边界按需加载共用同一分页请求语义——参数构造
   // 与请求发起都收敛到这两个 helper，避免两套查询规则漂移。Viewer 只允许在进入时捕获的
@@ -119,6 +129,9 @@ export function createApiClient(deps) {
   async function loadAssets(options = {}) {
     const requestId = ++assetRequestSequence;
     const request = currentAssetRequest();
+    const requestKey = assetRequestKey(request);
+    const preserveScroll = options.preserveScroll
+      ?? (options.append || lastCommittedAssetRequestKey === requestKey);
     setGalleryBusy(true, requestId, request);
     let result;
     try {
@@ -146,6 +159,14 @@ export function createApiClient(deps) {
       || (state.detailAsset?.id === state.selectedId && state.detailAsset.project_id === request.project ? state.detailAsset : null);
     const assetsChanged = assetListVersion(previousAssets) !== assetListVersion(nextAssets);
     const selectedChanged = assetVersion(previousSelected) !== assetVersion(nextSelected);
+    // A mutation can remove the edited asset from the current result set
+    // without deleting the asset itself, e.g. un-favoriting while scoped to
+    // Favorites. Keep a snapshot of that asset as the Inspector's source of
+    // truth until the user saves or explicitly discards the draft. Otherwise
+    // selectedId becomes null while the old editable DOM is still visible.
+    const preserveDirtySelection = Boolean(state.detailOpen && state.detailDirty && previousSelected
+      && previousSelected.project_id === request.project
+      && !nextAssets.some((asset) => asset.id === previousSelected.id && asset.project_id === previousSelected.project_id));
     state.assets = nextAssets;
     // The request answered, so an empty result is now genuinely an empty library.
     state.galleryStatus = "ready";
@@ -153,6 +174,7 @@ export function createApiClient(deps) {
     state.pageTotal = Number(result.page?.total || nextAssets.length);
     state.nextCursor = result.page?.nextCursor || null;
     state.loadedPageCount = options.append ? state.loadedPageCount + 1 : 1;
+    if (preserveDirtySelection) state.detailAsset = previousSelected;
     if (state.detailAsset?.project_id !== request.project) state.detailAsset = null;
     if (state.detailAsset && state.assets.some((asset) => asset.id === state.detailAsset.id && asset.project_id === state.detailAsset.project_id)) state.detailAsset = null;
     if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)
@@ -160,10 +182,19 @@ export function createApiClient(deps) {
     if (!options.background || assetsChanged) {
       // F-24：入场动画只用于首次加载或追加页（新卡片），搜索/筛选/排序/后台刷新
       // 的普通重渲染不重复播放整页动画。
-      renderGrid({ animate: options.append || previousAssets.length === 0, animateFrom: options.append ? previousAssets.length : 0 });
+      renderGrid({ animate: options.append || previousAssets.length === 0,
+        animateFrom: options.append ? previousAssets.length : 0,
+        preserveScroll,
+      });
       updateViewTitle();
     }
-    if (state.detailOpen && (!options.background || !state.selectedId || (selectedChanged && !isDetailEditorActive()))) renderDetail();
+    lastCommittedAssetRequestKey = requestKey;
+    // A same-result mutation (favorite/tag/background refresh) may rebuild the
+    // gallery, but it must never rebuild the Inspector while a local draft is
+    // active. Doing so would replace the editable DOM and silently discard the
+    // user's unsaved values.
+    if (state.detailOpen && !isDetailEditorActive()
+      && (!options.background || !state.selectedId || selectedChanged)) renderDetail();
     // Phase 3C：后台刷新不重新排序 session 序列，但有效性可能变化——仅同步导航边界
     // 与位置（缺失 ID 在导航时跳过，总数基于当前有效 ID 重算）。
     if (state.viewMode === "asset") updateAssetViewNav();

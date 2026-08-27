@@ -99,4 +99,42 @@ test("static resource cache semantics: no-cache for UI files and immutable for l
     assert.ok(cc?.includes("immutable"), `Library image should be immutable, got: ${cc}`);
     assert.ok(cc?.includes("max-age=31536000"), `Library image should have long max-age, got: ${cc}`);
   });
+
+  await t.test("library media supports byte ranges and exact content length", async () => {
+    // The library route is shared by images and videos. A video-shaped fixture
+    // exercises the extension/mime path without requiring a valid decoder payload.
+    const fixtureVideoPath = join(root, "fixture-range.mp4");
+    const VIDEO_BYTES = Buffer.from(Array.from({ length: 64 }, (_, index) => index));
+    await writeFile(fixtureVideoPath, VIDEO_BYTES);
+
+    const createRes = await fetch(`${runtime.url}/api/assets/create`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ asset: "range-test-fixture.mp4", imagePath: fixtureVideoPath }),
+    });
+    assert.equal(createRes.status, 200, "video fixture asset creation should succeed");
+    const created = (await createRes.json()).asset;
+
+    const full = await fetch(`${runtime.url}${created.image_url}`);
+    assert.equal(full.status, 200);
+    assert.equal(full.headers.get("accept-ranges"), "bytes");
+    assert.equal(full.headers.get("content-length"), String(VIDEO_BYTES.length));
+    assert.deepEqual(Buffer.from(await full.arrayBuffer()), VIDEO_BYTES);
+
+    const partial = await fetch(`${runtime.url}${created.image_url}`, { headers: { Range: "bytes=10-19" } });
+    assert.equal(partial.status, 206);
+    assert.equal(partial.headers.get("accept-ranges"), "bytes");
+    assert.equal(partial.headers.get("content-range"), `bytes 10-19/${VIDEO_BYTES.length}`);
+    assert.equal(partial.headers.get("content-length"), "10");
+    assert.deepEqual(Buffer.from(await partial.arrayBuffer()), VIDEO_BYTES.subarray(10, 20));
+
+    const suffix = await fetch(`${runtime.url}${created.image_url}`, { headers: { Range: "bytes=-8" } });
+    assert.equal(suffix.status, 206);
+    assert.equal(suffix.headers.get("content-range"), `bytes 56-63/${VIDEO_BYTES.length}`);
+    assert.deepEqual(Buffer.from(await suffix.arrayBuffer()), VIDEO_BYTES.subarray(56));
+
+    const invalid = await fetch(`${runtime.url}${created.image_url}`, { headers: { Range: "bytes=999-1000" } });
+    assert.equal(invalid.status, 416);
+    assert.equal(invalid.headers.get("content-range"), `bytes */${VIDEO_BYTES.length}`);
+  });
 });

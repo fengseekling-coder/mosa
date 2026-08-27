@@ -91,12 +91,18 @@ export async function processDerivativeJob(store: DerivativeStore, job: Derivati
       mkdir(dirname(job.previewPath), { recursive: true }),
       mkdir(dirname(job.thumbnailPath), { recursive: true }),
     ]);
+    const metadata = await sharp(String(job.original_path), { animated: false }).metadata();
+    const orientation = Number(metadata.orientation) || 1;
+    const swapsAxes = orientation >= 5 && orientation <= 8;
+    const width = swapsAxes ? Number(metadata.height) : Number(metadata.width);
+    const height = swapsAxes ? Number(metadata.width) : Number(metadata.height);
     await Promise.all([
       sharp(String(job.original_path), { animated: false }).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).webp({ quality: 84 }).toFile(job.previewPath),
       sharp(String(job.original_path), { animated: false }).rotate().resize({ width: 400, height: 400, fit: "inside", withoutEnlargement: true }).webp({ quality: 78 }).toFile(job.thumbnailPath),
     ]);
-    await store.completeDerivativeJob(job, { previewPath: job.previewPath, thumbnailPath: job.thumbnailPath });
-    return { ok: true, previewPath: job.previewPath, thumbnailPath: job.thumbnailPath };
+    const result = { previewPath: job.previewPath, thumbnailPath: job.thumbnailPath, width, height };
+    await store.completeDerivativeJob(job, result);
+    return { ok: true, ...result };
   } catch (error) {
     await store.completeDerivativeJob(job, { error: error instanceof Error ? error.message : String(error) });
     return { ok: false, error };

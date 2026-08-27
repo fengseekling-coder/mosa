@@ -69,8 +69,8 @@ interface Store {
   assetsRoot?: string;
   [key: string]: unknown;
 }
-interface WebCaptureInput { provider?: string; mimeType?: string; mime_type?: string; imageBase64?: string; image_base64?: string; imageBytes?: Buffer | Uint8Array; prompt?: string; prompt_status?: string; promptStatus?: string; prompt_source?: string; promptSource?: string; user_message?: string; userMessage?: string; pageUrl?: string; page_url?: string; conversationId?: string; conversation_id?: string; messageId?: string; message_id?: string; model?: string; capturedAt?: string; captured_at?: string; assetId?: string; is_reference?: boolean; isReference?: boolean; extensionVersion?: string; extension_version?: string; }
-interface IngestResult { status: string; reason?: string; asset?: StoredAsset; attachment?: ReferenceAttachment; contentHash: string; upgraded?: boolean; }
+interface WebCaptureInput { provider?: string; mimeType?: string; mime_type?: string; imageBase64?: string; image_base64?: string; imageBytes?: Buffer | Uint8Array; prompt?: string; prompt_status?: string; promptStatus?: string; prompt_source?: string; promptSource?: string; user_message?: string; userMessage?: string; pageUrl?: string; page_url?: string; conversationId?: string; conversation_id?: string; messageId?: string; message_id?: string; generationContextId?: string; generation_context_id?: string; model?: string; capturedAt?: string; captured_at?: string; captureMode?: string; capture_mode?: string; assetId?: string; is_reference?: boolean; isReference?: boolean; extensionVersion?: string; extension_version?: string; }
+interface IngestResult { status: string; reason?: string; asset?: StoredAsset; attachment?: ReferenceAttachment; contentHash: string; upgraded?: boolean; recipeMerged?: boolean; }
 interface WebCaptureIngest { ingest(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; status(): Record<string, unknown>; assertToken(provided: string): void; readReference(projectId: string, fileName: string): Promise<{ stream: NodeJS.ReadableStream; fileName: string }>; tempRoot: string; token: string; }
 
 export function createWebCaptureIngest(options: { store?: Store; libraryDir?: string; tempRoot?: string; projectId?: string; token?: string; allowedOrigins?: string[]; } = {}): WebCaptureIngest {
@@ -108,8 +108,9 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
   if (!ext) { const e = new Error(`Unsupported image mime type: ${mimeType}`) as Error & { statusCode: number; code: string }; e.statusCode = 400; e.code = "WEB_CAPTURE_BAD_MIME"; throw e; }
   const imageBytes = decodeImageBytes(input);
   if (!imageBytes.length) { const e = new Error("imageBase64 is required.") as Error & { statusCode: number; code: string }; e.statusCode = 400; e.code = "WEB_CAPTURE_BAD_IMAGE"; throw e; }
+  const isReference = Boolean(input.is_reference ?? input.isReference);
   const MIN_IMAGE_BYTES = 20 * 1024;
-  if (imageBytes.length < MIN_IMAGE_BYTES) { const e = new Error(`Image too small (${imageBytes.length} < ${MIN_IMAGE_BYTES}).`) as Error & { statusCode: number; code: string }; e.statusCode = 400; e.code = "WEB_CAPTURE_IMAGE_TOO_SMALL"; throw e; }
+  if (!isReference && imageBytes.length < MIN_IMAGE_BYTES) { const e = new Error(`Image too small (${imageBytes.length} < ${MIN_IMAGE_BYTES}).`) as Error & { statusCode: number; code: string }; e.statusCode = 400; e.code = "WEB_CAPTURE_IMAGE_TOO_SMALL"; throw e; }
   if (imageBytes.length > WEB_CAPTURE_MAX_IMAGE_BYTES) { const e = new Error("Image exceeds 15 MiB limit.") as Error & { statusCode: number; code: string }; e.statusCode = 413; e.code = "WEB_CAPTURE_IMAGE_TOO_LARGE"; throw e; }
   const imageMetadata = await inspectImageBytes(imageBytes);
   if (!MIME_TO_FORMATS[mimeType]?.has(imageMetadata.format)) { const e = new Error(`MIME mismatch: ${mimeType} vs ${imageMetadata.format}`) as Error & { statusCode: number; code: string }; e.statusCode = 400; e.code = "WEB_CAPTURE_MIME_MISMATCH"; throw e; }
@@ -132,16 +133,28 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
   const projectAssets = onceProjectListing(store, projectId);
   const pageUrl = String(input.pageUrl || input.page_url || "").trim(); const conversationId = String(input.conversationId || input.conversation_id || "").trim();
   const messageId = String(input.messageId || input.message_id || "").trim(); const model = String(input.model || "").trim();
+  const generationContextId = String(input.generationContextId || input.generation_context_id || "").trim();
   const captureSessionId = conversationId ? `${provider}:${conversationId}` : "";
   const generationBatchId = captureSessionId && messageId ? `${captureSessionId}:${messageId}` : "";
   const capturedAt = String(input.capturedAt || input.captured_at || new Date().toISOString());
-  const isReference = Boolean(input.is_reference ?? input.isReference);
+  const captureMode = String(input.captureMode || input.capture_mode || "automatic").trim().toLowerCase() === "manual" ? "manual" : "automatic";
+  const captureOccurrence = {
+    provider,
+    type: providerConfig.sourceType,
+    page_url: pageUrl || null,
+    conversation_id: conversationId || null,
+    message_id: messageId || null,
+    model: model || null,
+    captured_at: capturedAt,
+    capture_mode: captureMode,
+    generation_context_id: generationContextId || null,
+  };
   const referenceLibraryDir = store.libraryDir || (store.assetsRoot ? dirname(store.assetsRoot) : dirname(tempRoot));
   const referenceStore = options.referenceStore || createReferenceAttachmentStore(resolve(referenceLibraryDir));
   if (isReference) {
     const saved = await referenceStore.save({
       projectId, bytes: imageBytes, extension: ext, mimeType, width: imageMetadata.width, height: imageMetadata.height,
-      provider, pageUrl, conversationId, messageId, capturedAt, userMessage,
+      provider, pageUrl, conversationId, messageId, generationContextId, capturedAt, userMessage,
     });
     return {
       status: saved.created ? "imported" : "skipped",
@@ -154,38 +167,59 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
       contentHash,
     };
   }
-  const existing = await findArchivedDuplicate(store, projectId, contentHash, pixelHash, projectAssets);
-  if (existing) {
+  const finalizeDuplicate = async (duplicate: StoredAsset): Promise<IngestResult> => {
+    const existingWithOccurrence = await recordCaptureOccurrence(store, duplicate, captureOccurrence) || duplicate;
     // A provider-visible prompt must not upgrade an asset archived from a
     // different provider when the bytes happen to be identical.
-    const existingProvider = String(existing.source?.provider || "").trim().toLowerCase();
+    const existingProvider = String(existingWithOccurrence.source?.provider || "").trim().toLowerCase();
     const duplicatePromptAllowed = normalizedPromptStatus !== "provider-visible-prompt" || existingProvider === provider;
-    const upgraded = await maybeUpgradePrompt(store, existing, {
+    const mergedRecipe = await mergeDuplicateGenerationRecipe(store, existingWithOccurrence, {
+      projectAssets,
+      referenceStore,
+      projectId,
+      conversationId,
+      generationContextId,
+      capturedAt,
+      messageId,
+      prompt: duplicatePromptAllowed ? prompt : "",
+      promptStatus: duplicatePromptAllowed ? normalizedPromptStatus : "not-available",
+      promptSource,
+      userMessage,
+      model,
+      provider,
+    });
+    const upgraded = await maybeUpgradePrompt(store, mergedRecipe.asset, {
       prompt: duplicatePromptAllowed ? prompt : "",
       promptStatus: duplicatePromptAllowed ? normalizedPromptStatus : "not-available",
       userMessage,
       promptSource,
-      model: String(input.model || "").trim(),
+      model,
       provider,
     });
-    const sameBytes = existing.source?.content_sha256 === contentHash;
+    const asset = upgraded || mergedRecipe.asset;
+    const sameBytes = asset.source?.content_sha256 === contentHash;
     return {
       status: "skipped",
       reason: upgraded
         ? "already-archived-prompt-upgraded"
-        : sameBytes ? "already-archived-same-content" : "already-archived-same-pixels",
-      asset: upgraded || existing,
+        : mergedRecipe.merged
+          ? "already-archived-recipe-merged"
+          : sameBytes ? "already-archived-same-content" : "already-archived-same-pixels",
+      asset,
       contentHash,
       upgraded: Boolean(upgraded),
+      recipeMerged: mergedRecipe.merged,
     };
-  }
+  };
+  const existing = await findArchivedDuplicate(store, projectId, contentHash, pixelHash, projectAssets);
+  if (existing) return finalizeDuplicate(existing);
   await mkdir(tempRoot, { recursive: true });
   const tempName = `${providerConfig.tempPrefix}-${Date.now()}-${randomBytes(4).toString("hex")}${ext}`; const tempPath = join(tempRoot, tempName);
   await writeFile(tempPath, imageBytes);
   try {
     const explicitAssetId = String(input.assetId || "").trim();
     let assetId = sanitizeAssetId(explicitAssetId || `${providerConfig.assetIdPrefix}-${contentHash.slice(0, 12)}`, providerConfig.assetIdPrefix);
-    const references = await turnReferences(projectAssets, referenceStore, projectId, { conversationId, capturedAt, selfAssetId: assetId });
+    const references = await turnReferences(projectAssets, referenceStore, projectId, { conversationId, generationContextId, capturedAt, selfAssetId: assetId });
     const assetInput = {
       projectId,
       imagePath: tempPath,
@@ -194,13 +228,15 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
       prompt,
       skill: providerConfig.skill,
       theme: promptTheme(prompt, providerConfig.label),
-      tags: [provider, "web-capture", "auto-archived"],
+      tags: [provider, "web-capture", captureMode === "manual" ? "manual-capture" : "auto-archived"],
       category: "",
       references,
       created_at: capturedAt,
       sourceType: providerConfig.sourceType,
       business_fields: {
-        auto_archived: true,
+        auto_archived: captureMode !== "manual",
+        capture_mode: captureMode,
+        generation_context_id: generationContextId || null,
         is_reference: false,
         capture_channel: "chrome-extension",
         prompt_status: normalizedPromptStatus,
@@ -215,6 +251,9 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
         generation_tool: "web-ui",
         provider,
         type: providerConfig.sourceType,
+        capture_mode: captureMode,
+        generation_context_id: generationContextId || null,
+        capture_occurrences: [captureOccurrence],
         model: model || null,
         page_url: pageUrl || null,
         conversation_id: conversationId || null,
@@ -233,7 +272,7 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
     };
     let asset: StoredAsset;
     try {
-      asset = await store.createAsset(assetInput, { trustedSourceRoots: [tempRoot], ingestMode: "automatic" });
+      asset = await store.createAsset(assetInput, { trustedSourceRoots: [tempRoot], ingestMode: captureMode === "manual" ? "manual" : "automatic" });
     } catch (error) {
       // The compact deterministic ID is useful for ordinary captures, but two
       // independent runtimes can reserve the same filename before either one
@@ -242,7 +281,7 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
       // genuine short-hash collision importable instead of misclassifying it.
       if (explicitAssetId || !isAssetAlreadyExists(error)) throw error;
       assetId = sanitizeAssetId(`${providerConfig.assetIdPrefix}-${contentHash.slice(0, 24)}-${randomBytes(4).toString("hex")}`, providerConfig.assetIdPrefix);
-      asset = await store.createAsset({ ...assetInput, assetId }, { trustedSourceRoots: [tempRoot], ingestMode: "automatic" });
+      asset = await store.createAsset({ ...assetInput, assetId }, { trustedSourceRoots: [tempRoot], ingestMode: captureMode === "manual" ? "manual" : "automatic" });
     }
     return { status: "imported", asset, contentHash };
   } catch (error) {
@@ -254,13 +293,7 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
           || await findArchivedDuplicate(store, projectId, contentHash, pixelHash, projectAssets)
         : await findArchivedDuplicate(store, projectId, contentHash, pixelHash, projectAssets);
       if (duplicate) {
-        const sameBytes = duplicate.source?.content_sha256 === contentHash;
-        return {
-          status: "skipped",
-          reason: sameBytes ? "already-archived-same-content" : "already-archived-same-pixels",
-          asset: duplicate,
-          contentHash,
-        };
+        return finalizeDuplicate(duplicate);
       }
     }
     throw error;
@@ -373,10 +406,18 @@ async function isTrustedPixelMatch(store: Store, asset: StoredAsset, pixelHash: 
 
 const MAX_TURN_REFERENCES = 8;
 
-async function turnReferences(projectAssets: () => Promise<StoredAsset[]>, referenceStore: ReturnType<typeof createReferenceAttachmentStore>, projectId: string, { conversationId, capturedAt, selfAssetId }: { conversationId: string; capturedAt: string; selfAssetId: string }): Promise<Metadata[]> {
-  if (!conversationId) return [];
+async function turnReferences(projectAssets: () => Promise<StoredAsset[]>, referenceStore: ReturnType<typeof createReferenceAttachmentStore>, projectId: string, { conversationId, generationContextId, capturedAt, selfAssetId }: { conversationId: string; generationContextId: string; capturedAt: string; selfAssetId: string }): Promise<Metadata[]> {
+  if (!conversationId && !generationContextId) return [];
   const now = createdAtTimestamp(capturedAt);
   if (now === null) return [];
+
+  const attachments = await referenceStore.list(projectId);
+  if (generationContextId) {
+    return attachments
+      .filter((attachment) => attachment.usages?.some((usage) => usage.generation_context_id === generationContextId))
+      .slice(0, MAX_TURN_REFERENCES)
+      .map(referenceMetadata);
+  }
 
   const members = (await projectAssets()).filter((asset) =>
     asset.id !== selfAssetId && asset.source?.conversation_id === conversationId);
@@ -389,25 +430,96 @@ async function turnReferences(projectAssets: () => Promise<StoredAsset[]>, refer
     if (at !== null && at < now && at > previousGeneration) previousGeneration = at;
   }
 
-  const attachments = await referenceStore.list(projectId);
   return attachments
-    .filter((attachment) => attachment.conversation_id === conversationId)
-    .map((attachment) => ({ attachment, at: createdAtTimestamp(attachment.captured_at) }))
+    .flatMap((attachment) => (attachment.usages?.length ? attachment.usages : [{ conversation_id: attachment.conversation_id, captured_at: attachment.captured_at }])
+      .filter((usage) => usage.conversation_id === conversationId)
+      .map((usage) => ({ attachment, at: createdAtTimestamp(usage.captured_at) })))
     .filter((entry): entry is { attachment: ReferenceAttachment; at: number } => entry.at !== null && entry.at <= now && entry.at > previousGeneration)
     .sort((left, right) => left.at - right.at)
     .slice(0, MAX_TURN_REFERENCES)
-    .map(({ attachment }) => ({
-      reference_id: attachment.id,
-      asset_id: attachment.id,
-      sha256: attachment.content_sha256,
-      attachment_url: attachment.attachment_url,
-      mime_type: attachment.mime_type,
-      width: attachment.width,
-      height: attachment.height,
-      role: "",
-      scope: [],
-      applied: true,
-    }));
+    .map(({ attachment }) => referenceMetadata(attachment));
+}
+
+function referenceMetadata(attachment: ReferenceAttachment): Metadata {
+  return {
+    reference_id: attachment.id,
+    asset_id: attachment.id,
+    sha256: attachment.content_sha256,
+    attachment_url: attachment.attachment_url,
+    mime_type: attachment.mime_type,
+    width: attachment.width,
+    height: attachment.height,
+    role: "",
+    scope: [],
+    applied: true,
+  };
+}
+
+async function mergeDuplicateGenerationRecipe(
+  store: Store,
+  existing: StoredAsset,
+  input: {
+    projectAssets: () => Promise<StoredAsset[]>;
+    referenceStore: ReturnType<typeof createReferenceAttachmentStore>;
+    projectId: string;
+    conversationId: string;
+    generationContextId: string;
+    capturedAt: string;
+    messageId: string;
+    prompt: string;
+    promptStatus: string;
+    promptSource: string;
+    userMessage: string;
+    model: string;
+    provider: string;
+  },
+): Promise<{ asset: StoredAsset; merged: boolean }> {
+  if (typeof store.updateMetadata !== "function") return { asset: existing, merged: false };
+  const references = await turnReferences(input.projectAssets, input.referenceStore, input.projectId, {
+    conversationId: input.conversationId,
+    generationContextId: input.generationContextId,
+    capturedAt: input.capturedAt,
+    selfAssetId: existing.id,
+  });
+  const currentReferences = Array.isArray(existing.references) ? existing.references : [];
+  const currentContext = String(existing.source?.generation_context_id || existing.business_fields?.generation_context_id || "");
+  const contextChanged = Boolean(input.generationContextId && input.generationContextId !== currentContext);
+  const referencesChanged = referenceIdentityList(currentReferences) !== referenceIdentityList(references);
+  // Plain prompt/user-message upgrades are handled by maybeUpgradePrompt below.
+  // This merge exists specifically for a distinct generation occurrence or a
+  // late-arriving reference set, otherwise it would swallow the normal upgrade signal.
+  if (!contextChanged && !referencesChanged) return { asset: existing, merged: false };
+
+  const updated = await store.updateMetadata(existing.project_id, existing.id, {
+    ...(input.prompt ? { prompt: input.prompt, theme: promptTheme(input.prompt, providerLabelFor(input.provider)) } : {}),
+    references,
+    source: {
+      ...(existing.source || {}),
+      generation_context_id: input.generationContextId || existing.source?.generation_context_id || null,
+      message_id: input.messageId || existing.source?.message_id || null,
+      prompt_status: input.prompt ? input.promptStatus : existing.source?.prompt_status || "not-available",
+      prompt_source: input.promptSource || existing.source?.prompt_source || null,
+      user_message: input.userMessage || existing.source?.user_message || null,
+      model: input.model || existing.source?.model || null,
+    },
+    business_fields: {
+      ...(existing.business_fields || {}),
+      generation_context_id: input.generationContextId || existing.business_fields?.generation_context_id || null,
+      prompt_status: input.prompt ? input.promptStatus : existing.business_fields?.prompt_status || "not-available",
+      prompt_source: input.promptSource || existing.business_fields?.prompt_source || null,
+      user_message: input.userMessage || existing.business_fields?.user_message || null,
+    },
+    recipe_change_summary: contextChanged ? "Generation occurrence merged" : "Generation references merged",
+  });
+  return { asset: updated, merged: true };
+}
+
+function referenceIdentityList(references: unknown): string {
+  if (!Array.isArray(references)) return "";
+  return references.map((reference) => {
+    const item = reference && typeof reference === "object" ? reference as Record<string, unknown> : {};
+    return String(item.reference_id || item.asset_id || item.sha256 || item.attachment_url || "");
+  }).filter(Boolean).sort().join("|");
 }
 
 const PROMPT_STATUS_RANK: Record<string, number> = {
@@ -445,6 +557,37 @@ function mentionsAnyPlace(text: unknown, hints: string[]): boolean {
   if (!hints.length) return false;
   const lower = String(text || "").toLowerCase();
   return hints.some((hint) => lower.includes(hint));
+}
+
+function captureOccurrenceKey(value: Record<string, unknown>): string {
+  return [
+    value.provider,
+    value.type,
+    value.page_url,
+    value.conversation_id,
+    value.message_id,
+    value.generation_context_id,
+    value.capture_mode,
+  ].map((part) => String(part || "")).join("|");
+}
+
+async function recordCaptureOccurrence(
+  store: Store,
+  existing: StoredAsset,
+  occurrence: Record<string, unknown>,
+): Promise<StoredAsset | null> {
+  if (typeof store.updateMetadata !== "function") return null;
+  const current = Array.isArray(existing.source?.capture_occurrences)
+    ? existing.source.capture_occurrences.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+    : [];
+  const key = captureOccurrenceKey(occurrence);
+  if (current.some((entry) => captureOccurrenceKey(entry) === key)) return existing;
+  return store.updateMetadata(existing.project_id, existing.id, {
+    source: {
+      ...(existing.source || {}),
+      capture_occurrences: [...current, occurrence].slice(-40),
+    },
+  });
 }
 
 interface PromptUpgrade {

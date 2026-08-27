@@ -317,20 +317,25 @@ test("out-of-scope files stay locked and the Phase 1C card contract is stable", 
   // Phase 1C.1 re-locks: child-button disclosure granularity, 28px click area (Phase 1B
   // compatible IconButton floor), and the batch-disabled suppression variants.
   // 2026-08-18: V2-only token consolidation. After the Phase 1A → V2 cleanup
-  // the .card-action-btn
-  // rules are restyled into the canonical V2 floating-chip form: 32px
-  // diameter, transparent inner border, `rgb(0 0 0 / .42)` background with
-  // a 12px backdrop blur. The favorite highlight consumes `--color-favorite`
+  // the .card-action-btn rules are restyled into the canonical V2 floating
+  // control form: the accessible click target stays 28px, but the visible
+  // affordance is only the star glyph. No circular chip/surface is rendered.
+  // Unselected favorite is a semi-transparent white outline; selected favorite
+  // switches to the semantic danger red. Both remain glyph-only controls.
   // (no more `--favorite` alias) and the disclosure-behaviour rules stay
   // verbatim — only the visual recipe was updated to match the active
   // `.mosa-v2` cascade.
   const css = await readCss();
   for (const rule of [
     ".card-actions { position: absolute; z-index: var(--z-card-overlay); top: var(--space-1); right: var(--space-1); display: flex; gap: var(--space-1); pointer-events: none; }",
-    ".mosa-v2 .card-action-btn { width: 32px; height: 32px; border: 0; border-radius: 50%; color: rgb(255 255 255 / .84); background: rgb(0 0 0 / .42); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }",
-    ".mosa-v2 .card-favorite.is-fav { color: #fff; background: #eab308; }",
+    ".mosa-v2 .card-actions { top: 8px; right: 8px; gap: 0; opacity: 1; }",
     ".batch-active .asset-card .card-action-btn, .batch-active .asset-card:hover .card-action-btn, .batch-active .asset-card:focus-within .card-action-btn, .batch-active .asset-card.selected .card-action-btn { opacity: 0; pointer-events: none; }",
   ]) {
     assert.ok(css.includes(rule), `card quick-action contract rule must stay verbatim: ${rule.slice(0, 48)}…`);
   }
+  assert.match(css, /\.mosa-v2 \.card-action-btn \{[\s\S]*?width: 28px;[\s\S]*?height: 28px;[\s\S]*?border-radius: 0;[\s\S]*?color: rgb\(255 255 255 \/ \.62\);[\s\S]*?background: transparent;/);
+  assert.match(css, /\.mosa-v2 \.card-action-btn::before \{[\s\S]*?content: none;/);
+  assert.match(css, /\.mosa-v2 \.card-action-btn svg \{ width: 16px; height: 16px; \}/);
+  assert.match(css, /\.mosa-v2 \.card-favorite \{ color: rgb\(255 255 255 \/ \.62\); background: transparent; \}/);
+  assert.match(css, /\.mosa-v2 \.card-favorite\.is-fav \{ color: var\(--color-danger\); background: transparent; \}/);
 });

@@ -68,6 +68,8 @@ npm run desktop:start
 npm run desktop:make
 ```
 
+Desktop packaging is pinned to Node.js 22.x because the current Electron Forge/Packager toolchain is not reliable under Node.js 24. The repository includes `.nvmrc` and `.node-version` for Node `22.23.1`; packaging commands fail fast with a clear message on any other Node major. Local development and the MOSA runtime still support Node.js 22 or newer.
+
 When the configured port already serves the same MOSA library, the desktop app attaches to it and leaves it running on Quit. Otherwise, it starts and owns a local runtime, which stops cleanly when the app quits. MOSA never terminates an unverified listener or a service for a different library.
 
 > **Project status:** this repository does not yet publish a packaged, signed, or notarized desktop installer. Do not treat a development checkout or a locally built app as a released app.

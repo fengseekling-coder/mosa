@@ -8,8 +8,19 @@ import forgeConfig, {
   packageIgnorePatterns,
   preparePackagedRuntime,
 } from "../desktop/forge.config.mjs";
+import {
+  assertDesktopPackagingNode,
+  desktopPackagingNodeError,
+} from "../scripts/check-desktop-package-node.mjs";
 
 const isIgnored = (path) => packageIgnorePatterns.some((pattern) => pattern.test(path));
+
+test("desktop packaging accepts Node 22 and rejects other major versions", () => {
+  assert.equal(assertDesktopPackagingNode("22.23.1"), true);
+  assert.equal(desktopPackagingNodeError("v22.0.0"), null);
+  assert.match(desktopPackagingNodeError("24.16.0")?.message || "", /requires Node\.js 22\.x/);
+  assert.throws(() => assertDesktopPackagingNode("24.16.0"), /current runtime is v24\.16\.0/);
+});
 
 test("packages MOSA with ASAR and unpacked native dependencies", () => {
   assert.equal(forgeConfig.outDir, "out");

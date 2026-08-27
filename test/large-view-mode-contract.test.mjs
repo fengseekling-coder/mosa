@@ -146,25 +146,27 @@ test("9. compact 960–1120 keeps three columns (no detail drop)", async () => {
 // press must never switch the primary UI away from the V2 gallery context.
 test("10. single click on a card opens the V2 detail inspector", async () => {
   const app = await readApp();
-  const cards = sliceBetween(app, 'els.assetGrid.querySelectorAll(".asset-card-select")', 'querySelectorAll(".card-quick-copy")');
-  assert.match(cards, /button\.addEventListener\("click", \(\) => \{\s+const id = button\.closest\("\.asset-card"\)\?\.dataset\.id;\s+if \(!id\) return;/,
+  const cards = sliceBetween(app, 'const selectButton = event.target.closest(".asset-card-select")', 'const loadMoreButton = event.target.closest');
+  assert.match(cards, /const id = selectButton\.closest\("\.asset-card"\)\?\.dataset\.id;/,
     "card click resolves the asset id");
-  assert.match(cards, /void selectAsset\(id\);/, "card click opens the V2 detail inspector");
+  assert.match(cards, /if \(id\) void selectAsset\(id\);/, "card click opens the V2 detail inspector");
   assert.doesNotMatch(cards, /openAssetView/, "card click does not enter the retired canvas viewer");
 });
 
 // 11. The card favourite quick action does not bubble.
 test("11. favourite quick action does not bubble", async () => {
   const app = await readApp();
-  const fav = sliceBetween(app, 'querySelectorAll(".card-favorite")', "});");
+  const fav = sliceBetween(app, 'const favoriteButton = event.target.closest(".card-favorite")', 'const copyButton = event.target.closest(".card-quick-copy")');
   assert.match(fav, /event\.stopPropagation\(\)/, "favourite click must not bubble to the card");
+  assert.match(fav, /void toggleFavorite\(favoriteButton\.dataset\.favId, event\)/, "favourite click keeps its action");
 });
 
 // 12. The card copy quick action does not bubble.
 test("12. copy quick action does not bubble", async () => {
   const app = await readApp();
-  const copy = sliceBetween(app, 'querySelectorAll(".card-quick-copy")', 'querySelectorAll(".card-favorite")');
+  const copy = sliceBetween(app, 'const copyButton = event.target.closest(".card-quick-copy")', 'const selectButton = event.target.closest(".asset-card-select")');
   assert.match(copy, /event\.stopPropagation\(\)/, "copy click must not bubble to the card");
+  assert.match(copy, /navigator\.clipboard\.writeText\(copyButton\.dataset\.copy \|\| ""\)/, "copy click keeps its clipboard action");
 });
 
 // 13. The return control is a native button whose accessible name contains the
@@ -188,13 +190,12 @@ test("14. Escape layering: overlays first, view exit second", async () => {
   const app = await readApp();
   const shortcuts = functionBody(app, "setupKeyboardShortcuts");
   const iSettings = shortcuts.indexOf("if (!els.settingsMenu?.hidden)");
-  const iView = shortcuts.indexOf('if (state.viewMode === "asset") { returnToLibrary();');
-  const iDetail = shortcuts.indexOf("if (state.detailOpen) { setDetailOpen(false);");
-  for (const [name, pos] of [["settings", iSettings], ["view", iView], ["detail", iDetail]]) {
+  const iViewDetail = shortcuts.indexOf('if (state.viewMode === "asset" || state.detailOpen) { event.preventDefault(); void closeDetailSurface(); return; }');
+  for (const [name, pos] of [["settings", iSettings], ["view/detail", iViewDetail]]) {
     assert.ok(pos > -1, `${name} Escape branch must exist`);
   }
-  assert.ok(iSettings < iView && iView < iDetail,
-    "Escape priority must be settings menu → asset view → legacy detail");
+  assert.ok(iSettings < iViewDetail,
+    "Escape priority must be settings menu → dirty-safe asset/detail exit");
   const delegated = sliceBetween(app, 'document.addEventListener("keydown", trapImagePreviewFocus);', "bindDesktopIntegration();");
   assert.match(delegated, /if \(state\.viewMode === "asset"\) return;/,
     "the earlier-registered detail Escape listener must not fire through the asset view");
@@ -354,10 +355,12 @@ test("30. shell three-mode contract preserved", async () => {
 test("31. card quick-action contract preserved", async () => {
   const app = await readApp();
   assert.match(app, /<div class="card-actions">\$\{favBtn\}\$\{copyBtn\}<\/div>/, "card actions keep both quick buttons");
-  const fav = sliceBetween(app, 'querySelectorAll(".card-favorite")', "});");
-  const copy = sliceBetween(app, 'querySelectorAll(".card-quick-copy")', 'querySelectorAll(".card-favorite")');
-  assert.match(fav, /event\.stopPropagation\(\); void toggleFavorite/, "favourite keeps its bubbling guard and action");
-  assert.match(copy, /event\.stopPropagation\(\); await runAction/, "copy keeps its bubbling guard and action");
+  const fav = sliceBetween(app, 'const favoriteButton = event.target.closest(".card-favorite")', 'const copyButton = event.target.closest(".card-quick-copy")');
+  const copy = sliceBetween(app, 'const copyButton = event.target.closest(".card-quick-copy")', 'const selectButton = event.target.closest(".asset-card-select")');
+  assert.match(fav, /event\.stopPropagation\(\)/, "favourite keeps its bubbling guard");
+  assert.match(fav, /void toggleFavorite\(favoriteButton\.dataset\.favId, event\)/, "favourite keeps its action");
+  assert.match(copy, /event\.stopPropagation\(\)/, "copy keeps its bubbling guard");
+  assert.match(copy, /void runAction\(async \(\) => \{/, "copy keeps its async action wrapper");
 });
 
 // 32. The new CSS introduces no !important.
@@ -477,7 +480,7 @@ test("40. degraded return always focuses the gallery container", async () => {
 test("41. detail-drawer Escape listener bails on defaultPrevented", async () => {
   const app = await readApp();
   const bind = functionBody(app, "bindEvents");
-  const drawerEscape = sliceBetween(bind, 'document.addEventListener("keydown", (event) => {\n    if (event.key !== "Escape") return;', "setDetailOpen(false);");
+  const drawerEscape = sliceBetween(bind, 'document.addEventListener("keydown", (event) => {\n    if (event.key !== "Escape") return;', "void closeDetailSurface();");
   assert.match(drawerEscape, /if \(event\.defaultPrevented\) return;/,
     "detail-drawer Escape listener must bail before its overlay guards when a trap consumed the event");
 });

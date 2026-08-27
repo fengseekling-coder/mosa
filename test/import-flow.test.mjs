@@ -173,7 +173,8 @@ test("explains the path field with server-sourced formats, an example, and the C
   assert.match(html, /id="importPathExample"/);
   assert.match(html, /id="codexSourceHint"/);
   assert.match(app, /els\.importFormatList\.textContent = state\.supportedMediaExtensions\.join\(" "\)/);
-  assert.match(apiClient, /state\.supportedMediaExtensions = Array\.isArray\(library\?\.supportedMediaExtensions\)/);
+  assert.match(apiClient, /if \(library\) \{[\s\S]*?state\.supportedMediaExtensions = Array\.isArray\(library\.supportedMediaExtensions\)/,
+    "foreground stats load hydrates server-sourced media formats; background polling may skip the static library-path request");
   // The sandbox cannot supply an absolute path via a file picker, so the form
   // guides typing.  Drag-and-drop is allowed: it fills the path input, but the
   // user still verifies and submits the form.
@@ -233,13 +234,14 @@ test("blocks a double submit and shows a loading state while saving", async () =
   const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
   assert.match(app, /if \(state\.importSaving\) return;/);
-  assert.match(app, /els\.saveAssetBtn\.disabled = busy/);
+  assert.match(app, /els\.importModal\?\.querySelectorAll\("input, textarea, select, button"\)\.forEach\(\(control\) => \{ control\.disabled = busy; \}\)/,
+    "the full import form is frozen while the request is in flight");
   assert.match(app, /els\.saveAssetBtn\.setAttribute\("aria-busy", String\(busy\)\)/);
   assert.match(app, /els\.saveAssetBtn\.textContent = busy \? t\("savingAsset"\) : t\("saveAsset"\)/);
   // The button has to be released whether the request succeeded or failed.
   assert.match(app, /\} finally \{\s*setImportBusy\(false\);/);
   // Success still selects the new asset and refreshes the gallery.
-  assert.match(app, /state\.selectedId = result\.asset\.id;\s*\n\s*clearImportForm\(\); closeImportModal\(\);/);
+  assert.match(app, /state\.selectedId = result\.asset\.id;\s*\n\s*clearImportForm\(\); closeImportModal\(\{ force: true \}\);/);
   assert.match(app, /await loadStats\(\); await loadAssets\(\);/);
 });
 
@@ -248,9 +250,9 @@ test("keeps the import dialog's focus contract and translates every new string",
 
   assert.match(app, /function trapImportModalFocus\(event\)/);
   assert.match(app, /if \(event\.key === "Escape"\) \{ event\.preventDefault\(\); closeImportModal\(\); return; \}/);
-  assert.match(app, /function closeImportModal\(\) \{[^}]*state\.modalReturnFocus\.focus\(\)/);
+  assert.match(app, /function closeImportModal\(\{ force = false \} = \{\}\)[\s\S]*?if \(state\.importSaving && !force\) return false;[\s\S]*?state\.modalReturnFocus\.focus\(\)/);
   // Opening resets any error left from a previous attempt.
-  assert.match(app, /function openImportModal\(\) \{[\s\S]{0,320}clearImportErrors\(\);[\s\S]{0,160}setImportBusy\(false\);/);
+  assert.match(app, /function openImportModal\(\) \{[\s\S]{0,320}if \(state\.importSaving\) return;[\s\S]{0,320}clearImportErrors\(\);/);
 
   const keys = [
     "advancedSettings", "importPathFormats", "importPathExample", "importPathCodexDir", "importPathCodexDirUnknown",

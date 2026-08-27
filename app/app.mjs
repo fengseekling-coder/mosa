@@ -1,12 +1,11 @@
 import { createLanguageApplier, createT, resolveLocale } from "./i18n-runtime.mjs";
 import { createBridgeStatusPoller } from "./bridge-status-poller.mjs";
 import {
-  FACET_KEYS, LIVE_REGION_WRITE_DELAY, SCOPES, SIDEBAR_SOURCE_TYPES, SKELETON_TILE_COUNT, SOURCE_FACETS, SOURCE_LABEL_KEYS, STATUS_ANNOUNCEMENT_DURATION,
+  FACET_KEYS, LIBRARY_REFRESH_INTERVAL, LIVE_REGION_WRITE_DELAY, SCOPES, SIDEBAR_SOURCE_TYPES, SKELETON_TILE_COUNT, SOURCE_FACETS, SOURCE_LABEL_KEYS, STATUS_ANNOUNCEMENT_DURATION,
 } from "./config.mjs";
 import {
   cardShortTitle, debounce, escapeHtml, formatDate, humanizeFacetValue, normalizeDensity, normalizeSort, safeStorageGet, safeStorageSet,
 } from "./utils.mjs";
-import { createAnchoredOverlayManager } from "./overlay-manager.mjs";
 import { createToastManager } from "./toast-manager.mjs";
 import { createApiClient } from "./api-client.mjs";
 import { createConfirmDialog } from "./confirm-dialog.mjs";
@@ -40,8 +39,6 @@ function writeStatusText(value) {
   }, LIVE_REGION_WRITE_DELAY);
 }
 
-const anchoredOverlayManager = createAnchoredOverlayManager();
-
 function assetSourceLabel(asset = {}) {
   const type = String(asset.source?.type || asset.sourceType || "");
   return sourceTypeLabel(type);
@@ -59,9 +56,10 @@ const state = {
   mediaKind: "all",
   groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0 },
   galleryStatus: "loading", galleryError: null, galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")),
-  libraryPath: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
+  libraryPath: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, groupSaving: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
   dragCounter: 0,
   darkMode: safeStorageGet("mosa-dark-mode") === "true", diagnosticsExpanded: false, settingsReturnFocus: null, accountReturnFocus: null,
+  detailReturnFocusAssetId: null, previewReturnFocusAssetId: null,
   imageZoom: 1, imagePanX: 0, imagePanY: 0, imageDragging: false,
   // Bulk-selection gate. The viewer short-circuits while batch mode is active so
   // selected cards never auto-open the asset view mid-selection; this defaults to
@@ -85,7 +83,10 @@ const applyLanguage = createLanguageApplier({
     renderQuickFilters();
     updateViewTitle();
     renderGrid();
-    if (state.detailOpen) renderDetail();
+    // Language changes must not destroy an in-progress Inspector draft. The
+    // gallery and chrome update immediately; the Inspector adopts the locale
+    // on the next safe render after save/discard.
+    if (state.detailOpen && !isDetailEditorActive()) renderDetail();
   },
 });
 
@@ -179,74 +180,6 @@ function syncSegmentedRadios(container) {
   });
 }
 
-// ===== Phase 5A：三套浮层注册（root 互斥 + parent/child 层级）=====
-function registerAnchoredOverlays() {
-  // Settings Menu：与 Filter 互斥的 root 浮层；bottom-start 定位由碰撞公式翻转为向上展开。
-  anchoredOverlayManager.register({
-    id: "settings", kind: "root", placement: "bottom-start",
-    getPanel: () => els.settingsMenu,
-    getTrigger: () => els.settingsToggle,
-    // 混合控件策略：首个可操作元素是原生项目 select 时聚焦该 select（保留原生键盘语义），
-    // 否则进入 menu roving 第一项。
-    focusOnOpen: () => {
-      const first = els.settingsMenu?.querySelector("[data-project-select]");
-      if (first) return first;
-      const item = settingsMenuItems()[0];
-      if (item) focusSettingsMenuItem(item);
-      return null;
-    },
-    returnFocus: () => els.settingsToggle,
-  });
-  // Language Menu：Settings 的 child 浮层；向右优先、空间不足向左翻转；打开时当前选中项优先获焦。
-  anchoredOverlayManager.register({
-    id: "language", kind: "child", parentId: "settings", placement: "right-start",
-    getPanel: () => els.settingsMenu?.querySelector("#languageMenu") || null,
-    getTrigger: () => els.settingsMenu?.querySelector("[data-language-menu]") || null,
-    focusOnOpen: () => {
-      const menu = els.settingsMenu?.querySelector("#languageMenu");
-      const item = menu?.querySelector('[role="menuitemradio"][aria-checked="true"]') || menu?.querySelector('[role="menuitemradio"]');
-      if (item) focusLanguageMenuItem(item);
-      return null;
-    },
-    returnFocus: () => els.settingsMenu?.querySelector("[data-language-menu]") || null,
-  });
-}
-registerAnchoredOverlays();
-
-// ===== Phase 5A / F-12：菜单 roving tabindex（仅作用于本层合法 menu items）=====
-function settingsMenuItems() {
-  if (!els.settingsMenu) return [];
-  return [...els.settingsMenu.querySelectorAll('[role="menuitem"]')].filter((item) => !item.disabled && !item.closest("[hidden]"));
-}
-
-function focusSettingsMenuItem(item) {
-  for (const candidate of settingsMenuItems()) candidate.tabIndex = -1;
-  if (!item) return;
-  item.tabIndex = 0;
-  item.focus();
-}
-
-// 静态 markup 一律 tabindex=-1（hidden 浮层不进 Tab 顺序）；重建后动态把首个
-// menuitem 设为 roving 锚点，保证键盘用户从项目下拉框 Tab 一次即可进入菜单层。
-// 重建多发生在面板隐藏时，故这里不走可见性过滤的 settingsMenuItems()。
-function primeSettingsRoving() {
-  if (!els.settingsMenu) return;
-  const items = [...els.settingsMenu.querySelectorAll('[role="menuitem"]')].filter((item) => !item.disabled);
-  items.forEach((item, index) => { item.tabIndex = index === 0 ? 0 : -1; });
-}
-
-function languageMenuItems(menu) {
-  const scope = menu || els.settingsMenu?.querySelector("#languageMenu");
-  if (!scope) return [];
-  return [...scope.querySelectorAll('[role="menuitemradio"]')].filter((item) => !item.disabled);
-}
-
-function focusLanguageMenuItem(item) {
-  for (const candidate of languageMenuItems(item?.closest(".language-menu"))) candidate.tabIndex = -1;
-  if (!item) return;
-  item.tabIndex = 0;
-  item.focus();
-}
 function toggleDarkMode() { state.darkMode = !state.darkMode; safeStorageSet("mosa-dark-mode", String(state.darkMode)); applyDarkMode(); showToast(t("darkModeChanged"), "success"); }
 
 async function droppedFilePath(file) {
@@ -330,9 +263,81 @@ function setupDragDrop() {
   });
 }
 
+const favoriteRequests = new Set();
 async function toggleFavorite(id, event) {
   if (event) event.stopPropagation();
-  try { await apiFetch(`/api/assets/${encodeURIComponent(state.project)}/${encodeURIComponent(id)}/favorite`, { method: "POST" }); showToast(t("favAdded"), "success"); await loadAssets(); } catch (error) { showToast(error.message, "error"); }
+  if (!id) return;
+  const currentTarget = event?.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+  const targetButton = event?.target instanceof Element
+    ? event.target.closest('.card-favorite, [data-action="toggle-favorite"]')
+    : null;
+  const trigger = currentTarget?.matches?.('.card-favorite, [data-action="toggle-favorite"]')
+    ? currentTarget
+    : (targetButton instanceof HTMLElement ? targetButton : null);
+  const shouldRestoreFocus = trigger && document.activeElement === trigger;
+  const triggerWasDetail = Boolean(trigger?.closest?.("#detailPanel"));
+  const projectId = state.project;
+  const requestKey = `${projectId}\u0000${id}`;
+  if (favoriteRequests.has(requestKey)) return;
+  favoriteRequests.add(requestKey);
+  try {
+    const result = await apiFetch(`/api/assets/${encodeURIComponent(projectId)}/${encodeURIComponent(id)}/favorite`, { method: "POST" });
+    const updated = result.asset || null;
+    if (updated && projectId === state.project) {
+      const index = state.assets.findIndex((asset) => asset.id === id && asset.project_id === projectId);
+      if (index >= 0) state.assets[index] = updated;
+      if (state.detailAsset?.id === id && state.detailAsset.project_id === projectId) state.detailAsset = updated;
+      // Favorite only bumps updated_at, not the created_at sort order, so the
+      // background refresh below skips renderGrid/renderDetail when the result
+      // set is unchanged. Patch every visible favorite button here so the star
+      // reflects the server response instead of staying stale until a later
+      // full render (search/filter/sort/project) rebuilds the grid.
+      const favorite = Boolean(updated.favorite);
+      const gridButton = els.assetGrid?.querySelector(`.card-favorite[data-fav-id="${CSS.escape(id)}"]`);
+      // Only patch the Inspector button when it actually renders this asset;
+      // otherwise a favorite toggle on one card would overwrite the star of a
+      // different asset currently open in the detail panel.
+      const detailShowsAsset = state.detailAsset?.id === id && state.detailAsset?.project_id === projectId;
+      const detailButton = detailShowsAsset ? els.detailPanel?.querySelector('[data-action="toggle-favorite"]') : null;
+      if (trigger instanceof HTMLElement && trigger.isConnected) applyFavoriteButtonState(trigger, favorite);
+      if (gridButton instanceof HTMLElement && gridButton !== trigger) applyFavoriteButtonState(gridButton, favorite);
+      if (detailButton instanceof HTMLElement && detailButton !== trigger) applyFavoriteButtonState(detailButton, favorite);
+    }
+    showToast(updated?.favorite ? t("addedToFavorites") : t("removedFromFavorites"), "success");
+    const refreshes = await Promise.allSettled([loadStats(), loadAssets({ background: true })]);
+    refreshes.forEach((refresh) => {
+      if (refresh.status === "rejected") console.warn("Favorite refresh failed:", refresh.reason);
+    });
+    if (shouldRestoreFocus && projectId === state.project) {
+      const replacement = triggerWasDetail
+        ? els.detailPanel?.querySelector('[data-action="toggle-favorite"]')
+        : els.assetGrid?.querySelector(`.card-favorite[data-fav-id="${CSS.escape(id)}"]`);
+      if (replacement instanceof HTMLElement) replacement.focus({ preventScroll: true });
+      else els.assetGrid?.focus({ preventScroll: true });
+    }
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    favoriteRequests.delete(requestKey);
+  }
+}
+
+function applyFavoriteButtonState(button, favorite) {
+  button.classList.toggle("is-fav", favorite);
+  button.setAttribute("aria-pressed", String(favorite));
+  button.setAttribute("aria-label", t(favorite ? "removeFavorite" : "addFavorite"));
+  // The grid card's star is an <svg> whose fill is driven by the .is-fav
+  // class (styles.css `.card-favorite.is-fav svg { fill: currentColor }`),
+  // so its children stay untouched. The detail button carries two spans
+  // (icon glyph + visible label) that must be reconciled in place.
+  if (button.classList.contains("card-favorite")) {
+    button.setAttribute("title", t(favorite ? "removeFavorite" : "addFavorite"));
+    return;
+  }
+  const icon = button.children[0];
+  const label = button.children[1];
+  if (icon) icon.textContent = favorite ? "★" : "☆";
+  if (label) label.textContent = t(favorite ? "favorited" : "addFavorite");
 }
 
 // The design reference intentionally switches navigation at 768px.  Desktop
@@ -382,17 +387,32 @@ function setupKeyboardShortcuts() {
       event.preventDefault();
       return;
     }
+    // Modal traps are registered before this application shortcut router. If
+    // the topmost layer already consumed Escape, never let the same keystroke
+    // also close the mobile navigation underneath it.
+    if (event.key === "Escape" && event.defaultPrevented) return;
     if (event.key === "Escape" && document.body.classList.contains("mobile-nav-open")) {
       event.preventDefault();
       setMobileNavOpen(false, { restoreFocus: true });
       return;
     }
-    if (event.target.matches?.("input, textarea, select")) {
-      // Phase 5A：处于打开的锚定浮层内部（如筛选面板 facet 搜索）时，Escape 仍须能关闭
-      // 宿主浮层；其余快捷键保持输入守卫，打字不触发全局快捷键。
-      if (event.key !== "Escape" || !anchoredOverlayManager.containsTarget(event.target)) return;
+    if (event.target.matches?.("input, textarea, select") && event.key !== "Escape") return;
+    // Escape in the search box clears the active query (or returns focus to the
+    // gallery when already empty) instead of falling through to close the
+    // Inspector underneath — matching the search-field reflex, not the modal
+    // dismiss reflex. Clearing still honors the dirty-draft guard.
+    if (event.key === "Escape" && event.target === els.searchInput) {
+      event.preventDefault();
+      if (els.searchInput.value) void removeFilterChip("query");
+      else els.assetGrid?.focus({ preventScroll: true });
+      return;
     }
-    if (event.key === "/" && state.viewMode === "library" && !els.importModal?.classList.contains("open") && !els.groupModal?.classList.contains("open") && !els.accountModal?.classList.contains("open")) { event.preventDefault(); els.searchInput?.focus(); return; }
+    if (event.key === "/" && state.viewMode === "library"
+      && els.imagePreviewModal?.hidden
+      && els.settingsMenu?.hidden
+      && !els.importModal?.classList.contains("open")
+      && !els.groupModal?.classList.contains("open")
+      && !els.accountModal?.classList.contains("open")) { event.preventDefault(); els.searchInput?.focus(); return; }
     if (event.key === "Escape") {
       // Phase 3A 运行时修复：bindEvents 先行注册的 Modal 焦点陷阱已消费本次 Escape
       // （preventDefault）时，本链不得再继续向下穿透（否则会关 Modal 同时退出查看模式）。
@@ -401,12 +421,14 @@ function setupKeyboardShortcuts() {
       if (els.importModal?.classList.contains("open")) { closeImportModal(); event.preventDefault(); return; }
       if (els.groupModal?.classList.contains("open")) { closeGroupModal(); event.preventDefault(); return; }
       if (els.accountModal?.classList.contains("open")) { closeAccountModal(); event.preventDefault(); return; }
-      // Phase 3A：Escape 先关最上层浮层（筛选面板/设置菜单），再退出查看模式——不得穿透。
-      // Phase 5A：closePanel 统一路由到 anchoredOverlayManager（Settings 打开 Language 时 child 先关）。
+      // Escape 先关最上层 Modal，再退出查看模式，不得穿透。
       if (!els.settingsMenu?.hidden) { closePanel(els.settingsMenu, els.settingsToggle); event.preventDefault(); return; }
-      if (state.viewMode === "asset") { returnToLibrary(); event.preventDefault(); return; }
-      if (state.detailOpen) { setDetailOpen(false); event.preventDefault(); return; }
+      if (state.viewMode === "asset" || state.detailOpen) { event.preventDefault(); void closeDetailSurface(); return; }
     }
+    // Native video controls own their keyboard semantics (notably ←/→ seek).
+    // Escape was handled above, so all remaining keystrokes can safely stay
+    // with the focused <video> instead of becoming MOSA pan/navigation input.
+    if (event.target.closest?.("video")) return;
     // Image Preview uses this same application-level keyboard router. Keeping
     // the handler here preserves the existing Escape priority and avoids a
     // second global shortcut manager. Form fields/contenteditable remain native.
@@ -463,11 +485,11 @@ const { detailFileSectionMarkup, detailPromptSectionMarkup, detailSourceSectionM
   recipeHistoryMarkup, recipeHistoryDisclosureMarkup, categoryOptions, buildSourceRows, sourceName,
   sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup, formatFileSize, fileDimensionsText, fileFormatText,
   fileSizeText, fileFactRowMarkup, editRecipeFieldsMarkup, versionOptionLabel, detailVersionSummaryMarkup,
-  originalMediaCapability, originalMediaActionMarkup, referenceRightsSummary } = inspectorMarkup;
+  originalMediaCapability, originalMediaActionMarkup, referenceRightsSummary, promptReferencesMarkup } = inspectorMarkup;
 
 // ===== Asset view（大图查看器，已提取至 asset-view.mjs，R1 批次 4）=====
 const assetViewer = createAssetViewer({ els, state, t, announceGalleryStatus, selectedAsset, isVideoAsset,
-  confirmDetailNavigation, isCurrentDetailSelection, assetRequestKey, currentAssetRequest, requestAssetPage,
+  confirmDetailNavigation, discardDetailDraft, isCurrentDetailSelection, assetRequestKey, currentAssetRequest, requestAssetPage,
   renderGrid, updateViewTitle, showToast, renderDetail, updateSelectedCard, setDetailOpen, setupMasonryLayout });
 const { setViewMode, renderAssetView, openAssetView, returnToLibrary, resetAssetViewTransform,
   handleAssetViewImageLoad, handleAssetViewImageError, canNavigateAssetView, navigateAssetView,
@@ -541,7 +563,9 @@ function announceEmptyState(kind) {
  * untouched. Focus never lands on body: the first card wins, the grid
  * container is the fallback.
  */
-function resetLibraryRefinements() {
+async function resetLibraryRefinements() {
+  if (!await confirmDetailNavigation(null)) return false;
+  discardDetailDraft();
   state.query = "";
   if (els.searchInput) els.searchInput.value = "";
   state.scope = "all";
@@ -559,6 +583,7 @@ function resetLibraryRefinements() {
     if (firstCard) firstCard.focus({ preventScroll: true });
     else els.assetGrid?.focus({ preventScroll: true });
   });
+  return true;
 }
 
 async function init() {
@@ -578,7 +603,12 @@ async function init() {
       bridgeStatusPoller.start();
       // Single interval: dedupe on hot-reload / repeated init() and stop on unload.
       if (libraryRefreshTimer) clearInterval(libraryRefreshTimer);
-      libraryRefreshTimer = setInterval(refreshLibraryInBackground, 2500);
+      // Pagination owns the current gallery request while an append is in flight.
+      // Starting the background page-one refresh at the same time would advance
+      // api-client's shared request generation and make the append response stale.
+      libraryRefreshTimer = setInterval(() => {
+        if (!isLoadingMore) void refreshLibraryInBackground();
+      }, LIBRARY_REFRESH_INTERVAL);
     } catch (error) {
       renderErrorState(error);
       setStatus(t("statusUnavailable"), "error");
@@ -607,7 +637,7 @@ function renderSettingsMenu() {
     row(settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("themeMode"), state.darkMode ? t("themeDarkHint") : t("themeLightHint"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("themeMode"))}">${radio(!state.darkMode, "data-appearance-opt", "light", t("themeLight"))}${radio(state.darkMode, "data-appearance-opt", "dark", t("themeDark"))}</div>`),
     row(settingIcon("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"), t("cardDensity"), state.galleryDensity === "image" ? t("densityImage") : t("densityInfo"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("cardDensity"))}">${radio(state.galleryDensity === "image", "data-density-opt", "image", t("densityImageControl"))}${radio(state.galleryDensity === "info", "data-density-opt", "info", t("densityInfoControl"))}</div>`),
     row(settingIcon("M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("interfaceLanguage"), visualLocale === "en" ? t("english") : t("chinese"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("interfaceLanguage"))}">${radio(visualLocale === "zh", "data-locale", "zh", "中文")}${radio(visualLocale === "en", "data-locale", "en", "EN")}</div>`),
-    row(settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("libraryPath"), `<span class="settings-path">${path}</span>`, `<button class="settings-text-action" type="button" data-open-library>${t("change")}</button>`),
+    row(settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("libraryPath"), `<span class="settings-path">${path}</span>`, `<button class="settings-text-action" type="button" data-open-library>${t("openLibrary")}</button>`),
     row(settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6"), t("storageEngine"), t("storageEngineValue")),
     row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), t("versionValue"))
   ].join("");
@@ -627,8 +657,6 @@ async function fetchDiagnostics() {
     content.innerHTML = `<dl><dt>${t("diagVersion")}</dt><dd>${escapeHtml(data.productVersion)}</dd><dt>${t("diagMcpVersion")}</dt><dd>${escapeHtml(data.mcpServerVersion)}</dd><dt>${t("diagGitSha")}</dt><dd>${escapeHtml(data.gitSha)}</dd><dt>${t("diagUiFingerprint")}</dt><dd>${escapeHtml(fingerprint)}</dd><dt>${t("diagLibraryDir")}</dt><dd>${escapeHtml(data.libraryDir)}</dd><dt>${t("diagStorage")}</dt><dd>${escapeHtml(data.storage)}</dd></dl>`;
   } catch {
     content.innerHTML = `<p class="diag-error">${t("diagError")}</p>`;
-  } finally {
-    anchoredOverlayManager.repositionOpen();
   }
 }
 
@@ -737,13 +765,20 @@ const contextMenuActions = createContextMenuActions({
   showToast,
   runAction,
   requestConfirmation,
+  confirmDetailNavigation,
+  discardDetailDraft,
   getGroupColor: colorForGroup,
   saveGroupColor,
 });
 
 function isDetailEditorActive() {
   const active = document.activeElement;
-  return state.detailDirty || (active instanceof HTMLElement && Boolean(els.detailPanel?.contains(active) && active.closest("[data-edit], [data-version-change], [data-recipe-change]")));
+  return state.detailDirty || (active instanceof HTMLElement && Boolean(els.detailPanel?.contains(active) && active.closest("[data-edit], [data-version-change], [data-recipe-change], [data-tag-editor]")));
+}
+
+function latestAssetSnapshot(projectId, assetId, fallback = null) {
+  if (state.detailAsset?.project_id === projectId && state.detailAsset?.id === assetId) return state.detailAsset;
+  return state.assets.find((item) => item.project_id === projectId && item.id === assetId) || fallback;
 }
 
 const bridgeStatusPoller = createBridgeStatusPoller({
@@ -881,8 +916,10 @@ function renderActiveFilters() {
   els.activeFilters.innerHTML = `<span class="visually-hidden">${escapeHtml(t("activeFilters"))}</span><div class="filter-chip-strip">${chipMarkup}</div><button class="filter-chip-clear" type="button" data-chip="__all">${escapeHtml(t("clearAll"))}</button>`;
 }
 
-function removeFilterChip(kind) {
-  if (kind === "__all") { clearAllFilters(); return; }
+async function removeFilterChip(kind) {
+  if (kind === "__all") { await clearAllFilters(); return; }
+  if (!await confirmDetailNavigation(null)) return;
+  discardDetailDraft();
   if (kind === "query") { state.query = ""; if (els.searchInput) els.searchInput.value = ""; }
   else if (kind === "scope") state.scope = "all";
   else if (kind === "type") { state.mediaKind = "all"; renderTypeFilters(); }
@@ -900,22 +937,64 @@ function bindEvents() {
     if (!isMobileNavigationViewport()) return;
     if (event.target.closest(".nav-item, .add-group-button, .settings-trigger")) setMobileNavOpen(false);
   });
-  els.searchInput?.addEventListener("input", debounce(async () => { state.query = els.searchInput.value; state.nextCursor = null;
+  els.searchInput?.addEventListener("input", debounce(async () => {
+    const nextQuery = els.searchInput.value;
+    if (nextQuery === state.query) return;
+    if (!await confirmDetailNavigation(null)) {
+      els.searchInput.value = state.query;
+      return;
+    }
+    discardDetailDraft();
+    state.query = nextQuery;
+    state.nextCursor = null;
     // Phase 3A：结果集语义已变化，退出查看模式（快照 requestKey 随之失效，恢复自动降级）。
     if (state.viewMode === "asset") returnToLibrary();
-    renderActiveFilters(); await loadAssets(); }, 180));
-  els.sortSelect?.addEventListener("change", () => {
-    state.sort = normalizeSort(els.sortSelect.value);
+    clearDetailSelection();
+    renderActiveFilters();
+    await loadAssets();
+  }, 180));
+  els.sortSelect?.addEventListener("change", async () => {
+    const nextSort = normalizeSort(els.sortSelect.value);
+    if (nextSort === state.sort) return;
+    if (!await confirmDetailNavigation(null)) {
+      els.sortSelect.value = state.sort;
+      return;
+    }
+    discardDetailDraft();
+    state.sort = nextSort;
     safeStorageSet("mosa.asset-sort", state.sort);
     // Cursors are order-specific, so a sort change always restarts from page one.
     state.nextCursor = null;
     // Phase 3A：结果集语义已变化，退出查看模式。
     if (state.viewMode === "asset") returnToLibrary();
+    clearDetailSelection();
     void loadAssets();
   });
   els.themeToggle?.addEventListener("click", toggleDarkMode);
-  els.activeFilters?.addEventListener("click", (event) => { const chip = event.target.closest("[data-chip]"); if (chip) removeFilterChip(chip.dataset.chip); });
+  els.activeFilters?.addEventListener("click", (event) => { const chip = event.target.closest("[data-chip]"); if (chip) void removeFilterChip(chip.dataset.chip); });
+  els.detailPanel?.addEventListener("click", handleReferenceRightsOpen);
   els.assetGrid?.addEventListener("click", (event) => {
+    const favoriteButton = event.target.closest(".card-favorite");
+    if (favoriteButton) {
+      event.stopPropagation();
+      void toggleFavorite(favoriteButton.dataset.favId, event);
+      return;
+    }
+    const copyButton = event.target.closest(".card-quick-copy");
+    if (copyButton) {
+      event.stopPropagation();
+      void runAction(async () => {
+        await navigator.clipboard.writeText(copyButton.dataset.copy || "");
+        showToast(t("copySuccess"), "success");
+      });
+      return;
+    }
+    const selectButton = event.target.closest(".asset-card-select");
+    if (selectButton) {
+      const id = selectButton.closest(".asset-card")?.dataset.id;
+      if (id) void selectAsset(id);
+      return;
+    }
     const loadMoreButton = event.target.closest('[data-action="load-more"]');
     if (loadMoreButton && state.nextCursor && !isLoadingMore) {
       isLoadingMore = true;
@@ -931,15 +1010,24 @@ function bindEvents() {
     const openLibraryAction = event.target.closest('[data-action="empty-open-library"]');
     if (openLibraryAction) runAction(async () => { if (!state.libraryPath) return; await apiFetch("/api/open-folder", { method: "POST", body: { path: state.libraryPath } }); showToast(t("openInFinder"), "success"); });
   });
+  els.assetGrid?.addEventListener("dblclick", (event) => {
+    const selectButton = event.target.closest(".asset-card-select");
+    if (!selectButton) return;
+    event.stopPropagation();
+    const id = selectButton.closest(".asset-card")?.dataset.id;
+    if (id) openImagePreview(id, selectButton);
+  });
   els.addGroupBtn?.addEventListener("click", openGroupModal);
   els.newAssetTopBtn?.addEventListener("click", openImportModal);
-  els.quickFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) setFilter(button.dataset.filter); });
+  els.quickFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) void setFilter(button.dataset.filter); });
   els.sidebarGroupList?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-filter]"); if (button) setFilter(button.dataset.filter, button.dataset.value);
+    const button = event.target.closest("[data-filter]"); if (button) void setFilter(button.dataset.filter, button.dataset.value);
   });
-  els.typeFilters?.addEventListener("click", (event) => {
+  els.typeFilters?.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-type]");
     if (!button || button.dataset.type === state.mediaKind) return;
+    if (!await confirmDetailNavigation(null)) return;
+    discardDetailDraft();
     state.mediaKind = button.dataset.type;
     renderTypeFilters();
     applyFilterChange();
@@ -954,6 +1042,13 @@ function bindEvents() {
   els.settingsMenu?.addEventListener("change", async (event) => {
     const select = event.target.closest("[data-project-select]");
     if (!select) return;
+    const previousProject = state.project;
+    if (select.value === previousProject) return;
+    if (!await confirmDetailNavigation(null)) {
+      select.value = previousProject;
+      return;
+    }
+    discardDetailDraft();
     state.project = select.value; clearDetailSelection(); state.scope = "all"; clearFacets(); state.query = ""; els.searchInput.value = ""; state.nextCursor = null;
     // Phase 3A：项目切换改变结果集语义，退出查看模式（设置菜单在侧栏，查看模式下仍可达）。
     if (state.viewMode === "asset") returnToLibrary();
@@ -979,7 +1074,7 @@ function bindEvents() {
       state.galleryDensity = normalizeDensity(newDensity);
       safeStorageSet("mosa.gallery-density", state.galleryDensity);
       renderGrid();
-      if (state.detailOpen) renderDetail();
+      if (state.detailOpen && !isDetailEditorActive()) renderDetail();
       button.parentElement.querySelectorAll(".segmented-btn").forEach((b) => b.classList.remove("active"));
       button.classList.add("active");
       syncSegmentedRadios(els.settingsMenu); // aria-checked 与 .active 同步（Phase 5A / F-12）
@@ -1002,12 +1097,6 @@ function bindEvents() {
       return;
     }
 
-    const languageMenuTrigger = event.target.closest("[data-language-menu]");
-    if (languageMenuTrigger) {
-      // Phase 5A：child 浮层的开关、定位、aria-expanded 全部经共享 manager（打开不关 Settings）。
-      anchoredOverlayManager.toggle("language");
-      return;
-    }
     const localeButton = event.target.closest("[data-locale]");
     if (localeButton) {
       return setLanguage(localeButton.dataset.locale);
@@ -1040,7 +1129,7 @@ function bindEvents() {
     if (event.target === els.imagePreviewStage) closeImagePreview();
   });
   els.imagePreviewImage?.addEventListener("load", fitImagePreview);
-  els.assetViewBack?.addEventListener("click", returnToLibrary);
+  els.assetViewBack?.addEventListener("click", () => { void closeDetailSurface(); });
   // Phase 3A 运行时修复（双击进入路径）：第一次 click 已打开查看模式并同步聚焦返回按钮，
   // 紧随的第二次 mousedown 落在同坐标的舞台/主图上——浏览器默认动作会把焦点清到 BODY，
   // 使打开焦点丢失。阻止舞台与主图 mousedown 的默认焦点转移（不改布局/不新增状态）；
@@ -1059,13 +1148,10 @@ function bindEvents() {
   els.assetViewPrev?.addEventListener("click", () => navigateAssetView(-1));
   els.assetViewNext?.addEventListener("click", () => navigateAssetView(1));
   els.saveAssetBtn?.addEventListener("click", saveAsset);
-  // Phase 5A / F-12：Settings 菜单统一键盘模型（menu roving + Language 子菜单 + segmented radiogroup）。
+  // Settings 的 segmented radiogroup 在持久根节点上统一处理方向键。
   // 绑定在持久的 #settingsMenu 元素上：innerHTML 重建不会叠加监听器（全应用唯一一套）。
   els.settingsMenu?.addEventListener("keydown", handleSettingsMenuKeydown);
-  // Phase 5A / F-14：全局外部点击只保留一套（manager 统一路由 root/child 关闭策略）。
-  document.addEventListener("click", (event) => anchoredOverlayManager.handleOutsidePointer(event.target));
-  // Phase 5A / F-14：全局 resize 重定位只保留一套（viewport-change 只重定位，不自动关闭）。
-  window.addEventListener("resize", () => { anchoredOverlayManager.repositionOpen(); syncMobileNavigation(); if (state.imagePreviewId) fitImagePreview(); });
+  window.addEventListener("resize", () => { syncMobileNavigation(); if (state.imagePreviewId) fitImagePreview(); });
 
   bindContextMenuEvents({
     state,
@@ -1098,7 +1184,7 @@ function bindEvents() {
     if (els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open") || els.accountModal?.classList.contains("open") || !els.imagePreviewModal?.hidden) return;
     if (!els.settingsMenu?.hidden) return;
     event.preventDefault();
-    setDetailOpen(false);
+    void closeDetailSurface();
   });
   bindDesktopIntegration();
 }
@@ -1119,15 +1205,33 @@ function bindDesktopIntegration() {
     }
   });
   document.addEventListener("paste", async (event) => {
+    const target = event.target;
+    const editableTarget = target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable]"));
+    const blockingSurfaceOpen = Boolean(
+      confirmDialogState.pending
+      || !els.settingsMenu?.hidden
+      || !els.imagePreviewModal?.hidden
+      || els.importModal?.classList.contains("open")
+      || els.groupModal?.classList.contains("open")
+      || els.accountModal?.classList.contains("open")
+    );
+    // Never steal paste from a native editor, and never stack an Import modal
+    // on top of another modal/lightbox. Image paste remains available from the
+    // normal app canvas where it is an intentional import shortcut.
+    if (editableTarget || blockingSurfaceOpen) return;
     const items = event.clipboardData?.items;
     if (!items) return;
     for (const item of items) {
       if (item.type.startsWith("image/")) {
         event.preventDefault();
-        const filePath = await api.pasteImage();
-        if (filePath && els.imagePathInput) {
-          els.imagePathInput.value = filePath;
-          openImportModal();
+        try {
+          const filePath = await api.pasteImage();
+          if (filePath && els.imagePathInput) {
+            els.imagePathInput.value = filePath;
+            openImportModal();
+          }
+        } catch {
+          showToast(t("clipboardAccessDenied"), "error");
         }
         return;
       }
@@ -1152,12 +1256,15 @@ function setLanguage(value) {
  * One entry point for every filter control. Scopes replace each other; facets
  * toggle, so picking a style no longer silently discards an active source.
  */
-function setFilter(type, value = "") {
+async function setFilter(type, value = "") {
+  const valid = type === "all" || SCOPES.includes(type) || type in SOURCE_FACETS || FACET_KEYS.includes(type);
+  if (!valid) return;
+  if (!await confirmDetailNavigation(null)) return;
+  discardDetailDraft();
   if (type === "all") { state.scope = "all"; clearFacets(); }
   else if (SCOPES.includes(type)) state.scope = type;
   else if (type in SOURCE_FACETS) toggleFacet("source", SOURCE_FACETS[type]);
   else if (FACET_KEYS.includes(type)) toggleFacet(type, value);
-  else return;
   applyFilterChange();
 }
 
@@ -1169,10 +1276,10 @@ function clearFacets() {
   for (const key of FACET_KEYS) state.facets[key] = "";
 }
 
-function clearAllFilters() {
+async function clearAllFilters() {
   // F-08：清除一律收敛到单一 reset helper（query/输入框/facets/scope/分组，
   // 一次刷新）；sort、density、theme、language、project 不受影响。
-  resetLibraryRefinements();
+  await resetLibraryRefinements();
 }
 
 function applyFilterChange() {
@@ -1184,10 +1291,12 @@ function applyFilterChange() {
   renderQuickFilters(); renderTypeFilters(); renderActiveFilters(); loadAssets();
 }
 
-function showRelatedGenerations(asset, mode) {
+async function showRelatedGenerations(asset, mode) {
   const conversationId = String(asset?.source?.conversation_id || "").trim();
   const messageId = String(asset?.source?.message_id || "").trim();
   if (!conversationId || (mode === "batch" && !messageId)) return;
+  if (!await confirmDetailNavigation(null)) return;
+  discardDetailDraft();
   state.scope = "all";
   state.mediaKind = "all";
   clearFacets();
@@ -1196,33 +1305,15 @@ function showRelatedGenerations(asset, mode) {
   applyFilterChange();
 }
 
-// Phase 5A / F-14：兼容 wrapper——既有调用点（Escape 优先级链、sidebar 打开全部分组）保留
-// 原字面签名；开关/定位/aria-expanded/hidden/return focus 全部路由到共享 anchoredOverlayManager，
-// 不再存在任何独立定位公式。
-function togglePanel(panel, trigger) {
-  if (panel === els.settingsMenu) { toggleSettingsModal(); return; }
-  if (!panel) return;
-  const overlayId = anchoredOverlayManager.idForPanel(panel);
-  if (!overlayId) return;
-  anchoredOverlayManager.toggle(overlayId); // trigger-toggle：root 互斥由 manager 统一处理
-}
 function closePanel(panel, trigger, reason = "escape") {
   if (panel === els.settingsMenu) { closeSettingsModal({ restoreFocus: reason !== "outside-pointer" }); return; }
   if (!panel) return;
-  const overlayId = anchoredOverlayManager.idForPanel(panel);
-  if (!overlayId) return;
-  anchoredOverlayManager.close(overlayId, reason); // reason=escape 时 child 先关（child-first）
+  panel.hidden = true;
+  trigger?.setAttribute("aria-expanded", "false");
 }
 
-// Phase 5A / F-12：Settings 菜单统一键盘处理器（委托在持久的 #settingsMenu 元素）。
-// 分层：语言子菜单打开时优先处理 child；radiogroup 自持方向键（不冒泡到 menu roving）；
-// 原生 select/input 不被方向键劫持；menu roving 仅作用于本层合法 menuitem，循环导航。
+// Settings 的 segmented radiogroup 自持方向键。其余控件保留原生键盘语义。
 function handleSettingsMenuKeydown(event) {
-  const languageMenu = els.settingsMenu?.querySelector("#languageMenu");
-  if (languageMenu && !languageMenu.hidden && languageMenu.contains(event.target)) {
-    handleLanguageMenuKeydown(event, languageMenu);
-    return;
-  }
   const radio = event.target.closest?.('[role="radio"]');
   if (radio) {
     const group = radio.closest('[role="radiogroup"]');
@@ -1237,51 +1328,10 @@ function handleSettingsMenuKeydown(event) {
     else if (event.key === "End") next = buttons.length - 1;
     if (next === -1 || !buttons[next]) return;
     event.preventDefault();
-    event.stopPropagation(); // 分段控件内方向键不得触发 Settings menu 的 roving handler
+    event.stopPropagation();
     buttons[next].click(); // 复用既有主题/密度 click 业务路径，逻辑零分叉
     buttons[next].focus();
     return;
-  }
-  if (event.target.closest?.("[data-language-menu]") && event.key === "ArrowRight") {
-    // ArrowRight 打开子菜单；Enter/Space 走原生 button click 委托，不重复实现。
-    if (els.settingsMenu?.querySelector("#languageMenu")?.hidden) {
-      event.preventDefault();
-      anchoredOverlayManager.open("language");
-    }
-    return;
-  }
-  if (event.target.matches?.("select, input, textarea")) return; // 原生 select 保持原生键盘语义
-  if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Home" && event.key !== "End") return;
-  const items = settingsMenuItems();
-  if (!items.length) return;
-  event.preventDefault();
-  const current = items.indexOf(document.activeElement);
-  let next;
-  if (event.key === "Home") next = 0;
-  else if (event.key === "End") next = items.length - 1;
-  else next = current === -1 ? 0 : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-  focusSettingsMenuItem(items[next]);
-}
-
-// Language child overlay 键盘模型：ArrowDown/Up 循环、Home/End、Escape/ArrowLeft 关闭 child
-// 并把焦点送回语言入口（不穿透到 Settings 与 Viewer）；Enter/Space 选择走原生 click 委托。
-function handleLanguageMenuKeydown(event, menu) {
-  if (event.key === "Escape" || event.key === "ArrowLeft") {
-    event.preventDefault();
-    event.stopPropagation();
-    anchoredOverlayManager.close("language", "escape");
-    return;
-  }
-  if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
-    const items = languageMenuItems(menu);
-    if (!items.length) return;
-    event.preventDefault();
-    const current = items.indexOf(document.activeElement);
-    let next;
-    if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = items.length - 1;
-    else next = current === -1 ? 0 : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-    focusLanguageMenuItem(items[next]);
   }
 }
 
@@ -1325,10 +1375,11 @@ function showImportError(field, message) {
 
 function setImportBusy(busy) {
   state.importSaving = busy;
-  if (!els.saveAssetBtn) return;
-  els.saveAssetBtn.disabled = busy;
-  els.saveAssetBtn.setAttribute("aria-busy", String(busy));
-  els.saveAssetBtn.textContent = busy ? t("savingAsset") : t("saveAsset");
+  els.importModal?.querySelectorAll("input, textarea, select, button").forEach((control) => { control.disabled = busy; });
+  if (els.saveAssetBtn) {
+    els.saveAssetBtn.setAttribute("aria-busy", String(busy));
+    els.saveAssetBtn.textContent = busy ? t("savingAsset") : t("saveAsset");
+  }
 }
 
 async function saveAsset() {
@@ -1341,11 +1392,16 @@ async function saveAsset() {
     try { businessFields = JSON.parse(els.businessInput.value); }
     catch { showImportError("businessFields", t("errorInvalidJson")); return; }
   }
+  const originProjectId = state.project;
+  const originAssetId = state.selectedId;
+  const hadDetailDraft = state.detailDirty;
+  if (hadDetailDraft && !await confirmDetailNavigation(null)) return;
   setImportBusy(true);
   try {
-    const result = await apiFetch("/api/assets/create", { method: "POST", body: { projectId: state.project, imagePath: els.imagePathInput.value, prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, ratio: els.ratioInput.value, theme: els.themeInput.value, group: els.groupInput.value, category: els.categoryInput.value, tags: uniqueTags([...(derivePromptTags({ prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, theme: els.themeInput.value, category: els.categoryInput.value }))]), business_fields: businessFields } });
+    const result = await apiFetch("/api/assets/create", { method: "POST", body: { projectId: originProjectId, imagePath: els.imagePathInput.value, prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, ratio: els.ratioInput.value, theme: els.themeInput.value, group: els.groupInput.value, category: els.categoryInput.value, tags: uniqueTags([...(derivePromptTags({ prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, theme: els.themeInput.value, category: els.categoryInput.value }))]), business_fields: businessFields } });
+    if (hadDetailDraft && originProjectId === state.project && originAssetId === state.selectedId) discardDetailDraft();
     state.selectedId = result.asset.id;
-    clearImportForm(); closeImportModal(); showToast(`${t("savedAsset")} · ${result.asset.id}`, "success");
+    clearImportForm(); closeImportModal({ force: true }); showToast(`${t("savedAsset")} · ${result.asset.id}`, "success");
     await loadStats(); await loadAssets();
   } catch (error) {
     const mapped = IMPORT_ERROR_FIELDS[error?.code];
@@ -1396,29 +1452,81 @@ function renderSidebarGroups() {
 }
 
 let masonryResizeObserver = null;
-function layoutMasonry() {
+let masonryObservedGrid = null;
+let masonryObservedWidth = 0;
+let masonryLayoutFrame = null;
+let masonryFullLayoutPending = false;
+const masonryPendingCards = new Set();
+function layoutMasonry(cards = null) {
   const grid = els.assetGrid;
   if (!grid) return;
   const gridStyles = getComputedStyle(grid);
   const galleryGap = Number.parseFloat(gridStyles.getPropertyValue("--gallery-gap")) || Number.parseFloat(gridStyles.columnGap) || 0;
-  grid.querySelectorAll(".asset-card").forEach((card) => {
+  const targets = cards || grid.querySelectorAll(".asset-card");
+  targets.forEach((card) => {
+    if (!(card instanceof HTMLElement) || !card.isConnected) return;
     const height = card.getBoundingClientRect().height || 0;
     if (height) card.style.gridRowEnd = `span ${Math.ceil(height + galleryGap)}`;
   });
 }
-function setupMasonryLayout() {
-  const grid = els.assetGrid; if (!grid) return;
-  // Lay out once synchronously and again on the next frame. Animation frames are
-  // suspended while the window is hidden or throttled, and a masonry grid whose
-  // row spans never get measured collapses its cards to a few pixels.
-  const schedule = () => { layoutMasonry(); requestAnimationFrame(layoutMasonry); };
-  grid.querySelectorAll(".thumb").forEach((media) => {
-    media.addEventListener("load", schedule, { once: true });
-    media.addEventListener("loadeddata", schedule, { once: true });
+function scheduleMasonryLayout(card = null) {
+  if (card) masonryPendingCards.add(card);
+  else masonryFullLayoutPending = true;
+  if (masonryLayoutFrame !== null) return;
+  masonryLayoutFrame = requestAnimationFrame(() => {
+    masonryLayoutFrame = null;
+    if (masonryFullLayoutPending) layoutMasonry();
+    else if (masonryPendingCards.size) layoutMasonry([...masonryPendingCards]);
+    masonryFullLayoutPending = false;
+    masonryPendingCards.clear();
   });
-  schedule();
-  masonryResizeObserver?.disconnect();
-  if ("ResizeObserver" in window) { masonryResizeObserver = new ResizeObserver(schedule); masonryResizeObserver.observe(grid); }
+}
+function setupMasonryLayout(options = {}) {
+  const grid = els.assetGrid; if (!grid) return;
+  const requestedCards = Array.isArray(options.cards) ? options.cards.filter(Boolean) : null;
+  const fullLayout = options.full !== false || !requestedCards;
+  const layoutTargets = fullLayout ? null : requestedCards;
+  // Known image dimensions reserve the correct media height before bytes load,
+  // so one synchronous pass is enough for the first paint. Unknown legacy
+  // images repair only their own card after decode instead of forcing an O(N)
+  // scan for every image load (the former O(N²) long-gallery hot path).
+  layoutMasonry(layoutTargets);
+  const mediaRoots = layoutTargets || [grid];
+  const pendingMedia = mediaRoots.flatMap((root) => {
+    if (!(root instanceof Element)) return [];
+    const own = root.matches?.("img.thumb:not([data-known-aspect='true'])") ? [root] : [];
+    return [...own, ...root.querySelectorAll("img.thumb:not([data-known-aspect='true'])")];
+  });
+  pendingMedia.forEach((media) => {
+    if (media.dataset.masonryBound === "true") return;
+    media.dataset.masonryBound = "true";
+    const settle = () => {
+      if (media.naturalWidth > 0 && media.naturalHeight > 0) {
+        media.setAttribute("width", String(media.naturalWidth));
+        media.setAttribute("height", String(media.naturalHeight));
+        media.dataset.knownAspect = "true";
+      }
+      const card = media.closest(".asset-card");
+      if (card) scheduleMasonryLayout(card);
+    };
+    if (media.complete) settle();
+    else {
+      media.addEventListener("load", settle, { once: true });
+      media.addEventListener("error", settle, { once: true });
+    }
+  });
+  if ("ResizeObserver" in window && masonryObservedGrid !== grid) {
+    masonryResizeObserver?.disconnect();
+    masonryObservedGrid = grid;
+    masonryObservedWidth = grid.clientWidth;
+    masonryResizeObserver = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect?.width ?? grid.clientWidth;
+      if (Math.abs(width - masonryObservedWidth) < 0.5) return;
+      masonryObservedWidth = width;
+      scheduleMasonryLayout();
+    });
+    masonryResizeObserver.observe(grid);
+  }
   setupInfiniteScroll();
 }
 
@@ -1448,19 +1556,113 @@ function gallerySkeletonMarkup() {
   return `<div class="gallery-skeleton" role="status" aria-live="polite"><span class="visually-hidden">${escapeHtml(t("galleryLoading"))}</span>${tiles}</div>`;
 }
 
+function assetCardRenderKey(asset, selected) {
+  return [
+    asset.project_id || state.project,
+    asset.id,
+    asset.updated_at || "",
+    asset.image_url || "",
+    asset.thumbnail_url || "",
+    asset.preview_url || "",
+    asset.favorite ? "1" : "0",
+    selected ? "1" : "0",
+    asset.group || "",
+    asset.version_index || "",
+    state.locale,
+  ].join("\u001f");
+}
+
+function createAssetCardElement(markup, renderKey, animateCard) {
+  const template = document.createElement("template");
+  template.innerHTML = markup.trim();
+  const card = template.content.firstElementChild;
+  if (!(card instanceof HTMLElement)) return null;
+  card.dataset.renderKey = renderKey;
+  if (animateCard) card.addEventListener("animationend", () => card.classList.remove("card-enter"), { once: true });
+  return card;
+}
+
+function reconcileAssetCards(entries) {
+  const grid = els.assetGrid;
+  if (!grid) return { changedCards: [], replacedFocusedCard: false };
+  const galleryChild = (element) => element.classList.contains("asset-card")
+    || element.classList.contains("asset-load-more")
+    || element.classList.contains("infinite-scroll-sentinel");
+  if ([...grid.children].some((element) => !galleryChild(element))) grid.replaceChildren();
+
+  const existingCards = new Map([...grid.querySelectorAll(":scope > .asset-card")].map((card) => [card.dataset.id, card]));
+  const keptCards = new Set();
+  const desiredCards = [];
+  const changedCards = [];
+  let replacedFocusedCard = false;
+
+  for (const entry of entries) {
+    let card = existingCards.get(entry.id) || null;
+    if (!card || card.dataset.renderKey !== entry.renderKey) {
+      const replacement = createAssetCardElement(entry.markup, entry.renderKey, entry.animateCard);
+      if (!replacement) continue;
+      if (card) {
+        if (card.contains(document.activeElement)) replacedFocusedCard = true;
+        card.replaceWith(replacement);
+      }
+      card = replacement;
+      changedCards.push(card);
+    }
+    keptCards.add(card);
+    desiredCards.push(card);
+  }
+
+  existingCards.forEach((card) => {
+    if (!keptCards.has(card)) {
+      if (card.contains(document.activeElement)) replacedFocusedCard = true;
+      card.remove();
+    }
+  });
+  let cursor = grid.firstElementChild;
+  desiredCards.forEach((card) => {
+    if (card !== cursor) grid.insertBefore(card, cursor);
+    cursor = card.nextElementSibling;
+  });
+  grid.querySelectorAll(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel").forEach((element) => element.remove());
+  if (state.nextCursor) {
+    grid.insertAdjacentHTML("beforeend", `<div class="asset-load-more"><button type="button" data-action="load-more">${escapeHtml(t("loadMore"))}</button></div><div class="infinite-scroll-sentinel" data-sentinel="true"></div>`);
+  }
+  return { changedCards, replacedFocusedCard };
+}
+
 // F-24：入场动画范围经 arguments 传入（loadAssets 在首次加载/追加页时设置），
 // 普通重渲染（搜索/筛选/排序/后台刷新）不带参数则不播放；签名保持无参以兼容
 // 既有契约测试对 renderGrid 签名的正则锁定。
 function renderGrid() {
-  const { animate = false, animateFrom = 0 } = arguments[0] || {};
+  // Direct UI-only rerenders (language/density/state decoration) should keep
+  // the current viewport by default. loadAssets explicitly disables this when
+  // the result-set semantics changed (search/filter/sort/project).
+  const { animate = false, animateFrom = 0, preserveScroll = true } = arguments[0] || {};
   if (!els.assetGrid) return;
+  const focusedElement = document.activeElement instanceof HTMLElement && els.assetGrid.contains(document.activeElement)
+    ? document.activeElement
+    : null;
+  const focusedCard = focusedElement?.closest?.(".asset-card");
+  const focusedAssetId = focusedCard?.dataset.id || null;
+  const focusedAction = focusedElement?.classList.contains("card-favorite")
+    ? "favorite"
+    : focusedElement?.classList.contains("card-quick-copy")
+      ? "copy"
+      : focusedElement?.classList.contains("asset-card-select")
+        ? "select"
+        : null;
   els.assetGrid.dataset.density = state.galleryDensity;
+  const restoreGridFallbackFocus = () => {
+    if (!focusedElement) return;
+    requestAnimationFrame(() => els.assetGrid?.focus({ preventScroll: true }));
+  };
   // Loading, failed, empty and populated are four distinct renders; the empty
   // state is only reachable once a request has actually answered with nothing.
-  if (state.galleryStatus === "loading") { els.assetGrid.innerHTML = gallerySkeletonMarkup(); return; }
+  if (state.galleryStatus === "loading") { els.assetGrid.innerHTML = gallerySkeletonMarkup(); restoreGridFallbackFocus(); return; }
   if (state.galleryStatus === "error") {
     const message = state.galleryError?.message || "";
     els.assetGrid.innerHTML = `<div class="error-state"><p>${escapeHtml(t("loadFailed"))}</p><span>${escapeHtml(message)}</span><button type="button" data-action="retry">${escapeHtml(t("retry"))}</button></div>`;
+    restoreGridFallbackFocus();
     return;
   }
   if (!state.assets.length) {
@@ -1468,6 +1670,7 @@ function renderGrid() {
     // 全库总数、query、facets、scope、分组分流，五类空态共用一个壳。
     els.assetGrid.innerHTML = galleryEmptyMarkup();
     announceEmptyState(els.assetGrid.querySelector(".gallery-empty-state")?.dataset.emptyKind);
+    restoreGridFallbackFocus();
     return;
   }
   // F-24：闭包序号判断入场动画范围（保持 map 回调签名与既有契约一致）。
@@ -1492,43 +1695,45 @@ function renderGrid() {
     const favBtn = `<button class="card-action-btn card-favorite${isFav ? " is-fav" : ""}" type="button" data-fav-id="${escapeHtml(asset.id)}" aria-pressed="${Boolean(isFav)}" aria-label="${escapeHtml(favoriteLabel)}" title="${escapeHtml(favoriteLabel)}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.95 5.97 6.59.96-4.77 4.65 1.13 6.57L12 17.57l-5.9 3.08 1.13-6.57-4.77-4.65 6.59-.96L12 2.5z"/></svg></button>`;
     const copyBtn = `<button class="card-action-btn card-quick-copy" type="button" data-copy="${escapeHtml(asset.prompt || "")}" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button>`;
     const cardActions = `<div class="card-actions">${favBtn}${copyBtn}</div>`;
-    return `<article class="asset-card${selected ? " selected" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}" title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}">${media}<span class="card-scrim" aria-hidden="true"></span><span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`;
-  }).join("");
-  // 追加页会重建整个网格；必须保存实际的滚动容器，而不是不可滚动的
-  // .library-view 父元素，否则浏览器在清空子节点时会把 grid 的位置钳回顶部。
+    return {
+      id: asset.id,
+      renderKey: assetCardRenderKey(asset, selected),
+      animateCard,
+      markup: `<article class="asset-card${selected ? " selected" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}" title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}">${media}<span class="card-scrim" aria-hidden="true"></span><span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`,
+    };
+  });
+  // Populated renders are reconciled by asset id. Unchanged cards keep their
+  // decoded media and DOM nodes; only changed/new cards are recreated.
   const isAppendMode = animate && animateFrom > 0;
   const scrollContainer = els.assetGrid;
-  const savedScrollTop = isAppendMode ? scrollContainer.scrollTop : null;
-
-  els.assetGrid.innerHTML = `${cards}${state.nextCursor ? `<div class="asset-load-more"><button type="button" data-action="load-more">${escapeHtml(t("loadMore"))}</button></div><div class="infinite-scroll-sentinel" data-sentinel="true"></div>` : ""}`;
-
-  setupMasonryLayout();
-  // setupMasonryLayout() queues its final row-span measurement for the next
-  // frame. Restore after that pass, once the replacement cards have restored
-  // enough scroll height for the prior position to be valid again.
+  const savedScrollTop = (isAppendMode || preserveScroll) ? scrollContainer.scrollTop : null;
+  if (!preserveScroll && !isAppendMode) scrollContainer.scrollTop = 0;
+  const previousDensity = els.assetGrid.dataset.renderedDensity || "";
+  const { changedCards, replacedFocusedCard } = reconcileAssetCards(cards);
+  els.assetGrid.dataset.renderedDensity = state.galleryDensity;
+  const requiresFullMasonry = previousDensity !== state.galleryDensity || changedCards.length >= state.assets.length;
+  setupMasonryLayout(requiresFullMasonry ? {} : { cards: changedCards, full: false });
+  // Restore on the next frame once replacement cards have restored enough
+  // scroll height for the prior position to be valid again. Clamp when a
+  // mutation removed rows (for example un-favoriting inside Favorites).
   if (savedScrollTop !== null) {
     requestAnimationFrame(() => {
       const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
       scrollContainer.scrollTop = Math.min(savedScrollTop, maxScrollTop);
     });
   }
-  els.assetGrid.querySelectorAll(".asset-card-select").forEach((button) => {
-    // A normal card press opens the current asset in the V2 detail surface.
-    button.addEventListener("click", () => {
-      const id = button.closest(".asset-card")?.dataset.id;
-      if (!id) return;
-      void selectAsset(id);
+  if (focusedAssetId && focusedAction && (replacedFocusedCard || !focusedElement?.isConnected)) {
+    requestAnimationFrame(() => {
+      const card = els.assetGrid?.querySelector(`.asset-card[data-id="${CSS.escape(focusedAssetId)}"]`);
+      const replacement = focusedAction === "favorite"
+        ? card?.querySelector(".card-favorite")
+        : focusedAction === "copy"
+          ? card?.querySelector(".card-quick-copy")
+          : card?.querySelector(".asset-card-select");
+      if (replacement instanceof HTMLElement) replacement.focus({ preventScroll: true });
+      else els.assetGrid?.focus({ preventScroll: true });
     });
-    // 双击打开图片预览
-    button.addEventListener("dblclick", (event) => {
-      event.stopPropagation();
-      const id = button.closest(".asset-card")?.dataset.id;
-      if (!id) return;
-      openImagePreview(id, button);
-    });
-  });
-  els.assetGrid.querySelectorAll(".card-quick-copy").forEach((button) => button.addEventListener("click", async (event) => { event.stopPropagation(); await runAction(async () => { await navigator.clipboard.writeText(button.dataset.copy || ""); showToast(t("copySuccess"), "success"); }); }));
-  els.assetGrid.querySelectorAll(".card-favorite").forEach((button) => button.addEventListener("click", (event) => { event.stopPropagation(); void toggleFavorite(button.dataset.favId, event); }));
+  }
 }
 
 /** Routed through the state machine so a later re-render cannot resurrect the skeleton. */
@@ -1542,11 +1747,17 @@ function renderErrorState(error, requestId = null, request = null) {
 
 async function selectAsset(id, shouldScroll = false) {
   if (!id) return;
+  if (id === state.selectedId && state.detailOpen) {
+    updateSelectedCard();
+    if (shouldScroll) els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
   const originProjectId = state.project;
   const originAssetId = state.selectedId;
   if (!await confirmDetailNavigation(id)) return;
   // Phase 5B context guard：确认期间 Detail 选择已变化时安全取消，旧确认结果不操作新素材。
   if (originAssetId !== null && !isCurrentDetailSelection(originProjectId, originAssetId)) return;
+  discardDetailDraft();
   state.selectedId = id; state.detailAsset = null; state.versionHistory = null; state.recipeHistory = null; setDetailOpen(true); updateSelectedCard();
   if (shouldScroll) els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
@@ -1558,17 +1769,125 @@ function clearDetailSelection() {
   state.recipeHistory = null;
 }
 
-async function confirmDetailNavigation(nextAssetId) {
-  // Phase 5B：异步 Promise 语义——未 dirty 或目标即当前选中时直接放行，不打开 Dialog；
-  // dirty 且目标不同时经全应用唯一 ConfirmDialog 确认（无第二套 discard 确认副本）。
-  if (!state.detailDirty || nextAssetId === state.selectedId) return true;
-  return requestConfirmation({
-    title: t("discardChangesTitle"),
-    description: t("discardChangesDescription"),
-    confirmLabel: t("discardChangesAction"),
-    tone: "danger",
-    contextKey: `${state.project}:${state.selectedId}:discard-version`,
+// ===== Inspector auto-save =====
+// 检视器配方/参考图权利字段编辑停顿后自动 PATCH，消除"未保存修改时导航弹丢弃确认"的
+// 摩擦。标签内联编辑器仍是 submit 即时保存（不改）；"保存为新版本"仍是显式按钮。
+let inspectorSaveTimer = null;
+let inspectorSavePromise = null;
+let activeInspector = null;
+const INSPECTOR_AUTOSAVE_DELAY = 1200;
+
+function scheduleInspectorSave() {
+  if (!activeInspector?.panel?.isConnected) return;
+  clearTimeout(inspectorSaveTimer);
+  inspectorSaveTimer = setTimeout(() => {
+    inspectorSaveTimer = null;
+    void persistInspectorDraft(activeInspector.panel, activeInspector.asset, activeInspector.renderId);
+  }, INSPECTOR_AUTOSAVE_DELAY);
+}
+
+function cancelInspectorSave() {
+  clearTimeout(inspectorSaveTimer);
+  inspectorSaveTimer = null;
+}
+
+function setInspectorAutosaveStatus(panel, kind) {
+  panel?.querySelectorAll("[data-autosave-status]").forEach((node) => {
+    if (kind === "saving") node.textContent = t("saving");
+    else if (kind === "saved") node.textContent = t("autoSaved");
+    else node.textContent = "";
   });
+}
+
+// Persist any dirty recipe/reference draft in one PATCH. Returns false on
+// failure (dirty kept so a later edit/flush retries); the caller (navigation
+// guards) treats false as "do not proceed" rather than silently dropping edits.
+async function persistInspectorDraft(panel, asset, renderId) {
+  const originProjectId = asset.project_id;
+  const originAssetId = asset.id;
+  if (!isCurrentDetailAction(renderId, originProjectId, originAssetId)) return true;
+  // An in-flight save owns the wire; reschedule and let it land first.
+  if (inspectorSavePromise) { scheduleInspectorSave(); return true; }
+  const recipeDirty = Boolean(panel.querySelector('[data-detail-dirty="true"][data-detail-dirty-scope="recipe"]'));
+  const referenceDirty = Boolean(panel.querySelector('[data-reference-rights-section][data-reference-dirty="true"]'));
+  if (!recipeDirty && !referenceDirty) { state.detailDirty = panelHasDirtyDraft(panel); return true; }
+  setInspectorAutosaveStatus(panel, "saving");
+  const run = (async () => {
+    try {
+      const currentAsset = latestAssetSnapshot(originProjectId, originAssetId, asset);
+      const body = {};
+      if (recipeDirty) {
+        const recipeDraft = readRecipeDraft(panel);
+        // 配方保存只读 [data-recipe-change]；说明为空时省略 recipe_change_summary
+        //（服务端缺省 "Recipe updated"），不硬编码英文、不创建新版本。
+        const changeSummary = panel.querySelector("[data-recipe-change]")?.value.trim() || "";
+        Object.assign(body, recipeDraft, { tags: uniqueTags([...assetTags(currentAsset), ...derivePromptTags(recipeDraft)]) }, changeSummary ? { recipe_change_summary: changeSummary } : {});
+      }
+      if (referenceDirty) {
+        const section = panel.querySelector("[data-reference-rights-section]");
+        body.references = readReferenceRightsDraft(section, currentAsset);
+      }
+      const result = await apiFetch(`/api/assets/${encodeURIComponent(originProjectId)}/${encodeURIComponent(originAssetId)}`, { method: "PATCH", body });
+      if (!isCurrentDetailAction(renderId, originProjectId, originAssetId)) return true;
+      state.detailAsset = result.asset;
+      const index = state.assets.findIndex((item) => item.id === originAssetId && item.project_id === originProjectId);
+      if (index >= 0) state.assets[index] = result.asset;
+      if (recipeDirty) clearDetailDirtyScope(panel, "recipe");
+      if (referenceDirty) {
+        const section = panel.querySelector("[data-reference-rights-section]");
+        if (section) delete section.dataset.referenceDirty;
+        state.detailDirty = panelHasDirtyDraft(panel);
+      }
+      setInspectorAutosaveStatus(panel, "saved");
+      await loadStats();
+      await loadAssets({ background: true });
+      return true;
+    } catch (error) {
+      showToast(error.message, "error");
+      // Keep the dirty flags so the next edit or flush retries instead of losing data.
+      setInspectorAutosaveStatus(panel, "error");
+      return false;
+    }
+  })();
+  inspectorSavePromise = run;
+  try { return await run; } finally { inspectorSavePromise = null; }
+}
+
+// Flush a pending debounced save before navigation/switching. Awaits any
+// in-flight PATCH, then runs once more if edits arrived during it.
+async function flushInspectorSave() {
+  cancelInspectorSave();
+  if (inspectorSavePromise) await inspectorSavePromise;
+  const ctx = activeInspector;
+  if (!ctx?.panel?.isConnected || !panelHasDirtyDraft(ctx.panel)) return true;
+  return persistInspectorDraft(ctx.panel, ctx.asset, ctx.renderId);
+}
+
+async function confirmDetailNavigation() {
+  // 自动保存：导航/切换前冲刷挂起的草稿；失败则返回 false 阻断导航（不静默丢数据）。
+  return flushInspectorSave();
+}
+
+function discardDetailDraft() {
+  cancelInspectorSave();
+  state.detailDirty = false;
+  els.detailPanel?.querySelectorAll('[data-detail-dirty="true"]').forEach((field) => {
+    delete field.dataset.detailDirty;
+    delete field.dataset.detailDirtyScope;
+  });
+  const rights = els.detailPanel?.querySelector('[data-reference-rights-section][data-reference-dirty="true"]');
+  if (rights) delete rights.dataset.referenceDirty;
+}
+
+async function closeDetailSurface() {
+  if (!await confirmDetailNavigation(null)) return false;
+  discardDetailDraft();
+  if (state.viewMode === "asset") returnToLibrary();
+  else {
+    setDetailOpen(false);
+    if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId && asset.project_id === state.project)) clearDetailSelection();
+  }
+  return true;
 }
 
 function selectedAsset() {
@@ -1587,8 +1906,11 @@ function setDetailOpen(open) {
     if (!wasOpen) {
       const activeEl = document.activeElement;
       state.detailReturnFocus = (activeEl instanceof HTMLElement && activeEl.isConnected) ? activeEl : null;
+      state.detailReturnFocusAssetId = activeEl?.closest?.(".asset-card")?.dataset.id || state.selectedId || null;
     }
-    renderDetail();
+    const selected = selectedAsset();
+    const sameRenderedAsset = Boolean(selected && detailRenderedAssetId === selected.id);
+    if (!wasOpen || !sameRenderedAsset || !isDetailEditorActive()) renderDetail();
     // Focus moves only on the closed -> open transition: arrow-key gallery
     // navigation keeps calling setDetailOpen(true) while the drawer is already
     // open, and yanking focus into the drawer each time would break it.
@@ -1596,25 +1918,41 @@ function setDetailOpen(open) {
     // runs while the window is hidden or frame-throttled.
     if (!wasOpen) els.detailPanel?.querySelector("#detailTitle")?.focus();
   } else {
-    state.detailDirty = false;
     const returnEl = state.detailReturnFocus;
+    const returnAssetId = state.detailReturnFocusAssetId;
     state.detailReturnFocus = null;
-    if (returnEl instanceof HTMLElement && returnEl.isConnected) returnEl.focus();
+    state.detailReturnFocusAssetId = null;
+    if (returnEl instanceof HTMLElement && returnEl.isConnected) returnEl.focus({ preventScroll: true });
+    else {
+      const replacement = returnAssetId
+        ? els.assetGrid?.querySelector(`.asset-card[data-id="${CSS.escape(returnAssetId)}"] .asset-card-select`)
+        : null;
+      if (replacement instanceof HTMLElement) replacement.focus({ preventScroll: true });
+      else els.assetGrid?.focus({ preventScroll: true });
+    }
   }
 }
 
 // ===== Asset view（大图查看器，已提取至 asset-view.mjs，R1 批次 4）=====
 
 function openImportModal() {
+  if (state.importSaving) return;
   state.modalReturnFocus = document.activeElement;
   clearImportErrors();
-  setImportBusy(false);
   els.importModal?.classList.add("open");
   els.importModal?.setAttribute("aria-hidden", "false");
   // Focused synchronously: an animation frame never runs while the window is hidden.
   els.closeImportModal?.focus();
 }
-function closeImportModal() { announceGalleryStatus(""); els.importModal?.classList.remove("open"); els.importModal?.setAttribute("aria-hidden", "true"); if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus(); state.modalReturnFocus = null; }
+function closeImportModal({ force = false } = {}) {
+  if (state.importSaving && !force) return false;
+  announceGalleryStatus("");
+  els.importModal?.classList.remove("open");
+  els.importModal?.setAttribute("aria-hidden", "true");
+  if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus();
+  state.modalReturnFocus = null;
+  return true;
+}
 function openSettingsModal() {
   if (!els.settingsMenu || !els.settingsMenu.hidden) return;
   state.settingsReturnFocus = document.activeElement;
@@ -1685,6 +2023,7 @@ function closeAccountModal() {
   state.accountReturnFocus = null;
 }
 function openGroupModal() {
+  if (state.groupSaving) return;
   state.modalReturnFocus = document.activeElement;
   els.groupModal?.classList.add("open");
   els.groupModal?.setAttribute("aria-hidden", "false");
@@ -1692,9 +2031,25 @@ function openGroupModal() {
   selectGroupColor(GROUP_COLORS[0]);
   requestAnimationFrame(() => els.groupNameInput?.focus());
 }
-function closeGroupModal() { els.groupModal?.classList.remove("open"); els.groupModal?.setAttribute("aria-hidden", "true"); if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus(); state.modalReturnFocus = null; }
+function setGroupBusy(busy) {
+  state.groupSaving = busy;
+  if (els.saveGroupBtn) { els.saveGroupBtn.disabled = busy; els.saveGroupBtn.setAttribute("aria-busy", String(busy)); }
+  if (els.closeGroupModal) els.closeGroupModal.disabled = busy;
+  if (els.cancelGroupBtn) els.cancelGroupBtn.disabled = busy;
+  if (els.groupNameInput) els.groupNameInput.disabled = busy;
+  els.groupModal?.querySelectorAll("[data-group-color]").forEach((button) => { button.disabled = busy; });
+}
+function closeGroupModal({ force = false } = {}) {
+  if (state.groupSaving && !force) return false;
+  els.groupModal?.classList.remove("open");
+  els.groupModal?.setAttribute("aria-hidden", "true");
+  if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus();
+  state.modalReturnFocus = null;
+  return true;
+}
 
 function trapAccountModalFocus(event) {
+  if (event.defaultPrevented) return;
   if (!els.accountModal?.classList.contains("open")) return;
   if (event.key === "Escape") { event.preventDefault(); closeAccountModal(); return; }
   if (event.key !== "Tab") return;
@@ -1707,6 +2062,7 @@ function trapAccountModalFocus(event) {
 }
 
 function trapImportModalFocus(event) {
+  if (event.defaultPrevented) return;
   if (!els.importModal?.classList.contains("open")) return;
   if (event.key === "Escape") { event.preventDefault(); closeImportModal(); return; }
   if (event.key !== "Tab") return;
@@ -1715,10 +2071,11 @@ function trapImportModalFocus(event) {
 }
 
 function trapSettingsModalFocus(event) {
+  if (event.defaultPrevented) return;
   if (els.settingsMenu?.hidden) return;
   if (event.key === "Escape") { event.preventDefault(); closeSettingsModal(); return; }
   if (event.key !== "Tab") return;
-  const focusable = [...els.settingsMenu.querySelectorAll("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((element) => !element.hasAttribute("hidden"));
+  const focusable = [...els.settingsMenu.querySelectorAll("button:not([disabled]):not([tabindex='-1']), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((element) => !element.hasAttribute("hidden"));
   if (!focusable.length) return;
   const current = focusable.indexOf(document.activeElement);
   const next = event.shiftKey ? (current <= 0 ? focusable.length - 1 : current - 1) : (current === focusable.length - 1 ? 0 : current + 1);
@@ -1727,6 +2084,7 @@ function trapSettingsModalFocus(event) {
 }
 
 function trapGroupModalFocus(event) {
+  if (event.defaultPrevented) return;
   if (!els.groupModal?.classList.contains("open")) return;
   if (event.key === "Escape") { event.preventDefault(); closeGroupModal(); return; }
   if (event.key !== "Tab") return;
@@ -1735,19 +2093,30 @@ function trapGroupModalFocus(event) {
 }
 
 async function saveGroup() {
-  await runAction(async () => {
-    const name = els.groupNameInput?.value.trim() || "";
-    if (!name) throw new Error(t("groupNameRequired"));
-    const result = await apiFetch("/api/groups", { method: "POST", body: { projectId: state.project, name } });
-    saveGroupColor(result.group.name, selectedGroupColor());
-    closeGroupModal();
-    await loadStats();
-    showToast(`${t("groupCreated")}${result.group.name}`, "success");
-    state.facets.group = result.group.name;
-    state.nextCursor = null;
-    clearDetailSelection();
-    renderQuickFilters(); renderActiveFilters(); await loadAssets();
-  });
+  if (state.groupSaving) return;
+  const name = els.groupNameInput?.value.trim() || "";
+  if (!name) { showToast(t("groupNameRequired"), "error"); return; }
+  const originProjectId = state.project;
+  const originAssetId = state.selectedId;
+  const hadDetailDraft = state.detailDirty;
+  if (hadDetailDraft && !await confirmDetailNavigation(null)) return;
+  setGroupBusy(true);
+  try {
+    await runAction(async () => {
+      const result = await apiFetch("/api/groups", { method: "POST", body: { projectId: originProjectId, name } });
+      if (hadDetailDraft && originProjectId === state.project && originAssetId === state.selectedId) discardDetailDraft();
+      saveGroupColor(result.group.name, selectedGroupColor());
+      closeGroupModal({ force: true });
+      await loadStats();
+      showToast(`${t("groupCreated")}${result.group.name}`, "success");
+      state.facets.group = result.group.name;
+      state.nextCursor = null;
+      clearDetailSelection();
+      renderQuickFilters(); renderActiveFilters(); await loadAssets();
+    });
+  } finally {
+    setGroupBusy(false);
+  }
 }
 
 function openImagePreview(id, trigger) {
@@ -1758,6 +2127,7 @@ function openImagePreview(id, trigger) {
   state.imagePreviewId = asset.id;
   resetImageZoom();
   state.previewReturnFocus = trigger instanceof HTMLElement ? trigger : document.activeElement;
+  state.previewReturnFocusAssetId = trigger?.closest?.(".asset-card")?.dataset.id || asset.id;
   els.imagePreviewTitle.textContent = asset.theme || asset.asset || asset.id;
   els.imagePreviewStage?.setAttribute("aria-label", `${t("imagePreviewStage")}: ${els.imagePreviewTitle.textContent}`);
   if (isVideoAsset(asset)) {
@@ -1808,11 +2178,23 @@ function closeImagePreview() {
   els.imagePreviewImage?.style.removeProperty("height");
   els.imagePreviewStage?.classList.remove("zoomed", "dragging");
   els.imagePreviewStage?.setAttribute("aria-label", t("imagePreviewStage"));
-  if (state.previewReturnFocus instanceof HTMLElement) state.previewReturnFocus.focus();
+  const returnEl = state.previewReturnFocus;
+  const returnAssetId = state.previewReturnFocusAssetId;
+  if (returnEl instanceof HTMLElement && returnEl.isConnected) returnEl.focus({ preventScroll: true });
+  else if (state.viewMode === "asset" && els.assetViewBack instanceof HTMLElement) els.assetViewBack.focus({ preventScroll: true });
+  else {
+    const replacement = returnAssetId
+      ? els.assetGrid?.querySelector(`.asset-card[data-id="${CSS.escape(returnAssetId)}"] .asset-card-select`)
+      : null;
+    if (replacement instanceof HTMLElement) replacement.focus({ preventScroll: true });
+    else els.assetGrid?.focus({ preventScroll: true });
+  }
   state.previewReturnFocus = null;
+  state.previewReturnFocusAssetId = null;
 }
 
 function trapImagePreviewFocus(event) {
+  if (event.defaultPrevented) return;
   if (els.imagePreviewModal?.hidden) return;
   if (event.key === "Escape") { event.preventDefault(); closeImagePreview(); return; }
   if (event.key !== "Tab") return;
@@ -1832,6 +2214,10 @@ let detailRenderedAssetId = null;
 
 function renderDetail() {
   if (!els.detailPanel) return;
+  // Rebuilding destroys every input; cancel a pending debounced save so it
+  // cannot fire against the fresh DOM. An in-flight PATCH is left to resolve
+  // and bail via the stale renderId guard inside persistInspectorDraft.
+  cancelInspectorSave();
   const renderId = ++detailRenderSequence;
   const asset = selectedAsset();
   // Re-rendering replaces the whole panel, so a focus that lived inside it
@@ -1841,7 +2227,6 @@ function renderDetail() {
   const keepScrollTop = !hadPanelFocus && asset && detailRenderedAssetId === asset.id
     ? els.detailPanel.querySelector(".detail-inspector-scroll")?.scrollTop ?? null
     : null;
-  state.detailDirty = false;
   if (!asset) { detailRenderedAssetId = null; els.detailPanel.innerHTML = `<div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t(state.assets.length ? "noSelection" : "noAssets")}</p><span>${t(state.assets.length ? "noSelectionHint" : "noAssetsHint")}</span></div>`; return; }
   const cachedHistory = versionHistoryForAsset(asset);
   const cachedRecipeHistory = recipeHistoryForAsset(asset) || recipeHistoryFromAsset(asset);
@@ -1851,9 +2236,22 @@ function renderDetail() {
   if (previewAspect?.dataset.detailPreviewAspect) {
     previewAspect.style.setProperty("--detail-preview-aspect", previewAspect.dataset.detailPreviewAspect);
   }
+  if (previewAspect?.dataset.detailPreviewNaturalFallback === "true") {
+    const image = previewAspect.querySelector("img.detail-image");
+    const applyNaturalPreviewAspect = () => {
+      if (!image?.naturalWidth || !image.naturalHeight || !previewAspect.isConnected) return;
+      const aspect = image.naturalWidth / image.naturalHeight;
+      previewAspect.style.setProperty("--detail-preview-aspect", aspect >= 9 / 16
+        ? `${image.naturalWidth} / ${image.naturalHeight}`
+        : "9 / 16");
+    };
+    image?.addEventListener("load", applyNaturalPreviewAspect, { once: true });
+    if (image?.complete) applyNaturalPreviewAspect();
+  }
   const scroller = els.detailPanel.querySelector(".detail-inspector-scroll");
   if (scroller && keepScrollTop !== null) scroller.scrollTop = keepScrollTop;
   bindDetailEvents(asset, renderId);
+  bindReferenceThumbnailFallbacks(els.detailPanel);
   bindVersionPickerEvents();
   bindVersionHistoryEvents(cachedHistory);
   bindRecipeHistoryEvents(cachedRecipeHistory, asset);
@@ -1927,6 +2325,7 @@ async function selectDetailVersion(versionId, options = {}) {
   if (!await confirmDetailNavigation(target.id)) { restoreVersionPickerValue(); return false; }
   // Phase 5B context guard：确认期间 Detail 选择已变化时恢复 select 显示值，不操作新素材。
   if (!isCurrentDetailSelection(originProjectId, originAssetId)) { restoreVersionPickerValue(); return false; }
+  discardDetailDraft();
   const previousScrollTop = els.detailPanel?.querySelector(".detail-inspector-scroll")?.scrollTop ?? null;
   state.selectedId = target.id;
   state.detailAsset = target;
@@ -1983,11 +2382,34 @@ function renderRecipeHistoryRegion(history, asset, error = null) {
   // relations, so without redrawing here the editor stays empty on first open
   // even when the asset has references.
   renderReferenceRightsRegion(asset);
+  renderPromptReferencesRegion(asset, error);
+}
+function renderPromptReferencesRegion(asset, error = null) {
+  const region = els.detailPanel?.querySelector("[data-prompt-references]");
+  if (!region || !isCurrentDetailSelection(asset.project_id, asset.id)) return;
+  region.innerHTML = error
+    ? `<div class="detail-reference-row detail-reference-error" role="status"><span class="detail-reference-label">${escapeHtml(t("referenceImage"))}</span><span class="detail-reference-value">${escapeHtml(t("referenceLoadFailed"))}</span></div>`
+    : promptReferencesMarkup(asset);
+  bindReferenceThumbnailFallbacks(region);
+}
+function bindReferenceThumbnailFallbacks(root) {
+  root?.querySelectorAll?.("[data-reference-thumb-img]").forEach((image) => {
+    if (image.dataset.referenceFallbackBound === "1") return;
+    image.dataset.referenceFallbackBound = "1";
+    image.addEventListener("error", () => {
+      image.closest(".detail-reference-thumb")?.classList.add("is-load-error");
+      const fallback = image.parentElement?.querySelector?.("[data-reference-thumb-fallback]");
+      fallback?.setAttribute("aria-hidden", "false");
+    }, { once: true });
+  });
 }
 function renderReferenceRightsRegion(asset) {
   const region = els.detailPanel?.querySelector("[data-reference-rights]");
   if (!region || !isCurrentDetailSelection(asset.project_id, asset.id)) return;
   const section = region.closest("[data-reference-rights-section]");
+  // Never let a late recipe-history response overwrite rights the user has
+  // already started editing in this render.
+  if (section?.dataset.referenceDirty === "true" || section?.getAttribute("aria-busy") === "true") return;
   const wasOpen = section?.open;
   region.innerHTML = referenceRightsMarkup(asset);
   if (section && wasOpen) section.open = true;
@@ -2006,18 +2428,26 @@ function bindRecipeHistoryEvents(history, asset) {
 
 function bindDetailEvents(asset, renderId) {
   const panel = els.detailPanel;
+  activeInspector = { panel, asset, renderId };
   panel.querySelectorAll("[data-edit], [data-version-change], [data-recipe-change]").forEach((field) => {
-    field.addEventListener("input", () => { state.detailDirty = true; });
-    field.addEventListener("change", () => { state.detailDirty = true; });
+    const scope = field.matches("[data-version-change]") ? "version" : "recipe";
+    const markDirty = () => {
+      field.dataset.detailDirty = "true";
+      field.dataset.detailDirtyScope = scope;
+      state.detailDirty = true;
+      if (scope === "recipe") scheduleInspectorSave();
+    };
+    field.addEventListener("input", markDirty);
+    field.addEventListener("change", markDirty);
   });
-  panel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => { if (state.viewMode === "asset") returnToLibrary(); else setDetailOpen(false); });
+  panel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => { void closeDetailSurface(); });
   // Phase 4A 区块 2：Detail 内收藏——复用既有 toggleFavorite（同一收藏 API），不切换
   // 素材、不返回 Library；loadAssets 后 renderDetail 重渲染按 asset.favorite 重绘本按钮。
   panel.querySelector('[data-action="toggle-favorite"]')?.addEventListener("click", (event) => toggleFavorite(asset.id, event));
   panel.querySelector('[data-action="add-tag"]')?.addEventListener("click", () => openTagEditor(panel, asset, renderId));
   panel.querySelector('[data-action="copy-source"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(sourceCopyValue(asset.source)); showToast(t("originalPathCopied"), "success"); }));
-  panel.querySelector('[data-action="view-generation-session"]')?.addEventListener("click", () => showRelatedGenerations(asset, "session"));
-  panel.querySelector('[data-action="view-generation-batch"]')?.addEventListener("click", () => showRelatedGenerations(asset, "batch"));
+  panel.querySelector('[data-action="view-generation-session"]')?.addEventListener("click", () => { void showRelatedGenerations(asset, "session"); });
+  panel.querySelector('[data-action="view-generation-batch"]')?.addEventListener("click", () => { void showRelatedGenerations(asset, "batch"); });
   if (!isVideoAsset(asset)) {
     panel.querySelector(".detail-image")?.addEventListener("dblclick", (event) => openImagePreview(asset.id, event.currentTarget));
   }
@@ -2068,7 +2498,13 @@ function bindDetailEvents(asset, renderId) {
       if (!confirmed) return; // Cancel：保持当前素材、Viewer、位置和 Inspector
       // Context guard：确认后重新检查操作入口对应素材仍是当前 Detail 选择。
       if (!isCurrentDetailSelection(asset.project_id, asset.id)) return;
+      // Only after the archive itself is confirmed do we ask whether an
+      // in-progress local draft may be discarded. Cancelling Archive therefore
+      // never throws away edits as a side effect.
+      if (!await confirmDetailNavigation(null)) return;
+      if (!isCurrentDetailSelection(asset.project_id, asset.id)) return;
       await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/archive`, { method: "POST" });
+      discardDetailDraft();
       showToast(t("archived"), "success");
       setDetailOpen(false);
       state.selectedId = null;
@@ -2076,39 +2512,23 @@ function bindDetailEvents(asset, renderId) {
       await loadAssets();
     });
   });
-  panel.querySelectorAll('[data-edit="rating"] button').forEach((button) => button.addEventListener("click", () => { state.detailDirty = true; const value = Number(button.dataset.val); panel.querySelectorAll('[data-edit="rating"] button').forEach((star) => { const on = Number(star.dataset.val) <= value; star.classList.toggle("on", on); star.textContent = on ? "★" : "☆"; }); }));
-  panel.querySelector('[data-action="save-recipe"]')?.addEventListener("click", () => runAction(async () => {
-    const originProjectId = asset.project_id;
-    const originAssetId = asset.id;
-    setInspectorSaveActionsBusy(panel, true, "save-recipe");
-    try {
-      // 配方保存只读 [data-recipe-change]；说明为空时省略 recipe_change_summary 字段
-      //（服务端缺省 "Recipe updated"），不硬编码英文、不创建新版本。
-      const changeSummary = panel.querySelector("[data-recipe-change]")?.value.trim() || "";
-      const result = await apiFetch(`/api/assets/${encodeURIComponent(originProjectId)}/${encodeURIComponent(originAssetId)}`, {
-        method: "PATCH",
-        body: { ...readRecipeDraft(panel), tags: uniqueTags([...(asset.tags || []), ...derivePromptTags(readRecipeDraft(panel))]), ...(changeSummary ? { recipe_change_summary: changeSummary } : {}) },
-      });
-      showToast(t("recipeSaved"), "success");
-      if (!isCurrentDetailAction(renderId, originProjectId, originAssetId)) return;
-      state.selectedId = result.asset.id;
-      state.detailAsset = result.asset;
-      state.versionHistory = null;
-      state.recipeHistory = null;
-      state.detailDirty = false;
-      await loadStats();
-      if (!isCurrentDetailSelection(result.asset.project_id, result.asset.id)) return;
-      await loadAssets();
-      if (isCurrentDetailSelection(result.asset.project_id, result.asset.id)) requestAnimationFrame(() => els.detailPanel?.querySelector("#detailTitle")?.focus());
-    } finally {
-      if (renderId === detailRenderSequence) setInspectorSaveActionsBusy(panel, false, "save-recipe");
-    }
+  panel.querySelectorAll('[data-edit="rating"] button').forEach((button) => button.addEventListener("click", () => {
+    state.detailDirty = true;
+    const rating = button.closest('[data-edit="rating"]');
+    rating?.setAttribute("data-detail-dirty", "true");
+    rating?.setAttribute("data-detail-dirty-scope", "recipe");
+    const value = Number(button.dataset.val);
+    panel.querySelectorAll('[data-edit="rating"] button').forEach((star) => { const on = Number(star.dataset.val) <= value; star.classList.toggle("on", on); star.textContent = on ? "★" : "☆"; });
+    scheduleInspectorSave();
   }));
+  panel.querySelector('[data-action="save-recipe"]')?.addEventListener("click", () => runAction(() => flushInspectorSave()));
   panel.querySelector('[data-action="save-version"]')?.addEventListener("click", () => runAction(async () => {
     const versionChange = panel.querySelector("[data-version-change]")?.value.trim() || "";
     if (!versionChange) throw new Error(t("versionChangeRequired"));
     const originProjectId = asset.project_id;
     const originAssetId = asset.id;
+    // Flush any pending auto-save before creating the version; abort if it failed.
+    if (!await flushInspectorSave() || !isCurrentDetailAction(renderId, originProjectId, originAssetId)) return;
     setInspectorSaveActionsBusy(panel, true, "save-version");
     try {
       const result = await apiFetch(`/api/assets/${encodeURIComponent(originProjectId)}/${encodeURIComponent(originAssetId)}/versions`, {
@@ -2124,7 +2544,7 @@ function bindDetailEvents(asset, renderId) {
       state.detailAsset = result.asset;
       state.versionHistory = null;
       state.recipeHistory = null;
-      state.detailDirty = false;
+      discardDetailDraft();
       await loadStats();
       if (!isCurrentDetailSelection(result.asset.project_id, result.asset.id)) return;
       await loadAssets();
@@ -2139,19 +2559,18 @@ function bindDetailEvents(asset, renderId) {
 
 const USE_PERMISSION_CYCLE = { undeclared: "allowed", allowed: "forbidden", forbidden: "undeclared" };
 
+function handleReferenceRightsOpen(event) {
+  if (!event.target.closest('[data-action="open-reference-rights"]')) return;
+  const section = els.detailPanel?.querySelector("[data-reference-rights-section]");
+  if (!section) return;
+  section.open = true;
+  section.scrollIntoView({ block: "nearest" });
+  section.querySelector("select")?.focus({ preventScroll: true });
+}
+
 function bindReferenceRightsEvents(panel, asset, renderId) {
   const section = panel.querySelector("[data-reference-rights-section]");
   if (!section) return;
-
-  // The badge is the only place the problem is visible, so it has to be the way
-  // into fixing it rather than a notice with no action attached.
-  panel.addEventListener("click", (event) => {
-    if (!event.target.closest('[data-action="open-reference-rights"]')) return;
-    // Phase 4A：单栏布局无 tab 可切——目标 disclosure 已在来源区内，直接展开。
-    section.open = true;
-    section.scrollIntoView({ block: "nearest" });
-    section.querySelector("select")?.focus();
-  });
 
   // A reference can point at an asset that was since deleted. Without this the
   // thumbnail 404s and leaves an empty box; the strict CSP rules out an inline
@@ -2169,28 +2588,32 @@ function bindReferenceRightsEvents(panel, asset, renderId) {
     chip.lastElementChild?.remove();
     if (next !== "undeclared") chip.insertAdjacentHTML("beforeend", `<span aria-hidden="true">${next === "allowed" ? "✓" : "✕"}</span>`);
     chip.setAttribute("aria-label", `${t(`use_${chip.dataset.referenceUse}`)} — ${t(`permission_${next}`)}`);
+    section.dataset.referenceDirty = "true";
     state.detailDirty = true;
+    scheduleInspectorSave();
   }));
 
   section.querySelectorAll("[data-reference-field]").forEach((field) => field.addEventListener("input", () => {
+    section.dataset.referenceDirty = "true";
     state.detailDirty = true;
     refreshReferenceRowState(section, field.dataset.referenceIndex);
+    scheduleInspectorSave();
   }));
 
-  section.querySelector('[data-action="save-reference-rights"]')?.addEventListener("click", () => runAction(async () => {
-    const originProjectId = asset.project_id;
-    const originAssetId = asset.id;
-    const result = await apiFetch(`/api/assets/${encodeURIComponent(originProjectId)}/${encodeURIComponent(originAssetId)}`, {
-      method: "PATCH",
-      body: { references: readReferenceRightsDraft(section, asset) },
-    });
-    showToast(t("rightsSaved"), "success");
-    if (!isCurrentDetailAction(renderId, originProjectId, originAssetId)) return;
-    state.detailAsset = result.asset;
-    state.recipeHistory = null;
-    state.detailDirty = false;
-    await loadAssets();
-  }));
+  section.querySelector('[data-action="save-reference-rights"]')?.addEventListener("click", () => runAction(() => flushInspectorSave()));
+}
+
+function panelHasDirtyDraft(panel) {
+  if (!panel) return false;
+  return Boolean(panel.querySelector('[data-detail-dirty="true"], [data-reference-rights-section][data-reference-dirty="true"]'));
+}
+
+function clearDetailDirtyScope(panel, scope) {
+  panel?.querySelectorAll(`[data-detail-dirty="true"][data-detail-dirty-scope="${scope}"]`).forEach((field) => {
+    delete field.dataset.detailDirty;
+    delete field.dataset.detailDirtyScope;
+  });
+  state.detailDirty = panelHasDirtyDraft(panel);
 }
 
 /** Keep one row's status chip in step with its own selects while editing. */
@@ -2273,7 +2696,7 @@ function referenceRightsMarkup(asset) {
     return `<li class="reference-row" data-reference-row="${index}"><div class="reference-head"><span class="reference-thumb">${media}</span><span class="reference-name"><strong>${escapeHtml(label)}</strong>${reference.role ? `<em>${escapeHtml(reference.role)}</em>` : ""}</span><span class="recipe-reference-rights ${referenceRightsTone(reference)}" data-reference-state="${index}">${escapeHtml(t(`rightsState_${referenceRightsTone(reference)}`))}</span></div><div class="reference-fields">${selects}<label class="field"><span>${t("rights_attribution")}</span><input data-reference-index="${index}" data-reference-field="attribution" value="${escapeHtml(reference.rights?.attribution || "")}" placeholder="${escapeHtml(t("attributionPlaceholder"))}" /></label></div><p class="reference-uses-hint">${t("useChipHint")}</p><div class="use-chips">${chips}</div></li>`;
   }).join("");
   // Phase 4A：Cowart 是检视器唯一实心主操作——深层次级 disclosure 内的保存一律次级。
-  return `<ol class="reference-list">${rows}</ol><div class="recipe-save-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-reference-rights">${t("saveRights")}</button></div>`;
+  return `<ol class="reference-list">${rows}</ol><div class="recipe-save-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-reference-rights">${t("saveRights")}</button><span class="detail-autosave-status" data-autosave-status role="status" aria-live="polite"></span></div>`;
 }
 
 /** Single reference status, mirroring lib/reference-rights.mjs precedence. */
@@ -2352,22 +2775,54 @@ function openTagEditor(panel, asset, renderId) {
   editor.innerHTML = `<input type="text" maxlength="32" placeholder="${escapeHtml(t("tagInputPlaceholder"))}" aria-label="${escapeHtml(t("tagInputLabel"))}" /><button class="action-btn secondary" type="submit">${escapeHtml(t("saveTag"))}</button>`;
   addButton.replaceWith(editor);
   const input = editor.querySelector("input");
+  const syncTagDraftState = () => {
+    const dirty = Boolean(input?.value.trim());
+    if (dirty) {
+      editor.dataset.detailDirty = "true";
+      editor.dataset.detailDirtyScope = "tags";
+    } else {
+      delete editor.dataset.detailDirty;
+      delete editor.dataset.detailDirtyScope;
+    }
+    state.detailDirty = panelHasDirtyDraft(panel);
+  };
+  input?.addEventListener("input", syncTagDraftState);
   input?.focus();
   editor.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (editor.dataset.saving === "true") return;
     const value = input?.value.trim() || "";
     if (!value) { input?.focus(); return; }
+    editor.dataset.saving = "true";
+    editor.querySelectorAll("input, button").forEach((control) => { control.disabled = true; });
     runAction(async () => {
-      const tags = uniqueTags([...assetTags(asset), value]);
+      const currentAsset = latestAssetSnapshot(asset.project_id, asset.id, asset);
+      const tags = uniqueTags([...assetTags(currentAsset), value]);
       const result = await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}`, { method: "PATCH", body: { tags } });
       if (!isCurrentDetailAction(renderId, asset.project_id, asset.id)) return;
       state.detailAsset = result.asset;
       const index = state.assets.findIndex((item) => item.id === asset.id);
       if (index >= 0) state.assets[index] = result.asset;
       showToast(t("tagSaved"), "success");
-      renderDetail();
+      refreshDetailTagsSection(result.asset, renderId);
+      clearDetailDirtyScope(panel, "tags");
+    }).finally(() => {
+      if (!editor.isConnected) return;
+      delete editor.dataset.saving;
+      editor.querySelectorAll("input, button").forEach((control) => { control.disabled = false; });
     });
   });
+}
+
+function refreshDetailTagsSection(asset, renderId) {
+  const current = els.detailPanel?.querySelector('[data-inspector-section="tags"]');
+  if (!current || !isCurrentDetailAction(renderId, asset.project_id, asset.id)) return;
+  const holder = document.createElement("div");
+  holder.innerHTML = detailTagsSectionMarkup(asset);
+  const replacement = holder.firstElementChild;
+  if (!replacement) return;
+  current.replaceWith(replacement);
+  replacement.querySelector('[data-action="add-tag"]')?.addEventListener("click", () => openTagEditor(els.detailPanel, asset, renderId));
 }
 
 function readRecipeDraft(panel) {

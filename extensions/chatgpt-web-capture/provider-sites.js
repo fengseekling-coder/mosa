@@ -50,6 +50,34 @@
   let observer = null;
   let captureInFlight = 0;
   const captureWaiters = [];
+  let toastTimer = null;
+
+  function showToast(message, isError = false) {
+    let toast = document.getElementById("mosa-provider-capture-toast");
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.id = "mosa-provider-capture-toast";
+      Object.assign(toast.style, {
+        position: "fixed",
+        right: "20px",
+        bottom: "20px",
+        zIndex: "2147483647",
+        maxWidth: "360px",
+        padding: "10px 12px",
+        borderRadius: "10px",
+        font: "13px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
+        boxShadow: "0 8px 30px rgba(0,0,0,.22)",
+        color: "#fff",
+      });
+      (document.body || document.documentElement).appendChild(toast);
+    }
+    toast.replaceChildren(document.createTextNode(String(message || "")));
+    toast.style.background = isError ? "#991b1b" : "#18181b";
+    toast.setAttribute("role", isError ? "alert" : "status");
+    toast.hidden = false;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast.hidden = true; }, 3600);
+  }
 
   async function withCaptureSlot(task) {
     if (captureInFlight >= CAPTURE_CONCURRENCY) {
@@ -465,6 +493,23 @@
     return Boolean(imageSourceFor(img));
   }
 
+  function isProviderGeneratedOutput(provider, img) {
+    if (!isVisibleGeneratedImage(img)) return false;
+    if (provider === "gemini") {
+      return Boolean(ancestorWithTag(img, "model-response"));
+    }
+    if (provider === "google-ai-studio") {
+      const turn = ancestorWithTag(img, "ms-chat-turn");
+      return Boolean(turn?.parentElement?.classList?.contains("chat-session-content")
+        && directTurnContainer(turn, "model"));
+    }
+    if (provider === "flow") {
+      const source = imageSourceFor(img);
+      return Boolean(source?.kind === "local" || flowNearbyPromptCard(img));
+    }
+    return false;
+  }
+
   function arrayBufferToBase64(buffer) {
     const bytes = new Uint8Array(buffer);
     let binary = "";
@@ -495,7 +540,7 @@
     };
   }
 
-  async function sendCapture(provider, source, img) {
+  async function sendCapture(provider, source, img, { captureMode = "automatic" } = {}) {
     return withCaptureSlot(async () => {
       if (!extensionAlive()) return { response: { ok: false, error: "MOSA extension is unavailable." }, hasPrompt: false };
       const providerPrompt = visiblePromptForProvider(provider, img);
@@ -505,6 +550,7 @@
         pageUrl: location.href,
         promptStatus: "not-available",
         promptSource: "provider-visible-image",
+        captureMode,
         capturedAt: new Date().toISOString(),
       };
       if (providerPrompt) Object.assign(payload, providerPrompt);
@@ -536,7 +582,7 @@
     const provider = currentProvider();
     if (!provider || !autoCapture) return;
     for (const img of document.images || []) {
-      if (!isVisibleGeneratedImage(img)) continue;
+      if (!isProviderGeneratedOutput(provider, img)) continue;
       const source = imageSourceFor(img);
       if (!source || seen.has(source.url)) continue;
       seen.add(source.url);
@@ -553,8 +599,11 @@
   }
 
   function scheduleScan() {
-    if (scanTimer) clearTimeout(scanTimer);
-    scanTimer = setTimeout(scan, 300);
+    if (scanTimer) return;
+    scanTimer = setTimeout(() => {
+      scanTimer = null;
+      scan();
+    }, 300);
   }
 
   (chrome.runtime?.sendMessage?.({ type: "mosa.getSettings" }) || Promise.resolve()).then((response) => {
@@ -581,9 +630,17 @@
       sendResponse({ ok: false, error: "请选择支持站点中的生成图片。" });
       return false;
     }
-    sendCapture(provider, source, image)
-      .then(({ response }) => sendResponse(response || { ok: true }))
-      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+    sendCapture(provider, source, image, { captureMode: "manual" })
+      .then(({ response }) => {
+        const finalResponse = response || { ok: true };
+        showToast(finalResponse.ok ? "已保存到 MOSA" : (finalResponse.error || "保存失败"), !finalResponse.ok);
+        sendResponse(finalResponse);
+      })
+      .catch((error) => {
+        const errorText = error instanceof Error ? error.message : String(error);
+        showToast(errorText, true);
+        sendResponse({ ok: false, error: errorText });
+      });
     return true;
   });
 

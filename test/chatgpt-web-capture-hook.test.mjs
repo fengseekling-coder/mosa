@@ -112,7 +112,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google image sites and provider content script", () => {
-  assert.equal(manifest.version, "0.11.0");
+  assert.equal(manifest.version, "0.11.1");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://aistudio.google.com/*"],
@@ -161,6 +161,11 @@ test("Google adapters capture visible images with bounded Gemini, Flow, and AI S
   assert.match(providerSource, /AI_STUDIO_PROMPT_MAX_NODES = 12_000/);
   assert.match(providerSource, /AI_STUDIO_MAX_PREVIOUS_TURNS = 16/);
   assert.match(providerSource, /function aiStudioVisibleUserPromptForImage\(image\)/);
+  assert.match(providerSource, /function isProviderGeneratedOutput\(provider, img\)/);
+  assert.match(providerSource, /if \(!isProviderGeneratedOutput\(provider, img\)\) continue/);
+  assert.match(providerSource, /provider === "gemini"/);
+  assert.match(providerSource, /provider === "flow"/);
+  assert.match(providerSource, /provider === "google-ai-studio"/);
   assert.match(providerSource, /ancestorWithTag\(image, "ms-chat-turn"\)/);
   assert.match(providerSource, /sessionContent\?\.classList\?\.contains\("chat-session-content"\)/);
   assert.match(providerSource, /directTurnContainer\(imageTurn, "model"\)/);
@@ -245,7 +250,99 @@ test("uses safe local extension settings without a public Token default", () => 
   assert.match(contentSource, /chrome\.storage\?\.local\?\.get\?\./);
   assert.doesNotMatch(contentSource, /chrome\.storage\.sync\.set/);
   assert.match(optionsSource, /chrome\.storage\.local\.set/);
+  assert.match(optionsSource, /function normalizeBaseUrl\(value\)/);
+  assert.match(optionsSource, /\["127\.0\.0\.1", "localhost"\]\.includes\(url\.hostname\)/);
+  assert.match(optionsSource, /baseUrl = normalizeBaseUrl\(baseUrlEl\.value\.trim\(\) \|\| DEFAULTS\.mosaBaseUrl\)/);
   assert.match(optionsHtml, /type="password"/);
+});
+
+test("archives an image-generation tool result even when ChatGPT omits its prompt", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-no-prompt",
+          author: { role: "tool", name: "image_gen" },
+          content: { parts: [{ asset_pointer: "sediment://file-no-prompt" }] },
+        },
+      },
+    },
+  });
+
+  await harness.harvest();
+
+  const generation = harness.events.find((event) => (
+    event.type === "generation-meta"
+    && event.payload?.imageKey === "estuary:conversation-test:file-no-prompt"
+  ));
+  assert.ok(generation, "the image tool result should still emit generation evidence");
+  assert.equal(generation.payload.prompt, "");
+  assert.equal(generation.payload.promptStatus, "not-available");
+  assert.equal(generation.payload.isGeneration, true);
+  assert.equal(generation.payload.generationContextId, "chatgpt:conversation-test:message-no-prompt");
+});
+
+test("accepts an assistant-owned image_gen result when ChatGPT does not use role=tool", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-assistant-image-gen",
+          author: { role: "assistant", name: "image_gen" },
+          content: { parts: [{ asset_pointer: "sediment://file-assistant-image" }] },
+        },
+      },
+    },
+  });
+
+  await harness.harvest();
+
+  const generation = harness.events.find((event) => (
+    event.type === "generation-meta"
+    && event.payload?.imageKey === "estuary:conversation-test:file-assistant-image"
+  ));
+  assert.ok(generation);
+  assert.equal(generation.payload.isGeneration, true);
+});
+
+test("websocket image identifiers are treated as interesting generation metadata", async () => {
+  const harness = createHookHarness({});
+  await harness.socketFrame(JSON.stringify({
+    conversation_id: "conversation-test",
+    message: {
+      id: "socket-image-message",
+      author: { role: "tool", name: "image_gen" },
+      content: { parts: [{ image_id: "file-socket-image" }] },
+    },
+  }));
+
+  const generation = harness.events.find((event) => (
+    event.type === "generation-meta"
+    && event.payload?.imageKey === "estuary:conversation-test:file-socket-image"
+  ));
+  assert.ok(generation, "image_id-only socket frames should reach the generation parser");
+  assert.equal(generation.payload.isGeneration, true);
+});
+
+test("does not treat an unrelated tool image as generated artwork", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    mapping: {
+      chart: {
+        message: {
+          id: "message-python-image",
+          author: { role: "tool", name: "python" },
+          content: { parts: [{ asset_pointer: "sediment://file-chart" }] },
+        },
+      },
+    },
+  });
+
+  await harness.harvest();
+
+  assert.equal(harness.events.some((event) => event.type === "generation-meta" && event.payload?.isGeneration), false);
 });
 
 test("background forwards only the four fixed web-image provider IDs", () => {
@@ -320,14 +417,143 @@ test("archives one row per uploaded reference photo", () => {
   assert.match(contentSource, /isReference: isReferenceCandidate\(candidate\)/);
   assert.match(backgroundSource, /is_reference: Boolean\(payload\.isReference\)/);
   assert.match(contentSource, /function hasVerifiedGenerationEvidence\(candidate\)/);
-  assert.match(contentSource, /if \(!hasVerifiedGenerationEvidence\(candidate\)\) return;/);
-  assert.match(contentSource, /if \(!hasVerifiedGenerationEvidence\(candidate\)\) continue;/);
+  assert.match(contentSource, /const evidence = findGenerationEvidenceForImage\(candidate\?\.imageUrl \|\| candidate\?\.key \|\| ""\);/);
+  assert.match(contentSource, /if \(!evidence \|\| isReferenceCandidate\(candidate\)\) return;/);
+  assert.match(contentSource, /return hasVerifiedGenerationEvidence\(candidate\);/);
+  assert.match(contentSource, /const minEdge = reference \? 32 : manual \? 360 : MIN_EDGE/);
+  assert.match(contentSource, /if \(!reference && byteLength > 0 && byteLength < MIN_BYTES\) return false/);
+  assert.match(contentSource, /const needsReferenceRepair = stagedReferences > 0[\s\S]*isSavedCandidate\(candidate\)/);
+  assert.match(contentSource, /force: needsReferenceRepair/);
+  assert.match(contentSource, /referenceSyncKeys\.add\(syncKey\)/);
+  // Staging counts an already-saved reference instead of re-uploading its
+  // bytes: one turn can yield several outputs and each used to re-send all.
+  assert.match(contentSource, /if \(isSavedCandidate\(reference\)\) \{/);
+  assert.doesNotMatch(contentSource, /reason: "auto-reference", force: true/);
+  // An optional reference failure must never surface as a user-facing error.
+  assert.match(contentSource, /const optionalReferenceFailure = reason === "auto-reference"/);
   assert.match(hookSource, /isGeneration: extra\.isGeneration === true/);
   assert.match(hookSource, /if \(url && payload\.isGeneration\) post\("auto-image", payload\)/);
 });
 
+test("automatic capture does not starve new images behind already-saved DOM candidates", () => {
+  const scanStart = contentSource.indexOf("const candidates = collectDomCandidates();");
+  const scanEnd = contentSource.indexOf("}, force ? 120 : 600);", scanStart);
+  const scan = contentSource.slice(scanStart, scanEnd);
+  assert.ok(scanStart >= 0 && scanEnd > scanStart, "scan block should be extractable");
+  assert.match(scan, /const eligible = candidates\.filter\(\(candidate\) => \{/);
+  assert.match(scan, /if \(!canAttempt\(candidate\)\) return false;/);
+  assert.match(scan, /return hasVerifiedGenerationEvidence\(candidate\);/);
+  assert.match(scan, /\}\)\.slice\(0, 6\);/);
+  assert.doesNotMatch(scan, /for \(const candidate of candidates\.slice\(0, 6\)\)/);
+});
+
+test("promptless generation events can archive before the DOM finishes rendering", () => {
+  const autoImageStart = contentSource.indexOf('if (data.type === "auto-image"');
+  const domImageStart = contentSource.indexOf('if (data.type === "dom-image"', autoImageStart);
+  const block = contentSource.slice(autoImageStart, domImageStart);
+  assert.ok(autoImageStart >= 0 && domImageStart > autoImageStart);
+  assert.match(block, /if \(meta\.isGeneration !== true\) return;/);
+  assert.match(block, /enqueueAuto\(\{/);
+  assert.doesNotMatch(block, /\["generation-tool-prompt", "visible-caption"\]\.includes\(meta\.promptStatus\)/);
+  assert.match(contentSource, /const failedNetworkIdentityKeys = new Set\(\)/);
+  assert.match(contentSource, /candidateLookupKeys\(candidate\)\.some\(\(identity\) => failedNetworkIdentityKeys\.has\(identity\)\)/);
+});
+
+test("splits sibling generations without tool call ids into per-asset reference scopes", async () => {
+  // Two generated assets flattened into one tool message, without per-call
+  // ids: they are still distinct generations, so references of one must not
+  // attach to the sibling output through a shared message-scoped context.
+  const harness = createHookHarness({
+    conversation_id: "conversation-multi-asset",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-multi-asset",
+          author: { role: "tool", name: "image_gen" },
+          content: { parts: [
+            { asset_pointer: "sediment://file-one" },
+            { asset_pointer: "sediment://file-two" },
+          ] },
+        },
+      },
+    },
+  });
+
+  await harness.harvest();
+
+  const generations = harness.events.filter((event) => event.type === "generation-meta" && event.payload?.isGeneration);
+  assert.equal(generations.length, 2);
+  assert.deepEqual(
+    generations.map((event) => event.payload.generationContextId).sort(),
+    [
+      "chatgpt:conversation-multi-asset:asset:file-one",
+      "chatgpt:conversation-multi-asset:asset:file-two",
+    ],
+  );
+});
+
+test("url and asset events of one generation share a single reference scope", async () => {
+  const proxyUrl = "https://chatgpt.com/backend-api/estuary/content?cid=conversation-test&id=file-bangkok&sig=signed-value";
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    mapping: {
+      bangkok: {
+        message: {
+          id: "message-bangkok",
+          content: { parts: [{ asset_pointer: "file-service://file-bangkok", image_url: proxyUrl }] },
+          metadata: { dalle: { revised_prompt: "A detailed travel poster for Bangkok with saffron temples, red typography, and an editorial print layout." } },
+        },
+      },
+    },
+  });
+
+  await harness.harvest();
+
+  const contexts = new Set(harness.events
+    .filter((event) => (
+      event.type === "generation-meta"
+      && event.payload?.imageKey === "estuary:conversation-test:file-bangkok"
+    ))
+    .map((event) => event.payload.generationContextId));
+  assert.equal(contexts.size, 1, `URL and asset events must carry one scope, got: ${[...contexts].join(", ")}`);
+  assert.ok([...contexts][0], "the shared scope must be non-empty");
+});
+
+test("the XHR interceptor skips binary image responses like the fetch interceptor", () => {
+  assert.ok(hookSource.includes('this.getResponseHeader?.("content-type")'));
+  assert.ok(hookSource.includes('if (!/^image\\//.test(contentType)) harvest(this.responseText || "", "xhr");'));
+});
+
+test("does not flatten multiple image tool calls into one prompt binding", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-multi-call",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-multi-call",
+          author: { role: "tool", name: "image_gen" },
+          metadata: {
+            calls: [
+              { tool_call_id: "call-a", prompt: "first detailed cinematic image prompt", asset_pointer: "sediment://file-a" },
+              { tool_call_id: "call-b", prompt: "second detailed editorial image prompt", asset_pointer: "sediment://file-b" },
+            ],
+          },
+          content: { parts: [] },
+        },
+      },
+    },
+  });
+
+  await harness.harvest();
+  const generations = harness.events.filter((event) => event.type === "generation-meta" && event.payload?.isGeneration);
+  assert.equal(generations.length, 2);
+  assert.deepEqual(generations.map((event) => event.payload.prompt), ["", ""]);
+  assert.deepEqual(generations.map((event) => event.payload.promptStatus), ["not-available", "not-available"]);
+  assert.ok(generations.every((event) => /asset:file-[ab]$/.test(event.payload.generationContextId)), "ambiguous calls should fall back to per-output asset contexts");
+});
+
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.11.0");
+  assert.equal(manifest.version, "0.11.1");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);

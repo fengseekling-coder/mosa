@@ -264,31 +264,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .settings-wrap { position: relative; }
 .settings-trigger { display: flex; width: 100%; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 13px; text-align: left; }
 .settings-trigger[aria-expanded="true"] { color: var(--color-text-primary); background: var(--app-hover); }
-/* ===== Phase 5A / F-14：共享锚定浮层基础面 =====
-   Filter / Settings / Language 同一基础面：position:fixed、surface、border、shadow、
-   hidden 契约；z-index、viewport-safe max-height、overflow 与宽度由功能 class 控制，
-   打开时的精确坐标由 anchoredOverlayManager 内联写入（含碰撞翻转/钳制与运行时 max-height）。
-   不新增品牌色/渐变/毛玻璃/圆角体系；无打开动画（prefers-reduced-motion 天然无位移）。 */
-.anchored-overlay { position: fixed; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-panel); background: var(--app-bg); box-shadow: var(--shadow-panel); }
-.anchored-overlay[hidden] { display: none; }
-/* Keep the menu outside the clipping sidebar so focused controls cannot pan it offscreen.
-   bottom/left/max-height 为无 JS fallback；打开时由 manager 内联 top/left/bottom:auto 覆盖。 */
+/* Legacy sidebar settings geometry remains as a non-V2 fallback. V2 overrides
+   this with the centered Preferences dialog below. */
 .settings-menu { position: fixed; z-index: var(--z-dropdown); bottom: 44px; left: 8px; width: min(272px, calc(100vw - 16px)); max-height: calc(100vh - 56px); overflow-y: auto; overscroll-behavior: contain; padding: 8px; }
 .settings-section + .settings-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--color-border-subtle); }
 .settings-menu p { padding: 4px 8px 6px; color: var(--color-text-tertiary); font-size: 11px; font-weight: 500; }
 .settings-menu button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; padding: 4px 8px; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 12px; text-align: left; }
-/* Phase 5A / F-12：语言选项选中态改用 menuitemradio 的 aria-checked 表达（原 aria-pressed），
-   颜色不是唯一选中信号（✓ 标记 + 加粗同步保留）。 */
-.language-menu button[aria-checked="true"] { color: var(--color-text-primary); background: var(--app-hover); }
-.language-menu button[aria-checked="true"] span { color: var(--color-accent-active); font-weight: 600; }
 .settings-project-row { display: flex; align-items: center; gap: 4px; padding: 0 4px; }
 .settings-project-row select { min-width: 0; flex: 1; height: 30px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-control); color: var(--color-text-secondary); background: var(--app-hover); font-size: 12px; }
 .settings-project-row select:hover { border-color: var(--color-border-subtle); }
 .settings-project-row .icon-button { flex: 0 0 auto; }
-.settings-submenu-trigger svg { flex: 0 0 auto; }
-/* Language child overlay：top/left 为无 JS fallback；打开时由共享 manager 内联坐标（右优先、左翻转）。 */
-.language-menu { position: fixed; z-index: var(--z-dropdown-submenu); top: 12px; left: 12px; width: min(184px, calc(100vw - 24px)); padding: 6px; }
-.language-menu button { width: 100%; }
 .settings-cowart-list { display: grid; max-height: 154px; gap: 2px; margin: 0 4px; overflow: auto; }
 .settings-cowart-entry { display: flex; min-width: 0; height: 28px; align-items: center; gap: 7px; padding-left: 8px; border-radius: var(--radius-control); color: var(--color-text-secondary); font-size: 11px; }
 .settings-cowart-entry:hover { background: var(--app-hover); }
@@ -492,9 +477,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .error-state span { max-width: 360px; margin-top: 5px; font-size: 12px; }
 .error-state button { height: 30px; margin-top: 16px; padding: 0 12px; border: 1px solid var(--color-accent); border-radius: var(--radius-control); color: var(--color-accent-contrast); background: var(--color-accent); cursor: pointer; font-size: 12px; font-weight: 550; }
 
-/* ===== 筛选面板（顶栏弹层） =====
-   Phase 5A / F-14：表面/边框/阴影收敛到 .anchored-overlay 基础面；top/left/right/max-height
-   为无 JS fallback，打开时由共享 manager 内联坐标与运行时 max-height（不越 viewport）。 */
+/* ===== 筛选面板（旧顶栏弹层 fallback） ===== */
 .filter-panel { position: fixed; z-index: var(--z-popover); top: 60px; left: auto; right: 20px; display: flex; width: min(286px, calc(100vw - 24px)); max-height: min(580px, calc(100vh - 76px)); flex-direction: column; overflow: hidden; padding: 14px; }
 .filter-panel[hidden] { display: none; }
 .filter-panel-head { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--color-border-subtle); }
@@ -1106,15 +1089,17 @@ body.mosa-v2 {
 .mosa-v2 .sidebar { position: relative; z-index: 2; overflow: visible; background: rgb(from var(--app-sidebar) r g b / .95); border-right: 1px solid var(--color-border-subtle); backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%); }
 .mosa-v2 .brand {
   /* Electron 的原生 macOS 三色按钮占用左上角（trafficLightPosition: 16, 18）。
-     只有应用名避开安全区；下方栏目标签沿用侧栏导航的左对齐基线。 */
+     品牌主副标题收进同一个 56px 顶部区域，避免侧栏头部比主工具栏多占一行。 */
+  box-sizing: border-box;
   gap: 10px;
-  height: 56px;
+  height: var(--topbar-height);
   padding: 0 16px;
 }
 .mosa-v2 .brand { position: relative; }
-.mosa-v2 .brand-info h1 { color: var(--color-text-primary); font-size: 13px; font-weight: 600; letter-spacing: 0; }
+.mosa-v2 .brand-info { display: flex; min-width: 0; flex-direction: column; justify-content: center; }
+.mosa-v2 .brand-info h1 { color: var(--color-text-primary); font-size: 16px; font-weight: 600; line-height: 20px; letter-spacing: 0; }
 html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
-.mosa-v2 .sidebar-library-title { padding: 0 16px 8px; color: var(--color-text-tertiary); font-size: 10px; font-weight: 400; line-height: 16px; letter-spacing: .04em; text-transform: uppercase; }
+.mosa-v2 .brand .sidebar-library-title { margin: 0; padding: 0; color: var(--color-text-tertiary); font-size: 10px; font-weight: 400; line-height: 12px; letter-spacing: .04em; text-transform: uppercase; }
 .mosa-v2 .primary-nav { padding: 8px 12px 12px; }.mosa-v2 .nav-list { gap: 2px; }
 .mosa-v2 .nav-item, .mosa-v2 .add-group-button, .mosa-v2 .settings-trigger { min-height: 40px; border-radius: 6px; color: var(--color-text-secondary); font-size: 13px; font-weight: 400; }
 .mosa-v2 .nav-item { padding: 0 12px; }
@@ -1133,7 +1118,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .topbar-search input:focus, .mosa-v2 .topbar-search input:focus-visible { border-color: transparent; box-shadow: none; outline: 0; }
 
 .mosa-v2 .library { background: var(--app-bg); }
-.mosa-v2 .topbar { gap: 8px; min-height: 56px; padding: 12px 24px 16px; border: 0; background: transparent; }
+.mosa-v2 .topbar { box-sizing: border-box; gap: 8px; height: var(--topbar-height); min-height: var(--topbar-height); padding: 0 24px; border: 0; background: transparent; }
 .mosa-v2 .topbar-context { flex: 1 1 auto; align-items: center; }.mosa-v2 .title-row { display: flex; align-items: baseline; gap: 8px; }
 .mosa-v2 .title-row h2 { color: var(--color-text-primary); font-size: 16px; font-weight: 600; letter-spacing: -.01em; }.mosa-v2 #assetCount { color: var(--color-text-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; }
 .mosa-v2 .topbar-actions { gap: 8px; }.mosa-v2 .topbar-utility-group { display: none; }.mosa-v2 .topbar-work-group { gap: 4px; }.mosa-v2 .topbar-primary-group { display: none; }
@@ -1148,7 +1133,29 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .asset-card { margin-bottom: 0; transition: transform 200ms var(--ease-standard), box-shadow 200ms var(--ease-standard); }
 .mosa-v2 .asset-card-select { border-radius: 12px; background: var(--app-card); box-shadow: none; }.mosa-v2 .asset-card-select::after { border-radius: 12px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .04); }.mosa-v2 .asset-card.selected .asset-card-select { box-shadow: none; }
 .mosa-v2 .asset-card .thumb, .mosa-v2 .asset-card .thumb img, .mosa-v2 .asset-card .thumb-video { border-radius: 12px; }.mosa-v2 .asset-card-info, .mosa-v2 .grid[data-density="info"] .asset-card-info { display: none; }.mosa-v2 .card-scrim { opacity: 0; }.mosa-v2 .asset-card.selected .card-check { display: none; }
-.mosa-v2 .card-actions { top: 12px; right: 12px; gap: 0; opacity: .9; }.mosa-v2 .card-action-btn { width: 32px; height: 32px; border: 0; border-radius: 50%; color: rgb(255 255 255 / .84); background: rgb(0 0 0 / .42); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }.mosa-v2 .card-favorite.is-fav { color: #fff; background: #eab308; }.mosa-v2 .card-quick-copy { display: none; }.mosa-v2 .card-checkbox { border-radius: 50%; }
+.mosa-v2 .card-actions { top: 8px; right: 8px; gap: 0; opacity: 1; }
+.mosa-v2 .card-action-btn {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 0;
+  color: rgb(255 255 255 / .62);
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.mosa-v2 .card-action-btn::before {
+  content: none;
+}
+.mosa-v2 .card-action-btn svg { width: 16px; height: 16px; }
+.mosa-v2 .card-favorite { color: rgb(255 255 255 / .62); background: transparent; }
+.mosa-v2 .card-favorite.is-fav { color: var(--color-danger); background: transparent; }
+@media (hover: hover) and (pointer: fine) {
+  .mosa-v2 .card-favorite:not(.is-fav):hover { color: rgb(255 255 255 / .88); background: transparent; opacity: 1; }
+  .mosa-v2 .card-favorite.is-fav:hover { color: var(--color-danger); background: transparent; opacity: .82; }
+}
+.mosa-v2 .card-quick-copy { display: none; }.mosa-v2 .card-checkbox { border-radius: 50%; }
 .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--gallery-gap); padding: 0; }.mosa-v2 .asset-skeleton { border-radius: 8px; background: linear-gradient(100deg, var(--app-search) 30%, var(--app-search-focus) 45%, var(--app-search) 60%); }.mosa-v2 .gallery-empty-state, .mosa-v2 .error-state { color: var(--color-text-tertiary); }.mosa-v2 .empty-state-actions .btn-primary { background: #2424ff; }
 
 .mosa-v2 .filter-panel, .mosa-v2 .settings-menu { border: 1px solid rgb(255 255 255 / .68); border-radius: 16px; background: rgb(from var(--app-menu) r g b / .92); box-shadow: 0 18px 42px -10px rgb(0 0 0 / .16); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); }
@@ -1194,6 +1201,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-fav-btn.is-fav { border: 0; color: #2424ff; background: rgb(36 36 255 / .10); }
 .mosa-v2 .detail .detail-facts { display: flex; min-width: 0; height: 24px; flex: 0 0 auto; gap: 4px; padding: 0; overflow-x: auto; overflow-y: hidden; }
 .mosa-v2 .detail .detail-fact-tag, .mosa-v2 .detail .detail-tag { display: inline-flex; min-height: 24px; flex: 0 0 auto; align-items: center; padding: 0 8px; border: 1px solid var(--color-border-subtle); border-radius: 999px; color: var(--color-text-secondary); background: var(--app-sidebar); font-size: 11px; line-height: 1; white-space: nowrap; }
+.mosa-v2 .detail .detail-source-tag { color: var(--color-text-primary); font-weight: 600; }
 .mosa-v2 .detail .detail-tags-section { display: flex; min-width: 0; min-height: 24px; align-items: flex-start; padding: 0 16px 16px; border-top: 0; }
 .mosa-v2 .detail .detail-tags-row { display: flex; min-width: 0; align-items: flex-start; gap: 6px; padding: 2px 0; overflow: visible; flex-wrap: wrap; }
 .mosa-v2 .detail .detail-tags-empty { height: 24px; align-items: center; }
@@ -1223,6 +1231,16 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-reference-row { display: flex; height: 36px; flex: 0 0 36px; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; padding: 0 12px; border: 0; border-radius: 10px; background: rgb(242 242 247 / .76); font-size: 12px; font-weight: 500; line-height: 18px; }
 .mosa-v2 .detail .detail-reference-label { display: flex; min-width: 0; align-items: center; gap: 4px; overflow: hidden; color: #6e6e73; }
 .mosa-v2 .detail .detail-reference-value { flex: 0 0 auto; color: #8e8e93; }
+.mosa-v2 .detail .detail-reference-block { display: grid; gap: 8px; padding: 10px 12px 12px; border-radius: 12px; background: rgb(242 242 247 / .76); }
+.mosa-v2 .detail .detail-reference-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 500; line-height: 18px; }
+.mosa-v2 .detail .detail-reference-thumbnails { display: flex; min-width: 0; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+.mosa-v2 .detail .detail-reference-thumb { width: 52px; height: 52px; flex: 0 0 52px; overflow: hidden; border: 1px solid rgb(60 60 67 / .12); border-radius: 9px; background: rgb(255 255 255 / .7); }
+.mosa-v2 .detail .detail-reference-thumb img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.mosa-v2 .detail .detail-reference-thumb-fallback { display: none; width: 100%; height: 100%; place-items: center; color: #8e8e93; font-size: 11px; font-weight: 600; }
+.mosa-v2 .detail .detail-reference-thumb.is-load-error img { display: none; }
+.mosa-v2 .detail .detail-reference-thumb.is-load-error .detail-reference-thumb-fallback { display: grid; }
+.mosa-v2 .detail .detail-reference-thumb-empty { display: grid; place-items: center; color: #8e8e93; font-size: 11px; font-weight: 600; }
+.mosa-v2 .detail .detail-reference-loading .detail-reference-value { font-variant-numeric: tabular-nums; }
 /* Recipe editing is retained in the DOM for the existing workflow, but is not
    part of the V2 Prompt composition. */
 .mosa-v2 .detail-prompt-section > .detail-disclosure { display: none; }
@@ -1290,6 +1308,8 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box, :root[data-theme="dark"] .mosa-v2 .detail .detail-instruction-box, :root[data-theme="dark"] .mosa-v2 .detail .detail-regenerate-composer { border-color: rgb(255 255 255 / .10); color: #f5f5f7; background: rgb(255 255 255 / .06); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box .empty-copy { color: #6e6e73; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-row { background: rgb(255 255 255 / .08); }
+:root[data-theme="dark"] .mosa-v2 .detail .detail-reference-block { background: rgb(255 255 255 / .08); }
+:root[data-theme="dark"] .mosa-v2 .detail .detail-reference-thumb { border-color: rgb(255 255 255 / .10); background: rgb(255 255 255 / .06); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-label { color: #d1d1d6; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-value { color: #6e6e73; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-regenerate-composer textarea { color: #f5f5f7; }
@@ -1719,7 +1739,9 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   animation: inspector-materialize var(--duration-normal) var(--ease-standard) both;
 }
 .mosa-v2 .detail-inspector-header {
-  min-height: 56px;
+  box-sizing: border-box;
+  height: var(--topbar-height);
+  min-height: var(--topbar-height);
   padding: 0 var(--inspector-space-4);
   border-bottom: 1px solid var(--inspector-divider);
   background: var(--app-card);
