@@ -90,6 +90,9 @@ export interface SqliteAssetStore {
   getAsset(projectId: string, assetId: string): Promise<StoredAsset | null>;
   createAsset(params: Record<string, unknown>, options?: Record<string, unknown>): Promise<StoredAsset>;
   updateMetadata(projectId: string, assetId: string, metadata: Record<string, unknown>): Promise<StoredAsset>;
+  toggleFavorite(projectId: string, assetId: string): Promise<StoredAsset>;
+  assetFileInfo(projectId: string, fileName: string): Promise<{ size: number }>;
+  assetReadStream(projectId: string, fileName: string, options?: { start?: number; end?: number }): Promise<NodeJS.ReadableStream>;
   archiveAsset(projectId: string, assetId: string): Promise<StoredAsset>;
   duplicateAsset(projectId: string, assetId: string): Promise<StoredAsset>;
   createVersion(projectId: string, parentId: string, params: Record<string, unknown>): Promise<StoredAsset>;

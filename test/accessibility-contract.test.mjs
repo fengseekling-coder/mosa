@@ -92,12 +92,15 @@ test("keeps background library refreshes from replacing active edits", async () 
   assert.match(app, /detailDirty: false/);
   assert.match(apiClient, /requestId !== assetRequestSequence/);
   assert.match(apiClient, /!options\.background \|\| assetsChanged/);
-  assert.match(apiClient, /selectedChanged && !isDetailEditorActive\(\)/);
+  assert.match(apiClient, /state\.detailOpen && !isDetailEditorActive\(\)/,
+    "no asset refresh may replace an active Inspector draft");
+  assert.match(apiClient, /!options\.background \|\| !state\.selectedId \|\| selectedChanged/);
   assert.match(apiClient, /function refreshAssetPageTotalInBackground\(\)/);
   assert.match(apiClient, /function requestAssetTotal\(request\)[\s\S]*?params\.set\("limit", "1"\)/);
   assert.match(apiClient, /state\.pageTotal = total;[\s\S]*?updateViewTitle\(\)/);
   assert.match(apiClient, /state\.loadedPageCount > 1 \? refreshAssetPageTotalInBackground\(\) : loadAssets\(\{ background: true \}\)/);
-  assert.match(app, /field\.addEventListener\("input", \(\) => \{ state\.detailDirty = true; \}\)/);
+  assert.match(app, /field\.dataset\.detailDirty = "true";[\s\S]*?field\.dataset\.detailDirtyScope = scope;[\s\S]*?state\.detailDirty = true;/,
+    "Inspector edits carry an owned dirty scope instead of one undifferentiated flag");
 });
 
 test("uses a single language chosen from system, Chinese, or English", async () => {
@@ -167,10 +170,11 @@ test("keeps recipe version history navigable without replacing active edits", as
   // Gallery navigation no longer keys off the selected index — it resolves the
   // neighbour from rendered geometry — but it still requires a live selection.
   assert.match(app, /if \(!state\.assets\.some\(\(asset\) => asset\.id === state\.selectedId\)\) return;/);
-  // Phase 5B：dirty guard 迁移为 async Promise 语义，经全应用唯一 ConfirmDialog 确认
-  //（window.confirm 清零）；不再存在浏览器原生确认。
-  assert.match(app, /async function confirmDetailNavigation\(nextAssetId\)/);
-  assert.match(app, /title: t\("discardChangesTitle"\)/);
+  // 自动保存：dirty guard 不再弹丢弃确认，而是导航前冲刷挂起的防抖草稿；失败返回
+  // false 阻断导航（不静默丢数据）。window.confirm 早已清零。
+  assert.match(app, /async function confirmDetailNavigation\(\)/);
+  assert.match(app, /return flushInspectorSave\(\);/);
+  assert.match(app, /async function persistInspectorDraft\(panel, asset, renderId\)/);
   assert.doesNotMatch(app, /window\.confirm\(/);
   assert.match(app, /function isCurrentDetailAction\(renderId, projectId, assetId\)/);
   assert.match(app, /renderId === detailRenderSequence/);
@@ -248,7 +252,9 @@ test("supports Escape to close detail panel and focus return", async () => {
   assert.match(app, /detailReturnFocus: null/);
   assert.match(app, /state\.detailReturnFocus = \(activeEl instanceof HTMLElement/);
   assert.match(app, /const returnEl = state\.detailReturnFocus/);
-  assert.match(app, /if \(returnEl instanceof HTMLElement && returnEl\.isConnected\) returnEl\.focus\(\)/);
+  assert.match(app, /if \(returnEl instanceof HTMLElement && returnEl\.isConnected\) returnEl\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(app, /detailReturnFocusAssetId[\s\S]*?\.asset-card\[data-id=/,
+    "a replaced gallery card is re-queried by asset id before falling back to the grid");
   assert.match(app, /function setDetailOpen\(open\)/);
   // 关闭路径不再重置 detailTab（Phase 4B 已将该死状态整体移除）。
   assert.doesNotMatch(app, /state\.detailTab/);
@@ -281,4 +287,28 @@ test("ensures minimum touch target sizes for accessibility", async () => {
   assert.match(css, /\.action-btn \{[^}]*min-height:\s*36px/);
   assert.match(css, /\.detail-close \{[^}]*min-height:\s*36px/);
   assert.match(css, /\.section-head-copy \{[^}]*min-height:\s*36px/);
+});
+
+test("commits Inspector discards transactionally and keeps result-set mutations coherent", async () => {
+  const [app, apiClient, contextBindings] = await Promise.all([
+    readFile(resolve(root, "app/app.mjs"), "utf8"),
+    readFile(resolve(root, "app/api-client.mjs"), "utf8"),
+    readFile(resolve(root, "app/context-menu-bindings.mjs"), "utf8"),
+  ]);
+
+  const guardStart = app.indexOf("async function confirmDetailNavigation(nextAssetId)");
+  const guardEnd = app.indexOf("\nfunction discardDetailDraft()", guardStart);
+  const guard = app.slice(guardStart, guardEnd);
+  assert.doesNotMatch(guard, /state\.detailDirty\s*=\s*false/,
+    "confirmation alone must never mark a draft clean before the caller succeeds");
+  assert.match(apiClient, /const preserveDirtySelection = Boolean\([\s\S]*?state\.detailOpen && state\.detailDirty[\s\S]*?state\.detailAsset = previousSelected;/,
+    "a dirty selected asset removed from the current result set remains the Inspector source of truth");
+  assert.match(app, /async function saveAsset\(\)[\s\S]*?await apiFetch\("\/api\/assets\/create"[\s\S]*?discardDetailDraft\(\);[\s\S]*?state\.selectedId = result\.asset\.id;/,
+    "import discards the old Inspector draft only after asset creation succeeds");
+  assert.match(app, /async function saveGroup\(\)[\s\S]*?await apiFetch\("\/api\/groups"[\s\S]*?discardDetailDraft\(\);[\s\S]*?clearDetailSelection\(\);/,
+    "group creation keeps the old draft dirty until the group mutation succeeds");
+  assert.match(contextBindings, /Promise\.allSettled\(\[loadStats\(\), loadAssets\(\)\]\)/,
+    "context-menu refresh failures are observed instead of becoming unhandled rejections");
+  assert.match(app, /event\.key === "\/"[\s\S]*?els\.imagePreviewModal\?\.hidden[\s\S]*?els\.settingsMenu\?\.hidden/,
+    "the global search shortcut cannot pierce the image preview or Settings modal");
 });

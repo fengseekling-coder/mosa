@@ -68,18 +68,16 @@ export function bindContextMenuEvents(options = {}) {
   });
 
   window.addEventListener("mosa:refresh-assets", () => {
-    // Preserve scroll position during refresh
-    const scrollTop = els.assetGrid?.scrollTop || 0;
-    void loadAssets().then(() => {
-      if (els.assetGrid && scrollTop > 0) {
-        requestAnimationFrame(() => {
-          els.assetGrid.scrollTop = scrollTop;
-        });
-      }
+    // Same-result refreshes preserve gallery scroll centrally in loadAssets /
+    // renderGrid. Mutations can also change sidebar counts (favorites, group
+    // membership, archive/delete), so refresh stats in the same transaction.
+    void Promise.allSettled([loadStats(), loadAssets()]).then((results) => {
+      const failure = results.find((result) => result.status === "rejected");
+      if (failure) console.warn("Context-menu refresh failed:", failure.reason);
     });
   });
   window.addEventListener("mosa:refresh-groups", () => {
-    void loadStats();
+    void loadStats().catch((error) => console.warn("Group refresh failed:", error));
   });
   window.addEventListener("mosa:select-asset", (event) => {
     const { assetId } = event.detail;

@@ -61,7 +61,7 @@ test("2. favorite and copy buttons are both inside .card-actions", async () => {
   assert.ok(container[1].includes("${favBtn}"), "favorite button must be inside .card-actions");
   assert.ok(container[1].includes("${copyBtn}"), "quick-copy button must be inside .card-actions");
   // The buttons must not also be emitted loose inside the article template.
-  const article = /return `<article([\s\S]*?)<\/article>`;/.exec(app);
+  const article = /markup: `<article([\s\S]*?)<\/article>`,/.exec(app);
   assert.ok(article, "article template must exist");
   assert.equal(article[1].includes("${favBtn}"), false, "favorite button must not be emitted outside the container");
   assert.equal(article[1].includes("${copyBtn}"), false, "copy button must not be emitted outside the container");
@@ -199,13 +199,13 @@ test("15. reduced-motion contract covers the quick actions", async () => {
     "reduced-motion must cancel the disclosure/state transitions");
 });
 
-// 16. Event isolation: favorite/copy handlers keep stopPropagation.
+// 16. Event isolation: delegated favorite/copy handlers keep stopPropagation.
 test("16. favorite and copy listeners keep event isolation", async () => {
   const app = await readApp();
-  const copyListener = /querySelectorAll\("\.card-quick-copy"\)[\s\S]*?addEventListener\("click", async \(event\) => \{ event\.stopPropagation\(\);/;
-  const favListener = /querySelectorAll\("\.card-favorite"\)[\s\S]*?addEventListener\("click", \(event\) => \{ event\.stopPropagation\(\);/;
-  assert.match(app, copyListener, "quick-copy click must keep stopPropagation (no detail opening)");
-  assert.match(app, favListener, "favorite click must keep stopPropagation (no detail opening)");
+  const delegatedGridHandler = /els\.assetGrid\?\.addEventListener\("click", \(event\) => \{[\s\S]*?const favoriteButton = event\.target\.closest\("\.card-favorite"\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?const copyButton = event\.target\.closest\("\.card-quick-copy"\);[\s\S]*?event\.stopPropagation\(\);/;
+  assert.match(app, delegatedGridHandler, "delegated quick actions must keep stopPropagation (no detail opening)");
+  assert.doesNotMatch(app, /querySelectorAll\("\.card-(?:quick-copy|favorite)"\)\.forEach\([^\n]*addEventListener/,
+    "renderGrid must not recreate per-card quick-action listeners");
 });
 
 // 17. No API, data-structure or persistence changes; out-of-scope files stay locked.
@@ -234,8 +234,8 @@ test("17. no API, data-structure or persistence changes", async () => {
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched in Phase 1C");
   const app = await readApp();
   // The favorite flow still posts to the same endpoint; renderGrid stays free of API calls.
-  assert.match(app, /apiFetch\(`\/api\/assets\/\$\{encodeURIComponent\(state\.project\)\}\/\$\{encodeURIComponent\(id\)\}\/favorite`, \{ method: "POST" \}\)/,
-    "toggleFavorite must keep its existing API endpoint and method");
+  assert.match(app, /const projectId = state\.project;[\s\S]*?apiFetch\(`\/api\/assets\/\$\{encodeURIComponent\(projectId\)\}\/\$\{encodeURIComponent\(id\)\}\/favorite`, \{ method: "POST" \}\)/,
+    "toggleFavorite must keep its existing API endpoint/method while snapshotting the originating project");
   const grid = /function renderGrid\(\) \{[\s\S]*?\n\}/.exec(app);
   assert.ok(grid, "renderGrid must exist");
   assert.doesNotMatch(grid[0], /\bapi\(/, "renderGrid must not gain API calls");

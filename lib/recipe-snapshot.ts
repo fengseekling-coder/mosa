@@ -65,7 +65,7 @@ export function recipeMaterial(asset: Asset = {}) {
     provider: cleanText(source.provider || business.provider), skill: cleanText(asset.skill), style: cleanText(asset.style),
     ratio: cleanText(asset.ratio), theme: cleanText(asset.theme),
     references: normalizeReferences(asset.references || business.references || source.references),
-    provenance: { source_type: cleanText(source.type || asset.sourceType || "local-file"), task_id: cleanText(source.codex_task_id || source.task_id), session_id: cleanText(source.codex_session_id || source.grok_session_id || source.conversation_id), generation_call_id: cleanText(source.codex_image_generation_call_id || source.call_id || source.message_id) },
+    provenance: { source_type: cleanText(source.type || asset.sourceType || "local-file"), task_id: cleanText(source.codex_task_id || source.task_id), session_id: cleanText(source.codex_session_id || source.grok_session_id || source.conversation_id), generation_call_id: cleanText(source.codex_image_generation_call_id || source.generation_context_id || source.call_id || source.message_id) },
   };
 }
 

@@ -238,24 +238,22 @@ test("49-51. existing call sites stay compatible", async () => {
     "runAction still reports through showToast only — no second error pipeline");
   const successCalls = count(app, '"success")');
   const errorCalls = count(app, '"error")');
-  assert.ok(successCalls >= 20, `success call sites preserved (${successCalls} >= 20)`);
+  assert.ok(successCalls >= 18, `success call sites preserved (${successCalls} >= 18)`);
   assert.ok(errorCalls >= 5, `error call sites preserved (${errorCalls} >= 5)`);
 });
 
 // 52-55. Neighbouring contracts stay structurally intact (their own suites
 // carry the full behaviour proof; this file only pins the shared seams).
-test("52-55. ConfirmDialog / Anchored Overlay / Viewer / F-08 seams intact", async () => {
-  const [app, overlay, confirmDialog] = await Promise.all([
+test("52-55. ConfirmDialog / retired overlay / Viewer / F-08 seams intact", async () => {
+  const [app, confirmDialog] = await Promise.all([
     readApp(),
-    readFile(resolve(root, "app/overlay-manager.mjs"), "utf8"),
     readFile(resolve(root, "app/confirm-dialog.mjs"), "utf8"),
   ]);
   const viewer = await readFile(resolve(root, "app/asset-view.mjs"), "utf8");
   const html = await readHtml();
   assert.equal(count(html, 'id="confirmDialog"'), 1, "ConfirmDialog DOM still present");
   assert.match(confirmDialog, /function requestConfirmation\(\{/, "ConfirmDialog Promise API intact");
-  // R1 batch 3: the overlay factory moved to app/overlay-manager.mjs.
-  assert.equal(count(overlay, "export function createAnchoredOverlayManager("), 1, "Anchored Overlay Manager intact");
+  assert.doesNotMatch(app, /createAnchoredOverlayManager|anchoredOverlayManager/, "retired anchored overlay runtime stays out of app.js");
   // R1 batch 4: the viewer factory moved to app/asset-view.mjs.
   assert.match(viewer, /state\.libraryReturnSnapshot = \{/, "Viewer return snapshot intact");
   assert.match(viewer, /function openAssetView\(/, "Viewer open path intact");

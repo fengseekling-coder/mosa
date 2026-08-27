@@ -24,7 +24,7 @@ The selected local MOSA library can contain:
 - Prompt and user-message text;
 - hashes, dimensions, timestamps, source paths, source type, model/tool information, and provenance;
 - version relationships, tags, archive state, and collection metadata;
-- for web capture, provider/page URL, capture time, and extension version; ChatGPT additionally records conversation/message identifiers when available.
+- for web capture, provider/page URL, capture time, capture mode, extension version, and bounded source-occurrence history; ChatGPT additionally records conversation/message identifiers when available.
 
 Reference images identified by Web Capture are stored as private generation-record attachments under the selected MOSA library. They are content-hash deduplicated and may be linked into the subsequent generated asset's recipe snapshot, but they are not ordinary assets and therefore do not appear in the gallery, search, recent items, or asset totals. MOSA does not infer the purpose or rights of a reference from its pixels.
 
@@ -37,7 +37,7 @@ The library is stored on the user's machine. MOSA does not upload it to a MOSA-o
 The optional extension:
 
 - runs only on the ChatGPT, Gemini, Flow, and Google AI Studio domains declared in its manifest;
-- observes ChatGPT page and generation-response data to associate an image with the correct message-scoped Prompt;
+- observes ChatGPT page and generation-response data to associate an image with the correct message-scoped Prompt and, when an image-generation result follows a user turn containing uploaded images, may archive those uploads as private reference attachments before the generated asset;
 - may fetch generated image bytes from the OpenAI- and Google-hosted asset domains declared in its manifest;
 - sends captured data only to the configured loopback MOSA address;
 - stores the MOSA address, Web Capture Token, and auto-capture preference in `chrome.storage.local`, not synchronized storage.

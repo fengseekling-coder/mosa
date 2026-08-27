@@ -32,6 +32,7 @@
   ]);
   const CONVERSATION_ID_KEYS = new Set(["conversation_id", "conversationid", "cid"]);
   const MESSAGE_ID_KEYS = new Set(["message_id", "messageid"]);
+  const TOOL_CALL_ID_KEYS = new Set(["tool_call_id", "toolcallid", "call_id", "callid"]);
 
   function post(type, payload) {
     try {
@@ -229,6 +230,7 @@
       assetId: identity.assetId,
       conversationId: identity.conversationId,
       messageId: extra.messageId || "",
+      generationContextId: extra.generationContextId || "",
       promptStatus: extra.promptStatus || (p ? "user-message" : "not-available"),
       model: extra.model || "",
       capturedAt: new Date().toISOString(),
@@ -249,6 +251,7 @@
     const prompts = new Map();
     const assetIds = new Set();
     const imageUrls = new Set();
+    const toolCallIds = new Set();
     let model = "";
 
     function rememberPrompt(key, value) {
@@ -293,6 +296,9 @@
           const assetId = normalizeAssetId(child);
           if (assetId) assetIds.add(assetId);
         }
+        if (TOOL_CALL_ID_KEYS.has(lower) && typeof child === "string" && child.trim()) {
+          toolCallIds.add(child.trim());
+        }
         if ((URL_KEYS.has(lower) || typeof child === "string") && isImageishUrl(child)) imageUrls.add(child);
         if ((lower === "model" || lower === "model_slug") && typeof child === "string" && child.trim()) model = child.trim();
         if (child && typeof child === "object") scan(child, depth + 1);
@@ -310,37 +316,76 @@
     const orderedPrompts = [...prompts.values()].sort((a, b) => b.priority - a.priority);
     const selected = orderedPrompts[0];
     const equallyPreferred = selected ? orderedPrompts.filter((item) => item.priority === selected.priority) : [];
-    // Two distinct top-ranked prompts in one message cannot be matched safely.
-    if (!selected || equallyPreferred.length !== 1) return;
+    const toolMarker = [
+      message?.author?.name,
+      message?.recipient,
+      message?.metadata?.tool_name,
+      message?.metadata?.command,
+      message?.metadata?.invoked_plugin?.namespace,
+    ].filter(Boolean).join(" ");
+    const generationToolMarker = /(dall[-_.]?e|image[_ .-]?(gen|generation)|text2im|imagegen)/i.test(toolMarker);
+    const toolOwnedGeneration = captionContext.hasImageAsset
+      && generationToolMarker
+      && ["tool", "assistant"].includes(captionContext.authorRole);
+    // Prompt availability and generation provenance are separate facts. A
+    // tool-owned image remains safe to archive even when ChatGPT omits the
+    // caption; a later metadata event can upgrade the prompt by image hash.
+    const usablePrompt = selected && equallyPreferred.length === 1 ? selected : null;
+    if (!usablePrompt && !toolOwnedGeneration) return;
 
     const onlyAssetId = assetIds.size === 1 ? [...assetIds][0] : "";
+    const onlyToolCallId = toolCallIds.size === 1 ? [...toolCallIds][0] : "";
+    const ambiguousToolCalls = toolCallIds.size > 1;
+    // If multiple image calls were flattened into one message, keep generation
+    // provenance but do not assign one ambiguous prompt to every output.
+    const boundPrompt = ambiguousToolCalls ? null : usablePrompt;
+    // URL events and asset events for one generation must carry the same
+    // reference-linking scope. A single tool call or a single asset covers the
+    // whole message; several assets without one shared call id are distinct
+    // generations, and each output keeps its own scope so references of one
+    // generation never attach to a sibling output.
+    const sharedScopeId = onlyToolCallId
+      || (assetIds.size <= 1 && !ambiguousToolCalls ? context.messageId : "");
+    const scopeForAsset = (assetId) => sharedScopeId || `asset:${assetId}`;
+    const scopeForUrl = (imageUrl) => {
+      if (sharedScopeId) return sharedScopeId;
+      const proxy = chatGptImageProxyInfo(imageUrl);
+      return proxy?.assetId && assetIds.has(proxy.assetId) ? `asset:${proxy.assetId}` : "";
+    };
+    const contextIdFor = (scopeId) => (
+      context.conversationId && scopeId
+        ? `chatgpt:${context.conversationId}:${scopeId}`
+        : scopeId ? `chatgpt:${scopeId}` : ""
+    );
     for (const imageUrl of imageUrls) {
-      emitPair(selected.text, imageUrl, {
+      emitPair(boundPrompt?.text || "", imageUrl, {
         assetId: onlyAssetId,
         conversationId: context.conversationId,
         messageId: context.messageId,
-        promptStatus: selected.promptStatus,
+        generationContextId: contextIdFor(scopeForUrl(imageUrl)),
+        promptStatus: boundPrompt?.promptStatus || "not-available",
         model,
         via: "message-metadata-url",
-        isGeneration: selected.promptStatus === "generation-tool-prompt" || selected.promptStatus === "visible-caption",
+        isGeneration: toolOwnedGeneration || boundPrompt?.promptStatus === "generation-tool-prompt" || boundPrompt?.promptStatus === "visible-caption",
       });
     }
     for (const assetId of assetIds) {
-      emitPair(selected.text, "", {
+      emitPair(boundPrompt?.text || "", "", {
         assetId,
         conversationId: context.conversationId,
         messageId: context.messageId,
-        promptStatus: selected.promptStatus,
+        generationContextId: contextIdFor(scopeForAsset(assetId)),
+        promptStatus: boundPrompt?.promptStatus || "not-available",
         model,
         via: "message-metadata-asset",
-        isGeneration: selected.promptStatus === "generation-tool-prompt" || selected.promptStatus === "visible-caption",
+        isGeneration: toolOwnedGeneration || boundPrompt?.promptStatus === "generation-tool-prompt" || boundPrompt?.promptStatus === "visible-caption",
       });
     }
-    if (!imageUrls.size && !assetIds.size) {
-      emitPair(selected.text, "", {
+    if (boundPrompt && !imageUrls.size && !assetIds.size) {
+      emitPair(boundPrompt.text, "", {
         conversationId: context.conversationId,
         messageId: context.messageId,
-        promptStatus: selected.promptStatus,
+        promptStatus: boundPrompt.promptStatus,
         model,
         via: "message-prompt-only",
       });
@@ -547,8 +592,13 @@
     try {
       const url = typeof args[0] === "string" ? args[0] : args[0]?.url || "";
       if (/chatgpt\.com|openai\.com|backend-api|conversation|images?|oaiusercontent/i.test(String(url))) {
-        const clone = response.clone();
-        clone.text().then((text) => harvest(text, "fetch")).catch(() => {});
+        const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
+        const textLike = /json|text|event-stream|javascript/.test(contentType)
+          || /backend-api|conversation/i.test(String(url));
+        if (textLike && !/^image\//.test(contentType)) {
+          const clone = response.clone();
+          clone.text().then((text) => harvest(text, "fetch")).catch(() => {});
+        }
       }
     } catch {
       // ignore
@@ -578,7 +628,9 @@
       try {
         const url = String(this.__mosaUrl || "");
         if (/chatgpt\.com|openai\.com|backend-api|conversation|images?|oaiusercontent/i.test(url)) {
-          harvest(this.responseText || "", "xhr");
+          // Mirror the fetch interceptor: never harvest raw image bytes.
+          const contentType = String(this.getResponseHeader?.("content-type") || "").toLowerCase();
+          if (!/^image\//.test(contentType)) harvest(this.responseText || "", "xhr");
         }
       } catch {
         // ignore
@@ -592,7 +644,7 @@
    * so fetch and XHR never see the caption of an image generated while the page
    * is open. Frames arrive as JSON envelopes whose `body` is base64 SSE text.
    */
-  const WS_INTEREST = /asset_pointer|revised_prompt|generation_prompt|image_prompt|model[ _]caption|dalle|oaiusercontent|estuary/i;
+  const WS_INTEREST = /asset_pointer|asset_id|file_id|image_id|file-service|sediment|revised_prompt|generation_prompt|image_prompt|model[ _]caption|image[_ .-]?(gen|generation)|imagegen|dalle|oaiusercontent|estuary/i;
 
   function decodeBase64Utf8(value) {
     if (typeof atob !== "function") return "";

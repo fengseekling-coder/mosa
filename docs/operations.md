@@ -41,6 +41,8 @@ npm run desktop:start
 npm run desktop:make
 ```
 
+The desktop packaging commands (`desktop:package`, `desktop:make`, and `desktop:release`) require Node.js 22.x. The repository pins `22.23.1` in `.nvmrc` and `.node-version`; use the version-manager file supported by your environment before packaging. The pre-scripts deliberately fail before Forge runs when another Node major is active, avoiding incomplete packages that can occur with the current Forge/Packager chain on Node.js 24. This restriction applies to packaging only; normal MOSA development remains compatible with the root `engines.node` range.
+
 The desktop shell defaults to `~/MOSA Library` on `127.0.0.1:43517`, the same local service used by browser capture. Override the port with `MOSA_DESKTOP_PORT` only when a separate runtime is intentional, and the library with `MOSA_LIBRARY_DIR`.
 
 At startup, the desktop shell verifies the service identity and library path. If they match, it attaches without taking ownership; quitting the app leaves that external service running. If no service is listening, the app starts an owned runtime; closing the last window on macOS leaves the app and runtime active, while choosing Quit stops the owned runtime and releases its library lock. A foreign listener or a MOSA service using another library is reported as a conflict and is never terminated.

@@ -44,16 +44,16 @@ const checks = [
     assert.match(app, /function trapGroupModalFocus\(event\)/);
     assert.match(app, /if \(event\.key === "Escape"\) \{ event\.preventDefault\(\); closeImportModal\(\); return; \}/);
   }],
-  ["06 language child closes first", async () => {
+  ["06 retired language child overlay stays removed", async () => {
     const app = await read("app/app.mjs");
-    assert.match(app, /id: "language", kind: "child", parentId: "settings"/);
-    assert.match(app, /anchoredOverlayManager\.close\("language", "escape"\)/);
+    assert.doesNotMatch(app, /id: "language", kind: "child", parentId: "settings"/);
+    assert.doesNotMatch(app, /#languageMenu|data-language-menu|focusLanguageMenuItem|handleLanguageMenuKeydown/);
   }],
-  ["08 viewer Escape returns to library", async () => assert.match(await read("app/app.mjs"), /if \(state\.viewMode === "asset"\) \{ returnToLibrary\(\); event\.preventDefault\(\); return; \}/)],
+  ["08 viewer Escape returns to library", async () => assert.match(await read("app/app.mjs"), /if \(state\.viewMode === "asset" \|\| state\.detailOpen\) \{ event\.preventDefault\(\); void closeDetailSurface\(\); return; \}/)],
   ["09 form controls guard global shortcuts without assuming an Element target", async () => {
     const app = await read("app/app.mjs");
     assert.match(app, /if \(event\.target\.matches\?\.\("input, textarea, select"\)\)/);
-    assert.equal(count(app, "event.target.matches?.("), 4);
+    assert.equal(count(app, "event.target.matches?.("), 3);
     assert.doesNotMatch(app, /event\.target\.matches\(/);
   }],
   ["10 contenteditable guard exists", async () => {
@@ -62,8 +62,16 @@ const checks = [
     assert.match(app, /event\.target\.closest\?\.\("\[role='tab'\]"\)/);
   }],
   ["12 library search is a native focus target", async () => assert.match(await read("app/index.html"), /<input id="searchInput" type="search"/)],
-  ["14 settings roving tabindex remains", async () => assert.match(await read("app/app.mjs"), /function primeSettingsRoving\(\)[\s\S]*?item\.tabIndex = index === 0 \? 0 : -1;/)],
-  ["15 language roving remains", async () => assert.match(await read("app/app.mjs"), /function focusLanguageMenuItem\(item\)[\s\S]*?item\.tabIndex = 0;/)],
+  ["14 settings radiogroups keep one Tab stop", async () => {
+    const app = await read("app/app.mjs");
+    assert.match(app, /tabindex=\"\$\{selected \? 0 : -1\}\"/);
+    assert.match(app, /button:not\(\[disabled\]\):not\(\[tabindex='-1'\]\)/);
+  }],
+  ["15 language uses the settings radiogroup", async () => {
+    const app = await read("app/app.mjs");
+    assert.match(app, /data-locale=|"data-locale"/);
+    assert.match(app, /t\("interfaceLanguage"\)[\s\S]*?role=\"radiogroup\"/);
+  }],
   ["16 radiogroup keeps directional keys", async () => {
     const app = await read("app/app.mjs");
     assert.match(app, /role=\"radio\"/);
@@ -202,7 +210,10 @@ const checks = [
     assert.doesNotMatch(html, /id="dragOverlay"[^>]*aria-live/);
   }],
   ["62 F-08 empty state helper remains", async () => assert.match(await read("app/app.mjs"), /function deriveGalleryEmptyState\(\)/)],
-  ["63 overlay manager remains shared", async () => assert.match(await read("app/app.mjs"), /const anchoredOverlayManager = createAnchoredOverlayManager\(\)/)],
+  ["63 retired anchored overlay runtime stays removed", async () => {
+    const app = await read("app/app.mjs");
+    assert.doesNotMatch(app, /createAnchoredOverlayManager|anchoredOverlayManager/);
+  }],
   ["64 confirm dialog remains centralized", async () => assert.match(await read("app/confirm-dialog.mjs"), /function requestConfirmation\(/)],
   ["65 toast manager remains centralized", async () => assert.match(await read("app/toast-manager.mjs"), /function createToastManager\(/)],
   ["66 viewer sequence remains centralized", async () => assert.match(await read("app/asset-view.mjs"), /assetViewSequence\.ids = state\.assets\.map/)],

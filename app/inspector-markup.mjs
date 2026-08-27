@@ -26,6 +26,23 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return null;
   }
 
+  function mediaDimensions(asset) {
+    const width = persistedPositiveNumber(asset, "width");
+    const height = persistedPositiveNumber(asset, "height");
+    if (width && height) return { width: Math.round(width), height: Math.round(height) };
+    const match = /^\s*(\d+(?:\.\d+)?)\s*[:/x×]\s*(\d+(?:\.\d+)?)\s*$/iu.exec(String(asset?.ratio || ""));
+    if (!match) return null;
+    const ratioWidth = Number(match[1]);
+    const ratioHeight = Number(match[2]);
+    if (!Number.isFinite(ratioWidth) || !Number.isFinite(ratioHeight) || ratioWidth <= 0 || ratioHeight <= 0) return null;
+    return { width: Math.max(1, Math.round(ratioWidth)), height: Math.max(1, Math.round(ratioHeight)) };
+  }
+
+  function mediaDimensionAttributes(asset) {
+    const dimensions = mediaDimensions(asset);
+    return dimensions ? ` width="${dimensions.width}" height="${dimensions.height}" data-known-aspect="true"` : "";
+  }
+
   function fileDimensionsText(asset) {
     const width = persistedPositiveNumber(asset, "width");
     const height = persistedPositiveNumber(asset, "height");
@@ -123,6 +140,9 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     const source = sourceName(asset.source || {});
     const sourceRef = asset.source || {};
     const previewAspectRatio = detailPreviewAspectRatio(asset);
+    const previewWidth = persistedPositiveNumber(asset, "width");
+    const previewHeight = persistedPositiveNumber(asset, "height");
+    const previewNeedsNaturalFallback = !Number.isFinite(previewWidth) || !Number.isFinite(previewHeight) || previewWidth <= 0 || previewHeight <= 0;
     const openSourceButton = String(sourceRef.conversation_id || "").trim()
       ? `<button class="section-head-copy detail-overview-open" type="button" data-action="view-generation-session" title="${escapeHtml(t("openOriginalConversation"))}" aria-label="${escapeHtml(t("openOriginalConversation"))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button>`
       : "";
@@ -133,14 +153,72 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
       ["fileSize", fileSizeText(asset)],
       ["group", String(asset.group || "").trim() || t("notGrouped")],
     ].map(([key, value]) => fileFactTagMarkup(key, value)).join("");
-    return `<section class="inspector-section detail-overview" data-inspector-section="file" aria-labelledby="assetOverviewTitle"><div class="detail-overview-heading"><h3 id="assetOverviewTitle">${t("fileFacts")}</h3><p title="${escapeHtml(`${source} · ${formatDate(asset.created_at, state.locale)}`)}">${escapeHtml(source)} · ${formatDate(asset.created_at, state.locale)}</p>${openSourceButton}</div><div class="detail-image-wrap" data-detail-preview-aspect="${escapeHtml(previewAspectRatio)}">${assetMediaPreviewMarkup(asset, "detail")}</div><div class="detail-overview-title-row"><h3 id="detailTitle" tabindex="-1" title="${escapeHtml(title)}">${escapeHtml(title)}</h3>${detailFavoriteButtonMarkup(asset)}</div><div class="detail-facts" role="group" aria-label="${escapeHtml(t("assetMetadata"))}">${facts}</div></section>`;
+    return `<section class="inspector-section detail-overview" data-inspector-section="file" aria-labelledby="assetOverviewTitle"><div class="detail-overview-heading"><h3 id="assetOverviewTitle">${t("fileFacts")}</h3><p title="${escapeHtml(`${source} · ${formatDate(asset.created_at, state.locale)}`)}">${escapeHtml(source)} · ${formatDate(asset.created_at, state.locale)}</p>${openSourceButton}</div><div class="detail-image-wrap" data-detail-preview-aspect="${escapeHtml(previewAspectRatio)}"${previewNeedsNaturalFallback ? ' data-detail-preview-natural-fallback="true"' : ""}>${assetMediaPreviewMarkup(asset, "detail")}</div><div class="detail-overview-title-row"><h3 id="detailTitle" tabindex="-1" title="${escapeHtml(title)}">${escapeHtml(title)}</h3>${detailFavoriteButtonMarkup(asset)}</div><div class="detail-facts" role="group" aria-label="${escapeHtml(t("assetMetadata"))}">${facts}</div></section>`;
   }
 
   function detailTagsSectionMarkup(asset) {
-    const tags = assetTags(asset).slice(0, 10);
+    const source = asset.source || {};
+    const sourceType = String(source.type || asset.source_type || "");
+    const sourceProvider = String(source.provider || source.generation_tool || "").toLowerCase();
+    const sourceLabel = (() => {
+      if (sourceType === "web-chatgpt" || sourceProvider === "chatgpt") return "GPT";
+      if (sourceType === "web-gemini" || sourceProvider === "gemini") return "Gemini";
+      if (sourceType === "web-flow" || sourceProvider === "flow") return "Flow";
+      if (sourceType === "web-google-ai-studio" || sourceProvider === "google-ai-studio") return "AI Studio";
+      if (sourceType === "codex-generated" || sourceProvider === "codex") return "Codex";
+      if (sourceType === "grok-generated" || sourceProvider === "grok") return "Grok";
+      if (sourceType === "cowart-generated" || sourceProvider === "cowart") return "Cowart";
+      if (sourceType === "local-file") return t("sourceManual");
+      return sourceName(source);
+    })();
+    const duplicateSourceTags = new Set([
+      sourceLabel,
+      sourceType,
+      sourceProvider,
+      sourceType === "web-chatgpt" ? "chatgpt" : "",
+      sourceType === "web-chatgpt" ? "gpt" : "",
+      sourceType === "web-google-ai-studio" ? "google ai studio" : "",
+    ].filter(Boolean).map((value) => String(value).trim().toLowerCase()));
+    const tags = assetTags(asset)
+      .filter((tag) => !duplicateSourceTags.has(String(tag).trim().toLowerCase()))
+      .slice(0, 9);
+    const sourceMarkup = `<span class="detail-tag detail-source-tag" aria-label="${escapeHtml(`${t("source")}: ${sourceLabel}`)}">${escapeHtml(sourceLabel)}</span>`;
     const tagMarkup = tags.map((tag) => `<span class="detail-tag" data-tag-value="${escapeHtml(tag)}">${escapeHtml(tag)}</span>`).join("");
-    const emptyMarkup = tags.length ? "" : `<span class="empty-copy detail-tags-empty">${t("tagsEmpty")}</span>`;
-    return `<section class="inspector-section detail-tags-section" data-inspector-section="tags" aria-label="${escapeHtml(t("tags"))}"><div class="detail-tags-row" data-tags-list>${tagMarkup}${emptyMarkup}<button class="detail-tags-add" type="button" data-action="add-tag"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>${escapeHtml(t("addTag"))}</span></button></div></section>`;
+    return `<section class="inspector-section detail-tags-section" data-inspector-section="tags" aria-label="${escapeHtml(t("tags"))}"><div class="detail-tags-row" data-tags-list>${sourceMarkup}${tagMarkup}<button class="detail-tags-add" type="button" data-action="add-tag"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>${escapeHtml(t("addTag"))}</span></button></div></section>`;
+  }
+
+  function activeRecipeReferences(asset) {
+    const loaded = state.recipeHistory?.project_id === asset.project_id && state.recipeHistory?.asset_id === asset.id
+      ? state.recipeHistory
+      : null;
+    const snapshots = loaded?.snapshots || asset.recipe_snapshots;
+    if (Array.isArray(snapshots) && snapshots.length) {
+      const activeId = loaded?.active_snapshot_id || asset.active_recipe_snapshot_id || snapshots.at(-1)?.snapshot_id;
+      const snapshot = snapshots.find((item) => item.snapshot_id === activeId) || snapshots.at(-1);
+      return Array.isArray(snapshot?.references) ? snapshot.references : [];
+    }
+    const direct = asset.references || asset.business_fields?.references || asset.source?.references;
+    if (Array.isArray(direct)) return direct;
+    return /^web-/.test(String(asset.source?.type || asset.source_type || "")) ? null : [];
+  }
+
+  function promptReferencesMarkup(asset) {
+    const references = activeRecipeReferences(asset);
+    if (references === null) {
+      return `<div class="detail-reference-row detail-reference-loading" role="status"><span class="detail-reference-label">${t("referenceImage")}</span><span class="detail-reference-value">${t("referenceLoading")}</span></div>`;
+    }
+    if (!references.length) {
+      return `<div class="detail-reference-row"><span class="detail-reference-label">${t("referenceImage")}</span><span class="detail-reference-value">${t("referenceNone")}</span></div>`;
+    }
+    const thumbnails = references.slice(0, 8).map((reference, index) => {
+      const linked = state.assets.find((item) => item.id === reference.asset_id);
+      const thumbnail = reference.attachment_url || linked?.thumbnail_url || linked?.image_url || "";
+      const label = reference.role || `${t("referenceImage")} ${index + 1}`;
+      return thumbnail
+        ? `<span class="detail-reference-thumb" title="${escapeHtml(label)}"><img data-reference-thumb-img src="${escapeHtml(thumbnail)}" alt="${escapeHtml(label)}" loading="lazy" /><span class="detail-reference-thumb-fallback" data-reference-thumb-fallback aria-hidden="true">${index + 1}</span></span>`
+        : `<span class="detail-reference-thumb detail-reference-thumb-empty" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">${index + 1}</span>`;
+    }).join("");
+    return `<div class="detail-reference-block"><div class="detail-reference-summary"><span class="detail-reference-label">${t("referenceImage")}</span><span class="detail-reference-value">${escapeHtml(t("referenceCount", { count: references.length }))}</span></div><div class="detail-reference-thumbnails">${thumbnails}</div></div>`;
   }
 
   function detailPromptSectionMarkup(asset) {
@@ -174,8 +252,8 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     // upstream source has none.  This preserves the 224px composition instead
     // of letting a legacy recipe disclosure rise into the V2 first view.
     const userInstructionMarkup = `<div class="detail-prompt-subhead"><h4>${t("userInstruction")}</h4><button class="detail-copy-sub" type="button" data-action="copy-instruction" aria-label="${escapeHtml(t("userInstruction"))}"${userInstruction ? "" : " disabled"}>${COPY_ICON_SVG}</button></div><div class="prompt-box detail-instruction-box">${instructionText}</div>`;
-    const referenceRow = `<div class="detail-reference-row"><span class="detail-reference-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>${t("referenceImage")}</span><span class="detail-reference-value">${t("referenceUnused")}</span></div>`;
-    return `<section class="inspector-section detail-prompt-section" data-inspector-section="prompt"><div class="detail-prompt-head"><h3>${t("prompt")}</h3>${copyButton}</div><div class="prompt-box detail-prompt-box" role="textbox" aria-readonly="true">${promptText}</div>${promptProvenance}${userInstructionMarkup}${referenceRow}<details class="detail-disclosure"><summary>${t("recipeAndEditing")}</summary><div class="disclosure-content detail-fields">${editRecipeFieldsMarkup(asset)}<label class="field recipe-change-field"><span>${t("recipeChangeSummary")}</span><textarea data-recipe-change rows="2" placeholder="${escapeHtml(t("recipeChangePlaceholder"))}"></textarea></label><div class="recipe-save-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-recipe">${t("saveRecipe")}</button></div></div></details></section>`;
+    const referenceRow = `<div data-prompt-references>${promptReferencesMarkup(asset)}</div>`;
+    return `<section class="inspector-section detail-prompt-section" data-inspector-section="prompt"><div class="detail-prompt-head"><h3>${t("prompt")}</h3>${copyButton}</div><div class="prompt-box detail-prompt-box" role="textbox" aria-readonly="true">${promptText}</div>${promptProvenance}${userInstructionMarkup}${referenceRow}<details class="detail-disclosure"><summary>${t("recipeAndEditing")}</summary><div class="disclosure-content detail-fields">${editRecipeFieldsMarkup(asset)}<label class="field recipe-change-field"><span>${t("recipeChangeSummary")}</span><textarea data-recipe-change rows="2" placeholder="${escapeHtml(t("recipeChangePlaceholder"))}"></textarea></label><div class="recipe-save-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-recipe">${t("saveRecipe")}</button><span class="detail-autosave-status" data-autosave-status role="status" aria-live="polite"></span></div></div></details></section>`;
   }
 
   function editRecipeFieldsMarkup(asset) {
@@ -386,8 +464,8 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     if (mode === "detail") {
       return `<img class="detail-image" src="${escapeHtml(url)}" alt="${escapeHtml(title)}" title="${escapeHtml(t("viewFullImage"))}" />`;
     }
-    return `<img class="thumb" src="${escapeHtml(url)}" alt="${escapeHtml(title)}" loading="lazy" />`;
+    return `<img class="thumb" src="${escapeHtml(url)}" alt="${escapeHtml(title)}" loading="lazy"${mediaDimensionAttributes(asset)} />`;
   }
 
-  return { fileDimensionsText, fileFormatText, fileSizeText, fileAspectRatioText, formatFileSize, fileFactRowMarkup, fileFactTagMarkup, detailFavoriteButtonMarkup, detailFileSectionMarkup, detailPromptSectionMarkup, editRecipeFieldsMarkup, detailSourceSectionMarkup, detailVersionSectionMarkup, versionPickerMarkup, versionOptionLabel, detailVersionSummaryMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, detailNewVersionSectionMarkup, originalMediaCapability, originalMediaActionMarkup, detailMoreSectionMarkup, versionHistoryMarkup, recipeHistoryDisclosureMarkup, referenceRightsSummary, recipeHistoryMarkup, categoryOptions, buildSourceRows, sourceName, sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup };
+  return { fileDimensionsText, fileFormatText, fileSizeText, fileAspectRatioText, formatFileSize, fileFactRowMarkup, fileFactTagMarkup, detailFavoriteButtonMarkup, detailFileSectionMarkup, detailPromptSectionMarkup, promptReferencesMarkup, editRecipeFieldsMarkup, detailSourceSectionMarkup, detailVersionSectionMarkup, versionPickerMarkup, versionOptionLabel, detailVersionSummaryMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, detailNewVersionSectionMarkup, originalMediaCapability, originalMediaActionMarkup, detailMoreSectionMarkup, versionHistoryMarkup, recipeHistoryDisclosureMarkup, referenceRightsSummary, recipeHistoryMarkup, categoryOptions, buildSourceRows, sourceName, sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup };
 }

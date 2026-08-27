@@ -133,12 +133,18 @@ test("records a reliable capture session without inventing a generation batch", 
       imageBase64: SAMPLE_PNG_BASE64,
       mimeType: "image/jpeg",
       conversationId: "conversation-without-turn",
+      captureMode: "manual",
     },
   });
   assert.equal(created.source.capture_session_id, "chatgpt:conversation-without-turn");
   assert.equal(created.source.message_id, null);
   assert.equal(created.source.generation_batch_id, null);
-  assert.deepEqual(createOptions, { trustedSourceRoots: [join(root, "capture")], ingestMode: "automatic" });
+  assert.equal(created.source.capture_mode, "manual");
+  assert.equal(created.business_fields.auto_archived, false);
+  assert.equal(created.business_fields.capture_mode, "manual");
+  assert.ok(created.tags.includes("manual-capture"));
+  assert.equal(created.tags.includes("auto-archived"), false);
+  assert.deepEqual(createOptions, { trustedSourceRoots: [join(root, "capture")], ingestMode: "manual" });
 });
 
 test("skips suppressed web captures and removes their temporary file", async (t) => {
@@ -332,6 +338,10 @@ test("does not let a Flow-only prompt upgrade a same-image asset from another pr
   assert.equal(repeat.asset.id, first.asset.id);
   assert.equal(repeat.asset.prompt, "");
   assert.equal(repeat.asset.source?.provider, "chatgpt");
+  assert.deepEqual(
+    repeat.asset.source?.capture_occurrences?.map((entry) => entry.provider),
+    ["chatgpt", "flow"],
+  );
 });
 
 test("rejects provider values outside the exact allowlist", async () => {
@@ -512,6 +522,175 @@ test("archives a reference as a deduplicated attachment without adding a library
     assert.equal(history.snapshots[0].references[0].attachment_url, reference.attachment.attachment_url);
   } finally {
     store.close?.();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("generation contexts keep one reference blob but record every use and bind every output", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-reference-context-"));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  try {
+    await store.ensureProject("default");
+    const tempRoot = join(libraryDir, ".web-capture-tmp");
+    const referenceBytes = await noiseImage(81);
+    const saveReference = (generationContextId, capturedAt) => ingestWebCapture({
+      store,
+      tempRoot,
+      input: {
+        provider: "chatgpt",
+        isReference: true,
+        imageBytes: referenceBytes,
+        mimeType: "image/png",
+        conversationId: "context-demo",
+        messageId: `user-${generationContextId}`,
+        generationContextId,
+        capturedAt,
+      },
+    });
+    const firstReference = await saveReference("chatgpt:context-demo:gen-a", "2026-08-20T10:00:00.000Z");
+
+    const output = async (seed, generationContextId, capturedAt) => ingestWebCapture({
+      store,
+      tempRoot,
+      input: {
+        provider: "chatgpt",
+        imageBytes: await noiseImage(seed),
+        mimeType: "image/png",
+        conversationId: "context-demo",
+        messageId: generationContextId.endsWith("gen-a") ? "tool-a" : "tool-b",
+        generationContextId,
+        capturedAt,
+      },
+    });
+
+    const firstOutput = await output(82, "chatgpt:context-demo:gen-a", "2026-08-20T10:01:00.000Z");
+    const secondOutput = await output(83, "chatgpt:context-demo:gen-a", "2026-08-20T10:01:01.000Z");
+    assert.deepEqual(firstOutput.asset.references.map((item) => item.reference_id), [firstReference.attachment.id]);
+    assert.deepEqual(secondOutput.asset.references.map((item) => item.reference_id), [firstReference.attachment.id], "every output in one generation context keeps the references");
+
+    const repeatedReference = await saveReference("chatgpt:context-demo:gen-b", "2026-08-20T10:05:00.000Z");
+    assert.equal(repeatedReference.status, "skipped", "the physical reference file remains deduplicated");
+    assert.equal(repeatedReference.attachment.id, firstReference.attachment.id);
+    assert.deepEqual(repeatedReference.attachment.usages.map((usage) => usage.generation_context_id), [
+      "chatgpt:context-demo:gen-a",
+      "chatgpt:context-demo:gen-b",
+    ]);
+
+    const thirdOutput = await output(84, "chatgpt:context-demo:gen-b", "2026-08-20T10:06:00.000Z");
+    assert.deepEqual(thirdOutput.asset.references.map((item) => item.reference_id), [firstReference.attachment.id], "reusing the same reference in a later generation remains traceable");
+    assert.equal((await store.listAssets({ projectId: "default" })).length, 3, "reference usages never become gallery assets");
+  } finally {
+    store.close?.();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("deduplicated output preserves a new generation recipe and reference set", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-duplicate-recipe-"));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  try {
+    await store.ensureProject("default");
+    const tempRoot = join(libraryDir, ".web-capture-tmp");
+    const firstReference = await ingestWebCapture({
+      store,
+      tempRoot,
+      input: {
+        provider: "chatgpt",
+        isReference: true,
+        imageBytes: await noiseImage(91),
+        mimeType: "image/png",
+        conversationId: "duplicate-recipe",
+        generationContextId: "chatgpt:duplicate-recipe:gen-a",
+        capturedAt: "2026-08-20T11:00:00.000Z",
+      },
+    });
+    const outputBytes = await noiseImage(92);
+    const firstOutput = await ingestWebCapture({
+      store,
+      tempRoot,
+      input: {
+        provider: "chatgpt",
+        imageBytes: outputBytes,
+        mimeType: "image/png",
+        prompt: "first recipe prompt with cinematic lighting and detailed composition",
+        prompt_status: "generation-tool-prompt",
+        conversationId: "duplicate-recipe",
+        messageId: "tool-a",
+        generationContextId: "chatgpt:duplicate-recipe:gen-a",
+        capturedAt: "2026-08-20T11:01:00.000Z",
+      },
+    });
+    const secondReference = await ingestWebCapture({
+      store,
+      tempRoot,
+      input: {
+        provider: "chatgpt",
+        isReference: true,
+        imageBytes: await noiseImage(93),
+        mimeType: "image/png",
+        conversationId: "duplicate-recipe",
+        generationContextId: "chatgpt:duplicate-recipe:gen-b",
+        capturedAt: "2026-08-20T11:05:00.000Z",
+      },
+    });
+    const duplicateOutput = await ingestWebCapture({
+      store,
+      tempRoot,
+      input: {
+        provider: "chatgpt",
+        imageBytes: outputBytes,
+        mimeType: "image/png",
+        prompt: "second recipe prompt with rainy night atmosphere and neon reflections",
+        prompt_status: "generation-tool-prompt",
+        conversationId: "duplicate-recipe",
+        messageId: "tool-b",
+        generationContextId: "chatgpt:duplicate-recipe:gen-b",
+        capturedAt: "2026-08-20T11:06:00.000Z",
+      },
+    });
+
+    assert.equal(firstOutput.status, "imported");
+    assert.equal(duplicateOutput.status, "skipped");
+    assert.equal(duplicateOutput.recipeMerged, true);
+    assert.equal(duplicateOutput.asset.id, firstOutput.asset.id);
+    assert.deepEqual(duplicateOutput.asset.references.map((item) => item.reference_id), [secondReference.attachment.id]);
+    const history = await store.getRecipeSnapshotHistory("default", firstOutput.asset.id);
+    assert.ok(history.snapshots.some((snapshot) => snapshot.references.some((item) => item.reference_id === firstReference.attachment.id)));
+    assert.ok(history.snapshots.some((snapshot) => snapshot.references.some((item) => item.reference_id === secondReference.attachment.id)));
+    assert.ok(history.snapshots.some((snapshot) => snapshot.effective_prompt.includes("first recipe prompt")));
+    assert.ok(history.snapshots.some((snapshot) => snapshot.effective_prompt.includes("second recipe prompt")));
+    assert.ok(history.snapshots.some((snapshot) => snapshot.provenance.generation_call_id === "chatgpt:duplicate-recipe:gen-a"));
+    assert.ok(history.snapshots.some((snapshot) => snapshot.provenance.generation_call_id === "chatgpt:duplicate-recipe:gen-b"));
+    assert.equal((await store.listAssets({ projectId: "default" })).length, 1, "identical output bytes remain one gallery asset");
+  } finally {
+    store.close?.();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("small valid reference images bypass output-logo size filtering", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-small-reference-"));
+  const small = await sharp({ create: { width: 64, height: 64, channels: 4, background: { r: 24, g: 48, b: 72, alpha: 1 } } }).png().toBuffer();
+  assert.ok(small.length < 20 * 1024, "fixture must exercise the reference exception");
+  let createCalls = 0;
+  const store = {
+    createAsset: async () => { createCalls += 1; throw new Error("reference must not become an asset"); },
+    listAssets: async () => [],
+    findAssetByContentHash: async () => null,
+  };
+  try {
+    const result = await ingestWebCapture({
+      store,
+      tempRoot: join(root, "tmp"),
+      input: { provider: "chatgpt", isReference: true, imageBytes: small, mimeType: "image/png", generationContextId: "small-ref-context" },
+    });
+    assert.equal(result.status, "imported");
+    assert.equal(createCalls, 0);
+  } finally {
     await rm(root, { recursive: true, force: true });
   }
 });

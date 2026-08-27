@@ -4,7 +4,7 @@
 
 export function createAssetViewer({
   els, state, t,
-  announceGalleryStatus, selectedAsset, isVideoAsset, confirmDetailNavigation,
+  announceGalleryStatus, selectedAsset, isVideoAsset, confirmDetailNavigation, discardDetailDraft,
   isCurrentDetailSelection, assetRequestKey, currentAssetRequest, requestAssetPage,
   renderGrid, updateViewTitle, showToast, renderDetail, updateSelectedCard,
   setDetailOpen, setupMasonryLayout,
@@ -92,6 +92,7 @@ export function createAssetViewer({
     if (!await confirmDetailNavigation(id)) return;
     // Phase 5B context guard：确认期间 Detail 选择已变化时安全取消，不进入查看模式。
     if (originAssetId !== null && !isCurrentDetailSelection(originProjectId, originAssetId)) return;
+    discardDetailDraft();
     // 画廊上下文快照：真实滚动容器的 scrollTop（经 getLibraryScrollContainer 解析）；
     // requestKey 标识结果集语义，查看期间搜索/筛选/排序/项目变化时恢复自动降级。
     state.libraryReturnSnapshot = {
@@ -663,10 +664,21 @@ export function createAssetViewer({
     snapshot: null,
   };
 
+  let assetViewAssetSetSource = null;
+  let assetViewAssetIds = new Set();
+
+  function currentAssetViewAssetIds() {
+    if (assetViewAssetSetSource !== state.assets) {
+      assetViewAssetSetSource = state.assets;
+      assetViewAssetIds = new Set(state.assets.map((asset) => asset.id));
+    }
+    return assetViewAssetIds;
+  }
+
   // 缺失或失效 ID（后台刷新后不再存在于当前结果集）在导航时跳过；绝不回退到全素材，
   // 也不重新运行用户的搜索/筛选/排序条件。
   function assetViewSequenceHasAsset(id) {
-    return state.assets.some((asset) => asset.id === id);
+    return currentAssetViewAssetIds().has(id);
   }
 
   // 从 fromIndex 沿 direction（仅 -1/+1）寻找下一个仍有效的序号；找不到返回 -1（不循环首尾）。
@@ -714,7 +726,12 @@ export function createAssetViewer({
       // 晚到响应丢弃：用户已 Return、新 Viewer session 已开始或 requestKey 已变化。
       if (state.viewMode !== "asset" || session.generation !== generation || session.requestKey !== requestKey) return false;
       const previousLength = state.assets.length;
-      const incoming = (result.assets || []).filter((asset) => !state.assets.some((current) => current.id === asset.id));
+      const knownAssetIds = currentAssetViewAssetIds();
+      const incoming = (result.assets || []).filter((asset) => {
+        if (knownAssetIds.has(asset.id)) return false;
+        knownAssetIds.add(asset.id);
+        return true;
+      });
       const nextCursor = result.page?.nextCursor || null;
       const total = Number(result.page?.total || session.total);
       // 服务端没有新数据且游标未推进：终止游标，避免同一 cursor 反复请求。
@@ -750,13 +767,18 @@ export function createAssetViewer({
   // total（打开时捕获、按需加载后更新），不再使用当前已加载 ID 数——第 100 项显示 100 / 106。
   function updateAssetViewNav() {
     const ids = assetViewSequence.ids;
+    const availableIds = currentAssetViewAssetIds();
     const currentId = ids[assetViewSequence.index];
-    const validCount = ids.filter((id) => assetViewSequenceHasAsset(id)).length;
+    let validCount = 0;
+    let position = 0;
+    for (let index = 0; index < ids.length; index += 1) {
+      if (!availableIds.has(ids[index])) continue;
+      validCount += 1;
+      if (index <= assetViewSequence.index) position += 1;
+    }
     const total = Math.max(assetViewSequence.total, validCount);
-    const position = state.viewMode === "asset" && assetViewSequenceHasAsset(currentId)
-      ? ids.slice(0, assetViewSequence.index + 1).filter((id) => assetViewSequenceHasAsset(id)).length
-      : 0;
-    if (els.assetViewPosition) els.assetViewPosition.textContent = position > 0 ? `${position} / ${total}` : "—";
+    const visiblePosition = state.viewMode === "asset" && availableIds.has(currentId) ? position : 0;
+    if (els.assetViewPosition) els.assetViewPosition.textContent = visiblePosition > 0 ? `${visiblePosition} / ${total}` : "—";
     setAssetViewControlDisabled(els.assetViewPrev, !canNavigateAssetView(-1));
     setAssetViewControlDisabled(els.assetViewNext, !canNavigateAssetView(1));
   }
@@ -778,6 +800,11 @@ export function createAssetViewer({
     if (nextIndex === -1) return;
     cancelAssetViewPan();
     const id = assetViewSequence.ids[nextIndex];
+    const originProjectId = state.project;
+    const originAssetId = state.selectedId;
+    if (!await confirmDetailNavigation(id)) return;
+    if (originAssetId !== null && !isCurrentDetailSelection(originProjectId, originAssetId)) return;
+    discardDetailDraft();
     assetViewSequence.index = nextIndex;
     state.selectedId = id;
     state.detailAsset = null;

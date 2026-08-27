@@ -63,6 +63,59 @@ test("JSON group stats expose automatic source buckets for sidebar navigation", 
   );
 });
 
+test("JSON favorite toggle is serialized and does not create a recipe revision", async (t) => {
+  withoutMosaLibraryDir(t);
+  const root = await mkdtemp(join(tmpdir(), "mosa-favorite-json-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const sourcePath = join(projectRoot, "fixture.png");
+  await mkdir(projectRoot, { recursive: true });
+  await writeFile(sourcePath, "fixture", "utf8");
+  const store = createAssetStore({ projectRoot, managerDir });
+  const created = await store.createAsset({ assetId: "favorite-json", imagePath: sourcePath, favorite: false });
+  const initialHistory = await store.getRecipeSnapshotHistory("default", created.id);
+
+  const [first, second] = await Promise.all([
+    store.toggleFavorite("default", created.id),
+    store.toggleFavorite("default", created.id),
+  ]);
+  const final = await store.getAsset("default", created.id);
+  const finalHistory = await store.getRecipeSnapshotHistory("default", created.id);
+
+  assert.notEqual(first.favorite, second.favorite, "concurrent flips commit as two serialized state transitions");
+  assert.equal(final.favorite, false, "two concurrent flips return the asset to its original state");
+  assert.equal(final.updated_at, created.updated_at, "favorite does not bump content updated_at");
+  assert.equal(finalHistory.snapshots.length, initialHistory.snapshots.length, "favorite does not append recipe history");
+});
+
+test("SQLite favorite toggle is atomic and leaves content revision metadata untouched", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-favorite-sqlite-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const libraryDir = join(root, "library");
+  const sourcePath = join(projectRoot, "fixture.png");
+  await mkdir(projectRoot, { recursive: true });
+  await writeFile(sourcePath, "fixture", "utf8");
+  const store = createSqliteAssetStore({ projectRoot, managerDir, libraryDir });
+  t.after(() => store.close());
+  const created = await store.createAsset({ assetId: "favorite-sqlite", imagePath: sourcePath, favorite: false });
+  const initialHistory = await store.getRecipeSnapshotHistory("default", created.id);
+
+  const [first, second] = await Promise.all([
+    store.toggleFavorite("default", created.id),
+    store.toggleFavorite("default", created.id),
+  ]);
+  const final = await store.getAsset("default", created.id);
+  const finalHistory = await store.getRecipeSnapshotHistory("default", created.id);
+
+  assert.notEqual(first.favorite, second.favorite, "each atomic UPDATE observes the prior committed favorite value");
+  assert.equal(final.favorite, false, "two concurrent flips return the asset to its original state");
+  assert.equal(final.updated_at, created.updated_at, "favorite does not bump content updated_at");
+  assert.equal(finalHistory.snapshots.length, initialHistory.snapshots.length, "favorite does not append recipe history");
+});
+
 test("a fresh explicit options.libraryDir starts directly in SQLite", async (t) => {
   withoutMosaLibraryDir(t);
   const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));

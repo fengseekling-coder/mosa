@@ -102,14 +102,16 @@ test("6. i18n placeholder uses the V2 copy in both locales", async () => {
 test("7. the input event listener still binds #searchInput", async () => {
   const app = await readApp();
   assert.match(app, /searchInput: document\.querySelector\("#searchInput"\)/, "element lookup must keep the #searchInput ID");
-  assert.match(app, /els\.searchInput\?\.addEventListener\("input", debounce\(async \(\) => \{ state\.query = els\.searchInput\.value;/,
+  assert.match(app, /els\.searchInput\?\.addEventListener\("input", debounce\(async \(\) => \{/,
     "the debounced input listener must stay bound to els.searchInput");
+  assert.match(app, /const nextQuery = els\.searchInput\.value;/,
+    "search must snapshot the proposed value before any destructive navigation");
 });
 
 // 8. The search state field is unchanged (state.query, no new search state objects).
 test("8. the search state field is unchanged", async () => {
   const app = await readApp();
-  assert.match(app, /state\.query = els\.searchInput\.value/, "state.query remains the search state field");
+  assert.match(app, /state\.query = nextQuery/, "state.query remains the committed search state field");
   assert.doesNotMatch(app, /state\.search[A-Z]/, "no new search state fields may be introduced");
   assert.match(app, /if \(kind === "query"\) \{ state\.query = ""; if \(els\.searchInput\) els\.searchInput\.value = ""; \}/,
     "the query filter-chip clear path must stay intact");
@@ -118,8 +120,10 @@ test("8. the search state field is unchanged", async () => {
 // 9. The search algorithm, API and i18n behaviour stay locked.
 test("9. search algorithm, API and i18n behaviour stay locked", async () => {
   const [app, apiClient] = await Promise.all([readApp(), readApiClient()]);
-  assert.match(app, /debounce\(async \(\) => \{ state\.query = els\.searchInput\.value; state\.nextCursor = null;\s+\/\/ Phase 3A[^\n]*\n\s+if \(state\.viewMode === "asset"\) returnToLibrary\(\);\s+renderActiveFilters\(\); await loadAssets\(\); \}, 180\)/,
-    "the 180ms debounced query → loadAssets pipeline must stay unchanged apart from the Phase 3A exit hook");
+  assert.match(app, /if \(!await confirmDetailNavigation\(null\)\) \{\s+els\.searchInput\.value = state\.query;\s+return;\s+\}/,
+    "search must not discard an unsaved Inspector draft");
+  assert.match(app, /state\.query = nextQuery;\s+state\.nextCursor = null;[\s\S]*?renderActiveFilters\(\);\s+await loadAssets\(\);\s+\}, 180\)/,
+    "the 180ms committed query → loadAssets pipeline must remain intact");
   assert.match(apiClient, /const params = new URLSearchParams\(\{ project: request\.project, q: request\.query \}\)/,
     "the /api/assets query construction must stay unchanged");
   assert.match(apiClient, /params\.set\("limit", "100"\)/, "the page-size contract must stay unchanged");

@@ -10,6 +10,19 @@ const baseUrlEl = document.getElementById("mosaBaseUrl");
 const tokenEl = document.getElementById("mosaToken");
 const autoCaptureEl = document.getElementById("autoCapture");
 
+function normalizeBaseUrl(value) {
+  let url;
+  try {
+    url = new URL(String(value || ""));
+  } catch {
+    throw new Error("MOSA 地址无效。");
+  }
+  if (url.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(url.hostname) || url.username || url.password) {
+    throw new Error("MOSA 地址必须是 http://127.0.0.1:端口 或 http://localhost:端口。");
+  }
+  return url.origin;
+}
+
 async function load() {
   const response = await chrome.runtime.sendMessage({ type: "mosa.getSettings" });
   const settings = response?.ok ? response.settings : await chrome.storage.local.get(DEFAULTS);
@@ -24,8 +37,15 @@ document.getElementById("save").addEventListener("click", async () => {
     setStatus("旧开发 Token 已失效。请填写与当前 MOSA 服务一致的新随机 Token。", "error");
     return;
   }
+  let baseUrl;
+  try {
+    baseUrl = normalizeBaseUrl(baseUrlEl.value.trim() || DEFAULTS.mosaBaseUrl);
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : String(error), "error");
+    return;
+  }
   await chrome.storage.local.set({
-    mosaBaseUrl: baseUrlEl.value.trim() || DEFAULTS.mosaBaseUrl,
+    mosaBaseUrl: baseUrl,
     mosaToken: token,
     autoCapture: autoCaptureEl.checked,
   });
@@ -34,7 +54,13 @@ document.getElementById("save").addEventListener("click", async () => {
 
 document.getElementById("test").addEventListener("click", async () => {
   setStatus("测试中…", "success");
-  const baseUrl = (baseUrlEl.value.trim() || DEFAULTS.mosaBaseUrl).replace(/\/+$/, "");
+  let baseUrl;
+  try {
+    baseUrl = normalizeBaseUrl(baseUrlEl.value.trim() || DEFAULTS.mosaBaseUrl);
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : String(error), "error");
+    return;
+  }
   const token = tokenEl.value.trim();
   if (!token) {
     setStatus("请先填写 Ingest Token。", "error");

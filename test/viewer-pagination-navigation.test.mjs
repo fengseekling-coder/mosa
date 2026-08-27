@@ -58,6 +58,18 @@ function functionBody(source, name) {
   throw new Error(`unbalanced function body: ${name}`);
 }
 
+test("viewer navigation indexes loaded asset ids with a Set", async () => {
+  const viewer = await readApp();
+  const indexHelpers = sliceBetween(viewer, "let assetViewAssetSetSource = null;", "// 从 fromIndex 沿 direction");
+  const nav = functionBody(viewer, "updateAssetViewNav");
+
+  assert.match(indexHelpers, /new Set\(state\.assets\.map\(\(asset\) => asset\.id\)\)/);
+  assert.match(indexHelpers, /return currentAssetViewAssetIds\(\)\.has\(id\)/);
+  assert.match(nav, /const availableIds = currentAssetViewAssetIds\(\);/);
+  assert.doesNotMatch(nav, /ids\.filter\(/);
+  assert.doesNotMatch(nav, /state\.assets\.some\(/);
+});
+
 /** Strips JS line/block comments so documented intent never trips negative assertions. */
 function stripJsComments(source) {
   let output = "";
@@ -114,16 +126,25 @@ test("2. no limit=0", async () => {
   assert.doesNotMatch(load, /limit.?=.?0|"0"/, "the paging path never requests an unlimited page");
 });
 
-// 2a. Infinite gallery loading rebuilds the cards, so the actual overflow
-// element—not its non-scrolling parent—must retain the prior position.
-test("2a. gallery append restores the grid scroll position", async () => {
-  const app = await readGalleryApp();
+// 2a. Any same-result gallery refresh rebuilds the cards, so the actual
+// overflow element—not its non-scrolling parent—must retain the prior position.
+// Result-set changes are the explicit exception and start from the top.
+test("2a. gallery refresh preserves scroll unless result semantics changed", async () => {
+  const [app, apiClient] = await Promise.all([readGalleryApp(), readApiClient()]);
   const render = functionBody(app, "renderGrid");
   assert.match(render, /const scrollContainer = els\.assetGrid;/, "the grid itself owns overflow scrolling");
-  assert.match(render, /const savedScrollTop = isAppendMode \? scrollContainer\.scrollTop : null;/, "append captures the grid position before replacing cards");
+  assert.match(render, /preserveScroll = true/, "direct UI rerenders preserve the current viewport by default");
+  assert.match(render, /const savedScrollTop = \(isAppendMode \|\| preserveScroll\) \? scrollContainer\.scrollTop : null;/, "same-result refreshes and append capture the grid position before replacing cards");
   assert.doesNotMatch(render, /els\.assetGrid\?\.parentElement/, "the non-scrolling library view must not receive scroll restoration");
-  assert.match(render, /setupMasonryLayout\(\);\s*\/\/ setupMasonryLayout/, "masonry layout runs before restoration is scheduled");
+  assert.match(render, /setupMasonryLayout\(requiresFullMasonry \? \{\} : \{ cards: changedCards, full: false \}\);/, "masonry reconciliation runs before restoration is scheduled");
   assert.match(render, /requestAnimationFrame\(\(\) => \{\s*const maxScrollTop = Math\.max\(0, scrollContainer\.scrollHeight - scrollContainer\.clientHeight\);\s*scrollContainer\.scrollTop = Math\.min\(savedScrollTop, maxScrollTop\);/, "restoration waits for the post-layout frame and stays within the new scroll range");
+
+  const load = functionBody(apiClient, "loadAssets");
+  assert.match(apiClient, /let lastCommittedAssetRequestKey = null;/, "the loader tracks the last committed result-set semantics");
+  assert.match(load, /const requestKey = assetRequestKey\(request\);/);
+  assert.match(load, /const preserveScroll = options\.preserveScroll\s*\?\? \(options\.append \|\| lastCommittedAssetRequestKey === requestKey\);/, "same-query mutations preserve scroll while query/scope/sort/project changes do not");
+  assert.match(load, /renderGrid\(\{[\s\S]*?preserveScroll,[\s\S]*?\}\);/, "the loader forwards the centralized scroll policy to renderGrid");
+  assert.match(load, /lastCommittedAssetRequestKey = requestKey;/, "only an accepted request becomes the next scroll-policy baseline");
 });
 
 // 3. The Viewer total comes from state.pageTotal at open time.
@@ -138,7 +159,7 @@ test("4. position renders against session total", async () => {
   const app = await readApp();
   const nav = functionBody(app, "updateAssetViewNav");
   assert.match(nav, /const total = Math\.max\(assetViewSequence\.total, validCount\);/, "total resolves from the stable session total");
-  assert.match(nav, /els\.assetViewPosition\.textContent = position > 0 \? `\$\{position\} \/ \$\{total\}` : "—"/, "position output uses the session total");
+  assert.match(nav, /els\.assetViewPosition\.textContent = visiblePosition > 0 \? `\$\{visiblePosition\} \/ \$\{total\}` : "—"/, "position output uses the session total");
 });
 
 // 5. Next stays available at the loaded boundary while a next page exists.
@@ -190,7 +211,8 @@ test("8. advances to item 101 after boundary load", async () => {
 test("9. new assets append deduplicated", async () => {
   const app = await readApp();
   const load = functionBody(app, "loadNextAssetViewPage");
-  assert.match(load, /\.filter\(\(asset\) => !state\.assets\.some\(\(current\) => current\.id === asset\.id\)\)/, "incoming ids dedupe against loaded assets");
+  assert.match(load, /const knownAssetIds = currentAssetViewAssetIds\(\);/, "incoming ids dedupe against the loaded-id index");
+  assert.match(load, /if \(knownAssetIds\.has\(asset\.id\)\) return false;\s*knownAssetIds\.add\(asset\.id\);/, "the filter also blocks duplicates within the same page");
   assert.match(load, /state\.assets = state\.assets\.concat\(incoming\);/, "appended at the tail preserves server order");
   assert.match(load, /session\.ids = session\.ids\.concat\(incoming\.map\(\(asset\) => asset\.id\)\)/, "only new ids enter the session sequence");
 });
@@ -302,7 +324,7 @@ test("21. gallery cursor syncs", async () => {
 test("22. no duplicate ids", async () => {
   const app = await readApp();
   const load = stripJsComments(functionBody(app, "loadNextAssetViewPage"));
-  assert.match(load, /!state\.assets\.some\(\(current\) => current\.id === asset\.id\)/, "incoming filters out loaded ids");
+  assert.match(load, /knownAssetIds\.has\(asset\.id\)/, "incoming filters out loaded ids through the Set index");
   assert.match(load, /incoming\.map\(\(asset\) => asset\.id\)/, "only new ids are appended to the session");
 });
 

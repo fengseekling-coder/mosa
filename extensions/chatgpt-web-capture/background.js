@@ -159,7 +159,9 @@ async function ingestToMosa(payload = {}) {
         pageUrl: payload.pageUrl || "",
         conversationId: payload.conversationId || "",
         messageId: payload.messageId || "",
+        generationContextId: payload.generationContextId || "",
         model: payload.model || "",
+        captureMode: payload.captureMode === "manual" ? "manual" : "automatic",
         capturedAt: payload.capturedAt || new Date().toISOString(),
         extensionVersion: chrome.runtime.getManifest().version,
       }),
@@ -236,11 +238,13 @@ async function refreshContextMenus() {
     id: "mosa-save-image",
     title: "保存图片到 MOSA",
     contexts: ["image"],
-  });
-  chrome.contextMenus.create({
-    id: "mosa-save-image-prompt",
-    title: "保存图片并提取 Prompt",
-    contexts: ["image"],
+    documentUrlPatterns: [
+      "https://chatgpt.com/*",
+      "https://chat.openai.com/*",
+      "https://gemini.google.com/*",
+      "https://labs.google/*",
+      "https://aistudio.google.com/*",
+    ],
   });
 }
 
@@ -258,20 +262,20 @@ chrome.storage?.onChanged?.addListener((changes, area) => {
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab?.id) return;
   try {
-    await chrome.tabs.sendMessage(tab.id, { type: "mosa.capture.togglePanel" });
+    const response = await chrome.tabs.sendMessage(tab.id, { type: "mosa.capture.togglePanel" });
+    if (!response?.ok) await chrome.runtime.openOptionsPage();
   } catch {
-    // Page is not ready or not a supported ChatGPT tab.
+    // Google adapters intentionally keep no floating panel; settings are the
+    // useful fallback instead of making the toolbar click a silent no-op.
+    await chrome.runtime.openOptionsPage();
   }
 });
 
 chrome.contextMenus?.onClicked?.addListener(async (info, tab) => {
   if (!tab?.id) return;
-  const captureType = info.menuItemId === "mosa-save-image-prompt"
-    ? "mosa.capture.saveImageWithPrompt"
-    : "mosa.capture.saveImage";
   try {
     await chrome.tabs.sendMessage(tab.id, {
-      type: captureType,
+      type: "mosa.capture.saveImageWithPrompt",
       imageUrl: info.srcUrl || "",
     });
   } catch {

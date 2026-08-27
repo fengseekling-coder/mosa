@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MOSA Web Capture",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Archive generated images from ChatGPT, Gemini, Flow, and Google AI Studio to local MOSA.",
   "permissions": ["storage", "activeTab", "contextMenus"],
   "host_permissions": [

@@ -132,17 +132,18 @@ test("22-23. focus restoration with safe fallbacks", async () => {
   assert.doesNotMatch(restore, /document\.body\.focus/, "focus never lands on body");
 });
 
-// 24-25. Anchored overlays close through the public manager API before the dialog opens.
-test("24-25. anchored overlays close through the public API before opening", async () => {
+// 24-25. Existing surfaces close through the shared wrapper before the dialog opens.
+test("24-25. filter/settings surfaces close before opening", async () => {
   const app = await readApp();
   const confirmDialog = await readConfirmDialog();
   const request = functionSlice(confirmDialog, "requestConfirmation");
   const closeFilter = request.indexOf('closePanel(els.filterPanel, els.filterToggle, "confirm-dialog")');
   const closeSettings = request.indexOf('closePanel(els.settingsMenu, els.settingsToggle, "confirm-dialog")');
   const open = request.indexOf('els.confirmDialog.classList.add("open")');
-  assert.ok(closeFilter > -1 && closeSettings > -1, "Filter and Settings close via the Phase 5A public wrapper");
-  assert.ok(closeFilter < open && closeSettings < open, "overlays close before the dialog opens");
-  assert.match(app, /anchoredOverlayManager\.close\(overlayId, reason\)/, "closePanel keeps routing into the shared manager");
+  assert.ok(closeFilter > -1 && closeSettings > -1, "Filter and Settings close via the shared closePanel wrapper");
+  assert.ok(closeFilter < open && closeSettings < open, "surfaces close before the dialog opens");
+  assert.match(app, /function closePanel\(panel, trigger, reason = "escape"\)[\s\S]*?panel\.hidden = true;[\s\S]*?trigger\?\.setAttribute\("aria-expanded", "false"\)/,
+    "closePanel no longer depends on the retired anchored-overlay manager");
 });
 
 // 26-29. window.confirm is gone; batch archive confirms on a selection snapshot.
@@ -186,45 +187,42 @@ test("32-35. restricted regenerate keeps warning semantics", async () => {
   assert.ok(confirm < cancel && cancel < clipboard, "Cancel never writes the clipboard; Confirm reuses regenerationInstruction");
 });
 
-// 36-42. confirmDetailNavigation is async, awaited everywhere, and restores on cancel.
+// 36-42. confirmDetailNavigation is async, awaited everywhere, and flushes the pending auto-save before navigation.
 test("36-42. async dirty-navigation guard awaited at every call site", async () => {
   const app = await readApp();
   const viewer = await readAssetView();
-  assert.match(app, /async function confirmDetailNavigation\(nextAssetId\)/, "the guard is async");
+  assert.match(app, /async function confirmDetailNavigation\(\)/, "the guard is async");
   const guard = functionSlice(app, "confirmDetailNavigation");
-  assert.match(guard, /if \(!state\.detailDirty \|\| nextAssetId === state\.selectedId\) return true;/,
-    "not dirty or same asset passes without opening the dialog");
-  assert.match(guard, /title: t\("discardChangesTitle"\)/, "uses the discard copy");
-  assert.match(guard, /tone: "danger"/, "discard keeps danger tone");
-  assert.equal(count(app, "await confirmDetailNavigation("), 2, "selectAsset and selectDetailVersion await in app.js");
-  assert.equal(count(viewer, "await confirmDetailNavigation("), 1, "openAssetView awaits in asset-view.mjs");
+  assert.match(guard, /return flushInspectorSave\(\);/,
+    "navigation flushes the pending auto-save; a failed flush returns false and blocks navigation instead of prompting to discard");
+  assert.match(app, /async function persistInspectorDraft\(panel, asset, renderId\)/, "the debounced auto-save path exists");
+  assert.ok(count(app, "await confirmDetailNavigation(") >= 2, "all app-side destructive navigation paths await the shared guard");
+  assert.equal(count(viewer, "await confirmDetailNavigation("), 2, "openAssetView and previous/next navigation await in asset-view.mjs");
   assert.doesNotMatch(app, /if \(!confirmDetailNavigation\(/, "no synchronous call site survives");
   assert.match(app, /async function selectAsset\(id, shouldScroll = false\)/, "selectAsset migrated to async");
   assert.match(viewer, /async function openAssetView\(id, trigger\)/, "openAssetView migrated to async");
   const helper = functionSlice(app, "selectDetailVersion");
   assert.match(helper, /if \(!await confirmDetailNavigation\(target\.id\)\) \{ restoreVersionPickerValue\(\); return false; \}/,
-    "Cancel restores the select value and keeps the current version");
-  assert.match(helper, /state\.selectedId = target\.id;/, "Confirm completes the version switch");
+    "a failed flush restores the select value and keeps the current version");
+  assert.match(helper, /state\.selectedId = target\.id;/, "a successful flush completes the version switch");
 });
 
 // 43-44. Context keys and stale-result guards on every async path.
 test("43-44. contextKey guards keep stale results from acting", async () => {
   const app = await readApp();
   const viewer = await readAssetView();
-  // 2026-08-18: V2-only token consolidation. The V2 design retired the
-  // batch-management affordance; the `:batch-archive` contextKey was
-  // retired alongside `batchArchive()` and `state.selectedIds`. The
-  // single-asset, restricted-regenerate, and discard-version context keys
-  // remain — they guard the surviving async paths.
+  // 2026-08-26: auto-save retired the discard-confirmation prompt, so the
+  // `:discard-version` contextKey retired with it (navigation now flushes the
+  // pending draft instead of asking permission to discard). The single-asset
+  // archive and restricted-regenerate context keys still guard their paths.
   assert.match(app, /contextKey: `\$\{asset\.project_id\}:\$\{asset\.id\}:archive-asset`/, "single archive contextKey");
   assert.match(app, /contextKey: `\$\{asset\.project_id\}:\$\{asset\.id\}:restricted-regenerate`/, "restricted regenerate contextKey");
-  assert.match(app, /contextKey: `\$\{state\.project\}:\$\{state\.selectedId\}:discard-version`/, "discard navigation contextKey");
   const selectAsset = functionSlice(app, "selectAsset");
   const openView = functionSlice(viewer, "openAssetView");
   const helper = functionSlice(app, "selectDetailVersion");
   for (const [name, body] of [["selectAsset", selectAsset], ["openAssetView", openView], ["selectDetailVersion", helper]]) {
     assert.ok(body.indexOf("await confirmDetailNavigation") < body.indexOf("isCurrentDetailSelection"),
-      `${name} rechecks the context after the confirm resolves`);
+      `${name} rechecks the context after the flush resolves`);
   }
 });
 
@@ -289,10 +287,9 @@ test("51-54. anchored overlay, viewer escape, version workflow, and return snaps
   for (let i = 1; i < positions.length; i += 1) {
     assert.ok(positions[i] > positions[i - 1], `Escape priority order: ${branches[i][1]} after ${branches[i - 1][1]}`);
   }
-  const iView = shortcuts.indexOf('if (state.viewMode === "asset") { returnToLibrary();');
-  const iDetail = shortcuts.indexOf("if (state.detailOpen) { setDetailOpen(false);");
-  assert.ok(iView > -1 && iDetail > -1, "view-mode and detail-open fallthroughs survive");
-  assert.ok(positions[positions.length - 1] < iView && iView < iDetail, "modal fallthroughs precede view-mode / detail fallthroughs");
+  const iDetailExit = shortcuts.indexOf('if (state.viewMode === "asset" || state.detailOpen) { event.preventDefault(); void closeDetailSurface(); return; }');
+  assert.ok(iDetailExit > -1, "view/detail Escape fallthrough is centralized through the dirty-safe close helper");
+  assert.ok(positions[positions.length - 1] < iDetailExit, "modal fallthroughs precede view/detail exit");
   assert.match(shortcuts, /if \(event\.defaultPrevented\) return;/, "modal trap consumption still respected");
   assert.match(app, /select\.addEventListener\("change", \(\) => selectDetailVersion\(select\.value\)\);/, "version picker delegation intact");
   assert.match(app, /selectDetailVersion\(button\.dataset\.versionId\);/, "timeline delegation intact");

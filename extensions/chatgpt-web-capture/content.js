@@ -44,6 +44,15 @@
   const capturedCandidates = new Map();
   /** Stable image identity -> best prompt rank sent to MOSA in this page session. */
   const savedPromptRanks = new Map();
+  /** Generation context + output identity pairs whose references were repaired after the output was first archived. */
+  const referenceSyncKeys = new Set();
+  /**
+   * A network-only capture can fail before the image has rendered. Once the
+   * real DOM image is available, its canvas is a different byte source and
+   * should be allowed to retry immediately instead of waiting for the generic
+   * failure cooldown.
+   */
+  const failedNetworkIdentityKeys = new Set();
   const promptUpgradeInFlight = new Set();
   const promptRecoveryTimers = new Map();
   const failedAt = new Map(); // key -> timestamp, retry after cooldown
@@ -55,6 +64,7 @@
   let autoCapture = true;
   let scanTimer = null;
   let lastUrl = location.href;
+  let lastConversationId = conversationIdFromUrl();
   let hookReady = document.documentElement?.dataset?.mosaPageHook === "1";
   let lastError = "";
   let lastStatus = "starting";
@@ -64,6 +74,22 @@
   let observer = null;
   let controlPanel = null;
   let panelDragState = null;
+
+  function resetConversationTransientState() {
+    networkMeta.splice(0, networkMeta.length);
+    recentPrompts.splice(0, recentPrompts.length);
+    imagePromptMap.clear();
+    capturedCandidates.clear();
+    conversationRefreshRequestedAt.clear();
+    for (const timers of promptRecoveryTimers.values()) {
+      for (const timer of timers) clearTimeout(timer);
+    }
+    promptRecoveryTimers.clear();
+    promptUpgradeInFlight.clear();
+    referenceSyncKeys.clear();
+    failedNetworkIdentityKeys.clear();
+    failedAt.clear();
+  }
 
   function showToast(message, isError = false) {
     let el = document.getElementById("mosa-capture-toast");
@@ -95,6 +121,9 @@
 
   function isBlockedUrl(src) {
     const lower = String(src || "").toLowerCase();
+    // Hint substrings must never scan a data URL body: base64 can contain
+    // "logo"/"icon" by chance and silently drop a real reference image.
+    if (lower.startsWith("data:")) return false;
     return BLOCK_URL_HINTS.some((hint) => lower.includes(hint));
   }
 
@@ -238,16 +267,18 @@
     return false;
   }
 
-  function isArchiveWorthyCandidate(candidate, { manual = false, byteLength = 0 } = {}) {
+  function isArchiveWorthyCandidate(candidate, { manual = false, reference = false, byteLength = 0 } = {}) {
     if (!candidate) return false;
-    if (byteLength > 0 && byteLength < MIN_BYTES) return false;
+    if (!reference && byteLength > 0 && byteLength < MIN_BYTES) return false;
     const w = candidate.width || 0;
     const h = candidate.height || 0;
-    const minEdge = manual ? 360 : MIN_EDGE;
+    // References are inputs, not output candidates. Do not reuse the output/logo
+    // threshold or legitimate thumbnails and low-resolution identity guides are lost.
+    const minEdge = reference ? 32 : manual ? 360 : MIN_EDGE;
     if (w > 0 && h > 0 && (w < minEdge || h < minEdge)) return false;
     const url = candidate.imageUrl || candidate.key || "";
     if (isBlockedUrl(url)) return false;
-    if (manual) return true;
+    if (manual || reference) return true;
     // Network-only auto candidates without dimensions: require generation CDN or blob.
     if ((!w || !h) && url && !url.startsWith("blob:") && !isLikelyGeneratedUrl(url)) return false;
     return true;
@@ -437,6 +468,7 @@
       assetId,
       promptStatus: String(item.promptStatus || item.prompt_status || ""),
       messageId: String(item.messageId || item.message_id || ""),
+      generationContextId: String(item.generationContextId || item.generation_context_id || ""),
       model: String(item.model || ""),
       capturedAt: String(item.capturedAt || new Date().toISOString()),
       via: String(item.via || "network"),
@@ -472,6 +504,15 @@
     )) || null;
   }
 
+  function findGenerationEvidenceForImage(imageUrl) {
+    const wantedKeys = imageLookupKeys(imageUrl);
+    if (!wantedKeys.length) return null;
+    return [...networkMeta].reverse().find((item) => (
+      item.isGeneration === true
+      && imageLookupKeys(item.imageUrl, item).some((key) => wantedKeys.includes(key))
+    )) || null;
+  }
+
   /**
    * Automatic capture has a stricter contract than manual save: an image must
    * be bound to a generation-tool result, rather than merely looking like a
@@ -480,8 +521,61 @@
    */
   function hasVerifiedGenerationEvidence(candidate) {
     if (isReferenceCandidate(candidate)) return false;
-    const bound = findBoundPromptForImage(candidate?.imageUrl || candidate?.key || "");
-    return Boolean(bound?.prompt && ["generation-tool-prompt", "visible-caption"].includes(bound.promptStatus));
+    return Boolean(findGenerationEvidenceForImage(candidate?.imageUrl || candidate?.key || ""));
+  }
+
+  function referenceCandidatesForGeneration(candidate) {
+    const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
+    if (!image) return [];
+    let nearestUser = null;
+    for (const user of document.querySelectorAll('[data-message-author-role="user"]')) {
+      if (user.compareDocumentPosition(image) & Node.DOCUMENT_POSITION_FOLLOWING) nearestUser = user;
+    }
+    if (!nearestUser) return [];
+    const references = [];
+    for (const img of nearestUser.querySelectorAll("img")) {
+      if (isComposerNode(img)) continue;
+      const src = img.currentSrc || img.src || "";
+      if (!src) continue;
+      references.push({
+        key: src,
+        el: img,
+        imageUrl: src.startsWith("data:") ? "" : src,
+        dataUrl: src.startsWith("data:") ? src : "",
+        width: img.naturalWidth || img.width || 0,
+        height: img.naturalHeight || img.height || 0,
+      });
+    }
+    return references.slice(0, 8);
+  }
+
+  /**
+   * Stage the uploaded images of the nearest preceding user turn as reference
+   * attachments for this generation. Already-saved references are counted but
+   * never re-uploaded — one turn can yield several outputs, and each output
+   * used to re-send every reference in full bytes. A failed optional reference
+   * stays non-fatal and quiet; the count marks the generation as
+   * reference-bearing so a sibling output archived before the first reference
+   * still gets its recipe repaired server-side.
+   */
+  async function stageGenerationReferences(candidate) {
+    const evidence = findGenerationEvidenceForImage(candidate?.imageUrl || candidate?.key || "");
+    if (!evidence) return { generationContextId: "", stagedReferences: 0 };
+    const generationContextId = evidence.generationContextId || "";
+    let stagedReferences = 0;
+    for (const reference of referenceCandidatesForGeneration(candidate)) {
+      try {
+        if (isSavedCandidate(reference)) {
+          stagedReferences += 1;
+          continue;
+        }
+        const result = await ingestCandidate(reference, { silentSkip: true, reason: "auto-reference", generationContextId });
+        if (result) stagedReferences += 1;
+      } catch {
+        // A failed optional reference must not block the generated output.
+      }
+    }
+    return { generationContextId, stagedReferences };
   }
 
   function promptQuality(promptStatus, prompt) {
@@ -736,7 +830,7 @@
         userMessage,
         via: `bound:${bound.via || "network"}`,
       });
-      return { ...built, model: bound.model || "", messageId: bound.messageId || "" };
+      return { ...built, model: bound.model || "", messageId: bound.messageId || "", generationContextId: bound.generationContextId || "" };
     }
 
     // Cached ChatGPT routes can render an image without replaying the
@@ -750,7 +844,7 @@
         userMessage,
         via: "dom-message-caption",
       });
-      return { ...built, model: "", messageId: messageIdForCandidate(candidate) };
+      return { ...built, model: "", messageId: messageIdForCandidate(candidate), generationContextId: "" };
     }
 
     // Only use a very recent unbound prompt (same generation turn), never session-global best.
@@ -762,7 +856,7 @@
         userMessage,
         via: `recent:${recent.via || "network"}`,
       });
-      return { ...built, model: recent.model || "", messageId: recent.messageId || "" };
+      return { ...built, model: recent.model || "", messageId: recent.messageId || "", generationContextId: recent.generationContextId || "" };
     }
 
     const built = buildStoredPrompt({
@@ -770,7 +864,7 @@
       userMessage,
       via: "user-fallback",
     });
-    return { ...built, model: "", messageId: "" };
+    return { ...built, model: "", messageId: "", generationContextId: "" };
   }
 
   async function originalBytesFromUrl(url) {
@@ -839,16 +933,22 @@
     if (inFlight.has(key)) return false;
     if (force) return true;
     if (isSavedCandidate(candidate)) return false;
+    const domRecovered = candidate?.el instanceof HTMLImageElement
+      && candidate.el.complete
+      && candidate.el.naturalWidth > 0
+      && candidateLookupKeys(candidate).some((identity) => failedNetworkIdentityKeys.has(identity));
+    if (domRecovered) return true;
     const failed = failedAt.get(key);
     if (failed && Date.now() - failed < 8_000) return false;
     return true;
   }
 
-  async function ingestCandidate(candidate, { silentSkip = false, reason = "manual", force = false } = {}) {
+  async function ingestCandidate(candidate, { silentSkip = false, reason = "manual", force = false, generationContextId = "" } = {}) {
     const key = candidate.key || candidate.imageUrl;
     const manual = reason.startsWith("manual");
+    const reference = isReferenceCandidate(candidate) || reason === "auto-reference";
     rememberCandidate(candidate);
-    if (!canAttempt(candidate, { force: manual || force })) {
+    if (!canAttempt(candidate, { force: manual || reference || force })) {
       if (!silentSkip) {
         const saved = isSavedCandidate(candidate);
         showToast(saved ? "这张已处理过（或已入库）" : "请稍后再试（冷却中）", true);
@@ -856,7 +956,7 @@
       }
       return null;
     }
-    if (!isArchiveWorthyCandidate(candidate, { manual })) {
+    if (!isArchiveWorthyCandidate(candidate, { manual, reference })) {
       if (!manual) savedKeys.add(key);
       if (!silentSkip) showToast("已跳过：不像生成大图（logo/小图）", true);
       setStatus("跳过小图/logo");
@@ -882,7 +982,7 @@
 
       // Approximate decoded size from base64.
       const approxBytes = Math.floor((imageBase64.length || 0) * 0.75);
-      if (approxBytes > 0 && approxBytes < MIN_BYTES) {
+      if (!reference && approxBytes > 0 && approxBytes < MIN_BYTES) {
         if (!manual) savedKeys.add(key);
         if (!silentSkip) showToast(`已跳过小文件 ${(approxBytes / 1024).toFixed(0)}KB（logo）`, true);
         setStatus("跳过小文件");
@@ -905,6 +1005,8 @@
           pageUrl: location.href,
           conversationId: conversationIdFromUrl(),
           messageId: resolved.messageId,
+          generationContextId: generationContextId || resolved.generationContextId || "",
+          captureMode: manual ? "manual" : "automatic",
           capturedAt: new Date().toISOString(),
         },
       });
@@ -913,6 +1015,7 @@
       const result = response.result;
       rememberSavedCandidate(candidate);
       failedAt.delete(key);
+      for (const identity of candidateLookupKeys(candidate)) failedNetworkIdentityKeys.delete(identity);
       rememberSavedPrompt(candidate, resolved);
 
       // Capture the narrow race where metadata appeared while image bytes were
@@ -943,12 +1046,18 @@
         if (!manual) savedKeys.add(key);
       } else {
         failedAt.set(key, Date.now());
+        if (reason === "network" && !candidate.el) {
+          for (const identity of candidateLookupKeys(candidate)) failedNetworkIdentityKeys.add(identity);
+        }
       }
       // Always surface manual errors; auto stays quiet for pure size junk.
-      if (!silentSkip || !/too small|IMAGE_TOO_SMALL/i.test(msg)) {
+      // An optional reference failure never alarms the user, in either path.
+      const optionalReferenceFailure = reason === "auto-reference";
+      if (!silentSkip || (!optionalReferenceFailure && !/too small|IMAGE_TOO_SMALL/i.test(msg))) {
         showToast(msg, true);
       }
-      setStatus(`失败: ${msg.slice(0, 120)}`, true);
+      if (optionalReferenceFailure) setStatus(`参考图跳过: ${msg.slice(0, 60)}`);
+      else setStatus(`失败: ${msg.slice(0, 120)}`, true);
       throw error;
     } finally {
       inFlight.delete(key);
@@ -958,12 +1067,27 @@
   function enqueueAuto(candidate, reason) {
     if (!autoCapture) return;
     if (!isArchiveWorthyCandidate(candidate, { manual: false })) return;
-    if (!hasVerifiedGenerationEvidence(candidate)) return;
+    const evidence = findGenerationEvidenceForImage(candidate?.imageUrl || candidate?.key || "");
+    if (!evidence || isReferenceCandidate(candidate)) return;
     rememberCandidate(candidate);
     autoQueue = autoQueue
       .then(async () => {
         try {
-          await ingestCandidate(candidate, { silentSkip: true, reason });
+          const { generationContextId, stagedReferences } = await stageGenerationReferences(candidate);
+          const outputIdentity = candidateLookupKeys(candidate)[0] || candidate.key || candidate.imageUrl || "";
+          const syncKey = `${generationContextId || evidence.messageId || "legacy"}|${outputIdentity}`;
+          const needsReferenceRepair = stagedReferences > 0
+            && isSavedCandidate(candidate)
+            && !referenceSyncKeys.has(syncKey);
+          const result = await ingestCandidate(candidate, {
+            silentSkip: true,
+            reason,
+            generationContextId,
+            force: needsReferenceRepair,
+          });
+          // A forced duplicate ingest is intentional: it lets the server merge
+          // references that appeared in the DOM after the network result was archived.
+          if (needsReferenceRepair && result) referenceSyncKeys.add(syncKey);
         } catch {
           // keep queue alive
         }
@@ -1200,7 +1324,8 @@
     if (action === "save-image" || action === "save-image-with-prompt") {
       if (!target) target = currentViewportCandidate(candidates);
       if (!target) throw new Error("未找到当前可见图片");
-      const result = await ingestCandidate(target, { reason: "manual-context" });
+      const { generationContextId } = await stageGenerationReferences(target);
+      const result = await ingestCandidate(target, { reason: "manual-context", generationContextId });
       return {
         action,
         attempted: 1,
@@ -1213,7 +1338,8 @@
     if (action === "save-visible") {
       const current = target || currentViewportCandidate(candidates);
       if (!current) throw new Error("未找到当前可见图片");
-      const result = await ingestCandidate(current, { reason: "manual-popup" });
+      const { generationContextId } = await stageGenerationReferences(current);
+      const result = await ingestCandidate(current, { reason: "manual-popup", generationContextId });
       return {
         action,
         attempted: 1,
@@ -1230,7 +1356,8 @@
       let firstError = null;
       for (const candidate of batch) {
         try {
-          await ingestCandidate(candidate, { silentSkip: false, reason: "manual-popup-all" });
+          const { generationContextId } = await stageGenerationReferences(candidate);
+          await ingestCandidate(candidate, { silentSkip: false, reason: "manual-popup-all", generationContextId });
           completed += 1;
         } catch (error) {
           failed += 1;
@@ -1292,7 +1419,14 @@
         return;
       }
       hookReady ||= document.documentElement?.dataset?.mosaPageHook === "1";
-      if (location.href !== lastUrl) lastUrl = location.href;
+      if (location.href !== lastUrl) {
+        lastUrl = location.href;
+        const nextConversationId = conversationIdFromUrl();
+        if (nextConversationId !== lastConversationId) {
+          lastConversationId = nextConversationId;
+          resetConversationTransientState();
+        }
+      }
       const net = networkMeta.filter((x) => x.prompt).length;
       setStatus(`${autoCapture ? "自动开" : "自动关"} · hook${hookReady ? "✓" : "…"} · 缓存${net} · 已存${savedKeys.size}`);
       if (!autoCapture && !force) return;
@@ -1300,14 +1434,19 @@
       const candidates = collectDomCandidates();
       // Size/URL only filters UI clutter. A bound generation event is required
       // before auto-save, so user uploads in ordinary chats never enter MOSA.
-      for (const candidate of candidates.slice(0, 6)) {
-        if (!canAttempt(candidate)) continue;
-        if (!isArchiveWorthyCandidate(candidate)) continue;
+      // Filter old/saved/ineligible images BEFORE applying the per-scan budget.
+      // Otherwise a long chat whose six largest images are already archived
+      // permanently starves every newer generated image below them.
+      const eligible = candidates.filter((candidate) => {
+        if (!canAttempt(candidate)) return false;
+        if (!isArchiveWorthyCandidate(candidate)) return false;
         if (candidate.el instanceof HTMLImageElement) {
-          if (!candidate.el.complete) continue;
-          if (candidate.el.naturalWidth > 0 && candidate.el.naturalWidth < MIN_EDGE) continue;
+          if (!candidate.el.complete) return false;
+          if (candidate.el.naturalWidth > 0 && candidate.el.naturalWidth < MIN_EDGE) return false;
         }
-        if (!hasVerifiedGenerationEvidence(candidate)) continue;
+        return hasVerifiedGenerationEvidence(candidate);
+      }).slice(0, 6);
+      for (const candidate of eligible) {
         enqueueAuto(candidate, "dom-scan");
       }
     }, force ? 120 : 600);
@@ -1371,16 +1510,17 @@
       if (meta.isGeneration !== true) return;
       if (!isLikelyGeneratedUrl(imageUrl)) return;
       if (enqueueDomCandidateForImage(imageUrl, "network-dom")) return;
-      if (["generation-tool-prompt", "visible-caption"].includes(meta.promptStatus) && meta.prompt) {
-        enqueueAuto({
-          key: imageUrl,
-          imageUrl,
-          dataUrl: "",
-          el: null,
-          width: 0,
-          height: 0,
-        }, "network");
-      }
+      // auto-image is emitted only for explicit image-generation provenance.
+      // Do not require the caption to arrive in the same event: ChatGPT often
+      // publishes the image first and the generation prompt later.
+      enqueueAuto({
+        key: imageUrl,
+        imageUrl,
+        dataUrl: "",
+        el: null,
+        width: 0,
+        height: 0,
+      }, "network");
     }
 
     if (data.type === "dom-image" && data.payload?.imageUrl && autoCapture) {

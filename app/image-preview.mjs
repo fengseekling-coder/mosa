@@ -59,6 +59,7 @@ export function createImagePreviewViewer({ els, state, t, announceGalleryStatus 
 
   function resetImageZoom({ announce = false } = {}) {
     clearImagePreviewPointerSession();
+    imagePreviewSuppressStageClick = false;
     const changed = Math.abs(state.imageZoom - 1) > IMAGE_PREVIEW_SCALE_EPSILON || state.imagePanX !== 0 || state.imagePanY !== 0;
     state.imageZoom = 1;
     state.imagePanX = 0;

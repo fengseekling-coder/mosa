@@ -3,7 +3,7 @@
  * Defines all context menu items and their actions
  */
 
-export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, getGroupColor, saveGroupColor }) {
+export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, confirmDetailNavigation, discardDetailDraft, getGroupColor, saveGroupColor }) {
   const { apiFetch } = apiClient;
   // getGroupColor falls back to the deterministic palette so call sites can rely
   // on a single source of truth for group colors (mirrors app.mjs colorForGroup).
@@ -34,6 +34,17 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
 
   function safeFileToken(value) {
     return String(value || "").replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "group";
+  }
+
+  async function confirmSelectedAssetMutation(assets = []) {
+    const touchesCurrent = assets.some((asset) => asset?.project_id === state.project && asset?.id === state.selectedId);
+    if (!touchesCurrent || !state.detailDirty || typeof confirmDetailNavigation !== "function") return true;
+    return confirmDetailNavigation(null);
+  }
+
+  function commitSelectedAssetMutation(assets = []) {
+    const touchesCurrent = assets.some((asset) => asset?.project_id === state.project && asset?.id === state.selectedId);
+    if (touchesCurrent && state.detailDirty && typeof discardDetailDraft === "function") discardDetailDraft();
   }
 
   // Full manifest of one group via the existing paged asset query. The cap keeps
@@ -76,7 +87,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               const newName = `${item.name} ${t("copy")}`;
               await apiFetch("/api/groups", {
                 method: "POST",
-                body: { name: newName },
+                body: { projectId: state.project, name: newName },
               });
               // The store keeps colors in the per-project palette (localStorage),
               // not in the create-group API, so duplicate the swatch here too.
@@ -177,22 +188,14 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               try {
                 await apiFetch("/api/open-folder", {
                   method: "POST",
-                  body: {
-                    path: asset.image_path,
-                    reveal: true
-                  },
+                  body: { path: asset.image_path, reveal: true },
                 });
-                showToast(t("shownInFinder"), "success");
               } catch (error) {
-                if (error.message.includes("Path not allowed")) {
-                  showToast(t("showInFinderPathNotAllowed"), "error");
-                } else if (error.message.includes("does not exist")) {
-                  showToast(t("showInFinderNotFound"), "error");
-                } else {
-                  showToast(t("showInFinderFailed"), "error");
-                }
-                throw error;
+                if (error.message.includes("Path not allowed")) throw new Error(t("showInFinderPathNotAllowed"));
+                if (error.message.includes("does not exist")) throw new Error(t("showInFinderNotFound"));
+                throw new Error(t("showInFinderFailed"));
               }
+              showToast(t("shownInFinder"), "success");
             });
           },
         },
@@ -247,6 +250,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           label: t("noGroup"),
           action: async () => {
             const assets = isMultiple ? selectedAssets : [asset];
+            if (!await confirmSelectedAssetMutation(assets)) return;
             await runAction(async () => {
               for (const a of assets) {
                 await apiFetch(`/api/assets/${encodeURIComponent(a.project_id)}/${encodeURIComponent(a.id)}`, {
@@ -254,6 +258,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
                   body: { group: "" },
                 });
               }
+              commitSelectedAssetMutation(assets);
               showToast(t("movedToGroup"), "success");
               window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
             });
@@ -269,6 +274,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             icon: `<svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="${savedColor}"/></svg>`,
             action: async () => {
               const assets = isMultiple ? selectedAssets : [asset];
+              if (!await confirmSelectedAssetMutation(assets)) return;
               await runAction(async () => {
                 for (const a of assets) {
                   await apiFetch(`/api/assets/${encodeURIComponent(a.project_id)}/${encodeURIComponent(a.id)}`, {
@@ -276,6 +282,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
                     body: { group: groupName },
                   });
                 }
+                commitSelectedAssetMutation(assets);
                 showToast(t("movedToGroup"), "success");
                 window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
               });
@@ -347,6 +354,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             tone: "danger",
           });
           if (!confirmed) return;
+          if (!await confirmSelectedAssetMutation(assets)) return;
 
           await runAction(async () => {
             for (const a of assets) {
@@ -354,6 +362,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
                 method: "POST",
               });
             }
+            commitSelectedAssetMutation(assets);
             showToast(isMultiple ? t("assetsArchived") : t("assetArchived"), "success");
             window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
           });
@@ -372,6 +381,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             tone: "danger",
           });
           if (!confirmed) return;
+          if (!await confirmSelectedAssetMutation(assets)) return;
 
           await runAction(async () => {
             for (const a of assets) {
@@ -379,6 +389,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
                 method: "DELETE",
               });
             }
+            commitSelectedAssetMutation(assets);
             showToast(isMultiple ? t("assetsDeleted") : t("assetDeleted"), "success");
             window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
           });

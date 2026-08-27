@@ -13,8 +13,8 @@ export function createConfirmDialog({ els, state, t, closePanel }) {
   // 第一个 resolver，两个不同业务绝不共享同一确认结果（重复快速点击不叠加第二个 Modal）。
   function requestConfirmation({ title = "", description = "", confirmLabel = "", cancelLabel = "", tone = "danger", returnFocus = null, contextKey = null } = {}) {
     if (confirmDialogState.pending || !els.confirmDialog) return Promise.resolve(false);
-    // 打开前：1）保存当前焦点元素；2）经 Phase 5A manager 的公开关闭能力关闭 Filter/Settings/
-    // Language（不直接修改 manager 私有 rootId/childId；reason 不触发浮层 return focus）。
+    // 打开前：1）保存当前焦点元素；2）经 Phase 5A manager 的公开关闭能力关闭 Filter/Settings
+    // （不直接修改 manager 私有状态；reason 不触发浮层 return focus）。
     confirmDialogState.triggerElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closePanel(els.filterPanel, els.filterToggle, "confirm-dialog");
     closePanel(els.settingsMenu, els.settingsToggle, "confirm-dialog");
