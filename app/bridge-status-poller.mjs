@@ -74,5 +74,19 @@ export function createBridgeStatusPoller(options = {}) {
     }
   }
 
-  return { refresh, start, stop };
+  // M6：隐藏标签页暂停定时触发（在途请求照常完成并提交，commit 的代际守卫不变）。
+  // stop 的 teardown 语义保持不可逆——resume 不复活已 stop 的实例；bfcache 恢复
+  // 由 app.mjs 重建新实例。
+  function pause() {
+    if (stopped || timer === null) return;
+    clearTimer(timer);
+    timer = null;
+  }
+
+  function resume() {
+    if (stopped) return;
+    start();
+  }
+
+  return { refresh, start, stop, pause, resume };
 }

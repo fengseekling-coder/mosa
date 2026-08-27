@@ -3,7 +3,7 @@
  * Defines all context menu items and their actions
  */
 
-export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, confirmDetailNavigation, discardDetailDraft, getGroupColor, saveGroupColor }) {
+export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, confirmDetailNavigation, discardDetailDraft, openGroupModal, getGroupColor, saveGroupColor }) {
   const { apiFetch } = apiClient;
   // getGroupColor falls back to the deterministic palette so call sites can rely
   // on a single source of truth for group colors (mirrors app.mjs colorForGroup).
@@ -226,10 +226,19 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
       action: async () => {
         const assets = isMultiple ? selectedAssets : [asset];
         await runAction(async () => {
-          for (const a of assets) {
-            await apiFetch(`/api/assets/${encodeURIComponent(a.project_id)}/${encodeURIComponent(a.id)}`, {
-              method: "PATCH",
-              body: { favorite: !a.favorite },
+          if (isMultiple) {
+            await apiFetch("/api/assets/batch", {
+              method: "POST",
+              body: {
+                action: "favorite",
+                projectId: state.project,
+                assetIds: assets.map((entry) => entry.id),
+                favorite: !asset.favorite,
+              },
+            });
+          } else {
+            await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/favorite`, {
+              method: "POST",
             });
           }
           showToast(
@@ -246,6 +255,13 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
       label: t("moveToGroup"),
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
       submenu: [
+        {
+          label: t("createGroup"),
+          action: async () => {
+            openGroupModal?.();
+          },
+        },
+        { separator: true },
         {
           label: t("noGroup"),
           action: async () => {
@@ -357,8 +373,13 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           if (!await confirmSelectedAssetMutation(assets)) return;
 
           await runAction(async () => {
-            for (const a of assets) {
-              await apiFetch(`/api/assets/${encodeURIComponent(a.project_id)}/${encodeURIComponent(a.id)}/archive`, {
+            if (isMultiple) {
+              await apiFetch("/api/assets/batch", {
+                method: "POST",
+                body: { action: "archive", projectId: state.project, assetIds: assets.map((entry) => entry.id) },
+              });
+            } else {
+              await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/archive`, {
                 method: "POST",
               });
             }
@@ -410,6 +431,13 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>',
         action: async () => {
           els.newAssetTopBtn?.click();
+        },
+      },
+      {
+        label: t("createGroup"),
+        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 11v6M9 14h6"/></svg>',
+        action: async () => {
+          openGroupModal?.();
         },
       },
       {

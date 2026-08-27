@@ -1611,13 +1611,17 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   z-index: 10000;
   min-width: 220px;
   max-width: 320px;
+  /* M4：超高菜单（如几十个分组的“移动到分组”子菜单）在视口内自行滚动，
+     底部项不再溢出不可达；positionMenu 的钳位将其钉在距顶 8px 处。 */
+  max-height: calc(100vh - 16px);
   padding: 6px;
   background: var(--app-menu);
   border: 1px solid var(--border-menu);
   border-radius: 12px;
   box-shadow: var(--shadow-popover);
   outline: none;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .context-menu-item {

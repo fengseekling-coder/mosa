@@ -42,10 +42,15 @@ export function createAssetViewer({
     if (els.assetViewScope) els.assetViewScope.textContent = currentScopeTitle();
     if (els.assetViewTitle) els.assetViewTitle.textContent = t("viewingAsset", { title });
     if (els.assetViewError) els.assetViewError.hidden = true;
-    // Phase 3B：切换素材即重置为 fit（不继承上一张的缩放位置）；同一素材的重渲染
-    // （后台刷新/语言切换）保持当前 transform 不动。
+    // Phase 3B：切换素材即重置为 fit（不继承上一张的缩放位置）；同一素材仅元数据
+    // 重渲染（收藏/语言切换）保持 transform。若同一 ID 的底层文件被替换、image_url
+    // 发生变化，则它已是新的媒体几何，必须重新加载并 fit，不能继续显示旧 src。
     if (asset.id !== assetViewStageAssetId) {
       assetViewStageAssetId = asset.id;
+      assetViewStageAssetUrl = asset.image_url;
+      resetAssetViewTransform();
+    } else if (asset.image_url !== assetViewStageAssetUrl) {
+      assetViewStageAssetUrl = asset.image_url;
       resetAssetViewTransform();
     }
     if (isVideoAsset(asset)) {
@@ -60,10 +65,11 @@ export function createAssetViewer({
     els.assetViewVideo.hidden = true;
     els.assetViewImage.hidden = false;
     els.assetViewImage.alt = title;
-    if (els.assetViewImage.dataset.assetId !== asset.id) {
+    if (els.assetViewImage.dataset.assetId !== asset.id || els.assetViewImage.dataset.assetUrl !== asset.image_url) {
       // Phase 3C 竞态防护：以素材 ID 为唯一会话键（同 URL 重复变体间导航也算切换）——
-      // src 与 ID 守卫/结算标记同步切换，晚到的旧 load/error 事件据此被识别并丢弃。
+      // src、ID 与 URL 守卫/结算标记同步切换，晚到的旧 load/error 事件据此被识别并丢弃。
       els.assetViewImage.dataset.assetId = asset.id;
+      els.assetViewImage.dataset.assetUrl = asset.image_url;
       els.assetViewImage.dataset.loadSettled = "";
       if (els.assetViewImage.getAttribute("src") !== asset.image_url) els.assetViewImage.src = asset.image_url;
       // 缓存命中时 load 事件可能不再派发，同步完成初始 fit（handleAssetViewImageLoad 幂等）；
@@ -86,7 +92,7 @@ export function createAssetViewer({
   }
 
   async function openAssetView(id, trigger) {
-    if (!id || state.batchMode || state.viewMode === "asset") return;
+    if (!id || state.viewMode === "asset") return;
     const originProjectId = state.project;
     const originAssetId = state.selectedId;
     if (!await confirmDetailNavigation(id)) return;
@@ -131,6 +137,7 @@ export function createAssetViewer({
     // Phase 3B：先清理舞台交互（wheel/pointer 监听、拖拽会话、ResizeObserver），再切回 Library。
     teardownAssetViewInteraction();
     assetViewStageAssetId = null;
+    assetViewStageAssetUrl = null;
     // Phase 3C：Viewer session 结束，清理导航序列（不落盘、不带回 Library）。
     // BUG-10：连同总数/游标/查询快照一并清空并推进 generation，晚到的分页响应据此丢弃。
     assetViewSequence.ids = [];
@@ -189,21 +196,44 @@ export function createAssetViewer({
   const ASSET_VIEW_SCALE_EPSILON = 1e-6;
   const assetViewTransform = { mode: "fit", scale: 1, offsetX: 0, offsetY: 0, isPanning: false };
   let assetViewStageAssetId = null;
+  let assetViewStageAssetUrl = null;
   let assetViewInteractionActive = false;
   let assetViewStageObserver = null;
+  let assetViewStageGeometry = null;
   let assetViewPanSession = null;
   const assetViewActivePointers = new Map();
   let assetViewPinchSession = null;
 
   // ----- 集中式纯几何 helper：事件处理器只组装输入，不复制公式 -----
   // 舞台可用几何 = content box（clientWidth/Height 去掉 padding），与 contain 语义一致。
-  function assetViewStageSize() {
+  function refreshAssetViewStageGeometry() {
     const stage = els.assetViewStage;
-    if (!stage) return { width: 0, height: 0 };
+    if (!stage) {
+      assetViewStageGeometry = { left: 0, top: 0, width: 0, height: 0 };
+      return assetViewStageGeometry;
+    }
+    const rect = stage.getBoundingClientRect();
     const styles = getComputedStyle(stage);
-    const width = stage.clientWidth - parseFloat(styles.paddingLeft) - parseFloat(styles.paddingRight);
-    const height = stage.clientHeight - parseFloat(styles.paddingTop) - parseFloat(styles.paddingBottom);
-    return { width: Math.max(0, width), height: Math.max(0, height) };
+    const paddingLeft = parseFloat(styles.paddingLeft) || 0;
+    const paddingRight = parseFloat(styles.paddingRight) || 0;
+    const paddingTop = parseFloat(styles.paddingTop) || 0;
+    const paddingBottom = parseFloat(styles.paddingBottom) || 0;
+    assetViewStageGeometry = {
+      left: rect.left + paddingLeft,
+      top: rect.top + paddingTop,
+      width: Math.max(0, stage.clientWidth - paddingLeft - paddingRight),
+      height: Math.max(0, stage.clientHeight - paddingTop - paddingBottom),
+    };
+    return assetViewStageGeometry;
+  }
+
+  function currentAssetViewStageGeometry() {
+    return assetViewStageGeometry || refreshAssetViewStageGeometry();
+  }
+
+  function assetViewStageSize() {
+    const geometry = currentAssetViewStageGeometry();
+    return { width: geometry.width, height: geometry.height };
   }
 
   function assetViewNaturalSize() {
@@ -262,16 +292,10 @@ export function createAssetViewer({
 
   // 事件坐标 → 舞台 content box 中心坐标系（transform 锚点坐标系）。
   function assetViewStagePointer(clientX, clientY) {
-    const stage = els.assetViewStage;
-    if (!stage) return { x: 0, y: 0 };
-    const rect = stage.getBoundingClientRect();
-    const styles = getComputedStyle(stage);
-    const paddingLeft = parseFloat(styles.paddingLeft);
-    const paddingTop = parseFloat(styles.paddingTop);
-    const size = assetViewStageSize();
+    const geometry = currentAssetViewStageGeometry();
     return {
-      x: clientX - rect.left - paddingLeft - size.width / 2,
-      y: clientY - rect.top - paddingTop - size.height / 2,
+      x: clientX - geometry.left - geometry.width / 2,
+      y: clientY - geometry.top - geometry.height / 2,
     };
   }
 
@@ -404,6 +428,7 @@ export function createAssetViewer({
     if (image.dataset.assetId !== state.selectedId) return;
     if (image.dataset.loadSettled === "error") return;
     image.dataset.loadSettled = "load";
+    refreshAssetViewStageGeometry();
     // 元素几何=自然尺寸，transform scale 以此为唯一基准（rendered = natural × scale）。
     image.style.width = `${image.naturalWidth}px`;
     image.style.height = `${image.naturalHeight}px`;
@@ -429,6 +454,9 @@ export function createAssetViewer({
     if (event.pointerType === "mouse" && (!event.isPrimary || event.button !== 0)) return;
     if (event.target.closest(".asset-view-controls")) return;
     if (assetViewActivePointers.has(event.pointerId)) return;
+    // Cache the content-box geometry once per gesture. Pointer moves then stay
+    // on the pure-math path instead of repeatedly forcing style/layout reads.
+    refreshAssetViewStageGeometry();
     if (!assetViewActivePointers.size) cancelAssetViewPan();
     const pointer = { pointerId: event.pointerId, pointerType: event.pointerType, clientX: event.clientX, clientY: event.clientY };
     assetViewActivePointers.set(event.pointerId, pointer);
@@ -607,6 +635,7 @@ export function createAssetViewer({
   // 仅重新 clamp，不自动跳回 fit。回调只写 transform，不改变舞台尺寸，不自触发循环。
   function handleAssetViewStageResize() {
     if (state.viewMode !== "asset" || !assetViewImageReady()) return;
+    refreshAssetViewStageGeometry();
     if (assetViewTransform.mode === "fit") {
       assetViewTransform.scale = currentAssetFitScale();
       assetViewTransform.offsetX = 0;
@@ -625,6 +654,7 @@ export function createAssetViewer({
     const stage = els.assetViewStage;
     if (assetViewInteractionActive || !stage) return;
     assetViewInteractionActive = true;
+    refreshAssetViewStageGeometry();
     stage.addEventListener("wheel", handleAssetViewWheel, { passive: false });
     stage.addEventListener("pointerdown", handleAssetViewPointerDown);
     stage.addEventListener("pointermove", handleAssetViewPointerMove);
@@ -646,6 +676,7 @@ export function createAssetViewer({
     stage.removeEventListener("pointercancel", handleAssetViewPointerEnd);
     assetViewStageObserver?.disconnect();
     assetViewStageObserver = null;
+    assetViewStageGeometry = null;
   }
 
   // ===== 专用大图素材导航（Phase 3C / F-04） =====

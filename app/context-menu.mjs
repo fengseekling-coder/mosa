@@ -111,7 +111,7 @@ export function createContextMenu() {
     // Focus the first enabled item
     requestAnimationFrame(() => {
       const firstItem = menu.querySelector(".context-menu-item:not(.disabled)");
-      firstItem?.focus();
+      firstItem?.focus({ preventScroll: true });
     });
 
     // Setup event listeners
@@ -122,20 +122,32 @@ export function createContextMenu() {
     };
 
     const keyHandler = (e) => {
+      // M1：菜单打开期间键盘语义归菜单独占。捕获阶段先于应用级路由（冒泡）执行，
+      // stopPropagation 阻断后者——一次 Escape 只关菜单（不再连带关 Inspector），
+      // 方向键只移动菜单焦点（不再同时切换画廊选中素材）。
+      e.stopPropagation();
       const activeMenu = document.activeElement?.closest?.(".context-menu") || menu;
       handleKeyDown(e, activeMenu);
     };
 
+    // M4：菜单为 fixed 定位，锚点滚动/视口缩放后位置与所指目标脱节，直接关闭。
+    // scroll 事件不冒泡，window 捕获阶段监听才能覆盖画廊内部滚动容器。
+    const dismissOnAnchorShift = () => hide();
+
     setTimeout(() => {
       document.addEventListener("click", closeHandler);
       document.addEventListener("contextmenu", closeHandler);
-      document.addEventListener("keydown", keyHandler);
+      document.addEventListener("keydown", keyHandler, { capture: true });
+      window.addEventListener("scroll", dismissOnAnchorShift, { capture: true });
+      window.addEventListener("resize", dismissOnAnchorShift);
     }, 0);
 
     menu._cleanup = () => {
       document.removeEventListener("click", closeHandler);
       document.removeEventListener("contextmenu", closeHandler);
-      document.removeEventListener("keydown", keyHandler);
+      document.removeEventListener("keydown", keyHandler, { capture: true });
+      window.removeEventListener("scroll", dismissOnAnchorShift, { capture: true });
+      window.removeEventListener("resize", dismissOnAnchorShift);
       if (onClose) onClose();
     };
   }
@@ -291,6 +303,11 @@ export function createContextMenu() {
     if (restoreFocus) focusContextTarget(returnTarget);
   }
 
+  // M1：菜单是否打开。应用级键盘路由以此让位（见 app.mjs setupKeyboardShortcuts）。
+  function isOpen() {
+    return currentMenu !== null && currentMenu.isConnected;
+  }
+
   function focusContextTarget(target) {
     if (!(target instanceof HTMLElement) || !target.isConnected) return false;
     const focusTarget = target.matches("button, input, select, textarea, [tabindex]")
@@ -301,5 +318,5 @@ export function createContextMenu() {
     return true;
   }
 
-  return { show, hide };
+  return { show, hide, isOpen };
 }

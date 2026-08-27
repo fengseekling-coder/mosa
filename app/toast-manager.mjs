@@ -218,14 +218,13 @@ export function createToastManager(deps) {
       clearTimeout(entry.leaveTimer);
       entry.timer = null;
       entry.leaveTimer = null;
-      // Drop any pending transitionend listener so a CSS glitch doesn't fire
-      // finalize() against an entry that the manager no longer tracks.
-      if (entry.element) {
-        entry.element.replaceWith(entry.element.cloneNode(true));
-      }
       entry.state = "removed";
       entry.dismissedReason = entry.dismissedReason || reason;
+      // Removing the live node is sufficient: its transition listener lives on
+      // that node and becomes collectible with it. Replacing it with a clone and
+      // then removing the detached original leaves the clone behind as a zombie.
       entry.element?.remove();
+      entry.element = null;
     }
     entries.clear();
     for (const laneName of Object.keys(lanes)) { lanes[laneName].visible = []; lanes[laneName].pending = []; }

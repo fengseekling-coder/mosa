@@ -23,7 +23,14 @@ export function createApiClient(deps) {
     const response = await fetch(path, { method: options.method || "GET", headers: options.body ? { "content-type": "application/json" } : undefined, body: options.body ? JSON.stringify(options.body) : undefined });
     const raw = await response.text();
     let payload = {};
-    try { payload = raw ? JSON.parse(raw) : {}; } catch { if (!response.ok) throw new Error(response.statusText); }
+    try { payload = raw ? JSON.parse(raw) : {}; }
+    catch {
+      // 200 + 非法 JSON（反代/网关错误页）不得伪装成空结果——否则画廊会渲染
+      // “没有找到匹配的素材”空态而非错误态。HTTP/2 下 statusText 恒为空串，
+      // 错误消息退回状态码文本。
+      if (!response.ok) throw new Error(response.statusText || `HTTP ${response.status}`);
+      throw new Error(`Invalid JSON response (HTTP ${response.status})`);
+    }
     if (!response.ok) {
       // Carry the server's machine-readable code so callers can attribute a
       // failure to a specific form field instead of matching on prose.
