@@ -2,9 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import type { Stats } from "node:fs";
-import { homedir } from "node:os";
-import { basename, extname, join, relative, resolve, sep } from "node:path";
+import { basename, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { PIXEL_HASH_VERSION, safePixelDigest } from "./image-pixel-hash.js";
+import { resolveSourceLocations } from "./source-locations.js";
 
 const IMAGE_EXTENSIONS = new Set([".apng", ".avif", ".gif", ".jpg", ".jpeg", ".png", ".svg", ".webp"]);
 const DEFAULT_PROJECT_ID = "default";
@@ -31,7 +31,9 @@ export function createCodexImageBridge(options: { store?: Store; imagesDir?: str
   const store = options.store;
   if (!store || typeof store.createAsset !== "function" || typeof store.listAssets !== "function") throw new Error("Codex image bridge requires a MOSA store.");
   const imagesDir = resolve(options.imagesDir || store.codexImagesDir);
-  const sessionsDir = resolve(options.sessionsDir || join(homedir(), ".codex", "sessions"));
+  const { codexSessionsDir: sessionsDir } = resolveSourceLocations({
+    overrides: { codexSessionsDir: options.sessionsDir },
+  });
   const projectId = options.projectId || DEFAULT_PROJECT_ID;
   const debounceMs = options.debounceMs != null && Number.isFinite(options.debounceMs) ? Math.max(0, options.debounceMs) : 500;
   const pollIntervalMs = options.pollIntervalMs != null && Number.isFinite(options.pollIntervalMs) ? Math.max(250, options.pollIntervalMs) : 2500;
@@ -54,7 +56,9 @@ export async function reconcileCodexGeneratedImages(options: { store: Store; ima
   const { store, imagesDir: imagesDirOpt, sessionsDir: sessionsDirOpt, projectId = DEFAULT_PROJECT_ID, knownHashes: knownHashesOpt } = options;
   const root = resolve(imagesDirOpt || store.codexImagesDir);
   const candidates = await readCodexImageCandidates(root);
-  const sessionsDir = resolve(sessionsDirOpt || join(homedir(), ".codex", "sessions"));
+  const { codexSessionsDir: sessionsDir } = resolveSourceLocations({
+    overrides: { codexSessionsDir: sessionsDirOpt },
+  });
   const [activeAssets, archivedAssets] = await Promise.all([store.listAssets({ projectId }), store.listAssets({ projectId, archived: true })]);
   const allAssets = [...activeAssets, ...archivedAssets];
   const assetsBySourcePath = new Map<string, StoredAsset>();
@@ -179,7 +183,7 @@ function gcd(l: number, r: number): number { let a = Math.abs(l); let b = Math.a
 function mimeTypeForExtension(ext: string): string { return ({ ".apng": "image/apng", ".avif": "image/avif", ".gif": "image/gif", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml", ".webp": "image/webp" } as Record<string, string>)[ext] || "application/octet-stream"; }
 async function walkFiles(root: string): Promise<string[]> { let entries; try { entries = await readdir(root, { withFileTypes: true }); } catch (error: unknown) { if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return []; throw error; } const files: string[] = []; for (const entry of entries) { const entryPath = join(root, entry.name); if (entry.isDirectory()) files.push(...await walkFiles(entryPath)); else if (entry.isFile()) files.push(entryPath); } return files; }
 export async function sha256File(filePath: string): Promise<string> { return createHash("sha256").update(await readFile(filePath)).digest("hex"); }
-function isSafeChildPath(parent: string, child: string): boolean { const p = relative(parent, child); return Boolean(p) && !p.startsWith("..") && !p.includes(`..${sep}`); }
+function isSafeChildPath(parent: string, child: string): boolean { const p = relative(parent, child); return Boolean(p) && !p.startsWith("..") && !p.includes(`..${sep}`) && !isAbsolute(p); }
 function isAutomaticImportSuppressed(error: unknown): boolean { return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "AUTOMATIC_IMPORT_SUPPRESSED"); }
 function isAutomaticIngestDuplicate(error: unknown): boolean { return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "AUTOMATIC_INGEST_DUPLICATE"); }
 function automaticDuplicateReason(error: unknown): string { return (error as { identityKind?: unknown })?.identityKind === "pixel" ? "already-archived-same-pixels" : "already-archived-same-content"; }

@@ -2,10 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, watch, type FSWatcher } from "node:fs";
 import { lstat, mkdir, readFile, readdir, realpath, stat } from "node:fs/promises";
 import type { Stats } from "node:fs";
-import { homedir } from "node:os";
-import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { PIXEL_HASH_VERSION, safePixelDigest } from "./image-pixel-hash.js";
+import { resolveSourceLocations } from "./source-locations.js";
 
 const IMAGE_EXTENSIONS = new Set([".apng", ".avif", ".gif", ".jpg", ".jpeg", ".png", ".svg", ".webp"]);
 const VIDEO_EXTENSIONS = new Set([".m4v", ".mov", ".mp4", ".webm"]);
@@ -29,7 +29,10 @@ interface MediaPromptCall { toolName: string; prompt: string; contextUserPrompt:
 export function createGrokMediaBridge(options: { store?: Store; sessionsDir?: string; projectId?: string; debounceMs?: number; pollIntervalMs?: number; } = {}): Bridge {
   const store = options.store;
   if (!store || typeof store.createAsset !== "function" || typeof store.listAssets !== "function") throw new Error("Grok media bridge requires a MOSA store.");
-  const sessionsDir = resolve(options.sessionsDir || process.env.GROK_SESSIONS_DIR || join(homedir(), ".grok", "sessions"));
+  const { grokSessionsDir: sessionsDir } = resolveSourceLocations({
+    env: process.env,
+    overrides: { grokSessionsDir: options.sessionsDir },
+  });
   const projectId = options.projectId || DEFAULT_PROJECT_ID;
   const debounceMs = options.debounceMs != null && Number.isFinite(options.debounceMs) ? Math.max(0, options.debounceMs) : 500;
   const pollIntervalMs = options.pollIntervalMs != null && Number.isFinite(options.pollIntervalMs) ? Math.max(250, options.pollIntervalMs) : 2500;
@@ -132,7 +135,7 @@ export async function readGrokMediaCandidates(sessionsDir: string, rootReal: str
 
 function sessionMediaLocation(sessionsRoot: string, mediaPath: string): { sessionId: string; sessionPath: string; mediaFolder: string; mediaKind: string } | null {
   const rel = relative(resolve(sessionsRoot), resolve(mediaPath));
-  if (!rel || rel.startsWith("..") || rel.includes(`..${sep}`)) return null;
+  if (!rel || rel.startsWith("..") || rel.includes(`..${sep}`) || isAbsolute(rel)) return null;
   const parts = rel.split(sep); if (parts.length < 3) return null;
   const mediaFolder = parts[parts.length - 2]; if (!MEDIA_FOLDERS.has(mediaFolder)) return null;
   const sessionId = parts[parts.length - 3]; if (!SESSION_ID_RE.test(sessionId)) return null;
@@ -310,7 +313,7 @@ function gcd(l: number, r: number): number { let a = Math.abs(l); let b = Math.a
 function mimeTypeForExtension(ext: string): string { return ({ ".apng": "image/apng", ".avif": "image/avif", ".gif": "image/gif", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml", ".webp": "image/webp", ".mp4": "video/mp4", ".m4v": "video/x-m4v", ".mov": "video/quicktime", ".webm": "video/webm" } as Record<string, string>)[ext] || "application/octet-stream"; }
 async function walkFiles(root: string): Promise<string[]> { let entries; try { entries = await readdir(root, { withFileTypes: true }); } catch (error: unknown) { if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return []; throw error; } const files: string[] = []; for (const entry of entries) { if (entry.name.startsWith(".") || entry.name.endsWith(".lock")) continue; const entryPath = join(root, entry.name); if (entry.isSymbolicLink()) { if (!entry.isDirectory()) files.push(entryPath); continue; } if (entry.isDirectory()) files.push(...await walkFiles(entryPath)); else if (entry.isFile()) files.push(entryPath); } return files; }
 export async function sha256File(filePath: string): Promise<string> { const hash = createHash("sha256"); await pipeline(createReadStream(filePath), hash); return hash.digest("hex"); }
-function isSafeChildPath(parent: string, child: string): boolean { const p = relative(resolve(parent), resolve(child)); return Boolean(p) && !p.startsWith("..") && !p.includes(`..${sep}`); }
+function isSafeChildPath(parent: string, child: string): boolean { const p = relative(resolve(parent), resolve(child)); return Boolean(p) && !p.startsWith("..") && !p.includes(`..${sep}`) && !isAbsolute(p); }
 function isAutomaticImportSuppressed(error: unknown): boolean { return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "AUTOMATIC_IMPORT_SUPPRESSED"); }
 function isAutomaticIngestDuplicate(error: unknown): boolean { return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "AUTOMATIC_INGEST_DUPLICATE"); }
 function automaticDuplicateReason(error: unknown): string { return (error as { identityKind?: unknown })?.identityKind === "pixel" ? "already-archived-same-pixels" : "already-archived-same-content"; }

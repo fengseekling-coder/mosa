@@ -2,6 +2,19 @@
 //（REFACTORING-PLAN R1 批次 2）。
 import { CARD_TITLE_MAX, GALLERY_DENSITIES, SORT_ORDERS } from "./config.mjs";
 
+const LEADING_UI_GLYPH_TOKENS = new Set([
+  "play_circle", "play_arrow", "pause_circle", "stop_circle",
+  "more_vert", "more_horiz", "fullscreen_exit", "open_in_full",
+  "download_for_offline", "file_download", "volume_up", "volume_off",
+]);
+
+export function displayAssetTitle(asset = {}) {
+  const raw = String(asset.theme || asset.asset || asset.id || "").replace(/\s+/g, " ").trim();
+  const parts = raw.split(" ");
+  while (parts.length && LEADING_UI_GLYPH_TOKENS.has(parts[0].toLowerCase())) parts.shift();
+  return parts.join(" ").trim() || raw;
+}
+
 export function normalizeSort(value) {
   return SORT_ORDERS.includes(String(value || "")) ? String(value) : "newest";
 }
@@ -16,7 +29,7 @@ export function normalizeDensity(value) {
  * source and date; the complete prompt stays in the detail panel.
  */
 export function cardShortTitle(asset = {}) {
-  const raw = String(asset.theme || asset.asset || asset.id || "").replace(/\s+/g, " ").trim();
+  const raw = displayAssetTitle(asset);
   if (raw.length <= CARD_TITLE_MAX) return raw;
   const clipped = raw.slice(0, CARD_TITLE_MAX);
   const lastSpace = clipped.lastIndexOf(" ");

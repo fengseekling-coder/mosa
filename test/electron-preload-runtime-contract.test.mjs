@@ -61,10 +61,9 @@ test("preload path, module format, security settings, and API surface are stable
   assert.doesNotMatch(preload, /ipcRenderer\s*:/, "ipcRenderer is not exposed as an API value");
   assert.doesNotMatch(preload, /^\s*shell\s*:/m, "shell is not exposed as an API value");
   assert.doesNotMatch(preload, /openExternal|sendSync|\.send\(/, "generic IPC is not exposed");
-  // Audit fix batch 1.2 added the stage-dropped-file channel: the four original
-  // invoke channels (open-file-dialog, paste-image, set-locale, show-item-in-folder)
-  // plus the drag & drop staging channel behind getPathForFile.
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 5, "only the five invoke channels remain");
+  // The preload exposes five narrow request channels for import, locale,
+  // Finder, and drag/drop staging. Generic IPC remains unavailable.
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 5, "only the five approved invoke channels remain");
   assert.deepEqual(sortedApiKeys(preload), EXPECTED_API_KEYS);
   assert.equal(sha256(JSON.stringify(sortedApiKeys(preload))), EXPECTED_API_FINGERPRINT);
   assert.match(preload, /showItemInFolder: \(path\) => ipcRenderer\.invoke\("show-item-in-folder", path\)/);

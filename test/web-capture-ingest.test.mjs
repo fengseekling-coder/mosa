@@ -13,6 +13,7 @@ import {
   ingestWebCapture,
   WEB_CAPTURE_MAX_BODY_BYTES,
   WEB_CAPTURE_MAX_IMAGE_BYTES,
+  WEB_CAPTURE_MAX_VIDEO_BYTES,
 } from "../lib/web-capture-ingest.js";
 import { isAllowedIngestOrigin, parseAllowedIngestOrigins } from "../lib/server-security.js";
 
@@ -34,6 +35,17 @@ const LOGO_PNG_BASE64 = (
     .toBuffer()
 ).toString("base64");
 
+function sampleMp4Bytes() {
+  const bytes = Buffer.alloc(96 * 1024, 0);
+  bytes.writeUInt32BE(24, 0);
+  bytes.write("ftyp", 4, "ascii");
+  bytes.write("isom", 8, "ascii");
+  bytes.writeUInt32BE(0x200, 12);
+  bytes.write("isom", 16, "ascii");
+  bytes.write("mp42", 20, "ascii");
+  return bytes;
+}
+
 test("allows only configured extension origins for ingest routes", () => {
   const allowed = parseAllowedIngestOrigins("chrome-extension://abcdef,moz-extension://firefox");
   assert.equal(isAllowedIngestOrigin(undefined, 43517, allowed), true);
@@ -53,6 +65,79 @@ test("request body budget includes a maximum-size base64 image envelope", () => 
   }));
   assert.ok(envelopeBytes < WEB_CAPTURE_MAX_BODY_BYTES);
   assert.ok(WEB_CAPTURE_MAX_BODY_BYTES - envelopeBytes > 512 * 1024);
+});
+
+test("request body budget also covers supported generated video captures", () => {
+  const videoBase64 = Buffer.alloc(WEB_CAPTURE_MAX_VIDEO_BYTES).toString("base64");
+  const envelopeBytes = Buffer.byteLength(JSON.stringify({
+    provider: "flow",
+    mediaKind: "video",
+    mediaBase64: videoBase64,
+    mimeType: "video/mp4",
+  }));
+  assert.ok(envelopeBytes < WEB_CAPTURE_MAX_BODY_BYTES);
+});
+
+test("ingests Flow generated video bytes and dedupes them by content hash", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-video-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  t.after(() => store.close?.());
+  await store.ensureProject("default");
+  const tempRoot = join(libraryDir, ".web-capture-tmp");
+  const mediaBase64 = sampleMp4Bytes().toString("base64");
+
+  const first = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: {
+      provider: "flow",
+      mediaKind: "video",
+      mediaBase64,
+      mimeType: "video/mp4",
+      prompt: "play_circle Cinematic camera move across a futuristic city at dusk",
+      prompt_status: "provider-visible-prompt",
+      prompt_source: "flow-visible-prompt",
+      width: 1280,
+      height: 720,
+      durationSeconds: 8,
+      pageUrl: "https://labs.google/fx/tools/flow/demo",
+    },
+  });
+  assert.equal(first.status, "imported");
+  assert.equal(first.asset.source?.provider, "flow");
+  assert.equal(first.asset.source?.media_kind, "video");
+  assert.equal(first.asset.business_fields?.media_kind, "video");
+  assert.equal(first.asset.business_fields?.mime_type, "video/mp4");
+  assert.equal(first.asset.business_fields?.duration_seconds, 8);
+  assert.equal(first.asset.theme, "Cinematic camera move across a futuristic city at dusk");
+  assert.match(first.asset.asset, /\.mp4$/);
+
+  const second = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: { provider: "flow", mediaKind: "video", mediaBase64, mimeType: "video/mp4" },
+  });
+  assert.equal(second.status, "skipped");
+  assert.equal(second.reason, "already-archived-same-content");
+  assert.equal(second.asset.id, first.asset.id);
+});
+
+test("rejects video capture from unsupported providers and mismatched bytes", async () => {
+  const store = { createAsset: async () => { throw new Error("must not create"); }, listAssets: async () => [] };
+  const mediaBase64 = sampleMp4Bytes().toString("base64");
+  await assert.rejects(
+    () => ingestWebCapture({ store, tempRoot: "/tmp/mosa-video-provider", input: { provider: "chatgpt", mediaKind: "video", mediaBase64, mimeType: "video/mp4" } }),
+    (error) => error?.code === "WEB_CAPTURE_BAD_VIDEO_PROVIDER",
+  );
+  await assert.rejects(
+    () => ingestWebCapture({ store, tempRoot: "/tmp/mosa-video-mime", input: { provider: "flow", mediaKind: "video", mediaBase64: Buffer.alloc(96 * 1024).toString("base64"), mimeType: "video/mp4" } }),
+    (error) => error?.code === "WEB_CAPTURE_MIME_MISMATCH",
+  );
 });
 
 test("ingests chatgpt web capture bytes and dedupes by content hash", async () => {
@@ -84,6 +169,10 @@ test("ingests chatgpt web capture bytes and dedupes by content hash", async () =
         pageUrl: "https://chatgpt.com/c/demo",
         conversationId: "demo",
         messageId: "turn-42",
+        generationContextId: "chatgpt:demo:call-web-42",
+        providerToolCallId: "call-web-42",
+        providerResponseId: "resp-web-42",
+        providerAssetId: "file-web-42",
       },
     });
     assert.equal(first.status, "imported");
@@ -93,6 +182,13 @@ test("ingests chatgpt web capture bytes and dedupes by content hash", async () =
     assert.equal(first.asset.source?.user_message, "做一张曼谷海报");
     assert.equal(first.asset.source?.capture_session_id, "chatgpt:demo");
     assert.equal(first.asset.source?.generation_batch_id, "chatgpt:demo:turn-42");
+    assert.equal(first.asset.source?.provider_tool_call_id, "call-web-42");
+    assert.equal(first.asset.source?.provider_generation_call_id, null);
+    const [generation] = await store.listGenerationEvents("default", { captureContextId: "chatgpt:demo:call-web-42" });
+    assert.equal(generation.provider_tool_call_id, "call-web-42");
+    assert.equal(generation.provider_generation_call_id, "");
+    assert.equal(generation.provider_response_id, "resp-web-42");
+    assert.equal(generation.verification_level, "observed");
     assert.ok(first.contentHash);
 
     const second = await ingestWebCapture({
@@ -473,6 +569,7 @@ test("archives a reference as a deduplicated attachment without adding a library
         mimeType: "image/jpeg",
         user_message: "Use the uploaded photo as the exact identity reference.",
         conversationId: "reference-demo",
+        providerAssetId: "file-reference-demo",
         capturedAt: "2026-08-13T10:00:00.000Z",
       },
     });
@@ -480,6 +577,7 @@ test("archives a reference as a deduplicated attachment without adding a library
     assert.equal(reference.asset, undefined);
     assert.match(reference.attachment.id, /^ref-[a-f0-9]{24}$/);
     assert.equal(reference.attachment.conversation_id, "reference-demo");
+    assert.equal(reference.attachment.provider_asset_id, "file-reference-demo");
     assert.match(reference.attachment.attachment_url, /^\/library\/default\/references\//);
     assert.equal((await store.listAssets({ projectId: "default" })).length, 0);
     assert.deepEqual(await readFile(join(libraryDir, "reference-attachments", "default", "files", reference.attachment.file_name)), Buffer.from(SAMPLE_PNG_BASE64, "base64"));
@@ -518,6 +616,7 @@ test("archives a reference as a deduplicated attachment without adding a library
     assert.equal(generation.asset.references.length, 1);
     assert.equal(generation.asset.references[0].reference_id, reference.attachment.id);
     assert.equal(generation.asset.references[0].attachment_url, reference.attachment.attachment_url);
+    assert.equal(generation.asset.references[0].provider_asset_id, "file-reference-demo");
     const history = await store.getRecipeSnapshotHistory("default", generation.asset.id);
     assert.equal(history.snapshots[0].references[0].attachment_url, reference.attachment.attachment_url);
   } finally {
@@ -535,7 +634,7 @@ test("generation contexts keep one reference blob but record every use and bind 
     await store.ensureProject("default");
     const tempRoot = join(libraryDir, ".web-capture-tmp");
     const referenceBytes = await noiseImage(81);
-    const saveReference = (generationContextId, capturedAt) => ingestWebCapture({
+    const saveReference = (generationContextId, capturedAt, providerAssetId = "") => ingestWebCapture({
       store,
       tempRoot,
       input: {
@@ -546,10 +645,15 @@ test("generation contexts keep one reference blob but record every use and bind 
         conversationId: "context-demo",
         messageId: `user-${generationContextId}`,
         generationContextId,
+        providerAssetId,
         capturedAt,
       },
     });
     const firstReference = await saveReference("chatgpt:context-demo:gen-a", "2026-08-20T10:00:00.000Z");
+    const enrichedReference = await saveReference("chatgpt:context-demo:gen-a", "2026-08-20T10:00:01.000Z", "file-reference-a");
+    assert.equal(enrichedReference.status, "skipped", "late provider metadata enriches the existing reference instead of creating another blob");
+    assert.equal(enrichedReference.attachment.provider_asset_id, "file-reference-a");
+    assert.equal(enrichedReference.attachment.usages[0].provider_asset_id, "file-reference-a");
 
     const output = async (seed, generationContextId, capturedAt) => ingestWebCapture({
       store,
@@ -569,8 +673,11 @@ test("generation contexts keep one reference blob but record every use and bind 
     const secondOutput = await output(83, "chatgpt:context-demo:gen-a", "2026-08-20T10:01:01.000Z");
     assert.deepEqual(firstOutput.asset.references.map((item) => item.reference_id), [firstReference.attachment.id]);
     assert.deepEqual(secondOutput.asset.references.map((item) => item.reference_id), [firstReference.attachment.id], "every output in one generation context keeps the references");
+    assert.equal(firstOutput.asset.references[0].provider_asset_id, "file-reference-a");
+    assert.equal(firstOutput.asset.references[0].application_status, "observed_input");
+    assert.equal(firstOutput.asset.references[0].verification_level, "observed");
 
-    const repeatedReference = await saveReference("chatgpt:context-demo:gen-b", "2026-08-20T10:05:00.000Z");
+    const repeatedReference = await saveReference("chatgpt:context-demo:gen-b", "2026-08-20T10:05:00.000Z", "file-reference-b");
     assert.equal(repeatedReference.status, "skipped", "the physical reference file remains deduplicated");
     assert.equal(repeatedReference.attachment.id, firstReference.attachment.id);
     assert.deepEqual(repeatedReference.attachment.usages.map((usage) => usage.generation_context_id), [
@@ -580,6 +687,7 @@ test("generation contexts keep one reference blob but record every use and bind 
 
     const thirdOutput = await output(84, "chatgpt:context-demo:gen-b", "2026-08-20T10:06:00.000Z");
     assert.deepEqual(thirdOutput.asset.references.map((item) => item.reference_id), [firstReference.attachment.id], "reusing the same reference in a later generation remains traceable");
+    assert.equal(thirdOutput.asset.references[0].provider_asset_id, "file-reference-b", "relation evidence uses the provider asset ID from this generation context, not the attachment's first-ever ID");
     assert.equal((await store.listAssets({ projectId: "default" })).length, 3, "reference usages never become gallery assets");
   } finally {
     store.close?.();
@@ -663,8 +771,16 @@ test("deduplicated output preserves a new generation recipe and reference set", 
     assert.ok(history.snapshots.some((snapshot) => snapshot.references.some((item) => item.reference_id === secondReference.attachment.id)));
     assert.ok(history.snapshots.some((snapshot) => snapshot.effective_prompt.includes("first recipe prompt")));
     assert.ok(history.snapshots.some((snapshot) => snapshot.effective_prompt.includes("second recipe prompt")));
-    assert.ok(history.snapshots.some((snapshot) => snapshot.provenance.generation_call_id === "chatgpt:duplicate-recipe:gen-a"));
-    assert.ok(history.snapshots.some((snapshot) => snapshot.provenance.generation_call_id === "chatgpt:duplicate-recipe:gen-b"));
+    assert.ok(history.snapshots.some((snapshot) => snapshot.provenance.capture_context_id === "chatgpt:duplicate-recipe:gen-a"));
+    assert.ok(history.snapshots.some((snapshot) => snapshot.provenance.capture_context_id === "chatgpt:duplicate-recipe:gen-b"));
+    assert.ok(history.snapshots.every((snapshot) => snapshot.provenance.provider_generation_call_id === ""));
+    const generationEvents = await store.listGenerationEvents("default", { assetId: firstOutput.asset.id });
+    assert.equal(generationEvents.length, 2, "one deduplicated asset keeps both generation occurrences");
+    assert.deepEqual(generationEvents.map((event) => event.capture_context_id), [
+      "chatgpt:duplicate-recipe:gen-a",
+      "chatgpt:duplicate-recipe:gen-b",
+    ]);
+    assert.ok(generationEvents.every((event) => event.verification_level === "observed"));
     assert.equal((await store.listAssets({ projectId: "default" })).length, 1, "identical output bytes remain one gallery asset");
   } finally {
     store.close?.();
@@ -960,6 +1076,23 @@ test("HTTP ingest endpoint accepts chrome-extension origin with token", async (t
   assert.equal(unauthorized.status, 401);
   await unauthorized.arrayBuffer();
   assert.equal(unauthorized.headers.get("access-control-allow-origin"), "chrome-extension://abc123");
+
+  const blockedPairing = await fetch(`http://127.0.0.1:${port}/api/web-capture/pair`, {
+    method: "POST",
+    headers: { origin: "chrome-extension://other", "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(blockedPairing.status, 403);
+  await blockedPairing.arrayBuffer();
+
+  const paired = await fetch(`http://127.0.0.1:${port}/api/web-capture/pair`, {
+    method: "POST",
+    headers: { origin: "chrome-extension://abc123", "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(paired.status, 200);
+  assert.equal(paired.headers.get("access-control-allow-origin"), "chrome-extension://abc123");
+  assert.deepEqual(await paired.json(), { product: "mosa", token: "test-token" });
 
   const imported = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture`, {
     method: "POST",

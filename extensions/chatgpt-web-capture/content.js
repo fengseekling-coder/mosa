@@ -467,8 +467,12 @@
       imageKey,
       assetId,
       promptStatus: String(item.promptStatus || item.prompt_status || ""),
+      conversationId: String(item.conversationId || item.conversation_id || ""),
       messageId: String(item.messageId || item.message_id || ""),
       generationContextId: String(item.generationContextId || item.generation_context_id || ""),
+      providerToolCallId: String(item.providerToolCallId || item.provider_tool_call_id || ""),
+      providerGenerationCallId: String(item.providerGenerationCallId || item.provider_generation_call_id || ""),
+      providerResponseId: String(item.providerResponseId || item.provider_response_id || ""),
       model: String(item.model || ""),
       capturedAt: String(item.capturedAt || new Date().toISOString()),
       via: String(item.via || "network"),
@@ -519,7 +523,7 @@
    * large ChatGPT asset. User uploads and normal visual-analysis attachments
    * deliberately have no such evidence.
    */
-  function hasVerifiedGenerationEvidence(candidate) {
+  function hasObservedGenerationEvidence(candidate) {
     if (isReferenceCandidate(candidate)) return false;
     return Boolean(findGenerationEvidenceForImage(candidate?.imageUrl || candidate?.key || ""));
   }
@@ -702,12 +706,24 @@
     const places = extractPlaceHints(user);
     const trustedGeneration = generationStatus === "generation-tool-prompt";
     const visibleCaption = generationStatus === "visible-caption";
-    const genOk = gen && (trustedGeneration || visibleCaption || looksLikeGenerationCaption(gen));
+    const genOk = gen && (trustedGeneration || visibleCaption);
     const resolvedStatus = trustedGeneration
       ? "generation-tool-prompt"
       : visibleCaption
         ? "visible-caption"
-        : "generation-tool-prompt";
+        : "not-available";
+
+    // Heuristics are useful recovery evidence, but they are not provider facts.
+    // Never upgrade text merely because it looks like a generation prompt.
+    if (gen && !genOk && looksLikeGenerationCaption(gen)) {
+      return {
+        prompt: "",
+        candidatePrompt: gen,
+        promptStatus: "not-available",
+        userMessage: user,
+        promptSource: "heuristic-generation-caption",
+      };
+    }
 
     // Real generation caption that matches place intent.
     if (genOk && places.length && promptMentionsPlace(gen, places)) {
@@ -821,6 +837,7 @@
 
   function resolvePrompt(imageUrl, candidate) {
     const userMessage = userMessageForCandidate(candidate);
+    const providerAssetId = chatGptImageProxyInfo(imageUrl)?.assetId || "";
 
     const bound = findBoundPromptForImage(imageUrl);
     if (bound?.prompt) {
@@ -830,7 +847,17 @@
         userMessage,
         via: `bound:${bound.via || "network"}`,
       });
-      return { ...built, model: bound.model || "", messageId: bound.messageId || "", generationContextId: bound.generationContextId || "" };
+      return {
+        ...built,
+        model: bound.model || "",
+        conversationId: bound.conversationId || "",
+        messageId: bound.messageId || "",
+        generationContextId: bound.generationContextId || "",
+        providerToolCallId: bound.providerToolCallId || "",
+        providerGenerationCallId: bound.providerGenerationCallId || "",
+        providerResponseId: bound.providerResponseId || "",
+        providerAssetId: bound.assetId || providerAssetId,
+      };
     }
 
     // Cached ChatGPT routes can render an image without replaying the
@@ -844,7 +871,7 @@
         userMessage,
         via: "dom-message-caption",
       });
-      return { ...built, model: "", messageId: messageIdForCandidate(candidate), generationContextId: "" };
+      return { ...built, model: "", conversationId: conversationIdFromUrl(), messageId: messageIdForCandidate(candidate), generationContextId: "", providerToolCallId: "", providerGenerationCallId: "", providerResponseId: "", providerAssetId };
     }
 
     // Only use a very recent unbound prompt (same generation turn), never session-global best.
@@ -856,7 +883,17 @@
         userMessage,
         via: `recent:${recent.via || "network"}`,
       });
-      return { ...built, model: recent.model || "", messageId: recent.messageId || "", generationContextId: recent.generationContextId || "" };
+      return {
+        ...built,
+        model: recent.model || "",
+        conversationId: recent.conversationId || "",
+        messageId: recent.messageId || "",
+        generationContextId: recent.generationContextId || "",
+        providerToolCallId: recent.providerToolCallId || "",
+        providerGenerationCallId: recent.providerGenerationCallId || "",
+        providerResponseId: recent.providerResponseId || "",
+        providerAssetId: recent.assetId || providerAssetId,
+      };
     }
 
     const built = buildStoredPrompt({
@@ -864,7 +901,7 @@
       userMessage,
       via: "user-fallback",
     });
-    return { ...built, model: "", messageId: "", generationContextId: "" };
+    return { ...built, model: "", conversationId: conversationIdFromUrl(), messageId: "", generationContextId: "", providerToolCallId: "", providerGenerationCallId: "", providerResponseId: "", providerAssetId };
   }
 
   async function originalBytesFromUrl(url) {
@@ -1003,9 +1040,13 @@
           mimeType,
           imageBase64,
           pageUrl: location.href,
-          conversationId: conversationIdFromUrl(),
+          conversationId: resolved.conversationId || conversationIdFromUrl(),
           messageId: resolved.messageId,
           generationContextId: generationContextId || resolved.generationContextId || "",
+          providerToolCallId: resolved.providerToolCallId || "",
+          providerGenerationCallId: resolved.providerGenerationCallId || "",
+          providerResponseId: resolved.providerResponseId || "",
+          providerAssetId: resolved.providerAssetId || "",
           captureMode: manual ? "manual" : "automatic",
           capturedAt: new Date().toISOString(),
         },
@@ -1444,7 +1485,7 @@
           if (!candidate.el.complete) return false;
           if (candidate.el.naturalWidth > 0 && candidate.el.naturalWidth < MIN_EDGE) return false;
         }
-        return hasVerifiedGenerationEvidence(candidate);
+        return hasObservedGenerationEvidence(candidate);
       }).slice(0, 6);
       for (const candidate of eligible) {
         enqueueAuto(candidate, "dom-scan");

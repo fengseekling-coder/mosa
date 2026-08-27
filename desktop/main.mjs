@@ -3,15 +3,19 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_MOSA_DESKTOP_PORT } from "../lib/runtime-defaults.mjs";
+import { DEFAULT_MOSA_DESKTOP_PORT, MOSA_RESERVED_PRODUCTION_PORTS } from "../lib/runtime-defaults.mjs";
 import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
 import { parseDisabledBridges } from "../lib/runtime-bridges.mjs";
 import { cleanupOrphanStagedFiles, importStagingDir, stageFileForImport, STAGING_EXTENSIONS, writeStagedPng } from "../lib/import-staging.mjs";
 import { startMosaService } from "./service-manager.mjs";
 import { getDesktopText, getNotificationTextForAssetsImported } from "./notification-i18n.mjs";
+import { loadOrCreateWebCaptureToken, MOSA_WEB_CAPTURE_EXTENSION_ORIGIN } from "./web-capture-pairing.mjs";
+import { desktopPlatformAdapter } from "./platform/index.mjs";
 import { resolveAllowedFolderPath } from "../lib/server-security.js";
+import { isUrlLikePath } from "../lib/path-safety.mjs";
 
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
+const desktopPlatform = desktopPlatformAdapter();
 // The parent of this module's own directory is the application root: the
 // repository root in dev (electron desktop/main.mjs) and the app.asar root
 // when packaged. Deriving it from the module location keeps both modes on a
@@ -56,7 +60,7 @@ const guard = validateRuntimeIsolation({
   argv: isolationContext.argv,
   runtimeKind: isolationContext.runtimeKind,
   productionLibraryDir: join(homedir(), "MOSA Library"),
-  productionPorts: [43517, 43519, 43637],
+  productionPorts: MOSA_RESERVED_PRODUCTION_PORTS,
 });
 if (!guard.ok) {
   console.error(`ISOLATION_GUARD_REJECTED: ${guard.field} ${guard.reason}`);
@@ -116,8 +120,9 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
 
-  // Keep a desktop-owned runtime available after the last window closes.
-  app.on("window-all-closed", () => {});
+  // Preserve MOSA's current background-runtime behavior while keeping the OS
+  // lifecycle decision behind one desktop-platform boundary.
+  app.on("window-all-closed", () => desktopPlatform.onWindowAllClosed(app));
 
   app.on("before-quit", (event) => {
     if (shuttingDown) return;
@@ -243,10 +248,15 @@ function buildMenu() {
   ];
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
-  pruneInjectedMenuItems(menu);
-  setImmediate(() => {
-    if (Menu.getApplicationMenu() === menu) pruneInjectedMenuItems(menu);
-  });
+  if (desktopPlatform.capabilities.hideApplicationMenuBar && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setMenuBarVisibility(false);
+  }
+  if (desktopPlatform.capabilities.pruneInjectedApplicationMenuItems) {
+    pruneInjectedMenuItems(menu);
+    setImmediate(() => {
+      if (Menu.getApplicationMenu() === menu) pruneInjectedMenuItems(menu);
+    });
+  }
 }
 
 function registerIPC() {
@@ -321,7 +331,7 @@ function registerIPC() {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false, reason: "unavailable" };
     if (typeof path !== "string" || !path.trim()) return { ok: false, reason: "invalid" };
     const target = path.trim();
-    if (!isAbsolute(target) || /^[a-z][a-z0-9+.-]*:/i.test(target)) return { ok: false, reason: "invalid" };
+    if (!isAbsolute(target) || (isUrlLikePath(target) && /^[a-z][a-z0-9+.-]*:/i.test(target))) return { ok: false, reason: "invalid" };
     if (!existsSync(target)) return { ok: false, reason: "missing" };
     try {
       const allowedTarget = resolveAllowedFolderPath(target, [libraryDir]);
@@ -353,9 +363,14 @@ function openMainWindow() {
 async function createMainWindow() {
   denyBrowserPermissions();
   if (!service) {
+    const webCaptureToken = process.env.MOSA_WEB_CAPTURE_TOKEN
+      || await loadOrCreateWebCaptureToken(desktopDataDir);
+    const webCaptureOrigins = process.env.MOSA_WEB_CAPTURE_ORIGINS
+      || MOSA_WEB_CAPTURE_EXTENSION_ORIGIN;
     service = await startMosaService({
       port: desktopPort,
       libraryDir,
+      allowPortFallback: !process.env.MOSA_DESKTOP_PORT,
       importStagingRoot,
       isolationContext,
       runtimeOptions: {
@@ -366,6 +381,8 @@ async function createMainWindow() {
         // JSON fallback libraries must remain writable when MOSA is packaged.
         assetsRoot: join(libraryDir, "assets"),
         generatedImagesDir: join(libraryDir, "imports"),
+        webCaptureToken,
+        webCaptureOrigins,
         // MOSA_DISABLE_BRIDGES lets isolated runs (Task 1 verification) keep
         // the local Codex/Grok/Cowart directories invisible, so the gallery
         // reflects only the configured fixture library. Accepted names:
@@ -384,8 +401,7 @@ async function createMainWindow() {
     minWidth: 960,
     minHeight: 640,
     show: false,
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 18 },
+    ...desktopPlatform.windowOptions(),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,

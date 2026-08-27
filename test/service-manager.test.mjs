@@ -179,3 +179,52 @@ test("attaches after a port race instead of replacing the new owner", async (t) 
   await service.stop();
   assert.equal(raceOwner.listening, true);
 });
+
+test("falls back to another discovery port when the preferred port is occupied", async (t) => {
+  const root = await temporaryRoot(t, "mosa-service-fallback-");
+  const libraryDir = join(root, "library");
+  const preferredPort = await availablePort();
+  const fallbackPort = await availablePort();
+  const foreign = createServer((_req, res) => res.end("foreign listener"));
+  await listen(foreign, preferredPort);
+  t.after(() => close(foreign));
+
+  const service = await startMosaService({
+    port: preferredPort,
+    libraryDir,
+    allowPortFallback: true,
+    discoveryPorts: [preferredPort, fallbackPort],
+    runtimeOptions: runtimeOptions(root),
+  });
+  t.after(() => service.stop());
+
+  assert.equal(service.mode, "owned");
+  assert.equal(service.port, fallbackPort);
+  assert.equal(foreign.listening, true);
+  assert.equal((await fetch(`${service.url}/api/health`)).status, 200);
+});
+
+test("discovers an already-running matching MOSA on a fallback port before acquiring the library lock", async (t) => {
+  const root = await temporaryRoot(t, "mosa-service-fallback-attach-");
+  const libraryDir = join(root, "library");
+  const preferredPort = await availablePort();
+  const fallbackPort = await availablePort();
+  const server = createServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ product: "mosa", libraryDir, storage: "sqlite" }));
+  });
+  await listen(server, fallbackPort);
+  t.after(() => close(server));
+
+  const service = await startMosaService({
+    port: preferredPort,
+    libraryDir,
+    allowPortFallback: true,
+    discoveryPorts: [preferredPort, fallbackPort],
+  });
+
+  assert.equal(service.mode, "attached");
+  assert.equal(service.port, fallbackPort);
+  await service.stop();
+  assert.equal(server.listening, true);
+});

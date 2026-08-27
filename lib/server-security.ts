@@ -28,6 +28,13 @@ export function isAllowedIngestOrigin(
   return parseAllowedIngestOrigins(allowedExtensionOrigins).includes(String(origin));
 }
 
+/** Extension-only check used by explicit pairing routes. Unlike normal ingest
+ * requests, pairing must never accept an absent/local-page Origin implicitly. */
+export function isApprovedExtensionOrigin(origin: unknown, allowedExtensionOrigins: unknown = []): boolean {
+  if (!origin) return false;
+  return parseAllowedIngestOrigins(allowedExtensionOrigins).includes(String(origin));
+}
+
 export function resolveAllowedFolderPath(requestedPath: unknown, allowedPaths: unknown): string | null {
   if (typeof requestedPath !== "string" || !requestedPath.trim() || !Array.isArray(allowedPaths)) return null;
 

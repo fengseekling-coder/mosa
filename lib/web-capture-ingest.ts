@@ -40,11 +40,14 @@ const PROVIDER_CONFIG = {
 const ALLOWED_PROVIDERS = new Set(Object.keys(PROVIDER_CONFIG));
 type ProviderId = keyof typeof PROVIDER_CONFIG;
 const MIME_TO_EXT: Record<string, string> = { "image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/webp": ".webp", "image/gif": ".gif", "image/avif": ".avif" };
+const VIDEO_MIME_TO_EXT: Record<string, string> = { "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov", "video/x-m4v": ".m4v" };
+const VIDEO_PROVIDERS = new Set(["flow", "google-ai-studio"]);
 const PROMPT_STATUSES = new Set(["user-message", "visible-caption", "not-available", "generation-tool-prompt", "provider-visible-prompt"]);
 const MIME_TO_FORMATS: Record<string, Set<string>> = { "image/png": new Set(["png"]), "image/jpeg": new Set(["jpeg"]), "image/webp": new Set(["webp"]), "image/gif": new Set(["gif"]), "image/avif": new Set(["avif", "heif"]) };
 export const WEB_CAPTURE_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+export const WEB_CAPTURE_MAX_VIDEO_BYTES = 96 * 1024 * 1024;
 export const WEB_CAPTURE_MAX_IMAGE_PIXELS = 40_000_000;
-export const WEB_CAPTURE_MAX_BODY_BYTES = Math.ceil(WEB_CAPTURE_MAX_IMAGE_BYTES / 3) * 4 + 1024 * 1024;
+export const WEB_CAPTURE_MAX_BODY_BYTES = Math.ceil(Math.max(WEB_CAPTURE_MAX_IMAGE_BYTES, WEB_CAPTURE_MAX_VIDEO_BYTES) / 3) * 4 + 1024 * 1024;
 
 type Metadata = Record<string, unknown>;
 
@@ -63,13 +66,14 @@ interface Store {
   createAsset(params: Metadata, options?: Metadata): Promise<StoredAsset>;
   listAssets(filters: Metadata): Promise<StoredAsset[]>;
   updateMetadata?(projectId: string, assetId: string, metadata: Metadata): Promise<StoredAsset>;
+  recordGenerationEvent?(input: Metadata): Promise<Metadata>;
   findAssetByContentHash?(projectId: string, contentHash: string): Promise<StoredAsset | null>;
   findAssetByPixelHash?(projectId: string, pixelHash: string): Promise<StoredAsset | null>;
   libraryDir?: string;
   assetsRoot?: string;
   [key: string]: unknown;
 }
-interface WebCaptureInput { provider?: string; mimeType?: string; mime_type?: string; imageBase64?: string; image_base64?: string; imageBytes?: Buffer | Uint8Array; prompt?: string; prompt_status?: string; promptStatus?: string; prompt_source?: string; promptSource?: string; user_message?: string; userMessage?: string; pageUrl?: string; page_url?: string; conversationId?: string; conversation_id?: string; messageId?: string; message_id?: string; generationContextId?: string; generation_context_id?: string; model?: string; capturedAt?: string; captured_at?: string; captureMode?: string; capture_mode?: string; assetId?: string; is_reference?: boolean; isReference?: boolean; extensionVersion?: string; extension_version?: string; }
+interface WebCaptureInput { provider?: string; mediaKind?: string; media_kind?: string; mimeType?: string; mime_type?: string; imageBase64?: string; image_base64?: string; imageBytes?: Buffer | Uint8Array; mediaBase64?: string; media_base64?: string; mediaBytes?: Buffer | Uint8Array; width?: number; height?: number; durationSeconds?: number; duration_seconds?: number; prompt?: string; prompt_status?: string; promptStatus?: string; prompt_source?: string; promptSource?: string; user_message?: string; userMessage?: string; pageUrl?: string; page_url?: string; conversationId?: string; conversation_id?: string; messageId?: string; message_id?: string; generationContextId?: string; generation_context_id?: string; providerToolCallId?: string; provider_tool_call_id?: string; providerGenerationCallId?: string; provider_generation_call_id?: string; providerResponseId?: string; provider_response_id?: string; providerAssetId?: string; provider_asset_id?: string; model?: string; capturedAt?: string; captured_at?: string; captureMode?: string; capture_mode?: string; assetId?: string; is_reference?: boolean; isReference?: boolean; extensionVersion?: string; extension_version?: string; }
 interface IngestResult { status: string; reason?: string; asset?: StoredAsset; attachment?: ReferenceAttachment; contentHash: string; upgraded?: boolean; recipeMerged?: boolean; }
 interface WebCaptureIngest { ingest(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; status(): Record<string, unknown>; assertToken(provided: string): void; readReference(projectId: string, fileName: string): Promise<{ stream: NodeJS.ReadableStream; fileName: string }>; tempRoot: string; token: string; }
 
@@ -103,6 +107,9 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
   const { store, tempRoot, projectId = DEFAULT_PROJECT_ID, input = {} } = options;
   const provider = String(input.provider || "").trim().toLowerCase();
   if (!ALLOWED_PROVIDERS.has(provider)) { const e = new Error(`Unsupported provider: ${provider || "(empty)"}.`) as Error & { statusCode: number; code: string }; e.statusCode = 400; e.code = "WEB_CAPTURE_BAD_PROVIDER"; throw e; }
+  const mediaKind = String(input.mediaKind || input.media_kind || "image").trim().toLowerCase();
+  if (mediaKind === "video") return ingestWebVideoCapture({ ...options, projectId, input, provider });
+  if (mediaKind !== "image") throw webCaptureError(`Unsupported media kind: ${mediaKind}.`, 400, "WEB_CAPTURE_BAD_MEDIA_KIND");
   const providerConfig = PROVIDER_CONFIG[provider as ProviderId];
   const mimeType = normalizeMime(input.mimeType || input.mime_type || "image/png"); const ext = MIME_TO_EXT[mimeType];
   if (!ext) { const e = new Error(`Unsupported image mime type: ${mimeType}`) as Error & { statusCode: number; code: string }; e.statusCode = 400; e.code = "WEB_CAPTURE_BAD_MIME"; throw e; }
@@ -134,6 +141,10 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
   const pageUrl = String(input.pageUrl || input.page_url || "").trim(); const conversationId = String(input.conversationId || input.conversation_id || "").trim();
   const messageId = String(input.messageId || input.message_id || "").trim(); const model = String(input.model || "").trim();
   const generationContextId = String(input.generationContextId || input.generation_context_id || "").trim();
+  const providerToolCallId = String(input.providerToolCallId || input.provider_tool_call_id || "").trim();
+  const providerGenerationCallId = String(input.providerGenerationCallId || input.provider_generation_call_id || "").trim();
+  const providerResponseId = String(input.providerResponseId || input.provider_response_id || "").trim();
+  const providerAssetId = String(input.providerAssetId || input.provider_asset_id || "").trim();
   const captureSessionId = conversationId ? `${provider}:${conversationId}` : "";
   const generationBatchId = captureSessionId && messageId ? `${captureSessionId}:${messageId}` : "";
   const capturedAt = String(input.capturedAt || input.captured_at || new Date().toISOString());
@@ -154,7 +165,7 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
   if (isReference) {
     const saved = await referenceStore.save({
       projectId, bytes: imageBytes, extension: ext, mimeType, width: imageMetadata.width, height: imageMetadata.height,
-      provider, pageUrl, conversationId, messageId, generationContextId, capturedAt, userMessage,
+      provider, pageUrl, conversationId, messageId, generationContextId, providerAssetId, capturedAt, userMessage,
     });
     return {
       status: saved.created ? "imported" : "skipped",
@@ -179,6 +190,10 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
       projectId,
       conversationId,
       generationContextId,
+      providerToolCallId,
+      providerGenerationCallId,
+      providerResponseId,
+      providerAssetId,
       capturedAt,
       messageId,
       prompt: duplicatePromptAllowed ? prompt : "",
@@ -197,6 +212,24 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
       provider,
     });
     const asset = upgraded || mergedRecipe.asset;
+    await recordCapturedGeneration(store, asset, {
+      projectId,
+      provider,
+      generationContextId,
+      providerToolCallId,
+      providerGenerationCallId,
+      providerResponseId,
+      providerAssetId,
+      conversationId,
+      messageId,
+      generationBatchId,
+      model,
+      userMessage,
+      prompt,
+      promptStatus: normalizedPromptStatus,
+      references: asset.references,
+      capturedAt,
+    });
     const sameBytes = asset.source?.content_sha256 === contentHash;
     return {
       status: "skipped",
@@ -237,6 +270,8 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
         auto_archived: captureMode !== "manual",
         capture_mode: captureMode,
         generation_context_id: generationContextId || null,
+        capture_context_id: generationContextId || null,
+        verification_level: "observed",
         is_reference: false,
         capture_channel: "chrome-extension",
         prompt_status: normalizedPromptStatus,
@@ -253,6 +288,12 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
         type: providerConfig.sourceType,
         capture_mode: captureMode,
         generation_context_id: generationContextId || null,
+        capture_context_id: generationContextId || null,
+        provider_tool_call_id: providerToolCallId || null,
+        provider_generation_call_id: providerGenerationCallId || null,
+        provider_response_id: providerResponseId || null,
+        provider_asset_id: providerAssetId || null,
+        verification_level: "observed",
         capture_occurrences: [captureOccurrence],
         model: model || null,
         page_url: pageUrl || null,
@@ -283,6 +324,24 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
       assetId = sanitizeAssetId(`${providerConfig.assetIdPrefix}-${contentHash.slice(0, 24)}-${randomBytes(4).toString("hex")}`, providerConfig.assetIdPrefix);
       asset = await store.createAsset({ ...assetInput, assetId }, { trustedSourceRoots: [tempRoot], ingestMode: captureMode === "manual" ? "manual" : "automatic" });
     }
+    await recordCapturedGeneration(store, asset, {
+      projectId,
+      provider,
+      generationContextId,
+      providerToolCallId,
+      providerGenerationCallId,
+      providerResponseId,
+      providerAssetId,
+      conversationId,
+      messageId,
+      generationBatchId,
+      model,
+      userMessage,
+      prompt,
+      promptStatus: normalizedPromptStatus,
+      references: asset.references,
+      capturedAt,
+    });
     return { status: "imported", asset, contentHash };
   } catch (error) {
     if (isAutomaticImportSuppressed(error)) return { status: "skipped", reason: "suppressed-after-delete", contentHash };
@@ -300,10 +359,297 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
   } finally { await rm(tempPath, { force: true }).catch(() => {}); }
 }
 
+async function ingestWebVideoCapture(options: {
+  store: Store;
+  referenceStore?: ReturnType<typeof createReferenceAttachmentStore>;
+  tempRoot: string;
+  projectId: string;
+  input: WebCaptureInput;
+  provider: string;
+}): Promise<IngestResult> {
+  const { store, tempRoot, projectId, input, provider } = options;
+  if (!VIDEO_PROVIDERS.has(provider)) throw webCaptureError(`Provider does not support web video capture: ${provider}.`, 400, "WEB_CAPTURE_BAD_VIDEO_PROVIDER");
+  if (Boolean(input.is_reference ?? input.isReference)) throw webCaptureError("Video reference capture is not supported.", 400, "WEB_CAPTURE_BAD_VIDEO_REFERENCE");
+  const providerConfig = PROVIDER_CONFIG[provider as ProviderId];
+  const mimeType = normalizeMime(input.mimeType || input.mime_type || "video/mp4");
+  const ext = VIDEO_MIME_TO_EXT[mimeType];
+  if (!ext) throw webCaptureError(`Unsupported video mime type: ${mimeType}`, 400, "WEB_CAPTURE_BAD_MIME");
+  const videoBytes = decodeMediaBytes(input);
+  if (!videoBytes.length) throw webCaptureError("mediaBase64 is required for video capture.", 400, "WEB_CAPTURE_BAD_VIDEO");
+  const MIN_VIDEO_BYTES = 64 * 1024;
+  if (videoBytes.length < MIN_VIDEO_BYTES) throw webCaptureError(`Video too small (${videoBytes.length} < ${MIN_VIDEO_BYTES}).`, 400, "WEB_CAPTURE_VIDEO_TOO_SMALL");
+  if (videoBytes.length > WEB_CAPTURE_MAX_VIDEO_BYTES) throw webCaptureError("Video exceeds 96 MiB limit.", 413, "WEB_CAPTURE_VIDEO_TOO_LARGE");
+  assertVideoContainer(videoBytes, mimeType);
+
+  const contentHash = createHash("sha256").update(videoBytes).digest("hex");
+  let prompt = String(input.prompt || "").trim();
+  const userMessage = String(input.user_message || input.userMessage || "").trim();
+  const suppliedPromptStatus = String(input.prompt_status || input.promptStatus || "").trim();
+  const promptSource = String(input.prompt_source || input.promptSource || "").trim();
+  const trustedGenerationPrompt = ["generation-tool-prompt", "visible-caption"].includes(suppliedPromptStatus);
+  const providerVisiblePrompt = suppliedPromptStatus === "provider-visible-prompt";
+  if (!trustedGenerationPrompt && !providerVisiblePrompt) prompt = "";
+  const normalizedPromptStatus = prompt && (trustedGenerationPrompt || providerVisiblePrompt)
+    ? suppliedPromptStatus
+    : "not-available";
+  const projectAssets = onceProjectListing(store, projectId);
+  const pageUrl = String(input.pageUrl || input.page_url || "").trim();
+  const conversationId = String(input.conversationId || input.conversation_id || "").trim();
+  const messageId = String(input.messageId || input.message_id || "").trim();
+  const model = String(input.model || "").trim();
+  const generationContextId = String(input.generationContextId || input.generation_context_id || "").trim();
+  const providerToolCallId = String(input.providerToolCallId || input.provider_tool_call_id || "").trim();
+  const providerGenerationCallId = String(input.providerGenerationCallId || input.provider_generation_call_id || "").trim();
+  const providerResponseId = String(input.providerResponseId || input.provider_response_id || "").trim();
+  const providerAssetId = String(input.providerAssetId || input.provider_asset_id || "").trim();
+  const captureSessionId = conversationId ? `${provider}:${conversationId}` : "";
+  const generationBatchId = captureSessionId && messageId ? `${captureSessionId}:${messageId}` : "";
+  const capturedAt = String(input.capturedAt || input.captured_at || new Date().toISOString());
+  const captureMode = String(input.captureMode || input.capture_mode || "automatic").trim().toLowerCase() === "manual" ? "manual" : "automatic";
+  const width = normalizeMediaMetric(input.width, 16_384);
+  const height = normalizeMediaMetric(input.height, 16_384);
+  const durationSeconds = normalizeMediaMetric(input.durationSeconds ?? input.duration_seconds, 3600, true);
+  const captureOccurrence = {
+    provider,
+    type: providerConfig.sourceType,
+    media_kind: "video",
+    page_url: pageUrl || null,
+    conversation_id: conversationId || null,
+    message_id: messageId || null,
+    model: model || null,
+    captured_at: capturedAt,
+    capture_mode: captureMode,
+    generation_context_id: generationContextId || null,
+  };
+  const referenceLibraryDir = store.libraryDir || (store.assetsRoot ? dirname(store.assetsRoot) : dirname(tempRoot));
+  const referenceStore = options.referenceStore || createReferenceAttachmentStore(resolve(referenceLibraryDir));
+
+  const finalizeDuplicate = async (duplicate: StoredAsset): Promise<IngestResult> => {
+    const existingWithOccurrence = await recordCaptureOccurrence(store, duplicate, captureOccurrence) || duplicate;
+    const mergedRecipe = await mergeDuplicateGenerationRecipe(store, existingWithOccurrence, {
+      projectAssets,
+      referenceStore,
+      projectId,
+      conversationId,
+      generationContextId,
+      providerToolCallId,
+      providerGenerationCallId,
+      providerResponseId,
+      providerAssetId,
+      capturedAt,
+      messageId,
+      prompt,
+      promptStatus: normalizedPromptStatus,
+      promptSource,
+      userMessage,
+      model,
+      provider,
+    });
+    const upgraded = await maybeUpgradePrompt(store, mergedRecipe.asset, {
+      prompt,
+      promptStatus: normalizedPromptStatus,
+      userMessage,
+      promptSource,
+      model,
+      provider,
+    });
+    const asset = upgraded || mergedRecipe.asset;
+    await recordCapturedGeneration(store, asset, {
+      projectId,
+      provider,
+      generationContextId,
+      providerToolCallId,
+      providerGenerationCallId,
+      providerResponseId,
+      providerAssetId,
+      conversationId,
+      messageId,
+      generationBatchId,
+      model,
+      userMessage,
+      prompt,
+      promptStatus: normalizedPromptStatus,
+      references: asset.references,
+      capturedAt,
+    });
+    return {
+      status: "skipped",
+      reason: upgraded
+        ? "already-archived-prompt-upgraded"
+        : mergedRecipe.merged
+          ? "already-archived-recipe-merged"
+          : "already-archived-same-content",
+      asset,
+      contentHash,
+      upgraded: Boolean(upgraded),
+      recipeMerged: mergedRecipe.merged,
+    };
+  };
+
+  const existing = await findArchivedDuplicate(store, projectId, contentHash, "", projectAssets);
+  if (existing) return finalizeDuplicate(existing);
+  await mkdir(tempRoot, { recursive: true });
+  const tempName = `${providerConfig.tempPrefix}-video-${Date.now()}-${randomBytes(4).toString("hex")}${ext}`;
+  const tempPath = join(tempRoot, tempName);
+  await writeFile(tempPath, videoBytes);
+  try {
+    const explicitAssetId = String(input.assetId || "").trim();
+    let assetId = sanitizeAssetId(explicitAssetId || `${providerConfig.assetIdPrefix}-video-${contentHash.slice(0, 12)}`, providerConfig.assetIdPrefix);
+    const references = await turnReferences(projectAssets, referenceStore, projectId, { conversationId, generationContextId, capturedAt, selfAssetId: assetId });
+    const assetInput = {
+      projectId,
+      imagePath: tempPath,
+      assetId,
+      fileName: tempName,
+      prompt,
+      skill: providerConfig.skill,
+      theme: promptTheme(prompt, providerConfig.label),
+      tags: [provider, "web-capture", "video", captureMode === "manual" ? "manual-capture" : "auto-archived"],
+      category: "",
+      references,
+      created_at: capturedAt,
+      sourceType: providerConfig.sourceType,
+      business_fields: {
+        auto_archived: captureMode !== "manual",
+        capture_mode: captureMode,
+        generation_context_id: generationContextId || null,
+        capture_context_id: generationContextId || null,
+        verification_level: "observed",
+        is_reference: false,
+        capture_channel: "chrome-extension",
+        media_kind: "video",
+        prompt_status: normalizedPromptStatus,
+        prompt_source: promptSource || null,
+        user_message: userMessage || null,
+        file_bytes: videoBytes.length,
+        mime_type: mimeType,
+        width: width || null,
+        height: height || null,
+        duration_seconds: durationSeconds || null,
+      },
+      source: {
+        generation_tool: "web-ui",
+        provider,
+        type: providerConfig.sourceType,
+        media_kind: "video",
+        capture_mode: captureMode,
+        generation_context_id: generationContextId || null,
+        capture_context_id: generationContextId || null,
+        provider_tool_call_id: providerToolCallId || null,
+        provider_generation_call_id: providerGenerationCallId || null,
+        provider_response_id: providerResponseId || null,
+        provider_asset_id: providerAssetId || null,
+        verification_level: "observed",
+        capture_occurrences: [captureOccurrence],
+        model: model || null,
+        page_url: pageUrl || null,
+        conversation_id: conversationId || null,
+        message_id: messageId || null,
+        capture_session_id: captureSessionId || null,
+        generation_batch_id: generationBatchId || null,
+        prompt_status: normalizedPromptStatus,
+        prompt_source: promptSource || null,
+        user_message: userMessage || null,
+        captured_at: capturedAt,
+        capture_extension_version: String(input.extensionVersion || input.extension_version || ""),
+        content_sha256: contentHash,
+        pixel_sha256: null,
+        pixel_hash_version: null,
+      },
+    };
+    let asset: StoredAsset;
+    try {
+      asset = await store.createAsset(assetInput, { trustedSourceRoots: [tempRoot], ingestMode: captureMode === "manual" ? "manual" : "automatic" });
+    } catch (error) {
+      if (explicitAssetId || !isAssetAlreadyExists(error)) throw error;
+      assetId = sanitizeAssetId(`${providerConfig.assetIdPrefix}-video-${contentHash.slice(0, 24)}-${randomBytes(4).toString("hex")}`, providerConfig.assetIdPrefix);
+      asset = await store.createAsset({ ...assetInput, assetId }, { trustedSourceRoots: [tempRoot], ingestMode: captureMode === "manual" ? "manual" : "automatic" });
+    }
+    await recordCapturedGeneration(store, asset, {
+      projectId,
+      provider,
+      generationContextId,
+      providerToolCallId,
+      providerGenerationCallId,
+      providerResponseId,
+      providerAssetId,
+      conversationId,
+      messageId,
+      generationBatchId,
+      model,
+      userMessage,
+      prompt,
+      promptStatus: normalizedPromptStatus,
+      references: asset.references,
+      capturedAt,
+    });
+    return { status: "imported", asset, contentHash };
+  } catch (error) {
+    if (isAutomaticImportSuppressed(error)) return { status: "skipped", reason: "suppressed-after-delete", contentHash };
+    if (isAutomaticIngestDuplicate(error)) {
+      const duplicateId = String((error as { assetId?: unknown }).assetId || "");
+      const duplicate = duplicateId
+        ? (await projectAssets()).find((asset) => asset.id === duplicateId) || await findArchivedDuplicate(store, projectId, contentHash, "", projectAssets)
+        : await findArchivedDuplicate(store, projectId, contentHash, "", projectAssets);
+      if (duplicate) return finalizeDuplicate(duplicate);
+    }
+    throw error;
+  } finally {
+    await rm(tempPath, { force: true }).catch(() => {});
+  }
+}
+
 export function extractBearerToken(req: { headers?: Record<string, unknown> } | undefined | null): string {
   const authorization = String(req?.headers?.authorization || "");
   if (authorization.startsWith("Bearer ")) return authorization.slice("Bearer ".length).trim();
   return String(req?.headers?.["x-mosa-token"] || "").trim();
+}
+
+async function recordCapturedGeneration(store: Store, asset: StoredAsset, input: {
+  projectId: string;
+  provider: string;
+  generationContextId: string;
+  providerToolCallId?: string;
+  providerGenerationCallId?: string;
+  providerResponseId?: string;
+  providerAssetId?: string;
+  conversationId: string;
+  messageId: string;
+  generationBatchId: string;
+  model: string;
+  userMessage: string;
+  prompt: string;
+  promptStatus: string;
+  references?: unknown;
+  capturedAt: string;
+}): Promise<Metadata | null> {
+  if (typeof store.recordGenerationEvent !== "function" || !asset?.id) return null;
+  return store.recordGenerationEvent({
+    project_id: input.projectId,
+    output_asset_id: asset.id,
+    provider: input.provider,
+    capture_context_id: input.generationContextId,
+    provider_tool_call_id: input.providerToolCallId || "",
+    provider_generation_call_id: input.providerGenerationCallId || "",
+    provider_response_id: input.providerResponseId || "",
+    provider_asset_id: input.providerAssetId || "",
+    conversation_id: input.conversationId,
+    message_id: input.messageId,
+    batch_id: input.generationBatchId,
+    model: input.model,
+    user_prompt: input.userMessage,
+    effective_prompt: input.prompt,
+    prompt_status: input.promptStatus,
+    capture_channel: "chrome-extension",
+    verification_level: "observed",
+    references: Array.isArray(input.references) ? input.references : [],
+    evidence: {
+      source: "web-capture",
+      relation_status: "unresolved",
+      note: "Observed from provider web UI/runtime metadata; not provider-API verified.",
+    },
+    created_at: input.capturedAt,
+  });
 }
 
 function webCaptureError(message: string, statusCode: number, code: string): Error & { statusCode: number; code: string } {
@@ -375,6 +721,38 @@ function decodeImageBytes(input: WebCaptureInput): Buffer {
   try { return Buffer.from(raw, "base64"); } catch { return Buffer.alloc(0); }
 }
 
+function decodeMediaBytes(input: WebCaptureInput): Buffer {
+  if (Buffer.isBuffer(input.mediaBytes)) return input.mediaBytes;
+  if (input.mediaBytes instanceof Uint8Array) return Buffer.from(input.mediaBytes);
+  let raw = String(input.mediaBase64 || input.media_base64 || "").trim();
+  if (!raw) return Buffer.alloc(0);
+  const dataUrl = /^data:video\/[a-z0-9.+-]+;base64,(.+)$/i.exec(raw);
+  if (dataUrl) raw = dataUrl[1];
+  try { return Buffer.from(raw, "base64"); } catch { return Buffer.alloc(0); }
+}
+
+function assertVideoContainer(bytes: Buffer, mimeType: string): void {
+  const header = bytes.subarray(0, 32);
+  if (mimeType === "video/webm") {
+    if (header.length < 4 || header[0] !== 0x1a || header[1] !== 0x45 || header[2] !== 0xdf || header[3] !== 0xa3) {
+      throw webCaptureError("Video bytes do not match WebM container.", 400, "WEB_CAPTURE_MIME_MISMATCH");
+    }
+    return;
+  }
+  if (["video/mp4", "video/quicktime", "video/x-m4v"].includes(mimeType)) {
+    const marker = header.subarray(4, 12).toString("ascii");
+    if (!marker.includes("ftyp")) {
+      throw webCaptureError("Video bytes do not match ISO BMFF container.", 400, "WEB_CAPTURE_MIME_MISMATCH");
+    }
+  }
+}
+
+function normalizeMediaMetric(value: unknown, max: number, allowFraction = false): number {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0 || number > max) return 0;
+  return allowFraction ? number : Math.round(number);
+}
+
 function safeTokenEqual(provided: string, configured: string): boolean { if (!provided || !configured) return false; const a = Buffer.from(provided); const b = Buffer.from(configured); return a.length === b.length && timingSafeEqual(a, b); }
 function normalizeMime(value: string): string { const m = String(value || "image/png").trim().toLowerCase(); return m === "image/jpg" ? "image/jpeg" : m; }
 function onceProjectListing(store: Store, projectId: string): () => Promise<StoredAsset[]> { let pending: Promise<StoredAsset[]> | null = null; return () => { if (!pending) pending = Promise.all([store.listAssets({ projectId }), store.listAssets({ projectId, archived: true }).catch(() => [])]).then(([a, b]) => [...a, ...b]); return pending; }; }
@@ -414,9 +792,13 @@ async function turnReferences(projectAssets: () => Promise<StoredAsset[]>, refer
   const attachments = await referenceStore.list(projectId);
   if (generationContextId) {
     return attachments
-      .filter((attachment) => attachment.usages?.some((usage) => usage.generation_context_id === generationContextId))
+      .map((attachment) => ({
+        attachment,
+        usage: attachment.usages?.find((usage) => usage.generation_context_id === generationContextId),
+      }))
+      .filter((entry): entry is { attachment: ReferenceAttachment; usage: ReferenceAttachment["usages"][number] } => Boolean(entry.usage))
       .slice(0, MAX_TURN_REFERENCES)
-      .map(referenceMetadata);
+      .map(({ attachment, usage }) => referenceMetadata(attachment, usage));
   }
 
   const members = (await projectAssets()).filter((asset) =>
@@ -431,19 +813,29 @@ async function turnReferences(projectAssets: () => Promise<StoredAsset[]>, refer
   }
 
   return attachments
-    .flatMap((attachment) => (attachment.usages?.length ? attachment.usages : [{ conversation_id: attachment.conversation_id, captured_at: attachment.captured_at }])
+    .flatMap((attachment) => (attachment.usages?.length ? attachment.usages : [{
+      generation_context_id: "",
+      provider: attachment.provider,
+      page_url: attachment.page_url,
+      conversation_id: attachment.conversation_id,
+      message_id: attachment.message_id,
+      provider_asset_id: attachment.provider_asset_id,
+      captured_at: attachment.captured_at,
+      user_message: attachment.user_message,
+    }])
       .filter((usage) => usage.conversation_id === conversationId)
-      .map((usage) => ({ attachment, at: createdAtTimestamp(usage.captured_at) })))
-    .filter((entry): entry is { attachment: ReferenceAttachment; at: number } => entry.at !== null && entry.at <= now && entry.at > previousGeneration)
+      .map((usage) => ({ attachment, usage, at: createdAtTimestamp(usage.captured_at) })))
+    .filter((entry): entry is { attachment: ReferenceAttachment; usage: ReferenceAttachment["usages"][number]; at: number } => entry.at !== null && entry.at <= now && entry.at > previousGeneration)
     .sort((left, right) => left.at - right.at)
     .slice(0, MAX_TURN_REFERENCES)
-    .map(({ attachment }) => referenceMetadata(attachment));
+    .map(({ attachment, usage }) => referenceMetadata(attachment, usage));
 }
 
-function referenceMetadata(attachment: ReferenceAttachment): Metadata {
+function referenceMetadata(attachment: ReferenceAttachment, usage?: ReferenceAttachment["usages"][number]): Metadata {
   return {
     reference_id: attachment.id,
     asset_id: attachment.id,
+    provider_asset_id: usage?.provider_asset_id || attachment.provider_asset_id,
     sha256: attachment.content_sha256,
     attachment_url: attachment.attachment_url,
     mime_type: attachment.mime_type,
@@ -452,6 +844,8 @@ function referenceMetadata(attachment: ReferenceAttachment): Metadata {
     role: "",
     scope: [],
     applied: true,
+    application_status: "observed_input",
+    verification_level: "observed",
   };
 }
 
@@ -464,6 +858,10 @@ async function mergeDuplicateGenerationRecipe(
     projectId: string;
     conversationId: string;
     generationContextId: string;
+    providerToolCallId?: string;
+    providerGenerationCallId?: string;
+    providerResponseId?: string;
+    providerAssetId?: string;
     capturedAt: string;
     messageId: string;
     prompt: string;
@@ -496,6 +894,12 @@ async function mergeDuplicateGenerationRecipe(
     source: {
       ...(existing.source || {}),
       generation_context_id: input.generationContextId || existing.source?.generation_context_id || null,
+      capture_context_id: input.generationContextId || existing.source?.capture_context_id || existing.source?.generation_context_id || null,
+      provider_tool_call_id: input.providerToolCallId || existing.source?.provider_tool_call_id || null,
+      provider_generation_call_id: input.providerGenerationCallId || existing.source?.provider_generation_call_id || null,
+      provider_response_id: input.providerResponseId || existing.source?.provider_response_id || null,
+      provider_asset_id: input.providerAssetId || existing.source?.provider_asset_id || null,
+      verification_level: existing.source?.verification_level || "observed",
       message_id: input.messageId || existing.source?.message_id || null,
       prompt_status: input.prompt ? input.promptStatus : existing.source?.prompt_status || "not-available",
       prompt_source: input.promptSource || existing.source?.prompt_source || null,
@@ -505,6 +909,8 @@ async function mergeDuplicateGenerationRecipe(
     business_fields: {
       ...(existing.business_fields || {}),
       generation_context_id: input.generationContextId || existing.business_fields?.generation_context_id || null,
+      capture_context_id: input.generationContextId || existing.business_fields?.capture_context_id || existing.business_fields?.generation_context_id || null,
+      verification_level: existing.business_fields?.verification_level || "observed",
       prompt_status: input.prompt ? input.promptStatus : existing.business_fields?.prompt_status || "not-available",
       prompt_source: input.promptSource || existing.business_fields?.prompt_source || null,
       user_message: input.userMessage || existing.business_fields?.user_message || null,
@@ -658,6 +1064,26 @@ async function maybeUpgradePrompt(store: Store, existing: StoredAsset, next: Pro
   });
 }
 
-function promptTheme(prompt: string, providerLabel: string = PROVIDER_CONFIG.chatgpt.label): string { const text = String(prompt || "").replace(/<\|has_watermark\|>/g, "").replace(/\n?展开\s*$/g, "").trim().replace(/\s+/g, " "); if (!text) return `${providerLabel} web image`; return text.length > 80 ? `${text.slice(0, 77)}...` : text; }
+const LEADING_UI_GLYPH_TOKENS = new Set([
+  "play_circle", "play_arrow", "pause_circle", "stop_circle",
+  "more_vert", "more_horiz", "fullscreen_exit", "open_in_full",
+  "download_for_offline", "file_download", "volume_up", "volume_off",
+]);
+
+function stripLeadingUiGlyphTokens(value: string): string {
+  const parts = String(value || "").trim().split(/\s+/);
+  while (parts.length && LEADING_UI_GLYPH_TOKENS.has(parts[0].toLowerCase())) parts.shift();
+  return parts.join(" ").trim();
+}
+
+function promptTheme(prompt: string, providerLabel: string = PROVIDER_CONFIG.chatgpt.label): string {
+  const text = stripLeadingUiGlyphTokens(String(prompt || "")
+    .replace(/<\|has_watermark\|>/g, "")
+    .replace(/\n?展开\s*$/g, "")
+    .trim()
+    .replace(/\s+/g, " "));
+  if (!text) return `${providerLabel} web image`;
+  return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+}
 function sanitizeAssetId(value: string, fallbackPrefix: string = PROVIDER_CONFIG.chatgpt.assetIdPrefix): string { return String(value || fallbackPrefix).toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || `${fallbackPrefix}-${Date.now()}`; }
 function providerLabelFor(value: unknown): string { const config = PROVIDER_CONFIG[String(value || "").trim().toLowerCase() as ProviderId]; return config?.label || PROVIDER_CONFIG.chatgpt.label; }

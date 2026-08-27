@@ -165,7 +165,7 @@ test("shows only the four everyday fields and hides the rest behind advanced set
   assert.match(body, /<details class="import-advanced" id="importAdvanced">/);
 });
 
-test("explains the path field with server-sourced formats, an example, and the Codex folder", async () => {
+test("offers a real file picker while keeping server-sourced format guidance", async () => {
   const [html, app, apiClient] = await Promise.all([
     readFile(resolve(root, "app/index.html"), "utf8"),
     readFile(resolve(root, "app/app.mjs"), "utf8"),
@@ -178,14 +178,16 @@ test("explains the path field with server-sourced formats, an example, and the C
   assert.match(app, /els\.importFormatList\.textContent = state\.supportedMediaExtensions\.join\(" "\)/);
   assert.match(apiClient, /if \(library\) \{[\s\S]*?state\.supportedMediaExtensions = Array\.isArray\(library\.supportedMediaExtensions\)/,
     "foreground stats load hydrates server-sourced media formats; background polling may skip the static library-path request");
-  // The sandbox cannot supply an absolute path via a file picker, so the form
-  // guides typing.  Drag-and-drop is allowed: it fills the path input, but the
-  // user still verifies and submits the form.
+  // Manual import must use real File bytes rather than assuming a browser can
+  // reveal an absolute local path. The staged server path stays internal to the
+  // existing create-asset form.
   assert.doesNotMatch(app, /showOpenFilePicker|webkitdirectory/);
-  assert.doesNotMatch(html, /type="file"/);
+  assert.match(html, /id="importFileInput"[^>]*type="file"/);
+  assert.match(app, /fetch\("\/api\/import\/stage"/);
+  assert.match(app, /els\.importFileInput\.click\(\)/);
 });
 
-test("keeps desktop drag-and-drop and Phase 5B confirm dialog", async () => {
+test("keeps desktop bridge compatibility while manual files use unified server staging", async () => {
   const [html, app, preload] = await Promise.all([
     readFile(resolve(root, "app/index.html"), "utf8"),
     readFile(resolve(root, "app/app.mjs"), "utf8"),
@@ -195,6 +197,7 @@ test("keeps desktop drag-and-drop and Phase 5B confirm dialog", async () => {
   assert.doesNotMatch(html, /id="dropOverlay"/);
   assert.ok(app.includes("async function droppedFilePath(file)"));
   assert.ok(app.includes("await window.electronAPI.getPathForFile(file)"));
+  assert.ok(app.includes("filePath = await stageBrowserFile(file)"));
   assert.equal(app.includes("file.webkitRelativePath || file.name"), false);
   assert.ok(preload.includes("webUtils.getPathForFile(file)"));
   // Phase 5B：单素材归档迁移到全应用唯一 ConfirmDialog（window.confirm 清零）。

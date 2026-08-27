@@ -41,7 +41,7 @@ function sliceBetween(source, startMarker, endMarker) {
 
 // Library v2 keeps favorite in the Overview instead of a detached section.
 const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "new-version", "more"];
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
 
 // 29-35. Desktop capability: preload exposes only showItemInFolder; main validates sender,
 // absolute path, existence, and the shared library boundary before using shell.showItemInFolder.
@@ -49,7 +49,7 @@ test("29-35. show-item-in-folder IPC is minimal, validated, and shell-correct", 
   const [preload, main] = await Promise.all([readPreload(), readMain()]);
 
   assert.match(preload, /showItemInFolder: \(path\) =>\s*\n?\s*ipcRenderer\.invoke\("show-item-in-folder", path\)/, "preload exposes showItemInFolder");
-  assert.equal(count(preload, "ipcRenderer.invoke"), 5, "preload still exposes only the five invoke channels (batch 1.2 added stage-dropped-file)");
+  assert.equal(count(preload, "ipcRenderer.invoke"), 5, "preload exposes only the five approved narrow invoke channels");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "the renderer never receives a shell object");
 
   const handler = sliceBetween(main, 'ipcMain.handle("show-item-in-folder"', "\n}");
@@ -141,7 +141,7 @@ test("54-58. Phase 1-4B neighbouring contracts and anchors stay intact", async (
   assert.match(viewer, /assetViewSequence\.ids = state\.assets\.map\(\(asset\) => asset\.id\);/, "viewer navigation anchor intact");
   assert.match(viewer, /function applyAssetViewTransform\(\)/, "viewer transform anchor intact");
   assert.match(viewer, /state\.libraryReturnSnapshot = \{/, "return snapshot anchor intact");
-  assert.match(inspector, /function detailVersionSectionMarkup\(asset, cachedHistory, cachedRecipeHistory\)/, "Phase 4A IA anchors intact");
+  assert.match(inspector, /function detailVersionSectionMarkup\(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory\)/, "Phase 4A IA anchors intact");
   assert.match(app, /function selectDetailVersion\(/, "Phase 4B version workflow anchor intact");
 });
 

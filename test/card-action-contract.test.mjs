@@ -72,9 +72,11 @@ test("3. both buttons carry .card-action-btn and keep their business classes", a
   const app = await readApp();
   assert.match(app, /class="card-action-btn card-favorite/, "favorite keeps .card-favorite beside .card-action-btn");
   assert.match(app, /class="card-action-btn card-quick-copy"/, "copy keeps .card-quick-copy beside .card-action-btn");
-  // Legacy event bindings depend on the business classes and data attributes.
+  // Favorite keeps its mutation id. Copy resolves the prompt from card id at
+  // click time so long prompts are not duplicated into every DOM node.
   assert.match(app, /data-fav-id="\$\{escapeHtml\(asset\.id\)\}"/, "favorite keeps data-fav-id");
-  assert.match(app, /data-copy="\$\{escapeHtml\(asset\.prompt \|\| ""\)\}"/, "copy keeps data-copy");
+  assert.doesNotMatch(app, /data-copy=/, "copy does not duplicate prompt text into the DOM");
+  assert.match(app, /const assetId = copyButton\.closest\("\.asset-card"\)\?\.dataset\.id;/, "copy resolves the asset id from its card");
 });
 
 // 4. Both quick actions are native buttons with type="button" (no div/span fakes).

@@ -15,7 +15,7 @@ Do not post real Prompts, user assets, Tokens, cookies, credentials, local absol
 
 ## Local Setup
 
-Requirements are macOS, Node.js 22 or newer, and npm.
+Source development requires Node.js 22 or newer and npm. Desktop-specific work is currently validated on macOS arm64 and Windows 10/11 x64.
 
 ```bash
 npm ci
@@ -49,7 +49,7 @@ git diff --check
 
 The performance test is opt-in and may take longer than the regular suite.
 
-Continuous integration runs `npm run lint`, `npm run check`, `npm test`, and `npm run audit` on Linux. macOS remains the supported runtime, so verify macOS-specific behavior locally before proposing a change.
+Continuous integration runs the shared lint/check/test/audit suite on Linux, a packaged desktop/E2E lane on macOS arm64, and a Windows x64 lane covering desktop packaging, platform/path contracts, Electron E2E, and packaged smoke. Platform-specific changes must keep shared behavior in common modules and add platform-focused tests only at the OS boundary.
 
 ## Pull Requests
 

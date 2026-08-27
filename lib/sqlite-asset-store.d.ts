@@ -97,6 +97,14 @@ export interface SqliteAssetStore {
   duplicateAsset(projectId: string, assetId: string): Promise<StoredAsset>;
   createVersion(projectId: string, parentId: string, params: Record<string, unknown>): Promise<StoredAsset>;
   versionHistory(projectId: string, assetId: string): Promise<unknown>;
+  recordGenerationEvent(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+  listGenerationEvents(projectId: string, filters?: Record<string, unknown>): Promise<Array<Record<string, unknown>>>;
+  recordGenerationRelation(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+  deleteGenerationRelation(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+  updateGenerationRelation(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+  updateGenerationRelationCandidate(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+  getGenerationLineage(projectId: string, generationId: string): Promise<Record<string, unknown>>;
+  getAssetGenerationHistory(projectId: string, assetId: string): Promise<Record<string, unknown>>;
   listGroups(projectId: string): Promise<GroupInfo[]>;
   createGroup(projectId: string, name: string): Promise<void>;
   findAssetByContentHash(projectId: string, contentHash: string): Promise<StoredAsset | null>;

@@ -8,6 +8,7 @@ const VIDEO_EXTENSIONS = new Set([".m4v", ".mov", ".mp4", ".webm"]);
 interface DerivativeJob {
   original_path?: string;
   previewPath: string;
+  mediumPath: string;
   thumbnailPath: string;
 }
 
@@ -89,6 +90,7 @@ export async function processDerivativeJob(store: DerivativeStore, job: Derivati
     }
     await Promise.all([
       mkdir(dirname(job.previewPath), { recursive: true }),
+      mkdir(dirname(job.mediumPath), { recursive: true }),
       mkdir(dirname(job.thumbnailPath), { recursive: true }),
     ]);
     const metadata = await sharp(String(job.original_path), { animated: false }).metadata();
@@ -98,9 +100,10 @@ export async function processDerivativeJob(store: DerivativeStore, job: Derivati
     const height = swapsAxes ? Number(metadata.width) : Number(metadata.height);
     await Promise.all([
       sharp(String(job.original_path), { animated: false }).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).webp({ quality: 84 }).toFile(job.previewPath),
+      sharp(String(job.original_path), { animated: false }).rotate().resize({ width: 960, height: 960, fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toFile(job.mediumPath),
       sharp(String(job.original_path), { animated: false }).rotate().resize({ width: 400, height: 400, fit: "inside", withoutEnlargement: true }).webp({ quality: 78 }).toFile(job.thumbnailPath),
     ]);
-    const result = { previewPath: job.previewPath, thumbnailPath: job.thumbnailPath, width, height };
+    const result = { previewPath: job.previewPath, mediumPath: job.mediumPath, thumbnailPath: job.thumbnailPath, width, height };
     await store.completeDerivativeJob(job, result);
     return { ok: true, ...result };
   } catch (error) {

@@ -11,7 +11,7 @@
 // - 格式：仅当扩展名明确时确定性推导（大写扩展名），否则回退「未记录」。
 import { SOURCE_LABEL_KEYS } from "./config.mjs";
 import { assetTags } from "./tag-utils.mjs";
-import { escapeHtml, formatDate, formatDateTime } from "./utils.mjs";
+import { displayAssetTitle, escapeHtml, formatDate, formatDateTime } from "./utils.mjs";
 
 export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
   const COPY_ICON_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg>`;
@@ -41,6 +41,13 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
   function mediaDimensionAttributes(asset) {
     const dimensions = mediaDimensions(asset);
     return dimensions ? ` width="${dimensions.width}" height="${dimensions.height}" data-known-aspect="true"` : "";
+  }
+
+  function videoThumbAspectAttributes(asset) {
+    const dimensions = mediaDimensions(asset);
+    return dimensions
+      ? ` data-video-width="${dimensions.width}" data-video-height="${dimensions.height}" data-known-aspect="true"`
+      : "";
   }
 
   function fileDimensionsText(asset) {
@@ -136,7 +143,7 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
   }
 
   function detailFileSectionMarkup(asset) {
-    const title = asset.theme || asset.asset || asset.id;
+    const title = displayAssetTitle(asset);
     const source = sourceName(asset.source || {});
     const sourceRef = asset.source || {};
     const previewAspectRatio = detailPreviewAspectRatio(asset);
@@ -212,7 +219,7 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     }
     const thumbnails = references.slice(0, 8).map((reference, index) => {
       const linked = state.assets.find((item) => item.id === reference.asset_id);
-      const thumbnail = reference.attachment_url || linked?.thumbnail_url || linked?.image_url || "";
+      const thumbnail = linked?.thumbnail_url || reference.attachment_url || linked?.image_url || "";
       const label = reference.role || `${t("referenceImage")} ${index + 1}`;
       return thumbnail
         ? `<span class="detail-reference-thumb" title="${escapeHtml(label)}"><img data-reference-thumb-img src="${escapeHtml(thumbnail)}" alt="${escapeHtml(label)}" loading="lazy" /><span class="detail-reference-thumb-fallback" data-reference-thumb-fallback aria-hidden="true">${index + 1}</span></span>`
@@ -280,8 +287,8 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return `<section class="inspector-section detail-source-section" data-inspector-section="source"><div class="detail-prompt-head"><h3>${t("sourceInfo")}</h3>${copyButton}</div>${rowsMarkup}${sessionActions}<details class="detail-disclosure" data-reference-rights-section><summary>${t("referenceRights")}</summary><div class="disclosure-content" data-reference-rights>${referenceRightsMarkup(asset)}</div></details></section>`;
   }
 
-  function detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory) {
-    return `<section class="inspector-section detail-version-section" data-inspector-section="version"><div class="detail-prompt-head"><h3>${t("tabVersions")}</h3></div><div class="version-picker" data-version-picker>${versionPickerMarkup(asset, cachedHistory)}</div><details class="detail-disclosure"><summary>${t("versionHistory")}</summary><div class="disclosure-content version-history-region" data-version-history aria-live="polite">${cachedHistory ? versionHistoryMarkup(cachedHistory, asset.id) : `<p class="version-history-status" role="status">${t("versionLoading")}</p>`}</div></details>${recipeHistoryDisclosureMarkup(cachedRecipeHistory)}</section>`;
+  function detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory) {
+    return `<section class="inspector-section detail-version-section" data-inspector-section="version"><div class="detail-prompt-head"><h3>${t("tabVersions")}</h3></div><div class="version-picker" data-version-picker>${versionPickerMarkup(asset, cachedHistory)}</div><details class="detail-disclosure generation-history-disclosure" open><summary>${t("generationHistory")}</summary><div class="disclosure-content generation-history-region" data-generation-history aria-live="polite">${cachedGenerationHistory ? generationHistoryMarkup(cachedGenerationHistory, asset.id) : `<p class="generation-history-status" role="status">${t("generationHistoryLoading")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("versionHistory")}</summary><div class="disclosure-content version-history-region" data-version-history aria-live="polite">${cachedHistory ? versionHistoryMarkup(cachedHistory, asset.id) : `<p class="version-history-status" role="status">${t("versionLoading")}</p>`}</div></details>${recipeHistoryDisclosureMarkup(cachedRecipeHistory)}</section>`;
   }
 
   // Phase 4B：版本选择器——原生 <select>（无自制 popover/listbox/菜单、无第三方 Select、
@@ -365,12 +372,190 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     }).join("")}</ol>`;
   }
 
+  function generationHistoryMarkup(history, selectedAssetId) {
+    const events = Array.isArray(history?.events) ? history.events : [];
+    if (!events.length) return `<p class="generation-history-status">${t("generationHistoryEmpty")}</p>`;
+    const relations = Array.isArray(history?.relations) ? history.relations : [];
+    const contextEvents = Array.isArray(history?.context_events) ? history.context_events : [];
+    const outputAssets = Array.isArray(history?.output_assets) ? history.output_assets : [];
+    const relationByChild = new Map();
+    for (const relation of relations) {
+      const list = relationByChild.get(relation.child_generation_id) || [];
+      list.push(relation);
+      relationByChild.set(relation.child_generation_id, list);
+    }
+    const eventById = new Map([...events, ...contextEvents].map((event) => [event.id, event]));
+    const assetById = new Map(outputAssets.map((asset) => [asset.id, asset]));
+    const roots = events.filter((event) => !(event.parent_generation_ids || []).length);
+    const ordered = [];
+    const seen = new Set();
+    const visit = (event, depth = 0) => {
+      if (!event || seen.has(event.id)) return;
+      seen.add(event.id);
+      ordered.push({ event, depth });
+      for (const childId of event.child_generation_ids || []) visit(eventById.get(childId), depth + 1);
+    };
+    for (const root of roots) visit(root, 0);
+    for (const event of events) visit(event, 0);
+    const treeMarkup = `<ol class="generation-lineage" aria-label="${escapeHtml(t("generationTree"))}">${ordered.map(({ event, depth }) => {
+      const verification = String(event.verification_level || "observed");
+      const provider = String(event.provider || event.capture_channel || "").trim() || t("sourceUnknown");
+      const model = String(event.model || "").trim();
+      const prompt = String(event.effective_prompt || event.user_prompt || "").trim();
+      const incoming = relationByChild.get(event.id) || [];
+      const relationLabel = incoming.length
+        ? incoming.map((relation) => `${t(`generationRelation_${relation.relation_type}`)} ${generationEventCompactLabel(eventById.get(relation.parent_generation_id))}`).join(" · ")
+        : t("generationRoot");
+      const isCurrentAsset = event.output_asset_id === selectedAssetId;
+      const depthClass = `generation-depth-${Math.min(Math.max(depth, 0), 6)}`;
+      const parentCount = incoming.length > 1 ? `<span class="generation-parent-count">${escapeHtml(t("generationRelationParentCount", { count: incoming.length }))}</span>` : "";
+      return `<li class="generation-lineage-item ${depthClass}${isCurrentAsset ? " current-output" : ""}"><details class="generation-lineage-node" data-generation-id="${escapeHtml(event.id)}"><summary class="generation-lineage-summary"><span class="generation-lineage-marker" aria-hidden="true"></span>${generationEventThumbnailMarkup(event, assetById)}<span class="generation-lineage-content"><span class="generation-lineage-head"><strong>${escapeHtml(provider)}${model ? ` · ${escapeHtml(model)}` : ""}</strong><span class="generation-verification ${escapeHtml(verification)}">${escapeHtml(t(`generationVerification_${verification}`))}</span>${parentCount}</span><span class="generation-lineage-relation">${escapeHtml(relationLabel)}${isCurrentAsset ? ` · ${escapeHtml(t("generationCurrentAsset"))}` : ""}</span>${prompt ? `<span class="generation-lineage-prompt">${escapeHtml(prompt)}</span>` : `<span class="generation-lineage-prompt empty-copy">${t("notRecorded")}</span>`}<time datetime="${escapeHtml(event.created_at || "")}">${escapeHtml(formatDateTime(event.created_at))}</time></span></summary>${generationEventDetailMarkup(event, { history, eventById, assetById, incoming, selectedAssetId })}</details></li>`;
+    }).join("")}</ol>`;
+    return `<p class="generation-tree-hint">${escapeHtml(t("generationTreeHint"))}</p>${treeMarkup}${generationContextCandidatesMarkup(history, contextEvents, eventById, assetById)}`;
+  }
+
+  function generationEventThumbnailMarkup(event, assetById) {
+    const asset = assetById.get(event.output_asset_id);
+    const title = asset ? displayAssetTitle(asset) : event.output_asset_id;
+    const thumbnail = asset?.thumbnail_ready && asset.thumbnail_url
+      ? asset.thumbnail_url
+      : asset?.preview_ready && asset.preview_url
+        ? asset.preview_url
+        : "";
+    return thumbnail
+      ? `<span class="generation-output-thumb"><img src="${escapeHtml(thumbnail)}" alt="" loading="lazy" decoding="async" /></span>`
+      : `<span class="generation-output-thumb generation-output-thumb-empty" title="${escapeHtml(title || t("notRecorded"))}" aria-hidden="true"></span>`;
+  }
+
+  function generationEventCompactLabel(event) {
+    if (!event) return t("notRecorded");
+    const provider = String(event.provider || event.capture_channel || "").trim() || t("sourceUnknown");
+    const prompt = String(event.effective_prompt || event.user_prompt || "").replace(/\s+/g, " ").trim();
+    const compactPrompt = prompt.length > 42 ? `${prompt.slice(0, 39)}…` : prompt;
+    return compactPrompt ? `${provider} · ${compactPrompt}` : `${provider} · ${formatDateTime(event.created_at)}`;
+  }
+
+  function generationRelationOptions(selectedType = "edited_from") {
+    return ["edited_from", "variant_of", "derived_from", "based_on"]
+      .map((type) => `<option value="${type}"${type === selectedType ? " selected" : ""}>${escapeHtml(t(`generationRelation_${type}`))}</option>`)
+      .join("");
+  }
+
+  function generationRelationsMarkup(event, incoming, eventById) {
+    if (!incoming.length) return `<p class="generation-management-empty">${escapeHtml(t("generationNoRelations"))}</p>`;
+    return `<div class="generation-relation-list">${incoming.map((relation) => {
+      const verification = String(relation.verification_level || "inferred");
+      const locked = verification === "provider_verified";
+      const parent = eventById.get(relation.parent_generation_id);
+      const actionLabel = verification === "user_confirmed" ? t("generationRelationUpdate") : t("generationRelationSave");
+      const controls = locked
+        ? `<span class="generation-relation-locked">${escapeHtml(t("generationRelationLocked"))}</span>`
+        : `<div class="generation-relation-controls"><label><span class="visually-hidden">${escapeHtml(t("generationRelationType"))}</span><select data-generation-relation-type>${generationRelationOptions(relation.relation_type)}</select></label><button class="action-btn secondary" type="button" data-action="save-generation-relation">${escapeHtml(actionLabel)}</button><button class="action-btn secondary generation-relation-remove" type="button" data-action="delete-generation-relation">${escapeHtml(t("generationRelationDelete"))}</button></div>`;
+      return `<div class="generation-relation-row" data-generation-relation-row data-child-generation-id="${escapeHtml(event.id)}" data-parent-generation-id="${escapeHtml(relation.parent_generation_id)}" data-previous-relation-type="${escapeHtml(relation.relation_type)}"><div class="generation-relation-meta"><span>${escapeHtml(t("generationRelationParent"))}</span><strong title="${escapeHtml(relation.parent_generation_id)}">${escapeHtml(generationEventCompactLabel(parent))}</strong><span class="generation-verification ${escapeHtml(verification)}">${escapeHtml(t(`generationVerification_${verification}`))}</span></div>${controls}</div>`;
+    }).join("")}</div>`;
+  }
+
+  function generationCandidateParentsMarkup(event, history, eventById) {
+    const candidates = (Array.isArray(history?.relation_candidates) ? history.relation_candidates : [])
+      .filter((candidate) => candidate.child_generation_id === event.id && candidate.status !== "dismissed" && candidate.status !== "confirmed");
+    if (!candidates.length) return "";
+    return `<div class="generation-candidate-parent-list"><div class="generation-management-head"><strong>${escapeHtml(t("generationPossibleParents"))}</strong></div>${candidates.map((candidate) => {
+      const parent = eventById.get(candidate.parent_generation_id);
+      const relationType = candidate.suggested_relation_type || candidate.relation_type || "derived_from";
+      const confidence = Math.round(Number(candidate.confidence || 0) * 100);
+      return `<div class="generation-relation-row generation-candidate-parent-row" data-generation-candidate-row><div class="generation-relation-meta"><span>${escapeHtml(t(`generationRelation_${relationType}`))}</span><strong title="${escapeHtml(candidate.parent_generation_id)}">${escapeHtml(generationEventCompactLabel(parent))}</strong><span class="generation-verification inferred">${escapeHtml(t("generationRelationConfidence", { confidence }))}</span></div><div class="generation-relation-controls"><button class="action-btn secondary" type="button" data-action="confirm-generation-relation-candidate" data-child-generation-id="${escapeHtml(candidate.child_generation_id)}" data-parent-generation-id="${escapeHtml(candidate.parent_generation_id)}" data-relation-type="${escapeHtml(relationType)}">${escapeHtml(t("generationConfirmRelation"))}</button><button class="action-btn secondary generation-relation-remove" type="button" data-action="dismiss-generation-relation-candidate" data-child-generation-id="${escapeHtml(candidate.child_generation_id)}" data-parent-generation-id="${escapeHtml(candidate.parent_generation_id)}">${escapeHtml(t("generationDismissRelation"))}</button></div></div>`;
+    }).join("")}</div>`;
+  }
+
+  function generationLinkComposerMarkup(event, history, eventById) {
+    const relations = Array.isArray(history?.relations) ? history.relations : [];
+    const candidates = [...eventById.values()].filter((candidate) => {
+      if (!candidate?.id || candidate.id === event.id) return false;
+      return !relations.some((relation) => (
+        (relation.child_generation_id === event.id && relation.parent_generation_id === candidate.id)
+        || (relation.parent_generation_id === event.id && relation.child_generation_id === candidate.id)
+      ));
+    });
+    if (!candidates.length) return `<p class="generation-management-empty">${escapeHtml(t("generationLinkUnavailable"))}</p>`;
+    const candidateOptions = candidates.map((candidate) => `<option value="${escapeHtml(candidate.id)}">${escapeHtml(generationEventCompactLabel(candidate))}</option>`).join("");
+    const firstCandidate = candidates[0];
+    const candidateIsEarlier = String(firstCandidate?.created_at || "") <= String(event.created_at || "");
+    return `<div class="generation-link-composer" data-generation-link-form data-anchor-generation-id="${escapeHtml(event.id)}"><label><span>${escapeHtml(t("generationLinkCandidate"))}</span><select data-generation-link-candidate>${candidateOptions}</select></label><label><span>${escapeHtml(t("generationLinkDirection"))}</span><select data-generation-link-direction><option value="candidate-parent"${candidateIsEarlier ? " selected" : ""}>${escapeHtml(t("generationLinkCandidateParent"))}</option><option value="candidate-child"${candidateIsEarlier ? "" : " selected"}>${escapeHtml(t("generationLinkCandidateChild"))}</option></select></label><label><span>${escapeHtml(t("generationRelationType"))}</span><select data-generation-link-type>${generationRelationOptions("edited_from")}</select></label><button class="action-btn secondary" type="button" data-action="create-generation-relation">${escapeHtml(t("generationLinkCreate"))}</button></div>`;
+  }
+
+  function generationContextCandidatesMarkup(history, contextEvents, eventById, assetById) {
+    if (!contextEvents.length) return "";
+    const relationCandidates = Array.isArray(history?.relation_candidates) ? history.relation_candidates : [];
+    return `<div class="generation-context-candidates"><div class="generation-context-candidates-head"><strong>${escapeHtml(t("generationContextCandidates"))}</strong><span>${escapeHtml(t("generationContextCandidateCount", { count: contextEvents.length }))}</span></div><ol>${contextEvents.map((event) => {
+      const provider = String(event.provider || event.capture_channel || "").trim() || t("sourceUnknown");
+      const prompt = String(event.effective_prompt || event.user_prompt || "").trim();
+      const inferred = relationCandidates.find((candidate) => (
+        candidate.child_generation_id === event.id || candidate.parent_generation_id === event.id
+      ));
+      const otherId = inferred
+        ? (inferred.child_generation_id === event.id ? inferred.parent_generation_id : inferred.child_generation_id)
+        : "";
+      const otherEvent = eventById.get(otherId);
+      const candidateLabelKey = inferred?.child_generation_id === event.id
+        ? "generationReferenceRelationCandidate"
+        : "generationReferenceRelationParentCandidate";
+      const inferredEvidence = inferred
+        ? `<span class="generation-candidate-evidence">${escapeHtml(t(candidateLabelKey, { generation: generationEventCompactLabel(otherEvent) }))} · ${escapeHtml(t("generationRelationConfidence", { confidence: Math.round(Number(inferred.confidence || 0) * 100) }))}</span>`
+        : "";
+      const confirmAction = inferred
+        ? `<button class="action-btn secondary" type="button" data-action="confirm-generation-relation-candidate" data-child-generation-id="${escapeHtml(inferred.child_generation_id)}" data-parent-generation-id="${escapeHtml(inferred.parent_generation_id)}" data-relation-type="${escapeHtml(inferred.suggested_relation_type || inferred.relation_type || "derived_from")}">${escapeHtml(t("generationConfirmRelation"))}</button><button class="action-btn secondary" type="button" data-action="dismiss-generation-relation-candidate" data-child-generation-id="${escapeHtml(inferred.child_generation_id)}" data-parent-generation-id="${escapeHtml(inferred.parent_generation_id)}">${escapeHtml(t("generationDismissRelation"))}</button>`
+        : "";
+      return `<li data-context-generation-id="${escapeHtml(event.id)}">${generationEventThumbnailMarkup(event, assetById)}<span class="generation-context-candidate-copy"><span><strong>${escapeHtml(provider)}</strong><span class="generation-verification inferred">${escapeHtml(inferred ? t("generationLikelyRelated") : t("generationUnlinked"))}</span></span>${prompt ? `<span>${escapeHtml(prompt)}</span>` : `<span class="empty-copy">${t("notRecorded")}</span>`}${inferredEvidence}<time datetime="${escapeHtml(event.created_at || "")}">${escapeHtml(formatDateTime(event.created_at))}</time></span><span class="generation-context-candidate-actions">${confirmAction}<button class="action-btn secondary" type="button" data-action="open-generation-output" data-output-asset-id="${escapeHtml(event.output_asset_id)}">${escapeHtml(t("generationOpenAsset"))}</button>${event.conversation_id ? `<button class="action-btn secondary" type="button" data-action="view-generation-context" data-generation-id="${escapeHtml(event.id)}">${escapeHtml(t("generationViewContext"))}</button>` : ""}</span></li>`;
+    }).join("")}</ol></div>`;
+  }
+
+  function generationEventDetailMarkup(event, context = {}) {
+    const effectivePrompt = String(event.effective_prompt || "").trim();
+    const userPrompt = String(event.user_prompt || "").trim();
+    const references = Array.isArray(event.references) ? event.references : [];
+    const evidence = event.evidence && typeof event.evidence === "object" ? event.evidence : {};
+    const incoming = Array.isArray(context.incoming) ? context.incoming : [];
+    const eventById = context.eventById instanceof Map ? context.eventById : new Map();
+    const isCurrentAsset = event.output_asset_id === context.selectedAssetId;
+    const identifiers = [
+      ["generationEventId", event.id],
+      ["generationOutputAsset", event.output_asset_id],
+      ["generationCaptureContext", event.capture_context_id],
+      ["generationProviderToolCall", event.provider_tool_call_id],
+      ["generationProviderCall", event.provider_generation_call_id],
+      ["generationProviderResponse", event.provider_response_id],
+      ["generationProviderAsset", event.provider_asset_id],
+      ["generationConversationId", event.conversation_id],
+      ["generationMessageId", event.message_id],
+    ].filter(([, value]) => String(value || "").trim());
+    const identifierMarkup = identifiers.length
+      ? `<div class="generation-detail-identifiers">${identifiers.map(([key, value]) => `<div class="generation-detail-id-row"><span>${escapeHtml(t(key))}</span><code>${escapeHtml(String(value))}</code></div>`).join("")}</div>`
+      : `<p class="empty-copy">${t("notRecorded")}</p>`;
+    const referencesMarkup = references.length
+      ? `<ol class="generation-reference-list">${references.map((reference, index) => {
+        const label = String(reference?.role || reference?.asset_id || reference?.provider_asset_id || reference?.sha256 || t("generationReferenceLabel", { number: index + 1 }));
+        return `<li><details class="generation-reference-detail"><summary>${escapeHtml(label)}</summary><pre>${escapeHtml(generationJson(reference))}</pre></details></li>`;
+      }).join("")}</ol>`
+      : `<p class="empty-copy">${t("noReferences")}</p>`;
+    const evidenceMarkup = Object.keys(evidence).length
+      ? `<pre class="generation-evidence-json">${escapeHtml(generationJson(evidence))}</pre>`
+      : `<p class="empty-copy">${t("generationEvidenceEmpty")}</p>`;
+    const contextActions = `<div class="generation-node-actions"><button class="action-btn secondary" type="button" data-action="open-generation-output" data-output-asset-id="${escapeHtml(event.output_asset_id)}"${isCurrentAsset ? " disabled" : ""}>${escapeHtml(isCurrentAsset ? t("generationCurrentAsset") : t("generationOpenAsset"))}</button>${event.conversation_id ? `<button class="action-btn secondary" type="button" data-action="view-generation-context" data-generation-id="${escapeHtml(event.id)}">${escapeHtml(t("generationViewContext"))}</button>` : ""}</div>`;
+    const relationManagement = `<div class="generation-management">${generationCandidateParentsMarkup(event, context.history, eventById)}<div class="generation-management-head"><strong>${escapeHtml(t("generationRelations"))}</strong></div>${generationRelationsMarkup(event, incoming, eventById)}<details class="generation-link-disclosure"><summary>${escapeHtml(t("generationLinkGeneration"))}</summary>${generationLinkComposerMarkup(event, context.history, eventById)}</details></div>`;
+    return `<div class="generation-lineage-detail">${contextActions}<div class="generation-detail-field"><span class="generation-detail-label">${t("generationEffectivePrompt")}</span><div class="generation-detail-prompt">${effectivePrompt ? escapeHtml(effectivePrompt) : `<span class="empty-copy">${t("notRecorded")}</span>`}</div></div>${userPrompt && userPrompt !== effectivePrompt ? `<div class="generation-detail-field"><span class="generation-detail-label">${t("generationUserPrompt")}</span><div class="generation-detail-prompt">${escapeHtml(userPrompt)}</div></div>` : ""}${relationManagement}<details class="generation-subdetail"><summary>${t("generationReferences")} · ${references.length}</summary>${referencesMarkup}</details><details class="generation-subdetail"><summary>${t("generationEvidence")}</summary>${evidenceMarkup}</details><details class="generation-subdetail"><summary>${t("generationIdentifiers")}</summary>${identifierMarkup}</details></div>`;
+  }
+
+  function generationJson(value) {
+    try { return JSON.stringify(value, null, 2); }
+    catch { return String(value ?? ""); }
+  }
+
   function recipeHistoryDisclosureMarkup(history) {
     const content = history
       ? recipeHistoryMarkup(history)
       : `<p class="recipe-history-status" role="status">${t("recipeSnapshotLoading")}</p>`;
     // Phase 4A：单栏中完整历史默认不强行展开，按需披露（与版本历史 disclosure 一致）。
-    return `<details class="detail-disclosure"><summary>${t("recipeSnapshotHistory")}</summary><div class="disclosure-content recipe-history-region" data-recipe-history aria-live="polite">${content}</div></details>`;
+    return `<details class="detail-disclosure"><summary>${t("recipeHistoryLabel")}</summary><div class="disclosure-content recipe-history-region" data-recipe-history aria-live="polite">${content}</div></details>`;
   }
 
   /**
@@ -453,19 +638,36 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
   }
 
   function assetMediaPreviewMarkup(asset, mode = "thumb") {
-    const title = asset.theme || asset.asset || asset.id;
-    const url = mode === "detail" ? (asset.preview_url || asset.image_url) : (asset.thumbnail_url || asset.image_url);
+    const title = displayAssetTitle(asset);
+    const url = mode === "detail" ? (asset.medium_url || asset.preview_url || asset.image_url) : (asset.thumbnail_url || asset.image_url);
     if (isVideoAsset(asset)) {
       if (mode === "detail") {
-        return `<div class="detail-video-stack"><video class="detail-image detail-video" src="${escapeHtml(asset.image_url)}" controls playsinline preload="metadata" title="${escapeHtml(title)}">${escapeHtml(t("videoFallback"))}</video><p class="video-fallback-note">${escapeHtml(t("videoFallback"))} <a class="video-open-link" href="${escapeHtml(asset.image_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("openOriginalMedia"))}</a></p></div>`;
+        return `<div class="detail-video-stack"><video class="detail-image detail-video" src="${escapeHtml(asset.image_url)}" controls playsinline preload="metadata" title="${escapeHtml(title)}">${escapeHtml(t("videoFallback"))}</video></div>`;
       }
-      return `<span class="thumb video-thumb" aria-hidden="true"><video class="thumb-video" src="${escapeHtml(asset.image_url)}" muted playsinline preload="metadata"></video><span class="video-badge">▶</span></span>`;
+      const posterUrl = asset.thumbnail_url && asset.thumbnail_url !== asset.image_url ? asset.thumbnail_url : "";
+      const poster = posterUrl
+        ? `<img class="thumb-video-poster" src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" />`
+        : `<span class="thumb-video-placeholder"></span><video class="thumb-video-poster thumb-video-frame" data-gallery-video-src="${escapeHtml(asset.image_url)}" preload="none" muted playsinline tabindex="-1"${mediaDimensionAttributes(asset)}></video>`;
+      return `<span class="thumb video-thumb" aria-hidden="true"${videoThumbAspectAttributes(asset)}>${poster}<span class="video-badge">▶</span></span>`;
+    }
+    if (mode === "thumb" && asset.thumbnail_ready === false) {
+      const width = Number(asset.business_fields?.width);
+      const height = Number(asset.business_fields?.height);
+      const viewBox = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0
+        ? `0 0 ${Math.round(width)} ${Math.round(height)}`
+        : "0 0 1 1";
+      return `<svg class="thumb image-thumb-pending" viewBox="${viewBox}" preserveAspectRatio="none" aria-hidden="true"></svg>`;
     }
     if (mode === "detail") {
-      return `<img class="detail-image" src="${escapeHtml(url)}" alt="${escapeHtml(title)}" title="${escapeHtml(t("viewFullImage"))}" />`;
+      const srcset = [
+        asset.thumbnail_url && asset.thumbnail_url !== asset.image_url ? `${escapeHtml(asset.thumbnail_url)} 400w` : "",
+        asset.medium_url && asset.medium_url !== asset.image_url ? `${escapeHtml(asset.medium_url)} 960w` : "",
+        asset.preview_url && asset.preview_url !== asset.image_url ? `${escapeHtml(asset.preview_url)} 1600w` : "",
+      ].filter(Boolean).join(", ");
+      return `<img class="detail-image" src="${escapeHtml(url)}"${srcset ? ` srcset="${srcset}" sizes="360px"` : ""} alt="${escapeHtml(title)}" title="${escapeHtml(t("viewFullImage"))}" decoding="async" />`;
     }
-    return `<img class="thumb" src="${escapeHtml(url)}" alt="${escapeHtml(title)}" loading="lazy"${mediaDimensionAttributes(asset)} />`;
+    return `<img class="thumb" src="${escapeHtml(url)}" data-gallery-src="${escapeHtml(url)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async"${mediaDimensionAttributes(asset)} />`;
   }
 
-  return { fileDimensionsText, fileFormatText, fileSizeText, fileAspectRatioText, formatFileSize, fileFactRowMarkup, fileFactTagMarkup, detailFavoriteButtonMarkup, detailFileSectionMarkup, detailPromptSectionMarkup, promptReferencesMarkup, editRecipeFieldsMarkup, detailSourceSectionMarkup, detailVersionSectionMarkup, versionPickerMarkup, versionOptionLabel, detailVersionSummaryMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, detailNewVersionSectionMarkup, originalMediaCapability, originalMediaActionMarkup, detailMoreSectionMarkup, versionHistoryMarkup, recipeHistoryDisclosureMarkup, referenceRightsSummary, recipeHistoryMarkup, categoryOptions, buildSourceRows, sourceName, sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup };
+  return { fileDimensionsText, fileFormatText, fileSizeText, fileAspectRatioText, formatFileSize, fileFactRowMarkup, fileFactTagMarkup, detailFavoriteButtonMarkup, detailFileSectionMarkup, detailPromptSectionMarkup, promptReferencesMarkup, editRecipeFieldsMarkup, detailSourceSectionMarkup, detailVersionSectionMarkup, versionPickerMarkup, versionOptionLabel, detailVersionSummaryMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, detailNewVersionSectionMarkup, originalMediaCapability, originalMediaActionMarkup, detailMoreSectionMarkup, versionHistoryMarkup, generationHistoryMarkup, recipeHistoryDisclosureMarkup, referenceRightsSummary, recipeHistoryMarkup, categoryOptions, buildSourceRows, sourceName, sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup };
 }

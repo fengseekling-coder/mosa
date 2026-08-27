@@ -9,7 +9,17 @@ interface RecipeSnapshot {
   model: string; provider: string; skill: string; style: string; ratio: string; theme: string;
   references: NormalizedReference[]; provenance: Provenance; change_summary: string; created_at: string;
 }
-interface Provenance { source_type: string; task_id: string; session_id: string; generation_call_id: string; }
+interface Provenance {
+  source_type: string;
+  task_id: string;
+  session_id: string;
+  capture_context_id: string;
+  provider_tool_call_id: string;
+  provider_generation_call_id: string;
+  provider_response_id: string;
+  provider_asset_id: string;
+  verification_level: string;
+}
 interface NormalizedReference { asset_id: string; reference_id?: string; sha256: string; attachment_url?: string; mime_type?: string; width?: number; height?: number; role: string; scope: string[]; applied: boolean; allowed_uses: string[]; forbidden_uses: string[]; rights: Record<string, unknown>; }
 interface Asset { id?: string; [key: string]: unknown; }
 interface DigestReference { asset_id: string; sha256: string; role: string; scope: string[]; applied: boolean; }
@@ -65,7 +75,17 @@ export function recipeMaterial(asset: Asset = {}) {
     provider: cleanText(source.provider || business.provider), skill: cleanText(asset.skill), style: cleanText(asset.style),
     ratio: cleanText(asset.ratio), theme: cleanText(asset.theme),
     references: normalizeReferences(asset.references || business.references || source.references),
-    provenance: { source_type: cleanText(source.type || asset.sourceType || "local-file"), task_id: cleanText(source.codex_task_id || source.task_id), session_id: cleanText(source.codex_session_id || source.grok_session_id || source.conversation_id), generation_call_id: cleanText(source.codex_image_generation_call_id || source.generation_context_id || source.call_id || source.message_id) },
+    provenance: {
+      source_type: cleanText(source.type || asset.sourceType || "local-file"),
+      task_id: cleanText(source.codex_task_id || source.task_id),
+      session_id: cleanText(source.codex_session_id || source.grok_session_id || source.conversation_id),
+      capture_context_id: cleanText(source.capture_context_id || source.generation_context_id),
+      provider_tool_call_id: cleanText(source.provider_tool_call_id),
+      provider_generation_call_id: cleanText(source.provider_generation_call_id || source.codex_image_generation_call_id),
+      provider_response_id: cleanText(source.provider_response_id),
+      provider_asset_id: cleanText(source.provider_asset_id),
+      verification_level: cleanText(source.verification_level || "observed"),
+    },
   };
 }
 
@@ -116,7 +136,20 @@ function refreshReferenceRights(stored: RecipeSnapshot, incoming: RecipeSnapshot
   return { ...stored, references: (stored.references || []).map((r) => { const match = byIdentity.get(stableStringify(referenceDigestMaterial(r))); if (!match) return r; return { ...r, allowed_uses: match.allowed_uses, forbidden_uses: match.forbidden_uses, rights: match.rights }; }) };
 }
 
-function normalizeProvenance(value: unknown): Provenance { const s = isObject(value) ? value : {}; return { source_type: cleanText(s.source_type), task_id: cleanText(s.task_id), session_id: cleanText(s.session_id), generation_call_id: cleanText(s.generation_call_id) }; }
+function normalizeProvenance(value: unknown): Provenance {
+  const s = isObject(value) ? value : {};
+  return {
+    source_type: cleanText(s.source_type),
+    task_id: cleanText(s.task_id),
+    session_id: cleanText(s.session_id),
+    capture_context_id: cleanText(s.capture_context_id || s.generation_call_id),
+    provider_tool_call_id: cleanText(s.provider_tool_call_id),
+    provider_generation_call_id: cleanText(s.provider_generation_call_id),
+    provider_response_id: cleanText(s.provider_response_id),
+    provider_asset_id: cleanText(s.provider_asset_id),
+    verification_level: cleanText(s.verification_level || "observed"),
+  };
+}
 
 function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;

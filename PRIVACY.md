@@ -24,7 +24,8 @@ The selected local MOSA library can contain:
 - Prompt and user-message text;
 - hashes, dimensions, timestamps, source paths, source type, model/tool information, and provenance;
 - version relationships, tags, archive state, and collection metadata;
-- for web capture, provider/page URL, capture time, capture mode, extension version, and bounded source-occurrence history; ChatGPT additionally records conversation/message identifiers when available.
+- for web capture, provider/page URL, capture time, capture mode, extension version, and bounded source-occurrence history; ChatGPT additionally records conversation/message identifiers and observed image-tool call, generation-call, response, or provider-asset identifiers when those values are explicitly present in the page/runtime data;
+- generation events separately from deduplicated media assets. A generation event can contain a MOSA-created `capture_context_id`, provider runtime identifiers when observed, a verification level, Prompt fields, references, and evidence. A MOSA capture-context ID is never represented as a provider generation-call ID.
 
 Reference images identified by Web Capture are stored as private generation-record attachments under the selected MOSA library. They are content-hash deduplicated and may be linked into the subsequent generated asset's recipe snapshot, but they are not ordinary assets and therefore do not appear in the gallery, search, recent items, or asset totals. MOSA does not infer the purpose or rights of a reference from its pixels.
 
@@ -37,7 +38,8 @@ The library is stored on the user's machine. MOSA does not upload it to a MOSA-o
 The optional extension:
 
 - runs only on the ChatGPT, Gemini, Flow, and Google AI Studio domains declared in its manifest;
-- observes ChatGPT page and generation-response data to associate an image with the correct message-scoped Prompt and, when an image-generation result follows a user turn containing uploaded images, may archive those uploads as private reference attachments before the generated asset;
+- observes ChatGPT page and generation-response data to associate an image with the correct message-scoped Prompt and event-scoped conversation identifier and, when an image-generation result follows a user turn containing uploaded images, may archive those uploads as private reference attachments before the generated asset; provider asset identifiers are retained per observed reference usage when available, so a later generation can be compared against earlier Generation Events without turning that comparison into a confirmed relation;
+- records ChatGPT web observations as `observed`, not as provider-API-verified provenance. MOSA may locally score relation candidates from reference identity, modification-like user instructions, same-conversation order, and timing, but these remain `inferred` candidates until the user confirms or dismisses them; message order alone never creates a parent/child generation relation;
 - may fetch generated image bytes from the OpenAI- and Google-hosted asset domains declared in its manifest;
 - sends captured data only to the configured loopback MOSA address;
 - stores the MOSA address, Web Capture Token, and auto-capture preference in `chrome.storage.local`, not synchronized storage.
@@ -45,6 +47,8 @@ The optional extension:
 When updating from an earlier prerelease extension, existing settings may be read once from Chrome synchronized storage, copied to local storage, and removed from synchronized storage. The known prerelease development Token is discarded rather than migrated.
 
 The extension does not request or store an OpenAI API Key or ChatGPT password. It operates inside the user's existing browser session, so each provider and its asset hosts remain governed by their own privacy terms.
+
+For ChatGPT late-caption recovery, the page-world hook may temporarily observe the `authorization`, `oai-device-id`, `oai-client-version`, and `oai-language` headers already used by ChatGPT's own same-origin backend requests. These values are held only in page memory and may be replayed only to the current ChatGPT conversation endpoint on the same origin. They are not posted to the extension content script, are not sent to the background worker or MOSA service, and are not persisted by MOSA or the extension.
 
 On Gemini (`gemini.google.com`), it may additionally capture only the nearest preceding rendered `user-query` associated with a visible image inside a `model-response`. It skips inputs, editors, hidden content, unrelated page regions, credentials, cookies, and API keys. This text is marked `provider-visible-prompt` and is not verified as the prompt actually executed for generation.
 

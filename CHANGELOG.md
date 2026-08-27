@@ -5,7 +5,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 ## 0.2.0 — Unreleased / 待发布
 
 > **Local visual memory for AI creation.**
-> 把 Codex、ChatGPT、Grok 与 Cowart 中的创作结果，连同可用的 Prompt、来源和版本，留在自己的 Mac 上。
+> 把 Codex、ChatGPT、Grok 与 Cowart 中的创作结果，连同可用的 Prompt、来源和版本，留在自己的电脑上。
 
 ### New / 新增
 
@@ -39,6 +39,14 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - Added verified attach, owned-runtime, and conflict modes for the local MOSA service, preserving external services and stopping only runtimes owned by the desktop app.
 - Added Electron Forge packaging with ASAR and unpacked native dependencies for `better-sqlite3` and `sharp`.
 
+### Windows desktop preview
+
+- Added a shared Electron platform boundary so the renderer, local runtime, storage, Web Capture pairing, and most desktop behavior remain one implementation across macOS and Windows.
+- Added the `win32-x64` Forge target with Windows-native `better-sqlite3` and Sharp runtime selection, ASAR native unpacking, Windows executable/path resolution, and Windows packaged-smoke support.
+- Added Windows path safety for drive-letter paths, UNC paths, and cross-drive containment; source defaults now flow through a centralized source-location resolver instead of scattered platform assumptions.
+- Added a Windows CI lane for x64 packaging, platform/path contracts, Electron E2E, and packaged smoke.
+- Verified on a real Windows machine that MOSA starts successfully, renders the shared library and Inspector, and automatically collects Codex assets. The Windows shell keeps the native title bar while hiding Electron's visible application-menu row and retaining keyboard accelerators.
+
 ### Licensing / 许可
 
 - Version 0.2.0 and later are source-available under the PolyForm Noncommercial License 1.0.0. Noncommercial personal, educational, research, hobby, modification, and distribution uses remain permitted; commercial use requires separate written authorization.
@@ -46,7 +54,8 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ### Known limits / 已知限制
 
-- **Not a packaged desktop release.** MOSA currently starts from source on macOS with Node.js 22 or newer; no desktop installer is published for 0.2.0.
+- **Desktop builds are not a signed release.** macOS arm64 and Windows 10/11 x64 development/package targets exist, but no signed public desktop installer is published for 0.2.0. Windows is currently Preview/Testing; installer/signing/automatic-update work is still pending.
+- **Windows source coverage is not complete yet.** Codex automatic collection has been verified on a real Windows machine; Grok and Cowart Windows source discovery remain unverified until their actual local layouts are confirmed.
 - **No cloud by default.** MOSA provides no remote sync, embedded AI model, semantic search, or automatic library upload.
 - **Capture is deliberately conservative.** Web Capture needs a locally loaded extension; when MOSA cannot confidently match generation context, it records the Prompt as unavailable instead of guessing.
 

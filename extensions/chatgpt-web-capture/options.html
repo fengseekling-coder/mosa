@@ -67,13 +67,13 @@
       <strong>工作流</strong>
       <p style="margin:6px 0;color:#475569">自动发现生成图，或使用浏览器右键菜单快速保存。</p>
     </section>
-    <p>公共默认地址为 <code>http://127.0.0.1:43517</code>。Token 没有默认值，必须与 MOSA 服务端配置一致。</p>
+    <p>MOSA Desktop 会自动发现并完成本机配对。下面的地址和 Token 主要用于诊断或源码运行时的高级配置。</p>
 
     <label for="mosaBaseUrl">MOSA 地址</label>
     <input id="mosaBaseUrl" type="url" placeholder="http://127.0.0.1:43517" />
 
     <label for="mosaToken">Ingest Token</label>
-    <input id="mosaToken" type="password" autocomplete="off" placeholder="填写随机 Token" />
+    <input id="mosaToken" type="password" autocomplete="off" placeholder="Desktop 自动配对，无需手填" />
 
     <div class="row">
       <input id="autoCapture" type="checkbox" />

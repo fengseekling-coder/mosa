@@ -43,7 +43,7 @@ function sliceBetween(source, startMarker, endMarker) {
 // Library v2 keeps favorite inside the file overview, leaving eight semantic sections.
 const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "new-version", "more"];
 // Exact helper-call sequence inside the renderDetail single-column composition.
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
 
 // 1. Native select exists. 2-3. No hand-rolled listbox / version popover.
 // 4. Picker lives inside the version section. 5. Current version is selected.
@@ -186,7 +186,7 @@ test("20-23. switch preserves viewer state, scroll, and lands focus", async () =
 
   // The state update order is locked: selection/asset, history retention,
   // recipe-history reset, gallery highlight, re-render.
-  assert.match(helper, /state\.selectedId = target\.id;\s*\n\s*state\.detailAsset = target;\s*\n\s*state\.recipeHistory = null;\s*\n\s*updateSelectedCard\(\);\s*\n\s*renderDetail\(\);/, "state update sequence keeps versionHistory and clears recipeHistory");
+  assert.match(helper, /state\.selectedId = target\.id;\s*\n\s*state\.detailAsset = target;\s*\n\s*state\.recipeHistory = null;\s*\n\s*state\.generationHistory = null;\s*\n\s*updateSelectedCard\(\);\s*\n\s*renderDetail\(\);/, "state update sequence keeps versionHistory and clears asset-specific histories");
   assert.doesNotMatch(helper, /state\.versionHistory = null/, "version history survives the switch");
 
   // 22. The previous scrollTop is captured before renderDetail and restored
@@ -324,7 +324,7 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
   assert.match(viewer, /assetViewSequence\.ids = state\.assets\.map\(\(asset\) => asset\.id\);/, "43. viewer navigation anchor intact");
   assert.match(viewer, /function applyAssetViewTransform\(\)/, "44. viewer transform anchor intact");
   assert.match(viewer, /state\.libraryReturnSnapshot = \{/, "45. library return snapshot anchor intact");
-  assert.match(inspector, /function detailVersionSectionMarkup\(asset, cachedHistory, cachedRecipeHistory\)/, "46. Phase 4A IA anchors intact");
+  assert.match(inspector, /function detailVersionSectionMarkup\(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory\)/, "46. version section accepts generation history alongside legacy histories");
 
   // 47. Manifest and lockfile SHAs stay at their frozen values.
   const pkg = await readFile(resolve(root, "package.json"), "utf8");

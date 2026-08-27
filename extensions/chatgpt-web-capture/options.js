@@ -61,10 +61,23 @@ document.getElementById("test").addEventListener("click", async () => {
     setStatus(error instanceof Error ? error.message : String(error), "error");
     return;
   }
-  const token = tokenEl.value.trim();
+  let token = tokenEl.value.trim();
   if (!token) {
-    setStatus("请先填写 Ingest Token。", "error");
-    return;
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "mosa.getSettings" });
+      token = String(response?.settings?.mosaToken || "").trim();
+      const discoveredBaseUrl = String(response?.settings?.mosaBaseUrl || "").trim();
+      if (!token || !discoveredBaseUrl) {
+        setStatus("未发现正在运行的 MOSA。请先打开 MOSA App。", "error");
+        return;
+      }
+      baseUrl = normalizeBaseUrl(discoveredBaseUrl);
+      tokenEl.value = token;
+      baseUrlEl.value = baseUrl;
+    } catch {
+      setStatus("未发现正在运行的 MOSA。请先打开 MOSA App。", "error");
+      return;
+    }
   }
   if (token === LEGACY_DEV_TOKEN) {
     setStatus("旧开发 Token 已失效。请填写与当前 MOSA 服务一致的新随机 Token。", "error");

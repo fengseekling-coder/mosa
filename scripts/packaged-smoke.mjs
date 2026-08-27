@@ -7,12 +7,13 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
+import { packagedExecutablePath } from "./desktop-runtime-paths.mjs";
+import { signalProcessTree } from "./process-tree.mjs";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const forgeOutDir = resolve(rootDir, process.env.MOSA_FORGE_OUT_DIR || "out");
-const binary = join(forgeOutDir, "MOSA-darwin-arm64", "MOSA.app", "Contents", "MacOS", "MOSA");
+const binary = packagedExecutablePath({ rootDir, outDir: forgeOutDir });
 
-if (process.platform !== "darwin") throw new Error("Packaged smoke requires macOS.");
 if (!existsSync(binary)) throw new Error(`Missing packaged binary: ${binary}`);
 
 const temp = await mkdtemp(join(tmpdir(), "mosa-smoke-"));
@@ -145,9 +146,11 @@ function evaluate(socket, expression) {
 async function stopChild(childProcess) {
   if (childProcess.exitCode !== null || childProcess.signalCode) return;
   const exited = onceExit(childProcess);
-  childProcess.kill("SIGTERM");
+  await signalProcessTree(childProcess.pid);
   if (await Promise.race([exited.then(() => true), sleep(5000).then(() => false)])) return;
-  if (childProcess.exitCode === null && !childProcess.signalCode) childProcess.kill("SIGKILL");
+  if (childProcess.exitCode === null && !childProcess.signalCode) {
+    await signalProcessTree(childProcess.pid, { force: true });
+  }
   await Promise.race([exited, sleep(5000)]);
 }
 

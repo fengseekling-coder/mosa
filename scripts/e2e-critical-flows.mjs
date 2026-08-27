@@ -9,15 +9,16 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { importStagingDir } from "../lib/import-staging.mjs";
-import { createMacGuiLauncher, openMacGuiLauncher } from "./macos-gui-launcher.mjs";
+import { launchDesktopGui } from "./desktop-gui-launcher.mjs";
+import { electronExecutablePath } from "./desktop-runtime-paths.mjs";
 import { createCriticalUiFlowSource } from "./e2e-ui-flow.mjs";
+import { signalProcessTree } from "./process-tree.mjs";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const electronBinary = join(rootDir, "node_modules", "electron", "dist", "Electron.app", "Contents", "MacOS", "Electron");
+const electronBinary = electronExecutablePath({ rootDir });
 const webDriver = join(rootDir, "scripts", "e2e-web-driver.mjs");
 const DISABLED_BRIDGES = "cowart,cowartDiscovery,codex,grok";
 
-if (process.platform !== "darwin") throw new Error("Critical Web + Electron E2E currently requires macOS.");
 if (!existsSync(electronBinary)) throw new Error(`Electron binary not found: ${electronBinary}`);
 
 const root = await mkdtemp(join(tmpdir(), "mosa-critical-e2e-"));
@@ -102,7 +103,8 @@ async function runElectronRound(mode, searchTerm, versionChange) {
     port: servicePort,
     userData: desktopUserData,
   });
-  const appDir = await createMacGuiLauncher({
+  const launched = await launchDesktopGui({
+    platform: process.platform,
     rootDir: runDir,
     executable: electronBinary,
     args: ["desktop/main.mjs", `--user-data-dir=${desktopUserData}`, `--remote-debugging-port=${cdpPort}`],
@@ -113,10 +115,10 @@ async function runElectronRound(mode, searchTerm, versionChange) {
     healthUrl: `http://127.0.0.1:${servicePort}/api/health`,
     healthFile,
   });
-  const waiter = openMacGuiLauncher(appDir);
+  const waiter = launched.waiter;
   let pid = null;
   try {
-    pid = await waitForPid(pidFile);
+    pid = launched.pid || await waitForPid(pidFile);
     const health = await waitForHealthFile(healthFile);
     assertHealth(health);
     const cdp = await connectCdp(cdpPort, `http://127.0.0.1:${servicePort}`);
@@ -293,21 +295,23 @@ async function runCommand(command, args, options) {
 
 async function stopProcess(child) {
   if (!child || child.exitCode !== null) return;
-  child.kill("SIGTERM");
+  await signalProcessTree(child.pid);
   await Promise.race([
     new Promise((resolveExit) => child.once("exit", resolveExit)),
-    sleep(5000).then(() => { if (child.exitCode === null) child.kill("SIGKILL"); }),
+    sleep(5000).then(async () => {
+      if (child.exitCode === null) await signalProcessTree(child.pid, { force: true });
+    }),
   ]);
 }
 
 async function stopPid(pid) {
-  try { process.kill(pid, "SIGTERM"); } catch (error) { if (error?.code === "ESRCH") return; else throw error; }
+  if (!(await signalProcessTree(pid))) return;
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
     try { process.kill(pid, 0); } catch { return; }
     await sleep(100);
   }
-  try { process.kill(pid, "SIGKILL"); } catch {}
+  await signalProcessTree(pid, { force: true }).catch(() => {});
 }
 
 function sleep(ms) {
