@@ -14,23 +14,44 @@ export function createImagePreviewViewer({ els, state, t, announceGalleryStatus 
   let imagePreviewPanSession = null;
   let imagePreviewPinchSession = null;
   let imagePreviewSuppressStageClick = false;
+  let imagePreviewStageGeometry = null;
+
+  function refreshImagePreviewStageGeometry() {
+    const stage = els.imagePreviewStage;
+    if (!stage) {
+      imagePreviewStageGeometry = { left: 0, top: 0, width: 0, height: 0 };
+      return imagePreviewStageGeometry;
+    }
+    const rect = stage.getBoundingClientRect();
+    const styles = getComputedStyle(stage);
+    const paddingLeft = parseFloat(styles.paddingLeft) || 0;
+    const paddingRight = parseFloat(styles.paddingRight) || 0;
+    const paddingTop = parseFloat(styles.paddingTop) || 0;
+    const paddingBottom = parseFloat(styles.paddingBottom) || 0;
+    imagePreviewStageGeometry = {
+      left: rect.left + paddingLeft,
+      top: rect.top + paddingTop,
+      width: Math.max(0, stage.clientWidth - paddingLeft - paddingRight),
+      height: Math.max(0, stage.clientHeight - paddingTop - paddingBottom),
+    };
+    return imagePreviewStageGeometry;
+  }
+
+  function currentImagePreviewStageGeometry() {
+    return imagePreviewStageGeometry || refreshImagePreviewStageGeometry();
+  }
 
   function imagePreviewStageSize() {
-    const stage = els.imagePreviewStage;
-    if (!stage) return { width: 0, height: 0 };
-    const styles = getComputedStyle(stage);
-    return {
-      width: Math.max(0, stage.clientWidth - parseFloat(styles.paddingLeft) - parseFloat(styles.paddingRight)),
-      height: Math.max(0, stage.clientHeight - parseFloat(styles.paddingTop) - parseFloat(styles.paddingBottom)),
-    };
+    const geometry = currentImagePreviewStageGeometry();
+    return { width: geometry.width, height: geometry.height };
   }
 
   function imagePreviewBaseSize() {
     const image = els.imagePreviewImage;
     if (!image) return { width: 0, height: 0 };
     return {
-      width: image.offsetWidth || Number.parseFloat(image.style.width) || 0,
-      height: image.offsetHeight || Number.parseFloat(image.style.height) || 0,
+      width: Number.parseFloat(image.style.width) || image.offsetWidth || 0,
+      height: Number.parseFloat(image.style.height) || image.offsetHeight || 0,
     };
   }
 
@@ -84,6 +105,7 @@ export function createImagePreviewViewer({ els, state, t, announceGalleryStatus 
   }
 
   function reconcileImagePreviewTransform() {
+    refreshImagePreviewStageGeometry();
     const offsets = clampImagePreviewOffsets(state.imageZoom, state.imagePanX, state.imagePanY);
     state.imagePanX = offsets.offsetX;
     state.imagePanY = offsets.offsetY;
@@ -133,16 +155,10 @@ export function createImagePreviewViewer({ els, state, t, announceGalleryStatus 
   }
 
   function imagePreviewStagePointer(clientX, clientY) {
-    const stage = els.imagePreviewStage;
-    if (!stage) return { x: 0, y: 0 };
-    const rect = stage.getBoundingClientRect();
-    const styles = getComputedStyle(stage);
-    const paddingLeft = parseFloat(styles.paddingLeft) || 0;
-    const paddingTop = parseFloat(styles.paddingTop) || 0;
-    const size = imagePreviewStageSize();
+    const geometry = currentImagePreviewStageGeometry();
     return {
-      x: clientX - rect.left - paddingLeft - size.width / 2,
-      y: clientY - rect.top - paddingTop - size.height / 2,
+      x: clientX - geometry.left - geometry.width / 2,
+      y: clientY - geometry.top - geometry.height / 2,
     };
   }
 
@@ -281,6 +297,7 @@ export function createImagePreviewViewer({ els, state, t, announceGalleryStatus 
     if (event.pointerType === "mouse" && (!event.isPrimary || event.button !== 0)) return;
     if (event.target.closest?.("video")) return;
     if (imagePreviewActivePointers.has(event.pointerId)) return;
+    refreshImagePreviewStageGeometry();
     const pointer = {
       pointerId: event.pointerId,
       pointerType: event.pointerType,
@@ -354,6 +371,7 @@ export function createImagePreviewViewer({ els, state, t, announceGalleryStatus 
 
   function setupImageZoomPan() {
     const stage = els.imagePreviewStage; if (!stage) return;
+    refreshImagePreviewStageGeometry();
     stage.addEventListener("wheel", (e) => { if (state.imagePreviewId) { e.preventDefault(); zoomImage(e.deltaY < 0 ? IMAGE_PREVIEW_ZOOM_STEP : -IMAGE_PREVIEW_ZOOM_STEP, { announce: false }); } }, { passive: false });
     stage.addEventListener("pointerdown", handleImagePreviewPointerDown);
     stage.addEventListener("pointermove", handleImagePreviewPointerMove);

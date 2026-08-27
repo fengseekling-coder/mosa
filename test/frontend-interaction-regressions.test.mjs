@@ -32,7 +32,7 @@ test("recipe save merges prompt tags with the latest asset tags, not the render-
 
 test("tag editor participates in dirty-state protection until its save commits", async () => {
   const app = await readApp();
-  const editorActive = sliceBetween(app, "function isDetailEditorActive()", "const bridgeStatusPoller");
+  const editorActive = sliceBetween(app, "function isDetailEditorActive()", "function latestAssetSnapshot");
   const tagEditor = sliceBetween(app, "function openTagEditor(panel, asset, renderId)", "function refreshDetailTagsSection");
 
   assert.match(editorActive, /\[data-tag-editor\]/);

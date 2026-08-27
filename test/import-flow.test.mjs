@@ -131,6 +131,9 @@ test("import rejections reach the client as 400 with a code, and the format list
   const favoriteAgain = await batch({ action: "favorite", projectId: "default", assetIds: [asset.id] });
   assert.equal(favoriteAgain.status, 200);
   assert.deepEqual((await favoriteAgain.json()).results, [{ id: asset.id, favorite: true }]);
+  const unfavorite = await batch({ action: "favorite", favorite: false, projectId: "default", assetIds: [asset.id] });
+  assert.equal(unfavorite.status, 200);
+  assert.deepEqual((await unfavorite.json()).results, [{ id: asset.id, favorite: false }]);
 
   const invalidBatch = await batch({ action: "delete", projectId: "default", assetIds: [asset.id] });
   assert.equal(invalidBatch.status, 400);

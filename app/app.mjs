@@ -62,9 +62,6 @@ const state = {
   detailReturnFocusAssetId: null, previewReturnFocusAssetId: null,
   imageZoom: 1, imagePanX: 0, imagePanY: 0, imageDragging: false,
   // Bulk-selection gate. The viewer short-circuits while batch mode is active so
-  // selected cards never auto-open the asset view mid-selection; this defaults to
-  // false because batch UI isn't yet wired up (see Bug D in the audit report).
-  batchMode: false,
   // Phase 3A / D4：专用大图查看模式最小状态——viewMode 二值（library/asset）+ 进入时的
   // 画廊返回快照。不复刻搜索/筛选/排序状态、不深拷贝 state、无第二套 selectedAsset、无平行 Router。
   viewMode: "library", libraryReturnSnapshot: null,
@@ -95,7 +92,7 @@ const els = {
   typeFilters: document.querySelector(".topbar-type-filters"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
   activeFilters: document.querySelector("#activeFilters"), filterPanel: document.querySelector("#filterPanel"), filterToggle: document.querySelector("#filterToggle"), sortSelect: document.querySelector("#sortSelect"), themeToggle: document.querySelector("#themeToggle"),
-  accountToggle: document.querySelector("#accountToggle"), accountModal: document.querySelector("#accountModal"), closeAccountModal: document.querySelector("#closeAccountModal"), accountAssetCount: document.querySelector("#accountAssetCount"), accountCollectionCount: document.querySelector("#accountCollectionCount"), settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), addGroupBtn: document.querySelector("#addGroupBtn"), sidebarGroupList: document.querySelector("#sidebarGroupList"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
+  accountToggle: document.querySelector("#accountToggle"), accountModal: document.querySelector("#accountModal"), closeAccountModal: document.querySelector("#closeAccountModal"), accountAssetCount: document.querySelector("#accountAssetCount"), accountCollectionCount: document.querySelector("#accountCollectionCount"), settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
   viewTitle: document.querySelector("#viewTitle"), assetCount: document.querySelector("#assetCount"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
 
@@ -372,6 +369,10 @@ function setupKeyboardShortcuts() {
     // Phase 5B：ConfirmDialog 打开时页面背景不接收任何键盘操作（Escape 由
     // trapConfirmDialogFocus 消费；不新增第二套全局 Escape 路由）。
     if (confirmDialogState.pending) return;
+    // M1 兜底：右键菜单打开期间键盘归菜单独占（菜单本身以捕获阶段消费并阻断
+    // 冒泡）。一次 Escape 只关菜单，方向键只移动菜单焦点，不连带关 Inspector
+    // 或切换画廊选中。
+    if (contextMenu.isOpen()) return;
     // Disabled context-menu shortcuts (pasteFromClipboard / selectAll) advertise
     // ⌘V / ⌘A but never implement them. Block the browser defaults so users
     // don't accidentally select all DOM text or trip paste-handlers that the
@@ -452,6 +453,7 @@ function setupKeyboardShortcuts() {
       && els.imagePreviewModal?.hidden
       && !els.importModal?.classList.contains("open")
       && !els.groupModal?.classList.contains("open")
+      && !els.accountModal?.classList.contains("open")
       && els.settingsMenu?.hidden
       && !event.target.closest?.("[contenteditable]")) {
       if (event.target.matches?.("input, textarea, select")) return; // 输入控件一律不触发 Viewer 快捷键
@@ -615,16 +617,6 @@ async function init() {
     }
   }
 
-function addVoiceOverLabel(element, id, text) {
-  if (!element || !text) return;
-  const label = document.createElement("span");
-  label.className = "visually-hidden";
-  label.id = id;
-  label.textContent = text;
-  element.setAttribute("aria-labelledby", id);
-  element.prepend(label);
-}
-
 function renderSettingsMenu() {
   if (!els.settingsMenu) return;
   const settingIcon = (path) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="${path}"/></svg>`;
@@ -658,15 +650,6 @@ async function fetchDiagnostics() {
   } catch {
     content.innerHTML = `<p class="diag-error">${t("diagError")}</p>`;
   }
-}
-
-function renderCowartCanvasSettings() {
-  const entries = state.cowartCanvases.map((canvas) => {
-    const label = cowartCanvasLabel(canvas);
-    const status = canvas.lastError ? "error" : canvas.enabled ? "ok" : "off";
-    return `<div class="settings-cowart-entry" title="${escapeHtml(canvas.canvasDir || canvas.projectDir || "")}"><span class="settings-cowart-status" data-state="${status}" aria-hidden="true"></span><span class="settings-cowart-name">${escapeHtml(label)}</span></div>`;
-  }).join("");
-  return `<section class="settings-section settings-cowart-section"><p>${t("cowartCanvases")}</p><div class="settings-cowart-list">${entries}</div></section>`;
 }
 
 function cowartCanvasLabel(canvas = {}) {
@@ -731,7 +714,7 @@ function handleLibraryKeyboardNavigation(event) {
 // router. The name is retained for the Phase 3 contract seam; it does not add a
 // second document listener or a second shortcut manager.
 function bindKeyboardNav(event) {
-  if (confirmDialogState.pending || els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open")) return;
+  if (confirmDialogState.pending || els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open") || els.accountModal?.classList.contains("open")) return;
   if (!els.imagePreviewModal?.hidden || !els.settingsMenu?.hidden) return;
   if (event.target.closest?.("[contenteditable]")) return;
   if (event.target.closest?.("[role='tab']")) return;
@@ -767,6 +750,7 @@ const contextMenuActions = createContextMenuActions({
   requestConfirmation,
   confirmDetailNavigation,
   discardDetailDraft,
+  openGroupModal,
   getGroupColor: colorForGroup,
   saveGroupColor,
 });
@@ -781,11 +765,14 @@ function latestAssetSnapshot(projectId, assetId, fallback = null) {
   return state.assets.find((item) => item.project_id === projectId && item.id === assetId) || fallback;
 }
 
-const bridgeStatusPoller = createBridgeStatusPoller({
-  fetchStatus: () => apiFetch("/api/bridges"),
-  onSuccess: applyBridgeStatus,
-  onError: applyBridgeStatusFailure,
-});
+function createBridgeStatusPolling() {
+  return createBridgeStatusPoller({
+    fetchStatus: () => apiFetch("/api/bridges"),
+    onSuccess: applyBridgeStatus,
+    onError: applyBridgeStatusFailure,
+  });
+}
+let bridgeStatusPoller = createBridgeStatusPolling();
 
 // Stop polling when the page goes away and drop any response that lands afterwards.
 window.addEventListener("pagehide", () => {
@@ -793,6 +780,26 @@ window.addEventListener("pagehide", () => {
   if (libraryRefreshTimer) {
     clearInterval(libraryRefreshTimer);
     libraryRefreshTimer = null;
+  }
+});
+// M6：隐藏标签页暂停轮询（与 refreshLibraryInBackground 的 document.hidden 守卫
+// 对齐）；重新可见时恢复并立即刷新一次，指示灯不落后于真实桥接状态。
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) bridgeStatusPoller.pause();
+  else { bridgeStatusPoller.resume(); void refreshBridgeStatus(); }
+});
+// bfcache 恢复（浏览器“后退”）：pagehide 已终止旧轮询实例（stop 是不可逆的
+// teardown 守卫），pageshow(persisted) 后页面重新可见，重建新实例继续轮询并
+// 恢复库刷新间隔，桥接指示灯不再永久冻结在旧值。
+window.addEventListener("pageshow", (event) => {
+  if (!event.persisted) return;
+  bridgeStatusPoller = createBridgeStatusPolling();
+  void bridgeStatusPoller.refresh();
+  bridgeStatusPoller.start();
+  if (!libraryRefreshTimer) {
+    libraryRefreshTimer = setInterval(() => {
+      if (!isLoadingMore) void refreshLibraryInBackground();
+    }, LIBRARY_REFRESH_INTERVAL);
   }
 });
 
@@ -1017,7 +1024,6 @@ function bindEvents() {
     const id = selectButton.closest(".asset-card")?.dataset.id;
     if (id) openImagePreview(id, selectButton);
   });
-  els.addGroupBtn?.addEventListener("click", openGroupModal);
   els.newAssetTopBtn?.addEventListener("click", openImportModal);
   els.quickFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) void setFilter(button.dataset.filter); });
   els.sidebarGroupList?.addEventListener("click", (event) => {
@@ -1129,6 +1135,11 @@ function bindEvents() {
     if (event.target === els.imagePreviewStage) closeImagePreview();
   });
   els.imagePreviewImage?.addEventListener("load", fitImagePreview);
+  // L：灯箱此前完全没有加载失败处理——图片 404 时舞台空白且无任何提示。
+  // src 被移除（关闭预览）触发的 error 不属于真失败，需排除。
+  els.imagePreviewImage?.addEventListener("error", () => {
+    if (!els.imagePreviewModal?.hidden && els.imagePreviewImage?.getAttribute("src")) showToast(t("imageLoadFailed"), "error");
+  });
   els.assetViewBack?.addEventListener("click", () => { void closeDetailSurface(); });
   // Phase 3A 运行时修复（双击进入路径）：第一次 click 已打开查看模式并同步聚焦返回按钮，
   // 紧随的第二次 mousedown 落在同坐标的舞台/主图上——浏览器默认动作会把焦点清到 BODY，
@@ -1370,7 +1381,9 @@ function showImportError(field, message) {
   target.input?.setAttribute("aria-invalid", "true");
   // A collapsed advanced section would otherwise hide the field the error names.
   if (target.disclosure) target.disclosure.open = true;
-  target.input?.focus();
+  // 控件在保存期间是 disabled（focus 对其是 no-op）；rAF 晚于调用方的 finally，
+  // 到那时按钮已恢复可用，焦点才能真正落到出错字段上。
+  requestAnimationFrame(() => target.input?.focus());
 }
 
 function setImportBusy(busy) {
@@ -1395,9 +1408,12 @@ async function saveAsset() {
   const originProjectId = state.project;
   const originAssetId = state.selectedId;
   const hadDetailDraft = state.detailDirty;
-  if (hadDetailDraft && !await confirmDetailNavigation(null)) return;
+  // 防重窗口必须先于 confirmDetailNavigation 的网络级冲刷打开（PATCH + 两次
+  // 刷新，数百毫秒）--否则冲刷期间的双击会重复走到 POST /api/assets/create，
+  // 同一文件被导入两份。
   setImportBusy(true);
   try {
+    if (hadDetailDraft && !await confirmDetailNavigation(null)) return;
     const result = await apiFetch("/api/assets/create", { method: "POST", body: { projectId: originProjectId, imagePath: els.imagePathInput.value, prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, ratio: els.ratioInput.value, theme: els.themeInput.value, group: els.groupInput.value, category: els.categoryInput.value, tags: uniqueTags([...(derivePromptTags({ prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, theme: els.themeInput.value, category: els.categoryInput.value }))]), business_fields: businessFields } });
     if (hadDetailDraft && originProjectId === state.project && originAssetId === state.selectedId) discardDetailDraft();
     state.selectedId = result.asset.id;
@@ -1795,6 +1811,8 @@ function setInspectorAutosaveStatus(panel, kind) {
   panel?.querySelectorAll("[data-autosave-status]").forEach((node) => {
     if (kind === "saving") node.textContent = t("saving");
     else if (kind === "saved") node.textContent = t("autoSaved");
+    // L1：失败必须落在面板状态位上（不只靠一闪而过的 Toast），dirty 仍保留可重试。
+    else if (kind === "error") node.textContent = t("autoSaveFailed");
     else node.textContent = "";
   });
 }
@@ -1816,29 +1834,40 @@ async function persistInspectorDraft(panel, asset, renderId) {
     try {
       const currentAsset = latestAssetSnapshot(originProjectId, originAssetId, asset);
       const body = {};
+      let sentRecipeSnapshot = null;
+      let sentReferencesSnapshot = null;
       if (recipeDirty) {
         const recipeDraft = readRecipeDraft(panel);
         // 配方保存只读 [data-recipe-change]；说明为空时省略 recipe_change_summary
         //（服务端缺省 "Recipe updated"），不硬编码英文、不创建新版本。
         const changeSummary = panel.querySelector("[data-recipe-change]")?.value.trim() || "";
         Object.assign(body, recipeDraft, { tags: uniqueTags([...assetTags(currentAsset), ...derivePromptTags(recipeDraft)]) }, changeSummary ? { recipe_change_summary: changeSummary } : {});
+        sentRecipeSnapshot = JSON.stringify([recipeDraft, changeSummary]);
       }
       if (referenceDirty) {
         const section = panel.querySelector("[data-reference-rights-section]");
         body.references = readReferenceRightsDraft(section, currentAsset);
+        sentReferencesSnapshot = JSON.stringify(body.references);
       }
       const result = await apiFetch(`/api/assets/${encodeURIComponent(originProjectId)}/${encodeURIComponent(originAssetId)}`, { method: "PATCH", body });
       if (!isCurrentDetailAction(renderId, originProjectId, originAssetId)) return true;
       state.detailAsset = result.asset;
       const index = state.assets.findIndex((item) => item.id === originAssetId && item.project_id === originProjectId);
       if (index >= 0) state.assets[index] = result.asset;
-      if (recipeDirty) clearDetailDirtyScope(panel, "recipe");
-      if (referenceDirty) {
-        const section = panel.querySelector("[data-reference-rights-section]");
-        if (section) delete section.dataset.referenceDirty;
-        state.detailDirty = panelHasDirtyDraft(panel);
+      // PATCH 在途期间的新输入不在请求体里：只有当前草稿与发出时完全一致才清脏；
+      // 有飞行期编辑则保留 dirty 标志并立即补存，否则导航冲刷会把可见编辑当
+      // “无草稿”静默丢弃（面板显示已保存，服务器却缺最后几笔输入）。
+      const flightEdits = draftChangedDuringFlight(panel, sentRecipeSnapshot, sentReferencesSnapshot);
+      if (!flightEdits) {
+        if (recipeDirty) clearDetailDirtyScope(panel, "recipe");
+        if (referenceDirty) {
+          const section = panel.querySelector("[data-reference-rights-section]");
+          if (section) delete section.dataset.referenceDirty;
+          state.detailDirty = panelHasDirtyDraft(panel);
+        }
       }
       setInspectorAutosaveStatus(panel, "saved");
+      if (flightEdits) scheduleInspectorSave();
       await loadStats();
       await loadAssets({ background: true });
       return true;
@@ -1865,7 +1894,26 @@ async function flushInspectorSave() {
 
 async function confirmDetailNavigation() {
   // 自动保存：导航/切换前冲刷挂起的草稿；失败则返回 false 阻断导航（不静默丢数据）。
+  // version/tags 作用域是手动保存语义（没有自动保存兜底）：存在未提交草稿时先显式
+  // 确认丢弃，避免点开另一张卡片/关掉 Inspector 就无声清掉已写的变更说明或新标签。
+  if (hasManualSaveDraft()) {
+    const confirmed = await requestConfirmation({
+      title: t("discardChangesTitle"),
+      description: t("discardChangesDescription"),
+      confirmLabel: t("discardChangesAction"),
+      tone: "danger",
+    });
+    if (!confirmed) return false;
+  }
   return flushInspectorSave();
+}
+
+// 手动保存作用域（version=另存为新版本的变更说明，tags=标签编辑器输入）的未提交
+// 草稿。recipe/reference 由自动保存冲刷兜底，不在此弹确认。
+function hasManualSaveDraft() {
+  const panel = els.detailPanel;
+  if (!panel?.isConnected || !state.detailOpen) return false;
+  return Boolean(panel.querySelector('[data-detail-dirty="true"][data-detail-dirty-scope="version"], [data-detail-dirty="true"][data-detail-dirty-scope="tags"]'));
 }
 
 function discardDetailDraft() {
@@ -2099,9 +2147,10 @@ async function saveGroup() {
   const originProjectId = state.project;
   const originAssetId = state.selectedId;
   const hadDetailDraft = state.detailDirty;
-  if (hadDetailDraft && !await confirmDetailNavigation(null)) return;
+  // 同 saveAsset：防重窗口先于草稿冲刷的网络往返打开，冲刷期间双击不重复建组。
   setGroupBusy(true);
   try {
+    if (hadDetailDraft && !await confirmDetailNavigation(null)) return;
     await runAction(async () => {
       const result = await apiFetch("/api/groups", { method: "POST", body: { projectId: originProjectId, name } });
       if (hadDetailDraft && originProjectId === state.project && originAssetId === state.selectedId) discardDetailDraft();
@@ -2109,10 +2158,11 @@ async function saveGroup() {
       closeGroupModal({ force: true });
       await loadStats();
       showToast(`${t("groupCreated")}${result.group.name}`, "success");
-      state.facets.group = result.group.name;
-      state.nextCursor = null;
+      // “来源”已是当前侧栏的唯一自动分组入口；创建自定义分组不应把用户瞬间
+      // 导航到一个尚无素材的空分组。保留当前画廊上下文，新分组会立即出现在
+      // 素材右键的“移动到分组”子菜单中。
       clearDetailSelection();
-      renderQuickFilters(); renderActiveFilters(); await loadAssets();
+      renderQuickFilters();
     });
   } finally {
     setGroupBusy(false);
@@ -2259,8 +2309,10 @@ function renderDetail() {
   if (hadPanelFocus) els.detailPanel.querySelector("#detailTitle")?.focus();
   // Phase 3A：详情内容变化（版本切换/后台刷新/语言切换）时同步查看模式舞台主图。
   if (state.viewMode === "asset") renderAssetView();
-  void loadVersionHistory(asset);
-  void loadRecipeHistory(asset);
+  // P2：该素材的历史已有缓存（同素材重渲染：收藏切换/自动保存后的后台刷新/
+  // 语言切换）时不重发两个历史请求；导航换素材时缓存已被清空，照常拉取。
+  if (!cachedHistory) void loadVersionHistory(asset);
+  if (!cachedRecipeHistory) void loadRecipeHistory(asset);
 }
 
 let versionHistoryRequestSequence = 0;
@@ -2503,13 +2555,20 @@ function bindDetailEvents(asset, renderId) {
       // never throws away edits as a side effect.
       if (!await confirmDetailNavigation(null)) return;
       if (!isCurrentDetailSelection(asset.project_id, asset.id)) return;
-      await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/archive`, { method: "POST" });
-      discardDetailDraft();
-      showToast(t("archived"), "success");
-      setDetailOpen(false);
-      state.selectedId = null;
-      await loadStats();
-      await loadAssets();
+      // POST 在途防重：确认框本身有单 pending 守卫，但在确认通过到请求完成之间
+      // 按钮仍是活的；禁用它避免二次归档提交。
+      trigger.disabled = true;
+      try {
+        await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/archive`, { method: "POST" });
+        discardDetailDraft();
+        showToast(t("archived"), "success");
+        setDetailOpen(false);
+        state.selectedId = null;
+        await loadStats();
+        await loadAssets();
+      } finally {
+        trigger.disabled = false;
+      }
     });
   });
   panel.querySelectorAll('[data-edit="rating"] button').forEach((button) => button.addEventListener("click", () => {
@@ -2576,7 +2635,8 @@ function bindReferenceRightsEvents(panel, asset, renderId) {
   // thumbnail 404s and leaves an empty box; the strict CSP rules out an inline
   // onerror attribute, so the fallback is bound here.
   section.querySelectorAll(".reference-thumb img").forEach((image) => image.addEventListener("error", () => {
-    const initials = escapeHtml(String(image.dataset.referenceLabel || "?").slice(0, 2).toUpperCase());
+    // textContent 不做 HTML 解析，直接赋原始缩写；先 escapeHtml 会双重转义成 &amp; 之类。
+    const initials = String(image.dataset.referenceLabel || "?").slice(0, 2).toUpperCase();
     image.replaceWith(Object.assign(document.createElement("span"), { className: "reference-thumb-empty", ariaHidden: "true", textContent: initials }));
   }));
 
@@ -2614,6 +2674,26 @@ function clearDetailDirtyScope(panel, scope) {
     delete field.dataset.detailDirtyScope;
   });
   state.detailDirty = panelHasDirtyDraft(panel);
+}
+
+// C1：比较“发出时的请求体快照”与当前 DOM 草稿。不一致说明 PATCH 在途期间用户
+// 又编辑了（这些值不在已发出的请求体里），成功返回后不得清脏。读取异常（如
+// business_fields 的 JSON 正在写一半、面板已被重建）一律保守视为“已变化”，保数据。
+function draftChangedDuringFlight(panel, sentRecipeSnapshot, sentReferencesSnapshot) {
+  try {
+    if (sentRecipeSnapshot !== null) {
+      const changeSummary = panel.querySelector("[data-recipe-change]")?.value.trim() || "";
+      if (JSON.stringify([readRecipeDraft(panel), changeSummary]) !== sentRecipeSnapshot) return true;
+    }
+    if (sentReferencesSnapshot !== null) {
+      const section = panel.querySelector("[data-reference-rights-section]");
+      if (!section) return false;
+      if (JSON.stringify(readReferenceRightsDraft(section, state.detailAsset)) !== sentReferencesSnapshot) return true;
+    }
+  } catch {
+    return true;
+  }
+  return false;
 }
 
 /** Keep one row's status chip in step with its own selects while editing. */
