@@ -18,6 +18,7 @@ const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const electronBinary = electronExecutablePath({ rootDir });
 const webDriver = join(rootDir, "scripts", "e2e-web-driver.mjs");
 const DISABLED_BRIDGES = "cowart,cowartDiscovery,codex,grok";
+const ELECTRON_QA_FLAGS = process.platform === "win32" ? ["--disable-gpu"] : [];
 
 if (!existsSync(electronBinary)) throw new Error(`Electron binary not found: ${electronBinary}`);
 
@@ -78,7 +79,7 @@ async function runWebRound(mode, searchTerm, versionChange) {
   try {
     const health = await waitForHealth(`http://127.0.0.1:${port}/api/health`, child);
     assertHealth(health);
-    await runCommand(electronBinary, [webDriver, `http://127.0.0.1:${port}`, webUserData, mode, webFixturePath, searchTerm, versionChange], {
+    await runCommand(electronBinary, [...ELECTRON_QA_FLAGS, webDriver, `http://127.0.0.1:${port}`, webUserData, mode, webFixturePath, searchTerm, versionChange], {
       cwd: rootDir,
       env: process.env,
     });
@@ -107,7 +108,7 @@ async function runElectronRound(mode, searchTerm, versionChange) {
     platform: process.platform,
     rootDir: runDir,
     executable: electronBinary,
-    args: ["desktop/main.mjs", `--user-data-dir=${desktopUserData}`, `--remote-debugging-port=${cdpPort}`],
+    args: [...ELECTRON_QA_FLAGS, "desktop/main.mjs", `--user-data-dir=${desktopUserData}`, `--remote-debugging-port=${cdpPort}`],
     env,
     cwd: rootDir,
     pidFile,

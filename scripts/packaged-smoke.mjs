@@ -13,6 +13,7 @@ import { signalProcessTree } from "./process-tree.mjs";
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const forgeOutDir = resolve(rootDir, process.env.MOSA_FORGE_OUT_DIR || "out");
 const binary = packagedExecutablePath({ rootDir, outDir: forgeOutDir });
+const ELECTRON_QA_FLAGS = process.platform === "win32" ? ["--disable-gpu"] : [];
 
 if (!existsSync(binary)) throw new Error(`Missing packaged binary: ${binary}`);
 
@@ -24,7 +25,7 @@ await mkdir(userData, { recursive: true });
 const port = await freePort();
 const cdpPort = await freePort();
 
-const child = spawn(binary, [`--user-data-dir=${userData}`, `--remote-debugging-port=${cdpPort}`], {
+const child = spawn(binary, [...ELECTRON_QA_FLAGS, `--user-data-dir=${userData}`, `--remote-debugging-port=${cdpPort}`], {
   env: {
     ...process.env,
     MOSA_RUNTIME_MODE: "qa",
