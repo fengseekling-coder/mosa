@@ -79,7 +79,7 @@ async function runWebRound(mode, searchTerm, versionChange) {
   try {
     const health = await waitForHealth(`http://127.0.0.1:${port}/api/health`, child);
     assertHealth(health);
-    await runCommand(electronBinary, [...ELECTRON_QA_FLAGS, webDriver, `http://127.0.0.1:${port}`, webUserData, mode, webFixturePath, searchTerm, versionChange], {
+    await runCommand(electronBinary, [...ELECTRON_QA_FLAGS, webDriver, "--", `http://127.0.0.1:${port}`, webUserData, mode, webFixturePath, searchTerm, versionChange], {
       cwd: rootDir,
       env: process.env,
     });

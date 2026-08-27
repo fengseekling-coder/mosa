@@ -4,7 +4,7 @@ import { app, BrowserWindow } from "electron";
 import { resolve } from "node:path";
 import { createCriticalUiFlowSource } from "./e2e-ui-flow.mjs";
 
-const [targetUrl, userDataDir, mode, fixturePath, searchTerm, versionChange] = process.argv.slice(2);
+const [targetUrl, userDataDir, mode, fixturePath, searchTerm, versionChange] = process.argv.slice(2).filter((arg) => arg !== "--");
 if (!targetUrl || !userDataDir || !mode || !fixturePath || !searchTerm || !versionChange) {
   console.error("usage: electron scripts/e2e-web-driver.mjs <url> <userDataDir> <exercise|verify> <fixturePath> <searchTerm> <versionChange>");
   process.exit(2);
