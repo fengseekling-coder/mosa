@@ -17,14 +17,17 @@ test("getNotificationTextForAssetsImported falls back to zh for unknown locale",
   assert.equal(getNotificationTextForAssetsImported(3, "es"), "3 个新素材已导入");
 });
 
-test("main.mjs imports the i18n module and tracks currentLocale", async () => {
+test("main.mjs localizes bridge and update notifications", async () => {
   const source = await readFile(resolve(repositoryRoot, "desktop/main.mjs"), "utf8");
   assert.match(source, /getNotificationTextForAssetsImported/);
+  assert.match(source, /getUpdateNotificationText/);
   assert.match(source, /let currentLocale\s*=\s*"zh"/);
   // Bridge poll uses the i18n helper instead of a hardcoded string.
   assert.match(source, /getNotificationTextForAssetsImported\(delta,\s*currentLocale\)/);
-  // The removed updater must not leave pretend update notifications behind.
-  assert.doesNotMatch(source, /updateAvailable|updateDownloaded|electron-updater|checkForUpdates/);
+  // Update reminders are notification-only. MOSA still does not ship an
+  // auto-downloader/updater engine in this phase.
+  assert.match(source, /getUpdateNotificationText\(result\.latestVersion,\s*currentLocale\)/);
+  assert.doesNotMatch(source, /electron-updater|autoUpdater|updateDownloaded/);
   assert.doesNotMatch(source, /`?\$\{delta\} 个新素材已导入`?/);
 });
 

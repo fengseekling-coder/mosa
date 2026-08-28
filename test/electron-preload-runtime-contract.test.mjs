@@ -11,8 +11,10 @@ const root = resolve(import.meta.dirname, "..");
 const preloadPath = resolve(root, "desktop", "preload.cjs");
 const electronPath = resolve(root, "node_modules", "electron", "dist", "Electron.app", "Contents", "MacOS", "Electron");
 const EXPECTED_API_KEYS = [
+  "checkForUpdates",
   "onMenuImport",
   "onMenuSearch",
+  "openDownloadPage",
   "openFileDialog",
   "pasteImage",
   "setLocale",
@@ -59,11 +61,21 @@ test("preload path, module format, security settings, and API surface are stable
   assert.doesNotMatch(preload, /ipcRenderer\s*:/, "ipcRenderer is not exposed as an API value");
   assert.doesNotMatch(preload, /^\s*shell\s*:/m, "shell is not exposed as an API value");
   assert.doesNotMatch(preload, /openExternal|sendSync|\.send\(/, "generic IPC is not exposed");
-  // The preload exposes only the four narrow request channels still used by
-  // the renderer. Drag/drop bytes use the runtime staging endpoint directly.
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 4, "only the four approved invoke channels remain");
+  // The preload exposes only narrow, named request channels. Update actions
+  // accept no URL from the renderer; the main process owns the fixed website.
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 6, "only the six approved invoke channels remain");
   assert.deepEqual(sortedApiKeys(preload), EXPECTED_API_KEYS);
   assert.match(preload, /showItemInFolder: \(path\) => ipcRenderer\.invoke\("show-item-in-folder", path\)/);
+  assert.match(preload, /checkForUpdates: \(notify = false\) => ipcRenderer\.invoke\("check-for-updates", notify === true\)/);
+  assert.match(preload, /openDownloadPage: \(\) => ipcRenderer\.invoke\("open-download-page"\)/);
+  assert.doesNotMatch(preload, /openDownloadPage:\s*\([^)]*url/i, "renderer cannot choose an update destination");
+  assert.match(main, /MOSA_DOWNLOAD_PAGE_URL/);
+  assert.match(main, /ipcMain\.handle\("check-for-updates"/);
+  assert.match(main, /ipcMain\.handle\("open-download-page"/);
+  assert.match(main, /event\.sender !== mainWindow\.webContents/);
+  assert.match(main, /shell\.openExternal\(MOSA_DOWNLOAD_PAGE_URL\)/);
+  assert.match(main, /if \(isolationContext\.qaRun\) return Promise\.resolve\(\{ status: "disabled", currentVersion \}\)/,
+    "QA/E2E update checks must stay offline and deterministic");
 
   const finderHandler = main.slice(main.indexOf('ipcMain.handle("show-item-in-folder"'), main.indexOf("\n  });", main.indexOf('ipcMain.handle("show-item-in-folder"')));
   assert.match(finderHandler, /event\.sender !== mainWindow\.webContents/);

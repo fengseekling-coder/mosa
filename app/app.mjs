@@ -22,6 +22,7 @@ let statusAnnouncementSequence = 0;
 let statusAnnouncementActive = false;
 let libraryRefreshTimer = null;
 let persistentStatus = { value: "", stateName: "neutral" };
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 // Clear and repopulate the shared status node in separate DOM mutations. This
 // gives VoiceOver a reliable text mutation to announce when the same status is
@@ -61,6 +62,11 @@ const state = {
   stagedPath: "", // P1-2: Track current staged file for cleanup on cancel
   stagingInProgress: false, // P1-3: Prevent concurrent staging requests
   stagingCanceled: false, // A close during staging invalidates the late result and cleans it up
+  productVersion: "",
+  updateStatus: "idle",
+  latestVersion: "",
+  updatePublishedAt: "",
+  updateNotes: null,
   darkMode: safeStorageGet("mosa-dark-mode") === "true", diagnosticsExpanded: false, settingsReturnFocus: null, accountReturnFocus: null,
   detailReturnFocusAssetId: null, previewReturnFocusAssetId: null,
   imageZoom: 1, imagePanX: 0, imagePanY: 0, imageDragging: false,
@@ -721,7 +727,7 @@ async function init() {
     setupImageZoomPan();
     renderGrid();
     try {
-      await Promise.all([loadProjects(), loadCowartCanvases()]);
+      await Promise.all([loadProjects(), loadCowartCanvases(), loadProductVersion()]);
       await loadStats();
       await loadAssets();
       setDetailOpen(false);
@@ -735,11 +741,81 @@ async function init() {
       libraryRefreshTimer = setInterval(() => {
         if (!isLoadingMore) void refreshLibraryInBackground();
       }, LIBRARY_REFRESH_INTERVAL);
+      if (shouldAutoCheckForUpdates()) void checkForUpdates({ notify: true, silent: true });
     } catch (error) {
       renderErrorState(error);
       setStatus(t("statusUnavailable"), "error");
     }
   }
+
+async function loadProductVersion() {
+  try {
+    const data = await apiFetch("/api/health");
+    state.productVersion = String(data?.productVersion || "").trim();
+  } catch {
+    state.productVersion = "";
+  }
+  renderSettingsMenu();
+}
+
+function shouldAutoCheckForUpdates() {
+  if (!window.electronAPI?.checkForUpdates) return false;
+  const lastChecked = Number(safeStorageGet("mosa.update-last-checked") || 0);
+  return !Number.isFinite(lastChecked) || lastChecked <= 0 || Date.now() - lastChecked >= UPDATE_CHECK_INTERVAL_MS;
+}
+
+function updateVersionSummary() {
+  const current = state.productVersion ? `v${String(state.productVersion).replace(/^v/i, "")}` : t("versionUnknown");
+  if (state.updateStatus === "available" && state.latestVersion) {
+    const published = state.updatePublishedAt ? ` · ${t("updatePublished", { date: formatDate(state.updatePublishedAt, state.locale) })}` : "";
+    return `${current} · ${t("updateAvailable", { version: state.latestVersion })}${published}`;
+  }
+  if (state.updateStatus === "current") return `${current} · ${t("upToDate")}`;
+  if (state.updateStatus === "error") return `${current} · ${t("updateCheckFailed")}`;
+  return current;
+}
+
+function updateVersionControlMarkup() {
+  if (!window.electronAPI?.checkForUpdates) return "";
+  if (state.updateStatus === "available") {
+    return `<button class="settings-text-action" type="button" data-download-latest>${escapeHtml(t("downloadLatest"))}</button>`;
+  }
+  const label = state.updateStatus === "checking" ? t("checkingForUpdates") : t("checkForUpdates");
+  return `<button class="settings-text-action" type="button" data-check-updates${state.updateStatus === "checking" ? " disabled" : ""}>${escapeHtml(label)}</button>`;
+}
+
+async function checkForUpdates({ notify = false, silent = false } = {}) {
+  const api = window.electronAPI;
+  if (!api?.checkForUpdates || state.updateStatus === "checking") return null;
+  state.updateStatus = "checking";
+  renderSettingsMenu();
+  try {
+    const result = await api.checkForUpdates(notify === true);
+    if (result?.status === "ok") safeStorageSet("mosa.update-last-checked", String(Date.now()));
+    if (result?.currentVersion) state.productVersion = String(result.currentVersion).replace(/^v/i, "");
+    if (result?.status === "ok") {
+      state.latestVersion = String(result.latestVersion || "").replace(/^v/i, "");
+      state.updatePublishedAt = String(result.publishedAt || "");
+      state.updateNotes = result.notes && typeof result.notes === "object" ? result.notes : null;
+      state.updateStatus = result.updateAvailable ? "available" : "current";
+      if (!silent || (notify && result.updateAvailable)) {
+        showToast(result.updateAvailable ? t("updateAvailableToast", { version: state.latestVersion }) : t("upToDate"), "success");
+      }
+    } else if (result?.status === "disabled") {
+      state.updateStatus = "idle";
+    } else {
+      state.updateStatus = "error";
+      if (!silent) showToast(t("updateCheckFailed"), "error");
+    }
+    return result;
+  } catch {
+    state.updateStatus = "error";
+    if (!silent) showToast(t("updateCheckFailed"), "error");
+    return null;
+  } finally {
+    renderSettingsMenu();
+  }
+}
 
 function renderSettingsMenu() {
   if (!els.settingsMenu) return;
@@ -755,7 +831,7 @@ function renderSettingsMenu() {
     row(settingIcon("M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("interfaceLanguage"), visualLocale === "en" ? t("english") : t("chinese"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("interfaceLanguage"))}">${radio(visualLocale === "zh", "data-locale", "zh", "中文")}${radio(visualLocale === "en", "data-locale", "en", "EN")}</div>`),
     row(settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("libraryPath"), `<span class="settings-path">${path}</span>`, `<button class="settings-text-action" type="button" data-open-library>${t("openLibrary")}</button>`),
     row(settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6"), t("storageEngine"), t("storageEngineValue")),
-    row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), t("versionValue"))
+    row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), escapeHtml(updateVersionSummary()), updateVersionControlMarkup())
   ].join("");
   els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" aria-describedby="settingsModalDescription" tabindex="-1"><header class="settings-modal-header"><div><h2 id="settingsModalTitle">${t("preferences")}</h2><p id="settingsModalDescription">${t("preferencesSubtitle")}</p></div><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${rows}</div></div>`;
   syncSegmentedRadios(els.settingsMenu);
@@ -1292,6 +1368,14 @@ function bindEvents() {
     }
     const openLibraryButton = event.target.closest("[data-open-library]");
     if (openLibraryButton) runAction(async () => { if (!state.libraryPath) return; await apiFetch("/api/open-folder", { method: "POST", body: { path: state.libraryPath } }); showToast(t("openInFinder"), "success"); });
+    const checkUpdatesButton = event.target.closest("[data-check-updates]");
+    if (checkUpdatesButton) { void checkForUpdates(); return; }
+    const downloadLatestButton = event.target.closest("[data-download-latest]");
+    if (downloadLatestButton) {
+      void window.electronAPI?.openDownloadPage?.().then((result) => {
+        if (!result?.ok) showToast(t("updateCheckFailed"), "error");
+      });
+    }
   });
   els.closeImportModal?.addEventListener("click", closeImportModal);
   els.cancelImportBtn?.addEventListener("click", closeImportModal);
@@ -2544,12 +2628,60 @@ async function saveGroup() {
   }
 }
 
+let imagePreviewCleanupTimer = null;
+let imagePreviewCleanupHandler = null;
+
+function cancelPendingImagePreviewCleanup() {
+  if (imagePreviewCleanupTimer !== null) {
+    window.clearTimeout(imagePreviewCleanupTimer);
+    imagePreviewCleanupTimer = null;
+  }
+  if (imagePreviewCleanupHandler && els.imagePreviewModal) {
+    els.imagePreviewModal.removeEventListener("transitionend", imagePreviewCleanupHandler);
+    imagePreviewCleanupHandler = null;
+  }
+}
+
+function finalizeImagePreviewClose() {
+  cancelPendingImagePreviewCleanup();
+  if (!els.imagePreviewModal?.hidden) return;
+  els.imagePreviewImage?.removeAttribute("src");
+  els.imagePreviewImage.hidden = false;
+  els.imagePreviewVideo?.removeAttribute("src");
+  els.imagePreviewVideo.hidden = true;
+  resetImageZoom();
+  els.imagePreviewImage?.style.removeProperty("width");
+  els.imagePreviewImage?.style.removeProperty("height");
+  els.imagePreviewStage?.classList.remove("zoomed", "dragging");
+  els.imagePreviewStage?.setAttribute("aria-label", t("imagePreviewStage"));
+}
+
+function scheduleImagePreviewCleanup() {
+  cancelPendingImagePreviewCleanup();
+  const modal = els.imagePreviewModal;
+  if (!modal?.hidden) return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    finalizeImagePreviewClose();
+    return;
+  }
+  const finish = (event) => {
+    if (event && (event.target !== modal || event.propertyName !== "opacity")) return;
+    finalizeImagePreviewClose();
+  };
+  imagePreviewCleanupHandler = finish;
+  modal.addEventListener("transitionend", finish);
+  // Transition events can be skipped when a window is hidden or throttled.
+  // Keep cleanup bounded without making the visual path timer-driven.
+  imagePreviewCleanupTimer = window.setTimeout(() => finish(), 260);
+}
+
 function openImagePreview(id, trigger) {
   if (hasBlockingOverlay("preview")) return;
   const asset = state.assets.find((item) => item.id === id)
     || state.versionHistory?.versions?.find((item) => item.id === id)
     || (state.detailAsset?.id === id ? state.detailAsset : null);
   if (!asset || !els.imagePreviewModal || !els.imagePreviewImage || !els.imagePreviewVideo || !els.imagePreviewTitle) return;
+  cancelPendingImagePreviewCleanup();
   state.imagePreviewId = asset.id;
   resetImageZoom();
   state.previewReturnFocus = trigger instanceof HTMLElement ? trigger : document.activeElement;
@@ -2592,18 +2724,10 @@ function fitImagePreview() {
 }
 
 function closeImagePreview() {
-  if (!els.imagePreviewModal?.hidden) els.imagePreviewModal.hidden = true;
-  els.imagePreviewImage?.removeAttribute("src");
-  els.imagePreviewImage.hidden = false;
+  if (!els.imagePreviewModal || els.imagePreviewModal.hidden) return;
+  els.imagePreviewModal.hidden = true;
   els.imagePreviewVideo?.pause();
-  els.imagePreviewVideo?.removeAttribute("src");
-  els.imagePreviewVideo.hidden = true;
   state.imagePreviewId = null;
-  resetImageZoom();
-  els.imagePreviewImage?.style.removeProperty("width");
-  els.imagePreviewImage?.style.removeProperty("height");
-  els.imagePreviewStage?.classList.remove("zoomed", "dragging");
-  els.imagePreviewStage?.setAttribute("aria-label", t("imagePreviewStage"));
   const returnEl = state.previewReturnFocus;
   const returnAssetId = state.previewReturnFocusAssetId;
   if (returnEl instanceof HTMLElement && returnEl.isConnected) returnEl.focus({ preventScroll: true });
@@ -2617,6 +2741,7 @@ function closeImagePreview() {
   }
   state.previewReturnFocus = null;
   state.previewReturnFocusAssetId = null;
+  scheduleImagePreviewCleanup();
 }
 
 function trapImagePreviewFocus(event) {

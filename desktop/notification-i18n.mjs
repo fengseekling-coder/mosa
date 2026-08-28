@@ -10,10 +10,14 @@
 const translations = {
   zh: {
     assetsImported: "{count} 个新素材已导入",
+    updateAvailableTitle: "MOSA {version} 可更新",
+    updateAvailableBody: "新版本已发布，点击前往官网下载。",
   },
   en: {
     assetsImported: "{count} new assets imported",
     assetsImportedSingular: "1 new asset imported",
+    updateAvailableTitle: "MOSA {version} is available",
+    updateAvailableBody: "A new version is available. Click to download it from the MOSA website.",
   },
 };
 
@@ -109,4 +113,12 @@ export function getNotificationTextForAssetsImported(count, locale) {
   }
   const template = translations[lang].assetsImported;
   return template.replace(/\{count\}/g, String(count));
+}
+
+export function getUpdateNotificationText(version, locale) {
+  const lang = (locale === "zh" || locale === "en") ? locale : "zh";
+  return {
+    title: translations[lang].updateAvailableTitle.replace(/\{version\}/g, `v${String(version || "").replace(/^v/i, "")}`),
+    body: translations[lang].updateAvailableBody,
+  };
 }
