@@ -54,7 +54,7 @@ try {
   throw new Error(`${error instanceof Error ? error.message : String(error)}${details ? `\n${details}` : ""}`, { cause: error });
 } finally {
   await stopChild(child);
-  await rm(temp, { recursive: true, force: true });
+  await rm(temp, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 }
 
 function freePort() {

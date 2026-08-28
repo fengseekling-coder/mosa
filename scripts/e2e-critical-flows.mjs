@@ -61,7 +61,7 @@ try {
 
   console.log(JSON.stringify({ ok: true, storage: "sqlite", flows: ["web", "electron"], restartVerified: true }));
 } finally {
-  await rm(root, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 }
 
 async function runWebRound(mode, searchTerm, versionChange) {
