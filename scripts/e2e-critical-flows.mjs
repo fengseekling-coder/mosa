@@ -132,6 +132,7 @@ async function runElectronRound(mode, searchTerm, versionChange) {
     assertHealth(health);
     const cdp = await connectCdp(cdpPort, `http://127.0.0.1:${servicePort}`);
     try {
+      await waitForRendererReady(cdp);
       const result = await cdp.evaluate(createCriticalUiFlowSource({ mode, fixturePath: desktopFixturePath, searchTerm, versionChange }));
       if (!result?.favorite || result.versionCount < 2) {
         throw new Error(`Unexpected Electron UI result: ${JSON.stringify(result)}`);
@@ -232,6 +233,25 @@ async function connectCdp(port, expectedUrlPrefix, timeoutMs = 30000) {
   }
   if (!target?.webSocketDebuggerUrl) throw new Error(`No Electron CDP target found on ${port}`);
   return openCdpSession(target.webSocketDebuggerUrl);
+}
+
+async function waitForRendererReady(cdp, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = null;
+  while (Date.now() < deadline) {
+    try {
+      const state = await cdp.evaluate(`({
+        readyState: document.readyState,
+        appShell: Boolean(document.querySelector('#appShell')),
+        preload: Boolean(window.electronAPI && typeof window.electronAPI.showItemInFolder === 'function'),
+      })`);
+      if (state?.readyState === 'complete' && state.appShell && state.preload) return;
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(100);
+  }
+  throw new Error(`Electron renderer readiness timeout${lastError ? `: ${lastError.message}` : ''}`);
 }
 
 async function openCdpSession(url) {
