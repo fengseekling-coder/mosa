@@ -325,6 +325,48 @@ test("successful staged import removes the staged copy after the store copied it
   assert.equal(existsSync(sourcePath), true, "user original must survive the import");
 });
 
+test("cancel endpoint removes only staged files from the server and Electron staging roots", async (t) => {
+  const userDataDir = await makeWorkspace(t, "mosa-stage-cancel-");
+  const electronStagingRoot = importStagingDir(userDataDir);
+  const runtime = await startAuditRuntime(t, { userDataDir, withStagingRoot: true });
+
+  const stageResponse = await fetch(`${runtime.url}/api/import/stage`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "image/png",
+      "x-mosa-file-name": encodeURIComponent("cancel-browser.png"),
+    },
+    body: ONE_PIXEL_PNG,
+  });
+  assert.equal(stageResponse.status, 201);
+  const browserStaged = (await stageResponse.json()).path;
+  assert.equal(existsSync(browserStaged), true);
+
+  const electronSource = await writeFixture(userDataDir, "cancel-electron-source.png");
+  const electronStaged = await stageFileForImport({ sourcePath: electronSource, stagingRoot: electronStagingRoot });
+  const outside = await writeFixture(userDataDir, "cancel-outside.png");
+
+  for (const stagedPath of [browserStaged, electronStaged]) {
+    const response = await fetch(`${runtime.url}/api/import/stage`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: stagedPath }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).ok, true);
+    assert.equal(existsSync(stagedPath), false, "cancel must remove a staged copy immediately");
+  }
+
+  const outsideResponse = await fetch(`${runtime.url}/api/import/stage`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: outside }),
+  });
+  assert.equal(outsideResponse.status, 200);
+  assert.equal(existsSync(outside), true, "cancel endpoint must never delete a path outside either staging root");
+  assert.equal(existsSync(electronSource), true, "the original Electron source must remain untouched");
+});
+
 test("Web/server mode without a staging root keeps the default boundary", async (t) => {
   const userDataDir = await makeWorkspace(t, "mosa-stage-web-");
   const stagingRoot = importStagingDir(userDataDir);

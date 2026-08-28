@@ -56,7 +56,36 @@ test("desktop image paste never hijacks editors or stacks over another modal sur
   assert.match(paste, /els\.groupModal\?\.classList\.contains\("open"\)/);
   assert.match(paste, /els\.accountModal\?\.classList\.contains\("open"\)/);
   assert.match(paste, /if \(editableTarget \|\| blockingSurfaceOpen\) return;/);
-  assert.match(paste, /showToast\(t\("clipboardAccessDenied"\), "error"\)/);
+  assert.match(paste, /if \(state\.stagingInProgress\) return;/, "rapid paste cannot create concurrent staging files");
+  assert.match(paste, /state\.stagedPath = filePath;/, "Electron paste joins the same cancel-cleanup lifecycle as manual staging");
+  assert.match(paste, /if \(!els\.importModal\?\.classList\.contains\("open"\)\)[\s\S]*?cleanupStagedFile\(filePath\)/,
+    "a paste staged while another overlay opens is discarded instead of becoming hidden state");
+  assert.match(paste, /showToast\(t\("pasteImageSaveFailed"\), "error"\)/, "staging failures are not misreported as clipboard permissions");
+});
+
+test("global drag guard blocks default file navigation outside an active library drop target", async () => {
+  const app = await readApp();
+  const guard = sliceBetween(app, "function setupGlobalDragGuard()", "const favoriteRequests");
+
+  assert.match(guard, /if \(target\.closest\("\.import-v2-path-card"\)\) return true;/);
+  assert.match(guard, /return state\.viewMode === "library" && Boolean\(target\.closest\("\.library"\)\);/,
+    "the shared .library container must not whitelist the large asset view");
+  assert.equal((guard.match(/if \(isAllowedDropTarget\(e\.target\)\) return;/g) || []).length, 2,
+    "dragover and drop use the same active-target policy");
+  assert.match(guard, /if \(e\.dataTransfer\) e\.dataTransfer\.dropEffect = "none";/);
+});
+
+test("closing import during staging invalidates and removes the late staged file", async () => {
+  const app = await readApp();
+  const prepare = sliceBetween(app, "async function prepareImportFile", "// ===== Drag & Drop =====");
+  const close = sliceBetween(app, "function closeImportModal", "function openSettingsModal");
+
+  assert.match(app, /stagingCanceled: false/);
+  assert.match(close, /if \(state\.stagingInProgress\) state\.stagingCanceled = true;/);
+  assert.match(prepare, /filePath = await stageBrowserFile\(file\);\s*if \(state\.stagingCanceled\) \{\s*await cleanupStagedFile\(filePath\);\s*return false;/,
+    "a stage finishing after cancel is deleted before it can become form state");
+  assert.match(prepare, /if \(state\.stagingCanceled\) return false;[\s\S]*?filePath = await stageBrowserFile/,
+    "cancel during old-file cleanup stops before a new upload starts");
 });
 
 test("focused video keeps native keyboard controls while Escape keeps app-layer priority", async () => {

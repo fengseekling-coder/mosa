@@ -256,10 +256,10 @@ test("keeps the import dialog's focus contract and translates every new string",
   assert.match(app, /function trapImportModalFocus\(event\)/);
   assert.match(app, /if \(event\.key === "Escape"\) \{ event\.preventDefault\(\); closeImportModal\(\); return; \}/);
   assert.match(app, /function closeImportModal\(\{ force = false \} = \{\}\)[\s\S]*?if \(state\.importSaving && !force\) return false;[\s\S]*?state\.modalReturnFocus\.focus\(\)/);
-  // Opening resets any error left from a previous attempt. The guard line may
-  // also carry concurrent modal-mutex additions (e.g. hasBlockingOverlay), so
-  // the contract pins "importSaving still blocks open" rather than one literal.
-  assert.match(app, /function openImportModal\(\) \{[\s\S]{0,320}if \(state\.importSaving[^\n]*\) return;[\s\S]{0,320}clearImportErrors\(\);/);
+  // Opening resets any error left from a previous attempt while preserving the
+  // exact save guard and the modal-mutex check. Do not broaden this to an
+  // arbitrary same-line regex: both conditions are part of the contract.
+  assert.match(app, /function openImportModal\(\) \{\s*if \(state\.importSaving \|\| hasBlockingOverlay\("import"\)\) return;\s*state\.modalReturnFocus = document\.activeElement;\s*clearImportErrors\(\);/);
 
   const keys = [
     "advancedSettings", "importPathFormats", "importPathExample", "importPathCodexDir", "importPathCodexDirUnknown",
