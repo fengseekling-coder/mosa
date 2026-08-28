@@ -524,10 +524,12 @@ test("archives one row per uploaded reference photo", () => {
   assert.match(contentSource, /const needsReferenceRepair = stagedReferences > 0[\s\S]*isSavedCandidate\(candidate\)/);
   assert.match(contentSource, /force: needsReferenceRepair/);
   assert.match(contentSource, /referenceSyncKeys\.add\(syncKey\)/);
-  // Staging counts an already-saved reference instead of re-uploading its
-  // bytes: one turn can yield several outputs and each used to re-send all.
-  assert.match(contentSource, /if \(isSavedCandidate\(reference\)\) \{/);
-  assert.doesNotMatch(contentSource, /reason: "auto-reference", force: true/);
+  // A previously-seen reference still has to reach the server for each new
+  // generation context. The server deduplicates the blob and appends usage.
+  const stageReferences = /async function stageGenerationReferences\(candidate\) \{[\s\S]*?\n {2}\}/.exec(contentSource)?.[0] || "";
+  assert.ok(stageReferences, "stageGenerationReferences should exist");
+  assert.doesNotMatch(stageReferences, /isSavedCandidate\(reference\)/);
+  assert.match(stageReferences, /reason: "auto-reference"/);
   // An optional reference failure must never surface as a user-facing error.
   assert.match(contentSource, /const optionalReferenceFailure = reason === "auto-reference"/);
   assert.match(hookSource, /isGeneration: extra\.isGeneration === true/);

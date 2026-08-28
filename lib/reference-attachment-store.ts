@@ -67,6 +67,48 @@ export function createReferenceAttachmentStore(libraryDir: string) {
     return pending;
   }
 
+  function pruneUnused(projectId: string, referencedIds: Iterable<string>): Promise<{ removed: number; retained: number; failed: number }> {
+    const cleanProjectId = cleanSegment(projectId || "default", "default");
+    const keep = new Set([...referencedIds].map((value) => String(value || "").trim()).filter(Boolean));
+    const pending = saveQueue.then(() => withProjectWriteLock(root, cleanProjectId, async () => {
+      const indexed = await list(cleanProjectId);
+      if (!indexed.length) return { removed: 0, retained: 0, failed: 0 };
+      const projectRoot = join(root, cleanProjectId);
+      const filesRoot = join(projectRoot, "files");
+      const retained: ReferenceAttachment[] = [];
+      let removed = 0;
+      let failed = 0;
+      for (const attachment of indexed) {
+        if (keep.has(attachment.id)) {
+          retained.push(attachment);
+          continue;
+        }
+        const fileName = cleanSegment(attachment.file_name, "");
+        if (!fileName) {
+          failed += 1;
+          retained.push(attachment);
+          continue;
+        }
+        try {
+          await unlink(join(filesRoot, fileName));
+          removed += 1;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException)?.code === "ENOENT") removed += 1;
+          else {
+            failed += 1;
+            retained.push(attachment);
+          }
+        }
+      }
+      if (retained.length !== indexed.length) {
+        await writeReferenceIndex(join(projectRoot, "index.json"), retained);
+      }
+      return { removed, retained: retained.length, failed };
+    }));
+    saveQueue = pending.catch(() => undefined);
+    return pending;
+  }
+
   async function saveUnlocked(input: ReferenceInput): Promise<{ attachment: ReferenceAttachment; created: boolean; duplicateKind?: "content" | "pixel" }> {
     const projectId = cleanSegment(input.projectId || "default", "default");
     const projectRoot = join(root, projectId);
@@ -159,7 +201,7 @@ export function createReferenceAttachmentStore(libraryDir: string) {
     return { stream: createReadStream(resolved), fileName: basename(resolved) };
   }
 
-  return { root, save, list, read };
+  return { root, save, list, read, pruneUnused };
 }
 
 function cleanSegment(value: unknown, fallback: string): string {

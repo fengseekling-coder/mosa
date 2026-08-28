@@ -845,6 +845,37 @@ test("derivative job writes WebP previews without changing the original", async 
   worker.stop();
 });
 
+test("failed derivative jobs retry with backoff and stop after three attempts", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-derivative-retry-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const sourcePath = join(projectRoot, "generated-images", "broken.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, Buffer.from("not-an-image"));
+  const libraryDir = join(root, "library");
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir });
+  t.after(() => store.close());
+
+  await store.createAsset({ assetId: "broken", imagePath: sourcePath });
+  const first = await store.claimDerivativeJob();
+  assert.ok(first);
+  const failed = await processDerivativeJob(store, first);
+  assert.equal(failed.ok, false);
+  assert.equal(await store.claimDerivativeJob(), null, "failed work must respect the retry backoff");
+
+  const database = new Database(sqliteDatabasePath(libraryDir));
+  database.prepare("UPDATE derivative_jobs SET updated_at = ? WHERE project_id = 'default' AND asset_id = 'broken'")
+    .run("2000-01-01T00:00:00.000Z");
+  database.close();
+  assert.ok(await store.claimDerivativeJob(), "a failed job becomes eligible after the backoff");
+
+  const capDatabase = new Database(sqliteDatabasePath(libraryDir));
+  capDatabase.prepare("UPDATE derivative_jobs SET status = 'failed', attempts = 3, updated_at = ? WHERE project_id = 'default' AND asset_id = 'broken'")
+    .run("2000-01-01T00:00:00.000Z");
+  capDatabase.close();
+  assert.equal(await store.claimDerivativeJob(), null, "failed derivatives stop retrying after three attempts");
+});
+
 test("SQLite store re-links copied Codex assets, archived ones included, and explains each skip", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-hardlink-"));
   t.after(() => rm(root, { recursive: true, force: true }));

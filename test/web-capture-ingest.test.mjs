@@ -1314,6 +1314,21 @@ test("serializes concurrent reference attachment index updates", async (t) => {
   assert.deepEqual(new Set((await referenceStore.list("default")).map((item) => item.id)), new Set([first.attachment.id, second.attachment.id]));
 });
 
+test("reference attachment pruning keeps reachable shared references and removes unreachable files", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-reference-prune-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const referenceStore = createReferenceAttachmentStore(root);
+  const first = await referenceStore.save(referenceFixture(await noiseImage(62), "c1", "2026-08-13T10:00:00.000Z"));
+  const second = await referenceStore.save(referenceFixture(await noiseImage(63), "c2", "2026-08-13T10:00:01.000Z"));
+
+  const result = await referenceStore.pruneUnused("default", new Set([first.attachment.id]));
+  assert.deepEqual(result, { removed: 1, retained: 1, failed: 0 });
+  assert.deepEqual((await referenceStore.list("default")).map((item) => item.id), [first.attachment.id]);
+  const files = await readdir(join(root, "reference-attachments", "default", "files"));
+  assert.deepEqual(files, [first.attachment.file_name]);
+  assert.notEqual(first.attachment.id, second.attachment.id);
+});
+
 test("reference attachments dedupe re-encodes by current display pixels", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-reference-pixels-"));
   t.after(() => rm(root, { recursive: true, force: true }));

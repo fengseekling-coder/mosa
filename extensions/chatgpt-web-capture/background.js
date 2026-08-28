@@ -145,7 +145,7 @@ async function probeFlowMedia(url) {
   let lastError = null;
   for (const init of attempts) {
     try {
-      const response = await fetch(parsed.href, init);
+      const response = await fetchWithTimeout(parsed.href, init, 5_000);
       if (!response.ok && response.status !== 206) {
         lastError = new Error(`Flow media probe failed (${response.status})`);
         continue;
@@ -222,7 +222,7 @@ async function fetchMediaAsBase64(url, { publicMedia = false, mediaKind = "image
   let lastError = null;
   for (const init of attempts) {
     try {
-      const response = await fetch(url, init);
+      const response = await fetchWithTimeout(url, init, mediaKind === "video" ? 45_000 : 15_000);
       if (!response.ok) {
         lastError = new Error(`Failed to download ${label} (${response.status})`);
         continue;
@@ -263,7 +263,7 @@ async function ingestToMosa(payload = {}) {
     mimeType = fetched.mimeType || mimeType;
   }
   if (!mediaBase64) throw new Error(`No ${mediaKind} bytes to ingest.`);
-  const requestIngest = () => fetch(`${baseUrl}/api/ingest/web-capture`, {
+  const requestIngest = () => fetchWithTimeout(`${baseUrl}/api/ingest/web-capture`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -295,7 +295,7 @@ async function ingestToMosa(payload = {}) {
         capturedAt: payload.capturedAt || new Date().toISOString(),
         extensionVersion: chrome.runtime.getManifest().version,
       }),
-    });
+    }, mediaKind === "video" ? 90_000 : 30_000);
 
   let response;
   try {

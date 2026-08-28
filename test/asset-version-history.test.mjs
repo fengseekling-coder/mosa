@@ -208,3 +208,60 @@ function errorWithCode(code) {
 function delay(milliseconds) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
+
+for (const [label, factory] of [
+  ["JSON", createJsonAssetStore],
+  ["SQLite", createSqliteAssetStore],
+]) {
+  test(`${label} store refuses to delete a version parent that still has children`, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), `mosa-version-delete-guard-${label.toLowerCase()}-`));
+    const projectRoot = join(root, "project");
+    const managerDir = join(projectRoot, "mosa");
+    const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+    await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+    await writeFile(sourcePath, ONE_PIXEL_PNG);
+    const store = factory({ projectRoot, managerDir, libraryDir: join(root, "library") });
+    t.after(async () => {
+      store.close?.();
+      await rm(root, { recursive: true, force: true });
+    });
+
+    const parent = await store.createAsset({ assetId: "guard-parent", imagePath: sourcePath, prompt: "parent" });
+    await store.createAssetVersion("default", parent.id, { assetId: "guard-child", version_change: "v2", prompt: "child" });
+
+    await assert.rejects(
+      () => store.deleteAsset("default", parent.id),
+      (error) => error?.code === "VERSION_PARENT_HAS_CHILDREN",
+      "deleting a parent with live children must be rejected",
+    );
+
+    const history = await store.getAssetVersionHistory("default", "guard-child");
+    assert.ok(history.versions.some((version) => version.id === "guard-parent"));
+    const parentAfter = await store.getAsset("default", "guard-parent");
+    assert.equal(parentAfter.id, "guard-parent");
+
+    await store.deleteAsset("default", "guard-child");
+    await store.deleteAsset("default", "guard-parent");
+  });
+}
+
+test("SQLite store cleans stale version rows pointing at a deleted asset", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-version-stale-rows-"));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, ONE_PIXEL_PNG);
+  const store = createSqliteAssetStore({ projectRoot, managerDir, libraryDir: join(root, "library") });
+  t.after(async () => {
+    store.close?.();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const parent = await store.createAsset({ assetId: "stale-parent", imagePath: sourcePath, prompt: "parent" });
+  const child = await store.createAssetVersion("default", parent.id, { assetId: "stale-child", version_change: "v2", prompt: "child" });
+  // The child is deleted individually; its own row is removed and the version
+  // row pointing at the parent must not survive.
+  await store.deleteAsset("default", child.id);
+  await store.deleteAsset("default", parent.id);
+});

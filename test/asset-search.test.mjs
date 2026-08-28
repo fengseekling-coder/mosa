@@ -79,3 +79,60 @@ test("SQLite search paginates relevance-first without duplicates", async (t) => 
   assert.deepEqual(first.assets.map((asset) => asset.id), ["logo-older", "logo-prompt-middle"]);
   assert.equal(first.page.nextCursor, null);
 });
+
+test("FTS page cache is isolated per media kind filter", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-search-media-kind-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, ONE_PIXEL_PNG);
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir: join(root, "library") });
+  t.after(() => store.close());
+
+  await store.createAsset({
+    assetId: "kind-image",
+    imagePath: sourcePath,
+    prompt: "cat logo poster design",
+  });
+  await store.createAsset({
+    assetId: "kind-video",
+    imagePath: sourcePath,
+    prompt: "cat logo video frame",
+    source: { media_kind: "video" },
+  });
+
+  const images = await store.listAssetPage({ projectId: "default", query: "cat logo", mediaKind: "img" });
+  const videos = await store.listAssetPage({ projectId: "default", query: "cat logo", mediaKind: "video" });
+  assert.deepEqual(images.assets.map((asset) => asset.id), ["kind-image"],
+    "image filter must return only the image asset");
+  assert.deepEqual(videos.assets.map((asset) => asset.id), ["kind-video"],
+    "video filter must not be served from the image filter's page cache");
+});
+
+test("short ASCII search terms keep page count consistent with results", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-search-short-term-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, ONE_PIXEL_PNG);
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir: join(root, "library") });
+  t.after(() => store.close());
+
+  await store.createAsset({
+    assetId: "short-term-match",
+    imagePath: sourcePath,
+    prompt: "ab hello world design",
+  });
+  await store.createAsset({
+    assetId: "short-term-other",
+    imagePath: sourcePath,
+    prompt: "completely different thing",
+  });
+
+  const result = await store.listAssetPage({ projectId: "default", query: "ab hello" });
+  assert.equal(result.assets.length, 1, "the LIKE page query still matches rows with short terms");
+  assert.equal(result.page.total, 1,
+    "the reported total must agree with the page instead of falling back to an FTS MATCH that cannot index 2-character terms");
+});

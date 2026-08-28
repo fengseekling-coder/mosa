@@ -629,3 +629,51 @@ function rawGet(port, path) {
     req.end();
   });
 }
+
+test("rejects non-loopback Host headers (DNS rebinding guard)", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-host-guard-"));
+  const server = spawn(process.execPath, ["server.mjs"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      MOSA_PORT: "0",
+      MOSA_PROJECT_DIR: root,
+      MOSA_LIBRARY_DIR: join(root, "library"),
+      MOSA_DISABLE_BRIDGES: "codex,grok,cowart,cowartDiscovery",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(async () => {
+    if (server.exitCode === null) {
+      const exited = once(server, "exit");
+      server.kill("SIGTERM");
+      await exited;
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  const port = await waitForServerPort(server);
+  await waitForServer(port, server);
+
+  const rawRequest = (hostHeader, path) => new Promise((resolveResponse, rejectResponse) => {
+    const req = request({ host: "127.0.0.1", port, path, headers: hostHeader ? { host: hostHeader } : {} }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on("end", () => resolveResponse({ statusCode: response.statusCode, body: Buffer.concat(chunks).toString("utf8") }));
+    });
+    req.once("error", rejectResponse);
+    req.end();
+  });
+
+  // DNS-rebinding style request: loopback IP, attacker-controlled Host.
+  const rebinding = await rawRequest(`attacker.example:${port}`, "/api/health");
+  assert.equal(rebinding.statusCode, 403, "a foreign Host on the loopback listener must be rejected");
+  assert.match(rebinding.body, /Forbidden host/);
+
+  const wrongPort = await rawRequest(`127.0.0.1:${port + 1}`, "/api/health");
+  assert.equal(wrongPort.statusCode, 403, "a Host naming a different port must be rejected");
+
+  const loopback = await rawRequest(`127.0.0.1:${port}`, "/api/health");
+  assert.equal(loopback.statusCode, 200, "the canonical loopback Host keeps working");
+  const localhost = await rawRequest(`localhost:${port}`, "/api/health");
+  assert.equal(localhost.statusCode, 200, "localhost Host keeps working");
+});

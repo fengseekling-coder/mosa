@@ -303,5 +303,17 @@ for (const [name, createStore] of [
       candidate.child_generation_id === sameContextCandidate.id
       && candidate.parent_generation_id === observedA.id
     )), false, "a dismissed candidate is not resurrected after the relation is removed");
+
+    const childEventIds = new Set((await store.listGenerationEvents("default", { assetId: childAsset.id })).map((event) => event.id));
+    await store.deleteAsset("default", childAsset.id);
+    assert.equal((await store.listGenerationEvents("default", { assetId: childAsset.id })).length, 0,
+      "hard-deleting an asset removes its generation events in every backend");
+    const remainingHistory = await store.getAssetGenerationHistory("default", sharedAsset.id);
+    assert.equal(remainingHistory.relations.some((relation) => (
+      childEventIds.has(relation.child_generation_id) || childEventIds.has(relation.parent_generation_id)
+    )), false, "relations referencing deleted generation events must be removed");
+    assert.equal(remainingHistory.relation_candidates.some((candidate) => (
+      childEventIds.has(candidate.child_generation_id) || childEventIds.has(candidate.parent_generation_id)
+    )), false, "relation candidates referencing deleted generation events must be removed");
   });
 }
