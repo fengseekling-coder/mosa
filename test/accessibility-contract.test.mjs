@@ -96,9 +96,10 @@ test("keeps background library refreshes from replacing active edits", async () 
     "no asset refresh may replace an active Inspector draft");
   assert.match(apiClient, /!options\.background \|\| !state\.selectedId \|\| selectedChanged/);
   assert.match(apiClient, /function refreshAssetPageTotalInBackground\(\)/);
+  assert.match(apiClient, /function refreshLoadedAssetsInBackground\(\)/);
   assert.match(apiClient, /function requestAssetTotal\(request\)[\s\S]*?params\.set\("limit", "1"\)/);
   assert.match(apiClient, /state\.pageTotal = total;[\s\S]*?updateViewTitle\(\)/);
-  assert.match(apiClient, /state\.loadedPageCount > 1 \? refreshAssetPageTotalInBackground\(\) : loadAssets\(\{ background: true \}\)/);
+  assert.match(apiClient, /state\.loadedPageCount > 1 \? refreshLoadedAssetsInBackground\(\) : loadAssets\(\{ background: true \}\)/);
   assert.match(app, /field\.dataset\.detailDirty = "true";[\s\S]*?field\.dataset\.detailDirtyScope = scope;[\s\S]*?state\.detailDirty = true;/,
     "Inspector edits carry an owned dirty scope instead of one undifferentiated flag");
 });

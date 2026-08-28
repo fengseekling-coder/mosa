@@ -6,6 +6,7 @@ node_modules
 npm-debug.log*
 *.bak-*
 /.claude/settings.local.json
+/.zcode/
 
 # TypeScript emits runtime modules next to their .ts sources so existing Node
 # entry points can resolve their .js specifiers. They are rebuilt by npm

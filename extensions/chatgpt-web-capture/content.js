@@ -555,12 +555,10 @@
 
   /**
    * Stage the uploaded images of the nearest preceding user turn as reference
-   * attachments for this generation. Already-saved references are counted but
-   * never re-uploaded — one turn can yield several outputs, and each output
-   * used to re-send every reference in full bytes. A failed optional reference
-   * stays non-fatal and quiet; the count marks the generation as
-   * reference-bearing so a sibling output archived before the first reference
-   * still gets its recipe repaired server-side.
+   * attachments for this generation. Reference bytes may already be stored, but
+   * every generation context must still reach the server so the deduplicated
+   * attachment can record a usage for this context. Skipping a previously seen
+   * reference would make later generations lose their reference lineage.
    */
   async function stageGenerationReferences(candidate) {
     const evidence = findGenerationEvidenceForImage(candidate?.imageUrl || candidate?.key || "");
@@ -569,10 +567,6 @@
     let stagedReferences = 0;
     for (const reference of referenceCandidatesForGeneration(candidate)) {
       try {
-        if (isSavedCandidate(reference)) {
-          stagedReferences += 1;
-          continue;
-        }
         const result = await ingestCandidate(reference, { silentSkip: true, reason: "auto-reference", generationContextId });
         if (result) stagedReferences += 1;
       } catch {

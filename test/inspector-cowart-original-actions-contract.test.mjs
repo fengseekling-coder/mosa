@@ -49,7 +49,8 @@ test("29-35. show-item-in-folder IPC is minimal, validated, and shell-correct", 
   const [preload, main] = await Promise.all([readPreload(), readMain()]);
 
   assert.match(preload, /showItemInFolder: \(path\) =>\s*\n?\s*ipcRenderer\.invoke\("show-item-in-folder", path\)/, "preload exposes showItemInFolder");
-  assert.equal(count(preload, "ipcRenderer.invoke"), 5, "preload exposes only the five approved narrow invoke channels");
+  // P3-1 removed the dead stage-dropped-file channel, so four narrow invokes remain.
+  assert.equal(count(preload, "ipcRenderer.invoke"), 4, "preload exposes only the four approved narrow invoke channels");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "the renderer never receives a shell object");
 
   const handler = sliceBetween(main, 'ipcMain.handle("show-item-in-folder"', "\n}");

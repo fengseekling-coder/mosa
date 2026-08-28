@@ -245,7 +245,6 @@ test("preload surface and Electron security boundaries are unchanged", async () 
   const preload = await readFile(join(root, "desktop", "preload.cjs"), "utf8");
   const exposed = [...preload.matchAll(/^\s{2}(\w+):/gm)].map((match) => match[1]).sort();
   assert.deepEqual(exposed, [
-    "getPathForFile",
     "onMenuImport",
     "onMenuSearch",
     "openFileDialog",
@@ -423,42 +422,19 @@ test("manual picker/drop pattern matches the store set and stages through the lo
 
 // ── batch 1.2: drag & drop staging ───────────────────────────────────────────
 
-test("Electron bridge keeps raw-path isolation while manual drag/drop uses unified server staging", async () => {
-  const [preload, main, app] = await Promise.all([
+test("Electron manual drag/drop uses the same byte-stream staging path as Web", async () => {
+  const [preload, app] = await Promise.all([
     readFile(join(root, "desktop", "preload.cjs"), "utf8"),
-    readFile(join(root, "desktop", "main.mjs"), "utf8"),
     readFile(join(root, "app", "app.mjs"), "utf8"),
   ]);
 
-  // preload: getPathForFile must not synchronously return the raw path; it
-  // forwards the resolved path string to the main-process staging channel.
-  assert.doesNotMatch(
-    preload,
-    /getPathForFile: \(file\) => webUtils\.getPathForFile\(file\)/,
-    "getPathForFile must no longer return the raw external path",
-  );
-  assert.match(preload, /getPathForFile: async \(file\) => \{/, "getPathForFile must be async");
-  assert.match(preload, /webUtils\.getPathForFile\(file\)/, "path resolution still uses webUtils");
-  assert.match(preload, /ipcRenderer\.invoke\("stage-dropped-file", sourcePath\)/, "raw path only goes to the staging channel");
-
-  // main: the staging handler copies into the trusted root and rejects with a
-  // sanitized error (code only), keeping main-process diagnostics.
-  const handler = main.match(/ipcMain\.handle\("stage-dropped-file"[\s\S]*?\n  }\);/)[0];
-  assert.match(handler, /event\.sender !== mainWindow\.webContents/, "only the main window renderer may stage drops");
-  assert.match(handler, /stageFileForImport\(\{ sourcePath, stagingRoot: importStagingRoot \}\)/, "drop staging reuses the trusted root");
-  assert.match(handler, /console\.error/, "main-process diagnostics are kept");
-  assert.match(handler, /throw new Error\(`import-staging failed \(\$\{error\?\.code/, "failure rejects with a sanitized error");
-
-  // Manual drop no longer depends on Electron userData staging. This keeps Web
-  // and Electron on one path and avoids trust mismatches when Electron attaches
-  // to an already-running MOSA runtime.
-  assert.match(app, /async function droppedFilePath\(file\)/, "droppedFilePath must be async");
-  assert.match(app, /await window\.electronAPI\.getPathForFile\(file\)/, "renderer awaits the staged path");
+  assert.doesNotMatch(preload, /getPathForFile|webUtils\.getPathForFile|stage-dropped-file/,
+    "preload must not expose raw local file paths for drag/drop");
   assert.match(app, /library\.addEventListener\("drop", async \(e\) => \{/, "drop handler must await staging");
   assert.match(app, /const prepared = await prepareImportFile\(file\);/, "drop handler uses the unified preparation path");
   assert.match(app, /filePath = await stageBrowserFile\(file\);/, "manual import streams selected bytes through the runtime");
-  const electronBranch = app.slice(app.indexOf("async function droppedFilePath"), app.indexOf("// 纯浏览器回退"));
-  assert.doesNotMatch(electronBranch, /file\.path/, "Electron branch must never fall back to the raw File.path");
+  assert.doesNotMatch(app, /file\.path|electronAPI\.getPathForFile/,
+    "renderer must never read or request the raw Electron file path");
 });
 
 // ── batch 1.3: drop failure state hygiene ────────────────────────────────────

@@ -75,7 +75,7 @@ interface Store {
 }
 interface WebCaptureInput { provider?: string; mediaKind?: string; media_kind?: string; mimeType?: string; mime_type?: string; imageBase64?: string; image_base64?: string; imageBytes?: Buffer | Uint8Array; mediaBase64?: string; media_base64?: string; mediaBytes?: Buffer | Uint8Array; width?: number; height?: number; durationSeconds?: number; duration_seconds?: number; prompt?: string; prompt_status?: string; promptStatus?: string; prompt_source?: string; promptSource?: string; user_message?: string; userMessage?: string; pageUrl?: string; page_url?: string; conversationId?: string; conversation_id?: string; messageId?: string; message_id?: string; generationContextId?: string; generation_context_id?: string; providerToolCallId?: string; provider_tool_call_id?: string; providerGenerationCallId?: string; provider_generation_call_id?: string; providerResponseId?: string; provider_response_id?: string; providerAssetId?: string; provider_asset_id?: string; model?: string; capturedAt?: string; captured_at?: string; captureMode?: string; capture_mode?: string; assetId?: string; is_reference?: boolean; isReference?: boolean; extensionVersion?: string; extension_version?: string; }
 interface IngestResult { status: string; reason?: string; asset?: StoredAsset; attachment?: ReferenceAttachment; contentHash: string; upgraded?: boolean; recipeMerged?: boolean; }
-interface WebCaptureIngest { ingest(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; status(): Record<string, unknown>; assertToken(provided: string): void; readReference(projectId: string, fileName: string): Promise<{ stream: NodeJS.ReadableStream; fileName: string }>; tempRoot: string; token: string; }
+interface WebCaptureIngest { ingest(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; status(): Record<string, unknown>; assertToken(provided: string): void; readReference(projectId: string, fileName: string): Promise<{ stream: NodeJS.ReadableStream; fileName: string }>; pruneReferences(projectId: string, referencedIds: Iterable<string>): Promise<{ removed: number; retained: number; failed: number }>; tempRoot: string; token: string; }
 
 export function createWebCaptureIngest(options: { store?: Store; libraryDir?: string; tempRoot?: string; projectId?: string; token?: string; allowedOrigins?: string[]; } = {}): WebCaptureIngest {
   const store = options.store as Store;
@@ -100,7 +100,7 @@ export function createWebCaptureIngest(options: { store?: Store; libraryDir?: st
     ingestQueue = run.then(() => undefined, () => undefined);
     try { const result = await run; state.lastIngestAt = new Date().toISOString(); state.lastError = null; if (result.status === "imported") { state.lastImportCount = 1; state.totalImported += 1; state.lastSkippedReason = null; } else { state.lastImportCount = 0; state.totalSkipped += 1; state.lastSkippedReason = result.reason || "skipped"; } return result; } catch (error) { state.lastError = error instanceof Error ? error.message : String(error); throw error; }
   }
-  return { ingest, status, assertToken, readReference: referenceStore.read, tempRoot, token };
+  return { ingest, status, assertToken, readReference: referenceStore.read, pruneReferences: referenceStore.pruneUnused, tempRoot, token };
 }
 
 export async function ingestWebCapture(options: { store: Store; referenceStore?: ReturnType<typeof createReferenceAttachmentStore>; tempRoot: string; projectId?: string; input?: WebCaptureInput; }): Promise<IngestResult> {

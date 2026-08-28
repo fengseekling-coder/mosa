@@ -58,6 +58,8 @@ const state = {
   galleryStatus: "loading", galleryError: null, galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")),
   libraryPath: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, groupSaving: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
   dragCounter: 0,
+  stagedPath: "", // P1-2: Track current staged file for cleanup on cancel
+  stagingInProgress: false, // P1-3: Prevent concurrent staging requests
   darkMode: safeStorageGet("mosa-dark-mode") === "true", diagnosticsExpanded: false, settingsReturnFocus: null, accountReturnFocus: null,
   detailReturnFocusAssetId: null, previewReturnFocusAssetId: null,
   imageZoom: 1, imagePanX: 0, imagePanY: 0, imageDragging: false,
@@ -92,7 +94,7 @@ const els = {
   typeFilters: document.querySelector(".topbar-type-filters"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
   activeFilters: document.querySelector("#activeFilters"), filterPanel: document.querySelector("#filterPanel"), filterToggle: document.querySelector("#filterToggle"), sortSelect: document.querySelector("#sortSelect"), themeToggle: document.querySelector("#themeToggle"),
-  accountToggle: document.querySelector("#accountToggle"), accountModal: document.querySelector("#accountModal"), closeAccountModal: document.querySelector("#closeAccountModal"), accountAssetCount: document.querySelector("#accountAssetCount"), accountCollectionCount: document.querySelector("#accountCollectionCount"), settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
+  accountToggle: document.querySelector("#accountToggle"), accountModal: document.querySelector("#accountModal"), closeAccountModal: document.querySelector("#closeAccountModal"), accountAssetCount: document.querySelector("#accountAssetCount"), accountCollectionCount: document.querySelector("#accountCollectionCount"), accountLibraryPath: document.querySelector("#accountLibraryPath"), accountStorageEngine: document.querySelector("#accountStorageEngine"), accountVersionValue: document.querySelector("#accountVersionValue"), settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
   viewTitle: document.querySelector("#viewTitle"), assetCount: document.querySelector("#assetCount"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
 
@@ -179,17 +181,6 @@ function syncSegmentedRadios(container) {
 
 function toggleDarkMode() { state.darkMode = !state.darkMode; safeStorageSet("mosa-dark-mode", String(state.darkMode)); applyDarkMode(); showToast(t("darkModeChanged"), "success"); }
 
-async function droppedFilePath(file) {
-  // Electron：preload 把拖放文件在主进程 staging 后返回受信任的 staging 路径，
-  // 用户外部原始路径永不进入本 renderer；staging 失败在此 reject（不回退到
-  // File.path——Electron 下那正是我们要消除的原始路径）。
-  if (window.electronAPI?.getPathForFile) {
-    return (await window.electronAPI.getPathForFile(file)) || "";
-  }
-  // 纯浏览器回退：标准 File 对象没有本地路径，这里恒为 ""。
-  return typeof file.path === "string" ? file.path : "";
-}
-
 function isSupportedImportFile(file) {
   return Boolean(file?.name && /\.(apng|avif|gif|jpe?g|png|svg|webp|m4v|mov|mp4|webm)$/i.test(file.name));
 }
@@ -218,20 +209,43 @@ async function stageBrowserFile(file) {
   return payload.path;
 }
 
+// P1-2: Cleanup orphaned staged file on import cancel
+async function cleanupStagedFile(stagedPath) {
+  if (!stagedPath || typeof stagedPath !== "string") return;
+  try {
+    await apiFetch("/api/import/stage", { method: "DELETE", body: { path: stagedPath } });
+  } catch (error) {
+    // Non-fatal: log but don't interrupt user flow
+    console.warn(`[MOSA] staged file cleanup failed: ${error?.message || error}`);
+  }
+}
+
 async function prepareImportFile(file, { openModal = true } = {}) {
+  // P1-3: Prevent concurrent staging to avoid orphaned files and last-write-wins
+  if (state.stagingInProgress) return false;
+  state.stagingInProgress = true;
   clearImportErrors();
   let filePath = "";
   try {
+    // P1-2: Clean up previous staged file before staging new one
+    if (state.stagedPath) {
+      await cleanupStagedFile(state.stagedPath);
+      state.stagedPath = "";
+    }
+
     // One path for Web and Electron: stream the selected File to the local
     // MOSA runtime and let the server stage it below the library root. This
     // also works when Electron safely attaches to an already-running MOSA
     // runtime, where an Electron-userData staging path would not be trusted.
     filePath = await stageBrowserFile(file);
+    state.stagedPath = filePath; // P1-2: Track for cleanup on cancel
   } catch (error) {
     const mapped = IMPORT_ERROR_FIELDS[error?.code];
     if (mapped) showImportError(mapped.field, t(mapped.message));
     else showToast(error?.message || t("fileSelectionFailed"), "error");
     return false;
+  } finally {
+    state.stagingInProgress = false;
   }
   if (!filePath) {
     showToast(t("dropPathUnavailable"), "error");
@@ -285,6 +299,10 @@ function setupDragDrop() {
       announceGalleryStatus("");
       return;
     }
+    // P2-1: Multi-file drop indication
+    if (files.length > 1) {
+      showToast(t("multipleFilesIgnored"), "info");
+    }
     const file = files[0];
     if (!isSupportedImportFile(file)) {
       announceGalleryStatus("");
@@ -295,6 +313,57 @@ function setupDragDrop() {
     announceGalleryStatus("");
     if (!prepared) return;
   });
+}
+
+// ===== Global drag/drop guard (P1-1) =====
+// Prevent default drag-and-drop navigation in browser mode. Without this,
+// dropping a file on non-drop targets (topbar, sidebar, modal backdrop, asset view)
+// would navigate the tab to the dropped file's local path, losing all unsaved
+// state. Electron has will-navigate protection, but browser mode needs this guard.
+function setupGlobalDragGuard() {
+  document.addEventListener("dragover", (e) => {
+    // Don't interfere with existing drop targets. Let them call preventDefault
+    // themselves as needed. This is a fallback guard only.
+    if (e.defaultPrevented) return;
+    const target = e.target instanceof Element ? e.target : null;
+    // Allow drops on the known drop zones: library and import path card.
+    // Check if event will bubble to these targets.
+    const willBubbleToLibrary = !!target?.closest(".library");
+    const willBubbleToPathCard = !!target?.closest(".import-v2-path-card");
+    if (willBubbleToLibrary || willBubbleToPathCard) return;
+    // Otherwise prevent default to avoid navigation.
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "none";
+  });
+
+  document.addEventListener("drop", (e) => {
+    // Same policy as dragover: only allow drops on known targets.
+    if (e.defaultPrevented) return;
+    const target = e.target instanceof Element ? e.target : null;
+    const willBubbleToLibrary = !!target?.closest(".library");
+    const willBubbleToPathCard = !!target?.closest(".import-v2-path-card");
+    if (willBubbleToLibrary || willBubbleToPathCard) return;
+    e.preventDefault();
+  });
+
+  // P2-3: Reset drag counter on drop end to prevent stuck overlay when
+  // elements are destroyed mid-drag (grid re-render from background refresh).
+  window.addEventListener("dragend", () => {
+    if (state.dragCounter > 0) {
+      state.dragCounter = 0;
+      if (els.dragOverlay) els.dragOverlay.hidden = true;
+      announceGalleryStatus("");
+    }
+  });
+
+  // Also reset on window-level drop (dropped outside library while overlay was visible)
+  window.addEventListener("drop", () => {
+    if (state.dragCounter > 0) {
+      state.dragCounter = 0;
+      if (els.dragOverlay) els.dragOverlay.hidden = true;
+      announceGalleryStatus("");
+    }
+  }, true); // Capture phase to reset before any other drop handlers
 }
 
 const favoriteRequests = new Set();
@@ -338,7 +407,7 @@ async function toggleFavorite(id, event) {
       if (detailButton instanceof HTMLElement && detailButton !== trigger) applyFavoriteButtonState(detailButton, favorite);
     }
     showToast(updated?.favorite ? t("addedToFavorites") : t("removedFromFavorites"), "success");
-    const refreshes = await Promise.allSettled([loadStats(), loadAssets({ background: true })]);
+    const refreshes = await Promise.allSettled([loadStats(), apiClient.reloadLoadedAssetPages({ background: true })]);
     refreshes.forEach((refresh) => {
       if (refresh.status === "rejected") console.warn("Favorite refresh failed:", refresh.reason);
     });
@@ -630,6 +699,7 @@ async function init() {
     applyDarkMode();
     bindEvents();
     setupDragDrop();
+    setupGlobalDragGuard();
     setupKeyboardShortcuts();
     setupImageZoomPan();
     renderGrid();
@@ -1055,7 +1125,12 @@ function bindEvents() {
     if (loadMoreButton && state.nextCursor && !isLoadingMore) {
       isLoadingMore = true;
       loadMoreButton.disabled = true;
-      void loadAssets({ append: true }).finally(() => { isLoadingMore = false; });
+      void loadAssets({ append: true }).then((applied) => {
+        if (!applied && loadMoreButton.isConnected) {
+          loadMoreButton.disabled = false;
+          showToast(state.galleryError?.message || t("loadFailed"), "error");
+        }
+      }).finally(() => { isLoadingMore = false; });
       return;
     }
     if (event.target.closest('[data-action="retry"]')) window.location.reload();
@@ -1098,9 +1173,22 @@ function bindEvents() {
     importDropZone?.addEventListener(eventName, (event) => {
       event.preventDefault();
       event.stopPropagation();
+      // P3-3: Only remove drag-active if leaving the zone entirely (not entering a child)
+      if (eventName === "dragleave") {
+        const related = event.relatedTarget;
+        if (related instanceof Node && importDropZone.contains(related)) return;
+      }
       importDropZone.classList.remove("drag-active");
       if (eventName !== "drop") return;
-      const file = event.dataTransfer?.files?.[0];
+      // P1-3: Prevent drop during import save to avoid phantom path race
+      if (state.importSaving) return;
+      const files = event.dataTransfer?.files;
+      if (!files || !files.length) return;
+      // P2-1: Multi-file drop indication
+      if (files.length > 1) {
+        showToast(t("multipleFilesIgnored"), "info");
+      }
+      const file = files[0];
       if (file) void prepareImportFile(file, { openModal: false });
     });
   });
@@ -1121,8 +1209,7 @@ function bindEvents() {
   els.accountToggle?.addEventListener("click", openAccountModal);
   els.closeAccountModal?.addEventListener("click", closeAccountModal);
   els.accountModal?.addEventListener("click", (event) => {
-    if (event.target === els.accountModal) { closeAccountModal(); return; }
-    if (event.target.closest("[data-account-action]")) showToast(t("accountUnavailable"));
+    if (event.target === els.accountModal) closeAccountModal();
   });
   els.settingsMenu?.addEventListener("change", async (event) => {
     const select = event.target.closest("[data-project-select]");
@@ -1304,11 +1391,14 @@ function bindDesktopIntegration() {
         event.preventDefault();
         try {
           const filePath = await api.pasteImage();
-          if (filePath && els.imagePathInput) {
+          // Empty clipboard is a normal no-op. Staging failures reject from
+          // the main process and are handled by the catch below.
+          if (!filePath) return;
+          if (els.imagePathInput) {
             els.imagePathInput.value = filePath;
             openImportModal();
           }
-        } catch {
+        } catch (error) {
           showToast(t("clipboardAccessDenied"), "error");
         }
         return;
@@ -1485,7 +1575,8 @@ async function saveAsset() {
     if (hadDetailDraft && originProjectId === state.project && originAssetId === state.selectedId) discardDetailDraft();
     state.selectedId = result.asset.id;
     clearImportForm(); closeImportModal({ force: true }); showToast(`${t("savedAsset")} · ${result.asset.id}`, "success");
-    await loadStats(); await loadAssets();
+    // P3-2: Parallel loadStats and loadAssets for faster UI refresh
+    await Promise.all([loadStats(), loadAssets()]);
   } catch (error) {
     const mapped = IMPORT_ERROR_FIELDS[error?.code];
     if (mapped) showImportError(mapped.field, t(mapped.message));
@@ -1581,6 +1672,14 @@ function bindGalleryVideoFrame(video) {
   video.addEventListener("loadeddata", revealFrame);
   video.addEventListener("seeked", revealFrame);
   video.addEventListener("error", () => video.classList.remove("is-frame-ready"));
+}
+
+// IntersectionObserver keeps strong references to every observed target, so
+// media elements inside cards that are replaced or removed must be released;
+// otherwise each grid rebuild leaks the previous render's nodes.
+function releaseObservedGalleryMedia(card) {
+  if (!galleryMediaObserver) return;
+  card.querySelectorAll("img, video").forEach((media) => galleryMediaObserver.unobserve(media));
 }
 
 function setupGalleryMediaVirtualization(roots = null) {
@@ -1796,6 +1895,7 @@ function reconcileAssetCards(entries) {
       if (!replacement) continue;
       if (card) {
         if (card.contains(document.activeElement)) replacedFocusedCard = true;
+        releaseObservedGalleryMedia(card);
         card.replaceWith(replacement);
       }
       card = replacement;
@@ -1808,6 +1908,7 @@ function reconcileAssetCards(entries) {
   existingCards.forEach((card) => {
     if (!keptCards.has(card)) {
       if (card.contains(document.activeElement)) replacedFocusedCard = true;
+      releaseObservedGalleryMedia(card);
       card.remove();
     }
   });
@@ -1995,6 +2096,9 @@ function clearDetailSelection() {
 let inspectorSaveTimer = null;
 let inspectorSavePromise = null;
 let activeInspector = null;
+// Guards the explicit "save as version" action against double-clicks and
+// Enter-repeat while the version POST is in flight.
+let savingVersion = false;
 const INSPECTOR_AUTOSAVE_DELAY = 1200;
 
 function scheduleInspectorSave() {
@@ -2073,7 +2177,7 @@ async function persistInspectorDraft(panel, asset, renderId) {
       setInspectorAutosaveStatus(panel, "saved");
       if (flightEdits) scheduleInspectorSave();
       await loadStats();
-      await loadAssets({ background: true });
+      await apiClient.reloadLoadedAssetPages({ background: true });
       return true;
     } catch (error) {
       showToast(error.message, "error");
@@ -2187,8 +2291,18 @@ function setDetailOpen(open) {
 
 // ===== Asset view（大图查看器，已提取至 asset-view.mjs，R1 批次 4）=====
 
+function hasBlockingOverlay(except = "") {
+  return [
+    ["import", Boolean(els.importModal?.classList.contains("open"))],
+    ["group", Boolean(els.groupModal?.classList.contains("open"))],
+    ["account", Boolean(els.accountModal?.classList.contains("open"))],
+    ["settings", Boolean(els.settingsMenu && !els.settingsMenu.hidden)],
+    ["preview", Boolean(els.imagePreviewModal && !els.imagePreviewModal.hidden)],
+  ].some(([name, open]) => name !== except && open);
+}
+
 function openImportModal() {
-  if (state.importSaving) return;
+  if (state.importSaving || hasBlockingOverlay("import")) return;
   state.modalReturnFocus = document.activeElement;
   clearImportErrors();
   els.importModal?.classList.add("open");
@@ -2198,6 +2312,13 @@ function openImportModal() {
 }
 function closeImportModal({ force = false } = {}) {
   if (state.importSaving && !force) return false;
+  // P1-2: Clean up orphaned staged file on cancel (non-destructive)
+  const stagedToClean = state.stagedPath;
+  state.stagedPath = "";
+  if (stagedToClean) {
+    // Non-blocking cleanup
+    void cleanupStagedFile(stagedToClean);
+  }
   announceGalleryStatus("");
   els.importModal?.classList.remove("open");
   els.importModal?.setAttribute("aria-hidden", "true");
@@ -2206,7 +2327,7 @@ function closeImportModal({ force = false } = {}) {
   return true;
 }
 function openSettingsModal() {
-  if (!els.settingsMenu || !els.settingsMenu.hidden) return;
+  if (!els.settingsMenu || !els.settingsMenu.hidden || hasBlockingOverlay("settings")) return;
   state.settingsReturnFocus = document.activeElement;
   els.settingsMenu.hidden = false;
   els.settingsToggle?.setAttribute("aria-expanded", "true");
@@ -2258,9 +2379,17 @@ function selectedGroupColor() {
 function refreshAccountSummary() {
   if (els.accountAssetCount) els.accountAssetCount.textContent = String(state.groups.total || state.assets.length || 0);
   if (els.accountCollectionCount) els.accountCollectionCount.textContent = String(state.groups.groups.length || 0);
+  if (els.accountLibraryPath) els.accountLibraryPath.textContent = state.libraryPath || "—";
+  if (els.accountStorageEngine || els.accountVersionValue) {
+    void fetch("/api/health").then((response) => response.ok ? response.json() : null).then((data) => {
+      if (!data) return;
+      if (els.accountStorageEngine) els.accountStorageEngine.textContent = data.storage === "sqlite" ? t("storageEngineValue") : data.storage || "—";
+      if (els.accountVersionValue) els.accountVersionValue.textContent = data.productVersion || "—";
+    }).catch(() => {});
+  }
 }
 function openAccountModal() {
-  if (!els.accountModal || els.accountModal.classList.contains("open")) return;
+  if (!els.accountModal || els.accountModal.classList.contains("open") || hasBlockingOverlay("account")) return;
   state.accountReturnFocus = document.activeElement;
   refreshAccountSummary();
   els.accountModal.classList.add("open");
@@ -2275,7 +2404,7 @@ function closeAccountModal() {
   state.accountReturnFocus = null;
 }
 function openGroupModal() {
-  if (state.groupSaving) return;
+  if (state.groupSaving || hasBlockingOverlay("group")) return;
   state.modalReturnFocus = document.activeElement;
   els.groupModal?.classList.add("open");
   els.groupModal?.setAttribute("aria-hidden", "false");
@@ -2374,6 +2503,7 @@ async function saveGroup() {
 }
 
 function openImagePreview(id, trigger) {
+  if (hasBlockingOverlay("preview")) return;
   const asset = state.assets.find((item) => item.id === id)
     || state.versionHistory?.versions?.find((item) => item.id === id)
     || (state.detailAsset?.id === id ? state.detailAsset : null);
@@ -3071,14 +3201,16 @@ function bindDetailEvents(asset, renderId) {
   }));
   panel.querySelector('[data-action="save-recipe"]')?.addEventListener("click", () => runAction(() => flushInspectorSave()));
   panel.querySelector('[data-action="save-version"]')?.addEventListener("click", () => runAction(async () => {
-    const versionChange = panel.querySelector("[data-version-change]")?.value.trim() || "";
-    if (!versionChange) throw new Error(t("versionChangeRequired"));
-    const originProjectId = asset.project_id;
-    const originAssetId = asset.id;
-    // Flush any pending auto-save before creating the version; abort if it failed.
-    if (!await flushInspectorSave() || !isCurrentDetailAction(renderId, originProjectId, originAssetId)) return;
-    setInspectorSaveActionsBusy(panel, true, "save-version");
+    if (savingVersion) return;
+    savingVersion = true;
     try {
+      const versionChange = panel.querySelector("[data-version-change]")?.value.trim() || "";
+      if (!versionChange) throw new Error(t("versionChangeRequired"));
+      const originProjectId = asset.project_id;
+      const originAssetId = asset.id;
+      // Flush any pending auto-save before creating the version; abort if it failed.
+      if (!await flushInspectorSave() || !isCurrentDetailAction(renderId, originProjectId, originAssetId)) return;
+      setInspectorSaveActionsBusy(panel, true, "save-version");
       const result = await apiFetch(`/api/assets/${encodeURIComponent(originProjectId)}/${encodeURIComponent(originAssetId)}/versions`, {
         method: "POST",
         body: {
@@ -3098,6 +3230,7 @@ function bindDetailEvents(asset, renderId) {
       await loadAssets();
       if (isCurrentDetailSelection(result.asset.project_id, result.asset.id)) requestAnimationFrame(() => els.detailPanel?.querySelector("#detailTitle")?.focus());
     } finally {
+      savingVersion = false;
       if (renderId === detailRenderSequence) setInspectorSaveActionsBusy(panel, false, "save-version");
     }
   }));
@@ -3421,7 +3554,7 @@ function readRecipeDraft(panel) {
 }
 
 function setInspectorSaveActionsBusy(panel, busy, activeAction) {
-  panel.querySelectorAll(".recipe-save-btn").forEach((button) => { button.disabled = busy; });
+  panel.querySelectorAll(".recipe-save-btn, [data-action='save-version']").forEach((button) => { button.disabled = busy; });
   panel.querySelectorAll('input[data-edit], textarea[data-edit], select[data-edit], [data-version-change], [data-recipe-change], [data-edit="rating"] button').forEach((field) => { field.disabled = busy; });
   const activeButton = panel.querySelector(`[data-action="${activeAction}"]`);
   if (!activeButton?.isConnected) return;

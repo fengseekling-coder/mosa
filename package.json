@@ -29,7 +29,7 @@
     "lint": "eslint .",
     "check": "node scripts/check-source.mjs",
     "audit": "npm audit --omit=dev",
-    "test:performance": "node scripts/run-performance-test.mjs",
+    "test:performance": "node scripts/run-performance.mjs",
     "verify:codex": "node scripts/verify-codex-asset.mjs",
     "check:desktop-node": "node scripts/check-desktop-package-node.mjs",
     "premaintenance:pixel-hashes": "npm run build",

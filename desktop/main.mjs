@@ -295,23 +295,7 @@ function registerIPC() {
       return await writeStagedPng(importStagingRoot, image.toPNG());
     } catch (error) {
       console.error(`[MOSA] import-staging paste failed: ${error?.message || error}`);
-      return null;
-    }
-  });
-
-  // BUG-01 follow-up (audit fix batch 1.2)：拖放文件 staging。renderer 只把
-  // File 解析出的原始路径字符串发来（绝不经由其它通道提交文件），主进程复制进
-  // 受信任 staging 根并返回 staging 路径；失败保留主进程诊断并 throw 净化错误
-  // （仅错误码，不含原始路径），renderer 显示可见 toast，永不收到用户原始路径。
-  ipcMain.handle("stage-dropped-file", async (event, sourcePath) => {
-    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
-      throw new Error("import-staging failed (unavailable)");
-    }
-    try {
-      return await stageFileForImport({ sourcePath, stagingRoot: importStagingRoot });
-    } catch (error) {
-      console.error(`[MOSA] import-staging failed for dropped file: ${error?.message || error}`);
-      throw new Error(`import-staging failed (${error?.code || "unknown"})`);
+      throw new Error(`import-staging paste failed (${error?.code || "unknown"})`);
     }
   });
 

@@ -11,7 +11,6 @@ const root = resolve(import.meta.dirname, "..");
 const preloadPath = resolve(root, "desktop", "preload.cjs");
 const electronPath = resolve(root, "node_modules", "electron", "dist", "Electron.app", "Contents", "MacOS", "Electron");
 const EXPECTED_API_KEYS = [
-  "getPathForFile",
   "onMenuImport",
   "onMenuSearch",
   "openFileDialog",
@@ -19,7 +18,6 @@ const EXPECTED_API_KEYS = [
   "setLocale",
   "showItemInFolder",
 ];
-const EXPECTED_API_FINGERPRINT = "d074335886412fcbee37e74b1ec6b50bd3e75c3f14d86a1247e4c44e8ea00659";
 // Audit Fix Batch 1 (BUG-08) changed only the `test` script to load
 // test/clean-test-env.mjs; the lockfile fingerprint stays untouched.
 // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
@@ -50,7 +48,7 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(main, /webContents\.on\("console-message"/);
   assert.match(main, /MAX_RENDERER_CONSOLE_ERRORS = 32/);
   assert.doesNotMatch(main, /process\.cwd\(\)|join\(__dirname/);
-  assert.match(preload, /^const \{ contextBridge, ipcRenderer, webUtils \} = require\("electron"\);/);
+  assert.match(preload, /^const \{ contextBridge, ipcRenderer \} = require\("electron"\);/);
   assert.doesNotMatch(preload, /^\s*import\s/m);
 
   for (const setting of ["contextIsolation: true", "sandbox: true", "nodeIntegration: false"]) {
@@ -61,11 +59,10 @@ test("preload path, module format, security settings, and API surface are stable
   assert.doesNotMatch(preload, /ipcRenderer\s*:/, "ipcRenderer is not exposed as an API value");
   assert.doesNotMatch(preload, /^\s*shell\s*:/m, "shell is not exposed as an API value");
   assert.doesNotMatch(preload, /openExternal|sendSync|\.send\(/, "generic IPC is not exposed");
-  // The preload exposes five narrow request channels for import, locale,
-  // Finder, and drag/drop staging. Generic IPC remains unavailable.
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 5, "only the five approved invoke channels remain");
+  // The preload exposes only the four narrow request channels still used by
+  // the renderer. Drag/drop bytes use the runtime staging endpoint directly.
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 4, "only the four approved invoke channels remain");
   assert.deepEqual(sortedApiKeys(preload), EXPECTED_API_KEYS);
-  assert.equal(sha256(JSON.stringify(sortedApiKeys(preload))), EXPECTED_API_FINGERPRINT);
   assert.match(preload, /showItemInFolder: \(path\) => ipcRenderer\.invoke\("show-item-in-folder", path\)/);
 
   const finderHandler = main.slice(main.indexOf('ipcMain.handle("show-item-in-folder"'), main.indexOf("\n  });", main.indexOf('ipcMain.handle("show-item-in-folder"')));
@@ -237,7 +234,7 @@ test("real Electron preload smoke (opt-in)", { skip: process.env.MOSA_ELECTRON_P
   assert.equal(state.hasElectronAPI, true);
   assert.deepEqual(state.keys, EXPECTED_API_KEYS);
   assert.deepEqual(state.functionKeys, EXPECTED_API_KEYS);
-  assert.equal(sha256(JSON.stringify(state.keys)), EXPECTED_API_FINGERPRINT);
+  assert.deepEqual(state.keys, EXPECTED_API_KEYS);
   assert.equal((stderr.match(/\[MOSA\] preload-error/g) || []).length, 0, output());
   assert.doesNotMatch(stderr, /preload.*(error|failed|syntaxerror|ENOENT)/i, output());
   assert.equal(rendererIssues.filter((issue) => JSON.stringify(issue).match(/preload/i)).length, 0, JSON.stringify(rendererIssues));

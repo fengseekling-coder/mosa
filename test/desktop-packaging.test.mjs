@@ -372,10 +372,13 @@ test("exposes only the minimal show-in-folder capability to the renderer", async
   assert.match(preload, /showItemInFolder: \(path\) => ipcRenderer\.invoke\("show-item-in-folder", path\)/);
   assert.match(main, /ipcMain\.handle\("show-item-in-folder",/);
   // preload 其余 API 不变，不向 renderer 暴露 shell 对象或任意命令执行能力。
-  for (const api of ["openFileDialog", "pasteImage", "getPathForFile", "setLocale", "onMenuImport", "onMenuSearch"]) {
+  for (const api of ["openFileDialog", "pasteImage", "setLocale", "onMenuImport", "onMenuSearch"]) {
     assert.match(preload, new RegExp(`${api}:`), `preload keeps exposing ${api}`);
   }
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 5, "no invoke channel beyond the five currently approved narrow requests");
+  // P3-1: Removed dead IPC (getPathForFile, stage-dropped-file, openFileDialog is kept but unused)
+  assert.doesNotMatch(preload, /getPathForFile:/, "getPathForFile was removed as dead code");
+  assert.doesNotMatch(preload, /stage-dropped-file/, "stage-dropped-file IPC was removed as dead code");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 4, "no invoke channel beyond the four currently approved narrow requests (openFileDialog, pasteImage, setLocale, show-item-in-folder)");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "shell is never exposed to the renderer");
   assert.doesNotMatch(preload, /exec\(|spawn\(|execFile\(/, "no arbitrary command execution");
 

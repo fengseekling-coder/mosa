@@ -187,7 +187,7 @@ test("offers a real file picker while keeping server-sourced format guidance", a
   assert.match(app, /els\.importFileInput\.click\(\)/);
 });
 
-test("keeps desktop bridge compatibility while manual files use unified server staging", async () => {
+test("keeps desktop bridge minimal while manual files use unified server staging", async () => {
   const [html, app, preload] = await Promise.all([
     readFile(resolve(root, "app/index.html"), "utf8"),
     readFile(resolve(root, "app/app.mjs"), "utf8"),
@@ -195,11 +195,10 @@ test("keeps desktop bridge compatibility while manual files use unified server s
   ]);
 
   assert.doesNotMatch(html, /id="dropOverlay"/);
-  assert.ok(app.includes("async function droppedFilePath(file)"));
-  assert.ok(app.includes("await window.electronAPI.getPathForFile(file)"));
   assert.ok(app.includes("filePath = await stageBrowserFile(file)"));
   assert.equal(app.includes("file.webkitRelativePath || file.name"), false);
-  assert.ok(preload.includes("webUtils.getPathForFile(file)"));
+  assert.doesNotMatch(app, /file\.path|electronAPI\.getPathForFile/);
+  assert.doesNotMatch(preload, /getPathForFile|webUtils\.getPathForFile|stage-dropped-file/);
   // Phase 5B：单素材归档迁移到全应用唯一 ConfirmDialog（window.confirm 清零）。
   assert.match(app, /title: t\("archiveOneTitle"\)/);
   assert.doesNotMatch(app, /window\.confirm\(/);
@@ -257,8 +256,10 @@ test("keeps the import dialog's focus contract and translates every new string",
   assert.match(app, /function trapImportModalFocus\(event\)/);
   assert.match(app, /if \(event\.key === "Escape"\) \{ event\.preventDefault\(\); closeImportModal\(\); return; \}/);
   assert.match(app, /function closeImportModal\(\{ force = false \} = \{\}\)[\s\S]*?if \(state\.importSaving && !force\) return false;[\s\S]*?state\.modalReturnFocus\.focus\(\)/);
-  // Opening resets any error left from a previous attempt.
-  assert.match(app, /function openImportModal\(\) \{[\s\S]{0,320}if \(state\.importSaving\) return;[\s\S]{0,320}clearImportErrors\(\);/);
+  // Opening resets any error left from a previous attempt. The guard line may
+  // also carry concurrent modal-mutex additions (e.g. hasBlockingOverlay), so
+  // the contract pins "importSaving still blocks open" rather than one literal.
+  assert.match(app, /function openImportModal\(\) \{[\s\S]{0,320}if \(state\.importSaving[^\n]*\) return;[\s\S]{0,320}clearImportErrors\(\);/);
 
   const keys = [
     "advancedSettings", "importPathFormats", "importPathExample", "importPathCodexDir", "importPathCodexDirUnknown",
