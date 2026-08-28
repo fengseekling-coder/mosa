@@ -79,9 +79,17 @@ async function runWebRound(mode, searchTerm, versionChange) {
   try {
     const health = await waitForHealth(`http://127.0.0.1:${port}/api/health`, child);
     assertHealth(health);
-    await runCommand(electronBinary, [...ELECTRON_QA_FLAGS, webDriver, webUserData, mode, webFixturePath, searchTerm, versionChange, `http://127.0.0.1:${port}`], {
+    await runCommand(electronBinary, [...ELECTRON_QA_FLAGS, webDriver], {
       cwd: rootDir,
-      env: process.env,
+      env: {
+        ...process.env,
+        MOSA_E2E_WEB_TARGET_URL: `http://127.0.0.1:${port}`,
+        MOSA_E2E_WEB_USER_DATA: webUserData,
+        MOSA_E2E_WEB_MODE: mode,
+        MOSA_E2E_WEB_FIXTURE: webFixturePath,
+        MOSA_E2E_WEB_SEARCH: searchTerm,
+        MOSA_E2E_WEB_VERSION: versionChange,
+      },
     });
   } catch (error) {
     const detail = stderr().trim();
