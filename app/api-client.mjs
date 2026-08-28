@@ -145,6 +145,13 @@ export function createApiClient(deps) {
       result = await requestAssetPage(request, { cursor: options.append ? state.nextCursor : null });
     } catch (error) {
       if (!isCurrentAssetRequest(requestId, request)) return false;
+      // Loading the next page is additive. A transient failure must never
+      // replace already-loaded cards or discard the user's browsing context.
+      if (options.append && state.assets.length) {
+        state.galleryError = error;
+        setGalleryBusy(false, requestId, request);
+        return false;
+      }
       // Background refreshes must not replace a usable gallery with an error
       // screen, but their busy lifecycle still ends at the failed request.
       if (options.background && state.assets.length) {
@@ -251,13 +258,50 @@ export function createApiClient(deps) {
     return true;
   }
 
+  async function reloadLoadedAssetPages(options = {}) {
+    const pageCount = Math.max(1, Number(state.loadedPageCount) || 1);
+    const firstApplied = await loadAssets({ background: options.background !== false, preserveScroll: true });
+    if (!firstApplied) return false;
+    for (let page = 1; page < pageCount && state.nextCursor; page += 1) {
+      const appended = await loadAssets({ append: true, background: options.background !== false, preserveScroll: true });
+      if (!appended) return false;
+    }
+    return true;
+  }
+
+  async function refreshLoadedAssetsInBackground() {
+    const requestId = ++backgroundTotalRequestSequence;
+    const request = currentAssetRequest();
+    let result;
+    try {
+      result = await requestAssetPage(request);
+    } catch {
+      return false;
+    }
+    if (requestId !== backgroundTotalRequestSequence
+      || assetRequestKey(request) !== assetRequestKey(currentAssetRequest())) return false;
+
+    const incoming = result.assets || [];
+    const visible = state.assets.slice(0, incoming.length);
+    const incomingIds = incoming.map((asset) => `${asset.project_id || request.project}\u001f${asset.id}`).join("|");
+    const visibleIds = visible.map((asset) => `${asset.project_id || request.project}\u001f${asset.id}`).join("|");
+    if (incomingIds !== visibleIds) return reloadLoadedAssetPages({ background: true });
+
+    const total = Number(result.page?.total);
+    if (Number.isFinite(total) && state.pageTotal !== total) {
+      state.pageTotal = total;
+      updateViewTitle();
+    }
+    return true;
+  }
+
   async function refreshLibraryInBackground() {
     if (document.hidden || libraryRefreshInFlight) return;
     libraryRefreshInFlight = true;
     try {
       await Promise.all([
         loadStats({ background: true }),
-        state.loadedPageCount > 1 ? refreshAssetPageTotalInBackground() : loadAssets({ background: true }),
+        state.loadedPageCount > 1 ? refreshLoadedAssetsInBackground() : loadAssets({ background: true }),
       ]);
     } catch {
       // A transient refresh failure should not interrupt the active library view.
@@ -284,7 +328,7 @@ export function createApiClient(deps) {
 
   return {
     apiFetch, loadProjects, loadCowartCanvases, loadStats, loadAssets, refreshLibraryInBackground,
-    refreshAssetPageTotalInBackground,
+    refreshAssetPageTotalInBackground, refreshLoadedAssetsInBackground, reloadLoadedAssetPages,
     buildAssetPageParams, requestAssetPage, requestAssetTotal, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion,
   };
 }

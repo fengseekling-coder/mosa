@@ -302,6 +302,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 /* Phase 2B / F-18：顶栏单行契约（flex-wrap: nowrap；≤700px 纵向文档流断点为例外，见响应式节）。
    gap/padding 由运行值 16px/20px 归一到空间 Token（--space-2），与侧栏 brand 16px 内边距对齐。 */
 .topbar { display: flex; flex: 0 0 auto; flex-wrap: nowrap; align-items: center; gap: var(--space-2); height: var(--topbar-height); padding: 0 var(--space-2); border-bottom: var(--border-width) solid var(--color-border-subtle); background: var(--app-bg); }
+/* The desktop shell hides its native title bar (macOS hiddenInset), so the top
+   bar must be draggable; every interactive child opts out. No-op on Windows,
+   which keeps its native title bar. */
+.topbar { -webkit-app-region: drag; }
+.topbar button, .topbar input, .topbar select, .topbar a, .topbar label, .topbar .type-filter, .topbar .topbar-search, .topbar .topbar-utility-group, .topbar .topbar-work-group { -webkit-app-region: no-drag; }
 /* Phase 2B / F-18：顶栏语义分组。context=范围标题+计数（占据剩余空间，可截断）；
    actions 内 utility/work/primary 三个操作组，组间 --space-1，组内 6px（延续既有 .topbar-right 运行值）；
    primary 前一道细分隔线（Border Token）标出唯一主操作，无卡片容器/阴影/渐变。 */
@@ -1526,6 +1531,11 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .account-menu-item > span { display: grid; min-width: 0; gap: 1px; }
 .mosa-v2 .account-menu-item strong { color: inherit; font-size: 13px; font-weight: 500; line-height: 18px; }
 .mosa-v2 .account-menu-item small { overflow: hidden; color: var(--color-text-tertiary); font-size: 11px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .account-info-row { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 4px; border-bottom: 1px solid var(--color-border-default); }
+.mosa-v2 .account-info-row:last-child { border-bottom: 0; }
+.mosa-v2 .account-info-row strong { color: var(--color-text-secondary); font-size: 13px; font-weight: 500; line-height: 18px; }
+.mosa-v2 .account-info-row small { overflow: hidden; max-width: 60%; color: var(--color-text-primary); font-size: 12px; line-height: 17px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .account-about-note { margin: 0; padding: 16px 32px 24px; color: var(--color-text-tertiary); font-size: 12px; line-height: 18px; }
 .mosa-v2 .account-logout-wrap { margin: 0 32px; padding: 16px 0 24px; border-top: 1px solid var(--color-border-default); }
 .mosa-v2 .account-logout-button { display: flex; width: 100%; min-height: 48px; align-items: center; gap: 12px; padding: 9px 12px; border: 0; border-radius: 8px; color: var(--color-danger); background: transparent; cursor: pointer; font-size: 13px; font-weight: 500; text-align: left; }
 .mosa-v2 .account-logout-button > svg { color: currentColor; }

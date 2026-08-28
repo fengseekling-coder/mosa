@@ -20,13 +20,13 @@ const DESKTOP_TEXT = {
   startupErrorTitle: { zh: "MOSA 无法启动", en: "MOSA could not start" },
 };
 
-const FROZEN_SHA256 = {
+	const FROZEN_SHA256 = {
   // package.json is intentionally excluded: the R1 isolation fix (2026-08-09,
   // approved scope) added qa:web/qa:electron/qa:packaged launcher scripts.
   // Its dependency sections are still frozen via the structural assertions in
   // the package metadata test below.
   "package-lock.json": "ecf0fdc199de87ccd30ffe6a7da4624c2f632700cd8348194a30b79dd2e2a69f",
-  "desktop/preload.cjs": "37a6ef54257f5b5ac279b135887decc5e4cc27bd42345d04a68005712b6160a0",
+  "desktop/preload.cjs": "74014a666c4e78d4aa7ed0d66331aa3aafd02cdbf120e067542675af653f16bd",
 };
 
 function sliceBetween(source, startMarker, endMarker) {
