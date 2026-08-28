@@ -3,9 +3,11 @@ const DEFAULTS = {
   mosaToken: "",
   autoCapture: true, // always default on
 };
+const DISCOVERY_PORTS = [43517, 43518, 43519, 43520, 43521];
 const STORAGE_KEYS = ["mosaBaseUrl", "mosaToken", "autoCapture"];
 const LEGACY_DEV_TOKEN = "mosa-web-capture-dev";
 const WEB_IMAGE_PROVIDERS = new Set(["chatgpt", "gemini", "flow", "google-ai-studio"]);
+const WEB_VIDEO_PROVIDERS = new Set(["flow", "google-ai-studio"]);
 let settingsMigration;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -41,6 +43,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "mosa.probeFlowMedia") {
+    probeFlowMedia(message.url)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    return true;
+  }
+
   if (message.type === "mosa.openOptions") {
     chrome.runtime.openOptionsPage()
       .then(() => sendResponse({ ok: true }))
@@ -56,8 +68,111 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function getSettings() {
   await migrateSettingsToLocal();
-  const stored = await chrome.storage.local.get(DEFAULTS);
-  return { ...DEFAULTS, ...stored };
+  let stored = await chrome.storage.local.get(DEFAULTS);
+  let settings = { ...DEFAULTS, ...stored };
+  if (!String(settings.mosaToken || "").trim()) {
+    const paired = await discoverAndPairMosa().catch(() => null);
+    if (paired) {
+      await chrome.storage.local.set({ mosaBaseUrl: paired.baseUrl, mosaToken: paired.token });
+      stored = await chrome.storage.local.get(DEFAULTS);
+      settings = { ...DEFAULTS, ...stored };
+    }
+  }
+  return settings;
+}
+
+async function discoverAndPairMosa() {
+  for (const port of DISCOVERY_PORTS) {
+    const baseUrl = `http://127.0.0.1:${port}`;
+    try {
+      const health = await fetchWithTimeout(`${baseUrl}/api/health`, { cache: "no-cache" }, 700);
+      if (!health.ok) continue;
+      const identity = await health.json();
+      if (identity?.product !== "mosa") continue;
+
+      const pair = await fetchWithTimeout(`${baseUrl}/api/web-capture/pair`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+        cache: "no-cache",
+      }, 900);
+      if (!pair.ok) continue;
+      const body = await pair.json();
+      const token = String(body?.token || "").trim();
+      if (body?.product !== "mosa" || !token) continue;
+      return { baseUrl, token };
+    } catch {
+      // Try the next local discovery port.
+    }
+  }
+  return null;
+}
+
+async function repairPairing() {
+  const paired = await discoverAndPairMosa();
+  if (!paired) return null;
+  await chrome.storage.local.set({ mosaBaseUrl: paired.baseUrl, mosaToken: paired.token });
+  return paired;
+}
+
+async function fetchWithTimeout(url, init, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function probeFlowMedia(url) {
+  let parsed;
+  try {
+    parsed = new URL(String(url || ""));
+  } catch {
+    throw new Error("Invalid Flow media URL.");
+  }
+  if (parsed.origin !== "https://labs.google"
+    || parsed.pathname !== "/fx/api/trpc/media.getMediaUrlRedirect"
+    || !parsed.searchParams.get("name")) {
+    throw new Error("Unsupported Flow media probe URL.");
+  }
+
+  const attempts = [
+    { method: "GET", credentials: "include", cache: "no-cache", redirect: "follow", headers: { Range: "bytes=0-31" } },
+    { method: "GET", credentials: "omit", cache: "no-cache", redirect: "follow", headers: { Range: "bytes=0-31" } },
+  ];
+  let lastError = null;
+  for (const init of attempts) {
+    try {
+      const response = await fetch(parsed.href, init);
+      if (!response.ok && response.status !== 206) {
+        lastError = new Error(`Flow media probe failed (${response.status})`);
+        continue;
+      }
+      const contentType = String(response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
+      const finalUrl = String(response.url || parsed.href);
+      let finalParsed;
+      try { finalParsed = new URL(finalUrl); } catch { finalParsed = null; }
+      const finalHost = String(finalParsed?.hostname || "").toLowerCase();
+      const finalPath = String(finalParsed?.pathname || "").toLowerCase();
+      const trustedFinalHost = finalHost === "flow-content.google"
+        || finalHost === "storage.googleapis.com"
+        || finalHost.endsWith(".googleusercontent.com")
+        || finalParsed?.origin === "https://labs.google";
+      if (!trustedFinalHost) throw new Error("Flow media redirected to an unsupported host.");
+      const mediaKind = contentType.startsWith("video/") || finalPath.includes("/video/")
+        ? "video"
+        : contentType.startsWith("image/") || finalPath.includes("/image/")
+          ? "image"
+          : "unknown";
+      response.body?.cancel?.().catch?.(() => {});
+      return { mediaKind, mimeType: contentType, mediaUrl: finalUrl };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  throw lastError || new Error("Flow media probe failed.");
 }
 
 function migrateSettingsToLocal() {
@@ -86,62 +201,69 @@ function normalizeStoredToken(value) {
 }
 
 async function fetchImageAsBase64(url, { publicImage = false } = {}) {
-  if (!url || typeof url !== "string") throw new Error("Image URL is required.");
+  const result = await fetchMediaAsBase64(url, { publicMedia: publicImage, mediaKind: "image" });
+  return { mimeType: result.mimeType, imageBase64: result.mediaBase64 };
+}
+
+async function fetchMediaAsBase64(url, { publicMedia = false, mediaKind = "image" } = {}) {
+  const label = mediaKind === "video" ? "video" : "image";
+  if (!url || typeof url !== "string") throw new Error(`${label === "video" ? "Video" : "Image"} URL is required.`);
   if (url.startsWith("data:")) {
     const match = /^data:([^;]+);base64,(.+)$/i.exec(url);
     if (!match) throw new Error("Unsupported data URL.");
-    return { mimeType: match[1], imageBase64: match[2] };
+    return { mimeType: match[1], mediaBase64: match[2] };
   }
 
   const attempts = [
-    ...(publicImage ? [] : [{ credentials: "include", cache: "no-cache" }]),
+    ...(publicMedia ? [] : [{ credentials: "include", cache: "no-cache" }]),
     { credentials: "omit", cache: "no-cache" },
-    ...(publicImage ? [] : [{ credentials: "include", cache: "force-cache" }]),
+    ...(publicMedia ? [] : [{ credentials: "include", cache: "force-cache" }]),
   ];
   let lastError = null;
   for (const init of attempts) {
     try {
       const response = await fetch(url, init);
       if (!response.ok) {
-        lastError = new Error(`Failed to download image (${response.status})`);
+        lastError = new Error(`Failed to download ${label} (${response.status})`);
         continue;
       }
       const blob = await response.blob();
       if (!blob || blob.size < 100) {
-        lastError = new Error("Downloaded image empty/too small");
+        lastError = new Error(`Downloaded ${label} empty/too small`);
         continue;
       }
-      const mimeType = blob.type || guessMime(url) || "image/png";
+      const mimeType = blob.type || guessMime(url, mediaKind) || (mediaKind === "video" ? "video/mp4" : "image/png");
       const buffer = await blob.arrayBuffer();
-      return { mimeType, imageBase64: bufferToBase64(buffer) };
+      return { mimeType, mediaBase64: bufferToBase64(buffer) };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
     }
   }
-  throw lastError || new Error("Failed to download image");
+  throw lastError || new Error(`Failed to download ${label}`);
 }
 
 async function ingestToMosa(payload = {}) {
   const settings = await getSettings();
-  const baseUrl = normalizeBaseUrl(settings.mosaBaseUrl || DEFAULTS.mosaBaseUrl);
-  const token = String(settings.mosaToken || "").trim();
+  let baseUrl = normalizeBaseUrl(settings.mosaBaseUrl || DEFAULTS.mosaBaseUrl);
+  let token = String(settings.mosaToken || "").trim();
   if (!token) throw new Error("Web Capture Token 未配置。请在扩展选项中填写与 MOSA 服务相同的随机 Token。");
 
-  let imageBase64 = payload.imageBase64;
-  let mimeType = payload.mimeType || "image/png";
+  const mediaKind = payload.mediaKind === "video" ? "video" : "image";
+  let mediaBase64 = mediaKind === "video" ? payload.mediaBase64 : payload.imageBase64;
+  let mimeType = payload.mimeType || (mediaKind === "video" ? "video/mp4" : "image/png");
   const provider = String(payload.provider || "chatgpt").trim().toLowerCase();
   if (!WEB_IMAGE_PROVIDERS.has(provider)) throw new Error("Unsupported web image provider.");
+  if (mediaKind === "video" && !WEB_VIDEO_PROVIDERS.has(provider)) throw new Error("Unsupported web video provider.");
 
   // Prefer server-side (extension background) download for remote URLs.
-  if (!imageBase64 && payload.imageUrl) {
-    const fetched = await fetchImageAsBase64(payload.imageUrl, { publicImage: provider !== "chatgpt" });
-    imageBase64 = fetched.imageBase64;
+  const mediaUrl = mediaKind === "video" ? payload.mediaUrl : payload.imageUrl;
+  if (!mediaBase64 && mediaUrl) {
+    const fetched = await fetchMediaAsBase64(mediaUrl, { publicMedia: provider !== "chatgpt", mediaKind });
+    mediaBase64 = fetched.mediaBase64;
     mimeType = fetched.mimeType || mimeType;
   }
-  if (!imageBase64) throw new Error("No image bytes to ingest.");
-  let response;
-  try {
-    response = await fetch(`${baseUrl}/api/ingest/web-capture`, {
+  if (!mediaBase64) throw new Error(`No ${mediaKind} bytes to ingest.`);
+  const requestIngest = () => fetch(`${baseUrl}/api/ingest/web-capture`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -154,21 +276,63 @@ async function ingestToMosa(payload = {}) {
         user_message: payload.userMessage || payload.user_message || "",
         prompt_source: payload.promptSource || payload.prompt_source || "",
         is_reference: Boolean(payload.isReference),
-        imageBase64,
+        mediaKind,
+        ...(mediaKind === "video" ? { mediaBase64 } : { imageBase64: mediaBase64 }),
         mimeType,
+        width: Number(payload.width) || 0,
+        height: Number(payload.height) || 0,
+        durationSeconds: Number.isFinite(Number(payload.durationSeconds)) ? Number(payload.durationSeconds) : null,
         pageUrl: payload.pageUrl || "",
         conversationId: payload.conversationId || "",
         messageId: payload.messageId || "",
         generationContextId: payload.generationContextId || "",
+        providerToolCallId: payload.providerToolCallId || "",
+        providerGenerationCallId: payload.providerGenerationCallId || "",
+        providerResponseId: payload.providerResponseId || "",
+        providerAssetId: payload.providerAssetId || "",
         model: payload.model || "",
         captureMode: payload.captureMode === "manual" ? "manual" : "automatic",
         capturedAt: payload.capturedAt || new Date().toISOString(),
         extensionVersion: chrome.runtime.getManifest().version,
       }),
     });
+
+  let response;
+  try {
+    response = await requestIngest();
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    throw new Error(`无法连接 MOSA (${baseUrl})：${msg}。请确认服务在运行，并检查扩展选项中的本机端口。`);
+    const repaired = await repairPairing().catch(() => null);
+    if (!repaired) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(`无法连接 MOSA (${baseUrl})：${msg}。请确认 MOSA App 正在运行。`);
+    }
+    baseUrl = repaired.baseUrl;
+    token = repaired.token;
+    response = await requestIngest();
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    await response.arrayBuffer().catch(() => {});
+    const repaired = await repairPairing().catch(() => null);
+    if (repaired && (repaired.baseUrl !== baseUrl || repaired.token !== token)) {
+      baseUrl = repaired.baseUrl;
+      token = repaired.token;
+      response = await requestIngest();
+    }
+  }
+
+  // A cached discovery port may later be occupied by another local service,
+  // or an older MOSA runtime may no longer expose the ingest route. Repair the
+  // pairing once for endpoint-level failures, but never retry normal 4xx media
+  // validation errors because those belong to the current capture itself.
+  if ([404, 405, 500, 502, 503, 504].includes(response.status)) {
+    await response.arrayBuffer().catch(() => {});
+    const repaired = await repairPairing().catch(() => null);
+    if (repaired && (repaired.baseUrl !== baseUrl || repaired.token !== token)) {
+      baseUrl = repaired.baseUrl;
+      token = repaired.token;
+      response = await requestIngest();
+    }
   }
 
   const text = await response.text();
@@ -207,8 +371,15 @@ function bufferToBase64(buffer) {
   return btoa(binary);
 }
 
-function guessMime(url) {
+function guessMime(url, mediaKind = "image") {
   const lower = String(url).toLowerCase();
+  if (mediaKind === "video") {
+    if (lower.includes(".webm")) return "video/webm";
+    if (lower.includes(".mov")) return "video/quicktime";
+    if (lower.includes(".m4v")) return "video/x-m4v";
+    if (lower.includes(".mp4")) return "video/mp4";
+    return "";
+  }
   if (lower.includes(".jpg") || lower.includes(".jpeg")) return "image/jpeg";
   if (lower.includes(".webp")) return "image/webp";
   if (lower.includes(".gif")) return "image/gif";

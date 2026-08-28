@@ -115,6 +115,18 @@ test("populated gallery renders reconcile cards by id instead of replacing the w
   assert.doesNotMatch(render, /els\.assetGrid\.innerHTML = `\$\{cards\}/);
 });
 
+test("infinite-scroll append uses a tail-only render path and virtualizes decoded thumbnails", async () => {
+  const app = await readApp();
+  const render = sliceBetween(app, "function renderGrid()", "/** Routed through the state machine");
+  const virtualization = sliceBetween(app, "function setupGalleryMediaVirtualization", "function layoutMasonry");
+
+  assert.match(render, /state\.assets\.slice\(animateFrom\)/, "append maps only the incoming tail");
+  assert.match(render, /appendAssetCards\(cards\)/, "append avoids a full card reconciliation");
+  assert.match(virtualization, /rootMargin: "1200px 0px"/, "nearby thumbnails stay warm around the viewport");
+  assert.match(virtualization, /media\.removeAttribute\("src"\)/, "decoded offscreen thumbnails are released");
+  assert.match(virtualization, /media\.src = source/, "virtualized thumbnails restore when they approach the viewport");
+});
+
 test("background library polling yields while an infinite-scroll append is in flight", async () => {
   const app = await readApp();
   const init = sliceBetween(app, "async function init()", "function renderSettingsMenu()");

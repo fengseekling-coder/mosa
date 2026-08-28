@@ -166,7 +166,8 @@ test("12. copy quick action does not bubble", async () => {
   const app = await readApp();
   const copy = sliceBetween(app, 'const copyButton = event.target.closest(".card-quick-copy")', 'const selectButton = event.target.closest(".asset-card-select")');
   assert.match(copy, /event\.stopPropagation\(\)/, "copy click must not bubble to the card");
-  assert.match(copy, /navigator\.clipboard\.writeText\(copyButton\.dataset\.copy \|\| ""\)/, "copy click keeps its clipboard action");
+  assert.match(copy, /const assetId = copyButton\.closest\("\.asset-card"\)\?\.dataset\.id;/, "copy resolves the owning asset without embedding its prompt in DOM");
+  assert.match(copy, /navigator\.clipboard\.writeText\(asset\?\.prompt \|\| ""\)/, "copy click keeps its clipboard action");
 });
 
 // 13. The return control is a native button whose accessible name contains the

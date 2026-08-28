@@ -2,7 +2,8 @@
 
 本文档描述仓库当前实现，而不是未来重构方案。产品版本以根目录
 `package.json` 的 `version` 字段为准（当前为 `0.2.0`）。运行时要求 Node.js
-22 或更高版本；桌面开发与本地打包使用 Electron Forge 的 macOS arm64 目标。
+22 或更高版本；桌面层共享同一套 Electron/Renderer/Runtime 代码，目前明确支持
+`darwin-arm64` 与 `win32-x64` 两个打包目标，其中 Windows 10/11 x64 处于 Preview/Testing 阶段。
 
 ## 1. 系统定位
 
@@ -56,8 +57,14 @@ Web UI 是原生浏览器模块，不依赖前端打包器或组件运行时：
 
 Electron 桌面壳由 `desktop/main.mjs`、`desktop/preload.cjs` 和
 `desktop/service-manager.mjs` 组成。它加载同一套 `app/` UI，并通过受限的
-preload API 处理桌面能力（例如文件导入暂存、Finder 操作和通知）；业务数据
+preload API 处理桌面能力（例如文件导入暂存、在系统文件管理器中定位原件和通知）；业务数据
 仍由同一个本地 HTTP 运行时提供。
+
+操作系统差异集中在 `desktop/platform/index.mjs`。当前 adapter 只负责桌面壳
+边界，例如 macOS traffic lights、Windows 原生标题栏/菜单栏策略和窗口生命周期
+钩子；业务逻辑、素材库 UI、HTTP runtime 和存储实现不按平台复制。Windows
+默认隐藏 Electron 原生 application menu 的可见菜单栏，但仍安装 application menu，
+以保留 `Ctrl+N`、`Ctrl+F` 等 accelerator。
 
 ### 2.2 本地 HTTP 运行时
 
@@ -66,6 +73,7 @@ preload API 处理桌面能力（例如文件导入暂存、Finder 操作和通�
 `lib/api-routes.mjs` 将请求分发到：
 
 - `lib/api/asset-routes.mjs`：素材创建、查询、元数据、归档、复制和版本。
+- `lib/api/generation-routes.mjs`：生成事件、生成关系、单次 lineage 查询，以及资产详情所需的聚合生成历史。
 - `lib/api/library-routes.mjs`：项目、分组、库路径和受限文件夹操作。
 - `lib/api/bridge-routes.mjs`：健康检查、桥接状态、网页捕获和 Cowart 画布。
 - `lib/http-response.mjs`：JSON 请求体读取、响应和 HTTP 错误处理。
@@ -83,8 +91,26 @@ loopback origin 检查、运行时锁和桥接生命周期。服务启动时监�
 - `asset_update_metadata`、`asset_attach_prompt`
 - `asset_archive`、`asset_duplicate`
 - `asset_version_create`、`asset_version_history`、`asset_recipe_history`
+- `generation_record`、`generation_list`
+- `generation_relation_record`、`generation_lineage`
 
-服务声明的 MCP server version 为 `0.1.0`；产品版本仍以 `package.json` 为准。
+生成事件独立于去重后的 Asset：同一媒体内容可以对应多次生成事件。生成关系连接
+Generation Event，而不是复用 `parent_asset_id`。普通 HTTP/MCP 调用方只能声明
+`user_confirmed`、`observed` 或 `inferred`；`provider_verified` 保留给 MOSA 直接
+观察到官方 provider 响应的受信集成。
+
+资产检视器通过 `GET /api/assets/:project/:asset/generation-history` 读取与当前素材
+相关的全部 Generation Event，并合并这些事件所在的 lineage component。这样即使
+同一个去重后的 Asset 对应多次独立生成，UI 也不会把它们错误压成一个版本节点。
+聚合结果还会返回同一 provider、同一 conversation 中尚未与当前 lineage 建立关系的
+`context_events`、持久化的 `relation_candidates`，以及这些事件输出素材的轻量
+`output_assets`。ChatGPT Relation Resolver 只生成候选关系：同 conversation、相邻生成、
+修改语义、参考图/provider asset 等信号会形成置信度与 evidence，但不会直接写入版本树。
+候选可以被用户确认、改选其他父版本或标记为“无关联”；确认后才通过 Generation
+Relation 写入 `user_confirmed` 边，被否决的候选会持久化为 dismissed，后续解析不会反复
+弹回。公共管理面可以创建、修改或删除非 `provider_verified` 关系，官方验证关系保持只读。
+
+服务声明的 MCP server version 为 `0.2.0`；产品版本仍以 `package.json` 为准。
 
 ## 3. 仓库模块与构建
 
@@ -99,6 +125,7 @@ lib/sqlite-asset-store.mjs SQLite 实现（better-sqlite3）
 lib/*.mjs                Node 运行时模块
 lib/*.ts                 TypeScript 源码；构建后生成运行时 JS/声明文件
 desktop/                 Electron 主进程、preload、服务管理和 Forge 配置
+desktop/platform/        桌面操作系统 adapter（macOS / Windows / generic）
 mcp/server.mjs           MCP stdio 服务
 extensions/              可选 Chrome Web Capture 扩展
 scripts/                 构建、启动、迁移、验证和 QA 脚本
@@ -119,12 +146,21 @@ npm run mcp               启动 MCP stdio 服务
 npm run desktop:start     启动 Electron 本地开发壳
 npm run desktop:package   Forge 打包 macOS arm64 应用目录
 npm run desktop:make      Forge 生成 macOS arm64 ZIP
+npm run desktop:package:windows  Forge 打包 Windows 10/11 x64 应用目录
+npm run desktop:make:windows     Forge 生成 Windows x64 ZIP（开发产物）
 npm run build             编译 TypeScript 并写入构建身份
 ```
 
-`desktop/forge.config.mjs` 配置 Electron Forge、原生模块解包和 macOS arm64
-依赖筛选。仓库提供的是本地开发/打包流程；本地构建不等同于已签名、已公证的
-发布安装包。
+`desktop/forge.config.mjs` 以目标平台驱动 Electron Forge、原生模块解包和依赖
+筛选。`darwin-arm64` 使用 macOS 原生 `better-sqlite3`/Sharp runtime，`win32-x64`
+使用 Windows 对应 native binding；不支持的目标会直接失败。仓库提供的是本地
+开发/打包流程；本地构建不等同于已签名的发布安装包。
+
+跨平台文件路径由 `lib/path-safety.mjs` 和 `lib/source-locations.ts` 等共享边界
+统一处理。Windows drive-letter、UNC、跨盘 `relative()` 等情况不能按 POSIX `/`
+规则判断，也不能把 `C:\\...` 错认成 URL。Codex/Grok/Cowart 默认来源路径集中
+到 source-location resolver，但某个来源在 Windows 上的真实目录只有经过真机验证
+后才进入正式默认值，避免用猜测替代来源契约。
 
 ## 4. 服务生命周期
 
@@ -271,11 +307,17 @@ Gemini、Flow 和 Google AI Studio。扩展只向配置的本地 MOSA 地址发�
 字节和页面来源；服务端 `lib/web-capture-ingest.ts` 使用 `sharp` 校验格式、
 尺寸、像素数和 MIME，并用 SHA-256 去重。
 
-Web Capture 必须同时配置：
+独立的 `npm start` Web Runtime 使用 Web Capture 时必须同时配置：
 
 - `MOSA_WEB_CAPTURE_TOKEN`：请求的 Bearer 或 `x-mosa-token` 凭据；
 - `MOSA_WEB_CAPTURE_ORIGINS`：精确的 `chrome-extension://...` 或
   `moz-extension://...` origin 列表。
+
+Desktop Runtime 不要求用户手工填写这两个值。Electron 首次启动会在
+`userData` 中生成并持久化随机 Token，默认授权官方固定扩展 origin；扩展会在
+`43517` 到 `43521` 的本机 discovery 端口中先验证 `/api/health`，再通过仅允许
+该扩展 origin 的配对路由取得 Token。若首选端口被其他程序占用，Desktop 会在
+同一 discovery 端口集合内选择可用端口，且不会终止或替换已有监听进程。
 
 ChatGPT 在可用时保留消息范围上下文；其他 provider 只保留能安全匹配的、页面
 可见的局部 Prompt，并明确标为未验证的 provider-visible Prompt。参考图像进入

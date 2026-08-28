@@ -20,11 +20,13 @@
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { createMacGuiLauncher, openMacGuiLauncher } from "./macos-gui-launcher.mjs";
+import { launchDesktopGui } from "./desktop-gui-launcher.mjs";
+import { electronExecutablePath, packagedExecutablePath } from "./desktop-runtime-paths.mjs";
+import { signalProcessTree } from "./process-tree.mjs";
 
 const __dirname = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const REPO_ROOT = resolve(__dirname, "..");
@@ -143,7 +145,8 @@ async function launchGuiProcess(rootDir, executable, args, env, healthUrl) {
   const pidFile = join(rootDir, PID_FILE);
   const logFile = join(rootDir, GUI_LOG_FILE);
   const healthFile = join(rootDir, GUI_HEALTH_FILE);
-  const appDir = await createMacGuiLauncher({
+  const launched = await launchDesktopGui({
+    platform: process.platform,
     rootDir,
     executable,
     args,
@@ -154,11 +157,11 @@ async function launchGuiProcess(rootDir, executable, args, env, healthUrl) {
     healthUrl,
     healthFile,
   });
-  const waiter = openMacGuiLauncher(appDir);
+  const waiter = launched.waiter;
   waiter.on("error", (error) => {
-    console.error(`Failed to ask LaunchServices to open MOSA: ${error.message}`);
+    console.error(`Failed to launch MOSA desktop QA: ${error.message}`);
   });
-  const pid = await waitForPid(pidFile);
+  const pid = launched.pid || await waitForPid(pidFile);
   return { waiter, pid, logFile, healthFile };
 }
 
@@ -167,7 +170,12 @@ async function stopByPidFile(pidFilePath) {
     const pid = parseInt(await readFile(pidFilePath, "utf-8"), 10);
     console.log(`Stopping PID ${pid}...`);
     try {
-      process.kill(pid, "SIGTERM");
+      const signaled = await signalProcessTree(pid);
+      if (!signaled) {
+        console.log("Process already exited.");
+        try { await rm(pidFilePath); } catch {}
+        return;
+      }
     } catch (e) {
       if (e.code === "ESRCH") {
         console.log("Process already exited.");
@@ -193,12 +201,12 @@ async function stopByPidFile(pidFilePath) {
     try {
       process.kill(pid, 0);
       console.error(`PID ${pid} did not exit within 10s, sending SIGKILL`);
-      try { process.kill(pid, "SIGKILL"); } catch {}
+      await signalProcessTree(pid, { force: true }).catch(() => {});
     } catch {
       // Exited
     }
     // Read port file and verify port is free
-    const portFilePath = pidFilePath.replace(/\/[^/]+$/, "/" + PORT_FILE);
+    const portFilePath = join(dirname(pidFilePath), PORT_FILE);
     try {
       const portStr = await readFile(portFilePath, "utf-8");
       const port = parseInt(portStr.trim(), 10);
@@ -279,8 +287,8 @@ async function launchElectron(rootDir, libraryDir, userData, servicePort, cdpPor
     electronArgs.push("--remote-debugging-port=" + cdpPort);
   }
 
-  console.log(`Launching Electron QA via macOS LaunchServices (servicePort ${servicePort}, libraryDir ${libraryDir}, userData ${userData})`);
-  const executable = join(REPO_ROOT, "node_modules", "electron", "dist", "Electron.app", "Contents", "MacOS", "Electron");
+  console.log(`Launching Electron QA (servicePort ${servicePort}, libraryDir ${libraryDir}, userData ${userData})`);
+  const executable = electronExecutablePath({ rootDir: REPO_ROOT });
   if (!existsSync(executable)) {
     throw new Error(`Electron binary not found at ${executable}. Run \`npm install\` first.`);
   }
@@ -298,7 +306,7 @@ async function launchElectron(rootDir, libraryDir, userData, servicePort, cdpPor
 async function launchPackaged(rootDir, libraryDir, userData, servicePort, cdpPort, noBuild) {
   if (!noBuild) await build();
 
-  const packagedBinary = join(REPO_ROOT, "out", "MOSA-darwin-arm64", "MOSA.app", "Contents", "MacOS", "MOSA");
+  const packagedBinary = packagedExecutablePath({ rootDir: REPO_ROOT });
   if (!existsSync(packagedBinary)) {
     throw new Error(`Packaged binary not found at ${packagedBinary}. Run \`npm run desktop:package\` first.`);
   }
@@ -319,7 +327,7 @@ async function launchPackaged(rootDir, libraryDir, userData, servicePort, cdpPor
     appArgs.push("--remote-debugging-port=" + cdpPort);
   }
 
-  console.log(`Launching Packaged Electron QA via macOS LaunchServices (servicePort ${servicePort}, libraryDir ${libraryDir}, userData ${userData})`);
+  console.log(`Launching Packaged Electron QA (servicePort ${servicePort}, libraryDir ${libraryDir}, userData ${userData})`);
   const healthUrl = `http://127.0.0.1:${servicePort}/api/health`;
   const gui = await launchGuiProcess(rootDir, packagedBinary, appArgs, env, healthUrl);
   await writePortFile(rootDir, servicePort);

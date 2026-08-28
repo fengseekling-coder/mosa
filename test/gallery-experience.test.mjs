@@ -51,7 +51,10 @@ test("shortens card titles instead of exposing the whole prompt", async () => {
     readFile(resolve(root, "app/utils.mjs"), "utf8"),
     readFile(resolve(root, "app/config.mjs"), "utf8"),
   ]);
-  const cardShortTitle = new Function(`${liftFunction(utils, "cardShortTitle")}
+  const cardShortTitle = new Function(`
+    const LEADING_UI_GLYPH_TOKENS = new Set(["play_circle", "play_arrow", "more_vert"]);
+    ${liftFunction(utils, "displayAssetTitle")}
+    ${liftFunction(utils, "cardShortTitle")}
     const CARD_TITLE_MAX = ${/CARD_TITLE_MAX = (\d+)/.exec(config)[1]};
     return cardShortTitle;`)();
 
@@ -66,6 +69,8 @@ test("shortens card titles instead of exposing the whole prompt", async () => {
   assert.equal(longPrompt.charAt(body.length), " ", `clipped mid-word at ${JSON.stringify(longPrompt.slice(body.length - 5, body.length + 5))}`);
 
   assert.equal(cardShortTitle({ asset: "seed-003.png" }), "seed-003.png");
+  assert.equal(cardShortTitle({ theme: "play_circle Bears riding surfboards" }), "Bears riding surfboards");
+  assert.equal(cardShortTitle({ theme: "more_vert play_arrow Bears riding surfboards" }), "Bears riding surfboards");
   assert.equal(cardShortTitle({ theme: "  Spaced   out  " }), "Spaced out");
   assert.equal(cardShortTitle({ id: "only-id" }), "only-id");
   assert.equal(cardShortTitle({}), "");
@@ -76,12 +81,46 @@ test("labels cards with title, source and date rather than the prompt", async ()
 
   assert.match(app, /const label = t\("cardAccessibleName", \{ title: title \|\| asset\.id, source: sourceLabel, date \}\)/);
   assert.match(app, /aria-label="\$\{escapeHtml\(label\)\}"/);
-  // The prompt is still copyable and still lives in the detail panel.
-  assert.match(app, /data-copy="\$\{escapeHtml\(asset\.prompt \|\| ""\)\}"/);
+  // The prompt is still copyable and still lives in the detail panel, but it is
+  // not duplicated into every card's DOM as a data attribute.
+  assert.doesNotMatch(app, /data-copy=/);
+  assert.match(app, /const asset = state\.assets\.find\(\(item\) => item\.id === assetId\)/);
+  assert.match(app, /navigator\.clipboard\.writeText\(asset\?\.prompt \|\| ""\)/);
   assert.match(app, /aria-label="\$\{t\("copyPrompt"\)\}"/);
   assert.match(inspector, /<div class="prompt-box detail-prompt-box"[^>]*>\$\{promptText\}<\/div>/);
   // The old behaviour was to hand the raw theme/prompt straight to aria-label.
   assert.doesNotMatch(app, /aria-label="\$\{escapeHtml\(title\)\}">\$\{media\}/);
+});
+
+test("gallery never falls back to a full-resolution original while thumbnails are pending", async () => {
+  const [inspector, store] = await Promise.all([
+    readInspectorMarkup(),
+    readFile(resolve(root, "lib/sqlite-asset-store.mjs"), "utf8"),
+  ]);
+
+  assert.match(store, /thumbnail_ready: Boolean\(asset\.thumbnail_path\)/);
+  assert.match(inspector, /mode === "thumb" && asset\.thumbnail_ready === false/);
+  assert.match(inspector, /image-thumb-pending/);
+});
+
+test("video cards lazily reveal a first-frame poster and adopt the real media aspect ratio", async () => {
+  const [app, inspector, css] = await Promise.all([readApp(), readInspectorMarkup(), readCss()]);
+
+  assert.match(inspector, /function videoThumbAspectAttributes\(asset\)/);
+  assert.match(inspector, /data-gallery-video-src="\$\{escapeHtml\(asset\.image_url\)\}" preload="none"/);
+  assert.match(inspector, /data-video-width="\$\{dimensions\.width\}" data-video-height="\$\{dimensions\.height\}"/);
+  assert.match(app, /function bindGalleryVideoFrame\(video\)/);
+  assert.match(app, /const width = Number\(video\.videoWidth \|\| 0\)/);
+  assert.match(app, /const height = Number\(video\.videoHeight \|\| 0\)/);
+  assert.match(app, /const persistedWidth = Number\(frame\?\.dataset\.videoWidth \|\| video\.getAttribute\("width"\) \|\| 0\)/);
+  assert.match(app, /frame\.style\.aspectRatio = `\$\{width\} \/ \$\{height\}`/);
+  assert.match(app, /video\.currentTime = firstFrameTime/);
+  assert.match(app, /video\.classList\.add\("is-frame-ready"\)/);
+  assert.match(app, /media\.removeAttribute\("src"\)/, "offscreen video probes must release their source");
+  assert.match(app, /video\.thumb-video-frame\[data-gallery-video-src\]/);
+  assert.match(css, /\.asset-card\.is-video \.thumb\.video-thumb \{[^}]*aspect-ratio: 16 \/ 9;/);
+  assert.match(css, /\.asset-card \.thumb-video-frame\.is-frame-ready \{ opacity: 1; \}/);
+  assert.doesNotMatch(css, /\.asset-card\.is-video \.thumb\.video-thumb \{[^}]*aspect-ratio: 16 \/ 10;/);
 });
 
 test("separates loading, failed, empty and populated gallery states", async () => {

@@ -1,7 +1,7 @@
 import { watch, type FSWatcher } from "node:fs";
 import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { resolveSourceLocations } from "./source-locations.js";
 
 const DEFAULT_LOOKBACK_DAYS = 14;
 interface Candidate { projectDir: string; canvasDir: string; sessionPath: string; lastSeenAt: string; }
@@ -15,7 +15,9 @@ export function createCowartCanvasDiscovery(options: {
   knownProjectDirs?: () => string[]; debounceMs?: number; pollIntervalMs?: number; lookbackDays?: number;
 } = {}): Discovery {
   if (typeof options.onDiscover !== "function") throw new Error("Cowart canvas discovery requires an onDiscover callback.");
-  const sessionsDir = resolve(options.sessionsDir || join(homedir(), ".codex", "sessions"));
+  const { codexSessionsDir: sessionsDir } = resolveSourceLocations({
+    overrides: { codexSessionsDir: options.sessionsDir },
+  });
   const managerDir = options.managerDir ? resolve(options.managerDir) : null;
   const dedicatedCanvasDir = options.dedicatedCanvasDir ? resolve(options.dedicatedCanvasDir) : null;
   const knownProjectDirs = typeof options.knownProjectDirs === "function" ? options.knownProjectDirs : () => [];
@@ -67,7 +69,9 @@ export async function discoverCowartProjectsFromCodexSessions(options: {
   sessionsDir?: string; lookbackDays?: number; cache?: Map<string, { mtimeMs: number; size: number; projectDirs: string[] }>;
   dirtySessionPaths?: Set<string> | string[]; fullScan?: boolean;
 } = {}): Promise<Candidate[]> {
-  const sessionsDir = resolve(options.sessionsDir || join(homedir(), ".codex", "sessions"));
+  const { codexSessionsDir: sessionsDir } = resolveSourceLocations({
+    overrides: { codexSessionsDir: options.sessionsDir },
+  });
   const lookbackDays = options.lookbackDays != null && Number.isFinite(options.lookbackDays) ? Math.max(1, options.lookbackDays) : DEFAULT_LOOKBACK_DAYS;
   const cache = options.cache instanceof Map ? options.cache : new Map();
   const dirtyPaths = new Set([...(options.dirtySessionPaths || [])].map((v) => resolve(v)));
@@ -212,6 +216,6 @@ async function walkJsonlFiles(root: string): Promise<string[]> {
   return files;
 }
 
-function isSafeChildPath(parent: string, child: string): boolean { const root = resolve(parent) + '/'; return resolve(child).startsWith(root); }
+function isSafeChildPath(parent: string, child: string): boolean { const rel = relative(resolve(parent), resolve(child)); return Boolean(rel) && !rel.startsWith("..") && !rel.includes(`..${sep}`) && !isAbsolute(rel); }
 function isAbsoluteString(value: unknown): boolean { return typeof value === "string" && Boolean(value.trim()) && isAbsolute(value.trim()); }
 function datePart(value: number): string { return String(value).padStart(2, "0"); }

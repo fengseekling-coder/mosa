@@ -81,7 +81,7 @@ test("10-11. Finder IPC 收紧边界且其余 Desktop IPC 不变", async () => {
   for (const channel of ["open-file-dialog", "paste-image", "set-locale"]) {
     assert.match(main, new RegExp(`ipcMain\\.handle\\("${channel}"`));
   }
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 5, "no new invoke channel beyond the five (batch 1.2 added stage-dropped-file)");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 5, "no invoke channel beyond the five currently approved narrow requests");
 });
 
 test("12-14. 960 下 Sidebar 批准收敛规则与搜索可达", async () => {

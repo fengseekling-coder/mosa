@@ -32,7 +32,16 @@
   ]);
   const CONVERSATION_ID_KEYS = new Set(["conversation_id", "conversationid", "cid"]);
   const MESSAGE_ID_KEYS = new Set(["message_id", "messageid"]);
+  const RESPONSE_ID_KEYS = new Set(["response_id", "responseid"]);
   const TOOL_CALL_ID_KEYS = new Set(["tool_call_id", "toolcallid", "call_id", "callid"]);
+  // Keep provider generation-call identity separate from generic tool-call
+  // identity. Only accept fields whose names explicitly say they are image /
+  // generation call ids; never promote tool_call_id into this slot.
+  const GENERATION_CALL_ID_KEYS = new Set([
+    "generation_call_id", "generationcallid",
+    "image_generation_call_id", "imagegenerationcallid",
+    "image_gen_call_id", "imagegencallid",
+  ]);
 
   function post(type, payload) {
     try {
@@ -207,6 +216,14 @@
         || (typeof message?.id === "string" ? message.id : "")
         || inherited.messageId
         || "",
+      responseId: pickString(node, RESPONSE_ID_KEYS)
+        || pickString(message, RESPONSE_ID_KEYS)
+        || inherited.responseId
+        || "",
+      generationCallId: pickString(node, GENERATION_CALL_ID_KEYS)
+        || pickString(message, GENERATION_CALL_ID_KEYS)
+        || inherited.generationCallId
+        || "",
     };
   }
 
@@ -231,6 +248,9 @@
       conversationId: identity.conversationId,
       messageId: extra.messageId || "",
       generationContextId: extra.generationContextId || "",
+      providerToolCallId: extra.providerToolCallId || "",
+      providerGenerationCallId: extra.providerGenerationCallId || "",
+      providerResponseId: extra.providerResponseId || "",
       promptStatus: extra.promptStatus || (p ? "user-message" : "not-available"),
       model: extra.model || "",
       capturedAt: new Date().toISOString(),
@@ -252,6 +272,7 @@
     const assetIds = new Set();
     const imageUrls = new Set();
     const toolCallIds = new Set();
+    const generationCallIds = new Set();
     let model = "";
 
     function rememberPrompt(key, value) {
@@ -299,6 +320,9 @@
         if (TOOL_CALL_ID_KEYS.has(lower) && typeof child === "string" && child.trim()) {
           toolCallIds.add(child.trim());
         }
+        if (GENERATION_CALL_ID_KEYS.has(lower) && typeof child === "string" && child.trim()) {
+          generationCallIds.add(child.trim());
+        }
         if ((URL_KEYS.has(lower) || typeof child === "string") && isImageishUrl(child)) imageUrls.add(child);
         if ((lower === "model" || lower === "model_slug") && typeof child === "string" && child.trim()) model = child.trim();
         if (child && typeof child === "object") scan(child, depth + 1);
@@ -335,6 +359,9 @@
 
     const onlyAssetId = assetIds.size === 1 ? [...assetIds][0] : "";
     const onlyToolCallId = toolCallIds.size === 1 ? [...toolCallIds][0] : "";
+    const onlyGenerationCallId = generationCallIds.size === 1
+      ? [...generationCallIds][0]
+      : (!generationCallIds.size ? context.generationCallId : "");
     const ambiguousToolCalls = toolCallIds.size > 1;
     // If multiple image calls were flattened into one message, keep generation
     // provenance but do not assign one ambiguous prompt to every output.
@@ -363,6 +390,9 @@
         conversationId: context.conversationId,
         messageId: context.messageId,
         generationContextId: contextIdFor(scopeForUrl(imageUrl)),
+        providerToolCallId: onlyToolCallId,
+        providerGenerationCallId: onlyGenerationCallId,
+        providerResponseId: context.responseId,
         promptStatus: boundPrompt?.promptStatus || "not-available",
         model,
         via: "message-metadata-url",
@@ -375,6 +405,9 @@
         conversationId: context.conversationId,
         messageId: context.messageId,
         generationContextId: contextIdFor(scopeForAsset(assetId)),
+        providerToolCallId: onlyToolCallId,
+        providerGenerationCallId: onlyGenerationCallId,
+        providerResponseId: context.responseId,
         promptStatus: boundPrompt?.promptStatus || "not-available",
         model,
         via: "message-metadata-asset",
@@ -385,6 +418,8 @@
       emitPair(boundPrompt.text, "", {
         conversationId: context.conversationId,
         messageId: context.messageId,
+        providerGenerationCallId: onlyGenerationCallId,
+        providerResponseId: context.responseId,
         promptStatus: boundPrompt.promptStatus,
         model,
         via: "message-prompt-only",
@@ -644,7 +679,7 @@
    * so fetch and XHR never see the caption of an image generated while the page
    * is open. Frames arrive as JSON envelopes whose `body` is base64 SSE text.
    */
-  const WS_INTEREST = /asset_pointer|asset_id|file_id|image_id|file-service|sediment|revised_prompt|generation_prompt|image_prompt|model[ _]caption|image[_ .-]?(gen|generation)|imagegen|dalle|oaiusercontent|estuary/i;
+  const WS_INTEREST = /asset_pointer|asset_id|file_id|image_id|file-service|sediment|revised_prompt|generation_prompt|image_prompt|generation_call_id|image_generation_call_id|image_gen_call_id|model[ _]caption|image[_ .-]?(gen|generation)|imagegen|dalle|oaiusercontent|estuary/i;
 
   function decodeBase64Utf8(value) {
     if (typeof atob !== "function") return "";

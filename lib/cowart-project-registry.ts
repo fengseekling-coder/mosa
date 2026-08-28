@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { inspectTrustedExternalCanvas } from "./cowart-canvas-discovery.js";
+import { resolveSourceLocations } from "./source-locations.js";
 
 const REGISTRY_VERSION = 1;
 interface ProjectEntry { id: string; projectDir: string; canvasDir: string; addedAt: string | null; }
@@ -16,11 +16,14 @@ export interface CowartProjectRegistry {
 }
 
 export function defaultCowartProjectRegistryPath(): string {
-  return join(homedir(), ".codex", "mosa", "cowart-projects.json");
+  return resolveSourceLocations().cowartRegistryPath;
 }
 
 export function createCowartProjectRegistry(options: { registryPath?: string; managerDir?: string } = {}): CowartProjectRegistry {
-  const registryPath = resolve(options.registryPath || process.env.MOSA_COWART_REGISTRY_PATH || defaultCowartProjectRegistryPath());
+  const { cowartRegistryPath: registryPath } = resolveSourceLocations({
+    env: process.env,
+    overrides: { cowartRegistryPath: options.registryPath },
+  });
   const managerDir = options.managerDir ? resolve(options.managerDir) : null;
   let mutation: Promise<unknown> = Promise.resolve();
 

@@ -1,9 +1,9 @@
 # MOSA
 
 > **Local visual memory for AI creation.**
-> 把 AI 生成的每一张图，连同 Prompt、来源和版本，留在自己的 Mac 上。
+> 把 AI 生成的每一张图，连同 Prompt、来源和版本，留在自己的电脑上。
 
-MOSA is a local-first library for AI-generated images, videos, Prompts, provenance, and version history. It keeps creative output from Codex, Grok Build CLI, Cowart, and an optional Web Capture extension for ChatGPT, Gemini, Flow, and Google AI Studio in one library on your Mac.
+MOSA is a local-first library for AI-generated images, videos, Prompts, provenance, and version history. It keeps creative output from Codex, Grok Build CLI, Cowart, and an optional Web Capture extension for ChatGPT, Gemini, Flow, and Google AI Studio in one library on your own computer.
 
 **Local-first · Prompt & provenance · Version history · No MOSA cloud account**
 
@@ -54,25 +54,37 @@ npm start
 
 Open <http://127.0.0.1:43517>.
 
-Requirements: macOS, Node.js 22 or newer, and npm. Codex Desktop and the Cowart plugin are optional integrations; use the [Chinese guide](docs/guide.zh-CN.md) for their setup and the complete source-by-source behavior.
+Requirements for source use: Node.js 22 or newer and npm. Desktop development is currently exercised on macOS arm64 and Windows 10/11 x64. Codex Desktop and the Cowart plugin are optional integrations; use the [Chinese guide](docs/guide.zh-CN.md) for their setup and the complete source-by-source behavior.
 
-## macOS desktop
+## Desktop app
 
-The Electron desktop shell is available for local development and uses the same MOSA Web UI and local runtime:
+The Electron desktop shell uses the same MOSA Web UI and local runtime on both supported desktop targets:
 
 ```bash
 npm ci
 npm run desktop:start
 
-# Build a local arm64 app and ZIP artifact.
+# macOS arm64
 npm run desktop:make
+
+# Windows 10/11 x64 package directory
+npm run desktop:package:windows
 ```
 
 Desktop packaging is pinned to Node.js 22.x because the current Electron Forge/Packager toolchain is not reliable under Node.js 24. The repository includes `.nvmrc` and `.node-version` for Node `22.23.1`; packaging commands fail fast with a clear message on any other Node major. Local development and the MOSA runtime still support Node.js 22 or newer.
 
+Current desktop status:
+
+| Target | Status | Verified in the current development cycle |
+| --- | --- | --- |
+| macOS arm64 | Development target | Electron shell, local runtime, packaged smoke path, native dependencies |
+| Windows 10/11 x64 | **Preview / testing** | `MOSA.exe` startup, SQLite, Sharp, library UI, Inspector, and automatic Codex collection on a real Windows machine |
+
+The Windows target keeps the shared renderer and runtime code, uses Windows-native `better-sqlite3` and Sharp binaries, and hides Electron's native application menu bar while retaining menu accelerators. Grok and Cowart source discovery on Windows, a signed installer, code signing, and automatic updates are still release work.
+
 When the configured port already serves the same MOSA library, the desktop app attaches to it and leaves it running on Quit. Otherwise, it starts and owns a local runtime, which stops cleanly when the app quits. MOSA never terminates an unverified listener or a service for a different library.
 
-> **Project status:** this repository does not yet publish a packaged, signed, or notarized desktop installer. Do not treat a development checkout or a locally built app as a released app.
+> **Project status:** this repository does not yet publish a signed desktop installer. Windows testing currently uses an unsigned preview/portable build, and macOS release signing/notarization is separate release work. Do not treat a development checkout or a locally built app as a released app.
 
 ## Local by design
 

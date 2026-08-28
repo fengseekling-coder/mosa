@@ -4,9 +4,12 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import forgeConfig, {
+  createForgeConfig,
   macReleasePackagingConfig,
   packageIgnorePatterns,
+  packageIgnorePatternsForTarget,
   preparePackagedRuntime,
+  resolveDesktopPackagingTarget,
 } from "../desktop/forge.config.mjs";
 import {
   assertDesktopPackagingNode,
@@ -44,6 +47,33 @@ test("packages MOSA with ASAR and unpacked native dependencies", () => {
   assert.deepEqual(forgeConfig.packagerConfig.ignore, packageIgnorePatterns);
   assert.equal(forgeConfig.plugins.some((plugin) => plugin.name === "auto-unpack-natives"), true);
   assert.equal(forgeConfig.makers.some((maker) => maker.name === "zip"), true);
+});
+
+test("desktop packaging target resolution supports only the approved macOS and Windows targets", () => {
+  assert.equal(resolveDesktopPackagingTarget({ platform: "darwin", arch: "arm64", env: {}, argv: [] }).id, "darwin-arm64");
+  assert.equal(resolveDesktopPackagingTarget({ platform: "win32", arch: "x64", env: {}, argv: [] }).id, "win32-x64");
+  assert.equal(resolveDesktopPackagingTarget({ env: {}, argv: ["node", "forge", "--platform", "win32", "--arch=x64"] }).id, "win32-x64");
+  assert.equal(resolveDesktopPackagingTarget({ env: { MOSA_DESKTOP_PLATFORM: "win32", MOSA_DESKTOP_ARCH: "x64" }, argv: [] }).id, "win32-x64");
+  assert.throws(
+    () => resolveDesktopPackagingTarget({ platform: "win32", arch: "arm64", env: {}, argv: [] }),
+    /Unsupported MOSA desktop packaging target: win32-arm64/,
+  );
+});
+
+test("Windows Forge config omits mac signing and selects Windows native runtime packages", () => {
+  const target = resolveDesktopPackagingTarget({ platform: "win32", arch: "x64", env: {}, argv: [] });
+  const config = createForgeConfig({ target, env: { MOSA_RELEASE_BUILD: "1" } });
+  assert.equal("appBundleId" in config.packagerConfig, false);
+  assert.equal("osxSign" in config.packagerConfig, false);
+  assert.equal("osxNotarize" in config.packagerConfig, false);
+  assert.equal(config.packagerConfig.asar.unpackDir, "node_modules/@img/sharp-win32-x64");
+  assert.equal(config.makers.some((maker) => maker.name === "zip" && maker.platforms.includes("win32")), true);
+
+  const patterns = packageIgnorePatternsForTarget(target);
+  const ignored = (path) => patterns.some((pattern) => pattern.test(path));
+  assert.equal(ignored("/node_modules/@img/sharp-win32-x64/package.json"), false);
+  assert.equal(ignored("/node_modules/@img/sharp-darwin-arm64/package.json"), true);
+  assert.equal(ignored("/node_modules/better-sqlite3/prebuilds/win32-x64.node"), false);
 });
 
 test("release packaging fails closed when Apple signing credentials are incomplete", () => {
@@ -130,6 +160,7 @@ test("desktop package keeps every required runtime surface", () => {
     "/app/font-instrument-sans.woff2",
     "/desktop/main.mjs",
     "/desktop/notification-i18n.mjs",
+    "/desktop/platform/index.mjs",
     "/desktop/preload.cjs",
     "/desktop/service-manager.mjs",
     "/lib/api/asset-routes.mjs",
@@ -161,11 +192,15 @@ test("reduces the packaged dependency tree to arm64 runtime files", async (t) =>
   const sharpRuntimePath = join(buildPath, "node_modules", "sharp", "dist", "index.cjs");
   const sharpTypePath = join(buildPath, "node_modules", "sharp", "dist", "index.d.cts");
   const nodeAddonPath = join(buildPath, "node_modules", "node-addon-api", "index.js");
+  const sharpBindingDir = join(buildPath, "node_modules", "@img", "sharp-darwin-arm64");
+  const sharpLibvipsDir = join(buildPath, "node_modules", "@img", "sharp-libvips-darwin-arm64");
   await mkdir(join(packageDir, "build"), { recursive: true });
   await mkdir(join(packageDir, "prebuilds"), { recursive: true });
   await mkdir(join(packageDir, "src"), { recursive: true });
   await mkdir(join(buildPath, "node_modules", "sharp", "dist"), { recursive: true });
   await mkdir(join(buildPath, "node_modules", "node-addon-api"), { recursive: true });
+  await mkdir(sharpBindingDir, { recursive: true });
+  await mkdir(sharpLibvipsDir, { recursive: true });
   await writeFile(metadataPath, "local_prefix=/Users/example/project\n");
   await writeFile(bindingPath, "binding");
   await writeFile(foreignBindingPath, "foreign binding");
@@ -200,6 +235,8 @@ test("reduces the packaged dependency tree to arm64 runtime files", async (t) =>
   await assert.rejects(access(nodeAddonPath));
   await access(bindingPath);
   await access(sharpRuntimePath);
+  await access(sharpBindingDir);
+  await access(sharpLibvipsDir);
   assert.deepEqual(JSON.parse(await readFile(join(buildPath, "package.json"), "utf8")), {
     name: "mosa",
     version: "0.2.0",
@@ -212,10 +249,68 @@ test("reduces the packaged dependency tree to arm64 runtime files", async (t) =>
   });
 });
 
+test("reduces a Windows package to win32-x64 native runtime files", async (t) => {
+  const buildPath = await mkdtemp(join(tmpdir(), "mosa-desktop-package-win32-"));
+  t.after(() => rm(buildPath, { recursive: true, force: true }));
+  const packageDir = join(buildPath, "node_modules", "better-sqlite3");
+  const windowsBinding = join(packageDir, "prebuilds", "win32-x64.node");
+  const macBinding = join(packageDir, "prebuilds", "darwin-arm64.node");
+  const windowsSharp = join(buildPath, "node_modules", "@img", "sharp-win32-x64");
+  await mkdir(join(packageDir, "prebuilds"), { recursive: true });
+  await mkdir(windowsSharp, { recursive: true });
+  await writeFile(windowsBinding, "windows binding");
+  await writeFile(macBinding, "mac binding");
+  await writeFile(join(buildPath, "package.json"), JSON.stringify({
+    name: "mosa",
+    version: "0.2.0",
+    private: true,
+    license: "test-license",
+    type: "module",
+    main: "desktop/main.mjs",
+    engines: { node: ">=22" },
+    dependencies: { "better-sqlite3": "1", sharp: "1" },
+  }));
+
+  const target = resolveDesktopPackagingTarget({ platform: "win32", arch: "x64", env: {}, argv: [] });
+  await preparePackagedRuntime(buildPath, target);
+
+  await access(windowsBinding);
+  await access(windowsSharp);
+  await assert.rejects(access(macBinding));
+});
+
+test("Windows packaging fails closed with actionable cross-packaging guidance when target Sharp is absent", async (t) => {
+  const buildPath = await mkdtemp(join(tmpdir(), "mosa-desktop-package-win32-missing-sharp-"));
+  t.after(() => rm(buildPath, { recursive: true, force: true }));
+  const packageDir = join(buildPath, "node_modules", "better-sqlite3");
+  await mkdir(join(packageDir, "prebuilds"), { recursive: true });
+  await writeFile(join(packageDir, "prebuilds", "win32-x64.node"), "windows binding");
+
+  const target = resolveDesktopPackagingTarget({ platform: "win32", arch: "x64", env: {}, argv: [] });
+  await assert.rejects(
+    preparePackagedRuntime(buildPath, target),
+    /Missing Sharp runtime for win32-x64: @img\/sharp-win32-x64[\s\S]*Build win32-x64 on Windows\/CI[\s\S]*cross-packaging requires the target OS optional Sharp package/,
+  );
+});
+
+test("desktop:start has a native Windows launch path while preserving the macOS GUI workaround", async () => {
+  const source = await readFile(resolve(import.meta.dirname, "..", "scripts", "desktop-start.mjs"), "utf8");
+  assert.match(source, /process\.platform === "darwin"/);
+  assert.match(source, /process\.platform === "win32"/);
+  assert.match(source, /electron\.exe/);
+  assert.match(source, /Using the native Windows Electron launch path/);
+  assert.match(source, /tryOpenViaLaunchServices\(\)/);
+  assert.match(source, /tryOpenViaTerminal\(\)/);
+});
+
 test("keeps the desktop window single-instance and sandboxed", async () => {
   const source = await readFile(resolve(import.meta.dirname, "..", "desktop", "main.mjs"), "utf8");
   assert.match(source, /app\.requestSingleInstanceLock\(\)/);
-  assert.match(source, /app\.on\("window-all-closed", \(\) => \{\}\)/);
+  assert.match(source, /desktopPlatformAdapter\(\)/);
+  assert.match(source, /app\.on\("window-all-closed", \(\) => desktopPlatform\.onWindowAllClosed\(app\)\)/);
+  assert.match(source, /\.\.\.desktopPlatform\.windowOptions\(\)/);
+  assert.match(source, /desktopPlatform\.capabilities\.hideApplicationMenuBar/);
+  assert.match(source, /mainWindow\.setMenuBarVisibility\(false\)/);
   assert.match(source, /startMosaService/);
   assert.match(source, /DEFAULT_MOSA_DESKTOP_PORT/);
   assert.match(source, /const desktopDataDir = app\.getPath\("userData"\)/);
@@ -253,7 +348,7 @@ test("packaged smoke waits for the real renderer and tears Electron down before 
   assert.match(source, /document\.querySelector\('#appShell'\)/, "renderer readiness must require the real MOSA app shell");
   assert.match(source, /window\.electronAPI/, "renderer readiness must verify preload exposure");
   assert.match(source, /await stopChild\(child\)/, "cleanup must wait for Electron teardown");
-  assert.match(source, /SIGKILL/, "teardown must have a bounded hard-stop fallback");
+  assert.match(source, /signalProcessTree\(childProcess\.pid, \{ force: true \}\)/, "teardown must have a bounded process-tree hard-stop fallback");
 });
 
 test("the packaged app includes build-identity.json in app/", () => {
@@ -280,7 +375,7 @@ test("exposes only the minimal show-in-folder capability to the renderer", async
   for (const api of ["openFileDialog", "pasteImage", "getPathForFile", "setLocale", "onMenuImport", "onMenuSearch"]) {
     assert.match(preload, new RegExp(`${api}:`), `preload keeps exposing ${api}`);
   }
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 5, "no new invoke channel beyond the existing five (batch 1.2 added stage-dropped-file)");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 5, "no invoke channel beyond the five currently approved narrow requests");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "shell is never exposed to the renderer");
   assert.doesNotMatch(preload, /exec\(|spawn\(|execFile\(/, "no arbitrary command execution");
 

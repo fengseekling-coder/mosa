@@ -1,7 +1,12 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
-import { DEFAULT_MOSA_DESKTOP_PORT, normalizeMosaPort } from "../lib/runtime-defaults.mjs";
+import {
+  DEFAULT_MOSA_DESKTOP_PORT,
+  DEFAULT_MOSA_DISCOVERY_PORTS,
+  MOSA_RESERVED_PRODUCTION_PORTS,
+  normalizeMosaPort,
+} from "../lib/runtime-defaults.mjs";
 import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
 
 const DEFAULT_HOST = "127.0.0.1";
@@ -42,46 +47,71 @@ export async function startMosaService(options = {}) {
     defaultUserData: isolation.productionDefaultUserData,
     runtimeKind: isolation.runtimeKind,
     productionLibraryDir: join(homedir(), "MOSA Library"),
-    productionPorts: [43517, 43519, 43637],
+    productionPorts: MOSA_RESERVED_PRODUCTION_PORTS,
   });
   if (!guard.ok) {
     throw new Error(`ISOLATION_GUARD_REJECTED: ${guard.field} ${guard.reason}`);
   }
 
-  const probeOptions = {
-    host,
-    port,
-    libraryDir,
-    fetchImpl: options.fetchImpl,
-    timeoutMs: options.probeTimeoutMs,
-  };
+  const discoveryPorts = Array.isArray(options.discoveryPorts) && options.discoveryPorts.length
+    ? options.discoveryPorts.map((candidate) => normalizeMosaPort(candidate, { label: "MOSA discovery port" }))
+    : DEFAULT_MOSA_DISCOVERY_PORTS;
+  const candidatePorts = options.allowPortFallback
+    ? [...new Set([port, ...discoveryPorts])]
+    : [port];
+  let lastConflict = null;
+  const availablePorts = [];
 
-  const initial = await probeMosaService(probeOptions);
-  if (initial.state === "attached") return attachedService(initial);
-  if (initial.state === "conflict") throw initial.error;
-
-  try {
-    const runtime = await (options.startRuntime || startMosaRuntime)({
-      ...(options.runtimeOptions || {}),
-      port,
+  for (const candidatePort of candidatePorts) {
+    const probeOptions = {
+      host,
+      port: candidatePort,
       libraryDir,
-      // The desktop shell's isolation context travels with the runtime so the
-      // third layer re-validates the exact same QA parameters it was given.
-      isolationContext: options.isolationContext,
-      // BUG-01 fix: the desktop shell alone passes its exact import staging
-      // root; server/CLI starts without it keep the default trust boundary.
-      importStagingRoot: options.importStagingRoot ?? null,
-    });
-    return ownedService(runtime);
-  } catch (error) {
-    // Another desktop/CLI process can bind the port or acquire the library lock
-    // after the first probe. A single re-probe distinguishes a safe attach from
-    // a real conflict without ever replacing the new owner.
-    const retry = await probeMosaService(probeOptions);
-    if (retry.state === "attached") return attachedService(retry);
-    if (retry.state === "conflict") throw retry.error;
-    throw error;
+      fetchImpl: options.fetchImpl,
+      timeoutMs: options.probeTimeoutMs,
+    };
+
+    const initial = await probeMosaService(probeOptions);
+    if (initial.state === "attached") return attachedService(initial);
+    if (initial.state === "conflict") {
+      lastConflict = initial.error;
+      continue;
+    }
+    availablePorts.push(candidatePort);
   }
+
+  for (const candidatePort of availablePorts) {
+    const probeOptions = {
+      host,
+      port: candidatePort,
+      libraryDir,
+      fetchImpl: options.fetchImpl,
+      timeoutMs: options.probeTimeoutMs,
+    };
+
+    try {
+      const runtime = await (options.startRuntime || startMosaRuntime)({
+        ...(options.runtimeOptions || {}),
+        port: candidatePort,
+        libraryDir,
+        isolationContext: options.isolationContext,
+        importStagingRoot: options.importStagingRoot ?? null,
+      });
+      return ownedService(runtime);
+    } catch (error) {
+      const retry = await probeMosaService(probeOptions);
+      if (retry.state === "attached") return attachedService(retry);
+      if (retry.state === "conflict") {
+        lastConflict = retry.error;
+        continue;
+      }
+      if (error?.code === "EADDRINUSE") continue;
+      throw error;
+    }
+  }
+
+  if (lastConflict) throw lastConflict;
+  throw new MosaServiceConflictError("No MOSA desktop discovery port is available.");
 }
 
 export async function probeMosaService(options = {}) {

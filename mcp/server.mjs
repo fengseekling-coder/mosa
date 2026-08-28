@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssetStore } from "../lib/asset-store.mjs";
+import { assertExternalVerificationLevel } from "../lib/generation-history.mjs";
 import { MCP_SERVER_VERSION } from "../lib/version-identities.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -23,6 +24,15 @@ const TOOL_ASSET_DUPLICATE = "asset_duplicate";
 const TOOL_ASSET_VERSION_CREATE = "asset_version_create";
 const TOOL_ASSET_VERSION_HISTORY = "asset_version_history";
 const TOOL_ASSET_RECIPE_HISTORY = "asset_recipe_history";
+const TOOL_GENERATION_RECORD = "generation_record";
+const TOOL_GENERATION_LIST = "generation_list";
+const TOOL_GENERATION_RELATION_RECORD = "generation_relation_record";
+const TOOL_GENERATION_LINEAGE = "generation_lineage";
+
+const EXTERNAL_VERIFICATION_SCHEMA = {
+  enum: ["user_confirmed", "observed", "inferred"],
+  description: "Evidence level for this externally supplied record. provider_verified is reserved for trusted MOSA provider integrations.",
+};
 
 const REFERENCE_SCHEMA = {
   type: "array",
@@ -224,6 +234,80 @@ function toolDefinitions() {
         additionalProperties: false
       }
     },
+    {
+      name: TOOL_GENERATION_RECORD,
+      description: "Record one generation occurrence independently from the deduplicated output asset. Use this when an agent knows that a specific generation produced a saved MOSA asset.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectId: { type: "string" },
+          outputAssetId: { type: "string", description: "Existing MOSA asset produced by this generation." },
+          provider: { type: "string" },
+          captureContextId: { type: "string", description: "MOSA/local observation context. This is not a provider generation-call ID." },
+          providerToolCallId: { type: "string", description: "Provider/runtime tool-call identifier when observed." },
+          providerGenerationCallId: { type: "string", description: "Provider generation-call identifier only when actually supplied by the provider integration." },
+          providerResponseId: { type: "string" },
+          providerAssetId: { type: "string" },
+          conversationId: { type: "string" },
+          messageId: { type: "string" },
+          batchId: { type: "string" },
+          model: { type: "string" },
+          userPrompt: { type: "string" },
+          effectivePrompt: { type: "string" },
+          promptStatus: { type: "string" },
+          captureChannel: { type: "string" },
+          verificationLevel: EXTERNAL_VERIFICATION_SCHEMA,
+          references: REFERENCE_SCHEMA,
+          evidence: { type: "object", additionalProperties: true },
+          createdAt: { type: "string" },
+        },
+        required: ["outputAssetId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: TOOL_GENERATION_LIST,
+      description: "List generation occurrences, optionally filtered by output asset or provider identifiers.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectId: { type: "string" },
+          assetId: { type: "string" },
+          captureContextId: { type: "string" },
+          providerToolCallId: { type: "string" },
+          providerGenerationCallId: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: TOOL_GENERATION_RELATION_RECORD,
+      description: "Record an explicit generation-to-generation relationship such as edited_from or variant_of. Do not infer a parent unless the evidence supports it.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectId: { type: "string" },
+          childGenerationId: { type: "string" },
+          parentGenerationId: { type: "string" },
+          relationType: { enum: ["edited_from", "variant_of", "derived_from", "based_on"] },
+          verificationLevel: EXTERNAL_VERIFICATION_SCHEMA,
+          evidence: { type: "object", additionalProperties: true },
+          createdAt: { type: "string" },
+        },
+        required: ["childGenerationId", "parentGenerationId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: TOOL_GENERATION_LINEAGE,
+      description: "Read the connected generation lineage graph around one generation event, including parent/child IDs and evidence-bearing relations.",
+      inputSchema: {
+        type: "object",
+        properties: { projectId: { type: "string" }, generationId: { type: "string" } },
+        required: ["generationId"],
+        additionalProperties: false,
+      },
+    },
   ];
 }
 
@@ -283,6 +367,66 @@ async function handleToolCall(id, params) {
     sendResult(id, { content: [{ type: "text", text: `${history.snapshots.length} recipe snapshots for ${history.asset_id}` }], structuredContent: { history } });
     return;
   }
+  if (params?.name === TOOL_GENERATION_RECORD) {
+    if (typeof store.recordGenerationEvent !== "function") throw new Error("Generation history is unavailable.");
+    assertExternalVerificationLevel(args.verificationLevel);
+    const event = await store.recordGenerationEvent({
+      project_id: args.projectId || "default",
+      output_asset_id: args.outputAssetId,
+      provider: args.provider,
+      capture_context_id: args.captureContextId,
+      provider_tool_call_id: args.providerToolCallId,
+      provider_generation_call_id: args.providerGenerationCallId,
+      provider_response_id: args.providerResponseId,
+      provider_asset_id: args.providerAssetId,
+      conversation_id: args.conversationId,
+      message_id: args.messageId,
+      batch_id: args.batchId,
+      model: args.model,
+      user_prompt: args.userPrompt,
+      effective_prompt: args.effectivePrompt,
+      prompt_status: args.promptStatus,
+      capture_channel: args.captureChannel || "mcp",
+      verification_level: args.verificationLevel || "observed",
+      references: args.references,
+      evidence: args.evidence,
+      created_at: args.createdAt,
+    });
+    sendResult(id, { content: [{ type: "text", text: `Recorded generation ${event.id} for asset ${event.output_asset_id}` }], structuredContent: { event } });
+    return;
+  }
+  if (params?.name === TOOL_GENERATION_LIST) {
+    if (typeof store.listGenerationEvents !== "function") throw new Error("Generation history is unavailable.");
+    const events = await store.listGenerationEvents(args.projectId || "default", {
+      assetId: args.assetId,
+      captureContextId: args.captureContextId,
+      providerToolCallId: args.providerToolCallId,
+      providerGenerationCallId: args.providerGenerationCallId,
+    });
+    sendResult(id, { content: [{ type: "text", text: `${events.length} generation events` }], structuredContent: { events } });
+    return;
+  }
+  if (params?.name === TOOL_GENERATION_RELATION_RECORD) {
+    if (typeof store.recordGenerationRelation !== "function") throw new Error("Generation history is unavailable.");
+    assertExternalVerificationLevel(args.verificationLevel);
+    const relation = await store.recordGenerationRelation({
+      project_id: args.projectId || "default",
+      child_generation_id: args.childGenerationId,
+      parent_generation_id: args.parentGenerationId,
+      relation_type: args.relationType,
+      verification_level: args.verificationLevel || "user_confirmed",
+      evidence: args.evidence,
+      created_at: args.createdAt,
+    });
+    sendResult(id, { content: [{ type: "text", text: `Recorded ${relation.relation_type} relation` }], structuredContent: { relation } });
+    return;
+  }
+  if (params?.name === TOOL_GENERATION_LINEAGE) {
+    if (typeof store.getGenerationLineage !== "function") throw new Error("Generation history is unavailable.");
+    const lineage = await store.getGenerationLineage(args.projectId || "default", args.generationId);
+    sendResult(id, { content: [{ type: "text", text: `${lineage.events.length} generation events in lineage` }], structuredContent: { lineage } });
+    return;
+  }
   sendError(id, -32602, `Unknown tool: ${params?.name || ""}`);
 }
 
@@ -293,7 +437,7 @@ async function handleRequest(message) {
       protocolVersion: params?.protocolVersion || "2025-11-25",
       capabilities: { tools: {} },
       serverInfo: { name: "MOSA MCP", version: MCP_SERVER_VERSION },
-      instructions: "Save generated images with the effective prompt, distinct user prompt when available, negative constraints, reference hashes, and generation provenance. MOSA records immutable recipe snapshots automatically. Use asset_version_create with the generated imagePath and a version_change summary when creating a child asset version, and asset_recipe_history when an exact prior recipe is needed. Images from Codex's default ~/.codex/generated_images task folders are accepted and their source path is recorded."
+      instructions: "Save generated images with the effective prompt, distinct user prompt when available, negative constraints, reference hashes, and generation provenance. MOSA records immutable recipe snapshots automatically. Use generation_record for each distinct generation occurrence, even when its output asset was deduplicated; use generation_relation_record only for evidence-backed parent relationships, and generation_lineage to read the resulting graph. provider_verified is reserved for trusted MOSA provider integrations and cannot be asserted by ordinary MCP callers. Use asset_version_create only for explicit asset-version workflows."
     });
     return;
   }

@@ -17,6 +17,7 @@ type ReferenceInput = {
   conversationId?: string;
   messageId?: string;
   generationContextId?: string;
+  providerAssetId?: string;
   capturedAt: string;
   userMessage?: string;
 };
@@ -27,6 +28,7 @@ export type ReferenceUsage = {
   page_url: string;
   conversation_id: string;
   message_id: string;
+  provider_asset_id: string;
   captured_at: string;
   user_message: string;
 };
@@ -45,6 +47,7 @@ export type ReferenceAttachment = {
   page_url: string;
   conversation_id: string;
   message_id: string;
+  provider_asset_id: string;
   captured_at: string;
   user_message: string;
   attachment_url: string;
@@ -112,6 +115,7 @@ export function createReferenceAttachmentStore(libraryDir: string) {
       page_url: String(input.pageUrl || ""),
       conversation_id: String(input.conversationId || ""),
       message_id: String(input.messageId || ""),
+      provider_asset_id: String(input.providerAssetId || ""),
       captured_at: String(input.capturedAt || new Date().toISOString()),
       user_message: String(input.userMessage || ""),
       attachment_url: attachmentUrl(projectId, fileName),
@@ -133,6 +137,7 @@ export function createReferenceAttachmentStore(libraryDir: string) {
         project_id: cleanProjectId,
         pixel_sha256: String(item.pixel_sha256 || ""),
         pixel_hash_version: String(item.pixel_hash_version || ""),
+        provider_asset_id: String(item.provider_asset_id || ""),
         attachment_url: attachmentUrl(cleanProjectId, cleanSegment(item.file_name, "reference.bin")),
         usages: normalizeReferenceUsages(item),
       }));
@@ -178,6 +183,7 @@ function referenceUsage(input: ReferenceInput): ReferenceUsage {
     page_url: String(input.pageUrl || ""),
     conversation_id: String(input.conversationId || ""),
     message_id: String(input.messageId || ""),
+    provider_asset_id: String(input.providerAssetId || ""),
     captured_at: String(input.capturedAt || new Date().toISOString()),
     user_message: String(input.userMessage || ""),
   };
@@ -193,6 +199,7 @@ function normalizeReferenceUsages(item: Record<string, unknown>): ReferenceUsage
       page_url: String(value.page_url || item.page_url || ""),
       conversation_id: String(value.conversation_id || item.conversation_id || ""),
       message_id: String(value.message_id || item.message_id || ""),
+      provider_asset_id: String(value.provider_asset_id || item.provider_asset_id || ""),
       captured_at: String(value.captured_at || item.captured_at || ""),
       user_message: String(value.user_message || item.user_message || ""),
     };
@@ -204,6 +211,7 @@ function normalizeReferenceUsages(item: Record<string, unknown>): ReferenceUsage
     page_url: String(item.page_url || ""),
     conversation_id: String(item.conversation_id || ""),
     message_id: String(item.message_id || ""),
+    provider_asset_id: String(item.provider_asset_id || ""),
     captured_at: String(item.captured_at || ""),
     user_message: String(item.user_message || ""),
   }];
@@ -216,11 +224,37 @@ function referenceUsageKey(usage: ReferenceUsage): string {
 
 async function appendReferenceUsage(indexPath: string, indexed: ReferenceAttachment[], existing: ReferenceAttachment, usage: ReferenceUsage): Promise<ReferenceAttachment> {
   const usages = normalizeReferenceUsages(existing as unknown as Record<string, unknown>);
-  if (usages.some((item) => referenceUsageKey(item) === referenceUsageKey(usage))) return existing;
-  const updated = { ...existing, usages: [...usages, usage].slice(-100) };
+  const existingUsageIndex = usages.findIndex((item) => referenceUsageKey(item) === referenceUsageKey(usage));
+  const nextUsages = existingUsageIndex >= 0
+    ? usages.map((item, index) => index === existingUsageIndex ? mergeReferenceUsage(item, usage) : item)
+    : [...usages, usage].slice(-100);
+  const updated: ReferenceAttachment = {
+    ...existing,
+    provider: existing.provider || usage.provider,
+    page_url: existing.page_url || usage.page_url,
+    conversation_id: existing.conversation_id || usage.conversation_id,
+    message_id: existing.message_id || usage.message_id,
+    provider_asset_id: existing.provider_asset_id || usage.provider_asset_id,
+    user_message: existing.user_message || usage.user_message,
+    usages: nextUsages,
+  };
+  if (JSON.stringify(updated) === JSON.stringify(existing)) return existing;
   const items = indexed.map((item) => item.id === existing.id ? updated : item);
   await writeReferenceIndex(indexPath, items);
   return updated;
+}
+
+function mergeReferenceUsage(existing: ReferenceUsage, incoming: ReferenceUsage): ReferenceUsage {
+  return {
+    generation_context_id: existing.generation_context_id || incoming.generation_context_id,
+    provider: existing.provider || incoming.provider,
+    page_url: existing.page_url || incoming.page_url,
+    conversation_id: existing.conversation_id || incoming.conversation_id,
+    message_id: existing.message_id || incoming.message_id,
+    provider_asset_id: existing.provider_asset_id || incoming.provider_asset_id,
+    captured_at: existing.captured_at || incoming.captured_at,
+    user_message: existing.user_message || incoming.user_message,
+  };
 }
 
 async function writeReferenceIndex(indexPath: string, items: ReferenceAttachment[]): Promise<void> {

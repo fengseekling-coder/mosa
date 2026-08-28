@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { isAllowedIngestOrigin, isAllowedLocalOrigin, parseAllowedIngestOrigins, resolveAllowedFolderPath } from "../lib/server-security.js";
+import { isAllowedIngestOrigin, isAllowedLocalOrigin, isApprovedExtensionOrigin, parseAllowedIngestOrigins, resolveAllowedFolderPath } from "../lib/server-security.js";
 
 test("allows only same-origin browser requests", () => {
   assert.equal(isAllowedLocalOrigin(undefined, 43517), true);
@@ -21,6 +21,9 @@ test("allows only explicitly configured extension origins for ingest", () => {
   assert.equal(isAllowedIngestOrigin("chrome-extension://other", 43517, allowed), false);
   assert.equal(isAllowedIngestOrigin("https://chatgpt.com", 43517, allowed), false);
   assert.equal(isAllowedLocalOrigin("chrome-extension://id", 43517), false);
+  assert.equal(isApprovedExtensionOrigin("chrome-extension://approved", allowed), true);
+  assert.equal(isApprovedExtensionOrigin(undefined, allowed), false);
+  assert.equal(isApprovedExtensionOrigin("http://127.0.0.1:43517", allowed), false);
 });
 
 test("resolves only real paths inside allowed Finder roots and rejects symlink escapes", async (t) => {

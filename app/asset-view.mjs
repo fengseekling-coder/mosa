@@ -1,6 +1,7 @@
 // ===== Asset view（大图查看器）——提取自 app.js，REFACTORING-PLAN R1 批次 4 =====
 // els/state/t 及数据/渲染/导航依赖经 createAssetViewer 工厂注入；transform/序列/指针表等
 // 模块级状态随闭包迁移；事件语义/钳制公式/手势状态机与原先完全一致。
+import { displayAssetTitle } from "./utils.mjs";
 
 export function createAssetViewer({
   els, state, t,
@@ -38,7 +39,8 @@ export function createAssetViewer({
   function renderAssetView() {
     const asset = selectedAsset();
     if (!asset || !els.assetViewImage || !els.assetViewVideo) return;
-    const title = asset.theme || asset.asset || asset.id;
+    const title = displayAssetTitle(asset);
+    const displayImageUrl = asset.preview_url || asset.image_url;
     if (els.assetViewScope) els.assetViewScope.textContent = currentScopeTitle();
     if (els.assetViewTitle) els.assetViewTitle.textContent = t("viewingAsset", { title });
     if (els.assetViewError) els.assetViewError.hidden = true;
@@ -47,10 +49,10 @@ export function createAssetViewer({
     // 发生变化，则它已是新的媒体几何，必须重新加载并 fit，不能继续显示旧 src。
     if (asset.id !== assetViewStageAssetId) {
       assetViewStageAssetId = asset.id;
-      assetViewStageAssetUrl = asset.image_url;
+      assetViewStageAssetUrl = displayImageUrl;
       resetAssetViewTransform();
-    } else if (asset.image_url !== assetViewStageAssetUrl) {
-      assetViewStageAssetUrl = asset.image_url;
+    } else if (displayImageUrl !== assetViewStageAssetUrl) {
+      assetViewStageAssetUrl = displayImageUrl;
       resetAssetViewTransform();
     }
     if (isVideoAsset(asset)) {
@@ -65,13 +67,18 @@ export function createAssetViewer({
     els.assetViewVideo.hidden = true;
     els.assetViewImage.hidden = false;
     els.assetViewImage.alt = title;
-    if (els.assetViewImage.dataset.assetId !== asset.id || els.assetViewImage.dataset.assetUrl !== asset.image_url) {
+    els.assetViewImage.dataset.originalUrl = asset.image_url || "";
+    const currentImageUrl = els.assetViewImage.dataset.assetUrl || "";
+    const currentImageIsUsable = currentImageUrl === displayImageUrl || currentImageUrl === asset.image_url;
+    if (els.assetViewImage.dataset.assetId !== asset.id || !currentImageIsUsable) {
       // Phase 3C 竞态防护：以素材 ID 为唯一会话键（同 URL 重复变体间导航也算切换）——
       // src、ID 与 URL 守卫/结算标记同步切换，晚到的旧 load/error 事件据此被识别并丢弃。
+      cancelAssetViewOriginalPreload();
       els.assetViewImage.dataset.assetId = asset.id;
-      els.assetViewImage.dataset.assetUrl = asset.image_url;
+      els.assetViewImage.dataset.assetUrl = displayImageUrl;
+      els.assetViewImage.dataset.upgradingOriginal = "";
       els.assetViewImage.dataset.loadSettled = "";
-      if (els.assetViewImage.getAttribute("src") !== asset.image_url) els.assetViewImage.src = asset.image_url;
+      if (els.assetViewImage.getAttribute("src") !== displayImageUrl) els.assetViewImage.src = displayImageUrl;
       // 缓存命中时 load 事件可能不再派发，同步完成初始 fit（handleAssetViewImageLoad 幂等）；
       // 同 URL 破图（重复变体）不再派发 error，同步恢复错误态（handleAssetViewImageError 幂等）。
       if (els.assetViewImage.complete && els.assetViewImage.naturalWidth > 0) handleAssetViewImageLoad();
@@ -119,7 +126,8 @@ export function createAssetViewer({
     assetViewSequence.snapshot = currentAssetRequest();
     assetViewSequence.loading = false;
     assetViewSequence.generation += 1;
-    state.selectedId = id; state.detailAsset = null; state.versionHistory = null; state.recipeHistory = null;
+    assetViewGalleryDirty = false;
+    state.selectedId = id; state.detailAsset = null; state.versionHistory = null; state.recipeHistory = null; state.generationHistory = null;
     setViewMode("asset");
     setupAssetViewInteraction();
     renderAssetView();
@@ -136,6 +144,7 @@ export function createAssetViewer({
     if (state.viewMode !== "asset") return;
     // Phase 3B：先清理舞台交互（wheel/pointer 监听、拖拽会话、ResizeObserver），再切回 Library。
     teardownAssetViewInteraction();
+    cancelAssetViewOriginalPreload();
     assetViewStageAssetId = null;
     assetViewStageAssetUrl = null;
     // Phase 3C：Viewer session 结束，清理导航序列（不落盘、不带回 Library）。
@@ -151,6 +160,11 @@ export function createAssetViewer({
     const snapshot = state.libraryReturnSnapshot;
     state.libraryReturnSnapshot = null;
     setViewMode("library");
+    if (assetViewGalleryDirty) {
+      renderGrid({ preserveScroll: true });
+      updateViewTitle();
+      assetViewGalleryDirty = false;
+    }
     setDetailOpen(false);
     announceGalleryStatus(t("returnedToLibrary"));
     if (!snapshot || !els.assetGrid) return;
@@ -197,6 +211,7 @@ export function createAssetViewer({
   const assetViewTransform = { mode: "fit", scale: 1, offsetX: 0, offsetY: 0, isPanning: false };
   let assetViewStageAssetId = null;
   let assetViewStageAssetUrl = null;
+  let assetViewOriginalPreload = null;
   let assetViewInteractionActive = false;
   let assetViewStageObserver = null;
   let assetViewStageGeometry = null;
@@ -239,7 +254,46 @@ export function createAssetViewer({
   function assetViewNaturalSize() {
     const image = els.assetViewImage;
     if (!image || !(image.naturalWidth > 0) || !(image.naturalHeight > 0)) return { width: 0, height: 0 };
+    const asset = selectedAsset();
+    const width = Number(asset?.business_fields?.width);
+    const height = Number(asset?.business_fields?.height);
+    if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) return { width, height };
     return { width: image.naturalWidth, height: image.naturalHeight };
+  }
+
+  function cancelAssetViewOriginalPreload() {
+    if (!assetViewOriginalPreload) return;
+    assetViewOriginalPreload.src = "";
+    assetViewOriginalPreload = null;
+  }
+
+  async function maybeUpgradeAssetViewOriginal() {
+    const image = els.assetViewImage;
+    const asset = selectedAsset();
+    if (!image || !asset || state.viewMode !== "asset" || !assetViewImageReady()) return false;
+    const originalUrl = asset.image_url || "";
+    if (!originalUrl || originalUrl === image.dataset.assetUrl || assetViewTransform.scale < 0.75) return false;
+    if (assetViewOriginalPreload?.dataset.assetId === asset.id) return false;
+    cancelAssetViewOriginalPreload();
+    const loader = new Image();
+    loader.decoding = "async";
+    loader.dataset.assetId = asset.id;
+    assetViewOriginalPreload = loader;
+    loader.src = originalUrl;
+    try {
+      await loader.decode();
+    } catch {
+      if (!loader.complete || loader.naturalWidth <= 0) return false;
+    }
+    if (assetViewOriginalPreload !== loader) return false;
+    assetViewOriginalPreload = null;
+    if (state.viewMode !== "asset" || state.selectedId !== asset.id || image.dataset.assetId !== asset.id) return false;
+    image.dataset.upgradingOriginal = "true";
+    image.dataset.assetUrl = originalUrl;
+    image.dataset.loadSettled = "";
+    image.src = originalUrl;
+    if (image.complete && image.naturalWidth > 0) handleAssetViewImageLoad();
+    return true;
   }
 
   // Fit 几何：默认不将小图放大超过 100%；横/竖/方图完整显示、不裁切、不拉伸、图片居中。
@@ -353,6 +407,7 @@ export function createAssetViewer({
     assetViewTransform.offsetX = offsets.offsetX;
     assetViewTransform.offsetY = offsets.offsetY;
     applyAssetViewTransform();
+    void maybeUpgradeAssetViewOriginal();
     if (announce) announceAssetViewZoom();
     return true;
   }
@@ -400,6 +455,7 @@ export function createAssetViewer({
     assetViewTransform.offsetX = offsets.offsetX;
     assetViewTransform.offsetY = offsets.offsetY;
     applyAssetViewTransform();
+    void maybeUpgradeAssetViewOriginal();
     announceGalleryStatus(t("zoomResetDone"));
     return true;
   }
@@ -407,6 +463,7 @@ export function createAssetViewer({
   // 切换素材/错误兜底：回到 fit 语义并清理内联几何与瞬时 pointer 状态（不持久化缩放记忆）。
   function resetAssetViewTransform() {
     cancelAssetViewPan();
+    cancelAssetViewOriginalPreload();
     assetViewTransform.mode = "fit";
     assetViewTransform.scale = 1;
     assetViewTransform.offsetX = 0;
@@ -427,11 +484,18 @@ export function createAssetViewer({
     // Phase 3C 竞态守卫：晚到的旧 load 不得覆盖新素材的 naturalWidth/naturalHeight 与 scale。
     if (image.dataset.assetId !== state.selectedId) return;
     if (image.dataset.loadSettled === "error") return;
+    const upgradingOriginal = image.dataset.upgradingOriginal === "true";
+    image.dataset.upgradingOriginal = "";
     image.dataset.loadSettled = "load";
     refreshAssetViewStageGeometry();
     // 元素几何=自然尺寸，transform scale 以此为唯一基准（rendered = natural × scale）。
-    image.style.width = `${image.naturalWidth}px`;
-    image.style.height = `${image.naturalHeight}px`;
+    const natural = assetViewNaturalSize();
+    image.style.width = `${natural.width}px`;
+    image.style.height = `${natural.height}px`;
+    if (upgradingOriginal) {
+      applyAssetViewTransform();
+      return;
+    }
     fitAssetView();
   }
 
@@ -694,6 +758,7 @@ export function createAssetViewer({
     total: 0, nextCursor: null, loading: false, generation: 0,
     snapshot: null,
   };
+  let assetViewGalleryDirty = false;
 
   let assetViewAssetSetSource = null;
   let assetViewAssetIds = new Set();
@@ -756,7 +821,6 @@ export function createAssetViewer({
       const result = await requestAssetPage(session.snapshot, { cursor });
       // 晚到响应丢弃：用户已 Return、新 Viewer session 已开始或 requestKey 已变化。
       if (state.viewMode !== "asset" || session.generation !== generation || session.requestKey !== requestKey) return false;
-      const previousLength = state.assets.length;
       const knownAssetIds = currentAssetViewAssetIds();
       const incoming = (result.assets || []).filter((asset) => {
         if (knownAssetIds.has(asset.id)) return false;
@@ -782,8 +846,7 @@ export function createAssetViewer({
       state.nextCursor = nextCursor;
       state.pageTotal = total;
       state.loadedPageCount += 1;
-      renderGrid({ animate: true, animateFrom: previousLength });
-      updateViewTitle();
+      assetViewGalleryDirty = true;
       return true;
     } catch (error) {
       showToast(error.message, "error");
@@ -841,6 +904,7 @@ export function createAssetViewer({
     state.detailAsset = null;
     state.versionHistory = null;
     state.recipeHistory = null;
+    state.generationHistory = null;
     renderAssetView();
     renderDetail();
     updateSelectedCard();

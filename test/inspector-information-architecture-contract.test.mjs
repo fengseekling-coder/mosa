@@ -60,7 +60,7 @@ function functionSlice(source, name) {
 // are therefore an eight-section column.
 const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "new-version", "more"];
 // Exact helper-call sequence inside the renderDetail single-column composition.
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
 
 // 1. Detail uses a single vertical information column.
 // 2. No detail tablist. 3. No detail tab. 4. No detail tabpanel.
@@ -215,7 +215,7 @@ test("14-17. prompt section states, copy entry and user-instruction separation",
   // and populated reference states while recipe history loads asynchronously.
   assert.match(promptSection, /data-prompt-references/);
   assert.match(inspector, /function promptReferencesMarkup\(asset\)/);
-  assert.match(inspector, /reference\.attachment_url \|\| linked\?\.thumbnail_url \|\| linked\?\.image_url/);
+  assert.match(inspector, /linked\?\.thumbnail_url \|\| reference\.attachment_url \|\| linked\?\.image_url/);
   assert.match(inspector, /data-reference-thumb-img/);
   assert.match(inspector, /data-reference-thumb-fallback/);
   assert.match(inspector, /t\("referenceLoading"\)/);
@@ -270,27 +270,36 @@ test("source navigation exposes only reliable generation session and batch actio
 
 // 21. Version section position. 22. Version history stays on-demand.
 // 23. Recipe history stays reachable.
-test("21-23. version section position and on-demand history disclosures", async () => {
+test("21-23. version section position and generation context visibility", async () => {
   const app = await readApp();
   const inspector = await readInspectorMarkup();
+  const css = await readCss();
 
   // 21. Version sits after source and before group in the V2 column.
   const versionIndex = COMPOSITION.indexOf("detailVersionSectionMarkup");
   assert.ok(versionIndex > COMPOSITION.indexOf("detailSourceSectionMarkup"));
   assert.ok(versionIndex < COMPOSITION.indexOf("detailGroupSectionMarkup"));
 
-  // 22. Version history lives behind a disclosure that is closed by default.
+  // 22. AI generation lineage is visible in V2 and open by default; local
+  // version history remains behind a closed disclosure.
   const versionSection = functionSlice(inspector, "detailVersionSectionMarkup");
+  assert.match(versionSection, /<details class="detail-disclosure generation-history-disclosure" open><summary>\$\{t\("generationHistory"\)\}<\/summary>/);
+  assert.match(versionSection, /data-generation-history aria-live="polite"/);
+  assert.match(inspector, /function generationHistoryMarkup\(history, selectedAssetId\)/);
+  assert.match(inspector, /function generationCandidateParentsMarkup\(event, history, eventById\)/);
+  assert.match(inspector, /data-action="confirm-generation-relation-candidate"/);
+  assert.match(inspector, /data-action="dismiss-generation-relation-candidate"/);
+  assert.match(app, /\/api\/generation-relation-candidates/);
   assert.match(versionSection, /<details class="detail-disclosure"><summary>\$\{t\("versionHistory"\)\}<\/summary>/);
-  assert.doesNotMatch(versionSection, /<details class="detail-disclosure" open>/);
   assert.match(versionSection, /data-version-history aria-live="polite"/);
+  assert.doesNotMatch(css, /\.mosa-v2 \.detail \.detail-version-section[\s\S]{0,180}\{[^}]*display:\s*none;/, "V2 must not hide the version/generation context surface");
   // The current-version summary stays visible outside the disclosure.
   assert.match(inspector, /function detailVersionSummaryMarkup\(asset\)/);
 
   // 23. Recipe snapshot history stays reachable behind its own disclosure,
   // also closed by default, and still lazy-loaded after render.
   const recipeDisclosure = functionSlice(inspector, "recipeHistoryDisclosureMarkup");
-  assert.match(recipeDisclosure, /<details class="detail-disclosure"><summary>\$\{t\("recipeSnapshotHistory"\)\}<\/summary>/);
+  assert.match(recipeDisclosure, /<details class="detail-disclosure"><summary>\$\{t\("recipeHistoryLabel"\)\}<\/summary>/);
   assert.doesNotMatch(recipeDisclosure, /<details class="detail-disclosure" open>/);
   assert.match(recipeDisclosure, /data-recipe-history aria-live="polite"/);
   assert.ok(functionSlice(app, "renderDetail").includes("void loadRecipeHistory(asset);"));
@@ -441,6 +450,10 @@ test("41-43. async race guards preserved", async () => {
   assert.match(app, /let recipeHistoryRequestSequence = 0;/);
   assert.match(app, /const requestId = \+\+recipeHistoryRequestSequence;/);
   assert.match(app, /if \(requestId !== recipeHistoryRequestSequence/);
+
+  assert.match(app, /let generationHistoryRequestSequence = 0;/);
+  assert.match(app, /const requestId = \+\+generationHistoryRequestSequence;/);
+  assert.match(app, /if \(requestId !== generationHistoryRequestSequence/);
 });
 
 // 44. Viewer Navigation contract. 45. Viewer Transform contract.
@@ -531,4 +544,35 @@ test("scroll. single-column scroll and focus restoration policy", async () => {
   assert.match(renderDetail, /if \(scroller && keepScrollTop !== null\) scroller\.scrollTop = keepScrollTop;/);
   assert.match(renderDetail, /if \(hadPanelFocus\) els\.detailPanel\.querySelector\("#detailTitle"\)\?\.focus\(\);/);
   assert.match(app, /let detailRenderedAssetId = null;/);
+});
+
+test("generation lineage nodes expose evidence and relation management without generation actions", async () => {
+  const [app, inspector, i18n, css] = await Promise.all([readApp(), readInspectorMarkup(), readI18n(), readCss()]);
+
+  const lineage = functionSlice(inspector, "generationHistoryMarkup");
+  assert.match(lineage, /<details class="generation-lineage-node" data-generation-id=/);
+  assert.match(lineage, /generationEventDetailMarkup\(event, \{ history, eventById, assetById, incoming, selectedAssetId \}\)/);
+  assert.match(lineage, /generationContextCandidatesMarkup\(history, contextEvents, eventById, assetById\)/);
+  assert.match(inspector, /data-action="confirm-generation-relation-candidate"/);
+
+  const detail = functionSlice(inspector, "generationEventDetailMarkup");
+  assert.match(detail, /generationEffectivePrompt/);
+  assert.match(detail, /generationReferences/);
+  assert.match(detail, /generationEvidence/);
+  assert.match(detail, /generationIdentifiers/);
+  assert.match(detail, /generationRelationsMarkup\(event, incoming, eventById\)/);
+  assert.match(detail, /generationLinkComposerMarkup\(event, context\.history, eventById\)/);
+  assert.doesNotMatch(detail, /generationContinueComposerMarkup|continue-generation-in-mosa|continue-generation/);
+  assert.doesNotMatch(inspector, /function generationContinueComposerMarkup/);
+  assert.match(app, /function bindGenerationHistoryEvents\(history, selectedAssetId\)/);
+  assert.match(app, /action === "confirm-generation-relation-candidate"/);
+  assert.match(app, /activeHistory\.relation_candidates/);
+  assert.match(app, /apiFetch\("\/api\/generation-relations"/);
+  assert.doesNotMatch(app, /api\/generations\/continue|generationContinuationInstruction|refreshOpenAiGenerationStatus/);
+  assert.doesNotMatch(i18n, /generationContinueInMosa|openAiGenerationSettings/);
+  assert.match(css, /\.generation-lineage-detail/);
+  assert.match(css, /\.generation-evidence-json/);
+  assert.match(css, /\.generation-management/);
+  assert.match(css, /\.generation-context-candidates/);
+  assert.doesNotMatch(css, /\.generation-continue-composer|\.settings-api-key-control/);
 });

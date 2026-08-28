@@ -159,12 +159,23 @@ export function createApiClient(deps) {
     const previousAssets = state.assets;
     const previousSelected = selectedAsset();
     const incomingAssets = result.assets || [];
-    const nextAssets = options.append
-      ? [...state.assets, ...incomingAssets.filter((asset) => !state.assets.some((current) => current.id === asset.id && current.project_id === asset.project_id))]
+    const existingAssetKeys = options.append
+      ? new Set(state.assets.map((asset) => `${asset.project_id || request.project}\u001f${asset.id}`))
+      : null;
+    const uniqueIncomingAssets = options.append
+      ? incomingAssets.filter((asset) => {
+        const key = `${asset.project_id || request.project}\u001f${asset.id}`;
+        if (existingAssetKeys.has(key)) return false;
+        existingAssetKeys.add(key);
+        return true;
+      })
       : incomingAssets;
+    const nextAssets = options.append ? [...state.assets, ...uniqueIncomingAssets] : incomingAssets;
     const nextSelected = nextAssets.find((asset) => asset.id === state.selectedId)
       || (state.detailAsset?.id === state.selectedId && state.detailAsset.project_id === request.project ? state.detailAsset : null);
-    const assetsChanged = assetListVersion(previousAssets) !== assetListVersion(nextAssets);
+    const assetsChanged = options.append
+      ? uniqueIncomingAssets.length > 0
+      : assetListVersion(previousAssets) !== assetListVersion(nextAssets);
     const selectedChanged = assetVersion(previousSelected) !== assetVersion(nextSelected);
     // A mutation can remove the edited asset from the current result set
     // without deleting the asset itself, e.g. un-favoriting while scoped to

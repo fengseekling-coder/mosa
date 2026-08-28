@@ -30,24 +30,38 @@ npm start
 
 Choose a port that is not already used by another MOSA or legacy service. Bind only to `127.0.0.1`; MOSA is not designed for public exposure.
 
-`MOSA_WEB_CAPTURE_TOKEN` and `MOSA_WEB_CAPTURE_ORIGINS` are optional unless the web-capture extension is used. The origins value is a comma-separated list of exact `chrome-extension://<id>` or `moz-extension://<id>` origins. When the Token is unset, web capture must remain disabled; when the origin is absent, extension requests must be rejected. Never put the Token in a tracked file, command transcript, issue, or log.
+For a standalone runtime started with `npm start`, `MOSA_WEB_CAPTURE_TOKEN` and `MOSA_WEB_CAPTURE_ORIGINS` remain required when the web-capture extension is used. The origins value is a comma-separated list of exact `chrome-extension://<id>` or `moz-extension://<id>` origins. When the Token is unset, web capture must remain disabled; when the origin is absent, extension requests must be rejected. Never put the Token in a tracked file, command transcript, issue, or log.
 
-### macOS desktop shell
+The packaged/Desktop runtime supplies these values automatically: it persists one random Web Capture Token inside Electron `userData`, authorizes the official fixed extension origin, prefers port `43517`, and falls back through the reserved local discovery ports when another listener owns the preferred port. The extension verifies `/api/health`, pairs only from its approved `chrome-extension://` origin, and caches the resolved local address and Token in `chrome.storage.local`.
 
-Run the desktop shell from a checkout or build an arm64 application bundle and ZIP:
+### Desktop shell
+
+Run the desktop shell from a checkout or build one of the currently approved desktop targets:
 
 ```bash
 npm run desktop:start
+
+# macOS arm64
 npm run desktop:make
+
+# Windows 10/11 x64
+npm run desktop:package:windows
+npm run desktop:make:windows
 ```
 
-The desktop packaging commands (`desktop:package`, `desktop:make`, and `desktop:release`) require Node.js 22.x. The repository pins `22.23.1` in `.nvmrc` and `.node-version`; use the version-manager file supported by your environment before packaging. The pre-scripts deliberately fail before Forge runs when another Node major is active, avoiding incomplete packages that can occur with the current Forge/Packager chain on Node.js 24. This restriction applies to packaging only; normal MOSA development remains compatible with the root `engines.node` range.
+The desktop packaging commands for both macOS and Windows require Node.js 22.x. The repository pins `22.23.1` in `.nvmrc` and `.node-version`; use the version-manager file supported by your environment before packaging. The pre-scripts deliberately fail before Forge runs when another Node major is active, avoiding incomplete packages that can occur with the current Forge/Packager chain on Node.js 24. This restriction applies to packaging only; normal MOSA development remains compatible with the root `engines.node` range.
+
+For reproducible native packaging, build macOS on macOS and Windows on Windows (the Windows CI job is the canonical clean builder). Sharp installs its native runtime through OS-specific optional packages, so a clean macOS `npm ci` does not install `@img/sharp-win32-x64`. macOS-to-Windows cross-packaging is therefore a developer-only path unless that target package is provisioned explicitly; the Forge prune hook fails closed with an actionable error instead of producing a package with a missing native runtime.
 
 The desktop shell defaults to `~/MOSA Library` on `127.0.0.1:43517`, the same local service used by browser capture. Override the port with `MOSA_DESKTOP_PORT` only when a separate runtime is intentional, and the library with `MOSA_LIBRARY_DIR`.
 
-At startup, the desktop shell verifies the service identity and library path. If they match, it attaches without taking ownership; quitting the app leaves that external service running. If no service is listening, the app starts an owned runtime; closing the last window on macOS leaves the app and runtime active, while choosing Quit stops the owned runtime and releases its library lock. A foreign listener or a MOSA service using another library is reported as a conflict and is never terminated.
+At startup, the desktop shell verifies the service identity and library path. If they match, it attaches without taking ownership; quitting the app leaves that external service running. If no service is listening, the app starts an owned runtime. On macOS, closing the last window keeps the runtime available so the app can be reopened from the Dock; an explicit application quit stops an owned runtime and releases its library lock. On Windows, closing the last window quits the app because MOSA does not expose a tray re-entry point; an owned runtime is stopped through the same graceful shutdown path. A foreign listener or a MOSA service using another library is reported as a conflict and is never terminated.
 
-Forge writes `MOSA.app` under `out/MOSA-darwin-arm64/` and the ZIP under `out/make/zip/darwin/arm64/`. Development builds are unsigned and not notarized; signing, notarization, automatic updates, and background login launch are separate release work.
+Forge writes the macOS application under `out/MOSA-darwin-arm64/` and the Windows package directory under `out/MOSA-win32-x64/` with `MOSA.exe` at its root. `desktop:make` / `desktop:make:windows` produce ZIP development artifacts through the configured maker.
+
+Windows 10/11 x64 is currently a **Preview / testing** target. A real Windows-machine smoke cycle has verified application startup, SQLite, Sharp, the shared library/Inspector UI, and automatic Codex collection. The Windows shell keeps the native title bar but hides Electron's visible application menu row; the underlying menu remains installed so keyboard accelerators continue to work. Grok and Cowart Windows source discovery remain unverified until their real local source layouts are confirmed.
+
+Development builds are unsigned. Windows SmartScreen may warn about an unknown publisher, and macOS local builds are not release-notarized. A Windows installer, Windows code signing, macOS release signing/notarization, automatic updates, and background login launch are separate release work.
 
 ## Library Migration
 

@@ -4,7 +4,7 @@ import {
   FACET_KEYS, LIBRARY_REFRESH_INTERVAL, LIVE_REGION_WRITE_DELAY, SCOPES, SIDEBAR_SOURCE_TYPES, SKELETON_TILE_COUNT, SOURCE_FACETS, SOURCE_LABEL_KEYS, STATUS_ANNOUNCEMENT_DURATION,
 } from "./config.mjs";
 import {
-  cardShortTitle, debounce, escapeHtml, formatDate, humanizeFacetValue, normalizeDensity, normalizeSort, safeStorageGet, safeStorageSet,
+  cardShortTitle, debounce, displayAssetTitle, escapeHtml, formatDate, humanizeFacetValue, normalizeDensity, normalizeSort, safeStorageGet, safeStorageSet,
 } from "./utils.mjs";
 import { createToastManager } from "./toast-manager.mjs";
 import { createApiClient } from "./api-client.mjs";
@@ -51,7 +51,7 @@ function sourceTypeLabel(type) {
 
 const preference = safeStorageGet("mosa.ui-language") || "system";
 const state = {
-  project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, detailAsset: null, versionHistory: null, recipeHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
+  project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, detailAsset: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
   groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0 },
@@ -92,7 +92,7 @@ const els = {
   typeFilters: document.querySelector(".topbar-type-filters"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
   activeFilters: document.querySelector("#activeFilters"), filterPanel: document.querySelector("#filterPanel"), filterToggle: document.querySelector("#filterToggle"), sortSelect: document.querySelector("#sortSelect"), themeToggle: document.querySelector("#themeToggle"),
-  accountToggle: document.querySelector("#accountToggle"), accountModal: document.querySelector("#accountModal"), closeAccountModal: document.querySelector("#closeAccountModal"), accountAssetCount: document.querySelector("#accountAssetCount"), accountCollectionCount: document.querySelector("#accountCollectionCount"), settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
+  accountToggle: document.querySelector("#accountToggle"), accountModal: document.querySelector("#accountModal"), closeAccountModal: document.querySelector("#closeAccountModal"), accountAssetCount: document.querySelector("#accountAssetCount"), accountCollectionCount: document.querySelector("#accountCollectionCount"), settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
   viewTitle: document.querySelector("#viewTitle"), assetCount: document.querySelector("#assetCount"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
 
@@ -190,6 +190,58 @@ async function droppedFilePath(file) {
   return typeof file.path === "string" ? file.path : "";
 }
 
+function isSupportedImportFile(file) {
+  return Boolean(file?.name && /\.(apng|avif|gif|jpe?g|png|svg|webp|m4v|mov|mp4|webm)$/i.test(file.name));
+}
+
+async function stageBrowserFile(file) {
+  if (!(file instanceof File)) throw new Error(t("fileSelectionFailed"));
+  if (!isSupportedImportFile(file)) {
+    const error = new Error(t("errorPathUnsupported"));
+    error.code = "IMAGE_PATH_UNSUPPORTED_TYPE";
+    throw error;
+  }
+  const response = await fetch("/api/import/stage", {
+    method: "POST",
+    headers: {
+      "content-type": file.type || "application/octet-stream",
+      "x-mosa-file-name": encodeURIComponent(file.name),
+    },
+    body: file,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload?.path) {
+    const error = new Error(payload?.error || t("fileSelectionFailed"));
+    error.code = payload?.code || "IMPORT_STAGE_FAILED";
+    throw error;
+  }
+  return payload.path;
+}
+
+async function prepareImportFile(file, { openModal = true } = {}) {
+  clearImportErrors();
+  let filePath = "";
+  try {
+    // One path for Web and Electron: stream the selected File to the local
+    // MOSA runtime and let the server stage it below the library root. This
+    // also works when Electron safely attaches to an already-running MOSA
+    // runtime, where an Electron-userData staging path would not be trusted.
+    filePath = await stageBrowserFile(file);
+  } catch (error) {
+    const mapped = IMPORT_ERROR_FIELDS[error?.code];
+    if (mapped) showImportError(mapped.field, t(mapped.message));
+    else showToast(error?.message || t("fileSelectionFailed"), "error");
+    return false;
+  }
+  if (!filePath) {
+    showToast(t("dropPathUnavailable"), "error");
+    return false;
+  }
+  if (els.imagePathInput) els.imagePathInput.value = filePath;
+  if (openModal) openImportModal();
+  return true;
+}
+
 // ===== Drag & Drop =====
 function setupDragDrop() {
   const library = els.assetGrid?.closest(".library");
@@ -234,29 +286,14 @@ function setupDragDrop() {
       return;
     }
     const file = files[0];
-    if (!/\.(apng|avif|gif|jpe?g|png|svg|webp|m4v|mov|mp4|webm)$/i.test(file.name)) {
+    if (!isSupportedImportFile(file)) {
       announceGalleryStatus("");
       showToast(t("errorPathUnsupported"), "error");
       return;
     }
-    let filePath = "";
-    try {
-      filePath = await droppedFilePath(file);
-    } catch {
-      // staging 失败：清空 live region 并显示可见 toast（与 Browse 一致），
-      // 绝不回退到用户原始路径（audit fix batch 1.3）。
-      announceGalleryStatus("");
-      showToast(t("fileSelectionFailed"), "error");
-      return;
-    }
-    if (!filePath) {
-      // 无可用路径：不开空 Import Modal，清空持久状态并提示。
-      announceGalleryStatus("");
-      showToast(t("dropPathUnavailable"), "error");
-      return;
-    }
-    if (els.imagePathInput) els.imagePathInput.value = filePath;
-    openImportModal();
+    const prepared = await prepareImportFile(file);
+    announceGalleryStatus("");
+    if (!prepared) return;
   });
 }
 
@@ -484,7 +521,7 @@ const inspectorMarkup = createInspectorMarkup({ state, t, referenceRightsMarkup 
 const { detailFileSectionMarkup, detailPromptSectionMarkup, detailSourceSectionMarkup,
   detailVersionSectionMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup,
   detailNewVersionSectionMarkup, detailMoreSectionMarkup, versionPickerMarkup, versionHistoryMarkup,
-  recipeHistoryMarkup, recipeHistoryDisclosureMarkup, categoryOptions, buildSourceRows, sourceName,
+  generationHistoryMarkup, recipeHistoryMarkup, recipeHistoryDisclosureMarkup, categoryOptions, buildSourceRows, sourceName,
   sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup, formatFileSize, fileDimensionsText, fileFormatText,
   fileSizeText, fileFactRowMarkup, editRecipeFieldsMarkup, versionOptionLabel, detailVersionSummaryMarkup,
   originalMediaCapability, originalMediaActionMarkup, referenceRightsSummary, promptReferencesMarkup } = inspectorMarkup;
@@ -654,8 +691,8 @@ async function fetchDiagnostics() {
 
 function cowartCanvasLabel(canvas = {}) {
   if (canvas.managed) return t("mosaCanvas");
-  const path = String(canvas.projectDir || "").replace(/\/+$/, "");
-  const name = path.split("/").pop() || path || t("cowartCanvases");
+  const path = String(canvas.projectDir || "").replace(/[\\/]+$/, "");
+  const name = path.split(/[\\/]/).pop() || path || t("cowartCanvases");
   return t("projectCanvas", { name });
 }
 
@@ -757,7 +794,14 @@ const contextMenuActions = createContextMenuActions({
 
 function isDetailEditorActive() {
   const active = document.activeElement;
-  return state.detailDirty || (active instanceof HTMLElement && Boolean(els.detailPanel?.contains(active) && active.closest("[data-edit], [data-version-change], [data-recipe-change], [data-tag-editor]")));
+  const generationDraft = [...(els.detailPanel?.querySelectorAll("[data-generation-composer]") || [])].some((composer) => {
+    const prompt = composer.querySelector("[data-generation-continue-prompt]")?.value.trim();
+    const references = composer.querySelector("[data-generation-reference-id]");
+    return Boolean(prompt || references);
+  });
+  return state.detailDirty
+    || generationDraft
+    || (active instanceof HTMLElement && Boolean(els.detailPanel?.contains(active) && active.closest("[data-edit], [data-version-change], [data-recipe-change], [data-tag-editor], [data-generation-composer]")));
 }
 
 function latestAssetSnapshot(projectId, assetId, fallback = null) {
@@ -857,8 +901,11 @@ function cowartCanvasListSignature(canvases) {
 function updateCodexHint() {
   if (els.importFormatList) els.importFormatList.textContent = state.supportedMediaExtensions.join(" ");
   const exampleDir = state.codexImagesDir || "/Users/you/Pictures";
-  if (els.importPathExample) els.importPathExample.textContent = `${exampleDir}/example.png`;
-  if (els.imagePathInput) els.imagePathInput.placeholder = `${exampleDir}/example.png`;
+  const exampleBase = exampleDir.replace(/[\\/]+$/, "");
+  const exampleSeparator = exampleBase.includes("\\") ? "\\" : "/";
+  const examplePath = `${exampleBase}${exampleSeparator}example.png`;
+  if (els.importPathExample) els.importPathExample.textContent = examplePath;
+  if (els.imagePathInput) els.imagePathInput.placeholder = examplePath;
   if (els.codexSourceHint) els.codexSourceHint.textContent = state.codexImagesDir || t("importPathCodexDirUnknown");
 }
 
@@ -991,7 +1038,9 @@ function bindEvents() {
     if (copyButton) {
       event.stopPropagation();
       void runAction(async () => {
-        await navigator.clipboard.writeText(copyButton.dataset.copy || "");
+        const assetId = copyButton.closest(".asset-card")?.dataset.id;
+        const asset = state.assets.find((item) => item.id === assetId);
+        await navigator.clipboard.writeText(asset?.prompt || "");
         showToast(t("copySuccess"), "success");
       });
       return;
@@ -1025,6 +1074,36 @@ function bindEvents() {
     if (id) openImagePreview(id, selectButton);
   });
   els.newAssetTopBtn?.addEventListener("click", openImportModal);
+  els.browseFileBtn?.addEventListener("click", () => {
+    if (state.importSaving) return;
+    if (els.importFileInput) {
+      els.importFileInput.value = "";
+      els.importFileInput.click();
+    }
+  });
+  els.importFileInput?.addEventListener("change", () => {
+    const file = els.importFileInput.files?.[0];
+    if (file) void prepareImportFile(file, { openModal: false });
+  });
+  const importDropZone = els.browseFileBtn?.closest(".import-v2-path-card");
+  ["dragenter", "dragover"].forEach((eventName) => {
+    importDropZone?.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      importDropZone.classList.add("drag-active");
+    });
+  });
+  ["dragleave", "drop"].forEach((eventName) => {
+    importDropZone?.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      importDropZone.classList.remove("drag-active");
+      if (eventName !== "drop") return;
+      const file = event.dataTransfer?.files?.[0];
+      if (file) void prepareImportFile(file, { openModal: false });
+    });
+  });
   els.quickFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) void setFilter(button.dataset.filter); });
   els.sidebarGroupList?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-filter]"); if (button) void setFilter(button.dataset.filter, button.dataset.value);
@@ -1203,18 +1282,6 @@ function bindEvents() {
 function bindDesktopIntegration() {
   const api = window.electronAPI;
   if (!api) return;
-  document.querySelector("#browseFileBtn")?.addEventListener("click", async () => {
-    try {
-      const filePaths = await api.openFileDialog();
-      if (filePaths?.length && els.imagePathInput) {
-        els.imagePathInput.value = filePaths[0];
-      }
-    } catch {
-      // Staging failures propagate via IPC rejection; the user gets visible
-      // feedback instead of a silent skip (audit fix batch 1.1).
-      showToast(t("fileSelectionFailed"), "error");
-    }
-  });
   document.addEventListener("paste", async (event) => {
     const target = event.target;
     const editableTarget = target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable]"));
@@ -1473,17 +1540,125 @@ let masonryObservedWidth = 0;
 let masonryLayoutFrame = null;
 let masonryFullLayoutPending = false;
 const masonryPendingCards = new Set();
+let galleryMediaObserver = null;
+let galleryMediaObservedGrid = null;
+
+function bindGalleryVideoFrame(video) {
+  if (!(video instanceof HTMLVideoElement) || video.dataset.galleryVideoBound === "true") return;
+  video.dataset.galleryVideoBound = "true";
+  const frame = video.closest(".video-thumb");
+  const persistedWidth = Number(frame?.dataset.videoWidth || video.getAttribute("width") || 0);
+  const persistedHeight = Number(frame?.dataset.videoHeight || video.getAttribute("height") || 0);
+  if (frame instanceof HTMLElement && persistedWidth > 0 && persistedHeight > 0) {
+    frame.style.aspectRatio = `${persistedWidth} / ${persistedHeight}`;
+  }
+  const updateAspect = () => {
+    const width = Number(video.videoWidth || 0);
+    const height = Number(video.videoHeight || 0);
+    if (width <= 0 || height <= 0) return;
+    video.setAttribute("width", String(width));
+    video.setAttribute("height", String(height));
+    video.dataset.knownAspect = "true";
+    if (frame instanceof HTMLElement) {
+      frame.style.aspectRatio = `${width} / ${height}`;
+      frame.dataset.knownAspect = "true";
+    }
+    const card = video.closest(".asset-card");
+    if (card) scheduleMasonryLayout(card);
+    // Asking for a frame just after t=0 makes Chromium decode an actual poster
+    // while still keeping the element paused and metadata-oriented.
+    if (!video.dataset.galleryFrameSeeked) {
+      video.dataset.galleryFrameSeeked = "true";
+      const duration = Number(video.duration);
+      const firstFrameTime = Number.isFinite(duration) && duration > 0
+        ? Math.min(0.05, Math.max(0.001, duration / 100))
+        : 0.001;
+      try { video.currentTime = firstFrameTime; } catch {}
+    }
+  };
+  const revealFrame = () => video.classList.add("is-frame-ready");
+  video.addEventListener("loadedmetadata", updateAspect);
+  video.addEventListener("loadeddata", revealFrame);
+  video.addEventListener("seeked", revealFrame);
+  video.addEventListener("error", () => video.classList.remove("is-frame-ready"));
+}
+
+function setupGalleryMediaVirtualization(roots = null) {
+  const grid = els.assetGrid;
+  if (!grid || !("IntersectionObserver" in window)) return;
+  if (galleryMediaObservedGrid !== grid) {
+    galleryMediaObserver?.disconnect();
+    galleryMediaObservedGrid = grid;
+    galleryMediaObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const media = entry.target;
+        if (media instanceof HTMLVideoElement) {
+          const source = media.dataset.galleryVideoSrc || "";
+          if (!source) return;
+          if (entry.isIntersecting) {
+            if (!media.hasAttribute("src")) {
+              media.dataset.galleryUnloaded = "false";
+              media.dataset.galleryFrameSeeked = "";
+              media.preload = "metadata";
+              media.src = source;
+              media.load();
+            }
+            return;
+          }
+          if (!media.hasAttribute("src")) return;
+          media.dataset.galleryUnloaded = "true";
+          media.pause();
+          media.removeAttribute("src");
+          media.load();
+          media.classList.remove("is-frame-ready");
+          return;
+        }
+        if (!(media instanceof HTMLImageElement) || media.dataset.knownAspect !== "true") return;
+        const source = media.dataset.gallerySrc || "";
+        if (entry.isIntersecting) {
+          if (media.dataset.galleryUnloaded === "true" && source) {
+            media.dataset.galleryUnloaded = "false";
+            media.classList.remove("gallery-media-unloaded");
+            media.src = source;
+          }
+          return;
+        }
+        if (!source || media.dataset.galleryUnloaded === "true" || !media.complete || media.naturalWidth <= 0) return;
+        media.dataset.galleryUnloaded = "true";
+        media.classList.add("gallery-media-unloaded");
+        media.removeAttribute("src");
+      });
+    }, { root: grid, rootMargin: "1200px 0px" });
+  }
+  const targetRoots = Array.isArray(roots) && roots.length ? roots : [grid];
+  targetRoots.forEach((root) => {
+    if (!(root instanceof Element)) return;
+    const selector = "img.thumb[data-known-aspect='true'][data-gallery-src], video.thumb-video-frame[data-gallery-video-src]";
+    const media = root.matches?.(selector)
+      ? [root]
+      : [...root.querySelectorAll(selector)];
+    media.forEach((item) => {
+      if (item instanceof HTMLVideoElement) bindGalleryVideoFrame(item);
+      if (item.dataset.galleryObserved === "true") return;
+      item.dataset.galleryObserved = "true";
+      galleryMediaObserver.observe(item);
+    });
+  });
+}
+
 function layoutMasonry(cards = null) {
   const grid = els.assetGrid;
   if (!grid) return;
   const gridStyles = getComputedStyle(grid);
   const galleryGap = Number.parseFloat(gridStyles.getPropertyValue("--gallery-gap")) || Number.parseFloat(gridStyles.columnGap) || 0;
   const targets = cards || grid.querySelectorAll(".asset-card");
+  const measurements = [];
   targets.forEach((card) => {
     if (!(card instanceof HTMLElement) || !card.isConnected) return;
     const height = card.getBoundingClientRect().height || 0;
-    if (height) card.style.gridRowEnd = `span ${Math.ceil(height + galleryGap)}`;
+    if (height) measurements.push([card, Math.ceil(height + galleryGap)]);
   });
+  measurements.forEach(([card, span]) => { card.style.gridRowEnd = `span ${span}`; });
 }
 function scheduleMasonryLayout(card = null) {
   if (card) masonryPendingCards.add(card);
@@ -1521,6 +1696,7 @@ function setupMasonryLayout(options = {}) {
         media.setAttribute("width", String(media.naturalWidth));
         media.setAttribute("height", String(media.naturalHeight));
         media.dataset.knownAspect = "true";
+        setupGalleryMediaVirtualization([media]);
       }
       const card = media.closest(".asset-card");
       if (card) scheduleMasonryLayout(card);
@@ -1543,6 +1719,7 @@ function setupMasonryLayout(options = {}) {
     });
     masonryResizeObserver.observe(grid);
   }
+  setupGalleryMediaVirtualization(layoutTargets || null);
   setupInfiniteScroll();
 }
 
@@ -1646,6 +1823,23 @@ function reconcileAssetCards(entries) {
   return { changedCards, replacedFocusedCard };
 }
 
+function appendAssetCards(entries) {
+  const grid = els.assetGrid;
+  if (!grid) return [];
+  grid.querySelectorAll(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel").forEach((element) => element.remove());
+  const changedCards = [];
+  for (const entry of entries) {
+    const card = createAssetCardElement(entry.markup, entry.renderKey, entry.animateCard);
+    if (!card) continue;
+    grid.append(card);
+    changedCards.push(card);
+  }
+  if (state.nextCursor) {
+    grid.insertAdjacentHTML("beforeend", `<div class="asset-load-more"><button type="button" data-action="load-more">${escapeHtml(t("loadMore"))}</button></div><div class="infinite-scroll-sentinel" data-sentinel="true"></div>`);
+  }
+  return changedCards;
+}
+
 // F-24：入场动画范围经 arguments 传入（loadAssets 在首次加载/追加页时设置），
 // 普通重渲染（搜索/筛选/排序/后台刷新）不带参数则不播放；签名保持无参以兼容
 // 既有契约测试对 renderGrid 签名的正则锁定。
@@ -1689,9 +1883,15 @@ function renderGrid() {
     restoreGridFallbackFocus();
     return;
   }
+  const isAppendMode = animate && animateFrom > 0;
+  const existingCardCount = els.assetGrid.querySelectorAll(":scope > .asset-card").length;
+  const canAppendFast = isAppendMode
+    && existingCardCount === animateFrom
+    && els.assetGrid.dataset.renderedDensity === state.galleryDensity;
+  const renderAssets = canAppendFast ? state.assets.slice(animateFrom) : state.assets;
   // F-24：闭包序号判断入场动画范围（保持 map 回调签名与既有契约一致）。
-  let cardOrdinal = 0;
-  const cards = state.assets.map((asset) => {
+  let cardOrdinal = canAppendFast ? animateFrom : 0;
+  const cards = renderAssets.map((asset) => {
     const animateCard = animate && cardOrdinal >= animateFrom;
     cardOrdinal += 1;
     const title = cardShortTitle(asset);
@@ -1709,7 +1909,7 @@ function renderGrid() {
     // Phase 1C/1C.1 契约：.card-actions > button.card-action-btn.card-favorite / .card-quick-copy，
     // 业务 class 与 data 属性全部保留（现有事件绑定依赖）；aria-pressed 表达收藏态。
     const favBtn = `<button class="card-action-btn card-favorite${isFav ? " is-fav" : ""}" type="button" data-fav-id="${escapeHtml(asset.id)}" aria-pressed="${Boolean(isFav)}" aria-label="${escapeHtml(favoriteLabel)}" title="${escapeHtml(favoriteLabel)}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.95 5.97 6.59.96-4.77 4.65 1.13 6.57L12 17.57l-5.9 3.08 1.13-6.57-4.77-4.65 6.59-.96L12 2.5z"/></svg></button>`;
-    const copyBtn = `<button class="card-action-btn card-quick-copy" type="button" data-copy="${escapeHtml(asset.prompt || "")}" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button>`;
+    const copyBtn = `<button class="card-action-btn card-quick-copy" type="button" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button>`;
     const cardActions = `<div class="card-actions">${favBtn}${copyBtn}</div>`;
     return {
       id: asset.id,
@@ -1720,14 +1920,17 @@ function renderGrid() {
   });
   // Populated renders are reconciled by asset id. Unchanged cards keep their
   // decoded media and DOM nodes; only changed/new cards are recreated.
-  const isAppendMode = animate && animateFrom > 0;
   const scrollContainer = els.assetGrid;
   const savedScrollTop = (isAppendMode || preserveScroll) ? scrollContainer.scrollTop : null;
   if (!preserveScroll && !isAppendMode) scrollContainer.scrollTop = 0;
   const previousDensity = els.assetGrid.dataset.renderedDensity || "";
-  const { changedCards, replacedFocusedCard } = reconcileAssetCards(cards);
+  const appendChangedCards = canAppendFast ? appendAssetCards(cards) : null;
+  const reconciliation = canAppendFast
+    ? { changedCards: appendChangedCards, replacedFocusedCard: false }
+    : reconcileAssetCards(cards);
+  const { changedCards, replacedFocusedCard } = reconciliation;
   els.assetGrid.dataset.renderedDensity = state.galleryDensity;
-  const requiresFullMasonry = previousDensity !== state.galleryDensity || changedCards.length >= state.assets.length;
+  const requiresFullMasonry = !canAppendFast && (previousDensity !== state.galleryDensity || changedCards.length >= state.assets.length);
   setupMasonryLayout(requiresFullMasonry ? {} : { cards: changedCards, full: false });
   // Restore on the next frame once replacement cards have restored enough
   // scroll height for the prior position to be valid again. Clamp when a
@@ -1774,7 +1977,7 @@ async function selectAsset(id, shouldScroll = false) {
   // Phase 5B context guard：确认期间 Detail 选择已变化时安全取消，旧确认结果不操作新素材。
   if (originAssetId !== null && !isCurrentDetailSelection(originProjectId, originAssetId)) return;
   discardDetailDraft();
-  state.selectedId = id; state.detailAsset = null; state.versionHistory = null; state.recipeHistory = null; setDetailOpen(true); updateSelectedCard();
+  state.selectedId = id; state.detailAsset = null; state.versionHistory = null; state.recipeHistory = null; state.generationHistory = null; setDetailOpen(true); updateSelectedCard();
   if (shouldScroll) els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
@@ -1783,6 +1986,7 @@ function clearDetailSelection() {
   state.detailAsset = null;
   state.versionHistory = null;
   state.recipeHistory = null;
+  state.generationHistory = null;
 }
 
 // ===== Inspector auto-save =====
@@ -2178,7 +2382,7 @@ function openImagePreview(id, trigger) {
   resetImageZoom();
   state.previewReturnFocus = trigger instanceof HTMLElement ? trigger : document.activeElement;
   state.previewReturnFocusAssetId = trigger?.closest?.(".asset-card")?.dataset.id || asset.id;
-  els.imagePreviewTitle.textContent = asset.theme || asset.asset || asset.id;
+  els.imagePreviewTitle.textContent = displayAssetTitle(asset);
   els.imagePreviewStage?.setAttribute("aria-label", `${t("imagePreviewStage")}: ${els.imagePreviewTitle.textContent}`);
   if (isVideoAsset(asset)) {
     els.imagePreviewImage.hidden = true;
@@ -2195,8 +2399,8 @@ function openImagePreview(id, trigger) {
   els.imagePreviewImage.hidden = false;
   els.imagePreviewImage.style.removeProperty("width");
   els.imagePreviewImage.style.removeProperty("height");
-  els.imagePreviewImage.src = asset.image_url;
-  els.imagePreviewImage.alt = asset.theme || asset.asset || asset.id;
+  els.imagePreviewImage.src = asset.preview_url || asset.image_url;
+  els.imagePreviewImage.alt = displayAssetTitle(asset);
   els.imagePreviewModal.hidden = false;
   requestAnimationFrame(fitImagePreview);
   requestAnimationFrame(() => els.closeImagePreview?.focus());
@@ -2280,8 +2484,9 @@ function renderDetail() {
   if (!asset) { detailRenderedAssetId = null; els.detailPanel.innerHTML = `<div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t(state.assets.length ? "noSelection" : "noAssets")}</p><span>${t(state.assets.length ? "noSelectionHint" : "noAssetsHint")}</span></div>`; return; }
   const cachedHistory = versionHistoryForAsset(asset);
   const cachedRecipeHistory = recipeHistoryForAsset(asset) || recipeHistoryFromAsset(asset);
+  const cachedGenerationHistory = generationHistoryForAsset(asset);
   // Library v2 保持单层详情容器：语义区块直接进入唯一滚动列，不再额外包卡片壳。
-  els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}</div></div>`;
+  els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}</div></div>`;
   const previewAspect = els.detailPanel.querySelector("[data-detail-preview-aspect]");
   if (previewAspect?.dataset.detailPreviewAspect) {
     previewAspect.style.setProperty("--detail-preview-aspect", previewAspect.dataset.detailPreviewAspect);
@@ -2304,6 +2509,7 @@ function renderDetail() {
   bindReferenceThumbnailFallbacks(els.detailPanel);
   bindVersionPickerEvents();
   bindVersionHistoryEvents(cachedHistory);
+  bindGenerationHistoryEvents(cachedGenerationHistory, asset.id);
   bindRecipeHistoryEvents(cachedRecipeHistory, asset);
   detailRenderedAssetId = asset.id;
   if (hadPanelFocus) els.detailPanel.querySelector("#detailTitle")?.focus();
@@ -2313,6 +2519,288 @@ function renderDetail() {
   // 语言切换）时不重发两个历史请求；导航换素材时缓存已被清空，照常拉取。
   if (!cachedHistory) void loadVersionHistory(asset);
   if (!cachedRecipeHistory) void loadRecipeHistory(asset);
+  if (!cachedGenerationHistory) void loadGenerationHistory(asset);
+}
+
+let generationHistoryRequestSequence = 0;
+function generationHistoryForAsset(asset) {
+  const history = state.generationHistory;
+  return history?.project_id === asset.project_id && history?.asset_id === asset.id ? history : null;
+}
+async function loadGenerationHistory(asset, options = {}) {
+  const requestId = ++generationHistoryRequestSequence;
+  const selectedKey = `${asset.project_id}\u0000${asset.id}`;
+  try {
+    const result = await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/generation-history`);
+    if (requestId !== generationHistoryRequestSequence || `${state.project}\u0000${state.selectedId}` !== selectedKey) return;
+    state.generationHistory = result.history;
+    renderGenerationHistoryRegion(result.history, asset.id, null, options);
+  } catch (error) {
+    if (requestId !== generationHistoryRequestSequence || `${state.project}\u0000${state.selectedId}` !== selectedKey) return;
+    renderGenerationHistoryRegion(null, asset.id, error);
+  }
+}
+function renderGenerationHistoryRegion(history, selectedId, error = null, options = {}) {
+  const region = els.detailPanel?.querySelector("[data-generation-history]");
+  if (!region || state.selectedId !== selectedId) return;
+  region.innerHTML = error
+    ? `<p class="generation-history-status error" role="status">${escapeHtml(t("generationHistoryLoadFailed"))}: ${escapeHtml(error.message)}</p>`
+    : generationHistoryMarkup(history, selectedId);
+  if (error) return;
+  bindGenerationHistoryEvents(history, selectedId);
+  for (const generationId of options.openGenerationIds || []) {
+    const node = region.querySelector(`[data-generation-id="${CSS.escape(String(generationId))}"]`);
+    if (node instanceof HTMLDetailsElement) node.open = true;
+  }
+}
+
+function generationHistoryEvent(history, generationId) {
+  return [...(history?.events || []), ...(history?.context_events || [])]
+    .find((event) => event.id === generationId) || null;
+}
+
+function openGenerationNodeIds(region) {
+  return [...(region?.querySelectorAll?.("[data-generation-id][open]") || [])]
+    .map((node) => node.dataset.generationId)
+    .filter(Boolean);
+}
+
+async function openGenerationOutputAsset(outputAssetId) {
+  const cleanAssetId = String(outputAssetId || "").trim();
+  if (!cleanAssetId || cleanAssetId === state.selectedId) return;
+  const originProjectId = state.project;
+  const originAssetId = state.selectedId;
+  if (!await confirmDetailNavigation(cleanAssetId)) return;
+  if (originAssetId !== null && !isCurrentDetailSelection(originProjectId, originAssetId)) return;
+
+  let target = state.assets.find((asset) => asset.id === cleanAssetId && asset.project_id === originProjectId) || null;
+  if (!target) {
+    const result = await apiFetch(`/api/assets/${encodeURIComponent(originProjectId)}/${encodeURIComponent(cleanAssetId)}`);
+    if (originAssetId !== null && !isCurrentDetailSelection(originProjectId, originAssetId)) return;
+    target = result.asset || null;
+  }
+  if (!target) throw new Error(t("generationOpenAssetFailed"));
+
+  discardDetailDraft();
+  state.selectedId = cleanAssetId;
+  state.detailAsset = state.assets.some((asset) => asset.id === cleanAssetId && asset.project_id === originProjectId) ? null : target;
+  state.versionHistory = null;
+  state.recipeHistory = null;
+  state.generationHistory = null;
+  setDetailOpen(true);
+  updateSelectedCard();
+}
+
+async function showGenerationEventContext(history, generationId) {
+  const generation = generationHistoryEvent(history, generationId);
+  const conversationId = String(generation?.conversation_id || "").trim();
+  if (!generation || !conversationId) return;
+  const originProjectId = state.project;
+  const originAssetId = state.selectedId;
+  if (!await confirmDetailNavigation(null)) return;
+  if (originAssetId !== null && !isCurrentDetailSelection(originProjectId, originAssetId)) return;
+  discardDetailDraft();
+  state.scope = "all";
+  state.mediaKind = "all";
+  clearFacets();
+  state.facets.conversation = conversationId;
+  if (generation.message_id) state.facets.generationBatch = generation.message_id;
+  applyFilterChange();
+}
+
+function bindGenerationHistoryEvents(history, selectedAssetId) {
+  const region = els.detailPanel?.querySelector("[data-generation-history]");
+  if (!region || !history || state.selectedId !== selectedAssetId) return;
+  if (region.dataset.generationEventsBound === "true") return;
+  region.dataset.generationEventsBound = "true";
+  region.addEventListener("click", (event) => {
+    const activeHistory = state.generationHistory;
+    const activeSelectedAssetId = state.selectedId;
+    if (!activeHistory || !activeSelectedAssetId) return;
+    const button = event.target.closest?.("button[data-action]");
+    if (!button || !region.contains(button)) return;
+    const action = button.dataset.action;
+    if (action === "open-generation-output") {
+      runAction(() => openGenerationOutputAsset(button.dataset.outputAssetId));
+      return;
+    }
+    if (action === "view-generation-context") {
+      runAction(() => showGenerationEventContext(activeHistory, button.dataset.generationId));
+      return;
+    }
+    if (action === "confirm-generation-relation-candidate") {
+      runAction(async () => {
+        const childGenerationId = String(button.dataset.childGenerationId || "");
+        const parentGenerationId = String(button.dataset.parentGenerationId || "");
+        const relationType = String(button.dataset.relationType || "based_on");
+        if (!childGenerationId || !parentGenerationId) return;
+        const inferred = (activeHistory.relation_candidates || []).find((candidate) => (
+          candidate.child_generation_id === childGenerationId
+          && candidate.parent_generation_id === parentGenerationId
+          && (candidate.suggested_relation_type || candidate.relation_type) === relationType
+        ));
+        button.disabled = true;
+        try {
+          await apiFetch("/api/generation-relations", {
+            method: "POST",
+            body: {
+              projectId: state.project,
+              childGenerationId,
+              parentGenerationId,
+              relationType,
+              verificationLevel: "user_confirmed",
+              evidence: {
+                ...(inferred?.evidence || {}),
+                source: "asset-inspector-reference-candidate",
+                user_confirmed_relation: true,
+              },
+            },
+          });
+          showToast(t("generationRelationSaved"), "success");
+          const current = selectedAsset();
+          if (current?.id === activeSelectedAssetId) {
+            await loadGenerationHistory(current, {
+              openGenerationIds: [...new Set([
+                ...openGenerationNodeIds(region),
+                childGenerationId,
+                parentGenerationId,
+              ])],
+            });
+          }
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+      return;
+    }
+    if (action === "dismiss-generation-relation-candidate") {
+      runAction(async () => {
+        const childGenerationId = String(button.dataset.childGenerationId || "");
+        const parentGenerationId = String(button.dataset.parentGenerationId || "");
+        if (!childGenerationId || !parentGenerationId) return;
+        button.disabled = true;
+        try {
+          await apiFetch("/api/generation-relation-candidates", {
+            method: "PATCH",
+            body: {
+              projectId: state.project,
+              childGenerationId,
+              parentGenerationId,
+              status: "dismissed",
+            },
+          });
+          const current = selectedAsset();
+          if (current?.id === activeSelectedAssetId) {
+            await loadGenerationHistory(current, { openGenerationIds: openGenerationNodeIds(region) });
+          }
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+      return;
+    }
+    if (action === "create-generation-relation") {
+      const form = button.closest("[data-generation-link-form]");
+      if (!form) return;
+      runAction(async () => {
+        const anchorGenerationId = String(form.dataset.anchorGenerationId || "");
+        const candidateGenerationId = String(form.querySelector("[data-generation-link-candidate]")?.value || "");
+        const direction = String(form.querySelector("[data-generation-link-direction]")?.value || "candidate-parent");
+        const relationType = String(form.querySelector("[data-generation-link-type]")?.value || "edited_from");
+        if (!anchorGenerationId || !candidateGenerationId) return;
+        const childGenerationId = direction === "candidate-child" ? candidateGenerationId : anchorGenerationId;
+        const parentGenerationId = direction === "candidate-child" ? anchorGenerationId : candidateGenerationId;
+        button.disabled = true;
+        try {
+          await apiFetch("/api/generation-relations", {
+            method: "POST",
+            body: {
+              projectId: state.project,
+              childGenerationId,
+              parentGenerationId,
+              relationType,
+              verificationLevel: "user_confirmed",
+              evidence: { source: "asset-inspector", user_selected_relation: true },
+            },
+          });
+          showToast(t("generationRelationSaved"), "success");
+          const current = selectedAsset();
+          if (current?.id === activeSelectedAssetId) {
+            const openGenerationIds = [...new Set([...openGenerationNodeIds(region), anchorGenerationId, candidateGenerationId])];
+            await loadGenerationHistory(current, { openGenerationIds });
+          }
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+      return;
+    }
+    if (action === "save-generation-relation") {
+      const row = button.closest("[data-generation-relation-row]");
+      if (!row) return;
+      runAction(async () => {
+        const childGenerationId = String(row.dataset.childGenerationId || "");
+        const parentGenerationId = String(row.dataset.parentGenerationId || "");
+        const previousRelationType = String(row.dataset.previousRelationType || "");
+        const relationType = String(row.querySelector("[data-generation-relation-type]")?.value || previousRelationType);
+        const existing = (activeHistory.relations || []).find((relation) => relation.child_generation_id === childGenerationId
+          && relation.parent_generation_id === parentGenerationId
+          && relation.relation_type === previousRelationType);
+        button.disabled = true;
+        try {
+          await apiFetch("/api/generation-relations", {
+            method: "PATCH",
+            body: {
+              projectId: state.project,
+              childGenerationId,
+              parentGenerationId,
+              previousRelationType,
+              relationType,
+              verificationLevel: "user_confirmed",
+              evidence: { ...(existing?.evidence || {}), source: "asset-inspector", user_confirmed_relation: true },
+            },
+          });
+          showToast(t("generationRelationSaved"), "success");
+          const current = selectedAsset();
+          if (current?.id === activeSelectedAssetId) await loadGenerationHistory(current, { openGenerationIds: openGenerationNodeIds(region) });
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+      return;
+    }
+    if (action === "delete-generation-relation") {
+      const row = button.closest("[data-generation-relation-row]");
+      if (!row) return;
+      runAction(async () => {
+        const originProjectId = state.project;
+        const childGenerationId = String(row.dataset.childGenerationId || "");
+        const parentGenerationId = String(row.dataset.parentGenerationId || "");
+        const relationType = String(row.dataset.previousRelationType || "");
+        const confirmed = await requestConfirmation({
+          title: t("generationRelationDeleteTitle"),
+          description: t("generationRelationDeleteDescription"),
+          confirmLabel: t("generationRelationDeleteAction"),
+          tone: "warning",
+          returnFocus: button,
+          contextKey: `${originProjectId}:${activeSelectedAssetId}:${childGenerationId}:${parentGenerationId}:${relationType}`,
+        });
+        if (!confirmed || !isCurrentDetailSelection(originProjectId, activeSelectedAssetId)) return;
+        button.disabled = true;
+        try {
+          await apiFetch("/api/generation-relations", {
+            method: "DELETE",
+            body: { projectId: originProjectId, childGenerationId, parentGenerationId, relationType },
+          });
+          showToast(t("generationRelationDeleted"), "success");
+          const current = selectedAsset();
+          if (current?.id === activeSelectedAssetId) await loadGenerationHistory(current, { openGenerationIds: openGenerationNodeIds(region) });
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+    }
+  });
 }
 
 let versionHistoryRequestSequence = 0;
@@ -2382,6 +2870,7 @@ async function selectDetailVersion(versionId, options = {}) {
   state.selectedId = target.id;
   state.detailAsset = target;
   state.recipeHistory = null;
+  state.generationHistory = null;
   updateSelectedCard();
   renderDetail();
   const scroller = els.detailPanel?.querySelector(".detail-inspector-scroll");
@@ -2817,7 +3306,12 @@ function regenerationInstruction(asset, snapshot) {
     provider: recipe.provider,
     task_id: provenance.task_id,
     session_id: provenance.session_id,
-    generation_call_id: provenance.generation_call_id,
+    capture_context_id: provenance.capture_context_id,
+    provider_tool_call_id: provenance.provider_tool_call_id,
+    provider_generation_call_id: provenance.provider_generation_call_id,
+    provider_response_id: provenance.provider_response_id,
+    provider_asset_id: provenance.provider_asset_id,
+    verification_level: provenance.verification_level,
     source_recipe_snapshot_id: recipe.snapshot_id,
   }).filter(([, value]) => value));
   return [

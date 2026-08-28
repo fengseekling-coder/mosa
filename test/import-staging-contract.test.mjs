@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, symlink, utimes, writeFile } from "node:f
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
+import { Readable } from "node:stream";
 import test from "node:test";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
 import {
@@ -14,6 +15,7 @@ import {
   removeStagedImport,
   STAGING_EXTENSIONS,
   stageFileForImport,
+  stageReadableForImport,
   writeStagedPng,
 } from "../lib/import-staging.mjs";
 import { SUPPORTED_MEDIA_EXTENSIONS } from "../lib/asset-store.mjs";
@@ -62,6 +64,36 @@ test("external plain PNG is copied into the staging root (original untouched)", 
   assert.equal(sha256(await readFile(staged)), sha256(ONE_PIXEL_PNG), "staged copy must match source bytes");
   assert.equal(sha256(await readFile(sourcePath)), sha256(ONE_PIXEL_PNG), "original must be untouched");
   assert.equal(existsSync(sourcePath), true);
+});
+
+test("browser upload bytes stream into generated staging without a local path", async (t) => {
+  const dir = await makeWorkspace(t, "mosa-stage-stream-");
+  const stagingRoot = importStagingDir(join(dir, "library", "assets"));
+  const staged = await stageReadableForImport({
+    readable: Readable.from([ONE_PIXEL_PNG]),
+    fileName: "picked.png",
+    stagingRoot,
+  });
+
+  assert.ok(isWithinStagingRoot(stagingRoot, staged));
+  assert.match(basename(staged), /^import-\d+-[0-9a-f]{8}\.png$/);
+  assert.equal(sha256(await readFile(staged)), sha256(ONE_PIXEL_PNG));
+});
+
+test("browser upload streaming enforces the byte cap and removes partial output", async (t) => {
+  const dir = await makeWorkspace(t, "mosa-stage-stream-limit-");
+  const stagingRoot = importStagingDir(join(dir, "library", "assets"));
+  await assert.rejects(
+    () => stageReadableForImport({
+      readable: Readable.from([Buffer.alloc(8)]),
+      fileName: "too-large.png",
+      stagingRoot,
+      maxBytes: 4,
+    }),
+    (error) => { assertStagingError(error, "STAGING_FILE_TOO_LARGE"); return true; },
+  );
+  const { readdir } = await import("node:fs/promises");
+  assert.deepEqual(await readdir(stagingRoot), [], "failed upload must not leave a partial staging file");
 });
 
 test("staged file name is generated, unique, and cannot traverse directories", async (t) => {
@@ -306,6 +338,27 @@ test("Web/server mode without a staging root keeps the default boundary", async 
   assert.match(result.body.error, /outside the project roots/);
 });
 
+test("Web manual upload stages bytes then creates an asset without local path access", async (t) => {
+  const userDataDir = await makeWorkspace(t, "mosa-stage-web-upload-");
+  const runtime = await startAuditRuntime(t, { userDataDir, withStagingRoot: false });
+  const stageResponse = await fetch(`${runtime.url}/api/import/stage`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "image/png",
+      "x-mosa-file-name": encodeURIComponent("manual-upload.png"),
+    },
+    body: ONE_PIXEL_PNG,
+  });
+  assert.equal(stageResponse.status, 201);
+  const staged = await stageResponse.json();
+  assert.equal(typeof staged.path, "string");
+  assert.equal(existsSync(staged.path), true, "stage endpoint persists the selected bytes");
+
+  const created = await createViaApi(runtime, staged.path);
+  assert.equal(created.status, 200, JSON.stringify(created.body));
+  await waitFor(async () => !existsSync(staged.path));
+});
+
 // ── batch 1.1: one format set, visible failures ──────────────────────────────
 
 test("staging extensions mirror the store's supported media set exactly", () => {
@@ -342,7 +395,7 @@ test("staging failure propagates via IPC rejection without the raw path", async 
   assert.doesNotMatch(dialog, /return staged/, "no partial-result return");
 });
 
-test("drag/drop pattern matches the store set and renderer failures are visible", async () => {
+test("manual picker/drop pattern matches the store set and stages through the local runtime", async () => {
   const app = await readFile(join(root, "app", "app.mjs"), "utf8");
   const pattern = app.match(/\/\\\.\(([a-z0-9|?]+)\)\$\/i/);
   assert.ok(pattern, "drop extension pattern must exist");
@@ -358,10 +411,11 @@ test("drag/drop pattern matches the store set and renderer failures are visible"
     .sort();
   assert.deepEqual(dropSet, SUPPORTED_MEDIA_EXTENSIONS, "drag/drop must accept exactly the store set");
 
-  const browse = app.match(/#browseFileBtn[\s\S]*?\n  }\);/)[0];
-  assert.match(browse, /try \{/, "browse handler must catch");
-  assert.match(browse, /catch \{/, "browse handler must catch");
-  assert.match(browse, /showToast\(t\("fileSelectionFailed"\), "error"\)/, "visible failure toast");
+  assert.match(app, /els\.browseFileBtn\?\.addEventListener\("click"/, "upload region opens the native file input");
+  assert.match(app, /els\.importFileInput\.click\(\)/, "browse click delegates to the file input");
+  assert.match(app, /els\.importFileInput\?\.addEventListener\("change"/, "selected files enter the preparation path");
+  assert.match(app, /fetch\("\/api\/import\/stage"/, "manual files stream to the local staging endpoint");
+  assert.match(app, /showToast\(error\?\.message \|\| t\("fileSelectionFailed"\), "error"\)/, "staging failure is visible");
 
   const i18n = await readFile(join(root, "app", "i18n.mjs"), "utf8");
   assert.equal((i18n.match(/fileSelectionFailed:/g) || []).length, 2, "zh + en keys exist");
@@ -369,7 +423,7 @@ test("drag/drop pattern matches the store set and renderer failures are visible"
 
 // ── batch 1.2: drag & drop staging ───────────────────────────────────────────
 
-test("drag & drop paths are staged in the main process, never handed to the renderer", async () => {
+test("Electron bridge keeps raw-path isolation while manual drag/drop uses unified server staging", async () => {
   const [preload, main, app] = await Promise.all([
     readFile(join(root, "desktop", "preload.cjs"), "utf8"),
     readFile(join(root, "desktop", "main.mjs"), "utf8"),
@@ -395,13 +449,14 @@ test("drag & drop paths are staged in the main process, never handed to the rend
   assert.match(handler, /console\.error/, "main-process diagnostics are kept");
   assert.match(handler, /throw new Error\(`import-staging failed \(\$\{error\?\.code/, "failure rejects with a sanitized error");
 
-  // app: the drop handler awaits staging and never falls back to File.path in
-  // Electron (File.path would be exactly the raw path this batch removes).
+  // Manual drop no longer depends on Electron userData staging. This keeps Web
+  // and Electron on one path and avoids trust mismatches when Electron attaches
+  // to an already-running MOSA runtime.
   assert.match(app, /async function droppedFilePath\(file\)/, "droppedFilePath must be async");
   assert.match(app, /await window\.electronAPI\.getPathForFile\(file\)/, "renderer awaits the staged path");
   assert.match(app, /library\.addEventListener\("drop", async \(e\) => \{/, "drop handler must await staging");
-  assert.match(app, /filePath = await droppedFilePath\(file\);/, "drop handler consumes the staged path");
-  assert.match(app, /showToast\(t\("fileSelectionFailed"\), "error"\);/, "staging failure is visible to the user");
+  assert.match(app, /const prepared = await prepareImportFile\(file\);/, "drop handler uses the unified preparation path");
+  assert.match(app, /filePath = await stageBrowserFile\(file\);/, "manual import streams selected bytes through the runtime");
   const electronBranch = app.slice(app.indexOf("async function droppedFilePath"), app.indexOf("// 纯浏览器回退"));
   assert.doesNotMatch(electronBranch, /file\.path/, "Electron branch must never fall back to the raw File.path");
 });
@@ -412,18 +467,14 @@ test("drop failures clear the live region and never open an empty import modal",
   const app = await readFile(join(root, "app", "app.mjs"), "utf8");
   const drop = app.match(/library\.addEventListener\("drop", async \(e\) => \{[\s\S]*?\n  }\);/)[0];
 
-  // staging 异常：必须清空 live region 后 toast，绝不落入打开 Modal 的路径。
-  const catchBlock = drop.slice(drop.indexOf("} catch {"), drop.indexOf("if (!filePath)"));
-  assert.match(catchBlock, /announceGalleryStatus\(""\);/, "staging failure clears the live region");
-  assert.match(catchBlock, /showToast\(t\("fileSelectionFailed"\), "error"\);/, "staging failure shows the visible toast");
+  assert.match(drop, /const prepared = await prepareImportFile\(file\);/);
+  assert.match(drop, /announceGalleryStatus\(""\);/, "drop completion always clears the persistent live-region message");
+  assert.match(drop, /if \(!prepared\) return;/, "failed preparation stops the drop flow");
 
-  // 无路径：先清空并 return，openImportModal 必须位于该 return 之后。
-  const noPathBlock = drop.slice(drop.indexOf("if (!filePath)"));
-  assert.match(noPathBlock, /announceGalleryStatus\(""\);/, "no-path branch clears the live region");
-  assert.match(noPathBlock, /showToast\(t\("dropPathUnavailable"\), "error"\);/, "no-path branch shows the unavailable toast");
-  const modalOpenIndex = noPathBlock.indexOf("openImportModal();");
-  const noPathReturnIndex = noPathBlock.indexOf("return;");
-  assert.ok(modalOpenIndex > noPathReturnIndex, "openImportModal must run only after the no-path return");
+  const prepare = app.slice(app.indexOf("async function prepareImportFile"), app.indexOf("// ===== Drag & Drop ====="));
+  assert.match(prepare, /catch \(error\) \{/, "staging failures are caught centrally");
+  assert.match(prepare, /showToast\(error\?\.message \|\| t\("fileSelectionFailed"\), "error"\)/, "staging failure shows visible feedback");
+  assert.match(prepare, /if \(!filePath\) \{[\s\S]*?return false;/, "an empty staged path never opens the modal");
 
   // 无文件：清空持久 live region，不留误导性的"已收到文件"。
   const noFilesBlock = drop.slice(drop.indexOf("if (!files || !files.length)"), drop.indexOf("const file = files[0];"));

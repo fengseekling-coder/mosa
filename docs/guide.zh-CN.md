@@ -18,15 +18,21 @@ MOSA 采用 [PolyForm Noncommercial License 1.0.0](../LICENSE)，属于源码可
 - **网页生图扩展**可选，用于把 ChatGPT、Gemini、Flow 和 Google AI Studio 的网页成图及其可用上下文发送到本机 MOSA。
 - **MOSA** 负责自动收集、归档、检索和版本管理。
 
-MOSA 当前是绑定 `127.0.0.1` 的本地 Web 应用，也可从源码启动开发用的 Electron 桌面壳；仓库尚未发布签名或公证的安装包。它不是云服务，不包含额外 AI 模型、Embedding 搜索或远程同步，也不调用 Grok API，也不应通过公网或反向代理暴露。
+MOSA 当前是绑定 `127.0.0.1` 的本地 Web 应用，也提供共享同一套 UI/Runtime 的 Electron 桌面壳。macOS arm64 是现有桌面开发目标，Windows 10/11 x64 已进入 Preview/Testing；仓库尚未发布正式签名安装器。它不是云服务，不包含额外 AI 模型、Embedding 搜索或远程同步，也不调用 Grok API，也不应通过公网或反向代理暴露。
 
 ## 环境要求
 
-- macOS、Node.js 22 或更高版本、npm。
+- 源码模式需要 Node.js 22 或更高版本、npm；桌面开发目前覆盖 macOS arm64 与 Windows 10/11 x64。
 - 要自动归档 Codex 生图，需要安装 Codex Desktop。
 - 要自动归档 Grok 媒体，需要本机已登录并可写入 `~/.grok/sessions` 的 Grok Build CLI。
 - Cowart 自动归档需要安装 Cowart 插件；不使用 Cowart 时不影响 MOSA 的其他功能。
-- 网页生图归档需要 Chrome，并且必须显式配置随机 `MOSA_WEB_CAPTURE_TOKEN` 与扩展来源 `MOSA_WEB_CAPTURE_ORIGINS`。
+- 网页生图归档需要 Chrome。使用 MOSA Desktop App 时会自动生成本机 Token、授权官方固定扩展来源并完成本地配对；仅源码 `npm start` 模式需要手工配置 `MOSA_WEB_CAPTURE_TOKEN` 与 `MOSA_WEB_CAPTURE_ORIGINS`。
+
+### Windows 10/11 x64 Preview 状态
+
+当前 Windows 真机已经验证：`MOSA.exe` 启动、本地 SQLite、Sharp 原生图像处理、素材库/资产检视器，以及 Codex 素材自动收录。Windows 使用原生标题栏，但隐藏 Electron 默认菜单栏；菜单 accelerator 仍保留。
+
+Windows 上的 Grok/Cowart 来源目录尚未完成真机验证，暂不把推测路径写成正式默认值。Windows 安装器、代码签名和自动更新也仍属于发布阶段工作，因此当前 Windows 构建应视为测试版，而不是正式发行版。
 
 ## 本地启动
 
@@ -77,11 +83,15 @@ npm exec mosa -- thumbnails rebuild --library /absolute/path/to/library
 
 服务运行时，MOSA 只监听 `~/.codex/generated_images/`。它会匹配对应 Codex 任务的本地会话 JSONL：优先保存生图事件中的 `revised_prompt`，缺失时才回退保存任务最后一条用户指令，并明确记录 Prompt 的来源状态。
 
+Windows 10/11 x64 真机已经验证 Codex 自动收录链路可工作。来源路径仍通过统一的 source-location resolver 处理；后续若 Codex 官方 Windows 存储布局发生变化，应以真机检测结果为准，而不是在业务代码中散落平台判断。
+
 MOSA 不扫描 Downloads、桌面或任意本地图片目录。原图在同一文件系统时优先硬链接入库，跨文件系统时才复制。
 
 ### 网页生图
 
-Web Capture 是可选功能。先在 Chrome 加载一次扩展并复制扩展 ID，再启动 MOSA：
+Web Capture 是可选功能。使用 Desktop App 时，只需加载官方扩展并打开 MOSA；扩展会自动发现 `127.0.0.1` 上的 MOSA discovery 端口并配对。如果首选端口被占用，Desktop 与扩展会自动切换到备用端口。
+
+如果你从源码使用 `npm start` 启动独立 Web Runtime，则仍需手工配置：
 
 ```bash
 MOSA_WEB_CAPTURE_TOKEN='replace-with-a-random-secret' \
@@ -89,7 +99,7 @@ MOSA_WEB_CAPTURE_ORIGINS='chrome-extension://replace-with-extension-id' \
 npm start
 ```
 
-在扩展选项中填写实际 MOSA 地址和同一个 Token。未配置 Token 时服务端保持禁用；来源不在精确白名单中时，跨来源请求会被拒绝。
+Desktop 模式下扩展选项会自动得到实际 MOSA 地址和 Token，通常无需手填。源码 Web Runtime 中，未配置 Token 时服务端保持禁用；来源不在精确白名单中时，跨来源请求会被拒绝。
 
 扩展只向所配置的 `127.0.0.1` 或 `localhost` MOSA 地址发送图片字节和页面来源信息。ChatGPT 在可用时还会发送匹配到的 Prompt/用户消息、会话/消息 ID 与模型信息；Gemini 仅保存生成图所属 `model-response` 前、同一局部消息结构里的最近可见 `user-query`；Flow 仅在同一可见媒体卡片有唯一「Reuse Prompt」控件时保存其相邻可见 Prompt；Google AI Studio 仅保存图片所在会话内、图片 Model 回合之前最近的页面可见用户 Prompt 回合。三者都明确标为未验证实际生图提示词。扩展不读取 Google 站点的会话接口、登录凭据、隐藏提示词、输入编辑器或模型思考；若图片先于可匹配 Prompt 完成渲染，只会对同一图片的局部关联信息进行有界重试。地址、Token 与自动采集开关保存在 Chrome 本地存储，不使用同步存储。完整边界见 [隐私说明](../PRIVACY.md) 和 [扩展指南](../extensions/chatgpt-web-capture/README.md)。
 
@@ -129,9 +139,31 @@ asset_duplicate
 asset_version_create
 asset_version_history
 asset_recipe_history
+generation_record
+generation_list
+generation_relation_record
+generation_lineage
 ```
 
 `asset_list` 和 `GET /api/assets` 支持 `limit` 与 `cursor` 分页，默认 100 条、最大 250 条。创建子版本时，使用 `asset_version_create` 并传入真实图片路径和非空 `version_change`；需要读取某个素材的不可变配方快照历史时，使用 `asset_recipe_history`。
+
+生成历史与素材版本是两套关系。`generation_record` 记录一次独立生成，即使输出图片已经被内容去重；`generation_relation_record` 只在有明确证据时记录 `edited_from`、`variant_of`、`derived_from` 或 `based_on`；`generation_lineage` 读取相连的生成图。普通 MCP 调用方不能把记录标成 `provider_verified`，该等级只保留给 MOSA 直接接入并验证 provider 响应的受信集成。
+
+本地 HTTP 运行时同时提供：
+
+```text
+GET  /api/generations
+POST /api/generations
+POST /api/generation-relations
+PATCH /api/generation-relations
+DELETE /api/generation-relations
+PATCH /api/generation-relation-candidates
+GET  /api/generations/:generationId/lineage
+```
+
+`GET /api/generations` 可按 `project`、`asset`、`captureContext`、`providerToolCallId`、`providerGenerationCallId` 过滤。`PATCH /api/generation-relations` 可修正用户可管理的关系类型，`DELETE /api/generation-relations` 可解除错误关系；`provider_verified` 关系不能通过这些公共管理接口修改或删除。HTTP API 与 MCP 使用相同的 verification 规则。
+
+资产检视器会把已确认的 Generation Relation 和“可能相关但尚未确认”的生成分开显示。ChatGPT Relation Resolver 会结合 conversation、生成先后、修改型提示词、参考图/provider asset 等信号保存 `relation_candidates` 和置信度，但不会仅凭这些线索自动写入版本树。用户可确认候选、手动选择其他父版本，或标记“无关联”；只有显式确认后才以 `user_confirmed` 关系进入生成谱系。被标记为无关联的候选会保留 dismissed 状态，后续解析不会反复建议同一对关系。生成树节点可打开对应输出素材、查看该 Generation Event 的会话/批次上下文，并管理非 `provider_verified` 的父子关系。
 
 ## 健康检查与维护
 

@@ -316,7 +316,8 @@ test("21. gallery cursor syncs", async () => {
   const load = functionBody(app, "loadNextAssetViewPage");
   assert.match(load, /state\.nextCursor = nextCursor;/, "gallery cursor mirrors the viewer cursor");
   assert.match(load, /state\.pageTotal = total;/, "gallery total mirrors the query total");
-  assert.match(load, /renderGrid\(\{ animate: true, animateFrom: previousLength \}\)/, "the grid re-renders the appended page");
+  assert.doesNotMatch(load, /renderGrid\(/, "hidden gallery is not rendered while the viewer is open");
+  assert.match(load, /assetViewGalleryDirty = true;/, "viewer marks the gallery for one deferred reconciliation on return");
   assert.match(load, /state\.loadedPageCount \+= 1;/, "the appended page counts towards loadedPageCount");
 });
 

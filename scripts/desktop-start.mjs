@@ -2,7 +2,8 @@
 /**
  * Dev launcher for `desktop:start`.
  *
- * On macOS 26.x, launching a GUI app (Electron) as a child of another GUI
+ * Windows uses Electron's normal direct launch path. On macOS 26.x, launching
+ * a GUI app (Electron) as a child of another GUI
  * app (ChatGPT/Codex) causes `_RegisterApplication` to abort() before any
  * JS runs.  Spotlight being disabled also breaks the `open` LaunchServices
  * path (kLSNoExecutableErr).
@@ -28,16 +29,20 @@ import { spawn, execFileSync } from "node:child_process";
 const __dirname = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const REPO_ROOT = resolve(__dirname, "..");
 
-const ELECTRON_BIN = join(
-  REPO_ROOT,
-  "node_modules",
-  "electron",
-  "dist",
-  "Electron.app",
-  "Contents",
-  "MacOS",
-  "Electron",
-);
+const ELECTRON_BIN = process.platform === "darwin"
+  ? join(
+      REPO_ROOT,
+      "node_modules",
+      "electron",
+      "dist",
+      "Electron.app",
+      "Contents",
+      "MacOS",
+      "Electron",
+    )
+  : process.platform === "win32"
+    ? join(REPO_ROOT, "node_modules", "electron", "dist", "electron.exe")
+    : "";
 
 const DESKTOP_SCRIPT = "desktop/main.mjs";
 const HEALTH_URL = "http://127.0.0.1:43517/api/health";
@@ -144,9 +149,12 @@ async function waitForHealth(url, timeoutMs) {
 }
 
 async function main() {
+  if (!ELECTRON_BIN) {
+    throw new Error(`desktop:start supports macOS and Windows only; current platform is ${process.platform}.`);
+  }
   if (!existsSync(ELECTRON_BIN)) {
     throw new Error(
-      `Electron binary not found at ${ELECTRON_BIN}. Run \`npm install\` first.`,
+      `Electron binary not found at ${ELECTRON_BIN}. Run \`npm ci\` first.`,
     );
   }
 
@@ -164,6 +172,12 @@ async function main() {
   }
 
   console.log("Launching MOSA desktop...");
+
+  if (process.platform === "win32") {
+    console.log("  Using the native Windows Electron launch path...");
+    await launchDirect();
+    return;
+  }
 
   // Strategy 1: LaunchServices `open -n` on a temp .app wrapper.
   console.log("  Trying LaunchServices (open -n)...");
