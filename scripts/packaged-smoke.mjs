@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,16 +45,54 @@ try {
   if (health.product !== "mosa") throw new Error("Unexpected packaged product.");
   if (resolve(health.libraryDir) !== resolve(libraryDir)) throw new Error("Library isolation failed.");
   if (health.storage !== "sqlite") throw new Error(`Expected sqlite, got ${health.storage}`);
+  const expectedIdentity = JSON.parse(await readFile(resolve(rootDir, "app", "build-identity.json"), "utf8"));
+  if (health.gitSha !== expectedIdentity.gitSha || health.uiFingerprint !== expectedIdentity.uiFingerprint) {
+    throw new Error("Packaged build identity does not match the current source build.");
+  }
   const renderer = await waitForRenderer(`http://127.0.0.1:${port}`, cdpPort, child);
   if (!renderer.appShell) throw new Error("Packaged renderer did not mount the MOSA app shell.");
   if (!renderer.preload) throw new Error("Packaged renderer did not expose the Electron preload API.");
-  console.log(JSON.stringify({ ok: true, storage: health.storage, renderer: true, preload: true }));
+  const imported = await verifyPackagedImport(`http://127.0.0.1:${port}`);
+  console.log(JSON.stringify({ ok: true, storage: health.storage, renderer: true, preload: true, import: imported }));
 } catch (error) {
   const details = [stderr().trim(), stdout().trim()].filter(Boolean).join("\n");
   throw new Error(`${error instanceof Error ? error.message : String(error)}${details ? `\n${details}` : ""}`, { cause: error });
 } finally {
   await stopChild(child);
   await rm(temp, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+}
+
+async function verifyPackagedImport(origin) {
+  const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+1CBR3wAAAABJRU5ErkJggg==", "base64");
+  const stageResponse = await fetch(`${origin}/api/import/stage`, {
+    method: "POST",
+    headers: { "content-type": "image/png", "x-mosa-file-name": encodeURIComponent("packaged-smoke.png") },
+    body: bytes,
+  });
+  if (!stageResponse.ok) throw new Error(`Packaged import staging failed (${stageResponse.status}).`);
+  const staged = await stageResponse.json();
+  const createResponse = await fetch(`${origin}/api/assets/create`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: "default", imagePath: staged.path, prompt: "packaged smoke import" }),
+  });
+  if (!createResponse.ok) throw new Error(`Packaged asset creation failed (${createResponse.status}).`);
+  const created = await createResponse.json();
+  const assetId = created.asset?.id;
+  if (!assetId) throw new Error("Packaged asset creation returned no asset id.");
+  const end = Date.now() + 30000;
+  while (Date.now() < end) {
+    const assetResponse = await fetch(`${origin}/api/assets/default/${encodeURIComponent(assetId)}`);
+    if (assetResponse.ok) {
+      const asset = (await assetResponse.json()).asset;
+      if (asset?.thumbnail_url) {
+        const thumbnail = await fetch(`${origin}${asset.thumbnail_url}`);
+        if (thumbnail.ok && String(thumbnail.headers.get("content-type") || "").startsWith("image/")) return true;
+      }
+    }
+    await sleep(100);
+  }
+  throw new Error("Packaged derivative generation did not produce a readable thumbnail.");
 }
 
 function freePort() {
