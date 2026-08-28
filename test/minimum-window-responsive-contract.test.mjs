@@ -81,8 +81,8 @@ test("10-11. Finder IPC 收紧边界且其余 Desktop IPC 不变", async () => {
   for (const channel of ["open-file-dialog", "paste-image", "set-locale"]) {
     assert.match(main, new RegExp(`ipcMain\\.handle\\("${channel}"`));
   }
-  // P3-1 移除死通道 stage-dropped-file 后,preload 仅保留四个受控 invoke 通道。
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 4, "no invoke channel beyond the four currently approved narrow requests");
+  // 更新检查新增两个无任意 URL 参数的窄通道；其余能力仍保持封闭。
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 6, "no invoke channel beyond the six currently approved narrow requests");
 });
 
 test("12-14. 960 下 Sidebar 批准收敛规则与搜索可达", async () => {

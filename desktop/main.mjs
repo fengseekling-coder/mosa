@@ -8,9 +8,10 @@ import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
 import { parseDisabledBridges } from "../lib/runtime-bridges.mjs";
 import { cleanupOrphanStagedFiles, importStagingDir, stageFileForImport, STAGING_EXTENSIONS, writeStagedPng } from "../lib/import-staging.mjs";
 import { startMosaService } from "./service-manager.mjs";
-import { getDesktopText, getNotificationTextForAssetsImported } from "./notification-i18n.mjs";
+import { getDesktopText, getNotificationTextForAssetsImported, getUpdateNotificationText } from "./notification-i18n.mjs";
 import { loadOrCreateWebCaptureToken, MOSA_WEB_CAPTURE_EXTENSION_ORIGIN } from "./web-capture-pairing.mjs";
 import { desktopPlatformAdapter } from "./platform/index.mjs";
+import { checkForMosaUpdate, MOSA_DOWNLOAD_PAGE_URL } from "./update-service.mjs";
 import { resolveAllowedFolderPath } from "../lib/server-security.js";
 import { isUrlLikePath } from "../lib/path-safety.mjs";
 
@@ -97,6 +98,7 @@ let shutdownPromise = null;
 let windowPromise = null;
 let ipcRegistered = false;
 let currentLocale = "zh"; // safe default matching original Chinese-only notifications
+let updateCheckPromise = null;
 const rendererConsoleErrors = new Set();
 const MAX_RENDERER_CONSOLE_ERRORS = 32;
 
@@ -308,6 +310,24 @@ function registerIPC() {
     return true;
   });
 
+  ipcMain.handle("check-for-updates", async (event, notify = false) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return { status: "unavailable", currentVersion: app.getVersion() };
+    }
+    return runUpdateCheck({ notify: notify === true });
+  });
+
+  ipcMain.handle("open-download-page", async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false };
+    try {
+      await shell.openExternal(MOSA_DOWNLOAD_PAGE_URL);
+      return { ok: true };
+    } catch (error) {
+      console.warn(`[MOSA] unable to open download page: ${error?.message || error}`);
+      return { ok: false };
+    }
+  });
+
   // Phase 4C：「在 Finder 中显示」最小能力适配。只接受当前主窗口渲染进程发来的
   // 真实存在的本地绝对路径；拒绝 URL、相对路径与不存在文件；不用 shell.openExternal
   // 处理本地路径，不创建/修改/移动/下载任何文件；失败返回结构化结果而不抛异常。
@@ -326,6 +346,34 @@ function registerIPC() {
       return { ok: false, reason: "unavailable" };
     }
   });
+}
+
+function runUpdateCheck({ notify = false } = {}) {
+  const currentVersion = app.getVersion();
+  if (isolationContext.qaRun) return Promise.resolve({ status: "disabled", currentVersion });
+  if (updateCheckPromise) return updateCheckPromise;
+  updateCheckPromise = checkForMosaUpdate({ currentVersion })
+    .then((result) => {
+      if (notify && result.updateAvailable && Notification.isSupported()) {
+        const copy = getUpdateNotificationText(result.latestVersion, currentLocale);
+        const notification = new Notification({ title: copy.title, body: copy.body, silent: true });
+        notification.on("click", () => {
+          void shell.openExternal(MOSA_DOWNLOAD_PAGE_URL).catch((error) => {
+            console.warn(`[MOSA] unable to open download page: ${error?.message || error}`);
+          });
+        });
+        notification.show();
+      }
+      return { status: "ok", ...result };
+    })
+    .catch((error) => {
+      console.warn(`[MOSA] update check failed: ${error?.message || error}`);
+      return { status: "error", currentVersion, code: "UPDATE_CHECK_FAILED" };
+    })
+    .finally(() => {
+      updateCheckPromise = null;
+    });
+  return updateCheckPromise;
 }
 
 function openMainWindow() {

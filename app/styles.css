@@ -859,9 +859,15 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 .recipe-save-btn { min-width: 0; min-height: 34px; padding: 6px 8px; border-radius: var(--radius-control); cursor: pointer; font-size: 11px; font-weight: 600; line-height: 1.25; white-space: normal; }
 .recipe-save-btn.primary { border: 1px solid var(--color-accent); color: var(--color-accent-contrast); background: var(--color-accent); }
 .recipe-save-btn.secondary { border: 1px solid var(--color-border-subtle); color: var(--color-text-secondary); background: var(--app-card); }
-.modal-overlay { position: fixed; z-index: var(--z-modal); inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; background: var(--color-scrim); backdrop-filter: blur(4px); }
-.modal-overlay.open { display: flex; }
+.modal-overlay { position: fixed; z-index: var(--z-modal); inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; background: var(--color-scrim); backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transition: opacity var(--duration-normal) var(--ease-standard), display var(--duration-normal) allow-discrete; }
+.modal-overlay.open { display: flex; opacity: 1; pointer-events: auto; }
 .modal-card { display: flex; width: 526px; max-width: 100%; max-height: min(760px, 88vh); flex-direction: column; overflow: hidden; border-radius: var(--radius-panel); background: var(--app-bg); box-shadow: var(--shadow-modal); }
+.modal-overlay > .modal-card, .modal-overlay > .account-modal-card { opacity: 0; transform: translateY(8px) scale(.97); }
+.modal-overlay.open > .modal-card, .modal-overlay.open > .account-modal-card { opacity: 1; transform: translateY(0) scale(1); transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard); }
+@starting-style {
+  .modal-overlay.open { opacity: 0; }
+  .modal-overlay.open > .modal-card, .modal-overlay.open > .account-modal-card { opacity: 0; transform: translateY(8px) scale(.97); }
+}
 .group-modal-card { width: 386px; }
 /* ===== ConfirmDialog（Phase 5B / F-15） =====
    全应用唯一确认弹窗：复用 modal-overlay / modal-card / modal-footer 壳，不新增遮罩、
@@ -882,13 +888,18 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 .btn-danger { border: 1px solid var(--color-danger); color: var(--color-danger); background: var(--app-card); }
 
 /* ===== 大图预览（含缩放/平移） ===== */
-.image-preview-modal { position: fixed; z-index: var(--z-media-viewer); inset: 0; display: block; background: var(--color-media-backdrop); }
-.image-preview-modal[hidden] { display: none; }
+.image-preview-modal { position: fixed; z-index: var(--z-media-viewer); inset: 0; display: block; background: var(--color-media-backdrop); opacity: 1; transition: opacity var(--duration-normal) var(--ease-standard), display var(--duration-normal) allow-discrete; }
+.image-preview-modal[hidden] { display: none; opacity: 0; pointer-events: none; }
 .image-preview-card { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--color-media-backdrop); }
 .image-preview-header { position: absolute; z-index: 1; top: 20px; right: 20px; display: block; }
 .image-preview-header .eyebrow, .image-preview-card h3 { position: absolute; overflow: hidden; width: 1px; height: 1px; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .image-preview-header .icon-button { width: 32px; height: 32px; border-color: var(--color-media-border); border-radius: 50%; color: var(--color-media-text); background: var(--color-media-surface); /* 阴影为单次装饰值，非语义色，保留字面量。 */ box-shadow: 0 8px 24px rgb(0 0 0 / 0.28); backdrop-filter: blur(10px); }
-.image-preview-stage { display: grid; width: 100%; height: 100%; min-width: 0; min-height: 0; padding: clamp(24px, 5vw, 88px); box-sizing: border-box; place-items: center; overflow: hidden; /* This stage owns complete pan/pinch input, so preventing browser scrolling keeps two-pointer geometry stable; other surfaces retain native scrolling. */ touch-action: none; cursor: zoom-in; }
+.image-preview-stage { display: grid; width: 100%; height: 100%; min-width: 0; min-height: 0; padding: clamp(24px, 5vw, 88px); box-sizing: border-box; place-items: center; overflow: hidden; /* This stage owns complete pan/pinch input, so preventing browser scrolling keeps two-pointer geometry stable; other surfaces retain native scrolling. */ touch-action: none; cursor: zoom-in; opacity: 1; transform: scale(1); transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard); }
+.image-preview-modal[hidden] .image-preview-stage { opacity: 0; transform: scale(.98); }
+@starting-style {
+  .image-preview-modal:not([hidden]) { opacity: 0; }
+  .image-preview-modal:not([hidden]) .image-preview-stage { opacity: 0; transform: scale(.98); }
+}
 .image-preview-stage.zoomed { cursor: grab; }
 .image-preview-stage.zoomed.dragging { cursor: grabbing; }
 .image-preview-stage img { display: block; width: auto; height: auto; max-width: none; max-height: none; object-fit: contain; }
@@ -899,10 +910,15 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 .image-preview-controls button:hover { background: color-mix(in srgb, var(--color-media-text) 15%, transparent); }
 
 /* ===== 拖放导入遮罩 ===== */
-.drag-overlay { position: fixed; z-index: var(--z-overlay); inset: 8px; display: flex; align-items: center; justify-content: center; border: 2px dashed var(--color-accent); border-radius: var(--radius-panel); background: var(--color-accent-ring); backdrop-filter: blur(4px); pointer-events: none; }
-.drag-overlay[hidden] { display: none; }
-.drag-overlay-content { display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--color-accent-active); font-size: 15px; font-weight: 600; }
+.drag-overlay { position: fixed; z-index: var(--z-overlay); inset: 8px; display: flex; align-items: center; justify-content: center; border: 2px dashed var(--color-accent); border-radius: var(--radius-panel); background: var(--color-accent-ring); backdrop-filter: blur(4px); pointer-events: none; opacity: 1; transition: opacity var(--duration-fast) var(--ease-standard), display var(--duration-fast) allow-discrete; }
+.drag-overlay[hidden] { display: none; opacity: 0; }
+.drag-overlay-content { display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--color-accent-active); font-size: 15px; font-weight: 600; opacity: 1; transform: scale(1); transition: opacity var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard); }
+.drag-overlay[hidden] .drag-overlay-content { opacity: 0; transform: scale(.98); }
 .drag-overlay-content svg { opacity: .7; }
+@starting-style {
+  .drag-overlay:not([hidden]) { opacity: 0; }
+  .drag-overlay:not([hidden]) .drag-overlay-content { opacity: 0; transform: scale(.98); }
+}
 
 /* ===== 批量管理操作条 ===== */
 .batch-bar { position: fixed; z-index: var(--z-bottom-bar); right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; border-top: 1px solid var(--color-border-subtle); background: var(--app-bg); box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08); }
@@ -1460,9 +1476,14 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 }
 
 /* V2 Preferences is a centered dialog, not the earlier sidebar flyout. */
-.mosa-v2 .settings-menu { position: fixed; z-index: 800; inset: 0; display: grid; width: auto; max-width: none; max-height: none; place-items: center; overflow: auto; padding: 24px; border: 0; border-radius: 0; background: rgb(0 0 0 / .35); box-shadow: none; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-.mosa-v2 .settings-menu[hidden] { display: none; }
-.mosa-v2 .settings-modal-card { width: min(512px, 100%); min-height: 496px; max-height: calc(100vh - 48px); overflow: auto; border: 1px solid rgb(255 255 255 / .7); border-radius: 16px; background: rgb(from var(--app-modal) r g b / .94); box-shadow: 0 24px 80px rgb(0 0 0 / .18), 0 0 0 1px rgb(255 255 255 / .32); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); }
+.mosa-v2 .settings-menu { position: fixed; z-index: 800; inset: 0; display: grid; width: auto; max-width: none; max-height: none; place-items: center; overflow: auto; padding: 24px; border: 0; border-radius: 0; background: rgb(0 0 0 / .35); box-shadow: none; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 1; transition: opacity var(--duration-normal) var(--ease-standard), display var(--duration-normal) allow-discrete; }
+.mosa-v2 .settings-menu[hidden] { display: none; opacity: 0; pointer-events: none; }
+.mosa-v2 .settings-modal-card { width: min(512px, 100%); min-height: 496px; max-height: calc(100vh - 48px); overflow: auto; border: 1px solid rgb(255 255 255 / .7); border-radius: 16px; background: rgb(from var(--app-modal) r g b / .94); box-shadow: 0 24px 80px rgb(0 0 0 / .18), 0 0 0 1px rgb(255 255 255 / .32); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); opacity: 1; transform: translateY(0) scale(1); transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard); }
+.mosa-v2 .settings-menu[hidden] .settings-modal-card { opacity: 0; transform: translateY(8px) scale(.97); transition: none; }
+@starting-style {
+  .mosa-v2 .settings-menu:not([hidden]) { opacity: 0; }
+  .mosa-v2 .settings-menu:not([hidden]) .settings-modal-card { opacity: 0; transform: translateY(8px) scale(.97); }
+}
 .mosa-v2 .settings-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 28px 32px 20px; }
 .mosa-v2 .settings-modal-header h2 { margin: 0; color: var(--color-text-primary); font-size: 16px; font-weight: 600; letter-spacing: -.01em; line-height: 22px; }
 .mosa-v2 .settings-modal-header p { margin: 2px 0 0; padding: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 19px; }
@@ -1640,8 +1661,11 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
     background: rgb(0 0 0 / .4);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
+    opacity: 1;
+    transition: opacity var(--duration-slow) var(--ease-standard), display var(--duration-slow) allow-discrete;
   }
-  .mobile-nav-scrim[hidden] { display: none; }
+  .mobile-nav-scrim[hidden] { display: none; opacity: 0; pointer-events: none; }
+  @starting-style { .mobile-nav-scrim:not([hidden]) { opacity: 0; } }
   .mosa-v2 .sidebar {
     position: fixed;
     z-index: 600;
@@ -1654,7 +1678,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
     border-right: 1px solid var(--color-border-subtle);
     background: rgb(from var(--app-sidebar) r g b / .95);
     box-shadow: 18px 0 48px rgb(0 0 0 / .2);
-    transition: transform 300ms var(--ease-standard);
+    transition: transform var(--duration-slow) var(--ease-standard);
   }
   .mosa-v2.mobile-nav-open .sidebar { transform: translateX(0); }
   .mobile-nav-close {
@@ -2133,6 +2157,17 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .prompt-text,
   .btn-primary,
   .btn-danger,
+  .modal-overlay,
+  .modal-overlay.open > .modal-card,
+  .modal-overlay.open > .account-modal-card,
+  .mosa-v2 .settings-menu,
+  .mosa-v2 .settings-modal-card,
+  .image-preview-modal,
+  .image-preview-stage,
+  .drag-overlay,
+  .drag-overlay-content,
+  .mosa-v2 .sidebar,
+  .mobile-nav-scrim,
   .mosa-v2 .detail-inspector {
     animation: none;
     transition: none;

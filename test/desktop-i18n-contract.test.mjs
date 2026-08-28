@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 import * as desktopI18n from "../desktop/notification-i18n.mjs";
-import { getNotificationTextForAssetsImported } from "../desktop/notification-i18n.mjs";
+import { getNotificationTextForAssetsImported, getUpdateNotificationText } from "../desktop/notification-i18n.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const read = (relativePath) => readFile(resolve(root, relativePath), "utf8");
@@ -26,7 +26,7 @@ const DESKTOP_TEXT = {
   // Its dependency sections are still frozen via the structural assertions in
   // the package metadata test below.
   "package-lock.json": "ecf0fdc199de87ccd30ffe6a7da4624c2f632700cd8348194a30b79dd2e2a69f",
-  "desktop/preload.cjs": "74014a666c4e78d4aa7ed0d66331aa3aafd02cdbf120e067542675af653f16bd",
+  "desktop/preload.cjs": "a362a79267d35e9fef3e0f1fadae4c1f75ad87c30d0200e72d76025db736cec9",
 };
 
 function sliceBetween(source, startMarker, endMarker) {
@@ -54,10 +54,18 @@ test("getDesktopText resolves desktop labels in zh/en and falls back safely", ()
   );
 });
 
-test("asset-import notification helper keeps localized output without updater copy", () => {
+test("desktop notifications keep localized import and update copy", () => {
   assert.equal(getNotificationTextForAssetsImported(1, "en"), "1 new asset imported");
   assert.equal(getNotificationTextForAssetsImported(12, "en"), "12 new assets imported");
   assert.equal(getNotificationTextForAssetsImported(3, "ja"), "3 个新素材已导入");
+  assert.deepEqual(getUpdateNotificationText("0.3.0", "zh"), {
+    title: "MOSA v0.3.0 可更新",
+    body: "新版本已发布，点击前往官网下载。",
+  });
+  assert.deepEqual(getUpdateNotificationText("v0.3.0", "en"), {
+    title: "MOSA v0.3.0 is available",
+    body: "A new version is available. Click to download it from the MOSA website.",
+  });
   assert.equal("getNotificationText" in desktopI18n, false, "removed updater helper is not kept as dead API");
 });
 

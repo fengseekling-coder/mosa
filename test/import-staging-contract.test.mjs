@@ -245,13 +245,15 @@ test("preload surface and Electron security boundaries are unchanged", async () 
   const preload = await readFile(join(root, "desktop", "preload.cjs"), "utf8");
   const exposed = [...preload.matchAll(/^\s{2}(\w+):/gm)].map((match) => match[1]).sort();
   assert.deepEqual(exposed, [
+    "checkForUpdates",
     "onMenuImport",
     "onMenuSearch",
+    "openDownloadPage",
     "openFileDialog",
     "pasteImage",
     "setLocale",
     "showItemInFolder",
-  ], "electronAPI surface must not grow or shrink");
+  ], "electronAPI surface must match the approved narrow desktop capabilities");
 
   const main = await readFile(join(root, "desktop", "main.mjs"), "utf8");
   assert.match(main, /ipcMain\.handle\("show-item-in-folder"/, "Finder IPC handler must remain");

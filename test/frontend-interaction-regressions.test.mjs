@@ -9,6 +9,10 @@ async function readApp() {
   return readFile(resolve(root, "app/app.mjs"), "utf8");
 }
 
+async function readStyles() {
+  return readFile(resolve(root, "app/styles.css"), "utf8");
+}
+
 function sliceBetween(source, start, end) {
   const from = source.indexOf(start);
   const to = source.indexOf(end, from + start.length);
@@ -105,6 +109,49 @@ test("a consumed Escape cannot also close mobile navigation", async () => {
   const mobile = shortcuts.indexOf('if (event.key === "Escape" && document.body.classList.contains("mobile-nav-open"))');
 
   assert.ok(consumed >= 0 && mobile > consumed, "defaultPrevented guard precedes the mobile Escape branch");
+});
+
+test("overlay motion is discrete-safe, token-driven, and disabled for reduced motion", async () => {
+  const css = await readStyles();
+  const reducedMotion = css.slice(css.lastIndexOf("@media (prefers-reduced-motion: reduce)"));
+
+  assert.match(css, /\.modal-overlay \{[^}]*display var\(--duration-normal\) allow-discrete/,
+    "modal overlays keep their fade while display is removed discretely");
+  assert.match(css, /@starting-style \{[\s\S]*?\.modal-overlay\.open \{ opacity: 0; \}/,
+    "modal entrance has an explicit starting style instead of a hard cut");
+  assert.match(css, /\.modal-overlay\.open > \.account-modal-card/,
+    "the account dialog participates even though it does not use .modal-card");
+  assert.match(css, /\.image-preview-modal\[hidden\][^}]*pointer-events: none/,
+    "a visually exiting preview cannot intercept input after hidden is set");
+  assert.match(css, /\.drag-overlay \{[^}]*var\(--duration-fast\)[^}]*allow-discrete/,
+    "drag feedback stays on the fast motion token");
+  assert.match(css, /\.mobile-nav-scrim \{[\s\S]*?transition: opacity var\(--duration-slow\)/,
+    "the compact-navigation scrim fades on the same slow token as the drawer");
+  for (const selector of [".modal-overlay", ".image-preview-modal", ".drag-overlay", ".mosa-v2 .sidebar", ".mobile-nav-scrim"]) {
+    assert.ok(reducedMotion.includes(selector), `${selector} must opt out under reduced motion`);
+  }
+});
+
+test("image preview keeps media alive through its exit transition and cancels stale cleanup on reopen", async () => {
+  const app = await readApp();
+  const lifecycle = sliceBetween(app, "let imagePreviewCleanupTimer", "function fitImagePreview()");
+  const close = sliceBetween(app, "function closeImagePreview()", "function trapImagePreviewFocus");
+  const finalizer = sliceBetween(app, "function finalizeImagePreviewClose()", "function scheduleImagePreviewCleanup()");
+
+  assert.match(lifecycle, /function cancelPendingImagePreviewCleanup\(\)/);
+  assert.match(lifecycle, /function openImagePreview[\s\S]*?cancelPendingImagePreviewCleanup\(\);[\s\S]*?state\.imagePreviewId = asset\.id/,
+    "reopening invalidates the previous close cleanup before a new preview is installed");
+  assert.match(close, /els\.imagePreviewModal\.hidden = true;/);
+  assert.match(close, /scheduleImagePreviewCleanup\(\);/);
+  assert.doesNotMatch(close, /removeAttribute\("src"\)/,
+    "close must not tear media down before the visual exit completes");
+  assert.match(finalizer, /imagePreviewImage\?\.removeAttribute\("src"\)/);
+  assert.match(finalizer, /imagePreviewVideo\?\.removeAttribute\("src"\)/);
+  assert.match(lifecycle, /prefers-reduced-motion: reduce/,
+    "reduced-motion users skip the deferred visual cleanup path");
+  assert.match(lifecycle, /transitionend/);
+  assert.match(lifecycle, /setTimeout\(\(\) => finish\(\), 260\)/,
+    "hidden or throttled windows still have a bounded cleanup fallback");
 });
 
 test("masonry image loads only repair their own card instead of remeasuring the whole grid", async () => {
