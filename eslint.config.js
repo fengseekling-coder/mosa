@@ -1,6 +1,6 @@
 export default [
   {
-    ignores: ["node_modules/", "assets/", "production/", "canvas/", "outputs/"],
+    ignores: ["node_modules/", "coverage/", "assets/", "production/", "canvas/", "outputs/"],
   },
   {
     files: ["**/*.{js,mjs}"],

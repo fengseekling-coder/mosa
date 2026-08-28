@@ -60,6 +60,7 @@ const state = {
   dragCounter: 0,
   stagedPath: "", // P1-2: Track current staged file for cleanup on cancel
   stagingInProgress: false, // P1-3: Prevent concurrent staging requests
+  stagingCanceled: false, // A close during staging invalidates the late result and cleans it up
   darkMode: safeStorageGet("mosa-dark-mode") === "true", diagnosticsExpanded: false, settingsReturnFocus: null, accountReturnFocus: null,
   detailReturnFocusAssetId: null, previewReturnFocusAssetId: null,
   imageZoom: 1, imagePanX: 0, imagePanY: 0, imageDragging: false,
@@ -224,6 +225,7 @@ async function prepareImportFile(file, { openModal = true } = {}) {
   // P1-3: Prevent concurrent staging to avoid orphaned files and last-write-wins
   if (state.stagingInProgress) return false;
   state.stagingInProgress = true;
+  state.stagingCanceled = false;
   clearImportErrors();
   let filePath = "";
   try {
@@ -232,27 +234,42 @@ async function prepareImportFile(file, { openModal = true } = {}) {
       await cleanupStagedFile(state.stagedPath);
       state.stagedPath = "";
     }
+    if (state.stagingCanceled) return false;
 
     // One path for Web and Electron: stream the selected File to the local
     // MOSA runtime and let the server stage it below the library root. This
     // also works when Electron safely attaches to an already-running MOSA
     // runtime, where an Electron-userData staging path would not be trusted.
     filePath = await stageBrowserFile(file);
+    if (state.stagingCanceled) {
+      await cleanupStagedFile(filePath);
+      return false;
+    }
     state.stagedPath = filePath; // P1-2: Track for cleanup on cancel
   } catch (error) {
+    if (state.stagingCanceled) return false;
     const mapped = IMPORT_ERROR_FIELDS[error?.code];
     if (mapped) showImportError(mapped.field, t(mapped.message));
     else showToast(error?.message || t("fileSelectionFailed"), "error");
     return false;
   } finally {
     state.stagingInProgress = false;
+    state.stagingCanceled = false;
   }
   if (!filePath) {
     showToast(t("dropPathUnavailable"), "error");
     return false;
   }
   if (els.imagePathInput) els.imagePathInput.value = filePath;
-  if (openModal) openImportModal();
+  if (openModal) {
+    openImportModal();
+    if (!els.importModal?.classList.contains("open")) {
+      state.stagedPath = "";
+      if (els.imagePathInput?.value === filePath) els.imagePathInput.value = "";
+      await cleanupStagedFile(filePath);
+      return false;
+    }
+  }
   return true;
 }
 
@@ -321,28 +338,28 @@ function setupDragDrop() {
 // would navigate the tab to the dropped file's local path, losing all unsaved
 // state. Electron has will-navigate protection, but browser mode needs this guard.
 function setupGlobalDragGuard() {
+  const isAllowedDropTarget = (target) => {
+    if (!(target instanceof Element)) return false;
+    if (target.closest(".import-v2-path-card")) return true;
+    // `.library` also contains the mutually-exclusive large asset view. Only
+    // the library mode has a drop handler that calls preventDefault(), so the
+    // asset view must stay behind this fallback navigation guard.
+    return state.viewMode === "library" && Boolean(target.closest(".library"));
+  };
   document.addEventListener("dragover", (e) => {
     // Don't interfere with existing drop targets. Let them call preventDefault
     // themselves as needed. This is a fallback guard only.
     if (e.defaultPrevented) return;
-    const target = e.target instanceof Element ? e.target : null;
-    // Allow drops on the known drop zones: library and import path card.
-    // Check if event will bubble to these targets.
-    const willBubbleToLibrary = !!target?.closest(".library");
-    const willBubbleToPathCard = !!target?.closest(".import-v2-path-card");
-    if (willBubbleToLibrary || willBubbleToPathCard) return;
+    if (isAllowedDropTarget(e.target)) return;
     // Otherwise prevent default to avoid navigation.
     e.preventDefault();
-    e.dataTransfer.dropEffect = "none";
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "none";
   });
 
   document.addEventListener("drop", (e) => {
     // Same policy as dragover: only allow drops on known targets.
     if (e.defaultPrevented) return;
-    const target = e.target instanceof Element ? e.target : null;
-    const willBubbleToLibrary = !!target?.closest(".library");
-    const willBubbleToPathCard = !!target?.closest(".import-v2-path-card");
-    if (willBubbleToLibrary || willBubbleToPathCard) return;
+    if (isAllowedDropTarget(e.target)) return;
     e.preventDefault();
   });
 
@@ -1389,17 +1406,38 @@ function bindDesktopIntegration() {
     for (const item of items) {
       if (item.type.startsWith("image/")) {
         event.preventDefault();
+        if (state.stagingInProgress) return;
+        state.stagingInProgress = true;
+        state.stagingCanceled = false;
         try {
           const filePath = await api.pasteImage();
           // Empty clipboard is a normal no-op. Staging failures reject from
           // the main process and are handled by the catch below.
           if (!filePath) return;
+          if (state.stagingCanceled) {
+            await cleanupStagedFile(filePath);
+            return;
+          }
+          if (state.stagedPath && state.stagedPath !== filePath) await cleanupStagedFile(state.stagedPath);
+          if (state.stagingCanceled) {
+            await cleanupStagedFile(filePath);
+            return;
+          }
+          state.stagedPath = filePath;
           if (els.imagePathInput) {
             els.imagePathInput.value = filePath;
             openImportModal();
+            if (!els.importModal?.classList.contains("open")) {
+              state.stagedPath = "";
+              els.imagePathInput.value = "";
+              await cleanupStagedFile(filePath);
+            }
           }
         } catch (error) {
-          showToast(t("clipboardAccessDenied"), "error");
+          if (!state.stagingCanceled) showToast(t("pasteImageSaveFailed"), "error");
+        } finally {
+          state.stagingInProgress = false;
+          state.stagingCanceled = false;
         }
         return;
       }
@@ -2312,6 +2350,10 @@ function openImportModal() {
 }
 function closeImportModal({ force = false } = {}) {
   if (state.importSaving && !force) return false;
+  // Closing while a replacement file is still uploading invalidates that
+  // request. prepareImportFile/paste cleanup the late staging path as soon as
+  // it becomes available, so a cancel never leaves a hidden orphan behind.
+  if (state.stagingInProgress) state.stagingCanceled = true;
   // P1-2: Clean up orphaned staged file on cancel (non-destructive)
   const stagedToClean = state.stagedPath;
   state.stagedPath = "";
