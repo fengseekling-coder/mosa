@@ -123,7 +123,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.14.0");
+  assert.equal(manifest.version, "0.14.1");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://aistudio.google.com/*"],
@@ -336,6 +336,70 @@ test("ChatGPT hook stays dormant until capture is explicitly enabled", async () 
   assert.equal(harness.events.some((event) => event.payload?.imageKey?.includes("file-dormant")), false);
   assert.match(hookSource, /if \(!isCaptureEnabled\(\)\) return response/);
   assert.match(hookSource, /if \(!isCaptureEnabled\(\)\) return;/);
+});
+
+test("ChatGPT generation asset hosts stay consistent across hook, content script, and manifest", () => {
+  assert.ok(manifest.host_permissions.includes("https://*.blob.core.windows.net/*"));
+  assert.match(hookSource, /blob\.core/);
+  assert.match(contentSource, /"blob\.core\.windows\.net"/);
+  assert.match(contentSource, /if \(!isLikelyGeneratedUrl\(imageUrl\)\) return;/);
+});
+
+test("ChatGPT startup and SPA conversation changes proactively recover missed generation metadata", () => {
+  const bootStart = contentSource.indexOf("loadSettings().then(() => {");
+  const intervalStart = contentSource.indexOf("autoScanInterval = setInterval", bootStart);
+  const boot = contentSource.slice(bootStart, intervalStart);
+  assert.ok(bootStart >= 0 && intervalStart > bootStart);
+  assert.match(boot, /requestCurrentConversationRefresh\(null\);[\s\S]*scheduleScan\(true\);/);
+  assert.match(contentSource, /if \(autoCapture && nextConversationId\) requestCurrentConversationRefresh\(null\);/);
+  assert.match(contentSource, /function scheduleGenerationEvidenceRecovery\(candidate\)/);
+  assert.match(contentSource, /enqueueDomFallback\(candidate\)/);
+});
+
+test("ChatGPT DOM hook reacts to both src and srcset changes", () => {
+  assert.match(hookSource, /m\.attributeName === "src" \|\| m\.attributeName === "srcset"/);
+  assert.match(hookSource, /attributeFilter: \["src", "srcset"\]/);
+});
+
+test("oversized ChatGPT metadata fails visibly while DOM fallback remains available", () => {
+  assert.match(hookSource, /post\("harvest-skipped", \{ reason: "payload-too-large", size: text\.length, via \}\)/);
+  assert.match(contentSource, /data\.type === "harvest-skipped"/);
+  assert.match(contentSource, /会话元数据过大，已启用图片兜底/);
+  assert.match(contentSource, /function enqueueDomFallback\(candidate\)/);
+});
+
+test("ChatGPT automatic capture work is limited to two concurrent tasks", async () => {
+  const helperSource = [
+    /const AUTO_CAPTURE_CONCURRENCY = 2;/.exec(contentSource)?.[0],
+    /let autoCaptureInFlight = 0;/.exec(contentSource)?.[0],
+    /const autoCaptureWaiters = \[\];/.exec(contentSource)?.[0],
+    /async function withAutoCaptureSlot\(task\) \{[\s\S]*?\n  \}/.exec(contentSource)?.[0],
+  ].filter(Boolean).join("\n");
+  assert.match(helperSource, /withAutoCaptureSlot/);
+
+  const context = { Promise };
+  vm.runInNewContext(`${helperSource}\nthis.withAutoCaptureSlot = withAutoCaptureSlot;`, context, { filename: "chatgpt-capture-limit.js" });
+
+  let active = 0;
+  let maxActive = 0;
+  const releases = [];
+  const tasks = Array.from({ length: 5 }, (_, index) => context.withAutoCaptureSlot(async () => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolveTask) => releases.push(resolveTask));
+    active -= 1;
+    return index;
+  }));
+
+  await setImmediate();
+  assert.equal(active, 2);
+  assert.equal(maxActive, 2);
+  while (releases.length || active) {
+    releases.shift()?.();
+    await setImmediate();
+  }
+  assert.deepEqual(await Promise.all(tasks), [0, 1, 2, 3, 4]);
+  assert.equal(maxActive, 2);
 });
 
 test("ChatGPT recovery never captures or replays page authentication headers", () => {
@@ -576,8 +640,9 @@ test("archives one row per uploaded reference photo", () => {
   assert.match(backgroundSource, /is_reference: Boolean\(payload\.isReference\)/);
   assert.match(contentSource, /function hasObservedGenerationEvidence\(candidate\)/);
   assert.match(contentSource, /const evidence = findGenerationEvidenceForImage\(candidate\?\.imageUrl \|\| candidate\?\.key \|\| ""\);/);
-  assert.match(contentSource, /if \(!evidence \|\| isReferenceCandidate\(candidate\)\) return;/);
-  assert.match(contentSource, /return hasObservedGenerationEvidence\(candidate\);/);
+  assert.match(contentSource, /if \(!evidence && isRecoverableGenerationCandidate\(candidate\)\) scheduleGenerationEvidenceRecovery\(candidate\);/);
+  assert.match(contentSource, /function enqueueDomFallback\(candidate\)/);
+  assert.match(contentSource, /reason: "dom-fallback"/);
   assert.match(contentSource, /const minEdge = reference \? 32 : manual \? 360 : MIN_EDGE/);
   assert.match(contentSource, /if \(!reference && byteLength > 0 && byteLength < MIN_BYTES\) return false/);
   assert.match(contentSource, /const needsReferenceRepair = stagedReferences > 0[\s\S]*isSavedCandidate\(candidate\)/);
@@ -602,7 +667,8 @@ test("automatic capture does not starve new images behind already-saved DOM cand
   assert.ok(scanStart >= 0 && scanEnd > scanStart, "scan block should be extractable");
   assert.match(scan, /const eligible = candidates\.filter\(\(candidate\) => \{/);
   assert.match(scan, /if \(!canAttempt\(candidate\)\) return false;/);
-  assert.match(scan, /return hasObservedGenerationEvidence\(candidate\);/);
+  assert.match(scan, /if \(hasObservedGenerationEvidence\(candidate\)\) return true;/);
+  assert.match(scan, /if \(isRecoverableGenerationCandidate\(candidate\)\) scheduleGenerationEvidenceRecovery\(candidate\);/);
   assert.match(scan, /\}\)\.slice\(0, 6\);/);
   assert.doesNotMatch(scan, /for \(const candidate of candidates\.slice\(0, 6\)\)/);
 });
@@ -713,7 +779,7 @@ test("does not flatten multiple image tool calls into one prompt binding", async
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.14.0");
+  assert.equal(manifest.version, "0.14.1");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
@@ -831,6 +897,7 @@ test("startup context loss disconnects an initialized observer without a TDZ err
     document: { getElementById: () => null },
     extensionAlive: () => false,
     observer: { disconnectCalled: 0, disconnect() { this.disconnectCalled += 1; } },
+    generationEvidenceRecoveryTimers: new Map(),
     promptRecoveryTimers: new Map(),
     scanTimer: null,
     setStatus: () => {},
@@ -856,6 +923,7 @@ test("an open page follows auto-capture changes from local storage only", () => 
     clearTimeout,
     observer: { disconnect() {} },
     scanTimer: null,
+    requestCurrentConversationRefresh: () => false,
     setPageHookCaptureEnabled: () => {},
     startObs: () => {},
     state: {},

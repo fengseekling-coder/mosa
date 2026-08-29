@@ -50,7 +50,7 @@ test("29-35. show-item-in-folder IPC is minimal, validated, and shell-correct", 
 
   assert.match(preload, /showItemInFolder: \(path\) =>\s*\n?\s*ipcRenderer\.invoke\("show-item-in-folder", path\)/, "preload exposes showItemInFolder");
   // Update checks add two fixed-purpose invokes; renderer still receives no generic shell or URL capability.
-  assert.equal(count(preload, "ipcRenderer.invoke"), 6, "preload exposes only the six approved narrow invoke channels");
+  assert.equal(count(preload, "ipcRenderer.invoke"), 7, "preload exposes only the seven approved narrow invoke channels");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "the renderer never receives a shell object");
 
   const handler = sliceBetween(main, 'ipcMain.handle("show-item-in-folder"', "\n}");
@@ -162,7 +162,7 @@ test("59-60. dependency freeze: manifest, lockfile, and app.js imports unchanged
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
   assert.equal(sha256(lock), "ecf0fdc199de87ccd30ffe6a7da4624c2f632700cd8348194a30b79dd2e2a69f", "package-lock.json must stay untouched");
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
+    ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
 });
 
 // i18n: every new key exists in both locales, symmetric, and no duplicate synonyms.

@@ -183,7 +183,7 @@ test("32-35. restricted regenerate keeps warning semantics", async () => {
   assert.doesNotMatch(section, /tone: "danger"/, "restricted regenerate never uses danger");
   const confirm = section.indexOf("await requestConfirmation");
   const cancel = section.indexOf("if (!confirmed || !isCurrentDetailSelection(asset.project_id, asset.id)) return;");
-  const clipboard = section.indexOf("navigator.clipboard.writeText(regenerationInstruction(asset, snapshot))");
+  const clipboard = section.indexOf("writeClipboardText(regenerationInstruction(asset, snapshot))");
   assert.ok(confirm < cancel && cancel < clipboard, "Cancel never writes the clipboard; Confirm reuses regenerationInstruction");
 });
 

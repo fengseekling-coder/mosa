@@ -5,6 +5,7 @@
     "oaidalle",
     "files.oaiusercontent",
     "images.openai.com",
+    "blob.core.windows.net",
   ];
   const BLOCK_URL_HINTS = [
     "oaistatic.com",
@@ -55,6 +56,7 @@
   const failedNetworkIdentityKeys = new Set();
   const promptUpgradeInFlight = new Set();
   const promptRecoveryTimers = new Map();
+  const generationEvidenceRecoveryTimers = new Map();
   const failedAt = new Map(); // key -> timestamp, retry after cooldown
   // The conversation endpoint is enough to recover a caption that was rendered
   // from ChatGPT's cache, but was never seen by the page network hook.
@@ -68,7 +70,9 @@
   let hookReady = document.documentElement?.dataset?.mosaPageHook === "1";
   let lastError = "";
   let lastStatus = "starting";
-  let autoQueue = Promise.resolve();
+  const AUTO_CAPTURE_CONCURRENCY = 2;
+  let autoCaptureInFlight = 0;
+  const autoCaptureWaiters = [];
   let contextLost = false;
   let autoScanInterval = null;
   let observer = null;
@@ -105,6 +109,8 @@
       for (const timer of timers) clearTimeout(timer);
     }
     promptRecoveryTimers.clear();
+    for (const timer of generationEvidenceRecoveryTimers.values()) clearTimeout(timer);
+    generationEvidenceRecoveryTimers.clear();
     promptUpgradeInFlight.clear();
     referenceSyncKeys.clear();
     failedNetworkIdentityKeys.clear();
@@ -263,6 +269,30 @@
     return Boolean(candidate?.el?.closest?.('[data-message-author-role="user"]'));
   }
 
+  /**
+   * DOM-only generation candidates are not archived without provenance. They
+   * may, however, trigger a same-conversation metadata refresh when they are
+   * clearly inside an assistant/tool turn and use a known generation asset
+   * host. This recovers startup races without treating arbitrary page images as
+   * generated output.
+   */
+  function isRecoverableGenerationCandidate(candidate) {
+    const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
+    if (!image || isComposerNode(image) || isReferenceCandidate(candidate)) return false;
+    const scope = image.closest?.('[data-message-author-role="assistant"], [data-message-author-role="tool"]');
+    if (!scope) return false;
+    const src = candidate.imageUrl || candidate.key || image.currentSrc || image.src || "";
+    if (!src || !isLikelyGeneratedUrl(src)) return false;
+    if (src.startsWith("blob:")) return true;
+    if (chatGptImageProxyInfo(src)) return true;
+    try {
+      const host = new URL(src, location.href).hostname.toLowerCase();
+      return GENERATION_HOST_HINTS.some((hint) => host.includes(hint));
+    } catch {
+      return false;
+    }
+  }
+
   function looksLikeGeneratedImage(img, { manual = false } = {}) {
     if (!(img instanceof HTMLImageElement)) return false;
     if (!manual && isComposerNode(img)) return false;
@@ -404,6 +434,8 @@
       for (const timer of timers) clearTimeout(timer);
     }
     promptRecoveryTimers.clear();
+    for (const timer of generationEvidenceRecoveryTimers.values()) clearTimeout(timer);
+    generationEvidenceRecoveryTimers.clear();
     setStatus(CONTEXT_LOST_MESSAGE, true);
     showToast(CONTEXT_LOST_MESSAGE, true);
   }
@@ -641,6 +673,21 @@
     return { keys, rank };
   }
 
+  async function withAutoCaptureSlot(task) {
+    if (autoCaptureInFlight >= AUTO_CAPTURE_CONCURRENCY) {
+      await new Promise((resolve) => autoCaptureWaiters.push(resolve));
+    } else {
+      autoCaptureInFlight += 1;
+    }
+    try {
+      return await task();
+    } finally {
+      const next = autoCaptureWaiters.shift();
+      if (next) next();
+      else autoCaptureInFlight -= 1;
+    }
+  }
+
   function findCandidateForMeta(keys) {
     for (const key of keys) {
       const remembered = capturedCandidates.get(key);
@@ -667,8 +714,7 @@
     clearPromptRecovery(candidateKey);
 
     promptUpgradeInFlight.add(candidateKey);
-    autoQueue = autoQueue
-      .then(() => ingestCandidate(candidate, {
+    withAutoCaptureSlot(() => ingestCandidate(candidate, {
         silentSkip: true,
         reason: "prompt-upgrade",
         force: true,
@@ -703,6 +749,35 @@
       if (index === delays.length - 1) promptRecoveryTimers.delete(candidateKey);
     }, delay));
     promptRecoveryTimers.set(candidateKey, timers);
+  }
+
+  function enqueueDomFallback(candidate) {
+    if (!autoCapture || !isRecoverableGenerationCandidate(candidate) || isSavedCandidate(candidate)) return;
+    rememberCandidate(candidate);
+    withAutoCaptureSlot(() => ingestCandidate(candidate, {
+      silentSkip: true,
+      reason: "dom-fallback",
+    })).catch(() => {});
+  }
+
+  function scheduleGenerationEvidenceRecovery(candidate) {
+    if (!autoCapture || !isRecoverableGenerationCandidate(candidate)) return;
+    const candidateKey = candidateLookupKeys(candidate)[0] || candidate?.key || candidate?.imageUrl || "";
+    if (!candidateKey || generationEvidenceRecoveryTimers.has(candidateKey)) return;
+    requestCurrentConversationRefresh(candidate);
+    const timer = setTimeout(() => {
+      generationEvidenceRecoveryTimers.delete(candidateKey);
+      const imageRef = candidate?.imageUrl || candidate?.key || "";
+      if (findGenerationEvidenceForImage(imageRef)) {
+        enqueueAuto(candidate, "evidence-recovered");
+        return;
+      }
+      // Recovery can legitimately fail on some ChatGPT session shapes. Keep a
+      // high-confidence assistant/tool image rather than losing the asset; a
+      // later metadata event can still upgrade its Prompt through hash dedupe.
+      enqueueDomFallback(candidate);
+    }, 2_800);
+    generationEvidenceRecoveryTimers.set(candidateKey, timer);
   }
 
   function findRecentUnboundPrompt(withinMs = 8000) {
@@ -1124,10 +1199,12 @@
     if (!autoCapture) return;
     if (!isArchiveWorthyCandidate(candidate, { manual: false })) return;
     const evidence = findGenerationEvidenceForImage(candidate?.imageUrl || candidate?.key || "");
-    if (!evidence || isReferenceCandidate(candidate)) return;
+    if (!evidence || isReferenceCandidate(candidate)) {
+      if (!evidence && isRecoverableGenerationCandidate(candidate)) scheduleGenerationEvidenceRecovery(candidate);
+      return;
+    }
     rememberCandidate(candidate);
-    autoQueue = autoQueue
-      .then(async () => {
+    withAutoCaptureSlot(async () => {
         try {
           const { generationContextId, stagedReferences } = await stageGenerationReferences(candidate);
           const outputIdentity = candidateLookupKeys(candidate)[0] || candidate.key || candidate.imageUrl || "";
@@ -1147,7 +1224,7 @@
         } catch {
           // keep queue alive
         }
-      });
+      }).catch(() => {});
   }
 
   function pageState() {
@@ -1502,6 +1579,7 @@
         if (nextConversationId !== lastConversationId) {
           lastConversationId = nextConversationId;
           resetConversationTransientState();
+          if (autoCapture && nextConversationId) requestCurrentConversationRefresh(null);
         }
       }
       const net = networkMeta.filter((x) => x.prompt).length;
@@ -1521,7 +1599,9 @@
           if (!candidate.el.complete) return false;
           if (candidate.el.naturalWidth > 0 && candidate.el.naturalWidth < MIN_EDGE) return false;
         }
-        return hasObservedGenerationEvidence(candidate);
+        if (hasObservedGenerationEvidence(candidate)) return true;
+        if (isRecoverableGenerationCandidate(candidate)) scheduleGenerationEvidenceRecovery(candidate);
+        return false;
       }).slice(0, 6);
       for (const candidate of eligible) {
         enqueueAuto(candidate, "dom-scan");
@@ -1580,6 +1660,11 @@
       return;
     }
 
+    if (data.type === "harvest-skipped") {
+      setStatus("会话元数据过大，已启用图片兜底，提示词可能延后", true);
+      return;
+    }
+
     // The hook emits this only after binding a tool-owned generation prompt to
     // the asset. CDN/host alone is intentionally not treated as provenance.
     if (data.type === "auto-image" && data.payload?.imageUrl && autoCapture) {
@@ -1629,6 +1714,7 @@
     if (autoCapture) {
       if (document.documentElement) startObs();
       else document.addEventListener("DOMContentLoaded", startObs, { once: true });
+      requestCurrentConversationRefresh(null);
       scheduleScan(true);
     }
   });
@@ -1651,6 +1737,7 @@
     setStatus(autoCapture ? "自动开" : "自动关");
     if (autoCapture) {
       startObs();
+      requestCurrentConversationRefresh(null);
       scheduleScan(true);
     } else {
       observer?.disconnect();

@@ -253,6 +253,7 @@ test("preload surface and Electron security boundaries are unchanged", async () 
     "pasteImage",
     "setLocale",
     "showItemInFolder",
+    "writeClipboardText",
   ], "electronAPI surface must match the approved narrow desktop capabilities");
 
   const main = await readFile(join(root, "desktop", "main.mjs"), "utf8");

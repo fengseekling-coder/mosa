@@ -85,7 +85,7 @@ test("labels cards with title, source and date rather than the prompt", async ()
   // not duplicated into every card's DOM as a data attribute.
   assert.doesNotMatch(app, /data-copy=/);
   assert.match(app, /const asset = state\.assets\.find\(\(item\) => item\.id === assetId\)/);
-  assert.match(app, /navigator\.clipboard\.writeText\(asset\?\.prompt \|\| ""\)/);
+  assert.match(app, /writeClipboardText\(asset\?\.prompt \|\| ""\)/);
   assert.match(app, /aria-label="\$\{t\("copyPrompt"\)\}"/);
   assert.match(inspector, /<div class="prompt-box detail-prompt-box"[^>]*>\$\{promptText\}<\/div>/);
   // The old behaviour was to hand the raw theme/prompt straight to aria-label.

@@ -80,6 +80,7 @@ if (!guard.ok) {
 // the renderer drag/drop pattern on the same set.
 const DIALOG_IMAGE_GROUP = new Set([".apng", ".avif", ".gif", ".jpg", ".jpeg", ".png", ".svg", ".webp"]);
 const DIALOG_VIDEO_GROUP = new Set([".m4v", ".mov", ".mp4", ".webm"]);
+const MAX_CLIPBOARD_TEXT_LENGTH = 1_000_000;
 
 function importDialogFilters() {
   const group = (extensions) =>
@@ -289,7 +290,8 @@ function registerIPC() {
     }
   });
 
-  ipcMain.handle("paste-image", async () => {
+  ipcMain.handle("paste-image", async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return null;
     const image = clipboard.readImage();
     if (image.isEmpty()) return null;
     try {
@@ -300,6 +302,22 @@ function registerIPC() {
       console.error(`[MOSA] import-staging paste failed: ${error?.message || error}`);
       throw new Error(`import-staging paste failed (${error?.code || "unknown"})`);
     }
+  });
+
+  // Text copy uses Electron's native clipboard rather than the renderer Web
+  // Clipboard API. Browser permissions are intentionally denied for the app's
+  // local HTTP renderer, so navigator.clipboard.writeText() is not a reliable
+  // desktop path (notably on macOS). Keep the bridge narrow: current main
+  // window only, text only, and a bounded payload.
+  ipcMain.handle("write-clipboard-text", async (event, text) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return { ok: false, reason: "unavailable" };
+    }
+    if (typeof text !== "string" || text.length > MAX_CLIPBOARD_TEXT_LENGTH) {
+      return { ok: false, reason: "invalid" };
+    }
+    clipboard.writeText(text);
+    return { ok: true };
   });
 
   ipcMain.handle("set-locale", async (event, locale) => {

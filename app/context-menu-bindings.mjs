@@ -59,8 +59,12 @@ export function bindContextMenuEvents(options = {}) {
 
     const asset = state.assets.find((entry) => entry.id === card.dataset.id);
     if (!asset) return;
+    const selectedIds = state.selectedIds instanceof Set ? state.selectedIds : new Set();
+    const selectedAssets = selectedIds.has(asset.id)
+      ? state.assets.filter((entry) => selectedIds.has(entry.id))
+      : [asset];
     contextMenu.show({
-      items: contextMenuActions.getAssetMenu(asset),
+      items: contextMenuActions.getAssetMenu(asset, selectedAssets),
       x: event.clientX,
       y: event.clientY,
       target: card,

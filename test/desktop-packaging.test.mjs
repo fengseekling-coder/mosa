@@ -378,7 +378,7 @@ test("exposes only the minimal show-in-folder capability to the renderer", async
   // P3-1: Removed dead IPC (getPathForFile, stage-dropped-file, openFileDialog is kept but unused)
   assert.doesNotMatch(preload, /getPathForFile:/, "getPathForFile was removed as dead code");
   assert.doesNotMatch(preload, /stage-dropped-file/, "stage-dropped-file IPC was removed as dead code");
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 6, "no invoke channel beyond the six currently approved narrow requests");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 7, "no invoke channel beyond the seven currently approved narrow requests");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "shell is never exposed to the renderer");
   assert.doesNotMatch(preload, /exec\(|spawn\(|execFile\(/, "no arbitrary command execution");
 
