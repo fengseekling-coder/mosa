@@ -32,9 +32,9 @@ const desktopStagingRoot = importStagingDir(desktopUserData);
 const desktopFixturePath = join(desktopStagingRoot, "critical-flow.png");
 const stamp = Date.now().toString(36);
 const webSearchTerm = `MOSA E2E WEB ${stamp}`;
-const webVersionChange = `web-version-${stamp}`;
+const webRecipeChange = `web-recipe-${stamp}`;
 const desktopSearchTerm = `MOSA E2E ELECTRON ${stamp}`;
-const desktopVersionChange = `electron-version-${stamp}`;
+const desktopRecipeChange = `electron-recipe-${stamp}`;
 
 await Promise.all([
   mkdir(libraryDir, { recursive: true }),
@@ -49,22 +49,22 @@ await Promise.all([
 ]);
 
 try {
-  console.log("[e2e] Web renderer: import -> search -> detail -> favorite -> version");
-  await runWebRound("exercise", webSearchTerm, webVersionChange);
+  console.log("[e2e] Web renderer: import -> search -> detail -> favorite -> recipe autosave");
+  await runWebRound("exercise", webSearchTerm, webRecipeChange);
   console.log("[e2e] Web renderer: restart -> persistence verification");
-  await runWebRound("verify", webSearchTerm, webVersionChange);
+  await runWebRound("verify", webSearchTerm, webRecipeChange);
 
-  console.log("[e2e] Electron renderer: import -> search -> detail -> favorite -> version");
-  await runElectronRound("exercise", desktopSearchTerm, desktopVersionChange);
+  console.log("[e2e] Electron renderer: import -> search -> detail -> favorite -> recipe autosave");
+  await runElectronRound("exercise", desktopSearchTerm, desktopRecipeChange);
   console.log("[e2e] Electron renderer: restart -> persistence verification");
-  await runElectronRound("verify", desktopSearchTerm, desktopVersionChange);
+  await runElectronRound("verify", desktopSearchTerm, desktopRecipeChange);
 
   console.log(JSON.stringify({ ok: true, storage: "sqlite", flows: ["web", "electron"], restartVerified: true }));
 } finally {
   await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 }
 
-async function runWebRound(mode, searchTerm, versionChange) {
+async function runWebRound(mode, searchTerm, recipeChange) {
   const port = await freePort();
   const child = spawn(process.execPath, ["server.mjs"], {
     cwd: rootDir,
@@ -88,7 +88,7 @@ async function runWebRound(mode, searchTerm, versionChange) {
         MOSA_E2E_WEB_MODE: mode,
         MOSA_E2E_WEB_FIXTURE: webFixturePath,
         MOSA_E2E_WEB_SEARCH: searchTerm,
-        MOSA_E2E_WEB_VERSION: versionChange,
+        MOSA_E2E_WEB_RECIPE_CHANGE: recipeChange,
       },
     });
   } catch (error) {
@@ -99,7 +99,7 @@ async function runWebRound(mode, searchTerm, versionChange) {
   }
 }
 
-async function runElectronRound(mode, searchTerm, versionChange) {
+async function runElectronRound(mode, searchTerm, recipeChange) {
   const servicePort = await freePort();
   const cdpPort = await freePort();
   const runDir = join(root, `desktop-${mode}-${servicePort}`);
@@ -133,8 +133,8 @@ async function runElectronRound(mode, searchTerm, versionChange) {
     const cdp = await connectCdp(cdpPort, `http://127.0.0.1:${servicePort}`);
     try {
       await waitForRendererReady(cdp);
-      const result = await cdp.evaluate(createCriticalUiFlowSource({ mode, fixturePath: desktopFixturePath, searchTerm, versionChange }));
-      if (!result?.favorite || result.versionCount < 2) {
+      const result = await cdp.evaluate(createCriticalUiFlowSource({ mode, fixturePath: desktopFixturePath, searchTerm, recipeChange }));
+      if (mode === "verify" && (!result?.favorite || result.recipeSnapshotCount < 2)) {
         throw new Error(`Unexpected Electron UI result: ${JSON.stringify(result)}`);
       }
     } finally {
