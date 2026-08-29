@@ -486,7 +486,11 @@
   }
 
   function harvest(text, via) {
-    if (!text || text.length < 20 || text.length > 12_000_000) return;
+    if (!text || text.length < 20) return;
+    if (text.length > 12_000_000) {
+      post("harvest-skipped", { reason: "payload-too-large", size: text.length, via });
+      return;
+    }
     if (text.includes("data:")) {
       for (const line of text.split(/\n/)) {
         const trimmed = line.trim();
@@ -717,7 +721,11 @@
             if (src) post("dom-image", { ...imageIdentity(src), imageUrl: src, width: img.naturalWidth, height: img.naturalHeight });
           }
         }
-        if (m.type === "attributes" && m.target instanceof HTMLImageElement && m.attributeName === "src") {
+        if (
+          m.type === "attributes"
+          && m.target instanceof HTMLImageElement
+          && (m.attributeName === "src" || m.attributeName === "srcset")
+        ) {
           const src = m.target.currentSrc || m.target.src;
           if (src) post("dom-image", { ...imageIdentity(src), imageUrl: src, width: m.target.naturalWidth, height: m.target.naturalHeight });
         }

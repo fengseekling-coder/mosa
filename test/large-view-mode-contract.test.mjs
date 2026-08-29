@@ -149,7 +149,7 @@ test("10. single click on a card opens the V2 detail inspector", async () => {
   const cards = sliceBetween(app, 'const selectButton = event.target.closest(".asset-card-select")', 'const loadMoreButton = event.target.closest');
   assert.match(cards, /const id = selectButton\.closest\("\.asset-card"\)\?\.dataset\.id;/,
     "card click resolves the asset id");
-  assert.match(cards, /if \(id\) void selectAsset\(id\);/, "card click opens the V2 detail inspector");
+  assert.match(cards, /if \(id\) \{\s+gallerySelection\.clear\(\);\s+void selectAsset\(id\);\s+\}/, "card click clears batch selection before opening the V2 detail inspector");
   assert.doesNotMatch(cards, /openAssetView/, "card click does not enter the retired canvas viewer");
 });
 
@@ -167,7 +167,7 @@ test("12. copy quick action does not bubble", async () => {
   const copy = sliceBetween(app, 'const copyButton = event.target.closest(".card-quick-copy")', 'const selectButton = event.target.closest(".asset-card-select")');
   assert.match(copy, /event\.stopPropagation\(\)/, "copy click must not bubble to the card");
   assert.match(copy, /const assetId = copyButton\.closest\("\.asset-card"\)\?\.dataset\.id;/, "copy resolves the owning asset without embedding its prompt in DOM");
-  assert.match(copy, /navigator\.clipboard\.writeText\(asset\?\.prompt \|\| ""\)/, "copy click keeps its clipboard action");
+  assert.match(copy, /writeClipboardText\(asset\?\.prompt \|\| ""\)/, "copy click keeps its clipboard action");
 });
 
 // 13. The return control is a native button whose accessible name contains the

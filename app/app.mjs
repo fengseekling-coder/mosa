@@ -16,6 +16,8 @@ import { assetTags, derivePromptTags, uniqueTags } from "./tag-utils.mjs";
 import { createContextMenu } from "./context-menu.mjs";
 import { createContextMenuActions } from "./context-menu-actions.mjs";
 import { bindContextMenuEvents } from "./context-menu-bindings.mjs";
+import { createGallerySelection } from "./gallery-selection.mjs";
+import { createAssetStackController } from "./asset-stacks.mjs";
 let statusAnnouncementTimer = null;
 let statusTextWriteTimer = null;
 let statusAnnouncementSequence = 0;
@@ -52,7 +54,7 @@ function sourceTypeLabel(type) {
 
 const preference = safeStorageGet("mosa.ui-language") || "system";
 const state = {
-  project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, detailAsset: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
+  project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, selectedIds: new Set(), selectionProject: "default", detailAsset: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
   groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0 },
@@ -75,6 +77,8 @@ const state = {
   // Phase 3A / D4：专用大图查看模式最小状态——viewMode 二值（library/asset）+ 进入时的
   // 画廊返回快照。不复刻搜索/筛选/排序状态、不深拷贝 state、无第二套 selectedAsset、无平行 Router。
   viewMode: "library", libraryReturnSnapshot: null,
+  activeStackId: "", activeStackSummary: null, stackReturnSnapshot: null,
+  assetStackDragCandidate: false, assetStackDragging: false,
 };
 
 // ===== i18n 运行时（resolveLocale/t/applyLanguage 已提取至 i18n-runtime.mjs）=====
@@ -145,6 +149,13 @@ Object.assign(els, {
   assetZoomOut: document.querySelector("#assetZoomOut"),
   assetZoomIn: document.querySelector("#assetZoomIn"),
   assetZoomFit: document.querySelector("#assetZoomFit"),
+  selectionBar: document.querySelector("#selectionBar"),
+  selectionCount: document.querySelector("#selectionCount"),
+  selectionSelectAll: document.querySelector("#selectionSelectAll"),
+  selectionClear: document.querySelector("#selectionClear"),
+  selectionStack: document.querySelector("#selectionStack"),
+  selectionRemoveFromStack: document.querySelector("#selectionRemoveFromStack"),
+  stackBack: document.querySelector("#stackBack"),
   assetZoomValue: document.querySelector("#assetZoomValue"),
   assetViewNav: document.querySelector("#assetViewNav"),
   assetViewPrev: document.querySelector("#assetViewPrev"),
@@ -157,6 +168,20 @@ Object.assign(els, {
   confirmDialogDescription: document.querySelector("#confirmDialogDescription"),
   confirmDialogCancel: document.querySelector("#confirmDialogCancel"),
   confirmDialogConfirm: document.querySelector("#confirmDialogConfirm"),
+});
+
+const gallerySelection = createGallerySelection({ els, state, t, announceGalleryStatus });
+const assetStacks = createAssetStackController({
+  els,
+  state,
+  apiFetch,
+  loadAssets,
+  gallerySelection,
+  renderQuickFilters,
+  updateViewTitle,
+  showToast,
+  closeDetailSurface,
+  t,
 });
 
 // ===== Dark mode =====
@@ -503,12 +528,16 @@ function setupKeyboardShortcuts() {
     // 冒泡）。一次 Escape 只关菜单，方向键只移动菜单焦点，不连带关 Inspector
     // 或切换画廊选中。
     if (contextMenu.isOpen()) return;
-    // Disabled context-menu shortcuts (pasteFromClipboard / selectAll) advertise
-    // ⌘V / ⌘A but never implement them. Block the browser defaults so users
-    // don't accidentally select all DOM text or trip paste-handlers that the
-    // app does not own.
+    // The gallery owns ⌘/Ctrl+A now that marquee selection is available. Paste
+    // remains desktop-only; browser mode still blocks accidental DOM selection
+    // and paste handlers that MOSA does not own.
     if ((event.metaKey || event.ctrlKey) && (event.key === "a" || event.key === "A" || event.key === "v" || event.key === "V")) {
       if (event.target.matches?.("input, textarea, select, [contenteditable]")) return;
+      if ((event.key === "a" || event.key === "A") && state.viewMode === "library" && state.assets.length) {
+        event.preventDefault();
+        gallerySelection.selectAll({ announce: true });
+        return;
+      }
       // In Electron, the paste event handler in bindDesktopIntegration imports
       // a pasted image from the clipboard. Calling preventDefault() here would
       // suppress that paste event entirely, so let it through on the desktop.
@@ -554,7 +583,13 @@ function setupKeyboardShortcuts() {
       if (els.accountModal?.classList.contains("open")) { closeAccountModal(); event.preventDefault(); return; }
       // Escape 先关最上层 Modal，再退出查看模式，不得穿透。
       if (!els.settingsMenu?.hidden) { closePanel(els.settingsMenu, els.settingsToggle); event.preventDefault(); return; }
+      if (state.viewMode === "library" && state.selectedIds?.size) {
+        gallerySelection.clear({ announce: true });
+        event.preventDefault();
+        return;
+      }
       if (state.viewMode === "asset" || state.detailOpen) { event.preventDefault(); void closeDetailSurface(); return; }
+      if (state.activeStackId) { event.preventDefault(); void assetStacks.exitStack(); return; }
     }
     // Native video controls own their keyboard semantics (notably ←/→ seek).
     // Escape was handled above, so all remaining keystrokes can safely stay
@@ -600,7 +635,16 @@ function setupKeyboardShortcuts() {
       if (event.key === "0") { event.preventDefault(); resetAssetViewToHundred(); return; }
       if (event.key === "f" || event.key === "F") { event.preventDefault(); fitAssetView(true); return; }
     }
-    if (state.viewMode === "library") handleLibraryKeyboardNavigation(event);
+    if (event.key === "Enter" && state.viewMode === "library" && state.selectedId && !state.selectedIds?.size) {
+      const asset = selectedAsset();
+      if (asset) {
+        event.preventDefault();
+        if (!state.activeStackId && asset.stack?.id) void assetStacks.enterStack(asset.stack.id, asset.stack);
+        else openImagePreview(asset.id, els.assetGrid?.querySelector(`.asset-card[data-id="${CSS.escape(asset.id)}"] .asset-card-select`));
+        return;
+      }
+    }
+    if (state.viewMode === "library" && !state.selectedIds?.size) handleLibraryKeyboardNavigation(event);
   });
 }
 
@@ -721,6 +765,8 @@ async function resetLibraryRefinements() {
 async function init() {
     applyLanguage();
     applyDarkMode();
+    assetStacks.bind();
+    gallerySelection.bind();
     bindEvents();
     setupDragDrop();
     setupGlobalDragGuard();
@@ -936,6 +982,16 @@ const { requestConfirmation, closeConfirmDialog, trapConfirmDialogFocus, isConfi
 
 const toastManager = createToastManager({ els, state, t, isConfirmFocusTarget });
 function showToast(message, type = "default") { return toastManager.show(message, type); }
+async function writeClipboardText(value) {
+  const text = String(value ?? "");
+  if (window.electronAPI?.writeClipboardText) {
+    const result = await window.electronAPI.writeClipboardText(text);
+    if (result?.ok !== true) throw new Error(t("copyFailed"));
+    return;
+  }
+  if (!navigator.clipboard?.writeText) throw new Error(t("copyFailed"));
+  await navigator.clipboard.writeText(text);
+}
 // 只读调试钩子：仅供契约/运行时验证取证（队列位置、remaining、暂停原因），
 // 不向 UI 暴露、不参与任何业务决策。
 window.__mosaToastDebug = () => toastManager.snapshot();
@@ -955,6 +1011,8 @@ const contextMenuActions = createContextMenuActions({
   openGroupModal,
   getGroupColor: colorForGroup,
   saveGroupColor,
+  writeClipboardText,
+  pasteClipboardImage: window.electronAPI?.pasteImage ? pasteClipboardImage : null,
 });
 
 function isDetailEditorActive() {
@@ -1076,12 +1134,16 @@ function updateCodexHint() {
 
 function updateViewTitle() {
   const titles = { all: t("allAssets"), favorite: t("favorites"), recent: t("recent") };
-  els.viewTitle.textContent = titles[state.scope] || t("allAssets");
+  els.viewTitle.textContent = state.activeStackId
+    ? t("stackItemCount", { count: state.activeStackSummary?.count || state.pageTotal || state.assets.length })
+    : (titles[state.scope] || t("allAssets"));
   // Match V2 SearchBar's scope-aware hint without changing the shared search
   // control or any query semantics.
   if (els.searchInput) {
     const activeGroup = String(state.facets.group || "").trim();
-    els.searchInput.placeholder = activeGroup
+    els.searchInput.placeholder = state.activeStackId
+      ? t("searchStack")
+      : activeGroup
       ? t("searchGroup", { group: activeGroup })
       : state.scope === "favorite"
         ? t("searchFavorite")
@@ -1193,6 +1255,7 @@ function bindEvents() {
   els.activeFilters?.addEventListener("click", (event) => { const chip = event.target.closest("[data-chip]"); if (chip) void removeFilterChip(chip.dataset.chip); });
   els.detailPanel?.addEventListener("click", handleReferenceRightsOpen);
   els.assetGrid?.addEventListener("click", (event) => {
+    if (gallerySelection.handleGridClick(event)) return;
     const favoriteButton = event.target.closest(".card-favorite");
     if (favoriteButton) {
       event.stopPropagation();
@@ -1205,7 +1268,7 @@ function bindEvents() {
       void runAction(async () => {
         const assetId = copyButton.closest(".asset-card")?.dataset.id;
         const asset = state.assets.find((item) => item.id === assetId);
-        await navigator.clipboard.writeText(asset?.prompt || "");
+        await writeClipboardText(asset?.prompt || "");
         showToast(t("copySuccess"), "success");
       });
       return;
@@ -1213,7 +1276,11 @@ function bindEvents() {
     const selectButton = event.target.closest(".asset-card-select");
     if (selectButton) {
       const id = selectButton.closest(".asset-card")?.dataset.id;
-      if (id) void selectAsset(id);
+      if (id && gallerySelection.handleCardClick(event, id)) return;
+      if (id) {
+        gallerySelection.clear();
+        void selectAsset(id);
+      }
       return;
     }
     const loadMoreButton = event.target.closest('[data-action="load-more"]');
@@ -1241,7 +1308,13 @@ function bindEvents() {
     if (!selectButton) return;
     event.stopPropagation();
     const id = selectButton.closest(".asset-card")?.dataset.id;
-    if (id) openImagePreview(id, selectButton);
+    if (!id) return;
+    const asset = state.assets.find((item) => item.id === id);
+    if (!state.activeStackId && asset?.stack?.id) {
+      void assetStacks.enterStack(asset.stack.id, asset.stack);
+      return;
+    }
+    openImagePreview(id, selectButton);
   });
   els.newAssetTopBtn?.addEventListener("click", openImportModal);
   els.browseFileBtn?.addEventListener("click", () => {
@@ -1499,45 +1572,54 @@ function bindDesktopIntegration() {
     for (const item of items) {
       if (item.type.startsWith("image/")) {
         event.preventDefault();
-        if (state.stagingInProgress) return;
-        state.stagingInProgress = true;
-        state.stagingCanceled = false;
-        try {
-          const filePath = await api.pasteImage();
-          // Empty clipboard is a normal no-op. Staging failures reject from
-          // the main process and are handled by the catch below.
-          if (!filePath) return;
-          if (state.stagingCanceled) {
-            await cleanupStagedFile(filePath);
-            return;
-          }
-          if (state.stagedPath && state.stagedPath !== filePath) await cleanupStagedFile(state.stagedPath);
-          if (state.stagingCanceled) {
-            await cleanupStagedFile(filePath);
-            return;
-          }
-          state.stagedPath = filePath;
-          if (els.imagePathInput) {
-            els.imagePathInput.value = filePath;
-            openImportModal();
-            if (!els.importModal?.classList.contains("open")) {
-              state.stagedPath = "";
-              els.imagePathInput.value = "";
-              await cleanupStagedFile(filePath);
-            }
-          }
-        } catch (error) {
-          if (!state.stagingCanceled) showToast(t("pasteImageSaveFailed"), "error");
-        } finally {
-          state.stagingInProgress = false;
-          state.stagingCanceled = false;
-        }
+        await pasteClipboardImage();
         return;
       }
     }
   });
   api.onMenuImport?.(() => openImportModal());
   api.onMenuSearch?.(() => { els.searchInput?.focus(); });
+}
+
+async function pasteClipboardImage() {
+  const api = window.electronAPI;
+  if (!api?.pasteImage || state.stagingInProgress) return false;
+  state.stagingInProgress = true;
+  state.stagingCanceled = false;
+  try {
+    const filePath = await api.pasteImage();
+    if (!filePath) return false;
+    if (state.stagingCanceled) {
+      await cleanupStagedFile(filePath);
+      return false;
+    }
+    if (state.stagedPath && state.stagedPath !== filePath) await cleanupStagedFile(state.stagedPath);
+    if (state.stagingCanceled) {
+      await cleanupStagedFile(filePath);
+      return false;
+    }
+    state.stagedPath = filePath;
+    if (!els.imagePathInput) {
+      state.stagedPath = "";
+      await cleanupStagedFile(filePath);
+      return false;
+    }
+    els.imagePathInput.value = filePath;
+    openImportModal();
+    if (!els.importModal?.classList.contains("open")) {
+      state.stagedPath = "";
+      els.imagePathInput.value = "";
+      await cleanupStagedFile(filePath);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    if (!state.stagingCanceled) showToast(t("pasteImageSaveFailed"), "error");
+    return false;
+  } finally {
+    state.stagingInProgress = false;
+    state.stagingCanceled = false;
+  }
 }
 
 function setLanguage(value) {
@@ -1991,6 +2073,8 @@ function assetCardRenderKey(asset, selected) {
     selected ? "1" : "0",
     asset.group || "",
     asset.version_index || "",
+    asset.stack?.id || "",
+    asset.stack?.count || "",
     state.locale,
   ].join("\u001f");
 }
@@ -2104,6 +2188,7 @@ function renderGrid() {
   if (state.galleryStatus === "error") {
     const message = state.galleryError?.message || "";
     els.assetGrid.innerHTML = `<div class="error-state"><p>${escapeHtml(t("loadFailed"))}</p><span>${escapeHtml(message)}</span><button type="button" data-action="retry">${escapeHtml(t("retry"))}</button></div>`;
+    gallerySelection.syncRenderedSelection();
     restoreGridFallbackFocus();
     return;
   }
@@ -2111,6 +2196,7 @@ function renderGrid() {
     // F-08：零结果不再一律谎称「素材库为空」——判定由集中式 helper 按
     // 全库总数、query、facets、scope、分组分流，五类空态共用一个壳。
     els.assetGrid.innerHTML = galleryEmptyMarkup();
+    gallerySelection.syncRenderedSelection();
     announceEmptyState(els.assetGrid.querySelector(".gallery-empty-state")?.dataset.emptyKind);
     restoreGridFallbackFocus();
     return;
@@ -2130,9 +2216,11 @@ function renderGrid() {
     const sourceLabel = assetSourceLabel(asset);
     const date = formatDate(asset.created_at, state.locale);
     const selected = asset.id === state.selectedId;
+    const isStack = Boolean(!state.activeStackId && asset.stack?.id && Number(asset.stack?.count) > 1);
     const media = assetMediaPreviewMarkup(asset, "thumb");
     // Short, structured label instead of the full prompt.
     const label = t("cardAccessibleName", { title: title || asset.id, source: sourceLabel, date });
+    const stackDescription = isStack ? ` aria-description="${escapeHtml(t("stackAccessibleName", { label, count: asset.stack.count }))}"` : "";
     const versionIndex = Number(asset.version_index) || 0;
     const badge = versionIndex > 1 ? t("versionLabelShort", { number: versionIndex }) : (asset.group || "");
     const info = `<div class="asset-card-info"><p class="asset-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</p><p class="asset-card-meta"><span>${escapeHtml(sourceLabel)}</span><span>${escapeHtml(date)}</span>${badge ? `<span class="asset-card-badge" title="${escapeHtml(badge)}">${escapeHtml(badge)}</span>` : ""}</p></div>`;
@@ -2143,11 +2231,12 @@ function renderGrid() {
     const favBtn = `<button class="card-action-btn card-favorite${isFav ? " is-fav" : ""}" type="button" data-fav-id="${escapeHtml(asset.id)}" aria-pressed="${Boolean(isFav)}" aria-label="${escapeHtml(favoriteLabel)}" title="${escapeHtml(favoriteLabel)}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.95 5.97 6.59.96-4.77 4.65 1.13 6.57L12 17.57l-5.9 3.08 1.13-6.57-4.77-4.65 6.59-.96L12 2.5z"/></svg></button>`;
     const copyBtn = `<button class="card-action-btn card-quick-copy" type="button" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button>`;
     const cardActions = `<div class="card-actions">${favBtn}${copyBtn}</div>`;
+    const stackBadge = isStack ? `<span class="asset-stack-count" aria-hidden="true">${Number(asset.stack.count)}</span>` : "";
     return {
       id: asset.id,
       renderKey: assetCardRenderKey(asset, selected),
       animateCard,
-      markup: `<article class="asset-card${selected ? " selected" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}" title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}">${media}<span class="card-scrim" aria-hidden="true"></span><span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`,
+      markup: `<article class="asset-card${selected ? " selected" : ""}${isStack ? " is-stack" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}"${isStack ? ` data-stack-id="${escapeHtml(asset.stack.id)}"` : ""} title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}"${stackDescription}>${media}<span class="card-scrim" aria-hidden="true"></span>${stackBadge}<span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`,
     };
   });
   // Populated renders are reconciled by asset id. Unchanged cards keep their
@@ -2185,6 +2274,7 @@ function renderGrid() {
       else els.assetGrid?.focus({ preventScroll: true });
     });
   }
+  gallerySelection.syncRenderedSelection();
 }
 
 /** Routed through the state machine so a later re-render cannot resurrect the skeleton. */
@@ -2381,7 +2471,7 @@ function selectedAsset() {
     || null;
 }
 
-function updateSelectedCard() { els.assetGrid?.querySelectorAll(".asset-card").forEach((card) => { const selected = card.dataset.id === state.selectedId; card.classList.toggle("selected", selected); card.querySelector(".asset-card-select")?.setAttribute("aria-pressed", String(selected)); }); }
+function updateSelectedCard() { els.assetGrid?.querySelectorAll(".asset-card").forEach((card) => { const selected = card.dataset.id === state.selectedId; const multiSelected = state.selectedIds?.has(card.dataset.id); card.classList.toggle("selected", selected); card.querySelector(".asset-card-select")?.setAttribute("aria-pressed", String(selected || multiSelected)); }); }
 function setDetailOpen(open) {
   const wasOpen = state.detailOpen;
   state.detailOpen = Boolean(open); els.appShell?.classList.toggle("details-open", state.detailOpen); document.body.classList.toggle("detail-open", state.detailOpen); els.detailPanel?.setAttribute("aria-hidden", String(!state.detailOpen));
@@ -3281,7 +3371,7 @@ function bindRecipeHistoryEvents(history, asset) {
   els.detailPanel?.querySelectorAll("[data-recipe-snapshot-id]").forEach((button) => button.addEventListener("click", () => runAction(async () => {
     const snapshot = history.snapshots.find((item) => item.snapshot_id === button.dataset.recipeSnapshotId);
     if (!snapshot) return;
-    await navigator.clipboard.writeText(regenerationInstruction(asset, snapshot));
+    await writeClipboardText(regenerationInstruction(asset, snapshot));
     showToast(t("instructionCopied"), "success");
   })));
 }
@@ -3306,7 +3396,7 @@ function bindDetailEvents(asset, renderId) {
   // 素材、不返回 Library；loadAssets 后 renderDetail 重渲染按 asset.favorite 重绘本按钮。
   panel.querySelector('[data-action="toggle-favorite"]')?.addEventListener("click", (event) => toggleFavorite(asset.id, event));
   panel.querySelector('[data-action="add-tag"]')?.addEventListener("click", () => openTagEditor(panel, asset, renderId));
-  panel.querySelector('[data-action="copy-source"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(sourceCopyValue(asset.source)); showToast(t("originalPathCopied"), "success"); }));
+  panel.querySelector('[data-action="copy-source"]')?.addEventListener("click", () => runAction(async () => { await writeClipboardText(sourceCopyValue(asset.source)); showToast(t("originalPathCopied"), "success"); }));
   panel.querySelector('[data-action="view-generation-session"]')?.addEventListener("click", () => { void showRelatedGenerations(asset, "session"); });
   panel.querySelector('[data-action="view-generation-batch"]')?.addEventListener("click", () => { void showRelatedGenerations(asset, "batch"); });
   if (!isVideoAsset(asset)) {
@@ -3319,9 +3409,9 @@ function bindDetailEvents(asset, renderId) {
     if (result?.ok) { showToast(t("shownInFinder"), "success"); return; }
     throw new Error(t("showInFinderFailed"));
   }));
-  panel.querySelector('[data-action="copy-prompt"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(asset.prompt || ""); showToast(t("copySuccess"), "success"); }));
-  panel.querySelector('[data-action="copy-instruction"]')?.addEventListener("click", () => runAction(async () => { const instruction = String(asset.source?.user_message || asset.business_fields?.user_message || "").trim(); await navigator.clipboard.writeText(instruction); showToast(t("copySuccess"), "success"); }));
-  panel.querySelector('[data-action="copy-path"]')?.addEventListener("click", () => runAction(async () => { await navigator.clipboard.writeText(asset.image_path); showToast(t("pathCopied"), "success"); }));
+  panel.querySelector('[data-action="copy-prompt"]')?.addEventListener("click", () => runAction(async () => { await writeClipboardText(asset.prompt || ""); showToast(t("copySuccess"), "success"); }));
+  panel.querySelector('[data-action="copy-instruction"]')?.addEventListener("click", () => runAction(async () => { const instruction = String(asset.source?.user_message || asset.business_fields?.user_message || "").trim(); await writeClipboardText(instruction); showToast(t("copySuccess"), "success"); }));
+  panel.querySelector('[data-action="copy-path"]')?.addEventListener("click", () => runAction(async () => { await writeClipboardText(asset.image_path); showToast(t("pathCopied"), "success"); }));
   panel.querySelector('[data-action="regenerate"]')?.addEventListener("click", (event) => {
     const trigger = event.currentTarget;
     runAction(async () => {
@@ -3340,7 +3430,7 @@ function bindDetailEvents(asset, renderId) {
         // Cancel：不写剪贴板；context guard：旧确认结果不操作新素材。
         if (!confirmed || !isCurrentDetailSelection(asset.project_id, asset.id)) return;
       }
-      await navigator.clipboard.writeText(regenerationInstruction(asset, snapshot));
+      await writeClipboardText(regenerationInstruction(asset, snapshot));
       showToast(t("instructionCopied"), "success");
     });
   });

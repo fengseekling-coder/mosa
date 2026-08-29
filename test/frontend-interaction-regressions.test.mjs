@@ -60,11 +60,24 @@ test("desktop image paste never hijacks editors or stacks over another modal sur
   assert.match(paste, /els\.groupModal\?\.classList\.contains\("open"\)/);
   assert.match(paste, /els\.accountModal\?\.classList\.contains\("open"\)/);
   assert.match(paste, /if \(editableTarget \|\| blockingSurfaceOpen\) return;/);
-  assert.match(paste, /if \(state\.stagingInProgress\) return;/, "rapid paste cannot create concurrent staging files");
-  assert.match(paste, /state\.stagedPath = filePath;/, "Electron paste joins the same cancel-cleanup lifecycle as manual staging");
-  assert.match(paste, /if \(!els\.importModal\?\.classList\.contains\("open"\)\)[\s\S]*?cleanupStagedFile\(filePath\)/,
+  assert.match(paste, /await pasteClipboardImage\(\)/, "paste events use the shared native-image paste path");
+
+  const sharedPaste = sliceBetween(app, "async function pasteClipboardImage()", "function setLanguage");
+  assert.match(sharedPaste, /state\.stagingInProgress/, "rapid paste cannot create concurrent staging files");
+  assert.match(sharedPaste, /state\.stagedPath = filePath;/, "Electron paste joins the same cancel-cleanup lifecycle as manual staging");
+  assert.match(sharedPaste, /if \(!els\.importModal\?\.classList\.contains\("open"\)\)[\s\S]*?cleanupStagedFile\(filePath\)/,
     "a paste staged while another overlay opens is discarded instead of becoming hidden state");
-  assert.match(paste, /showToast\(t\("pasteImageSaveFailed"\), "error"\)/, "staging failures are not misreported as clipboard permissions");
+  assert.match(sharedPaste, /showToast\(t\("pasteImageSaveFailed"\), "error"\)/, "staging failures are not misreported as clipboard permissions");
+});
+
+test("clipboard actions never use renderer clipboard reads in the production app", async () => {
+  const [app, actions] = await Promise.all([
+    readApp(),
+    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
+  ]);
+  assert.doesNotMatch(actions, /navigator\.clipboard\.read/);
+  assert.match(actions, /pasteClipboardImage/);
+  assert.match(app, /window\.electronAPI\?\.pasteImage \? pasteClipboardImage : null/);
 });
 
 test("global drag guard blocks default file navigation outside an active library drop target", async () => {

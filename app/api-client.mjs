@@ -94,7 +94,7 @@ export function createApiClient(deps) {
   // 只读查询快照上取页，绝不读取运行中已变化的筛选状态；游标必须与发出时的排序同行。
   function buildAssetPageParams(request, options = {}) {
     const params = new URLSearchParams({ project: request.project, q: request.query });
-    params.set("limit", "100");
+    if (!request.stackId) params.set("limit", "100");
     // The sort is resolved by the store across the whole query, so the cursor must
     // travel with the same order it was issued under.
     params.set("sort", request.sort);
@@ -109,11 +109,14 @@ export function createApiClient(deps) {
   }
 
   function requestAssetPage(request, options = {}) {
-    return apiFetch(`/api/assets?${buildAssetPageParams(request, options)}`);
+    const params = buildAssetPageParams(request, options);
+    if (request.stackId) return apiFetch(`/api/asset-stacks/${encodeURIComponent(request.stackId)}/assets?${params}`);
+    return apiFetch(`/api/assets?${params}`);
   }
 
   function requestAssetTotal(request) {
     const params = buildAssetPageParams(request);
+    if (request.stackId) return apiFetch(`/api/asset-stacks/${encodeURIComponent(request.stackId)}/assets?${params}`);
     params.set("limit", "1");
     return apiFetch(`/api/assets?${params}`);
   }
@@ -145,6 +148,11 @@ export function createApiClient(deps) {
       result = await requestAssetPage(request, { cursor: options.append ? state.nextCursor : null });
     } catch (error) {
       if (!isCurrentAssetRequest(requestId, request)) return false;
+      if (request.stackId && error?.code === "STACK_NOT_FOUND") {
+        setGalleryBusy(false, requestId, request);
+        window.dispatchEvent(new CustomEvent("mosa:active-stack-missing", { detail: { stackId: request.stackId } }));
+        return false;
+      }
       // Loading the next page is additive. A transient failure must never
       // replace already-loaded cards or discard the user's browsing context.
       if (options.append && state.assets.length) {
@@ -193,6 +201,7 @@ export function createApiClient(deps) {
       && previousSelected.project_id === request.project
       && !nextAssets.some((asset) => asset.id === previousSelected.id && asset.project_id === previousSelected.project_id));
     state.assets = nextAssets;
+    if (request.stackId && result.stack) state.activeStackSummary = result.stack;
     // The request answered, so an empty result is now genuinely an empty library.
     state.galleryStatus = "ready";
     state.galleryError = null;
@@ -311,11 +320,19 @@ export function createApiClient(deps) {
   }
 
   function currentAssetRequest() {
-    return { project: state.project, query: state.query, scope: state.scope, mediaKind: state.mediaKind, facets: { ...state.facets }, sort: state.sort };
+    return {
+      project: state.project,
+      query: state.query,
+      scope: state.scope,
+      mediaKind: state.mediaKind,
+      facets: { ...state.facets },
+      sort: state.activeStackId ? "manual" : state.sort,
+      stackId: state.activeStackId || "",
+    };
   }
 
   function assetRequestKey(request) {
-    return JSON.stringify([request.project, request.query, request.scope, request.mediaKind || "all", ...FACET_KEYS.map((key) => request.facets[key] || ""), request.sort]);
+    return JSON.stringify([request.project, request.stackId || "", request.query, request.scope, request.mediaKind || "all", ...FACET_KEYS.map((key) => request.facets[key] || ""), request.sort]);
   }
 
   function assetListVersion(assets) {

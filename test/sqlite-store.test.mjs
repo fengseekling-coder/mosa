@@ -593,11 +593,11 @@ test("SQLite schema v1 upgrades once without changing completed migration state"
   const pixelIndex = upgraded.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'assets_project_pixel_hash_idx'").get();
   upgraded.close();
 
-  assert.equal(schemaAfterUpgrade.value, "10");
+  assert.equal(schemaAfterUpgrade.value, "11");
   assert.notEqual(schemaAfterUpgrade.updated_at, originalTimestamp);
   assert.deepEqual(migrationState, { value: "completed", updated_at: originalTimestamp });
   assert.deepEqual(migrationDetails, { value: '{"verified":true}', updated_at: originalTimestamp });
-  assert.deepEqual(migrationVersions, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  assert.deepEqual(migrationVersions, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   assert.equal(parentIndex.name, "asset_versions_parent_idx");
   assert.equal(pixelColumn.name, "pixel_sha256");
   assert.equal(pixelIndex.name, "assets_project_pixel_hash_idx");
@@ -668,7 +668,7 @@ test("SQLite schema v5 upgrades suppression identity to include pixel hash versi
     pixel_hash_version: "opaque-static-v1",
     deleted_at: "2026-08-20T00:00:00.000Z",
   });
-  assert.equal(schemaVersion, "10");
+  assert.equal(schemaVersion, "11");
 });
 
 test("SQLite schema v7 backfills conversation and generation-batch scalars", async (t) => {
@@ -710,10 +710,11 @@ test("SQLite schema v7 backfills conversation and generation-batch scalars", asy
   const migrations = inspected.prepare("SELECT version FROM schema_migrations ORDER BY version").all().map((row) => row.version);
   inspected.close();
   assert.deepEqual(scalars, { conversation_id: "legacy-conversation", generation_batch: "legacy-batch" });
-  assert.equal(schemaVersion, "10");
+  assert.equal(schemaVersion, "11");
   assert.ok(migrations.includes(8));
   assert.ok(migrations.includes(9));
   assert.ok(migrations.includes(10));
+  assert.ok(migrations.includes(11));
 });
 
 test("SQLite schema v2 migration backfills current recipes for existing assets", async (t) => {
@@ -761,16 +762,16 @@ test("SQLite refuses to downgrade a newer schema", async (t) => {
   future.exec(`
     CREATE TABLE library_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-    INSERT INTO library_meta (key, value, updated_at) VALUES ('schema_version', '11', 'future');
+    INSERT INTO library_meta (key, value, updated_at) VALUES ('schema_version', '12', 'future');
   `);
   future.close();
 
   assert.throws(
     () => createSqliteAssetStore({ projectRoot: root, managerDir: join(root, "mosa"), libraryDir }),
-    /schema version 11 is newer than supported version 10/,
+    /schema version 12 is newer than supported version 11/,
   );
   const inspected = new Database(databasePath, { readonly: true });
-  assert.deepEqual(inspected.prepare("SELECT value, updated_at FROM library_meta WHERE key = 'schema_version'").get(), { value: "11", updated_at: "future" });
+  assert.deepEqual(inspected.prepare("SELECT value, updated_at FROM library_meta WHERE key = 'schema_version'").get(), { value: "12", updated_at: "future" });
   inspected.close();
 });
 

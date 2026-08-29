@@ -3,7 +3,7 @@
  * Defines all context menu items and their actions
  */
 
-export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, confirmDetailNavigation, discardDetailDraft, openGroupModal, getGroupColor, saveGroupColor }) {
+export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, confirmDetailNavigation, discardDetailDraft, openGroupModal, getGroupColor, saveGroupColor, writeClipboardText, pasteClipboardImage }) {
   const { apiFetch } = apiClient;
   // getGroupColor falls back to the deterministic palette so call sites can rely
   // on a single source of truth for group colors (mirrors app.mjs colorForGroup).
@@ -206,7 +206,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             // SQLite store uses image_path (and inspector markup does the same);
             // keep the contract consistent across every call site.
             try {
-              await navigator.clipboard.writeText(asset.image_path);
+              await writeClipboardText(asset.image_path);
               showToast(t("pathCopied"), "success");
             } catch {
               showToast(t("copyFailed"), "error");
@@ -326,7 +326,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           disabled: !asset.prompt,
           action: async () => {
             try {
-              await navigator.clipboard.writeText(asset.prompt || "");
+              await writeClipboardText(asset.prompt || "");
               showToast(t("promptCopied"), "success");
             } catch {
               showToast(t("copyFailed"), "error");
@@ -443,19 +443,10 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
       {
         label: t("pasteFromClipboard"),
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
-        disabled: true,
+        disabled: typeof pasteClipboardImage !== "function",
         action: async () => {
-          try {
-            const items = await navigator.clipboard.read();
-            for (const item of items) {
-              if (item.types.includes("image/png") || item.types.includes("image/jpeg")) {
-                showToast(t("clipboardImageDetected"), "success");
-                break;
-              }
-            }
-          } catch (err) {
-            showToast(t("clipboardAccessDenied"), "error");
-          }
+          const pasted = await pasteClipboardImage?.();
+          if (!pasted) showToast(t("clipboardNoImage"), "default");
         },
       },
       { separator: true },

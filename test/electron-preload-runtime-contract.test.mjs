@@ -19,6 +19,7 @@ const EXPECTED_API_KEYS = [
   "pasteImage",
   "setLocale",
   "showItemInFolder",
+  "writeClipboardText",
 ];
 // Audit Fix Batch 1 (BUG-08) changed only the `test` script to load
 // test/clean-test-env.mjs; the lockfile fingerprint stays untouched.
@@ -63,8 +64,9 @@ test("preload path, module format, security settings, and API surface are stable
   assert.doesNotMatch(preload, /openExternal|sendSync|\.send\(/, "generic IPC is not exposed");
   // The preload exposes only narrow, named request channels. Update actions
   // accept no URL from the renderer; the main process owns the fixed website.
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 6, "only the six approved invoke channels remain");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 7, "only the seven approved invoke channels remain");
   assert.deepEqual(sortedApiKeys(preload), EXPECTED_API_KEYS);
+  assert.match(preload, /writeClipboardText: \(text\) => ipcRenderer\.invoke\("write-clipboard-text", text\)/);
   assert.match(preload, /showItemInFolder: \(path\) => ipcRenderer\.invoke\("show-item-in-folder", path\)/);
   assert.match(preload, /checkForUpdates: \(notify = false, anonymousUsageEnabled = true\) =>[\s\S]*?ipcRenderer\.invoke\("check-for-updates", notify === true, anonymousUsageEnabled !== false\)/);
   assert.match(preload, /openDownloadPage: \(\) => ipcRenderer\.invoke\("open-download-page"\)/);
@@ -72,6 +74,9 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(main, /MOSA_DOWNLOAD_PAGE_URL/);
   assert.match(main, /ipcMain\.handle\("check-for-updates"/);
   assert.match(main, /ipcMain\.handle\("open-download-page"/);
+  assert.match(main, /ipcMain\.handle\("write-clipboard-text"/);
+  const pasteImageHandler = main.slice(main.indexOf('ipcMain.handle("paste-image"'), main.indexOf("\n  });", main.indexOf('ipcMain.handle("paste-image"')));
+  assert.match(pasteImageHandler, /event\.sender !== mainWindow\.webContents/);
   assert.match(main, /event\.sender !== mainWindow\.webContents/);
   assert.match(main, /shell\.openExternal\(MOSA_DOWNLOAD_PAGE_URL\)/);
   assert.match(main, /if \(isolationContext\.qaRun\) return Promise\.resolve\(\{ status: "disabled", currentVersion \}\)/,
@@ -85,6 +90,12 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(finderHandler, /shell\.showItemInFolder\(allowedTarget\)/);
   assert.match(finderHandler, /reason: "not-allowed"/);
   assert.doesNotMatch(finderHandler, /openExternal/);
+
+  const clipboardHandler = main.slice(main.indexOf('ipcMain.handle("write-clipboard-text"'), main.indexOf("\n  });", main.indexOf('ipcMain.handle("write-clipboard-text"')));
+  assert.match(clipboardHandler, /event\.sender !== mainWindow\.webContents/);
+  assert.match(clipboardHandler, /typeof text !== "string"/);
+  assert.match(clipboardHandler, /text\.length > MAX_CLIPBOARD_TEXT_LENGTH/);
+  assert.match(clipboardHandler, /clipboard\.writeText\(text\)/);
 
   assert.match(main, /minWidth: 960,/);
   assert.match(main, /minHeight: 640,/);
@@ -271,4 +282,6 @@ test("real Electron preload smoke (opt-in)", { skip: process.env.MOSA_ELECTRON_P
   assert.equal(actionState.finderButtons > 0, true);
   const finderResult = JSON.parse(await evaluate(client, `JSON.stringify(await window.electronAPI.showItemInFolder(${JSON.stringify(fixturePath)}))`));
   assert.deepEqual(finderResult, { ok: true });
+  const clipboardResult = JSON.parse(await evaluate(client, `JSON.stringify(await window.electronAPI.writeClipboardText("mosa clipboard smoke"))`));
+  assert.deepEqual(clipboardResult, { ok: true });
 });

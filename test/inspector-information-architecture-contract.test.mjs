@@ -246,7 +246,7 @@ test("18-20. source section keeps buildSourceRows and a conditional copy entry",
   // Empty source falls back to notRecorded instead of an empty table.
   assert.match(sourceSection, /<p class="empty-copy">\$\{t\("notRecorded"\)\}<\/p>/);
   const bindDetailEvents = functionSlice(app, "bindDetailEvents");
-  assert.match(bindDetailEvents, /copy-source.*clipboard\.writeText\(sourceCopyValue\(asset\.source\)\)/s, "copy-source copies the original path");
+  assert.match(bindDetailEvents, /copy-source.*writeClipboardText\(sourceCopyValue\(asset\.source\)\)/s, "copy-source copies the original path");
 });
 
 test("source section stays visible as a compact disclosure in V2", async () => {
@@ -496,7 +496,7 @@ test("48-51. hygiene: no !important, no undefined tokens, manifest and dependenc
 
   // 51. app.js gains no new imports (no new runtime dependencies).
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./api-client.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
+    ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
 });
 
 // i18n symmetry: every new Phase 4A key ships in both languages, and no
