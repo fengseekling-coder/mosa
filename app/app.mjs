@@ -67,6 +67,7 @@ const state = {
   latestVersion: "",
   updatePublishedAt: "",
   updateNotes: null,
+  anonymousUsageEnabled: safeStorageGet("mosa.anonymous-usage") !== "false",
   darkMode: safeStorageGet("mosa-dark-mode") === "true", diagnosticsExpanded: false, settingsReturnFocus: null, accountReturnFocus: null,
   detailReturnFocusAssetId: null, previewReturnFocusAssetId: null,
   imageZoom: 1, imagePanX: 0, imagePanY: 0, imageDragging: false,
@@ -612,7 +613,7 @@ const { resetImageZoom, zoomImage, panImagePreview, announceImagePreviewZoom, se
 const inspectorMarkup = createInspectorMarkup({ state, t, referenceRightsMarkup });
 const { detailFileSectionMarkup, detailPromptSectionMarkup, detailSourceSectionMarkup,
   detailVersionSectionMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup,
-  detailNewVersionSectionMarkup, detailMoreSectionMarkup, versionPickerMarkup, versionHistoryMarkup,
+  detailMoreSectionMarkup, versionPickerMarkup, versionHistoryMarkup,
   generationHistoryMarkup, recipeHistoryMarkup, recipeHistoryDisclosureMarkup, categoryOptions, buildSourceRows, sourceName,
   sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup, formatFileSize, fileDimensionsText, fileFormatText,
   fileSizeText, fileFactRowMarkup, editRecipeFieldsMarkup, versionOptionLabel, detailVersionSummaryMarkup,
@@ -790,7 +791,7 @@ async function checkForUpdates({ notify = false, silent = false } = {}) {
   state.updateStatus = "checking";
   renderSettingsMenu();
   try {
-    const result = await api.checkForUpdates(notify === true);
+    const result = await api.checkForUpdates(notify === true, state.anonymousUsageEnabled);
     if (result?.status === "ok") safeStorageSet("mosa.update-last-checked", String(Date.now()));
     if (result?.currentVersion) state.productVersion = String(result.currentVersion).replace(/^v/i, "");
     if (result?.status === "ok") {
@@ -831,6 +832,7 @@ function renderSettingsMenu() {
     row(settingIcon("M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("interfaceLanguage"), visualLocale === "en" ? t("english") : t("chinese"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("interfaceLanguage"))}">${radio(visualLocale === "zh", "data-locale", "zh", "中文")}${radio(visualLocale === "en", "data-locale", "en", "EN")}</div>`),
     row(settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("libraryPath"), `<span class="settings-path">${path}</span>`, `<button class="settings-text-action" type="button" data-open-library>${t("openLibrary")}</button>`),
     row(settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6"), t("storageEngine"), t("storageEngineValue")),
+    row(settingIcon("M3 12h4l2-5 4 10 2-5h6"), t("anonymousUsage"), state.anonymousUsageEnabled ? t("anonymousUsageEnabledHint") : t("anonymousUsageDisabledHint"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("anonymousUsage"))}">${radio(state.anonymousUsageEnabled, "data-usage-opt", "on", t("usageOn"))}${radio(!state.anonymousUsageEnabled, "data-usage-opt", "off", t("usageOff"))}</div>`),
     row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), escapeHtml(updateVersionSummary()), updateVersionControlMarkup())
   ].join("");
   els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" aria-describedby="settingsModalDescription" tabindex="-1"><header class="settings-modal-header"><div><h2 id="settingsModalTitle">${t("preferences")}</h2><p id="settingsModalDescription">${t("preferencesSubtitle")}</p></div><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${rows}</div></div>`;
@@ -1343,6 +1345,13 @@ function bindEvents() {
       button.parentElement.querySelectorAll(".segmented-btn").forEach((b) => b.classList.remove("active"));
       button.classList.add("active");
       syncSegmentedRadios(els.settingsMenu); // aria-checked 与 .active 同步（Phase 5A / F-12）
+      return;
+    }
+
+    if (button?.dataset.usageOpt) {
+      state.anonymousUsageEnabled = button.dataset.usageOpt === "on";
+      safeStorageSet("mosa.anonymous-usage", String(state.anonymousUsageEnabled));
+      renderSettingsMenu();
       return;
     }
 
@@ -2214,13 +2223,10 @@ function clearDetailSelection() {
 
 // ===== Inspector auto-save =====
 // 检视器配方/参考图权利字段编辑停顿后自动 PATCH，消除"未保存修改时导航弹丢弃确认"的
-// 摩擦。标签内联编辑器仍是 submit 即时保存（不改）；"保存为新版本"仍是显式按钮。
+// 摩擦。标签内联编辑器仍是 submit 即时保存（不改）。
 let inspectorSaveTimer = null;
 let inspectorSavePromise = null;
 let activeInspector = null;
-// Guards the explicit "save as version" action against double-clicks and
-// Enter-repeat while the version POST is in flight.
-let savingVersion = false;
 const INSPECTOR_AUTOSAVE_DELAY = 1200;
 
 function scheduleInspectorSave() {
@@ -2783,7 +2789,7 @@ function renderDetail() {
   const cachedRecipeHistory = recipeHistoryForAsset(asset) || recipeHistoryFromAsset(asset);
   const cachedGenerationHistory = generationHistoryForAsset(asset);
   // Library v2 保持单层详情容器：语义区块直接进入唯一滚动列，不再额外包卡片壳。
-  els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}</div></div>`;
+  els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span data-detail-header-label>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailMoreSectionMarkup(asset)}</div></div>`;
   const previewAspect = els.detailPanel.querySelector("[data-detail-preview-aspect]");
   if (previewAspect?.dataset.detailPreviewAspect) {
     previewAspect.style.setProperty("--detail-preview-aspect", previewAspect.dataset.detailPreviewAspect);
@@ -2802,6 +2808,7 @@ function renderDetail() {
   }
   const scroller = els.detailPanel.querySelector(".detail-inspector-scroll");
   if (scroller && keepScrollTop !== null) scroller.scrollTop = keepScrollTop;
+  bindDetailHeaderContext(asset);
   bindDetailEvents(asset, renderId);
   bindReferenceThumbnailFallbacks(els.detailPanel);
   bindVersionPickerEvents();
@@ -2817,6 +2824,22 @@ function renderDetail() {
   if (!cachedHistory) void loadVersionHistory(asset);
   if (!cachedRecipeHistory) void loadRecipeHistory(asset);
   if (!cachedGenerationHistory) void loadGenerationHistory(asset);
+}
+
+function bindDetailHeaderContext(asset) {
+  const scroller = els.detailPanel?.querySelector(".detail-inspector-scroll");
+  const overview = scroller?.querySelector('[data-inspector-section="file"]');
+  const headerLabel = els.detailPanel?.querySelector("[data-detail-header-label]");
+  if (!scroller || !overview || !headerLabel) return;
+  const assetTitle = displayAssetTitle(asset);
+  const syncHeader = () => {
+    const overviewPassed = scroller.scrollTop >= overview.offsetTop + overview.offsetHeight - 8;
+    headerLabel.textContent = overviewPassed ? assetTitle : t("assetInspector");
+    headerLabel.title = overviewPassed ? assetTitle : "";
+    headerLabel.classList.toggle("is-contextual", overviewPassed);
+  };
+  scroller.addEventListener("scroll", syncHeader, { passive: true });
+  syncHeader();
 }
 
 let generationHistoryRequestSequence = 0;
@@ -3367,40 +3390,6 @@ function bindDetailEvents(asset, renderId) {
     scheduleInspectorSave();
   }));
   panel.querySelector('[data-action="save-recipe"]')?.addEventListener("click", () => runAction(() => flushInspectorSave()));
-  panel.querySelector('[data-action="save-version"]')?.addEventListener("click", () => runAction(async () => {
-    if (savingVersion) return;
-    savingVersion = true;
-    try {
-      const versionChange = panel.querySelector("[data-version-change]")?.value.trim() || "";
-      if (!versionChange) throw new Error(t("versionChangeRequired"));
-      const originProjectId = asset.project_id;
-      const originAssetId = asset.id;
-      // Flush any pending auto-save before creating the version; abort if it failed.
-      if (!await flushInspectorSave() || !isCurrentDetailAction(renderId, originProjectId, originAssetId)) return;
-      setInspectorSaveActionsBusy(panel, true, "save-version");
-      const result = await apiFetch(`/api/assets/${encodeURIComponent(originProjectId)}/${encodeURIComponent(originAssetId)}/versions`, {
-        method: "POST",
-        body: {
-          ...readRecipeDraft(panel),
-          version_change: versionChange,
-        },
-      });
-      showToast(t("versionSaved"), "success");
-      if (!isCurrentDetailAction(renderId, originProjectId, originAssetId)) return;
-      state.selectedId = result.asset.id;
-      state.detailAsset = result.asset;
-      state.versionHistory = null;
-      state.recipeHistory = null;
-      discardDetailDraft();
-      await loadStats();
-      if (!isCurrentDetailSelection(result.asset.project_id, result.asset.id)) return;
-      await loadAssets();
-      if (isCurrentDetailSelection(result.asset.project_id, result.asset.id)) requestAnimationFrame(() => els.detailPanel?.querySelector("#detailTitle")?.focus());
-    } finally {
-      savingVersion = false;
-      if (renderId === detailRenderSequence) setInspectorSaveActionsBusy(panel, false, "save-version");
-    }
-  }));
 
   bindReferenceRightsEvents(panel, asset, renderId);
 }
@@ -3718,16 +3707,6 @@ function readRecipeDraft(panel) {
     rating: panel.querySelectorAll('[data-edit="rating"] button.on').length,
     business_fields: businessFields,
   };
-}
-
-function setInspectorSaveActionsBusy(panel, busy, activeAction) {
-  panel.querySelectorAll(".recipe-save-btn, [data-action='save-version']").forEach((button) => { button.disabled = busy; });
-  panel.querySelectorAll('input[data-edit], textarea[data-edit], select[data-edit], [data-version-change], [data-recipe-change], [data-edit="rating"] button').forEach((field) => { field.disabled = busy; });
-  const activeButton = panel.querySelector(`[data-action="${activeAction}"]`);
-  if (!activeButton?.isConnected) return;
-  activeButton.textContent = busy
-    ? t(activeAction === "save-version" ? "savingVersion" : "saving")
-    : t(activeAction === "save-version" ? "saveAsVersion" : "saveRecipe");
 }
 
 function isCurrentDetailAction(renderId, projectId, assetId) {

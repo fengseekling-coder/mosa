@@ -9,9 +9,10 @@ import { parseDisabledBridges } from "../lib/runtime-bridges.mjs";
 import { cleanupOrphanStagedFiles, importStagingDir, stageFileForImport, STAGING_EXTENSIONS, writeStagedPng } from "../lib/import-staging.mjs";
 import { startMosaService } from "./service-manager.mjs";
 import { getDesktopText, getNotificationTextForAssetsImported, getUpdateNotificationText } from "./notification-i18n.mjs";
-import { loadOrCreateWebCaptureToken, MOSA_WEB_CAPTURE_EXTENSION_ORIGIN } from "./web-capture-pairing.mjs";
+import { loadOrCreateWebCaptureToken, MOSA_WEB_CAPTURE_DEFAULT_ORIGINS } from "./web-capture-pairing.mjs";
 import { desktopPlatformAdapter } from "./platform/index.mjs";
 import { checkForMosaUpdate, MOSA_DOWNLOAD_PAGE_URL } from "./update-service.mjs";
+import { prepareAnonymousUsage } from "./anonymous-usage.mjs";
 import { resolveAllowedFolderPath } from "../lib/server-security.js";
 import { isUrlLikePath } from "../lib/path-safety.mjs";
 
@@ -310,11 +311,11 @@ function registerIPC() {
     return true;
   });
 
-  ipcMain.handle("check-for-updates", async (event, notify = false) => {
+  ipcMain.handle("check-for-updates", async (event, notify = false, anonymousUsageEnabled = true) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
       return { status: "unavailable", currentVersion: app.getVersion() };
     }
-    return runUpdateCheck({ notify: notify === true });
+    return runUpdateCheck({ notify: notify === true, anonymousUsageEnabled: anonymousUsageEnabled !== false });
   });
 
   ipcMain.handle("open-download-page", async (event) => {
@@ -348,12 +349,20 @@ function registerIPC() {
   });
 }
 
-function runUpdateCheck({ notify = false } = {}) {
+function runUpdateCheck({ notify = false, anonymousUsageEnabled = true } = {}) {
   const currentVersion = app.getVersion();
   if (isolationContext.qaRun) return Promise.resolve({ status: "disabled", currentVersion });
   if (updateCheckPromise) return updateCheckPromise;
-  updateCheckPromise = checkForMosaUpdate({ currentVersion })
+  const anonymousUsage = prepareAnonymousUsage({
+    userDataDir: desktopDataDir,
+    enabled: anonymousUsageEnabled,
+    platform: process.platform,
+    arch: process.arch,
+    currentVersion,
+  });
+  updateCheckPromise = checkForMosaUpdate({ currentVersion, anonymousUsage: anonymousUsage.telemetry })
     .then((result) => {
+      if (anonymousUsage.telemetry) anonymousUsage.commit();
       if (notify && result.updateAvailable && Notification.isSupported()) {
         const copy = getUpdateNotificationText(result.latestVersion, currentLocale);
         const notification = new Notification({ title: copy.title, body: copy.body, silent: true });
@@ -398,7 +407,7 @@ async function createMainWindow() {
     const webCaptureToken = process.env.MOSA_WEB_CAPTURE_TOKEN
       || await loadOrCreateWebCaptureToken(desktopDataDir);
     const webCaptureOrigins = process.env.MOSA_WEB_CAPTURE_ORIGINS
-      || MOSA_WEB_CAPTURE_EXTENSION_ORIGIN;
+      || MOSA_WEB_CAPTURE_DEFAULT_ORIGINS;
     service = await startMosaService({
       port: desktopPort,
       libraryDir,

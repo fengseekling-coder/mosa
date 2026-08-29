@@ -103,7 +103,6 @@ test("4. Inspector V2 Overview and section order are unchanged", async () => {
     "detailSourceSectionMarkup",
     "detailVersionSectionMarkup",
     "detailGroupSectionMarkup",
-    "detailNewVersionSectionMarkup",
     "detailMoreSectionMarkup",
   ];
   let cursor = 0;

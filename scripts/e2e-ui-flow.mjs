@@ -1,8 +1,9 @@
-export function createCriticalUiFlowSource({ mode, fixturePath, searchTerm, versionChange }) {
-  const config = JSON.stringify({ mode, fixturePath, searchTerm, versionChange });
+export function createCriticalUiFlowSource({ mode, fixturePath, searchTerm, recipeChange }) {
+  const config = JSON.stringify({ mode, fixturePath, searchTerm, recipeChange });
   return `
 (async () => {
   const config = ${config};
+  const editedPrompt = config.searchTerm + ' / ' + config.recipeChange;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   async function waitFor(check, label, timeoutMs = 15000) {
     const deadline = Date.now() + timeoutMs;
@@ -53,7 +54,7 @@ export function createCriticalUiFlowSource({ mode, fixturePath, searchTerm, vers
     );
     await waitFor(
       () => document.querySelector('#assetGrid')?.getAttribute('aria-busy') === 'false'
-        && document.querySelectorAll('.asset-card').length >= (config.mode === 'verify' ? 2 : 1),
+        && document.querySelectorAll('.asset-card').length >= 1,
       'search results',
     );
   }
@@ -98,20 +99,22 @@ export function createCriticalUiFlowSource({ mode, fixturePath, searchTerm, vers
       'favorite persistence in renderer',
     );
 
-    const selectedBefore = document.querySelector('.asset-card.selected')?.dataset.id || '';
-    setValue('[data-version-change]', config.versionChange);
-    click('[data-action="save-version"]');
-    await waitFor(
-      () => {
-        const selected = document.querySelector('.asset-card.selected')?.dataset.id || '';
-        return selected && selected !== selectedBefore ? selected : null;
-      },
-      'new version selection',
-      20000,
+    const recipeDisclosure = await waitFor(
+      () => document.querySelector('[data-inspector-section="prompt"] > details.detail-disclosure'),
+      'recipe editing disclosure',
     );
+    recipeDisclosure.open = true;
     await waitFor(
-      () => document.querySelectorAll('[data-version-id]').length >= 2,
-      'version history after save',
+      () => document.querySelector('[data-edit="prompt"]')
+        && document.querySelector('[data-action="save-recipe"]'),
+      'recipe editor',
+    );
+    setValue('[data-edit="prompt"]', editedPrompt);
+    setValue('[data-recipe-change]', config.recipeChange);
+    click('[data-action="save-recipe"]');
+    await waitFor(
+      () => !document.querySelector('[data-detail-dirty="true"][data-detail-dirty-scope="recipe"]'),
+      'recipe autosave completion',
       20000,
     );
   } else {
@@ -122,13 +125,18 @@ export function createCriticalUiFlowSource({ mode, fixturePath, searchTerm, vers
       'favorite after restart',
     );
     await waitFor(
-      () => document.querySelectorAll('[data-version-id]').length >= 2,
-      'version history after restart',
+      () => document.querySelector('[data-edit="prompt"]')?.value === editedPrompt,
+      'recipe prompt after restart',
       20000,
     );
     await waitFor(
-      () => document.body.textContent.includes(config.versionChange),
-      'version change text after restart',
+      () => document.querySelectorAll('[data-recipe-snapshot-id]').length >= 2,
+      'recipe snapshot history after restart',
+      20000,
+    );
+    await waitFor(
+      () => document.body.textContent.includes(config.recipeChange),
+      'recipe change text after restart',
     );
   }
 
@@ -136,7 +144,7 @@ export function createCriticalUiFlowSource({ mode, fixturePath, searchTerm, vers
     mode: config.mode,
     resultCount: document.querySelectorAll('.asset-card').length,
     favorite: document.querySelector('[data-action="toggle-favorite"]')?.getAttribute('aria-pressed') === 'true',
-    versionCount: document.querySelectorAll('[data-version-id]').length,
+    recipeSnapshotCount: document.querySelectorAll('[data-recipe-snapshot-id]').length,
     selectedId: document.querySelector('.asset-card.selected')?.dataset.id || null,
   };
 })()

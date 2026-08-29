@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   MOSA_DOWNLOAD_PAGE_URL,
   MOSA_UPDATE_FEED_URL,
+  buildUpdateFeedUrl,
   checkForMosaUpdate,
   compareVersions,
   parseUpdateManifest,
@@ -32,10 +33,34 @@ test("update manifest keeps only bounded release metadata", () => {
   assert.equal(MOSA_DOWNLOAD_PAGE_URL, "https://mosa.azhuilab.com/");
 });
 
+test("anonymous usage tagging keeps the update origin and path fixed", () => {
+  const url = new URL(buildUpdateFeedUrl({
+    event: "daily_active",
+    installationId: "123e4567-e89b-42d3-a456-426614174000",
+    platform: "macos",
+    arch: "arm64",
+    version: "0.2.0",
+  }));
+  assert.equal(`${url.origin}${url.pathname}`, MOSA_UPDATE_FEED_URL);
+  assert.equal(url.searchParams.get("event"), "daily_active");
+  assert.equal(url.searchParams.get("install_id"), "123e4567-e89b-42d3-a456-426614174000");
+  assert.equal(url.searchParams.get("platform"), "macos");
+  assert.equal(url.searchParams.get("arch"), "arm64");
+  assert.equal(url.searchParams.get("version"), "0.2.0");
+  assert.equal(buildUpdateFeedUrl({ event: "daily_active", installationId: "not-a-uuid" }), MOSA_UPDATE_FEED_URL);
+});
+
 test("update check compares the fixed HTTPS feed against the installed version", async () => {
   let request = null;
   const result = await checkForMosaUpdate({
     currentVersion: "0.2.0",
+    anonymousUsage: {
+      event: "first_launch",
+      installationId: "123e4567-e89b-42d3-a456-426614174000",
+      platform: "windows",
+      arch: "x64",
+      version: "0.2.0",
+    },
     fetchImpl: async (url, options) => {
       request = { url, options };
       return {
@@ -50,7 +75,10 @@ test("update check compares the fixed HTTPS feed against the installed version",
     },
   });
 
-  assert.equal(request.url, MOSA_UPDATE_FEED_URL);
+  const requestUrl = new URL(request.url);
+  assert.equal(`${requestUrl.origin}${requestUrl.pathname}`, MOSA_UPDATE_FEED_URL);
+  assert.equal(requestUrl.searchParams.get("event"), "first_launch");
+  assert.equal(requestUrl.searchParams.get("platform"), "windows");
   assert.equal(request.options.method, "GET");
   assert.equal(request.options.redirect, "error");
   assert.equal(result.currentVersion, "0.2.0");

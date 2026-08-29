@@ -1364,20 +1364,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
    part of the V2 Prompt composition. */
 .mosa-v2 .detail-prompt-section > .detail-disclosure { display: none; }
 
-/* V2 version composer: MOSA stores a recipe/version record here; it does not
-   invoke an image-generation model. Keep the copy and controls aligned with
-   that real capability instead of styling removed model/resolution controls. */
-.mosa-v2 .detail .detail-regenerate-section { box-sizing: border-box; display: flex; min-height: 0; flex-direction: column; padding: 16px; overflow: visible; }
-.mosa-v2 .detail .detail-regenerate-head { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; }
-.mosa-v2 .detail .detail-regenerate-head h3 { margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 600; line-height: 18px; }
-.mosa-v2 .detail .detail-version-truth-note { margin: 4px 0 12px; color: var(--color-text-tertiary); font-size: 11px; line-height: 18px; }
-.mosa-v2 .detail .detail-regenerate-composer { box-sizing: border-box; position: relative; display: flex; min-height: 132px; flex-direction: column; gap: 12px; overflow: hidden; padding: 12px; border: 1px solid rgb(60 60 67 / .16); border-radius: 16px; background: rgb(248 248 250 / .94); }
-.mosa-v2 .detail .detail-regenerate-composer textarea { width: 100%; min-height: 72px; flex: 1 1 72px; resize: vertical; border: 0; background: transparent; padding: 0; outline: 0; color: var(--color-text-primary); font-size: 13px; line-height: 20px; }
-.mosa-v2 .detail .detail-regenerate-composer textarea:focus { border-color: transparent; box-shadow: none; outline: 0; }
-.mosa-v2 .detail .detail-regenerate-composer textarea::placeholder { color: #8e8e93; }
-.mosa-v2 .detail .detail-regenerate-bar { display: flex; min-height: 32px; align-items: center; justify-content: flex-end; gap: 8px; overflow: visible; }
-.mosa-v2 .detail .detail-save-version { min-height: 32px; }
-
 /* V2 Source/Version/Group/Tags/Cowart/More sections: compact heading */
 .mosa-v2 .detail .detail-source-section, .mosa-v2 .detail .detail-version-section, .mosa-v2 .detail .detail-group-section { padding: 12px 16px; }
 .mosa-v2 .detail .detail-tags-section { padding: 4px 16px 16px; border-top: 0; }
@@ -1393,8 +1379,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail-source-section { order: 4; }
 .mosa-v2 .detail-version-section { order: 5; }
 .mosa-v2 .detail-group-section { order: 6; }
-.mosa-v2 .detail-regenerate-section { order: 7; }
-.mosa-v2 .detail [data-inspector-section="more"] { order: 8; }
+.mosa-v2 .detail [data-inspector-section="more"] { order: 7; }
 
 /* The V2 FilterBar begins with type filters; the retained heading is still
    present for accessibility and runtime state, but is not a second visual
@@ -1422,18 +1407,15 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .sidebar-group-heading .add-group-button { width: auto; min-width: 14px; height: 20px; min-height: 20px; justify-content: center; padding: 0; border-radius: 0; }
 
 /* Dark mode for V2 inspector sections */
-:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-head h3, :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-subhead h4, :root[data-theme="dark"] .mosa-v2 .detail .detail-regenerate-head h3 { color: #f5f5f7; }
+:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-head h3, :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-subhead h4 { color: #f5f5f7; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-head .section-head-copy, :root[data-theme="dark"] .mosa-v2 .detail .detail-copy-sub { color: #d1d1d6; background: rgb(255 255 255 / .10); }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box, :root[data-theme="dark"] .mosa-v2 .detail .detail-instruction-box, :root[data-theme="dark"] .mosa-v2 .detail .detail-regenerate-composer { border-color: rgb(255 255 255 / .10); color: #f5f5f7; background: rgb(255 255 255 / .06); }
+:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box, :root[data-theme="dark"] .mosa-v2 .detail .detail-instruction-box { border-color: rgb(255 255 255 / .10); color: #f5f5f7; background: rgb(255 255 255 / .06); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box .empty-copy { color: #6e6e73; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-row { background: rgb(255 255 255 / .08); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-block { background: rgb(255 255 255 / .08); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-thumb { border-color: rgb(255 255 255 / .10); background: rgb(255 255 255 / .06); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-label { color: #d1d1d6; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-value { color: #6e6e73; }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-regenerate-composer textarea { color: #f5f5f7; }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-regenerate-composer textarea::placeholder { color: #6e6e73; }
-
 .mosa-v2 .modal-overlay { background: rgb(0 0 0 / .28); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }.mosa-v2 .modal-card { border: 1px solid rgb(255 255 255 / .76); border-radius: 16px; background: rgb(from var(--app-modal) r g b / .96); box-shadow: var(--shadow-modal); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }.mosa-v2 .modal-header { padding: 16px 20px; border-bottom-color: var(--color-border-subtle); }.mosa-v2 .modal-body { padding: 18px 20px; }.mosa-v2 .modal-footer { padding: 12px 20px; border-top-color: var(--color-border-subtle); background: transparent; }
 .mosa-v2 .btn-primary { border-radius: 8px; background: #2424ff; }.mosa-v2 .btn-secondary, .mosa-v2 .icon-button, .mosa-v2 .browse-btn { border-color: var(--color-border-subtle); border-radius: 8px; background: var(--app-search); }.mosa-v2 .field input, .mosa-v2 .field textarea, .mosa-v2 .field select { border-color: var(--color-border-subtle); border-radius: 8px; background: var(--app-input); }
 
@@ -1725,10 +1707,9 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2.detail-open .mobile-nav-toggle { display: none; }
 }
 
-/* Keep the compact V2 inspector, but do not hide the version surface. AI
-   generation lineage and its context are now first-class asset-management
-   information. Source/group/more stay out of the compact inspector. */
-.mosa-v2 .detail .detail-source-section,
+/* Keep the compact V2 inspector, but do not hide provenance or version
+   surfaces. Group/more stay out because their useful actions are represented
+   by the overview and tags without duplicating entire sections. */
 .mosa-v2 .detail .detail-group-section,
 .mosa-v2 .detail [data-inspector-section="more"] { display: none; }
 
@@ -1882,9 +1863,20 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   background: var(--app-card);
 }
 .mosa-v2 .detail-inspector-header > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
   font-size: 17px;
   font-weight: 650;
   line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: font-size var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+.mosa-v2 .detail-inspector-header > span.is-contextual {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
 }
 .mosa-v2 .detail-inspector-header .detail-close {
   width: 32px;
@@ -1918,7 +1910,9 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   background: transparent;
 }
 .mosa-v2 .detail .detail-overview-heading {
-  height: 20px;
+  height: 28px;
+  min-height: 28px;
+  overflow: visible;
 }
 .mosa-v2 .detail .detail-overview-heading h3,
 .mosa-v2 .detail .detail-prompt-head h3,
@@ -1928,8 +1922,34 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   line-height: 20px;
 }
 .mosa-v2 .detail .detail-overview-heading p {
+  flex: 1 1 auto;
   font-size: 11px;
   line-height: 20px;
+}
+.mosa-v2 .detail .detail-overview-actions {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--inspector-space-1);
+}
+.mosa-v2 .detail .detail-overview-heading .detail-overview-open,
+.mosa-v2 .detail .detail-overview-heading .detail-overview-original {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  flex: 0 0 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: var(--inspector-radius-sm);
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
 }
 .mosa-v2 .detail .detail-overview .detail-image-wrap {
   width: 100%;
@@ -1952,12 +1972,20 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-overview-title-row {
   min-height: 28px;
   height: auto;
+  align-items: flex-start;
   gap: var(--inspector-space-2);
+  overflow: visible;
 }
 .mosa-v2 .detail .detail-overview-title-row h3 {
+  display: -webkit-box;
+  max-height: 40px;
   font-size: 15px;
   font-weight: 650;
   line-height: 20px;
+  text-overflow: clip;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .mosa-v2 .detail .detail-fav-btn {
   height: 28px;
@@ -1965,6 +1993,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   padding: 0 var(--inspector-space-2);
   border-radius: var(--inspector-radius-sm);
   background: transparent;
+  align-self: flex-start;
 }
 .mosa-v2 .detail .detail-facts {
   height: auto;
@@ -2009,9 +2038,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   background: transparent;
   box-shadow: none;
 }
-.mosa-v2 .detail .detail-prompt-section + .detail-regenerate-section {
-  border-top: 1px solid var(--inspector-divider);
-}
 .mosa-v2 .detail .detail-prompt-head,
 .mosa-v2 .detail .detail-prompt-subhead {
   height: 28px;
@@ -2048,7 +2074,8 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   line-height: 20px;
 }
 .mosa-v2 .detail .detail-prompt-box {
-  max-height: 160px;
+  /* border-box: 7 complete 20px lines + 24px vertical padding + 2px border. */
+  max-height: 166px;
 }
 .mosa-v2 .detail .detail-instruction-box {
   min-height: 88px;
@@ -2067,47 +2094,212 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-group-section {
   padding: var(--inspector-space-4);
 }
-.mosa-v2 .detail .detail-regenerate-section {
-  height: auto;
-  min-height: 0;
-  padding: var(--inspector-space-5) var(--inspector-space-4);
-  border: 0;
+.mosa-v2 .detail .detail-source-section {
+  display: block;
+  padding: 0 var(--inspector-space-4);
   border-top: 1px solid var(--inspector-divider);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
 }
-.mosa-v2 .detail .detail-regenerate-composer {
-  min-height: 160px;
-  gap: var(--inspector-space-3);
-  padding: var(--inspector-space-4);
-  border-color: var(--inspector-divider);
+.mosa-v2 .detail .detail-source-disclosure {
+  display: block;
+  min-width: 0;
+}
+.mosa-v2 .detail .detail-source-summary {
+  display: grid;
+  min-width: 0;
+  min-height: 48px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--inspector-space-2);
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+.mosa-v2 .detail .detail-source-summary::-webkit-details-marker {
+  display: none;
+}
+.mosa-v2 .detail .detail-source-summary > span {
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.mosa-v2 .detail .detail-source-summary > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mosa-v2 .detail .detail-source-summary::after {
+  color: var(--color-text-secondary);
+  content: "+";
+  font-size: 14px;
+  line-height: 1;
+}
+.mosa-v2 .detail .detail-source-disclosure[open] > .detail-source-summary::after {
+  content: "–";
+}
+.mosa-v2 .detail .detail-source-content {
+  padding: 0 0 var(--inspector-space-4);
+}
+.mosa-v2 .detail .detail-source-copy {
+  display: flex;
+  min-height: 28px;
+  justify-content: flex-end;
+  margin-bottom: var(--inspector-space-2);
+}
+.mosa-v2 .detail .detail-source-copy .section-head-copy {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--inspector-radius-sm);
+  color: var(--color-text-secondary);
+  background: transparent;
+}
+.mosa-v2 .detail .detail-source-content .meta-table {
+  padding: var(--inspector-space-3);
   border-radius: var(--inspector-radius-md);
   background: var(--inspector-field);
-  box-shadow: none;
 }
-.mosa-v2 .detail .detail-regenerate-composer textarea {
-  min-height: 88px;
-  line-height: 20px;
+.mosa-v2 .detail .detail-source-content .generation-navigation {
+  margin-top: var(--inspector-space-3);
 }
-.mosa-v2 .detail .detail-regenerate-bar {
-  min-height: 36px;
-  gap: var(--inspector-space-2);
+.mosa-v2 .detail .version-single {
+  display: flex;
+  min-height: 32px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--inspector-space-1) var(--inspector-space-2);
+  margin-bottom: 10px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 16px;
 }
-.mosa-v2 .detail .detail-version-truth-note {
-  margin: var(--inspector-space-1) 0 var(--inspector-space-3);
+.mosa-v2 .detail .version-single strong {
+  color: var(--color-text-primary);
+  font-size: 12px;
 }
-.mosa-v2 .detail .detail-save-version {
-  min-height: 36px;
-  padding-inline: var(--inspector-space-4);
-  border-radius: var(--inspector-radius-sm);
-  transition: transform var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard);
+.mosa-v2 .detail .version-single span + span::before {
+  margin-right: var(--inspector-space-2);
+  color: var(--color-text-secondary);
+  content: "·";
 }
 
+/* These labels carry real provenance/version meaning, so the inspector uses
+   text-2 rather than the decorative text-3 token in light mode. */
+.mosa-v2 .detail :is(
+  .generation-tree-hint,
+  .generation-parent-count,
+  .generation-lineage-relation,
+  .generation-lineage-node time,
+  .generation-detail-label,
+  .generation-management-empty,
+  .generation-relation-meta > span:first-child,
+  .generation-relation-locked,
+  .generation-link-composer label > span,
+  .generation-context-candidates-head span,
+  .generation-context-candidate-copy time,
+  .generation-detail-id-row span,
+  .version-content time
+) {
+  color: var(--color-text-secondary);
+}
+.mosa-v2 .detail .prompt-provenance,
+.mosa-v2 .detail .detail-reference-value,
+.mosa-v2 .detail .detail-prompt-box .empty-copy,
+.mosa-v2 .detail .detail-reference-thumb-fallback,
+.mosa-v2 .detail .detail-reference-thumb-empty {
+  color: var(--color-text-secondary);
+}
+.mosa-v2 .detail .prompt-provenance {
+  font-size: 11px;
+  line-height: 16px;
+}
+:root[data-theme="dark"] .mosa-v2 .detail .detail-reference-value,
+:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box .empty-copy {
+  color: var(--color-text-secondary);
+}
+.mosa-v2 .detail .generation-tree-hint {
+  font-size: 11px;
+  line-height: 16px;
+}
+.mosa-v2 .detail .generation-lineage-prompt {
+  -webkit-line-clamp: 1;
+}
+.mosa-v2 .detail .generation-management-disclosure {
+  border-top: 1px solid var(--inspector-divider);
+}
+.mosa-v2 .detail .generation-management-disclosure > summary {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+  list-style: none;
+}
+.mosa-v2 .detail .generation-management-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.mosa-v2 .detail .generation-management-disclosure > summary::after {
+  margin-left: auto;
+  color: var(--color-text-secondary);
+  content: "+";
+  font-size: 13px;
+  line-height: 1;
+}
+.mosa-v2 .detail .generation-management-disclosure[open] > summary::after {
+  content: "–";
+}
+.mosa-v2 .detail .generation-management-disclosure > .generation-management {
+  margin-bottom: var(--inspector-space-2);
+}
+.mosa-v2 .detail .generation-context-candidates {
+  display: block;
+}
+.mosa-v2 .detail .generation-context-candidates-head {
+  min-height: 32px;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+.mosa-v2 .detail .generation-context-candidates-head::-webkit-details-marker {
+  display: none;
+}
+.mosa-v2 .detail .generation-context-candidates-head::after {
+  flex: 0 0 auto;
+  margin-left: var(--inspector-space-1);
+  color: var(--color-text-secondary);
+  content: "+";
+  font-size: 13px;
+  line-height: 1;
+}
+.mosa-v2 .detail .generation-context-candidates[open] > .generation-context-candidates-head::after {
+  content: "–";
+}
+.mosa-v2 .detail .generation-context-candidates > ol {
+  padding-top: var(--inspector-space-2);
+}
+/* A 340-360px inspector cannot afford the legacy 12px-per-level tree indent.
+   Keep ancestry visible while reserving enough width for labels and prompts. */
+.mosa-v2 .detail :is(.version-depth-1, .generation-depth-1) { margin-left: 8px; }
+.mosa-v2 .detail :is(.version-depth-2, .generation-depth-2) { margin-left: 16px; }
+.mosa-v2 .detail :is(.version-depth-3, .generation-depth-3) { margin-left: 24px; }
+.mosa-v2 .detail :is(.version-depth-4, .generation-depth-4) { margin-left: 32px; }
+.mosa-v2 .detail :is(.version-depth-5, .generation-depth-5) { margin-left: 40px; }
+.mosa-v2 .detail :is(.version-depth-6, .generation-depth-6) { margin-left: 48px; }
 @media (hover: hover) and (pointer: fine) {
   .mosa-v2 .detail-inspector-header .detail-close:hover,
   .mosa-v2 .detail .detail-fav-btn:hover,
+  .mosa-v2 .detail .detail-overview-heading .detail-overview-open:hover,
+  .mosa-v2 .detail .detail-overview-heading .detail-overview-original:hover,
   .mosa-v2 .detail .detail-prompt-head .section-head-copy:hover,
+  .mosa-v2 .detail .detail-source-copy .section-head-copy:hover,
   .mosa-v2 .detail .detail-copy-sub:hover,
   .mosa-v2 .detail .detail-tags-add:hover {
     color: var(--color-text-primary);
@@ -2115,8 +2307,10 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   }
 }
 .mosa-v2 .detail-inspector-header .detail-close:active,
-.mosa-v2 .detail .detail-save-version:active,
 .mosa-v2 .detail .detail-fav-btn:active,
+.mosa-v2 .detail .detail-overview-heading .detail-overview-open:active,
+.mosa-v2 .detail .detail-overview-heading .detail-overview-original:active,
+.mosa-v2 .detail .detail-source-copy .section-head-copy:active,
 .mosa-v2 .detail .section-head-copy:active,
 .mosa-v2 .detail .detail-tags-add:active {
   transform: scale(.96);
@@ -2134,8 +2328,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 @media (prefers-reduced-transparency: reduce) {
   .mosa-v2 .detail-inspector-header,
   .mosa-v2 .detail .detail-prompt-box,
-  .mosa-v2 .detail .detail-instruction-box,
-  .mosa-v2 .detail .detail-regenerate-composer {
+  .mosa-v2 .detail .detail-instruction-box {
     background: var(--app-card);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -2173,8 +2366,9 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
     transition: none;
   }
   .mosa-v2 .detail-inspector-header .detail-close:active,
-  .mosa-v2 .detail .detail-save-version:active,
   .mosa-v2 .detail .detail-fav-btn:active,
+  .mosa-v2 .detail .detail-overview-heading .detail-overview-open:active,
+  .mosa-v2 .detail .detail-overview-heading .detail-overview-original:active,
   .mosa-v2 .detail .section-head-copy:active,
   .mosa-v2 .detail .detail-tags-add:active {
     transform: none;

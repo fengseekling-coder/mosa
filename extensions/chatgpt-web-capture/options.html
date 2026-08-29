@@ -5,6 +5,8 @@
     <title>MOSA 网页生图采集设置</title>
     <style>
       body {
+        --mosa-error: #b91c1c;
+        --mosa-success: #166534;
         font: 14px/1.5 system-ui, -apple-system, sans-serif;
         margin: 24px;
         max-width: 560px;
@@ -16,7 +18,8 @@
         margin: 14px 0 6px;
       }
       input[type="text"],
-      input[type="url"] {
+      input[type="url"],
+      input[type="password"] {
         width: 100%;
         box-sizing: border-box;
         padding: 8px 10px;
@@ -79,6 +82,9 @@
       <input id="autoCapture" type="checkbox" />
       <label for="autoCapture" style="margin: 0; font-weight: 500">发现新图时自动入库</label>
     </div>
+    <p style="margin:8px 0 0;color:#475569;font-size:12px">
+      开启后，扩展仅在支持的网站中观察与生成媒体相关的页面数据，并把匹配到的媒体、Prompt 与来源发送到本机 MOSA。默认关闭；不会上传到 MOSA 云端。
+    </p>
 
     <button id="save" type="button">保存设置</button>
     <button id="test" type="button" style="background: #334155; margin-left: 8px">测试连接</button>

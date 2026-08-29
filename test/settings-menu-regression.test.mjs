@@ -82,6 +82,7 @@ test("renderSettingsMenu uses real state for segmented control active status", a
   assert.match(body, /state\.darkMode/, "renderSettingsMenu must use state.darkMode for theme active status");
   // Density active state must key off state.galleryDensity, not a tautological literal.
   assert.match(body, /state\.galleryDensity/, "renderSettingsMenu must use state.galleryDensity for density active status");
+  assert.match(body, /state\.anonymousUsageEnabled/, "renderSettingsMenu must use state.anonymousUsageEnabled for anonymous metrics status");
   // No tautological self-comparisons that would make the active class always-on.
   assert.doesNotMatch(body, /"light"\s*===\s*"light"/, "renderSettingsMenu must not contain tautological light comparison");
   assert.doesNotMatch(body, /"dark"\s*===\s*"dark"/, "renderSettingsMenu must not contain tautological dark comparison");

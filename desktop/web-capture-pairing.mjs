@@ -2,7 +2,20 @@ import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export const MOSA_WEB_CAPTURE_EXTENSION_ID = "hjcildpmialbefmcdpdooenlojecjpli";
+export const MOSA_WEB_CAPTURE_DEVELOPMENT_EXTENSION_ID = "hjcildpmialbefmcdpdooenlojecjpli";
+export const MOSA_WEB_CAPTURE_STORE_EXTENSION_ID = "bhjibabaiccjjfcdbimeeaoaikhcfncc";
+export const MOSA_WEB_CAPTURE_EXTENSION_IDS = Object.freeze([
+  MOSA_WEB_CAPTURE_DEVELOPMENT_EXTENSION_ID,
+  MOSA_WEB_CAPTURE_STORE_EXTENSION_ID,
+]);
+export const MOSA_WEB_CAPTURE_EXTENSION_ORIGINS = Object.freeze(
+  MOSA_WEB_CAPTURE_EXTENSION_IDS.map((id) => `chrome-extension://${id}`),
+);
+export const MOSA_WEB_CAPTURE_DEFAULT_ORIGINS = MOSA_WEB_CAPTURE_EXTENSION_ORIGINS.join(",");
+
+// Backward-compatible aliases for tooling/tests that still refer to the
+// unpacked development extension as the singular official identity.
+export const MOSA_WEB_CAPTURE_EXTENSION_ID = MOSA_WEB_CAPTURE_DEVELOPMENT_EXTENSION_ID;
 export const MOSA_WEB_CAPTURE_EXTENSION_ORIGIN = `chrome-extension://${MOSA_WEB_CAPTURE_EXTENSION_ID}`;
 
 const TOKEN_FILE_NAME = "web-capture-token";

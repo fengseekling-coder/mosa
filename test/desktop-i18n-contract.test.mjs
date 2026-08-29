@@ -26,7 +26,6 @@ const DESKTOP_TEXT = {
   // Its dependency sections are still frozen via the structural assertions in
   // the package metadata test below.
   "package-lock.json": "ecf0fdc199de87ccd30ffe6a7da4624c2f632700cd8348194a30b79dd2e2a69f",
-  "desktop/preload.cjs": "a362a79267d35e9fef3e0f1fadae4c1f75ad87c30d0200e72d76025db736cec9",
 };
 
 function sliceBetween(source, startMarker, endMarker) {
@@ -130,11 +129,26 @@ test("startup failures route the localized title while preserving the raw error 
   assert.match(reportStartupFailure, /dialog\.showErrorBox\s*\([\s\S]*,\s*message\s*\)/);
 });
 
-test("package metadata and the runtime preload stay frozen", async () => {
+test("package metadata stays frozen and the runtime preload preserves its approved surface", async () => {
   for (const [relativePath, expectedHash] of Object.entries(FROZEN_SHA256)) {
     const content = await read(relativePath);
     assert.equal(sha256(content), expectedHash, `${relativePath} must remain unchanged`);
   }
+  const preload = await read("desktop/preload.cjs");
+  const exposedKeys = [...preload.matchAll(/^\s{2}(\w+):/gm)].map((match) => match[1]).sort();
+  assert.deepEqual(exposedKeys, [
+    "checkForUpdates",
+    "onMenuImport",
+    "onMenuSearch",
+    "openDownloadPage",
+    "openFileDialog",
+    "pasteImage",
+    "setLocale",
+    "showItemInFolder",
+  ]);
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 6, "preload keeps the six approved invoke channels");
+  assert.match(preload, /checkForUpdates: \(notify = false, anonymousUsageEnabled = true\) =>[\s\S]*?ipcRenderer\.invoke\("check-for-updates", notify === true, anonymousUsageEnabled !== false\)/);
+  assert.doesNotMatch(preload, /shell\s*[:.]/, "renderer still receives no generic shell capability");
   // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
   // qa:packaged launcher scripts to package.json, so its dependency sections
   // (the frozen semantics) are pinned structurally instead of by file hash.

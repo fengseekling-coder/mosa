@@ -40,8 +40,8 @@ function sliceBetween(source, startMarker, endMarker) {
 }
 
 // Library v2 keeps favorite in the Overview instead of a detached section.
-const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "new-version", "more"];
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "more"];
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailMoreSectionMarkup(asset)}";
 
 // 29-35. Desktop capability: preload exposes only showItemInFolder; main validates sender,
 // absolute path, existence, and the shared library boundary before using shell.showItemInFolder.
