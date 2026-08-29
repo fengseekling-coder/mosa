@@ -144,14 +144,11 @@ test("keeps recipe version history navigable without replacing active edits", as
   assert.doesNotMatch(app + inspector, /style="/);
   assert.match(inspector, /<time datetime=/);
   assert.match(inspector, /aria-current="true"/);
-  assert.match(inspector, /data-version-change/);
-  assert.match(app, /data-action="save-version"/);
+  assert.doesNotMatch(inspector, /data-version-change|data-inspector-section="new-version"/);
+  assert.doesNotMatch(app, /data-action="save-version"/);
   assert.match(app, /function readRecipeDraft\(panel\)/);
-  assert.match(app, /body: \{\s*\.\.\.readRecipeDraft\(panel\),/);
   assert.doesNotMatch(inspector, /Imagen 4|Flux|data-composer-select|data-resolution/);
-  assert.match(inspector, /createRecipeVersionDescription/);
-  assert.match(inspector, /saveAsVersion/);
-  assert.match(app, /version_change: versionChange,/);
+  assert.doesNotMatch(inspector, /createRecipeVersionDescription|saveAsVersion|detail-regenerate-composer/);
   assert.match(app, /function activeRecipeSnapshot\(asset\)/);
   assert.match(app, /function regenerationInstruction\(asset, snapshot\)/);
   assert.match(app, /`assetId: \$\{JSON\.stringify\(asset\.id\)\}`/);

@@ -3,6 +3,9 @@ export const MOSA_DOWNLOAD_PAGE_URL = "https://mosa.azhuilab.com/";
 
 const UPDATE_MANIFEST_MAX_BYTES = 16 * 1024;
 const VERSION_PATTERN = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+const INSTALLATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const USAGE_EVENTS = new Set(["first_launch", "daily_active"]);
+const USAGE_PLATFORMS = new Set(["macos", "windows", "other"]);
 
 function parseVersion(value) {
   const match = VERSION_PATTERN.exec(String(value || "").trim());
@@ -69,7 +72,29 @@ export function parseUpdateManifest(input) {
   };
 }
 
-export async function checkForMosaUpdate({ currentVersion, fetchImpl = globalThis.fetch, timeoutMs = 8_000 } = {}) {
+export function buildUpdateFeedUrl(anonymousUsage = null) {
+  if (!anonymousUsage || typeof anonymousUsage !== "object" || Array.isArray(anonymousUsage)) return MOSA_UPDATE_FEED_URL;
+  const event = String(anonymousUsage.event || "");
+  const installationId = String(anonymousUsage.installationId || "");
+  const platform = String(anonymousUsage.platform || "");
+  const arch = String(anonymousUsage.arch || "");
+  const version = String(anonymousUsage.version || "");
+  if (!USAGE_EVENTS.has(event)
+    || !INSTALLATION_ID_PATTERN.test(installationId)
+    || !USAGE_PLATFORMS.has(platform)
+    || !/^[0-9A-Za-z._-]{1,24}$/.test(arch)
+    || !VERSION_PATTERN.test(version)) return MOSA_UPDATE_FEED_URL;
+
+  const url = new URL(MOSA_UPDATE_FEED_URL);
+  url.searchParams.set("event", event);
+  url.searchParams.set("install_id", installationId);
+  url.searchParams.set("platform", platform);
+  url.searchParams.set("arch", arch);
+  url.searchParams.set("version", version.replace(/^v/i, ""));
+  return url.toString();
+}
+
+export async function checkForMosaUpdate({ currentVersion, anonymousUsage = null, fetchImpl = globalThis.fetch, timeoutMs = 8_000 } = {}) {
   const current = parseVersion(currentVersion);
   if (!current) throw new Error("Invalid current MOSA version.");
   if (typeof fetchImpl !== "function") throw new Error("Update fetch is unavailable.");
@@ -77,7 +102,7 @@ export async function checkForMosaUpdate({ currentVersion, fetchImpl = globalThi
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
   try {
-    const response = await fetchImpl(MOSA_UPDATE_FEED_URL, {
+    const response = await fetchImpl(buildUpdateFeedUrl(anonymousUsage), {
       method: "GET",
       headers: {
         accept: "application/json",

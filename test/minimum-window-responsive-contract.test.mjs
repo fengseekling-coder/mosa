@@ -148,7 +148,6 @@ test("22-24. Inspector V2 八项顺序：File/Tags 直接进入滚动列，More 
     "detailSourceSectionMarkup",
     "detailVersionSectionMarkup",
     "detailGroupSectionMarkup",
-    "detailNewVersionSectionMarkup",
     "detailMoreSectionMarkup",
   ];
   let cursor = 0;
@@ -157,7 +156,7 @@ test("22-24. Inspector V2 八项顺序：File/Tags 直接进入滚动列，More 
     assert.notEqual(position, -1, `${markup} present in inspector template`);
     cursor = position;
   }
-  assert.equal(order.indexOf("detailMoreSectionMarkup"), 7, "More stays the 8th section");
+  assert.equal(order.indexOf("detailMoreSectionMarkup"), 6, "More stays the 7th section");
   // data-inspector-section 标记与顺序一致。
   assert.match(inspector, /data-inspector-section="more"/);
 });
@@ -249,9 +248,9 @@ test("35-37. Viewer Navigation / Transform / Return Snapshot 不退化", async (
   assert.match(assetView, /selectedAssetId: state\.selectedId,\n\s+requestKey: assetRequestKey\(currentAssetRequest\(\)\)/);
 });
 
-test("38. Inspector IA V2 八项 section 标记全在且唯一", async () => {
+test("38. Inspector IA V2 七项 section 标记全在且唯一", async () => {
   const inspector = await source("app/inspector-markup.mjs");
-  const sections = ["file", "prompt", "source", "version", "group", "tags", "new-version", "more"];
+  const sections = ["file", "prompt", "source", "version", "group", "tags", "more"];
   for (const section of sections) {
     assert.equal(
       inspector.split(`data-inspector-section="${section}"`).length - 1,
@@ -259,6 +258,7 @@ test("38. Inspector IA V2 八项 section 标记全在且唯一", async () => {
       `inspector section "${section}" rendered exactly once`,
     );
   }
+  assert.doesNotMatch(inspector, /data-inspector-section="new-version"|data-action="save-version"/);
 });
 
 test("39. App/Web 原图能力差异保持（Finder vs 打开原图）", async () => {

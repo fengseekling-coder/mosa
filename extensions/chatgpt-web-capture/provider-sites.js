@@ -52,7 +52,7 @@
   const seen = new Set();
   const flowMediaProbeInFlight = new Set();
   const promptRetryStates = new Map();
-  let autoCapture = true;
+  let autoCapture = false;
   let scanTimer = null;
   let observer = null;
   let captureInFlight = 0;
@@ -852,31 +852,61 @@
     }, 300);
   }
 
+  function startProviderObserver() {
+    if (!observer || !document.documentElement) return;
+    observer.disconnect();
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      characterData: true,
+      attributeFilter: ["src", "srcset", "style", "class", "aria-label", "title", "data-tooltip", "aria-hidden", "hidden", "contenteditable"],
+    });
+  }
+
   (chrome.runtime?.sendMessage?.({ type: "mosa.getSettings" }) || Promise.resolve()).then((response) => {
     if (response?.ok && response.settings) autoCapture = response.settings.autoCapture !== false;
-    scheduleScan();
-  }).catch(() => scheduleScan());
+    if (autoCapture) {
+      startProviderObserver();
+      scheduleScan();
+    }
+  }).catch(() => {});
 
   chrome.storage?.onChanged?.addListener?.((changes, area) => {
     if (area !== "local") return;
-    if (changes.autoCapture) autoCapture = changes.autoCapture.newValue !== false;
+    if (changes.autoCapture) {
+      autoCapture = changes.autoCapture.newValue !== false;
+      if (autoCapture) startProviderObserver();
+      else {
+        observer?.disconnect();
+        if (scanTimer) clearTimeout(scanTimer);
+      }
+    }
     if (!changes.autoCapture && !changes.mosaBaseUrl && !changes.mosaToken) return;
     // A corrected address or Token should immediately retry images that were
     // rejected under the previous settings without requiring new generation.
     seen.clear();
-    scheduleScan();
+    if (autoCapture) scheduleScan();
   });
 
   chrome.runtime?.onMessage?.addListener?.((message, _sender, sendResponse) => {
-    if (!message || !["mosa.capture.saveImage", "mosa.capture.saveImageWithPrompt"].includes(message.type)) return false;
+    if (!message || ![
+      "mosa.capture.saveImage",
+      "mosa.capture.saveImageWithPrompt",
+      "mosa.capture.saveVideoWithPrompt",
+    ].includes(message.type)) return false;
     const provider = currentProvider();
-    const source = imageSource(message.imageUrl);
-    const image = source ? imageForSource(source.url) : null;
-    if (!provider || !source || (source.kind === "local" && !isVisibleGeneratedImage(image))) {
-      sendResponse({ ok: false, error: "请选择支持站点中的生成图片。" });
+    const videoRequest = message.type === "mosa.capture.saveVideoWithPrompt";
+    const source = videoRequest ? videoSource(message.videoUrl) : imageSource(message.imageUrl);
+    const media = source ? (videoRequest ? videoForSource(source.url) : imageForSource(source.url)) : null;
+    const valid = videoRequest
+      ? isProviderGeneratedVideo(provider, media)
+      : Boolean(media && (source?.kind !== "local" || isVisibleGeneratedImage(media)));
+    if (!provider || !source || !media || !valid) {
+      sendResponse({ ok: false, error: videoRequest ? "请选择支持站点中的生成视频。" : "请选择支持站点中的生成图片。" });
       return false;
     }
-    sendCapture(provider, source, image, { captureMode: "manual" })
+    sendCapture(provider, source, media, { captureMode: "manual", mediaKind: videoRequest ? "video" : "image" })
       .then(({ response }) => {
         const finalResponse = response || { ok: true };
         showToast(finalResponse.ok ? "已保存到 MOSA" : (finalResponse.error || "保存失败"), !finalResponse.ok);
@@ -890,21 +920,15 @@
     return true;
   });
 
-  observer = new MutationObserver(scheduleScan);
-  if (document.documentElement) observer.observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    characterData: true,
-    attributeFilter: ["src", "srcset", "style", "class", "aria-label", "title", "data-tooltip", "aria-hidden", "hidden", "contenteditable"],
+  observer = new MutationObserver(() => {
+    if (autoCapture) scheduleScan();
   });
-  document.addEventListener("load", scheduleScan, true);
+  document.addEventListener("load", () => { if (autoCapture) scheduleScan(); }, true);
   // HTMLMediaElement does not use the image-style load event when metadata
   // becomes available. Without these events a video inserted at readyState=0
   // can miss the one MutationObserver scan and never be reconsidered.
-  document.addEventListener("loadedmetadata", scheduleScan, true);
-  document.addEventListener("loadeddata", scheduleScan, true);
-  document.addEventListener("canplay", scheduleScan, true);
-  document.addEventListener("scroll", scheduleScan, { passive: true, capture: true });
-  scheduleScan();
+  document.addEventListener("loadedmetadata", () => { if (autoCapture) scheduleScan(); }, true);
+  document.addEventListener("loadeddata", () => { if (autoCapture) scheduleScan(); }, true);
+  document.addEventListener("canplay", () => { if (autoCapture) scheduleScan(); }, true);
+  document.addEventListener("scroll", () => { if (autoCapture) scheduleScan(); }, { passive: true, capture: true });
 })();

@@ -40,10 +40,10 @@ function sliceBetween(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-// Library v2 keeps favorite inside the file overview, leaving eight semantic sections.
-const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "new-version", "more"];
+// Library v2 keeps favorite inside the file overview, leaving seven semantic sections.
+const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "more"];
 // Exact helper-call sequence inside the renderDetail single-column composition.
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailMoreSectionMarkup(asset)}";
 
 // 1. Native select exists. 2-3. No hand-rolled listbox / version popover.
 // 4. Picker lives inside the version section. 5. Current version is selected.
@@ -72,7 +72,7 @@ test("1-5. native version picker inside the version section", async () => {
   assert.match(picker, /version\.id === asset\.id \? " selected" : ""/, "current version option is selected");
 });
 
-// 6. Loading: disabled + aria-busy + current Vn. 7. Single version: disabled.
+// 6. Loading: disabled + aria-busy + current Vn. 7. Single version: quiet summary.
 // 8. Multiple versions: enabled, API order. 9. Archived versions carry a text
 // marker. 10. Missing version_index never renders VNaN/V0/undefined.
 test("6-10. picker five-state model", async () => {
@@ -86,11 +86,15 @@ test("6-10. picker five-state model", async () => {
   assert.match(picker, /const busy = !error && !history;/, "busy only while loading");
   assert.match(picker, /\$\{busy \? ' aria-busy="true"' : ""\}/, "loading select exposes aria-busy");
 
-  // 7-8. disabled is derived from option count: single option => disabled,
-  // multiple => enabled; options are mapped straight from history.versions
-  // (API DFS order, no re-sorting).
+  // 7. Once history resolves to exactly one version, avoid a disabled picker
+  // plus duplicated summary; render a compact textual status instead.
+  assert.match(picker, /versions\.length === 1/, "single-version history has a dedicated quiet state");
+  assert.match(picker, /class="version-single" role="status"/, "single version renders a compact status row");
+
+  // 8. Multiple versions remain a native enabled select; loading/error retain
+  // the disabled current-asset fallback. API order is never re-sorted.
   assert.match(picker, /const multiple = versions\.length > 1;/, "enabled state derives from the version count");
-  assert.match(picker, /\$\{multiple \? "" : " disabled"\}/, "single version disabled, multiple enabled");
+  assert.match(picker, /\$\{multiple \? "" : " disabled"\}/, "loading/error fallback disabled, multiple enabled");
   assert.doesNotMatch(picker, /\.sort\(/, "option order follows the API response, never re-sorted");
 
   // 9. Archived versions append the localized archivedVersion text marker.
@@ -206,15 +210,12 @@ test("20-23. switch preserves viewer state, scroll, and lands focus", async () =
   assert.match(pickerRegion, /if \(hadFocus\) region\.querySelector\("\[data-version-select\]"\)\?\.focus\(\{ preventScroll: true \}\);/, "picker re-render restores focus to the new select");
 });
 
-// 24. data-recipe-change lives inside the recipe disclosure. 25.
-// data-version-change stays in the new-version section. 26-27. Each save path
-// reads only its own field. 28. No hardcoded English summary. 29-30. PATCH vs
-// versions API stay on their own paths. 31. The two summaries are independent.
-// 32. Both save buttons are secondary. 33. Cowart remains the only primary.
-test("24-33. recipe save and save-as-version stay split", async () => {
+// 24. data-recipe-change lives inside the recipe disclosure. 25-30. The removed
+// save-as-version composer stays absent from the inspector and its event path.
+// Recipe auto-save remains the only inspector save flow.
+test("24-30. recipe save remains and save-as-version UI stays removed", async () => {
   const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
   const promptSection = functionSlice(inspector, "detailPromptSectionMarkup");
-  const newVersionSection = functionSlice(inspector, "detailNewVersionSectionMarkup");
 
   // 24. The recipe-change textarea sits inside the recipe disclosure, between
   // the recipe fields and the save-recipe button.
@@ -224,44 +225,30 @@ test("24-33. recipe save and save-as-version stay split", async () => {
   assert.match(promptSection, /<label class="field recipe-change-field"><span>\$\{t\("recipeChangeSummary"\)\}<\/span>/, "recipe-change field label");
   assert.match(promptSection, /<textarea data-recipe-change rows="2" placeholder="\$\{escapeHtml\(t\("recipeChangePlaceholder"\)\)\}"><\/textarea>/, "recipe-change textarea");
 
-  // 25. data-version-change stays exclusively in the new-version section.
-  assert.ok(newVersionSection.includes('data-inspector-section="new-version"'), "new-version section id intact");
-  assert.ok(newVersionSection.includes("data-version-change"), "version-change textarea stays in the new-version section");
-  assert.doesNotMatch(promptSection, /data-version-change/, "recipe disclosure no longer hosts data-version-change");
+  // 25-27. The bottom save-as-version composer and its client event path stay
+  // removed. Version history remains read-only in this inspector.
+  assert.doesNotMatch(inspector, /data-inspector-section="new-version"/);
+  assert.doesNotMatch(inspector, /data-version-change|detail-regenerate-composer|detail-save-version/);
+  assert.doesNotMatch(app, /data-action="save-version"|savingVersion|version_change: versionChange/);
 
-  // 26-30. The recipe auto-save path and the save-version handler read disjoint
-  // fields and call disjoint APIs. save-recipe is now a manual flush trigger; the
-  // actual recipe PATCH lives in persistInspectorDraft (the debounced auto-save).
+  // 28-30. Recipe auto-save remains isolated from the versions API. save-recipe
+  // is a manual flush trigger; the actual PATCH lives in persistInspectorDraft.
   const persist = sliceBetween(app, "async function persistInspectorDraft(panel, asset, renderId)", "async function flushInspectorSave()");
-  const saveVersion = sliceBetween(app, "panel.querySelector('[data-action=\"save-version\"]')?.addEventListener", "bindReferenceRightsEvents(panel, asset, renderId);");
-  // 26.
   assert.doesNotMatch(persist, /data-version-change/, "recipe auto-save never reads data-version-change");
   assert.match(persist, /panel\.querySelector\("\[data-recipe-change\]"\)\?\.value\.trim\(\) \|\| ""/, "recipe auto-save reads its own summary field");
-  // 27.
-  assert.doesNotMatch(saveVersion, /data-recipe-change/, "save-version never reads data-recipe-change");
-  assert.match(saveVersion, /panel\.querySelector\("\[data-version-change\]"\)\?\.value\.trim\(\) \|\| ""/, "save-version reads its own summary field");
-  // 28.
   assert.doesNotMatch(app, /Recipe updated in MOSA/, "no hardcoded English recipe summary");
   assert.match(persist, /changeSummary \? \{ recipe_change_summary: changeSummary \} : \{\}/, "empty summary omits recipe_change_summary (server default applies)");
-  // 29-30.
   assert.doesNotMatch(persist, /\/versions/, "recipe auto-save never calls the versions API");
   assert.match(persist, /method: "PATCH"/, "recipe auto-save keeps the PATCH path");
-  assert.match(saveVersion, /\/versions`, \{\s*\n\s*method: "POST"/, "save-version keeps posting to the versions API");
-  assert.match(saveVersion, /version_change: versionChange/, "save-version keeps the version_change payload");
 
-  // 31. The two summary labels are independent i18n keys in both locales.
+  // Recipe-change labels remain localized in both locales.
   assert.match(i18n, /recipeChangeSummary: "配方变更说明"/);
   assert.match(i18n, /recipeChangeSummary: "Recipe change summary"/);
   assert.match(i18n, /recipeChangePlaceholder: "简要说明本次 Prompt、参数或元数据修改"/);
   assert.match(i18n, /recipeChangePlaceholder: "Briefly describe the prompt, parameter, or metadata changes"/);
-  assert.match(i18n, /versionChange: "变更说明"/);
-  assert.match(i18n, /versionChange: "Change summary"/);
   assert.match(i18n, /versionPickerLabel: "选择版本"/);
   assert.match(i18n, /versionPickerLabel: "Select version"/);
-
-  // 32. save-recipe stays secondary; V2 composer send triggers save-version.
   assert.match(promptSection, /class="recipe-save-btn secondary" type="button" data-action="save-recipe"/, "save-recipe stays secondary");
-  assert.match(newVersionSection, /data-action="save-version"/, "save-version action preserved in V2 composer");
   assert.equal(count(app, "recipe-save-btn primary") + count(inspector, "recipe-save-btn primary"), 0, "no primary recipe save button");
 });
 
@@ -301,7 +288,7 @@ test("34-38. Phase 4A correction gates hold", async () => {
   assert.match(sourceSection, /const copyButton = sourceCopyValue\(source\)\n\s+\? `<button class="section-head-copy" type="button" data-action="copy-source"/, "empty sources get no copy button");
 });
 
-// 39-42. The eight V2 inspector sections keep their approved order.
+// 39-42. The seven V2 inspector sections keep their approved order.
 // 43-46. The neighbouring contract suites keep their anchors in app.js.
 // 47. package.json and the lockfile are untouched. 48. No new dependency.
 test("39-48. layout order, neighbouring contracts, and dependency freeze", async () => {
@@ -316,8 +303,7 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
   assert.ok(positions.every((index) => index > -1), "all V2 section ids still render");
   assert.deepEqual([...positions].sort((a, b) => a - b), positions, "section order matches the approved sequence");
   assert.equal(SECTION_ORDER[4], "version", "version stays the 5th section");
-  assert.equal(SECTION_ORDER[6], "new-version", "new-version stays the 7th section");
-  assert.equal(SECTION_ORDER[7], "more", "more stays the 8th section");
+  assert.equal(SECTION_ORDER[6], "more", "more stays the 7th section");
 
   // 43-46. V2 migration: large-view-* tests were removed during V2 cleanup.
   // App.js anchors for viewer and inspector remain intact.

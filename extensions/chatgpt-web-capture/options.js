@@ -1,7 +1,7 @@
 const DEFAULTS = {
   mosaBaseUrl: "http://127.0.0.1:43517",
   mosaToken: "",
-  autoCapture: true,
+  autoCapture: false,
 };
 const LEGACY_DEV_TOKEN = "mosa-web-capture-dev";
 

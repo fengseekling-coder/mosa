@@ -61,7 +61,7 @@
   const conversationRefreshRequestedAt = new Map();
   const CONVERSATION_REFRESH_COOLDOWN_MS = 2_500;
   let toastTimer = null;
-  let autoCapture = true;
+  let autoCapture = false;
   let scanTimer = null;
   let lastUrl = location.href;
   let lastConversationId = conversationIdFromUrl();
@@ -74,6 +74,26 @@
   let observer = null;
   let controlPanel = null;
   let panelDragState = null;
+  let manualHookDisableTimer = null;
+
+  function setPageHookCaptureEnabled(enabled) {
+    window.postMessage({
+      source: "mosa-chatgpt-capture",
+      type: "set-capture-enabled",
+      payload: { enabled: enabled === true },
+    }, "*");
+  }
+
+  function enablePageHookForManualCapture() {
+    setPageHookCaptureEnabled(true);
+    if (manualHookDisableTimer) clearTimeout(manualHookDisableTimer);
+    if (!autoCapture) {
+      manualHookDisableTimer = setTimeout(() => {
+        manualHookDisableTimer = null;
+        if (!autoCapture) setPageHookCaptureEnabled(false);
+      }, 10_000);
+    }
+  }
 
   function resetConversationTransientState() {
     networkMeta.splice(0, networkMeta.length);
@@ -927,12 +947,9 @@
     return { mimeType: match[1], imageBase64: match[2] };
   }
 
-  /**
-   * The canvas snapshot stays first. It re-encodes to different bytes than the
-   * file ChatGPT served, so switching the order would re-import every asset
-   * already archived from a canvas. Two encodings of one picture are kept apart
-   * by image identity instead, before either one is ever uploaded.
-   */
+  /** Prefer the provider-served original bytes. Pixel-hash dedupe on the MOSA
+   * side prevents a prior canvas-encoded copy from becoming a second asset.
+   * Canvas remains the fallback for blob/CORS/transient URL failures. */
   async function bytesFromUrlOrImg(candidate) {
     if (candidate.dataUrl) {
       const match = /^data:([^;]+);base64,(.+)$/i.exec(candidate.dataUrl);
@@ -940,12 +957,16 @@
       return { mimeType: match[1], imageBase64: match[2] };
     }
 
-    try {
-      return canvasBytesFromImage(candidate.el);
-    } catch {
-      // No usable element, or a tainted cross-origin canvas → download instead.
+    const originalUrl = candidate.imageUrl || candidate.key || "";
+    if (originalUrl) {
+      try {
+        return await originalBytesFromUrl(originalUrl);
+      } catch {
+        // Fall through to a rendered-pixel snapshot only when the original
+        // provider bytes cannot be read.
+      }
     }
-    return originalBytesFromUrl(candidate.imageUrl || candidate.key || "");
+    return canvasBytesFromImage(candidate.el);
   }
 
   function arrayBufferToBase64(buffer) {
@@ -1256,6 +1277,24 @@
       renderControlPanel();
       return;
     }
+    if (action === "save-visible") {
+      try {
+        await runManualAction("save-visible");
+      } catch {
+        // runManualAction already surfaces the failure.
+      }
+      renderControlPanel();
+      return;
+    }
+    if (action === "save-all") {
+      try {
+        await runManualAction("save-all");
+      } catch {
+        // runManualAction already surfaces the failure.
+      }
+      renderControlPanel();
+      return;
+    }
     if (action === "open-settings") {
       const response = await runtimeSend({ type: "mosa.openOptions" });
       if (!response?.ok) showToast(response?.error || "无法打开设置", true);
@@ -1309,6 +1348,8 @@
         <button type="button" class="mosa-panel-primary" data-action="toggle-auto" aria-pressed="true">
           关闭自动入库
         </button>
+        <button type="button" class="mosa-panel-secondary" data-action="save-visible">保存当前图</button>
+        <button type="button" class="mosa-panel-secondary" data-action="save-all">保存全部大图</button>
         <button type="button" class="mosa-panel-secondary" data-action="open-settings">打开设置</button>
         <footer>拖动顶部移动 · Esc 关闭</footer>
       </div>
@@ -1336,6 +1377,7 @@
       markContextLost();
       throw new Error(CONTEXT_LOST_MESSAGE);
     }
+    enablePageHookForManualCapture();
 
     // Right-click "save image" targets a specific src; prefer it over the
     // generic viewport heuristic so the user gets the picture they clicked.
@@ -1492,6 +1534,7 @@
       const response = await runtimeSend({ type: "mosa.getSettings" });
       if (response?.ok && response.settings) {
         autoCapture = response.settings.autoCapture !== false;
+        setPageHookCaptureEnabled(autoCapture);
         return;
       }
     } catch {
@@ -1506,6 +1549,7 @@
     } catch {
       // Keep the in-memory value when both settings paths are unavailable.
     }
+    setPageHookCaptureEnabled(autoCapture);
   }
 
   window.addEventListener("message", (event) => {
@@ -1529,9 +1573,8 @@
     // a caption and nothing on screen said why.
     if (data.type === "conversation-refresh-failed") {
       const status = Number(data.payload?.status) || 0;
-      const authorized = Boolean(data.payload?.authorized);
       setStatus(
-        `会话元数据读取失败${status ? ` (${status})` : ""}${authorized ? "" : "：未捕获登录头"}，提示词可能缺失`,
+        `会话元数据读取失败${status ? ` (${status})` : ""}，提示词可能缺失`,
         true,
       );
       return;
@@ -1568,8 +1611,11 @@
     }
   });
 
-  observer = new MutationObserver(() => scheduleScan(false));
+  observer = new MutationObserver(() => {
+    if (autoCapture) scheduleScan(false);
+  });
   const startObs = () => {
+    observer.disconnect();
     observer.observe(document.documentElement || document.body, {
       childList: true,
       subtree: true,
@@ -1577,12 +1623,15 @@
       attributeFilter: ["src", "srcset", "style", "class"],
     });
   };
-  if (document.documentElement) startObs();
-  else document.addEventListener("DOMContentLoaded", startObs, { once: true });
 
   // Boot. page-hook.js is a document_start MAIN-world content script.
-  loadSettings().then(() => scheduleScan(true));
-  scheduleScan(true);
+  loadSettings().then(() => {
+    if (autoCapture) {
+      if (document.documentElement) startObs();
+      else document.addEventListener("DOMContentLoaded", startObs, { once: true });
+      scheduleScan(true);
+    }
+  });
 
   // Aggressive periodic auto scan — user explicitly wants hands-free save.
   // Doubles as the orphan watchdog: an extension reload flips the dock to the
@@ -1593,12 +1642,19 @@
       return;
     }
     if (autoCapture) scheduleScan(true);
-  }, 2000);
+  }, 5000);
 
   chrome.storage?.onChanged?.addListener((changes, area) => {
     if (area !== "local" || !changes.autoCapture) return;
     autoCapture = changes.autoCapture.newValue !== false;
+    setPageHookCaptureEnabled(autoCapture);
     setStatus(autoCapture ? "自动开" : "自动关");
-    if (autoCapture) scheduleScan(true);
+    if (autoCapture) {
+      startObs();
+      scheduleScan(true);
+    } else {
+      observer?.disconnect();
+      if (scanTimer) clearTimeout(scanTimer);
+    }
   });
 })();

@@ -1,8 +1,8 @@
 // Inspector information-architecture contract (Phase 4A): the approved
-// single-column detail panel — V2's eight semantic sections in the approved order,
+// single-column detail panel — V2's seven semantic sections in the approved order,
 // no tab roles, honest file-fact fallbacks ("未记录" instead of fabricated
-// dimensions/size), Save Version demoted to secondary, and every async race
-// guard preserved. Static guards
+// dimensions/size), the retired Save Version composer absent, and every async
+// race guard preserved. Static guards
 // only — Node standard library, no network access. Locks concrete DOM, order,
 // state and helpers (never a whole-file SHA of app.js / styles.css).
 import assert from "node:assert/strict";
@@ -57,10 +57,10 @@ function functionSlice(source, name) {
 }
 
 // Library v2 keeps favorite inside its Overview; the remaining semantic blocks
-// are therefore an eight-section column.
-const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "new-version", "more"];
+// are therefore a seven-section column.
+const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "more"];
 // Exact helper-call sequence inside the renderDetail single-column composition.
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailNewVersionSectionMarkup()}${detailMoreSectionMarkup(asset)}";
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailMoreSectionMarkup(asset)}";
 
 // 1. Detail uses a single vertical information column.
 // 2. No detail tablist. 3. No detail tab. 4. No detail tabpanel.
@@ -95,9 +95,9 @@ test("1-6. single-column architecture, tab roles removed, V2 sections in approve
   assert.doesNotMatch(app + inspector, /class="detail-tab/);
   assert.doesNotMatch(css, /\.detail-tab/);
 
-  // 5. Eight semantic sections, each emitted exactly once. Favorite belongs in
+  // 5. Seven semantic sections, each emitted exactly once. Favorite belongs in
   // the V2 Overview instead of occupying a detached visual section.
-  assert.equal(count(inspector, 'data-inspector-section="'), 8, "exactly eight V2 semantic sections");
+  assert.equal(count(inspector, 'data-inspector-section="'), 7, "exactly seven V2 semantic sections");
   for (const id of SECTION_ORDER) {
     assert.ok(inspector.includes(`data-inspector-section="${id}"`), `missing section ${id}`);
   }
@@ -237,6 +237,9 @@ test("18-20. source section keeps buildSourceRows and a conditional copy entry",
 
   const sourceSection = functionSlice(inspector, "detailSourceSectionMarkup");
   assert.ok(sourceSection.includes('data-inspector-section="source"'));
+  assert.match(sourceSection, /<details class="detail-source-disclosure">/);
+  assert.match(sourceSection, /<summary class="detail-source-summary">/);
+  assert.match(sourceSection, /sourceName\(source\)/);
   assert.match(sourceSection, /buildSourceRows\(source\)/, "source rows still come from buildSourceRows");
   assert.match(sourceSection, /const copyButton = sourceCopyValue\(source\)\n\s+\? `<button class="section-head-copy" type="button" data-action="copy-source"/);
   assert.match(sourceSection, /data-action="copy-source" title="\$\{t\("copyOriginalPath"\)\}" aria-label="\$\{t\("copyOriginalPath"\)\}"/);
@@ -244,6 +247,12 @@ test("18-20. source section keeps buildSourceRows and a conditional copy entry",
   assert.match(sourceSection, /<p class="empty-copy">\$\{t\("notRecorded"\)\}<\/p>/);
   const bindDetailEvents = functionSlice(app, "bindDetailEvents");
   assert.match(bindDetailEvents, /copy-source.*clipboard\.writeText\(sourceCopyValue\(asset\.source\)\)/s, "copy-source copies the original path");
+});
+
+test("source section stays visible as a compact disclosure in V2", async () => {
+  const css = await readCss();
+  assert.match(css, /\.mosa-v2 \.detail \.detail-source-section \{[\s\S]*?display:\s*block;/);
+  assert.match(css, /\.mosa-v2 \.detail \.detail-source-summary \{[\s\S]*?min-height:\s*48px/);
 });
 
 test("source navigation exposes only reliable generation session and batch actions", async () => {
@@ -344,25 +353,12 @@ test("25-28. tags section renders prompt-derived chips and add action (D3)", asy
   assert.match(i18n, /addTag: "添加标签"/);
 });
 
-// 32. Save Version is 8th. 33. The action describes the version operation MOSA actually performs.
-test("32-33. new-version section position and honest save action", async () => {
-  const inspector = await readInspectorMarkup();
-
-  // 32. New-version is the 8th section (after group, before more).
-  const newVersionIndex = COMPOSITION.indexOf("detailNewVersionSectionMarkup");
-  assert.ok(newVersionIndex > COMPOSITION.indexOf("detailGroupSectionMarkup"));
-  assert.ok(newVersionIndex < COMPOSITION.indexOf("detailMoreSectionMarkup"));
-
-  // 33. Version composer contains only the change note and explicit save action;
-  // it must not imply that MOSA calls an image-generation model.
-  const newVersionSection = functionSlice(inspector, "detailNewVersionSectionMarkup");
-  assert.ok(newVersionSection.includes('data-inspector-section="new-version"'));
-  assert.match(newVersionSection, /detail-regenerate-composer/);
-  assert.match(newVersionSection, /<textarea data-version-change/);
-  assert.match(newVersionSection, /data-action="save-version"/);
-  assert.match(newVersionSection, /detail-save-version/);
-  assert.match(newVersionSection, /createRecipeVersionDescription/);
-  assert.doesNotMatch(newVersionSection, /Imagen 4|Flux|data-composer-select|data-resolution|detail-composer-send/);
+// 32-33. The retired save-as-version composer stays absent from the inspector.
+test("32-33. save-as-version section stays removed", async () => {
+  const [app, inspector, css] = await Promise.all([readApp(), readInspectorMarkup(), readCss()]);
+  assert.doesNotMatch(app + inspector, /detailNewVersionSectionMarkup|data-inspector-section="new-version"|data-action="save-version"/);
+  assert.doesNotMatch(inspector, /data-version-change|detail-regenerate-composer|detail-save-version/);
+  assert.doesNotMatch(css, /detail-regenerate-section|detail-regenerate-composer|detail-save-version/);
 });
 
 // 34. More is 9th. 35. Archive stays a separated danger action.
@@ -370,7 +366,7 @@ test("34-35. more section last, archive kept as a separated danger action", asyn
   const inspector = await readInspectorMarkup();
 
   // 34. More is the final section.
-  assert.ok(COMPOSITION.indexOf("detailMoreSectionMarkup") > COMPOSITION.indexOf("detailNewVersionSectionMarkup"));
+  assert.ok(COMPOSITION.indexOf("detailMoreSectionMarkup") > COMPOSITION.indexOf("detailGroupSectionMarkup"));
   assert.ok(COMPOSITION.endsWith("${detailMoreSectionMarkup(asset)}"));
 
   const moreSection = functionSlice(inspector, "detailMoreSectionMarkup");
@@ -542,8 +538,13 @@ test("scroll. single-column scroll and focus restoration policy", async () => {
   assert.match(renderDetail, /const keepScrollTop = !hadPanelFocus && asset && detailRenderedAssetId === asset\.id/);
   assert.match(renderDetail, /els\.detailPanel\.querySelector\("\.detail-inspector-scroll"\)\?\.scrollTop \?\? null/);
   assert.match(renderDetail, /if \(scroller && keepScrollTop !== null\) scroller\.scrollTop = keepScrollTop;/);
+  assert.match(renderDetail, /bindDetailHeaderContext\(asset\);/);
   assert.match(renderDetail, /if \(hadPanelFocus\) els\.detailPanel\.querySelector\("#detailTitle"\)\?\.focus\(\);/);
   assert.match(app, /let detailRenderedAssetId = null;/);
+  const headerContext = functionSlice(app, "bindDetailHeaderContext");
+  assert.match(headerContext, /scroller\.scrollTop >= overview\.offsetTop \+ overview\.offsetHeight - 8/);
+  assert.match(headerContext, /headerLabel\.textContent = overviewPassed \? assetTitle : t\("assetInspector"\)/);
+  assert.match(headerContext, /classList\.toggle\("is-contextual", overviewPassed\)/);
 });
 
 test("generation lineage nodes expose evidence and relation management without generation actions", async () => {
@@ -553,6 +554,8 @@ test("generation lineage nodes expose evidence and relation management without g
   assert.match(lineage, /<details class="generation-lineage-node" data-generation-id=/);
   assert.match(lineage, /generationEventDetailMarkup\(event, \{ history, eventById, assetById, incoming, selectedAssetId \}\)/);
   assert.match(lineage, /generationContextCandidatesMarkup\(history, contextEvents, eventById, assetById\)/);
+  assert.match(inspector, /<details class="generation-context-candidates"><summary class="generation-context-candidates-head">/, "context candidates default to a collapsed disclosure");
+  assert.match(inspector, /<details class="generation-management-disclosure"><summary>\$\{escapeHtml\(t\("generationRelations"\)\)\}<\/summary>/, "relation management defaults to a nested disclosure");
   assert.match(inspector, /data-action="confirm-generation-relation-candidate"/);
 
   const detail = functionSlice(inspector, "generationEventDetailMarkup");

@@ -32,7 +32,7 @@ Choose a port that is not already used by another MOSA or legacy service. Bind o
 
 For a standalone runtime started with `npm start`, `MOSA_WEB_CAPTURE_TOKEN` and `MOSA_WEB_CAPTURE_ORIGINS` remain required when the web-capture extension is used. The origins value is a comma-separated list of exact `chrome-extension://<id>` or `moz-extension://<id>` origins. When the Token is unset, web capture must remain disabled; when the origin is absent, extension requests must be rejected. Never put the Token in a tracked file, command transcript, issue, or log.
 
-The packaged/Desktop runtime supplies these values automatically: it persists one random Web Capture Token inside Electron `userData`, authorizes the official fixed extension origin, prefers port `43517`, and falls back through the reserved local discovery ports when another listener owns the preferred port. The extension verifies `/api/health`, pairs only from its approved `chrome-extension://` origin, and caches the resolved local address and Token in `chrome.storage.local`.
+The packaged/Desktop runtime supplies these values automatically: it persists one random Web Capture Token inside Electron `userData`, authorizes only MOSA's two exact Chrome extension origins (the unpacked development ID and the Chrome Web Store ID), prefers port `43517`, and falls back through the reserved local discovery ports when another listener owns the preferred port. The extension verifies `/api/health`, pairs only from one of those approved `chrome-extension://` origins, and caches the resolved local address and Token in `chrome.storage.local`.
 
 ### Desktop shell
 

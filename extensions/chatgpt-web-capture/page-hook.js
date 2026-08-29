@@ -5,6 +5,7 @@
 (function mosaPageHook() {
   if (window.__mosaPageHookInstalled) return;
   window.__mosaPageHookInstalled = true;
+  let captureEnabled = false;
 
   function markReady() {
     if (document.documentElement) {
@@ -49,6 +50,10 @@
     } catch {
       // ignore
     }
+  }
+
+  function isCaptureEnabled() {
+    return captureEnabled === true;
   }
 
   function isHttpUrl(value) {
@@ -513,59 +518,8 @@
   const conversationRefreshAt = new Map();
   const CONVERSATION_REFRESH_COOLDOWN_MS = 2_500;
 
-  /**
-   * ChatGPT's own backend-api calls carry a bearer token. A refresh that omits
-   * it is rejected, which silently disabled the whole late-caption recovery
-   * path. These values stay in this page world — the same world the ChatGPT app
-   * already keeps them in. They are never posted to the content script, never
-   * reach the MOSA background worker, and are never persisted.
-   */
-  const FORWARDED_HEADER_KEYS = new Set([
-    "authorization", "oai-device-id", "oai-client-version", "oai-language",
-  ]);
-  const forwardedHeaders = new Map();
-
-  function isSameOriginBackendApi(value) {
-    try {
-      const url = new URL(String(value || ""), location.origin);
-      return url.origin === location.origin && url.pathname.startsWith("/backend-api/");
-    } catch {
-      return false;
-    }
-  }
-
-  function rememberForwardedHeader(name, value) {
-    const key = String(name || "").toLowerCase();
-    const text = String(value == null ? "" : value).trim();
-    if (!FORWARDED_HEADER_KEYS.has(key) || !text) return;
-    forwardedHeaders.set(key, text);
-  }
-
-  function headerEntries(value) {
-    if (!value || typeof value !== "object") return [];
-    // A Headers instance is only iterable through forEach in this world.
-    if (typeof value.forEach === "function" && typeof value.append === "function") {
-      const entries = [];
-      value.forEach((headerValue, headerName) => entries.push([headerName, headerValue]));
-      return entries;
-    }
-    if (Array.isArray(value)) return value.filter((pair) => Array.isArray(pair) && pair.length >= 2);
-    return Object.entries(value);
-  }
-
-  function rememberRequestHeaders(input, init) {
-    try {
-      const url = typeof input === "string" ? input : input?.url || "";
-      if (!isSameOriginBackendApi(url)) return;
-      for (const source of [typeof input === "object" ? input?.headers : null, init?.headers]) {
-        for (const [name, value] of headerEntries(source)) rememberForwardedHeader(name, value);
-      }
-    } catch {
-      // A request shape we cannot read simply contributes no headers.
-    }
-  }
-
   async function refreshCurrentConversation() {
+    if (!isCaptureEnabled()) return;
     const conversationId = conversationIdFromLocation();
     if (!conversationId) return;
 
@@ -585,14 +539,12 @@
       `${base}/backend-api/conversation/${encodedConversationId}`,
       `${base}/backend-api/f/conversation/${encodedConversationId}`,
     ];
-    const headers = Object.fromEntries(forwardedHeaders);
     let lastStatus = 0;
     for (const endpoint of endpoints) {
       try {
         const response = await originalFetch(endpoint, {
           credentials: "include",
           cache: "no-store",
-          headers,
         });
         if (!response?.ok) {
           lastStatus = Number(response?.status) || 0;
@@ -604,12 +556,7 @@
         // Try the alternate first-party conversation endpoint.
       }
     }
-    // A refresh that fails without a trace is how this recovery path stayed
-    // broken. Report the status only; never the headers that were sent.
-    post("conversation-refresh-failed", {
-      status: lastStatus,
-      authorized: forwardedHeaders.has("authorization"),
-    });
+    post("conversation-refresh-failed", { status: lastStatus });
   }
 
   // The payload is intentionally ignored. The page hook derives the ID from
@@ -617,16 +564,34 @@
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     const data = event.data;
-    if (data?.source !== "mosa-chatgpt-capture" || data.type !== "refresh-current-conversation") return;
-    refreshCurrentConversation().catch(() => {});
+    if (data?.source !== "mosa-chatgpt-capture") return;
+    if (data.type === "set-capture-enabled") {
+      captureEnabled = data.payload?.enabled === true;
+      return;
+    }
+    if (data.type === "refresh-current-conversation") refreshCurrentConversation().catch(() => {});
   });
 
+  function isInterestingResponseUrl(value) {
+    try {
+      const url = new URL(String(value || ""), location.origin);
+      if (url.origin !== location.origin) return false;
+      const path = url.pathname.toLowerCase();
+      return path.startsWith("/backend-api/conversation/")
+        || path.startsWith("/backend-api/f/conversation/")
+        || path.includes("/backend-api/estuary/")
+        || /\/(image|images|imagegen|image-generation|generation)(?:\/|$)/.test(path);
+    } catch {
+      return false;
+    }
+  }
+
   window.fetch = async function mosaFetch(...args) {
-    rememberRequestHeaders(args[0], args[1]);
     const response = await originalFetch.apply(this, args);
+    if (!isCaptureEnabled()) return response;
     try {
       const url = typeof args[0] === "string" ? args[0] : args[0]?.url || "";
-      if (/chatgpt\.com|openai\.com|backend-api|conversation|images?|oaiusercontent/i.test(String(url))) {
+      if (isInterestingResponseUrl(url)) {
         const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
         const textLike = /json|text|event-stream|javascript/.test(contentType)
           || /backend-api|conversation/i.test(String(url));
@@ -643,26 +608,16 @@
 
   const originalOpen = XMLHttpRequest.prototype.open;
   const originalSend = XMLHttpRequest.prototype.send;
-  const originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
   XMLHttpRequest.prototype.open = function mosaOpen(method, url, ...rest) {
     this.__mosaUrl = url;
     return originalOpen.call(this, method, url, ...rest);
   };
-  if (typeof originalSetRequestHeader === "function") {
-    XMLHttpRequest.prototype.setRequestHeader = function mosaSetRequestHeader(name, value) {
-      try {
-        if (isSameOriginBackendApi(this.__mosaUrl)) rememberForwardedHeader(name, value);
-      } catch {
-        // ignore
-      }
-      return originalSetRequestHeader.call(this, name, value);
-    };
-  }
   XMLHttpRequest.prototype.send = function mosaSend(...args) {
     this.addEventListener("load", function onLoad() {
+      if (!isCaptureEnabled()) return;
       try {
         const url = String(this.__mosaUrl || "");
-        if (/chatgpt\.com|openai\.com|backend-api|conversation|images?|oaiusercontent/i.test(url)) {
+        if (isInterestingResponseUrl(url)) {
           // Mirror the fetch interceptor: never harvest raw image bytes.
           const contentType = String(this.getResponseHeader?.("content-type") || "").toLowerCase();
           if (!/^image\//.test(contentType)) harvest(this.responseText || "", "xhr");
@@ -735,7 +690,9 @@
         constructor(...args) {
           super(...args);
           try {
-            this.addEventListener("message", (event) => harvestSocketData(event?.data));
+            this.addEventListener("message", (event) => {
+              if (isCaptureEnabled()) harvestSocketData(event?.data);
+            });
           } catch {
             // A socket that rejects listeners still works for the page.
           }
@@ -749,6 +706,7 @@
 
   try {
     const obs = new MutationObserver((mutations) => {
+      if (!isCaptureEnabled()) return;
       for (const m of mutations) {
         for (const node of m.addedNodes || []) {
           const imgs = [];

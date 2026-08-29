@@ -26,7 +26,7 @@ MOSA 当前是绑定 `127.0.0.1` 的本地 Web 应用，也提供共享同一套
 - 要自动归档 Codex 生图，需要安装 Codex Desktop。
 - 要自动归档 Grok 媒体，需要本机已登录并可写入 `~/.grok/sessions` 的 Grok Build CLI。
 - Cowart 自动归档需要安装 Cowart 插件；不使用 Cowart 时不影响 MOSA 的其他功能。
-- 网页生图归档需要 Chrome。使用 MOSA Desktop App 时会自动生成本机 Token、授权官方固定扩展来源并完成本地配对；仅源码 `npm start` 模式需要手工配置 `MOSA_WEB_CAPTURE_TOKEN` 与 `MOSA_WEB_CAPTURE_ORIGINS`。
+- 网页生图归档需要 Chrome。使用 MOSA Desktop App 时会自动生成本机 Token，并只授权 MOSA 开发版与 Chrome Web Store 正式版这两个固定扩展来源完成本地配对；仅源码 `npm start` 模式需要手工配置 `MOSA_WEB_CAPTURE_TOKEN` 与 `MOSA_WEB_CAPTURE_ORIGINS`。
 
 ### Windows 10/11 x64 Preview 状态
 

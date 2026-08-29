@@ -94,7 +94,7 @@ const checks = [
   ["23 inspector V2 section order is fixed", async () => {
     const app = await read("app/app.mjs");
     const markup = app.match(/\$\{detailFileSectionMarkup\(asset\)\}[\s\S]*?\$\{detailMoreSectionMarkup\(asset\)\}/)?.[0] || "";
-    assert.deepEqual([...markup.matchAll(/detail(\w+)SectionMarkup/g)].map((match) => match[1]), ["File", "Tags", "Prompt", "Source", "Version", "Group", "NewVersion", "More"]);
+    assert.deepEqual([...markup.matchAll(/detail(\w+)SectionMarkup/g)].map((match) => match[1]), ["File", "Tags", "Prompt", "Source", "Version", "Group", "More"]);
   }],
   ["24 copy prompt action is native", async () => assert.match(await read("app/app.mjs"), /data-action="copy-prompt"/)],
   ["25 copy source action is native", async () => assert.match(await read("app/app.mjs"), /data-action="copy-source"/)],

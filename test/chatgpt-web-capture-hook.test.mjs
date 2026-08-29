@@ -74,6 +74,17 @@ function createHookHarness(payload, conversationId = "conversation-test", option
     window,
   }, { filename: "page-hook.js" });
 
+  if (options.captureEnabled !== false && messageListener) {
+    messageListener({
+      source: window,
+      data: {
+        source: "mosa-chatgpt-capture",
+        type: "set-capture-enabled",
+        payload: { enabled: true },
+      },
+    });
+  }
+
   return {
     events,
     requestedUrls,
@@ -145,9 +156,9 @@ test("Google adapters capture visible images and supported Flow / AI Studio vide
   assert.match(providerSource, /function isProviderGeneratedVideo\(provider, video\)/);
   assert.match(providerSource, /AI_STUDIO_VIDEO_PATH = \/\^\\\/generate-video/);
   assert.match(providerSource, /AI_STUDIO_VIDEO_PATH\.test\(String\(location\.pathname/);
-  assert.match(providerSource, /document\.addEventListener\("loadedmetadata", scheduleScan, true\)/);
-  assert.match(providerSource, /document\.addEventListener\("loadeddata", scheduleScan, true\)/);
-  assert.match(providerSource, /document\.addEventListener\("canplay", scheduleScan, true\)/);
+  assert.match(providerSource, /document\.addEventListener\("loadedmetadata", \(\) => \{ if \(autoCapture\) scheduleScan\(\); \}, true\)/);
+  assert.match(providerSource, /document\.addEventListener\("loadeddata", \(\) => \{ if \(autoCapture\) scheduleScan\(\); \}, true\)/);
+  assert.match(providerSource, /document\.addEventListener\("canplay", \(\) => \{ if \(autoCapture\) scheduleScan\(\); \}, true\)/);
   assert.match(providerSource, /"flow-content\.google"/);
   assert.match(providerSource, /media\?\.videoWidth \|\| media\?\.naturalWidth \|\| media\?\.width/);
   assert.match(providerSource, /media\?\.videoHeight \|\| media\?\.naturalHeight \|\| media\?\.height/);
@@ -196,13 +207,15 @@ test("Google adapters capture visible images and supported Flow / AI Studio vide
   assert.match(providerSource, /previous = previous\.previousElementSibling/);
   assert.match(providerSource, /contenteditable/);
   assert.match(providerSource, /"textarea"/);
-  assert.match(providerSource, /"mosa\.capture\.saveImage", "mosa\.capture\.saveImageWithPrompt"/);
+  assert.match(providerSource, /"mosa\.capture\.saveVideoWithPrompt"/);
   assert.match(providerSource, /function supportedImageUrl\(value\)/);
   assert.match(providerSource, /const PROMPT_RETRY_DELAYS = \[900, 2_700, 7_200\]/);
   assert.match(providerSource, /function schedulePromptRetry\(provider, source, mediaKind = "image"\)/);
   assert.match(providerSource, /function attemptPendingPromptUpgrades\(\)/);
   assert.match(providerSource, /characterData: true/);
-  assert.match(providerSource, /document\.addEventListener\("load", scheduleScan, true\)/);
+  assert.match(providerSource, /document\.addEventListener\("load", \(\) => \{ if \(autoCapture\) scheduleScan\(\); \}, true\)/);
+  assert.match(providerSource, /function startProviderObserver\(\)/);
+  assert.match(providerSource, /observer\?\.disconnect\(\)/);
   const providerSourceWithoutVideoQueries = executableProviderSource.replace(/document\.querySelectorAll\?\.\("video"\)/g, "");
   assert.doesNotMatch(providerSourceWithoutVideoQueries, /innerText|textContent|innerHTML|querySelectorAll|conversation/);
   assert.doesNotMatch(executableProviderSource, /document\.body\.innerText|document\.documentElement\.innerText/);
@@ -283,6 +296,52 @@ test("uses safe local extension settings without a public Token default", () => 
   assert.match(optionsSource, /\["127\.0\.0\.1", "localhost"\]\.includes\(url\.hostname\)/);
   assert.match(optionsSource, /baseUrl = normalizeBaseUrl\(baseUrlEl\.value\.trim\(\) \|\| DEFAULTS\.mosaBaseUrl\)/);
   assert.match(optionsHtml, /type="password"/);
+});
+
+test("defaults capture off and keeps Chrome permissions minimal", () => {
+  assert.deepEqual(manifest.permissions, ["storage", "contextMenus"]);
+  assert.equal(manifest.permissions.includes("activeTab"), false);
+  assert.match(backgroundSource, /autoCapture:\s*false/);
+  assert.match(optionsSource, /autoCapture:\s*false/);
+  assert.match(contentSource, /let autoCapture = false/);
+  assert.match(providerSource, /let autoCapture = false/);
+  assert.match(optionsHtml, /默认关闭/);
+  assert.match(backgroundSource, /if \(details\?\.reason === "install"\) await chrome\.runtime\.openOptionsPage\(\)/);
+});
+
+test("manual fallback controls cover ChatGPT images and Google videos", () => {
+  assert.match(contentSource, /data-action="save-visible">保存当前图</);
+  assert.match(contentSource, /data-action="save-all">保存全部大图</);
+  assert.match(backgroundSource, /id: "mosa-save-video"/);
+  assert.match(backgroundSource, /contexts: \["video"\]/);
+  assert.match(providerSource, /"mosa\.capture\.saveVideoWithPrompt"/);
+  assert.match(providerSource, /mediaKind: videoRequest \? "video" : "image"/);
+});
+
+test("ChatGPT hook stays dormant until capture is explicitly enabled", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-dormant",
+          author: { role: "tool", name: "image_gen" },
+          content: { parts: [{ asset_pointer: "sediment://file-dormant" }] },
+        },
+      },
+    },
+  }, "conversation-test", { captureEnabled: false });
+
+  await harness.harvest();
+  assert.equal(harness.events.some((event) => event.payload?.imageKey?.includes("file-dormant")), false);
+  assert.match(hookSource, /if \(!isCaptureEnabled\(\)\) return response/);
+  assert.match(hookSource, /if \(!isCaptureEnabled\(\)\) return;/);
+});
+
+test("ChatGPT recovery never captures or replays page authentication headers", () => {
+  assert.doesNotMatch(hookSource, /forwardedHeaders|rememberRequestHeaders|oai-device-id|oai-client-version|oai-language/i);
+  assert.match(hookSource, /function isInterestingResponseUrl\(value\)/);
+  assert.doesNotMatch(hookSource, /chatgpt\\\.com\|openai\\\.com\|backend-api\|conversation\|images\?/);
 });
 
 test("archives an image-generation tool result even when ChatGPT omits its prompt", async () => {
@@ -507,11 +566,11 @@ test("archives one row per uploaded reference photo", () => {
   // served file), so the server content-hash dedupe cannot merge them either.
   assert.match(contentSource, /if \(fileId\) keys\.push\(`asset:\$\{fileId\}`\);/);
 
-  // Canvas stays the primary byte source: reordering it would re-import every
-  // asset already archived from a canvas snapshot under a new content hash.
+  // Preserve the provider-served original whenever available. The server's
+  // pixel hash keeps an older canvas-encoded copy from becoming a second asset.
   const bytesFn = /async function bytesFromUrlOrImg\(candidate\) \{[\s\S]*?\n {2}\}/.exec(contentSource)?.[0] || "";
   assert.ok(bytesFn, "bytesFromUrlOrImg should exist");
-  assert.ok(bytesFn.indexOf("canvasBytesFromImage(candidate.el)") < bytesFn.indexOf("originalBytesFromUrl("));
+  assert.ok(bytesFn.indexOf("originalBytesFromUrl(") < bytesFn.indexOf("canvasBytesFromImage(candidate.el)"));
 
   assert.match(contentSource, /isReference: isReferenceCandidate\(candidate\)/);
   assert.match(backgroundSource, /is_reference: Boolean\(payload\.isReference\)/);
@@ -690,7 +749,7 @@ test("an orphaned content script explains itself instead of dying on sendMessage
 
   // The scan interval doubles as the watchdog: an orphaned page flips to the
   // refresh instruction on its own instead of waiting for a failed save.
-  const interval = /autoScanInterval = setInterval\(\(\) => \{[\s\S]*?\n {2}\}, 2000\);/.exec(contentSource)?.[0] || "";
+  const interval = /autoScanInterval = setInterval\(\(\) => \{[\s\S]*?\n {2}\}, 5000\);/.exec(contentSource)?.[0] || "";
   assert.ok(interval, "auto scan interval should be extractable from content.js");
   assert.match(interval, /markContextLost\(\)/);
 });
@@ -717,9 +776,10 @@ function loadSettingsHarness({ response, responseError, localValue = true } = {}
       if (responseError) throw responseError;
       return response;
     },
+    setPageHookCaptureEnabled: () => {},
   };
   vm.runInNewContext(`
-    let autoCapture = true;
+    let autoCapture = false;
     ${loadSettings}
     globalThis.runLoadSettings = async () => {
       await loadSettings();
@@ -737,7 +797,7 @@ test("a settings read failure preserves an explicit local auto-capture choice", 
 
   assert.equal(await harness.context.runLoadSettings(), false);
   assert.equal(harness.localReads.length, 1);
-  assert.equal(harness.localReads[0].autoCapture, true);
+  assert.equal(harness.localReads[0].autoCapture, false);
   assert.deepEqual(harness.localWrites, [], "the content script must not rewrite settings");
 });
 
@@ -793,6 +853,11 @@ test("an open page follows auto-capture changes from local storage only", () => 
   let storageListener = null;
   const context = {
     chrome: { storage: { onChanged: { addListener: (callback) => { storageListener = callback; } } } },
+    clearTimeout,
+    observer: { disconnect() {} },
+    scanTimer: null,
+    setPageHookCaptureEnabled: () => {},
+    startObs: () => {},
     state: {},
   };
   vm.runInNewContext(`
@@ -948,11 +1013,11 @@ test("binds a Model caption in the same tool message when dalle.prompt is blank"
   }]);
 });
 
-test("reuses the page's own backend-api credentials when refreshing a conversation", async () => {
+test("refreshes the active conversation without copying authentication headers", async () => {
   const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} });
 
-  // The ChatGPT app itself calls backend-api with a bearer token. A refresh that
-  // omits it is rejected, which is what disabled late-caption recovery.
+  // Even if the page makes an authenticated request, MOSA must not copy or
+  // replay any of those request headers into its recovery request.
   await harness.harvest({
     headers: {
       Authorization: "Bearer page-session-token",
@@ -964,24 +1029,24 @@ test("reuses the page's own backend-api credentials when refreshing a conversati
 
   const refreshIndex = harness.requestedUrls.indexOf("https://chatgpt.com/backend-api/conversation/conversation-test");
   assert.ok(refreshIndex >= 0, "the refresh should reach the conversation endpoint");
-  const headers = harness.requestedInits[refreshIndex]?.headers || {};
-  assert.equal(headers.authorization, "Bearer page-session-token");
-  assert.equal(headers["oai-device-id"], "device-abc");
-  assert.equal(Object.hasOwn(headers, "x-unrelated-secret"), false, "only the known auth headers are replayed");
+  const init = harness.requestedInits[refreshIndex] || {};
+  assert.equal(init.credentials, "include");
+  assert.equal(init.cache, "no-store");
+  assert.equal(Object.hasOwn(init, "headers"), false, "recovery must not replay page request headers");
 });
 
-test("keeps page credentials inside the page world", async () => {
+test("does not capture page authentication headers", async () => {
   const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} });
   await harness.harvest({ headers: { Authorization: "Bearer page-session-token" } });
   await harness.refreshCurrentConversation();
 
   const posted = JSON.stringify(harness.events);
-  assert.equal(posted.includes("page-session-token"), false, "a captured token must never be posted out of the page");
+  assert.equal(posted.includes("page-session-token"), false, "a page token must never be posted out of the page");
   assert.doesNotMatch(contentSource, /authorization/i);
-  // The captured values may leave the map for exactly one destination: the
-  // same-origin conversation request. Reporting only whether one exists is fine.
-  assert.doesNotMatch(hookSource, /forwardedHeaders\.get\b/);
-  assert.equal((hookSource.match(/Object\.fromEntries\(forwardedHeaders\)/g) || []).length, 1);
+  assert.doesNotMatch(hookSource, /forwardedHeaders|rememberRequestHeaders|oai-device-id|oai-client-version|oai-language/i);
+  const refreshIndex = harness.requestedUrls.indexOf("https://chatgpt.com/backend-api/conversation/conversation-test");
+  assert.ok(refreshIndex >= 0);
+  assert.equal(Object.hasOwn(harness.requestedInits[refreshIndex] || {}, "headers"), false);
 });
 
 test("reports a failed conversation refresh instead of losing it silently", async () => {
@@ -994,7 +1059,7 @@ test("reports a failed conversation refresh instead of losing it silently", asyn
   const failure = harness.events.find((event) => event.type === "conversation-refresh-failed");
   assert.ok(failure, "a rejected refresh must be reported");
   assert.equal(failure.payload.status, 401);
-  assert.equal(failure.payload.authorized, false);
+  assert.equal(Object.hasOwn(failure.payload, "authorized"), false);
   assert.match(contentSource, /data\.type === "conversation-refresh-failed"/);
 });
 

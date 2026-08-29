@@ -66,7 +66,7 @@ test("preload path, module format, security settings, and API surface are stable
   assert.equal(preload.split("ipcRenderer.invoke").length - 1, 6, "only the six approved invoke channels remain");
   assert.deepEqual(sortedApiKeys(preload), EXPECTED_API_KEYS);
   assert.match(preload, /showItemInFolder: \(path\) => ipcRenderer\.invoke\("show-item-in-folder", path\)/);
-  assert.match(preload, /checkForUpdates: \(notify = false\) => ipcRenderer\.invoke\("check-for-updates", notify === true\)/);
+  assert.match(preload, /checkForUpdates: \(notify = false, anonymousUsageEnabled = true\) =>[\s\S]*?ipcRenderer\.invoke\("check-for-updates", notify === true, anonymousUsageEnabled !== false\)/);
   assert.match(preload, /openDownloadPage: \(\) => ipcRenderer\.invoke\("open-download-page"\)/);
   assert.doesNotMatch(preload, /openDownloadPage:\s*\([^)]*url/i, "renderer cannot choose an update destination");
   assert.match(main, /MOSA_DOWNLOAD_PAGE_URL/);

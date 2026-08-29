@@ -1,7 +1,7 @@
 const DEFAULTS = {
   mosaBaseUrl: "http://127.0.0.1:43517",
   mosaToken: "",
-  autoCapture: true, // always default on
+  autoCapture: false,
 };
 const DISCOVERY_PORTS = [43517, 43518, 43519, 43520, 43521];
 const STORAGE_KEYS = ["mosaBaseUrl", "mosaToken", "autoCapture"];
@@ -387,10 +387,11 @@ function guessMime(url, mediaKind = "image") {
   return "";
 }
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   await migrateSettingsToLocal();
   await updateBadge();
   await refreshContextMenus();
+  if (details?.reason === "install") await chrome.runtime.openOptionsPage();
 });
 
 async function updateBadge() {
@@ -413,6 +414,15 @@ async function refreshContextMenus() {
       "https://chatgpt.com/*",
       "https://chat.openai.com/*",
       "https://gemini.google.com/*",
+      "https://labs.google/*",
+      "https://aistudio.google.com/*",
+    ],
+  });
+  chrome.contextMenus.create({
+    id: "mosa-save-video",
+    title: "保存视频到 MOSA",
+    contexts: ["video"],
+    documentUrlPatterns: [
       "https://labs.google/*",
       "https://aistudio.google.com/*",
     ],
@@ -445,10 +455,19 @@ chrome.action.onClicked.addListener(async (tab) => {
 chrome.contextMenus?.onClicked?.addListener(async (info, tab) => {
   if (!tab?.id) return;
   try {
-    await chrome.tabs.sendMessage(tab.id, {
-      type: "mosa.capture.saveImageWithPrompt",
-      imageUrl: info.srcUrl || "",
-    });
+    if (info.menuItemId === "mosa-save-video") {
+      await chrome.tabs.sendMessage(tab.id, {
+        type: "mosa.capture.saveVideoWithPrompt",
+        videoUrl: info.srcUrl || "",
+      });
+      return;
+    }
+    if (info.menuItemId === "mosa-save-image") {
+      await chrome.tabs.sendMessage(tab.id, {
+        type: "mosa.capture.saveImageWithPrompt",
+        imageUrl: info.srcUrl || "",
+      });
+    }
   } catch {
     // Page is not ready or not a supported tab — nothing to surface here.
   }

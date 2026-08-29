@@ -93,6 +93,7 @@ When the configured port already serves the same MOSA library, the desktop app a
 - Web Capture is optional and remains disabled until you configure both a local ingest Token and an approved extension origin. It sends captured image bytes and page provenance only to the configured local MOSA address. ChatGPT retains message-scoped context when available; Gemini, Flow, and Google AI Studio retain only narrowly associated visible user Prompt text when it can be safely matched and mark it unverified.
 - Eligible reference images are stored as private, content-hash-deduplicated generation-record attachments, not ordinary gallery assets.
 - MOSA adds no AI model, remote sync, embedding search, or automatic upload of your library.
+- Desktop builds can send minimal anonymous install/activity metadata with the existing daily update check. This contains only a random installation ID, version, platform, architecture, and first-launch/daily-active event; it can be disabled in Preferences and never includes assets, Prompts, or local paths. See [PRIVACY.md](PRIVACY.md).
 
 See [PRIVACY.md](PRIVACY.md) for the full data boundary and [SECURITY.md](SECURITY.md) for private vulnerability reporting.
 
