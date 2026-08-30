@@ -150,3 +150,105 @@ export function createCriticalUiFlowSource({ mode, fixturePath, searchTerm, reci
 })()
 `;
 }
+
+export function createStackUiFlowSource() {
+  return `
+(async () => {
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  async function waitFor(check, label, timeoutMs = 15000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const value = check();
+      if (value) return value;
+      await sleep(100);
+    }
+    throw new Error('Timed out waiting for ' + label);
+  }
+  function ctrlClick(element) {
+    element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
+  }
+  function pointer(target, type, x, y, pointerId = 91) {
+    target.dispatchEvent(new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: type === 'pointerdown' ? 0 : -1,
+      buttons: type === 'pointerup' ? 0 : 1,
+      clientX: x,
+      clientY: y,
+    }));
+  }
+
+  await waitFor(
+    () => document.querySelector('#assetGrid')?.getAttribute('aria-busy') === 'false'
+      && document.querySelectorAll('#assetGrid > .asset-card').length >= 2,
+    'two root gallery cards',
+  );
+  const initialCards = [...document.querySelectorAll('#assetGrid > .asset-card')];
+  const firstId = initialCards[0].dataset.id;
+  const secondId = initialCards[1].dataset.id;
+  ctrlClick(initialCards[0].querySelector('.asset-card-select'));
+  ctrlClick(initialCards[1].querySelector('.asset-card-select'));
+  const stackButton = await waitFor(
+    () => {
+      const button = document.querySelector('#selectionStack');
+      return button && !button.disabled ? button : null;
+    },
+    'enabled Stack action',
+  );
+  stackButton.click();
+  const stackCard = await waitFor(
+    () => document.querySelector('#assetGrid > .asset-card.is-stack'),
+    'collapsed Stack card',
+  );
+  const stackId = stackCard.dataset.stackId;
+  const rootCountAfterStack = document.querySelectorAll('#assetGrid > .asset-card').length;
+  stackCard.querySelector('.asset-card-select').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+  await waitFor(
+    () => !document.querySelector('#stackBack')?.hidden
+      && document.querySelector('#assetGrid')?.getAttribute('aria-busy') === 'false'
+      && document.querySelectorAll('#assetGrid > .asset-card').length === 2,
+    'Stack interior',
+  );
+
+  let inside = [...document.querySelectorAll('#assetGrid > .asset-card')];
+  const originalCoverId = inside[0].dataset.id;
+  const reorderCard = inside[1];
+  const targetCard = inside[0];
+  const reorderId = reorderCard.dataset.id;
+  ctrlClick(reorderCard.querySelector('.asset-card-select'));
+  const from = reorderCard.getBoundingClientRect();
+  const to = targetCard.getBoundingClientRect();
+  pointer(reorderCard.querySelector('.asset-card-select'), 'pointerdown', from.left + from.width / 2, from.top + from.height / 2);
+  pointer(window, 'pointermove', to.left + Math.max(2, to.width * 0.2), to.top + to.height / 2);
+  pointer(window, 'pointerup', to.left + Math.max(2, to.width * 0.2), to.top + to.height / 2);
+  await waitFor(
+    () => {
+      const cards = [...document.querySelectorAll('#assetGrid > .asset-card')];
+      return document.querySelector('#assetGrid')?.getAttribute('aria-busy') === 'false'
+        && cards[0]?.dataset.id === reorderId;
+    },
+    'manual reorder and cover change',
+  );
+  const newCoverId = document.querySelector('#assetGrid > .asset-card')?.dataset.id;
+  document.querySelector('#stackBack').click();
+  const returnedStack = await waitFor(
+    () => document.querySelector('#assetGrid > .asset-card[data-stack-id="' + CSS.escape(stackId) + '"]'),
+    'returned Stack node',
+  );
+  return {
+    stackId,
+    firstId,
+    secondId,
+    originalCoverId,
+    newCoverId,
+    returnedCoverId: returnedStack.dataset.id,
+    rootCountAfterStack,
+    currentRootCount: document.querySelectorAll('#assetGrid > .asset-card').length,
+    stackCount: returnedStack.querySelector('.asset-stack-count')?.textContent || '',
+  };
+})()
+`;
+}

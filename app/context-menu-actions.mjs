@@ -166,7 +166,16 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
   /**
    * Get single asset context menu
    */
-  function getAssetMenu(asset, selectedAssets = []) {
+  function getAssetMenu(asset, selectedAssets = [], options = {}) {
+    if (options.stackNode && asset?.stack?.id) {
+      return [{
+        label: t("openStack"),
+        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16v12H4z"/><path d="m9 10 3 3 3-3"/></svg>',
+        action: async () => {
+          window.dispatchEvent(new CustomEvent("mosa:open-stack", { detail: { stackId: asset.stack.id, stack: asset.stack } }));
+        },
+      }];
+    }
     const isMultiple = selectedAssets.length > 1;
     const items = [];
 

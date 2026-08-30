@@ -58,7 +58,7 @@ const state = {
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
   groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0 },
-  galleryStatus: "loading", galleryError: null, galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")),
+  galleryStatus: "loading", galleryError: null, galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")), storageKind: "unknown",
   libraryPath: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, groupSaving: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
   dragCounter: 0,
   stagedPath: "", // P1-2: Track current staged file for cleanup on cancel
@@ -799,9 +799,12 @@ async function loadProductVersion() {
   try {
     const data = await apiFetch("/api/health");
     state.productVersion = String(data?.productVersion || "").trim();
+    state.storageKind = String(data?.storage || "unknown");
   } catch {
     state.productVersion = "";
+    state.storageKind = "unknown";
   }
+  gallerySelection.syncRenderedSelection({ prune: false });
   renderSettingsMenu();
 }
 
@@ -1388,7 +1391,13 @@ function bindEvents() {
       select.value = previousProject;
       return;
     }
+    if (assetStacks.isBusy()) {
+      select.value = previousProject;
+      showToast(t("operationInProgress"), "default");
+      return;
+    }
     discardDetailDraft();
+    if (state.activeStackId) assetStacks.abandonStackContext();
     state.project = select.value; clearDetailSelection(); state.scope = "all"; clearFacets(); state.query = ""; els.searchInput.value = ""; state.nextCursor = null;
     // Phase 3A：项目切换改变结果集语义，退出查看模式（设置菜单在侧栏，查看模式下仍可达）。
     if (state.viewMode === "asset") returnToLibrary();
@@ -2084,6 +2093,11 @@ function createAssetCardElement(markup, renderKey, animateCard) {
   template.innerHTML = markup.trim();
   const card = template.content.firstElementChild;
   if (!(card instanceof HTMLElement)) return null;
+  if (card.classList.contains("is-stack")) {
+    const actions = card.querySelector(".card-actions");
+    actions?.setAttribute("inert", "");
+    actions?.setAttribute("aria-hidden", "true");
+  }
   card.dataset.renderKey = renderKey;
   if (animateCard) card.addEventListener("animationend", () => card.classList.remove("card-enter"), { once: true });
   return card;

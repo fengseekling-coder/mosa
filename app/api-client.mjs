@@ -111,12 +111,17 @@ export function createApiClient(deps) {
   function requestAssetPage(request, options = {}) {
     const params = buildAssetPageParams(request, options);
     if (request.stackId) return apiFetch(`/api/asset-stacks/${encodeURIComponent(request.stackId)}/assets?${params}`);
+    // `/api/assets` remains the raw asset collection for exports and other
+    // data-oriented callers. The gallery opts into Stack collapsing explicitly
+    // so visual organisation never changes the meaning of the underlying API.
+    params.set("view", "gallery");
     return apiFetch(`/api/assets?${params}`);
   }
 
   function requestAssetTotal(request) {
     const params = buildAssetPageParams(request);
     if (request.stackId) return apiFetch(`/api/asset-stacks/${encodeURIComponent(request.stackId)}/assets?${params}`);
+    params.set("view", "gallery");
     params.set("limit", "1");
     return apiFetch(`/api/assets?${params}`);
   }

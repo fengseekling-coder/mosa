@@ -30,6 +30,8 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
   let selectionBox = null;
   let suppressNextGridClick = false;
   let autoScrollFrame = 0;
+  let selectionUpdateFrame = 0;
+  let pendingSelectionPoint = null;
 
   function ensureSelectionSet() {
     if (!(state.selectedIds instanceof Set)) state.selectedIds = new Set(state.selectedIds || []);
@@ -67,7 +69,7 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     if (els.selectionClear) els.selectionClear.disabled = count === 0;
     if (els.selectionStack) {
       const includesExistingStack = (state.assets || []).some((asset) => selectedIds.has(asset.id) && asset.stack?.id);
-      els.selectionStack.disabled = count < 2 || includesExistingStack;
+      els.selectionStack.disabled = state.storageKind !== "sqlite" || count < 2 || includesExistingStack;
     }
     if (els.selectionRemoveFromStack) els.selectionRemoveFromStack.disabled = count === 0;
     return count;
@@ -127,6 +129,9 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
   function stopAutoScroll() {
     if (autoScrollFrame) cancelAnimationFrame(autoScrollFrame);
     autoScrollFrame = 0;
+    if (selectionUpdateFrame) cancelAnimationFrame(selectionUpdateFrame);
+    selectionUpdateFrame = 0;
+    pendingSelectionPoint = null;
   }
 
   function scrollVelocity(clientY) {
@@ -143,19 +148,54 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     return 0;
   }
 
+  function captureDragGeometry() {
+    if (!pointer || !els.assetGrid) return;
+    const bounds = els.assetGrid.getBoundingClientRect();
+    const scrollLeft = els.assetGrid.scrollLeft;
+    const scrollTop = els.assetGrid.scrollTop;
+    const startX = clamp(pointer.startX, bounds.left, bounds.right);
+    const startY = clamp(pointer.startY, bounds.top, bounds.bottom);
+    pointer.startContentX = startX - bounds.left + scrollLeft;
+    pointer.startContentY = startY - bounds.top + scrollTop;
+    // Cache card geometry once per gesture in scroll-content coordinates.
+    // Pointermove can fire far above the display refresh rate; avoiding an
+    // all-card getBoundingClientRect() loop per event removes the largest
+    // source of marquee jank in large Stacks.
+    pointer.cardRects = [...els.assetGrid.querySelectorAll(":scope > .asset-card")].map((card) => {
+      const rect = card.getBoundingClientRect();
+      return {
+        id: card.dataset.id || "",
+        rect: {
+          left: rect.left - bounds.left + scrollLeft,
+          right: rect.right - bounds.left + scrollLeft,
+          top: rect.top - bounds.top + scrollTop,
+          bottom: rect.bottom - bounds.top + scrollTop,
+        },
+      };
+    }).filter((entry) => entry.id);
+  }
+
   function updateDragSelection(clientX, clientY) {
     if (!pointer?.dragging || !els.assetGrid) return;
     const bounds = els.assetGrid.getBoundingClientRect();
     const x = clamp(clientX, bounds.left, bounds.right);
     const y = clamp(clientY, bounds.top, bounds.bottom);
-    pointer.lastX = x;
-    pointer.lastY = y;
-    const rect = rectFromPoints(pointer.startX, pointer.startY, x, y);
+    const currentContentX = x - bounds.left + els.assetGrid.scrollLeft;
+    const currentContentY = y - bounds.top + els.assetGrid.scrollTop;
+    const rect = rectFromPoints(pointer.startContentX, pointer.startContentY, currentContentX, currentContentY);
     const box = createSelectionBox();
-    box.style.left = `${rect.left}px`;
-    box.style.top = `${rect.top}px`;
-    box.style.width = `${rect.width}px`;
-    box.style.height = `${rect.height}px`;
+    const viewportLeft = bounds.left + rect.left - els.assetGrid.scrollLeft;
+    const viewportRight = bounds.left + rect.right - els.assetGrid.scrollLeft;
+    const viewportTop = bounds.top + rect.top - els.assetGrid.scrollTop;
+    const viewportBottom = bounds.top + rect.bottom - els.assetGrid.scrollTop;
+    const clippedLeft = clamp(viewportLeft, bounds.left, bounds.right);
+    const clippedRight = clamp(viewportRight, bounds.left, bounds.right);
+    const clippedTop = clamp(viewportTop, bounds.top, bounds.bottom);
+    const clippedBottom = clamp(viewportBottom, bounds.top, bounds.bottom);
+    box.style.left = `${clippedLeft}px`;
+    box.style.top = `${clippedTop}px`;
+    box.style.width = `${Math.max(0, clippedRight - clippedLeft)}px`;
+    box.style.height = `${Math.max(0, clippedBottom - clippedTop)}px`;
 
     const next = pointer.additive ? new Set(pointer.baseSelection) : new Set();
     // When a marquee starts on top of a card, that origin card is part of the
@@ -163,11 +203,19 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     // Keeping it explicitly also avoids a one-pixel boundary miss at the exact
     // pointer origin and keeps the first card selected during auto-scroll.
     if (pointer.startCardId) next.add(pointer.startCardId);
-    els.assetGrid.querySelectorAll(":scope > .asset-card").forEach((card) => {
-      const id = card.dataset.id;
-      if (id && rectsIntersect(rect, card.getBoundingClientRect())) next.add(id);
-    });
+    for (const entry of pointer.cardRects || []) if (rectsIntersect(rect, entry.rect)) next.add(entry.id);
     commitSelection(next);
+  }
+
+  function scheduleDragSelectionUpdate(clientX, clientY) {
+    pendingSelectionPoint = { x: clientX, y: clientY };
+    if (selectionUpdateFrame) return;
+    selectionUpdateFrame = requestAnimationFrame(() => {
+      selectionUpdateFrame = 0;
+      const point = pendingSelectionPoint;
+      pendingSelectionPoint = null;
+      if (point) updateDragSelection(point.x, point.y);
+    });
   }
 
   function scheduleAutoScroll() {
@@ -222,12 +270,13 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
       const threshold = pointer.startCardId ? MARQUEE_CARD_DRAG_THRESHOLD_PX : MARQUEE_DRAG_THRESHOLD_PX;
       if (distance < threshold) return;
       pointer.dragging = true;
+      captureDragGeometry();
       try { els.assetGrid?.setPointerCapture(event.pointerId); } catch { /* global listeners still keep the gesture alive */ }
       document.body.classList.add("marquee-selecting");
       suppressNextGridClick = true;
     }
     event.preventDefault();
-    updateDragSelection(event.clientX, event.clientY);
+    scheduleDragSelectionUpdate(event.clientX, event.clientY);
     scheduleAutoScroll();
   }
 
@@ -235,6 +284,9 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     if (!pointer || pointer.id !== event.pointerId) return;
     const completedDrag = pointer.dragging;
     const baseSelection = pointer.baseSelection;
+    if (completedDrag && !canceled && pendingSelectionPoint) {
+      updateDragSelection(pendingSelectionPoint.x, pendingSelectionPoint.y);
+    }
     pointer = null;
     stopAutoScroll();
     removeSelectionBox();

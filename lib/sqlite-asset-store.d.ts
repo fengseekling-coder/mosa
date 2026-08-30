@@ -39,6 +39,8 @@ export interface StoredAsset {
   prompt_file?: string;
   recipe_snapshots?: unknown[];
   active_recipe_snapshot_id?: string | null;
+  stack?: { id: string; count: number };
+  stack_position?: number;
   [key: string]: unknown;
 }
 
@@ -58,21 +60,26 @@ export interface AssetListFilters {
   cursor?: string;
   sort?: string;
   mediaKind?: string;
+  collapseStacks?: boolean;
   [key: string]: unknown;
 }
 
 export interface AssetPage {
+  assets: StoredAsset[];
   page: {
-    items: StoredAsset[];
-    cursor: string | null;
+    nextCursor: string | null;
+    limit: number;
+    sort: string;
     total: number;
   };
-  facets: {
-    styles: Array<{ name: string; count: number }>;
-    skills: Array<{ name: string; count: number }>;
-    sourceTypes: Array<{ name: string; count: number }>;
-    totalStyles: number;
-  };
+}
+
+export interface AssetStackSummary {
+  id: string;
+  count: number;
+  cover_asset_id: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface GroupInfo {
@@ -87,6 +94,13 @@ export interface GroupInfo {
 export interface SqliteAssetStore {
   listAssets(filters: AssetListFilters): Promise<StoredAsset[]>;
   listAssetPage(filters: AssetListFilters): Promise<AssetPage>;
+  getAssetStack(projectId: string, stackId: string): Promise<AssetStackSummary>;
+  listAssetStackAssets(projectId: string, stackId: string, filters?: AssetListFilters): Promise<{ stack: AssetStackSummary; assets: StoredAsset[]; page: { total: number; nextCursor: null } }>;
+  createAssetStack(projectId: string, assetIds: string[], options?: { coverAssetId?: string }): Promise<AssetStackSummary>;
+  addAssetsToStack(projectId: string, stackId: string, assetIds: string[]): Promise<AssetStackSummary>;
+  reorderAssetStack(projectId: string, stackId: string, assetIds: string[]): Promise<AssetStackSummary>;
+  removeAssetsFromStack(projectId: string, stackId: string, assetIds: string[]): Promise<{ dissolved: boolean; remainingAssetId: string | null; stack: AssetStackSummary | null }>;
+  dissolveAssetStack(projectId: string, stackId: string): Promise<{ id: string; assetIds: string[]; dissolved: true }>;
   getAsset(projectId: string, assetId: string): Promise<StoredAsset | null>;
   createAsset(params: Record<string, unknown>, options?: Record<string, unknown>): Promise<StoredAsset>;
   updateMetadata(projectId: string, assetId: string, metadata: Record<string, unknown>): Promise<StoredAsset>;

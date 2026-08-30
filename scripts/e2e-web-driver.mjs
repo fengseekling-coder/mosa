@@ -2,7 +2,7 @@
 
 import { app, BrowserWindow } from "electron";
 import { resolve } from "node:path";
-import { createCriticalUiFlowSource } from "./e2e-ui-flow.mjs";
+import { createCriticalUiFlowSource, createStackUiFlowSource } from "./e2e-ui-flow.mjs";
 
 const cliArgs = process.argv.slice(2).filter((arg) => arg !== "--");
 const [cliTargetUrl, cliUserDataDir, cliMode, cliFixturePath, cliSearchTerm, cliRecipeChange] = cliArgs;
@@ -12,7 +12,8 @@ const mode = process.env.MOSA_E2E_WEB_MODE || cliMode;
 const fixturePath = process.env.MOSA_E2E_WEB_FIXTURE || cliFixturePath;
 const searchTerm = process.env.MOSA_E2E_WEB_SEARCH || cliSearchTerm;
 const recipeChange = process.env.MOSA_E2E_WEB_RECIPE_CHANGE || cliRecipeChange;
-if (!targetUrl || !userDataDir || !mode || !fixturePath || !searchTerm || !recipeChange) {
+const flow = process.env.MOSA_E2E_WEB_FLOW || "critical";
+if (!targetUrl || !userDataDir || (flow === "critical" && (!mode || !fixturePath || !searchTerm || !recipeChange))) {
   console.error("usage: electron scripts/e2e-web-driver.mjs <url> <userDataDir> <exercise|verify> <fixturePath> <searchTerm> <recipeChange>");
   process.exit(2);
 }
@@ -32,12 +33,10 @@ app.whenReady().then(async () => {
   });
   try {
     await win.loadURL(targetUrl);
-    const result = await win.webContents.executeJavaScript(createCriticalUiFlowSource({
-      mode,
-      fixturePath,
-      searchTerm,
-      recipeChange,
-    }), true);
+    const source = flow === "stack"
+      ? createStackUiFlowSource()
+      : createCriticalUiFlowSource({ mode, fixturePath, searchTerm, recipeChange });
+    const result = await win.webContents.executeJavaScript(source, true);
     console.log(JSON.stringify(result));
   } finally {
     win.destroy();

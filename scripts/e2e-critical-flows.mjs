@@ -59,7 +59,10 @@ try {
   console.log("[e2e] Electron renderer: restart -> persistence verification");
   await runElectronRound("verify", desktopSearchTerm, desktopRecipeChange);
 
-  console.log(JSON.stringify({ ok: true, storage: "sqlite", flows: ["web", "electron"], restartVerified: true }));
+  console.log("[e2e] Web renderer: Stack create -> enter -> reorder cover -> return");
+  await runWebStackRound();
+
+  console.log(JSON.stringify({ ok: true, storage: "sqlite", flows: ["web", "electron", "stack"], restartVerified: true }));
 } finally {
   await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
 }
@@ -94,6 +97,43 @@ async function runWebRound(mode, searchTerm, recipeChange) {
   } catch (error) {
     const detail = stderr().trim();
     throw new Error(`Web E2E ${mode} failed${detail ? `\n${detail}` : ""}`, { cause: error });
+  } finally {
+    await stopProcess(child);
+  }
+}
+
+async function runWebStackRound() {
+  const port = await freePort();
+  const child = spawn(process.execPath, ["server.mjs"], {
+    cwd: rootDir,
+    env: qaEnvironment({
+      portVariable: "MOSA_PORT",
+      port,
+      userData: webUserData,
+    }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const stderr = collect(child.stderr);
+  try {
+    const health = await waitForHealth(`http://127.0.0.1:${port}/api/health`, child);
+    assertHealth(health);
+    const output = await runCommand(electronBinary, [...ELECTRON_QA_FLAGS, webDriver], {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        MOSA_E2E_WEB_TARGET_URL: `http://127.0.0.1:${port}`,
+        MOSA_E2E_WEB_USER_DATA: webUserData,
+        MOSA_E2E_WEB_FLOW: "stack",
+      },
+    });
+    const result = JSON.parse(String(output || "{}").split(/\r?\n/).filter(Boolean).at(-1) || "{}");
+    if (!result.stackId || result.stackCount !== "2" || result.newCoverId === result.originalCoverId
+      || result.returnedCoverId !== result.newCoverId || result.currentRootCount !== result.rootCountAfterStack) {
+      throw new Error(`Unexpected Stack UI result: ${JSON.stringify(result)}`);
+    }
+  } catch (error) {
+    const detail = stderr().trim();
+    throw new Error(`Web Stack E2E failed${detail ? `\n${detail}` : ""}`, { cause: error });
   } finally {
     await stopProcess(child);
   }
@@ -320,6 +360,7 @@ async function runCommand(command, args, options) {
   if (code !== 0) throw new Error(`${command} exited with ${code}\n${stderr()}\n${stdout()}`);
   const output = stdout().trim();
   if (output) console.log(`[e2e] renderer ${output.split("\n").at(-1)}`);
+  return output;
 }
 
 async function stopProcess(child) {
