@@ -131,7 +131,7 @@ const apiClient = createApiClient({
   selectedAsset,
   isDetailEditorActive,
 });
-const { apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
+const { apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
 
 // ===== New element references =====
 Object.assign(els, {
@@ -783,10 +783,9 @@ async function init() {
     renderGrid();
     try {
       await Promise.all([loadProjects(), loadProductVersion()]);
-      await loadStats();
-      await loadAssets();
+      await Promise.all([loadStats(), loadAssets()]);
       setDetailOpen(false);
-      await refreshBridgeStatus();
+      void refreshBridgeStatus();
       bridgeStatusPoller.start();
       // Single interval: dedupe on hot-reload / repeated init() and stop on unload.
       if (libraryRefreshTimer) clearInterval(libraryRefreshTimer);
@@ -794,7 +793,7 @@ async function init() {
       // Starting the background page-one refresh at the same time would advance
       // api-client's shared request generation and make the append response stale.
       libraryRefreshTimer = setInterval(() => {
-        if (!isLoadingMore) void refreshLibraryInBackground();
+        if (!isLoadingMore) void refreshLibraryIfChanged();
       }, LIBRARY_REFRESH_INTERVAL);
       if (shouldAutoCheckForUpdates()) void checkForUpdates({ notify: true, silent: true });
     } catch (error) {
@@ -1061,7 +1060,7 @@ window.addEventListener("pageshow", (event) => {
   bridgeStatusPoller.start();
   if (!libraryRefreshTimer) {
     libraryRefreshTimer = setInterval(() => {
-      if (!isLoadingMore) void refreshLibraryInBackground();
+      if (!isLoadingMore) void refreshLibraryIfChanged();
     }, LIBRARY_REFRESH_INTERVAL);
   }
 });

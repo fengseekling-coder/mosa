@@ -16,7 +16,8 @@ const DEFAULT_PROJECT_ID = "default";
 const SESSION_ID_RE = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const PROMPT_RANK: Record<string, number> = { "not-available": 0, "session-user-prompt": 1, "generation-tool-prompt": 2 };
 
-interface Store { createAsset(params: Record<string, unknown>, options?: Record<string, unknown>): Promise<Record<string, unknown>>; listAssets(filters: Record<string, unknown>): Promise<Array<{ source?: Record<string, unknown>; id?: string; image_path?: string; project_id?: string; prompt?: string; theme?: string; business_fields?: Record<string, unknown>; created_at?: string; [key: string]: unknown }>>; updateMetadata(projectId: string, assetId: string, metadata: Record<string, unknown>): Promise<void>; [key: string]: unknown; }
+interface StoredAsset { source?: Record<string, unknown>; id?: string; image_path?: string; project_id?: string; prompt?: string; theme?: string; business_fields?: Record<string, unknown>; created_at?: string; [key: string]: unknown; }
+interface Store { createAsset(params: Record<string, unknown>, options?: Record<string, unknown>): Promise<Record<string, unknown>>; listAssets(filters: Record<string, unknown>): Promise<StoredAsset[]>; findAssetBySourcePath?(projectId: string, sourcePath: string): Promise<StoredAsset | null>; findAssetByContentHash?(projectId: string, contentHash: string): Promise<StoredAsset | null>; findAssetByPixelHash?(projectId: string, pixelHash: string): Promise<StoredAsset | null>; updateMetadata(projectId: string, assetId: string, metadata: Record<string, unknown>): Promise<void>; [key: string]: unknown; }
 interface MediaCandidate { mediaPath: string; discoveredPath: string; relativePath: string; sessionId: string; sessionPath: string | null; mediaFolder: string; mediaKind: string; fileName: string; fileStem: string; fileStat: Stats; generatedAt: string; }
 interface GenerationMetadata { sessionId: string; prompt: string; promptStatus: string; sessionPath: string | null; sessionUpdatedAt: string | null; callId: string | null; generatedAt: string | null; model: string | null; toolName: string | null; aspectRatio: string | null; matched: boolean; }
 interface SessionMetadata { sessionId: string; sessionPath: string | null; mediaPrompts: Map<string, GenerationMetadata>; }
@@ -35,9 +36,10 @@ export function createGrokMediaBridge(options: { store?: Store; sessionsDir?: st
   });
   const projectId = options.projectId || DEFAULT_PROJECT_ID;
   const debounceMs = options.debounceMs != null && Number.isFinite(options.debounceMs) ? Math.max(0, options.debounceMs) : 500;
-  const pollIntervalMs = options.pollIntervalMs != null && Number.isFinite(options.pollIntervalMs) ? Math.max(250, options.pollIntervalMs) : 2500;
+  const pollIntervalMs = options.pollIntervalMs != null && Number.isFinite(options.pollIntervalMs) ? Math.max(250, options.pollIntervalMs) : 30000;
+  const processedSignatures = new Map<string, string>();
   let watcher: FSWatcher | null = null; let poller: ReturnType<typeof setInterval> | null = null; let timer: ReturnType<typeof setTimeout> | null = null;
-  let enabled = false; let reconciling = false; let reconcileAgain = false; let knownHashes: Set<string> | null = null;
+  let enabled = false; let reconciling = false; let reconcileAgain = false;
   let activeReconcile: Promise<ReconcileResult> | null = null; let stopPromise: Promise<void> | null = null;
   const state: Omit<BridgeStatus, "watching" | "polling"> = { sessionsDir, enabled: false, lastScanAt: null, lastImportedAt: null, lastImportCount: 0, totalImported: 0, lastSkippedCount: 0, lastError: null, lastWarning: null };
   async function reconcile(): Promise<ReconcileResult> {
@@ -45,7 +47,7 @@ export function createGrokMediaBridge(options: { store?: Store; sessionsDir?: st
     if (reconciling) { reconcileAgain = true; return { imported: [], skipped: [], updated: [], queued: true, candidates: 0, warnings: [] }; }
     reconciling = true;
     const run = (async (): Promise<ReconcileResult> => {
-      try { if (!knownHashes) knownHashes = await existingContentHashes(store!, projectId); const result = await reconcileGrokMedia({ store: store!, sessionsDir, projectId, knownHashes }); state.lastScanAt = new Date().toISOString(); state.lastImportCount = result.imported.length; state.lastSkippedCount = result.skipped.length; state.totalImported += result.imported.length; state.lastError = null; state.lastWarning = result.warnings?.length ? result.warnings.slice(0, 5).join("; ") : null; if (result.imported.length > 0) state.lastImportedAt = state.lastScanAt; return result; } catch (error) { state.lastScanAt = new Date().toISOString(); state.lastError = error instanceof Error ? error.message : String(error); throw error; } finally { reconciling = false; activeReconcile = null; if (reconcileAgain && enabled) { reconcileAgain = false; scheduleReconcile(); } else reconcileAgain = false; }
+      try { const result = await reconcileGrokMedia({ store: store!, sessionsDir, projectId, processedSignatures }); state.lastScanAt = new Date().toISOString(); state.lastImportCount = result.imported.length; state.lastSkippedCount = result.skipped.length; state.totalImported += result.imported.length; state.lastError = null; state.lastWarning = result.warnings?.length ? result.warnings.slice(0, 5).join("; ") : null; if (result.imported.length > 0) state.lastImportedAt = state.lastScanAt; return result; } catch (error) { state.lastScanAt = new Date().toISOString(); state.lastError = error instanceof Error ? error.message : String(error); throw error; } finally { reconciling = false; activeReconcile = null; if (reconcileAgain && enabled) { reconcileAgain = false; scheduleReconcile(); } else reconcileAgain = false; }
     })();
     activeReconcile = run;
     return run;
@@ -57,17 +59,14 @@ export function createGrokMediaBridge(options: { store?: Store; sessionsDir?: st
   return { start, stop, reconcile, scheduleReconcile, status: apiStatus };
 }
 
-export async function reconcileGrokMedia(options: { store: Store; sessionsDir: string; projectId?: string; knownHashes?: Set<string> | null; }): Promise<ReconcileResult> {
-  const { store, sessionsDir, projectId = DEFAULT_PROJECT_ID, knownHashes: knownHashesOpt } = options;
+export async function reconcileGrokMedia(options: { store: Store; sessionsDir: string; projectId?: string; knownHashes?: Set<string> | null; processedSignatures?: Map<string, string> | null; }): Promise<ReconcileResult> {
+  const { store, sessionsDir, projectId = DEFAULT_PROJECT_ID, knownHashes: knownHashesOpt, processedSignatures = null } = options;
   const root = resolve(sessionsDir); let rootReal: string;
   try { rootReal = await realpath(root); } catch (error: unknown) { if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return { imported: [], skipped: [], updated: [], candidates: 0, warnings: [] }; throw error; }
   const { candidates, skipped: discoverySkipped } = await readGrokMediaCandidates(root, rootReal);
-  const [activeAssets, archivedAssets] = await Promise.all([store.listAssets({ projectId }), store.listAssets({ projectId, archived: true })]);
-  const allAssets = [...activeAssets, ...archivedAssets];
-  const knownPaths = new Set<string>(); const assetsBySourcePath = new Map<string, typeof allAssets[number]>(); const assetsByContentHash = new Map<string, typeof allAssets[number]>();
-  for (const asset of allAssets) { for (const path of [asset.source?.path, asset.source?.grok_media_path].filter(Boolean)) { const resolved = resolve(path as string); knownPaths.add(resolved); assetsBySourcePath.set(resolved, asset); } if (asset.source?.content_sha256) assetsByContentHash.set(asset.source.content_sha256 as string, asset); }
-  const contentHashes = knownHashesOpt || await existingContentHashes(store, projectId, allAssets);
-  const pixelHashes = new Set(allAssets.filter((asset) => asset.source?.pixel_hash_version === PIXEL_HASH_VERSION).map((asset) => asset.source?.pixel_sha256 as string).filter(Boolean));
+  if (processedSignatures) pruneProcessedSignatures(processedSignatures, candidates.map((candidate) => candidate.mediaPath));
+  const lookup = createBridgeAssetLookup(store, projectId);
+  const contentHashes = knownHashesOpt || new Set<string>();
   const sessionIds = new Set(candidates.map((c) => c.sessionId).filter(Boolean));
   const { sessions: sessionMetadata, warnings } = await readGrokSessionMetadata(rootReal, sessionIds, candidates);
   const imported: unknown[] = []; const skipped: Array<{ path: string; reason: string; error?: string }> = [...discoverySkipped]; const updated: string[] = [];
@@ -75,35 +74,41 @@ export async function reconcileGrokMedia(options: { store: Store; sessionsDir: s
   for (const candidate of candidates) {
     if (!(await isCanonicalChildPath(rootReal, candidate.mediaPath))) { skipped.push({ path: candidate.mediaPath, reason: "out-of-root" }); continue; }
     const generation = metadataForCandidate(sessionMetadata.get(candidate.sessionId), candidate);
-    if (knownPaths.has(candidate.mediaPath)) {
-      const existingAsset = assetsBySourcePath.get(candidate.mediaPath);
-      if (existingAsset && await upgradeGenerationMetadata(store, existingAsset as unknown as Record<string, unknown>, generation, candidate)) {
-        updated.push(existingAsset.id as string);
+    const signature = candidateSignature(candidate, generation);
+    if (processedSignatures?.get(candidate.mediaPath) === signature) {
+      skipped.push({ path: candidate.mediaPath, reason: "unchanged" });
+      continue;
+    }
+    const existingAtPath = await lookup.bySourcePath(candidate.mediaPath);
+    if (existingAtPath) {
+      if (await upgradeGenerationMetadata(store, existingAtPath as unknown as Record<string, unknown>, generation, candidate)) {
+        updated.push(existingAtPath.id as string);
       }
       skipped.push({ path: candidate.mediaPath, reason: "already-archived" });
+      processedSignatures?.set(candidate.mediaPath, signature);
       continue;
     }
     let contentHash: string; try { contentHash = await sha256File(candidate.mediaPath); } catch (error) { skipped.push({ path: candidate.mediaPath, reason: "not-ready", error: error instanceof Error ? error.message : String(error) }); continue; }
-    if (contentHashes.has(contentHash)) {
-      const existingAsset = assetsByContentHash.get(contentHash) || [...assetsBySourcePath.values()].find((asset) => (asset.source as Record<string, unknown> | undefined)?.content_sha256 === contentHash);
+    const existingAsset = await lookup.byContentHash(contentHash);
+    if (existingAsset || contentHashes.has(contentHash)) {
       if (existingAsset && await upgradeGenerationMetadata(store, existingAsset as unknown as Record<string, unknown>, generation, candidate)) {
         updated.push(existingAsset.id as string);
-        assetsBySourcePath.set(candidate.mediaPath, existingAsset);
       }
       skipped.push({ path: candidate.mediaPath, reason: "already-archived-same-content" });
-      knownPaths.add(candidate.mediaPath);
+      contentHashes.add(contentHash);
+      processedSignatures?.set(candidate.mediaPath, signature);
       continue;
     }
     const pixelHash = candidate.mediaKind === "image" && extname(candidate.mediaPath).toLowerCase() !== ".svg"
       ? await safePixelDigest(candidate.mediaPath).catch(() => "")
       : "";
-    if (pixelHash && pixelHashes.has(pixelHash)) {
+    if (pixelHash && await lookup.byPixelHash(pixelHash)) {
       skipped.push({ path: candidate.mediaPath, reason: "already-archived-same-pixels" });
-      knownPaths.add(candidate.mediaPath);
+      processedSignatures?.set(candidate.mediaPath, signature);
       continue;
     }
     const mediaInfo = await readMediaInfo(candidate.mediaPath, candidate.fileStat, candidate.mediaKind);
-    try { const asset = await createAutomaticAssetWithCollisionFallback(store, { projectId, imagePath: candidate.mediaPath, asset: candidate.fileName, assetId: buildGrokAssetId(candidate), prompt: generation.prompt, skill: "Grok automatic archive", ratio: mediaInfo.ratio || generation.aspectRatio || "", theme: promptTheme(generation.prompt), tags: ["grok", "auto-archived", candidate.mediaKind], created_at: candidate.generatedAt, sourceType: "grok-generated", business_fields: { auto_archived: true, media_kind: candidate.mediaKind, prompt_status: generation.promptStatus, file_bytes: candidate.fileStat.size, width: mediaInfo.width, height: mediaInfo.height, mime_type: mediaInfo.mimeType }, source: { generation_tool: generation.toolName || `grok-${candidate.mediaKind}`, media_kind: candidate.mediaKind, grok_media_path: candidate.mediaPath, grok_session_id: candidate.sessionId || null, grok_session_path: generation.sessionPath || candidate.sessionPath || null, grok_session_folder: candidate.mediaFolder, grok_output_file: candidate.fileName, grok_generated_at: candidate.generatedAt, grok_tool_call_id: generation.callId, model: generation.model, prompt_status: generation.promptStatus, content_sha256: contentHash, pixel_sha256: pixelHash || null, pixel_hash_version: pixelHash ? PIXEL_HASH_VERSION : null, media_metadata: mediaInfo } }, { trustedSourceRoots: [rootReal], ingestMode: "automatic" }); knownPaths.add(candidate.mediaPath); contentHashes.add(contentHash); if (pixelHash) pixelHashes.add(pixelHash); imported.push(asset); } catch (error) { if (isAutomaticImportSuppressed(error)) skipped.push({ path: candidate.mediaPath, reason: "suppressed-after-delete" }); else if (isAutomaticIngestDuplicate(error)) skipped.push({ path: candidate.mediaPath, reason: automaticDuplicateReason(error) }); else skipped.push({ path: candidate.mediaPath, reason: "import-failed", error: error instanceof Error ? error.message : String(error) }); }
+    try { const asset = await createAutomaticAssetWithCollisionFallback(store, { projectId, imagePath: candidate.mediaPath, asset: candidate.fileName, assetId: buildGrokAssetId(candidate), prompt: generation.prompt, skill: "Grok automatic archive", ratio: mediaInfo.ratio || generation.aspectRatio || "", theme: promptTheme(generation.prompt), tags: ["grok", "auto-archived", candidate.mediaKind], created_at: candidate.generatedAt, sourceType: "grok-generated", business_fields: { auto_archived: true, media_kind: candidate.mediaKind, prompt_status: generation.promptStatus, file_bytes: candidate.fileStat.size, width: mediaInfo.width, height: mediaInfo.height, mime_type: mediaInfo.mimeType }, source: { generation_tool: generation.toolName || `grok-${candidate.mediaKind}`, media_kind: candidate.mediaKind, grok_media_path: candidate.mediaPath, grok_session_id: candidate.sessionId || null, grok_session_path: generation.sessionPath || candidate.sessionPath || null, grok_session_folder: candidate.mediaFolder, grok_output_file: candidate.fileName, grok_generated_at: candidate.generatedAt, grok_tool_call_id: generation.callId, model: generation.model, prompt_status: generation.promptStatus, content_sha256: contentHash, pixel_sha256: pixelHash || null, pixel_hash_version: pixelHash ? PIXEL_HASH_VERSION : null, media_metadata: mediaInfo } }, { trustedSourceRoots: [rootReal], ingestMode: "automatic" }); lookup.remember(asset as StoredAsset); contentHashes.add(contentHash); processedSignatures?.set(candidate.mediaPath, signature); imported.push(asset); } catch (error) { if (isAutomaticImportSuppressed(error)) { skipped.push({ path: candidate.mediaPath, reason: "suppressed-after-delete" }); processedSignatures?.set(candidate.mediaPath, signature); } else if (isAutomaticIngestDuplicate(error)) { skipped.push({ path: candidate.mediaPath, reason: automaticDuplicateReason(error) }); processedSignatures?.set(candidate.mediaPath, signature); } else skipped.push({ path: candidate.mediaPath, reason: "import-failed", error: error instanceof Error ? error.message : String(error) }); }
   }
   return { imported, skipped, updated, candidates: candidates.length, warnings };
 }
@@ -150,16 +155,56 @@ function sessionMediaLocation(sessionsRoot: string, mediaPath: string): { sessio
   return { sessionId, sessionPath, mediaFolder, mediaKind };
 }
 
-async function existingContentHashes(store: Store, projectId: string, assets: Array<{ source?: Record<string, unknown>; image_path?: string }> | null = null): Promise<Set<string>> {
-  const allAssets = assets || [...(await store.listAssets({ projectId })), ...(await store.listAssets({ projectId, archived: true }))];
-  const hashes = new Set(allAssets.map((a) => a.source?.content_sha256 as string).filter(Boolean));
-  for (const asset of allAssets) { if (asset.source?.content_sha256 || !asset.image_path) continue; try { hashes.add(await sha256File(asset.image_path)); } catch {} }
-  return hashes;
+function createBridgeAssetLookup(store: Store, projectId: string) {
+  let fallbackAssets: Promise<StoredAsset[]> | null = null;
+  const listed = () => fallbackAssets ||= Promise.all([store.listAssets({ projectId }), store.listAssets({ projectId, archived: true })]).then(([active, archived]) => [...active, ...archived]);
+  const remembered: StoredAsset[] = [];
+  return {
+    async bySourcePath(path: string) {
+      const direct = typeof store.findAssetBySourcePath === "function" ? await store.findAssetBySourcePath(projectId, path) : null;
+      if (direct) return direct;
+      const resolved = resolve(path);
+      const local = remembered.find((asset) => [asset.source?.path, asset.source?.grok_media_path].some((value) => typeof value === "string" && resolve(value) === resolved));
+      if (local) return local;
+      if (typeof store.findAssetBySourcePath === "function") return null;
+      return (await listed()).find((asset) => [asset.source?.path, asset.source?.grok_media_path].some((value) => typeof value === "string" && resolve(value) === resolved)) || null;
+    },
+    async byContentHash(hash: string) {
+      const local = remembered.find((asset) => asset.source?.content_sha256 === hash);
+      if (local) return local;
+      if (typeof store.findAssetByContentHash === "function") return store.findAssetByContentHash(projectId, hash);
+      return (await listed()).find((asset) => asset.source?.content_sha256 === hash) || null;
+    },
+    async byPixelHash(hash: string) {
+      const local = remembered.find((asset) => asset.source?.pixel_hash_version === PIXEL_HASH_VERSION && asset.source?.pixel_sha256 === hash);
+      if (local) return local;
+      if (typeof store.findAssetByPixelHash === "function") return store.findAssetByPixelHash(projectId, hash);
+      return (await listed()).find((asset) => asset.source?.pixel_hash_version === PIXEL_HASH_VERSION && asset.source?.pixel_sha256 === hash) || null;
+    },
+    remember(asset: StoredAsset) { remembered.push(asset); },
+  };
 }
 
 function metadataForCandidate(sessionMeta: SessionMetadata | undefined, candidate: MediaCandidate): GenerationMetadata {
   if (!sessionMeta) return { sessionId: candidate.sessionId, prompt: "", promptStatus: "not-available", sessionPath: candidate.sessionPath || null, sessionUpdatedAt: null, callId: null, generatedAt: null, model: null, toolName: null, aspectRatio: null, matched: false };
   return sessionMeta.mediaPrompts.get(candidate.mediaPath) || sessionMeta.mediaPrompts.get(candidate.discoveredPath) || { sessionId: sessionMeta.sessionId, prompt: "", promptStatus: "not-available", sessionPath: candidate.sessionPath || sessionMeta.sessionPath, sessionUpdatedAt: null, callId: null, generatedAt: null, model: null, toolName: null, aspectRatio: null, matched: false };
+}
+
+function candidateSignature(candidate: MediaCandidate, generation: GenerationMetadata): string {
+  return [
+    candidate.fileStat.size,
+    candidate.fileStat.mtimeMs,
+    generation.promptStatus,
+    generation.sessionUpdatedAt || "",
+    generation.callId || "",
+    generation.model || "",
+    generation.toolName || "",
+    generation.prompt,
+  ].join("\u001f");
+}
+function pruneProcessedSignatures(cache: Map<string, string>, livePaths: string[]): void {
+  const live = new Set(livePaths);
+  for (const path of cache.keys()) if (!live.has(path)) cache.delete(path);
 }
 
 function promptTheme(prompt: string): string { const text = String(prompt || "").trim(); if (!text) return ""; return text.split(/\r?\n/, 1)[0].slice(0, 120); }

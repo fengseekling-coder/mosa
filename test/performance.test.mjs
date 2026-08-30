@@ -9,7 +9,10 @@ import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 
 test("50k SQLite library uses indexed filters, starts under 3s, and keeps search P95 under 100ms", { skip: process.env.MOSA_PERF_TEST !== "1" }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-perf-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  // Windows can keep SQLite WAL/SHM handles alive for a short moment after
+  // close (and Defender may briefly inspect them). Retry the cleanup instead
+  // of turning an otherwise-passing performance run red with EBUSY/EPERM.
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const libraryDir = join(root, "library");

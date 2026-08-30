@@ -158,6 +158,32 @@ test("passes automatic ingest mode and continues after a suppressed Grok media i
   assert.equal(result.imported.length, 1);
 });
 
+test("skips unchanged Grok candidates without re-querying the asset store", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-grok-signature-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const fixture = await createGrokSessionFixture(root);
+  let sourceLookups = 0;
+  let listCalls = 0;
+  const store = {
+    async listAssets() { listCalls += 1; return []; },
+    async findAssetBySourcePath() {
+      sourceLookups += 1;
+      return { id: "existing", project_id: "default", prompt: "", theme: "", business_fields: {}, source: { path: fixture.mediaPath } };
+    },
+    async findAssetByContentHash() { throw new Error("content lookup should not run"); },
+    async findAssetByPixelHash() { throw new Error("pixel lookup should not run"); },
+    async updateMetadata() {},
+    async createAsset() { throw new Error("create should not run"); },
+  };
+  const processedSignatures = new Map();
+  const first = await reconcileGrokMedia({ store, sessionsDir: fixture.sessionsDir, processedSignatures });
+  const second = await reconcileGrokMedia({ store, sessionsDir: fixture.sessionsDir, processedSignatures });
+  assert.equal(first.skipped.some((item) => item.reason === "already-archived"), true);
+  assert.equal(second.skipped.some((item) => item.reason === "unchanged"), true);
+  assert.equal(sourceLookups, 1);
+  assert.equal(listCalls, 0);
+});
+
 test("retries a deterministic Grok asset id collision through automatic identity dedupe", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-id-race-"));
   t.after(() => rm(root, { recursive: true, force: true }));

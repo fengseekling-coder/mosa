@@ -231,11 +231,17 @@ test("infinite-scroll append uses a tail-only render path and virtualizes decode
 test("background library polling yields while an infinite-scroll append is in flight", async () => {
   const app = await readApp();
   const init = sliceBetween(app, "async function init()", "function renderSettingsMenu()");
+  const pageshow = sliceBetween(app, 'window.addEventListener("pageshow",', "function refreshBridgeStatus()");
+  const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
 
   assert.match(init, /libraryRefreshTimer = setInterval\(\(\) => \{/);
-  assert.match(init, /if \(!isLoadingMore\) void refreshLibraryInBackground\(\);/);
+  assert.match(init, /if \(!isLoadingMore\) void refreshLibraryIfChanged\(\);/);
+  assert.match(pageshow, /if \(!isLoadingMore\) void refreshLibraryIfChanged\(\);/, "bfcache recovery keeps the lightweight revision guard");
+  assert.doesNotMatch(pageshow, /refreshLibraryInBackground\(\)/, "bfcache recovery must not restore the heavy polling path");
   assert.doesNotMatch(init, /setInterval\(refreshLibraryInBackground,\s*2500\)/);
   assert.match(init, /LIBRARY_REFRESH_INTERVAL/);
+  assert.match(apiClient, /\/api\/library-revision\?project=/, "timer polls only a lightweight revision token");
+  assert.match(apiClient, /if \(revision === lastLibraryRevision\) return false;/, "unchanged libraries do not reload groups or assets");
 });
 
 test("background stats refresh skips the effectively static library-path request", async () => {

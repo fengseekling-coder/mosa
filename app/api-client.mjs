@@ -303,17 +303,44 @@ export function createApiClient(deps) {
   }
 
   async function refreshLibraryInBackground() {
-    if (document.hidden || libraryRefreshInFlight) return;
+    if (document.hidden || libraryRefreshInFlight) return false;
     libraryRefreshInFlight = true;
     try {
       await Promise.all([
         loadStats({ background: true }),
         state.loadedPageCount > 1 ? refreshLoadedAssetsInBackground() : loadAssets({ background: true }),
       ]);
+      return true;
     } catch {
       // A transient refresh failure should not interrupt the active library view.
+      return false;
     } finally {
       libraryRefreshInFlight = false;
+    }
+  }
+
+  let lastLibraryRevision = null;
+  let libraryRevisionInFlight = false;
+  async function refreshLibraryIfChanged() {
+    if (document.hidden || libraryRevisionInFlight) return false;
+    libraryRevisionInFlight = true;
+    try {
+      const project = state.project;
+      const result = await apiFetch(`/api/library-revision?project=${encodeURIComponent(project)}`);
+      if (project !== state.project) return false;
+      const revision = result?.revision == null ? null : String(result.revision);
+      if (lastLibraryRevision === null) {
+        lastLibraryRevision = revision;
+        return false;
+      }
+      if (revision === lastLibraryRevision) return false;
+      const refreshed = await refreshLibraryInBackground();
+      if (refreshed) lastLibraryRevision = revision;
+      return refreshed;
+    } catch {
+      return false;
+    } finally {
+      libraryRevisionInFlight = false;
     }
   }
 
@@ -342,7 +369,7 @@ export function createApiClient(deps) {
   }
 
   return {
-    apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground,
+    apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged,
     refreshAssetPageTotalInBackground, refreshLoadedAssetsInBackground, reloadLoadedAssetPages,
     buildAssetPageParams, requestAssetPage, requestAssetTotal, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion,
   };

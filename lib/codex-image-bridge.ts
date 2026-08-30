@@ -22,7 +22,7 @@ interface StoredAsset {
   image_path?: string;
   [key: string]: unknown;
 }
-interface Store { createAsset(params: Record<string, unknown>, options?: Record<string, unknown>): Promise<StoredAsset>; listAssets(filters: Record<string, unknown>): Promise<StoredAsset[]>; updateMetadata(projectId: string, assetId: string, metadata: Record<string, unknown>): Promise<void>; codexImagesDir: string; [key: string]: unknown; }
+interface Store { createAsset(params: Record<string, unknown>, options?: Record<string, unknown>): Promise<StoredAsset>; listAssets(filters: Record<string, unknown>): Promise<StoredAsset[]>; findAssetBySourcePath?(projectId: string, sourcePath: string): Promise<StoredAsset | null>; findAssetByContentHash?(projectId: string, contentHash: string): Promise<StoredAsset | null>; findAssetByPixelHash?(projectId: string, pixelHash: string): Promise<StoredAsset | null>; updateMetadata(projectId: string, assetId: string, metadata: Record<string, unknown>): Promise<void>; codexImagesDir: string; [key: string]: unknown; }
 interface BridgeStatus { imagesDir: string; sessionsDir: string; enabled: boolean; watching: boolean; polling: boolean; lastScanAt: string | null; lastImportedAt: string | null; lastImportCount: number; totalImported: number; lastSkippedCount: number; lastError: string | null; }
 interface ReconcileResult { imported: unknown[]; skipped: Array<{ path: string; reason: string; error?: string }>; updated?: string[]; candidates: number; queued?: boolean; }
 interface Bridge { start(): Promise<BridgeStatus>; stop(): Promise<void>; reconcile(): Promise<ReconcileResult>; scheduleReconcile(): void; status(): BridgeStatus; }
@@ -36,9 +36,10 @@ export function createCodexImageBridge(options: { store?: Store; imagesDir?: str
   });
   const projectId = options.projectId || DEFAULT_PROJECT_ID;
   const debounceMs = options.debounceMs != null && Number.isFinite(options.debounceMs) ? Math.max(0, options.debounceMs) : 500;
-  const pollIntervalMs = options.pollIntervalMs != null && Number.isFinite(options.pollIntervalMs) ? Math.max(250, options.pollIntervalMs) : 2500;
+  const pollIntervalMs = options.pollIntervalMs != null && Number.isFinite(options.pollIntervalMs) ? Math.max(250, options.pollIntervalMs) : 30000;
+  const processedSignatures = new Map<string, string>();
   let watcher: FSWatcher | null = null; let poller: ReturnType<typeof setInterval> | null = null; let timer: ReturnType<typeof setTimeout> | null = null;
-  let enabled = false; let reconciling = false; let reconcileAgain = false; let knownHashes: Set<string> | null = null;
+  let enabled = false; let reconciling = false; let reconcileAgain = false;
   let activeReconcile: Promise<ReconcileResult> | null = null; let stopPromise: Promise<void> | null = null;
   const state: Omit<BridgeStatus, "watching" | "polling"> = { imagesDir, sessionsDir, enabled: false, lastScanAt: null, lastImportedAt: null, lastImportCount: 0, totalImported: 0, lastSkippedCount: 0, lastError: null };
   async function reconcile(): Promise<ReconcileResult> {
@@ -46,7 +47,7 @@ export function createCodexImageBridge(options: { store?: Store; imagesDir?: str
     if (reconciling) { reconcileAgain = true; return { imported: [], skipped: [], queued: true, candidates: 0 }; }
     reconciling = true;
     const run = (async (): Promise<ReconcileResult> => {
-      try { if (!knownHashes) knownHashes = await existingContentHashes(store!, projectId); const result = await reconcileCodexGeneratedImages({ store: store!, imagesDir, sessionsDir, projectId, knownHashes }); state.lastScanAt = new Date().toISOString(); state.lastImportCount = result.imported.length; state.lastSkippedCount = result.skipped.length; state.totalImported += result.imported.length; state.lastError = null; if (result.imported.length > 0) state.lastImportedAt = state.lastScanAt; return result; } catch (error) { state.lastScanAt = new Date().toISOString(); state.lastError = error instanceof Error ? error.message : String(error); throw error; } finally { reconciling = false; activeReconcile = null; if (reconcileAgain && enabled) { reconcileAgain = false; scheduleReconcile(); } else reconcileAgain = false; }
+      try { const result = await reconcileCodexGeneratedImages({ store: store!, imagesDir, sessionsDir, projectId, processedSignatures }); state.lastScanAt = new Date().toISOString(); state.lastImportCount = result.imported.length; state.lastSkippedCount = result.skipped.length; state.totalImported += result.imported.length; state.lastError = null; if (result.imported.length > 0) state.lastImportedAt = state.lastScanAt; return result; } catch (error) { state.lastScanAt = new Date().toISOString(); state.lastError = error instanceof Error ? error.message : String(error); throw error; } finally { reconciling = false; activeReconcile = null; if (reconcileAgain && enabled) { reconcileAgain = false; scheduleReconcile(); } else reconcileAgain = false; }
     })();
     activeReconcile = run;
     return run;
@@ -58,42 +59,41 @@ export function createCodexImageBridge(options: { store?: Store; imagesDir?: str
   return { start, stop, reconcile, scheduleReconcile, status: apiStatus };
 }
 
-export async function reconcileCodexGeneratedImages(options: { store: Store; imagesDir?: string; sessionsDir?: string; projectId?: string; knownHashes?: Set<string> | null; }): Promise<ReconcileResult> {
-  const { store, imagesDir: imagesDirOpt, sessionsDir: sessionsDirOpt, projectId = DEFAULT_PROJECT_ID, knownHashes: knownHashesOpt } = options;
+export async function reconcileCodexGeneratedImages(options: { store: Store; imagesDir?: string; sessionsDir?: string; projectId?: string; knownHashes?: Set<string> | null; processedSignatures?: Map<string, string> | null; }): Promise<ReconcileResult> {
+  const { store, imagesDir: imagesDirOpt, sessionsDir: sessionsDirOpt, projectId = DEFAULT_PROJECT_ID, knownHashes: knownHashesOpt, processedSignatures = null } = options;
   const root = resolve(imagesDirOpt || store.codexImagesDir);
   const candidates = await readCodexImageCandidates(root);
+  if (processedSignatures) pruneProcessedSignatures(processedSignatures, candidates.map((candidate) => candidate.imagePath));
   const { codexSessionsDir: sessionsDir } = resolveSourceLocations({
     overrides: { codexSessionsDir: sessionsDirOpt },
   });
-  const [activeAssets, archivedAssets] = await Promise.all([store.listAssets({ projectId }), store.listAssets({ projectId, archived: true })]);
-  const allAssets = [...activeAssets, ...archivedAssets];
-  const assetsBySourcePath = new Map<string, StoredAsset>();
-  for (const asset of allAssets) {
-    for (const value of [asset.source?.path, asset.source?.codex_image_path]) {
-      if (typeof value === "string" && value) assetsBySourcePath.set(resolve(value), asset);
-    }
-  }
-  const knownPaths = new Set(assetsBySourcePath.keys());
-  const contentHashes = knownHashesOpt || await existingContentHashes(store, projectId, allAssets);
-  const pixelHashes = new Set(allAssets.filter((asset) => asset.source?.pixel_hash_version === PIXEL_HASH_VERSION).map((asset) => asset.source?.pixel_sha256 as string).filter(Boolean));
+  const lookup = createBridgeAssetLookup(store, projectId);
+  const contentHashes = knownHashesOpt || new Set<string>();
   const taskIds = new Set(candidates.map((c) => c.taskId).filter(Boolean) as string[]);
   const taskMetadata = await readCodexTaskMetadata(sessionsDir, taskIds);
   const imported: unknown[] = []; const skipped: Array<{ path: string; reason: string; error?: string }> = []; const updated: string[] = [];
   for (const candidate of candidates) {
     const task = taskMetadata.get(candidate.taskId || "") || emptyTaskMetadata(candidate.taskId || "");
     const generation = metadataForCandidate(task, candidate);
-    if (knownPaths.has(candidate.imagePath)) {
-      const existingAsset = assetsBySourcePath.get(candidate.imagePath);
-      if (existingAsset && await upgradeGenerationMetadata(store, existingAsset, generation)) updated.push(existingAsset.id);
+    const signature = candidateSignature(candidate, generation);
+    if (processedSignatures?.get(candidate.imagePath) === signature) {
+      skipped.push({ path: candidate.imagePath, reason: "unchanged" });
+      continue;
+    }
+    const existingAtPath = await lookup.bySourcePath(candidate.imagePath);
+    if (existingAtPath) {
+      if (await upgradeGenerationMetadata(store, existingAtPath, generation)) updated.push(existingAtPath.id);
       skipped.push({ path: candidate.imagePath, reason: "already-archived" });
+      processedSignatures?.set(candidate.imagePath, signature);
       continue;
     }
     let contentHash: string; try { contentHash = await sha256File(candidate.imagePath); } catch (error) { skipped.push({ path: candidate.imagePath, reason: "not-ready", error: error instanceof Error ? error.message : String(error) }); continue; }
-    if (contentHashes.has(contentHash)) { skipped.push({ path: candidate.imagePath, reason: "already-archived-same-content" }); knownPaths.add(candidate.imagePath); continue; }
+    const existingByContent = contentHashes.has(contentHash) ? true : await lookup.byContentHash(contentHash);
+    if (existingByContent) { skipped.push({ path: candidate.imagePath, reason: "already-archived-same-content" }); contentHashes.add(contentHash); processedSignatures?.set(candidate.imagePath, signature); continue; }
     const pixelHash = extname(candidate.imagePath).toLowerCase() === ".svg" ? "" : await safePixelDigest(candidate.imagePath).catch(() => "");
-    if (pixelHash && pixelHashes.has(pixelHash)) { skipped.push({ path: candidate.imagePath, reason: "already-archived-same-pixels" }); knownPaths.add(candidate.imagePath); continue; }
+    if (pixelHash && await lookup.byPixelHash(pixelHash)) { skipped.push({ path: candidate.imagePath, reason: "already-archived-same-pixels" }); processedSignatures?.set(candidate.imagePath, signature); continue; }
     const imageInfo = await readImageInfo(candidate.imagePath, candidate.fileStat);
-    try { const asset = await createAutomaticAssetWithCollisionFallback(store, { projectId, imagePath: candidate.imagePath, asset: candidate.fileName, assetId: `codex-${candidate.taskId || "image"}-${candidate.fileStem}`, prompt: generation.prompt, skill: "Codex automatic archive", ratio: imageInfo.ratio, theme: promptTheme(String(generation.prompt || "")), tags: ["codex", "auto-archived"], created_at: candidate.generatedAt, sourceType: "codex-generated", business_fields: { auto_archived: true, prompt_status: generation.promptStatus, file_bytes: candidate.fileStat.size, width: imageInfo.width, height: imageInfo.height, mime_type: imageInfo.mimeType }, source: { generation_tool: "codex-imagegen", codex_image_path: candidate.imagePath, codex_task_id: candidate.taskId || null, codex_output_file: candidate.fileName, codex_generated_at: candidate.generatedAt, codex_session_path: generation.sessionPath, codex_session_updated_at: generation.sessionUpdatedAt, codex_image_generation_call_id: generation.callId, codex_image_generated_at: generation.generatedAt, model: generation.model, prompt_status: generation.promptStatus, content_sha256: contentHash, pixel_sha256: pixelHash || null, pixel_hash_version: pixelHash ? PIXEL_HASH_VERSION : null, image_metadata: imageInfo } }, { trustedSourceRoots: [root], ingestMode: "automatic" }); knownPaths.add(candidate.imagePath); assetsBySourcePath.set(candidate.imagePath, asset); contentHashes.add(contentHash); if (pixelHash) pixelHashes.add(pixelHash); imported.push(asset); } catch (error) { if (isAutomaticImportSuppressed(error)) skipped.push({ path: candidate.imagePath, reason: "suppressed-after-delete" }); else if (isAutomaticIngestDuplicate(error)) skipped.push({ path: candidate.imagePath, reason: automaticDuplicateReason(error) }); else skipped.push({ path: candidate.imagePath, reason: "import-failed", error: error instanceof Error ? error.message : String(error) }); }
+    try { const asset = await createAutomaticAssetWithCollisionFallback(store, { projectId, imagePath: candidate.imagePath, asset: candidate.fileName, assetId: `codex-${candidate.taskId || "image"}-${candidate.fileStem}`, prompt: generation.prompt, skill: "Codex automatic archive", ratio: imageInfo.ratio, theme: promptTheme(String(generation.prompt || "")), tags: ["codex", "auto-archived"], created_at: candidate.generatedAt, sourceType: "codex-generated", business_fields: { auto_archived: true, prompt_status: generation.promptStatus, file_bytes: candidate.fileStat.size, width: imageInfo.width, height: imageInfo.height, mime_type: imageInfo.mimeType }, source: { generation_tool: "codex-imagegen", codex_image_path: candidate.imagePath, codex_task_id: candidate.taskId || null, codex_output_file: candidate.fileName, codex_generated_at: candidate.generatedAt, codex_session_path: generation.sessionPath, codex_session_updated_at: generation.sessionUpdatedAt, codex_image_generation_call_id: generation.callId, codex_image_generated_at: generation.generatedAt, model: generation.model, prompt_status: generation.promptStatus, content_sha256: contentHash, pixel_sha256: pixelHash || null, pixel_hash_version: pixelHash ? PIXEL_HASH_VERSION : null, image_metadata: imageInfo } }, { trustedSourceRoots: [root], ingestMode: "automatic" }); lookup.remember(asset); contentHashes.add(contentHash); processedSignatures?.set(candidate.imagePath, signature); imported.push(asset); } catch (error) { if (isAutomaticImportSuppressed(error)) { skipped.push({ path: candidate.imagePath, reason: "suppressed-after-delete" }); processedSignatures?.set(candidate.imagePath, signature); } else if (isAutomaticIngestDuplicate(error)) { skipped.push({ path: candidate.imagePath, reason: automaticDuplicateReason(error) }); processedSignatures?.set(candidate.imagePath, signature); } else skipped.push({ path: candidate.imagePath, reason: "import-failed", error: error instanceof Error ? error.message : String(error) }); }
   }
   return { imported, skipped, updated, candidates: candidates.length };
 }
@@ -104,11 +104,34 @@ async function readCodexImageCandidates(imagesDir: string): Promise<ImageCandida
   return candidates.sort((l, r) => l.generatedAt.localeCompare(r.generatedAt));
 }
 
-async function existingContentHashes(store: Store, projectId: string, assets: Array<{ source?: Record<string, unknown>; image_path?: string }> | null = null): Promise<Set<string>> {
-  const allAssets = assets || [...(await store.listAssets({ projectId })), ...(await store.listAssets({ projectId, archived: true }))];
-  const hashes = new Set(allAssets.map((a) => a.source?.content_sha256 as string).filter(Boolean));
-  for (const asset of allAssets) { if (asset.source?.content_sha256 || !asset.image_path) continue; try { hashes.add(await sha256File(asset.image_path as string)); } catch {} }
-  return hashes;
+function createBridgeAssetLookup(store: Store, projectId: string) {
+  let fallbackAssets: Promise<StoredAsset[]> | null = null;
+  const listed = () => fallbackAssets ||= Promise.all([store.listAssets({ projectId }), store.listAssets({ projectId, archived: true })]).then(([active, archived]) => [...active, ...archived]);
+  const remembered: StoredAsset[] = [];
+  return {
+    async bySourcePath(path: string) {
+      const direct = typeof store.findAssetBySourcePath === "function" ? await store.findAssetBySourcePath(projectId, path) : null;
+      if (direct) return direct;
+      const resolved = resolve(path);
+      const local = remembered.find((asset) => [asset.source?.path, asset.source?.codex_image_path].some((value) => typeof value === "string" && resolve(value) === resolved));
+      if (local) return local;
+      if (typeof store.findAssetBySourcePath === "function") return null;
+      return (await listed()).find((asset) => [asset.source?.path, asset.source?.codex_image_path].some((value) => typeof value === "string" && resolve(value) === resolved)) || null;
+    },
+    async byContentHash(hash: string) {
+      const local = remembered.find((asset) => asset.source?.content_sha256 === hash);
+      if (local) return local;
+      if (typeof store.findAssetByContentHash === "function") return store.findAssetByContentHash(projectId, hash);
+      return (await listed()).find((asset) => asset.source?.content_sha256 === hash) || null;
+    },
+    async byPixelHash(hash: string) {
+      const local = remembered.find((asset) => asset.source?.pixel_hash_version === PIXEL_HASH_VERSION && asset.source?.pixel_sha256 === hash);
+      if (local) return local;
+      if (typeof store.findAssetByPixelHash === "function") return store.findAssetByPixelHash(projectId, hash);
+      return (await listed()).find((asset) => asset.source?.pixel_hash_version === PIXEL_HASH_VERSION && asset.source?.pixel_sha256 === hash) || null;
+    },
+    remember(asset: StoredAsset) { remembered.push(asset); },
+  };
 }
 
 async function upgradeGenerationMetadata(store: Store, asset: StoredAsset, generation: GenerationMetadata): Promise<boolean> {
@@ -150,6 +173,13 @@ async function upgradeGenerationMetadata(store: Store, asset: StoredAsset, gener
 }
 
 function metadataForCandidate(task: TaskMetadataEntry, candidate: ImageCandidate): GenerationMetadata { return task.imagePrompts.get(candidate.imagePath) || task.fallback; }
+function candidateSignature(candidate: ImageCandidate, generation: GenerationMetadata): string {
+  return [candidate.fileStat.size, candidate.fileStat.mtimeMs, generation.promptStatus, generation.sessionUpdatedAt || "", generation.callId || "", generation.model || "", generation.prompt].join("\u001f");
+}
+function pruneProcessedSignatures(cache: Map<string, string>, livePaths: string[]): void {
+  const live = new Set(livePaths);
+  for (const path of cache.keys()) if (!live.has(path)) cache.delete(path);
+}
 function promptTheme(prompt: string): string { const match = /^Asset type:\s*(.+)$/mi.exec(String(prompt || "")); return match?.[1]?.trim() || ""; }
 
 async function readCodexTaskMetadata(sessionsDir: string, taskIds: Set<string>): Promise<Map<string, TaskMetadataEntry>> {
