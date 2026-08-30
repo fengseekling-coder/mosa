@@ -1220,7 +1220,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
    ============================================================ */
 
 body.mosa-v2 {
-  --color-focus-ring: #64b5f6;
+  --color-focus-ring: #2424ff;
   --color-media-backdrop: rgb(0 0 0 / 0.85);
   --color-media-surface: rgb(28 28 30 / 0.82);
   --color-media-border: rgb(255 255 255 / 0.18);
@@ -1230,6 +1230,7 @@ body.mosa-v2 {
   font-family: var(--font-family-ui);
   letter-spacing: 0;
 }
+:root[data-theme="dark"] body.mosa-v2 { --color-focus-ring: #8ab4ff; }
 .mosa-v2 .shell { grid-template-columns: var(--sidebar-width) minmax(0, 1fr); width: 100%; height: 100%; margin: 0; overflow: hidden; border: 0; border-radius: 0; background: var(--app-bg); box-shadow: none; }
 .mosa-v2 .shell.details-open { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--inspector-width); }
 .mosa-v2 .sidebar { position: relative; z-index: 2; overflow: visible; background: rgb(from var(--app-sidebar) r g b / .95); border-right: 1px solid var(--color-border-subtle); backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%); }
@@ -1267,7 +1268,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .topbar { box-sizing: border-box; gap: 8px; height: var(--topbar-height); min-height: var(--topbar-height); padding: 0 24px; border: 0; background: transparent; }
 .mosa-v2 .topbar-context { flex: 1 1 auto; align-items: center; }.mosa-v2 .title-row { display: flex; align-items: baseline; gap: 8px; }
 .mosa-v2 .title-row h2 { color: var(--color-text-primary); font-size: 16px; font-weight: 600; letter-spacing: -.01em; }.mosa-v2 #assetCount { color: var(--color-text-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; }
-.mosa-v2 .topbar-actions { gap: 8px; }.mosa-v2 .topbar-utility-group { display: none; }.mosa-v2 .topbar-work-group { gap: 4px; }.mosa-v2 .topbar-primary-group { display: none; }
+.mosa-v2 .topbar-actions { gap: 8px; }.mosa-v2 .topbar-utility-group { display: flex; gap: 4px; }.mosa-v2 .topbar-work-group { gap: 4px; }.mosa-v2 .topbar-primary-group { display: flex; }
 .mosa-v2 .toolbar-filter, .mosa-v2 .toolbar-icon, .mosa-v2 .sort-control select { height: 32px; border: 1px solid var(--color-border-subtle); border-radius: 8px; color: var(--color-text-secondary); background: var(--app-input); box-shadow: none; font-size: 12px; }
 .mosa-v2 .toolbar-filter { gap: 6px; padding: 0 10px; }.mosa-v2 .toolbar-filter[aria-pressed="true"] { color: var(--color-text-primary); background: var(--app-chip-active); }
 .mosa-v2 .sort-control select { padding: 0 26px 0 10px; }
@@ -1390,7 +1391,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-reference-loading .detail-reference-value { font-variant-numeric: tabular-nums; }
 /* Recipe editing is retained in the DOM for the existing workflow, but is not
    part of the V2 Prompt composition. */
-.mosa-v2 .detail-prompt-section > .detail-disclosure { display: none; }
+.mosa-v2 .detail-prompt-section > .detail-disclosure { display: block; }
 
 /* V2 Source/Version/Group/Tags/Cowart/More sections: compact heading */
 .mosa-v2 .detail .detail-source-section, .mosa-v2 .detail .detail-version-section, .mosa-v2 .detail .detail-group-section { padding: 12px 16px; }
@@ -1412,12 +1413,14 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 /* The V2 FilterBar begins with type filters; the retained heading is still
    present for accessibility and runtime state, but is not a second visual
    toolbar title. */
-.mosa-v2 .title-row { display: none; }
+.mosa-v2 .title-row { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.mosa-v2 .title-row:has(#stackBack:not([hidden])) { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; display: flex; }
+.mosa-v2 .title-row:has(#stackBack:not([hidden])) h2 { display: none; }
 
 /* V2 keeps selection in the sidebar and type filter only.  The retained
    filter-chip node still drives existing query/reset behavior, but must not
    introduce a second legacy toolbar row. */
-.mosa-v2 .active-filters { display: none; }
+.mosa-v2 .active-filters:not([hidden]) { display: flex; }
 
 /* V2 Gallery's neutral zero-result recovery state. */
 .mosa-v2 .grid:has(.gallery-empty-state) { display: flex; }
@@ -1738,8 +1741,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 /* Keep the compact V2 inspector, but do not hide provenance or version
    surfaces. Group/more stay out because their useful actions are represented
    by the overview and tags without duplicating entire sections. */
-.mosa-v2 .detail .detail-group-section,
-.mosa-v2 .detail [data-inspector-section="more"] { display: none; }
+.mosa-v2 .detail .detail-group-section { display: none; }
 
 @media (hover: hover) and (pointer: fine) {
   .mobile-nav-toggle:hover, .mobile-nav-close:hover { color: var(--color-text-primary); background: var(--app-hover); }

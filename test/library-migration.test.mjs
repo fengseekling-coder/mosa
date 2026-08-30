@@ -38,6 +38,7 @@ test("migration copies legacy JSON assets, preserves unknown fields, and verifie
   assert.equal(report.imported, 1);
   assert.equal(report.importedGroups, 1);
   assert.equal(report.verified, 1);
+  assert.equal((await readFile(join(libraryDir, ".sqlite-migration-completed"), "utf8")).trim(), "completed");
   assert.equal(report.issues.length, 0);
   const verification = await verifySqliteLibrary({ managerDir, projectRoot: root, libraryDir });
   assert.equal(verification.ok, true);
@@ -55,6 +56,28 @@ test("migration copies legacy JSON assets, preserves unknown fields, and verifie
   const resumed = await migrateLegacyLibrary({ managerDir, projectRoot: root, libraryDir, resume: true });
   assert.equal(resumed.skipped, 1);
   assert.equal(resumed.skippedGroups, 1);
+});
+
+test("completed migrations fail closed when mosa.db disappears instead of reopening stale JSON", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-migrate-missing-db-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const managerDir = join(root, "mosa");
+  const imageDir = join(managerDir, "assets", "default", "images");
+  const metadataDir = join(managerDir, "assets", "default", "metadata");
+  await mkdir(imageDir, { recursive: true });
+  await mkdir(metadataDir, { recursive: true });
+  await writeFile(join(imageDir, "legacy.png"), PNG);
+  await writeFile(join(metadataDir, "legacy.json"), JSON.stringify({ id: "legacy", asset: "legacy.png", project_id: "default" }));
+  const libraryDir = join(root, "library");
+  const report = await migrateLegacyLibrary({ managerDir, projectRoot: root, libraryDir });
+  assert.equal(report.completed, true);
+  await rm(join(libraryDir, "mosa.db"), { force: true });
+  await rm(join(libraryDir, "mosa.db-wal"), { force: true });
+  await rm(join(libraryDir, "mosa.db-shm"), { force: true });
+  assert.throws(
+    () => createAssetStore({ projectRoot: root, managerDir, libraryDir }),
+    (error) => error?.code === "SQLITE_LIBRARY_MISSING",
+  );
 });
 
 test("corrupt legacy JSON blocks migration and identifies the exact file", async (t) => {

@@ -62,16 +62,29 @@ async function runThumbnails(values) {
     const queued = await store.enqueueMissingDerivatives();
     const worker = createDerivativeWorker({ store });
     worker.start();
-    while (true) {
-      const status = await store.derivativeStatus();
-      if (!status.pending && !status.running) {
-        console.log(JSON.stringify({ queued, status }, null, 2));
-        process.exitCode = status.failed ? 1 : 0;
-        break;
+    try {
+      const idleTimeoutMs = 5 * 60 * 1000;
+      let lastProgressAt = Date.now();
+      let lastSignature = "";
+      while (true) {
+        const status = await store.derivativeStatus();
+        if (!status.pending && !status.running) {
+          console.log(JSON.stringify({ queued, status }, null, 2));
+          process.exitCode = status.failed ? 1 : 0;
+          break;
+        }
+        const signature = JSON.stringify(status);
+        if (signature !== lastSignature) {
+          lastSignature = signature;
+          lastProgressAt = Date.now();
+        } else if (Date.now() - lastProgressAt >= idleTimeoutMs) {
+          throw new Error("Thumbnail processing made no progress for 5 minutes; aborting instead of waiting forever.");
+        }
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
       }
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+    } finally {
+      worker.stop();
     }
-    worker.stop();
   } finally {
     store.close();
   }

@@ -63,6 +63,10 @@ The optional extension:
 - sends captured data only to the configured loopback MOSA address;
 - stores the MOSA address, Web Capture Token, and auto-capture preference in `chrome.storage.local`, not synchronized storage.
 
+Its manifest host permissions are limited to the following explicit hosts/patterns: `chatgpt.com`, `chat.openai.com`, `*.oaiusercontent.com`, `images.openai.com`, `*.blob.core.windows.net`, `gemini.google.com`, `labs.google`, `aistudio.google.com`, `*.googleusercontent.com`, `*.ggpht.com`, `storage.googleapis.com`, `generativelanguage.googleapis.com`, `flow-content.google`, plus loopback `127.0.0.1` and `localhost` for delivery to MOSA. The Azure Blob host is used for provider-served media bytes and is not a MOSA-operated endpoint.
+
+For captured videos, MOSA may store media dimensions, MIME/type information, byte size, and `durationSeconds` when the provider-visible media metadata exposes a usable duration. This field is local provenance metadata and is not transmitted to a MOSA cloud service.
+
 When updating from an earlier prerelease extension, existing settings may be read once from Chrome synchronized storage, copied to local storage, and removed from synchronized storage. The known prerelease development Token is discarded rather than migrated.
 
 The extension does not request or store an OpenAI API Key or ChatGPT password. It operates inside the user's existing browser session, so each provider and its asset hosts remain governed by their own privacy terms.

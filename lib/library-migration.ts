@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 
@@ -66,7 +66,7 @@ export async function migrateLegacyLibrary(options: { managerDir?: string; legac
       report.imported += 1; report.verified += 1;
     }
     if (report.issues.length) { await store.setMigrationState("failed", report as unknown as Record<string, unknown>); return report; }
-    report.completed = true; await store.setMigrationState("completed", report as unknown as Record<string, unknown>); return report;
+    report.completed = true; await store.setMigrationState("completed", report as unknown as Record<string, unknown>); await writeFile(join(libraryDir, ".sqlite-migration-completed"), "completed\n", "utf8"); return report;
   } catch (error) { await store.setMigrationState("failed", { ...report, error: error instanceof Error ? error.message : String(error) }); throw error; } finally { store.close(); }
 }
 

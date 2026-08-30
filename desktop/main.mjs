@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { DEFAULT_MOSA_DESKTOP_PORT, MOSA_RESERVED_PRODUCTION_PORTS } from "../lib/runtime-defaults.mjs";
 import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
 import { parseDisabledBridges } from "../lib/runtime-bridges.mjs";
-import { cleanupOrphanStagedFiles, importStagingDir, stageFileForImport, STAGING_EXTENSIONS, writeStagedPng } from "../lib/import-staging.mjs";
+import { cleanupOrphanStagedFiles, importStagingDir, writeStagedPng } from "../lib/import-staging.mjs";
 import { startMosaService } from "./service-manager.mjs";
 import { getDesktopText, getNotificationTextForAssetsImported, getUpdateNotificationText } from "./notification-i18n.mjs";
 import { loadOrCreateWebCaptureToken, MOSA_WEB_CAPTURE_DEFAULT_ORIGINS } from "./web-capture-pairing.mjs";
@@ -74,22 +74,7 @@ if (!guard.ok) {
   throw new Error(`ISOLATION_GUARD_REJECTED: ${guard.field} ${guard.reason}`);
 }
 
-// Display-only groups for the native open dialog. The authoritative set is
-// STAGING_EXTENSIONS (mirror of the store's accepted media), so the dialog can
-// never advertise a format staging would reject; the batch 1.1 guard test keeps
-// the renderer drag/drop pattern on the same set.
-const DIALOG_IMAGE_GROUP = new Set([".apng", ".avif", ".gif", ".jpg", ".jpeg", ".png", ".svg", ".webp"]);
-const DIALOG_VIDEO_GROUP = new Set([".m4v", ".mov", ".mp4", ".webm"]);
 const MAX_CLIPBOARD_TEXT_LENGTH = 1_000_000;
-
-function importDialogFilters() {
-  const group = (extensions) =>
-    [...STAGING_EXTENSIONS].filter((extension) => extensions.has(extension)).map((extension) => extension.slice(1));
-  return [
-    { name: "Images", extensions: group(DIALOG_IMAGE_GROUP) },
-    { name: "Video", extensions: group(DIALOG_VIDEO_GROUP) },
-  ];
-}
 const BOUNDS_PATH = join(desktopDataDir, "window-bounds.json");
 const DEFAULT_BOUNDS = { width: 1320, height: 860 };
 
@@ -266,29 +251,6 @@ function buildMenu() {
 function registerIPC() {
   if (ipcRegistered) return;
   ipcRegistered = true;
-
-  // BUG-01 follow-up (audit fix batch 1.1): the native dialog is single-file.
-  // One picked file is copied into the MOSA import staging root and the staged
-  // path is returned; Cancel returns []. A staging failure keeps the detailed
-  // main-process diagnostics and propagates via IPC rejection so the renderer
-  // can surface it, instead of silently skipping and leaving staging copies
-  // the user never sees.
-  ipcMain.handle("open-file-dialog", async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ["openFile"],
-      filters: importDialogFilters(),
-    });
-    if (result.canceled || !result.filePaths.length) return [];
-    const [filePath] = result.filePaths;
-    try {
-      return [await stageFileForImport({ sourcePath: filePath, stagingRoot: importStagingRoot })];
-    } catch (error) {
-      console.error(`[MOSA] import-staging failed for ${filePath}: ${error?.message || error}`);
-      // Never return the user's raw path; only the sanitized rejection reaches
-      // the renderer, which shows its own localized error.
-      throw new Error(`import-staging failed (${error?.code || "unknown"})`);
-    }
-  });
 
   ipcMain.handle("paste-image", async (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return null;

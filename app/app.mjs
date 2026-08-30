@@ -70,7 +70,7 @@ const state = {
   updatePublishedAt: "",
   updateNotes: null,
   anonymousUsageEnabled: safeStorageGet("mosa.anonymous-usage") !== "false",
-  darkMode: safeStorageGet("mosa-dark-mode") === "true", diagnosticsExpanded: false, settingsReturnFocus: null, accountReturnFocus: null,
+  darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null, accountReturnFocus: null,
   detailReturnFocusAssetId: null, previewReturnFocusAssetId: null,
   imageZoom: 1, imagePanX: 0, imagePanY: 0, imageDragging: false,
   // Bulk-selection gate. The viewer short-circuits while batch mode is active so
@@ -131,7 +131,7 @@ const apiClient = createApiClient({
   selectedAsset,
   isDetailEditorActive,
 });
-const { apiFetch, loadProjects, loadCowartCanvases, loadStats, loadAssets, refreshLibraryInBackground, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
+const { apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
 
 // ===== New element references =====
 Object.assign(els, {
@@ -635,7 +635,15 @@ function setupKeyboardShortcuts() {
       if (event.key === "0") { event.preventDefault(); resetAssetViewToHundred(); return; }
       if (event.key === "f" || event.key === "F") { event.preventDefault(); fitAssetView(true); return; }
     }
-    if (event.key === "Enter" && state.viewMode === "library" && state.selectedId && !state.selectedIds?.size) {
+    const galleryEnterTarget = event.target === els.assetGrid || Boolean(event.target.closest?.(".asset-card-select"));
+    if (event.key === "Enter"
+      && galleryEnterTarget
+      && state.viewMode === "library"
+      && state.selectedId
+      && !state.selectedIds?.size
+      && els.imagePreviewModal?.hidden
+      && !hasBlockingOverlay()
+      && els.settingsMenu?.hidden) {
       const asset = selectedAsset();
       if (asset) {
         event.preventDefault();
@@ -774,7 +782,7 @@ async function init() {
     setupImageZoomPan();
     renderGrid();
     try {
-      await Promise.all([loadProjects(), loadCowartCanvases(), loadProductVersion()]);
+      await Promise.all([loadProjects(), loadProductVersion()]);
       await loadStats();
       await loadAssets();
       setDetailOpen(false);
@@ -886,21 +894,6 @@ function renderSettingsMenu() {
   ].join("");
   els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" aria-describedby="settingsModalDescription" tabindex="-1"><header class="settings-modal-header"><div><h2 id="settingsModalTitle">${t("preferences")}</h2><p id="settingsModalDescription">${t("preferencesSubtitle")}</p></div><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${rows}</div></div>`;
   syncSegmentedRadios(els.settingsMenu);
-}
-
-async function fetchDiagnostics() {
-  const panel = document.querySelector("#diagnosticsPanel");
-  const content = document.querySelector("#diagnosticsContent");
-  if (!panel || !content) return;
-  try {
-    const response = await fetch("/api/health");
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    const fingerprint = data.uiFingerprint === "unknown" ? data.uiFingerprint : `${String(data.uiFingerprint).slice(0, 12)}...`;
-    content.innerHTML = `<dl><dt>${t("diagVersion")}</dt><dd>${escapeHtml(data.productVersion)}</dd><dt>${t("diagMcpVersion")}</dt><dd>${escapeHtml(data.mcpServerVersion)}</dd><dt>${t("diagGitSha")}</dt><dd>${escapeHtml(data.gitSha)}</dd><dt>${t("diagUiFingerprint")}</dt><dd>${escapeHtml(fingerprint)}</dd><dt>${t("diagLibraryDir")}</dt><dd>${escapeHtml(data.libraryDir)}</dd><dt>${t("diagStorage")}</dt><dd>${escapeHtml(data.storage)}</dd></dl>`;
-  } catch {
-    content.innerHTML = `<p class="diag-error">${t("diagError")}</p>`;
-  }
 }
 
 function cowartCanvasLabel(canvas = {}) {
@@ -1434,22 +1427,6 @@ function bindEvents() {
       state.anonymousUsageEnabled = button.dataset.usageOpt === "on";
       safeStorageSet("mosa.anonymous-usage", String(state.anonymousUsageEnabled));
       renderSettingsMenu();
-      return;
-    }
-
-    // Toggle diagnostics section
-    const diagnosticsToggle = event.target.closest("[data-action='toggle-diagnostics']");
-    if (diagnosticsToggle) {
-      state.diagnosticsExpanded = !state.diagnosticsExpanded;
-      const panel = document.querySelector("#diagnosticsPanel");
-      const content = document.querySelector("#diagnosticsContent");
-      if (panel) panel.hidden = !state.diagnosticsExpanded;
-      diagnosticsToggle.setAttribute("aria-expanded", String(state.diagnosticsExpanded));
-      diagnosticsToggle.textContent = state.diagnosticsExpanded ? t("hideDiagnostics") : t("showDiagnostics");
-      if (state.diagnosticsExpanded && content) {
-        content.innerHTML = `<p class="diag-loading">${t("diagLoading")}</p>`;
-        fetchDiagnostics();
-      }
       return;
     }
 
@@ -3490,7 +3467,7 @@ function bindDetailEvents(asset, renderId) {
     rating?.setAttribute("data-detail-dirty", "true");
     rating?.setAttribute("data-detail-dirty-scope", "recipe");
     const value = Number(button.dataset.val);
-    panel.querySelectorAll('[data-edit="rating"] button').forEach((star) => { const on = Number(star.dataset.val) <= value; star.classList.toggle("on", on); star.textContent = on ? "★" : "☆"; });
+    panel.querySelectorAll('[data-edit="rating"] button').forEach((star) => { const number = Number(star.dataset.val); const on = number <= value; star.classList.toggle("on", on); star.setAttribute("aria-checked", String(number === value)); star.textContent = on ? "★" : "☆"; });
     scheduleInspectorSave();
   }));
   panel.querySelector('[data-action="save-recipe"]')?.addEventListener("click", () => runAction(() => flushInspectorSave()));

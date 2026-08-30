@@ -15,7 +15,6 @@ const EXPECTED_API_KEYS = [
   "onMenuImport",
   "onMenuSearch",
   "openDownloadPage",
-  "openFileDialog",
   "pasteImage",
   "setLocale",
   "showItemInFolder",
@@ -64,7 +63,7 @@ test("preload path, module format, security settings, and API surface are stable
   assert.doesNotMatch(preload, /openExternal|sendSync|\.send\(/, "generic IPC is not exposed");
   // The preload exposes only narrow, named request channels. Update actions
   // accept no URL from the renderer; the main process owns the fixed website.
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 7, "only the seven approved invoke channels remain");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 6, "only the six approved invoke channels remain");
   assert.deepEqual(sortedApiKeys(preload), EXPECTED_API_KEYS);
   assert.match(preload, /writeClipboardText: \(text\) => ipcRenderer\.invoke\("write-clipboard-text", text\)/);
   assert.match(preload, /showItemInFolder: \(path\) => ipcRenderer\.invoke\("show-item-in-folder", path\)/);

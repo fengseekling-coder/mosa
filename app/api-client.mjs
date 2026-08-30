@@ -47,13 +47,6 @@ export function createApiClient(deps) {
     renderSettingsMenu();
   }
 
-  async function loadCowartCanvases() {
-    const result = await apiFetch("/api/cowart-canvases");
-    state.cowartCanvases = result.canvases || [];
-    renderSettingsMenu();
-    if (state.detailOpen && !isDetailEditorActive()) renderDetail();
-  }
-
   let statsRequestSequence = 0;
   async function loadStats(options = {}) {
     const requestId = ++statsRequestSequence;
@@ -349,7 +342,7 @@ export function createApiClient(deps) {
   }
 
   return {
-    apiFetch, loadProjects, loadCowartCanvases, loadStats, loadAssets, refreshLibraryInBackground,
+    apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground,
     refreshAssetPageTotalInBackground, refreshLoadedAssetsInBackground, reloadLoadedAssetPages,
     buildAssetPageParams, requestAssetPage, requestAssetTotal, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion,
   };

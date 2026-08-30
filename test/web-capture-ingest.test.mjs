@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -9,6 +9,7 @@ import sharp from "sharp";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 import { createReferenceAttachmentStore } from "../lib/reference-attachment-store.js";
 import {
+  cleanupWebCaptureTemp,
   createWebCaptureIngest,
   ingestWebCapture,
   WEB_CAPTURE_MAX_BODY_BYTES,
@@ -26,6 +27,23 @@ const SAMPLE_PNG_BASE64 = await (async () => {
   const buf = await sharp(raw, { raw: { width, height, channels: 3 } }).jpeg({ quality: 88 }).toBuffer();
   return buf.toString("base64");
 })();
+
+test("web capture temp cleanup removes stale crash leftovers without touching fresh files", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-temp-cleanup-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const tempRoot = join(root, ".web-capture-tmp");
+  await mkdir(tempRoot, { recursive: true });
+  const stale = join(tempRoot, "chatgpt-stale.png");
+  const fresh = join(tempRoot, "chatgpt-fresh.png");
+  await writeFile(stale, "stale");
+  await writeFile(fresh, "fresh");
+  const now = Date.now();
+  const staleTime = new Date(now - 48 * 60 * 60 * 1000);
+  await utimes(stale, staleTime, staleTime);
+  const removed = await cleanupWebCaptureTemp(tempRoot, { ttlMs: 24 * 60 * 60 * 1000, now: () => now });
+  assert.equal(removed, 1);
+  assert.deepEqual(await readdir(tempRoot), ["chatgpt-fresh.png"]);
+});
 
 const LOGO_PNG_BASE64 = (
   await sharp({
@@ -1031,6 +1049,19 @@ test("HTTP ingest endpoint accepts chrome-extension origin with token", async (t
 
   const port = await waitForServerPort(server);
   await waitForServer(port, server);
+
+  const extensionHealth = await fetch(`http://127.0.0.1:${port}/api/health`, {
+    headers: { origin: "chrome-extension://abc123" },
+  });
+  assert.equal(extensionHealth.status, 200, "approved extension origin can discover MOSA through health");
+  assert.equal(extensionHealth.headers.get("access-control-allow-origin"), "chrome-extension://abc123");
+  assert.equal((await extensionHealth.json()).product, "mosa");
+
+  const blockedExtensionHealth = await fetch(`http://127.0.0.1:${port}/api/health`, {
+    headers: { origin: "chrome-extension://other" },
+  });
+  assert.equal(blockedExtensionHealth.status, 403, "unapproved extension origins stay blocked from health");
+  await blockedExtensionHealth.arrayBuffer();
 
   const blocked = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture`, {
     method: "POST",
