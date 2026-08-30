@@ -80,6 +80,24 @@ test("completed migrations fail closed when mosa.db disappears instead of reopen
   );
 });
 
+test("a backup directory alone does not claim a failed migration completed", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-migrate-backup-only-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const managerDir = join(root, "mosa");
+  const imageDir = join(managerDir, "assets", "default", "images");
+  const metadataDir = join(managerDir, "assets", "default", "metadata");
+  await mkdir(imageDir, { recursive: true });
+  await mkdir(metadataDir, { recursive: true });
+  await writeFile(join(imageDir, "legacy.png"), PNG);
+  await writeFile(join(metadataDir, "legacy.json"), JSON.stringify({ id: "legacy", asset: "legacy.png", project_id: "default" }));
+  const libraryDir = join(root, "library");
+  await mkdir(join(libraryDir, "legacy-json-backup", "failed-attempt"), { recursive: true });
+
+  const store = createAssetStore({ projectRoot: root, managerDir, libraryDir, explicitLibraryDir: null });
+  assert.equal(store.storageKind, "json");
+  assert.equal((await store.listAssets({ projectId: "default" })).length, 1);
+});
+
 test("corrupt legacy JSON blocks migration and identifies the exact file", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-migrate-corrupt-"));
   t.after(() => rm(root, { recursive: true, force: true }));

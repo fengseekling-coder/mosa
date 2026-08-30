@@ -8,6 +8,7 @@ import test from "node:test";
 import sharp from "sharp";
 
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
+import { acquireMosaRuntimeLock } from "../lib/runtime-lock.js";
 
 test("Generation HTTP API records events, explicit relations, and lineage without accepting provider_verified claims", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-generation-api-"));
@@ -196,6 +197,12 @@ test("MCP exposes generation recording, relation, and lineage tools with the sam
   await store.setMigrationState("completed", { test: true });
   store.close();
 
+  // Simulate the desktop/server runtime holding its normal library lease.
+  // SQLite MCP must remain available because its DB/filesystem operations are
+  // designed for cross-process coexistence; only the legacy JSON backend is exclusive.
+  const runtimeLease = await acquireMosaRuntimeLock({ libraryDir });
+  t.after(() => runtimeLease.release());
+
   const server = spawn(process.execPath, ["mcp/server.mjs"], {
     cwd: process.cwd(),
     env: {
@@ -231,6 +238,18 @@ test("MCP exposes generation recording, relation, and lineage tools with the sam
   });
   assert.equal(invalidList.error.code, -32602);
   assert.match(invalidList.error.message, /arguments\.limit must be <= 250/);
+
+  const emptyVersionChange = await callMcp(server, {
+    jsonrpc: "2.0",
+    id: 8,
+    method: "tools/call",
+    params: {
+      name: "asset_version_create",
+      arguments: { assetId: firstAsset.id, version_change: "" },
+    },
+  });
+  assert.equal(emptyVersionChange.error.code, -32602);
+  assert.match(emptyVersionChange.error.message, /arguments\.version_change must contain at least 1 characters/);
 
   const first = await callMcp(server, {
     jsonrpc: "2.0",

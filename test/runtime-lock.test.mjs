@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 import test from "node:test";
 import { acquireMosaRuntimeLock } from "../lib/runtime-lock.js";
 
@@ -33,4 +35,29 @@ test("recovers a lock left by a terminated runtime", async (t) => {
   const lock = await acquireMosaRuntimeLock({ libraryDir });
   assert.equal(lock.owner.pid, process.pid);
   assert.equal(await lock.release(), true);
+});
+
+test("legacy JSON MCP refuses a second writer while a MOSA runtime lease is active", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-mcp-json-lock-"));
+  const libraryDir = join(root, "library");
+  await mkdir(join(libraryDir, "assets", "default", "metadata"), { recursive: true });
+  await writeFile(join(libraryDir, "assets", "default", "metadata", "legacy.json"), JSON.stringify({ id: "legacy", asset: "legacy.png" }));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const lease = await acquireMosaRuntimeLock({ libraryDir });
+  t.after(() => lease.release());
+  const server = spawn(process.execPath, ["mcp/server.mjs"], {
+    cwd: process.cwd(),
+    env: { ...process.env, MOSA_LIBRARY_DIR: libraryDir, MOSA_PROJECT_DIR: root },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stderr = "";
+  server.stderr.setEncoding("utf8");
+  server.stderr.on("data", (chunk) => { stderr += chunk; });
+  const [code] = await Promise.race([
+    once(server, "exit"),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("MCP did not reject the active JSON runtime lease.")), 5000)),
+  ]);
+  assert.notEqual(code, 0);
+  assert.match(stderr, /MOSA runtime already active for this library/);
 });

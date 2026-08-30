@@ -47,6 +47,20 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     if (touchesCurrent && state.detailDirty && typeof discardDetailDraft === "function") discardDetailDraft();
   }
 
+  function reconcileBatchMutation(assets = [], response = {}) {
+    if (!response?.partial) return { succeeded: assets, failed: [] };
+    const results = Array.isArray(response.results) ? response.results : [];
+    const byId = new Map(results.map((result) => [String(result?.id || ""), result]));
+    const succeeded = [];
+    const failed = [];
+    for (const asset of assets) {
+      const result = byId.get(String(asset?.id || ""));
+      if (result && result.ok !== false) succeeded.push(asset);
+      else failed.push(asset);
+    }
+    return { succeeded, failed };
+  }
+
   // Full manifest of one group via the existing paged asset query. The cap keeps
   // a runaway cursor loop bounded; local groups are far below it.
   async function fetchGroupAssets(groupName) {
@@ -228,7 +242,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         const assets = isMultiple ? selectedAssets : [asset];
         await runAction(async () => {
           if (isMultiple) {
-            await apiFetch("/api/assets/batch", {
+            const response = await apiFetch("/api/assets/batch", {
               method: "POST",
               body: {
                 action: "favorite",
@@ -237,15 +251,18 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
                 favorite: !asset.favorite,
               },
             });
+            const outcome = reconcileBatchMutation(assets, response);
+            if (outcome.failed.length) {
+              showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
+            } else {
+              showToast(t("favoriteUpdatedMultiple"), "success");
+            }
           } else {
             await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/favorite`, {
               method: "POST",
             });
+            showToast(asset.favorite ? t("removedFromFavorites") : t("addedToFavorites"), "success");
           }
-          showToast(
-            isMultiple ? t("favoriteUpdatedMultiple") : (asset.favorite ? t("removedFromFavorites") : t("addedToFavorites")),
-            "success"
-          );
           window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
         });
       },
@@ -375,17 +392,24 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
 
           await runAction(async () => {
             if (isMultiple) {
-              await apiFetch("/api/assets/batch", {
+              const response = await apiFetch("/api/assets/batch", {
                 method: "POST",
                 body: { action: "archive", projectId: state.project, assetIds: assets.map((entry) => entry.id) },
               });
+              const outcome = reconcileBatchMutation(assets, response);
+              commitSelectedAssetMutation(outcome.succeeded);
+              if (outcome.failed.length) {
+                showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
+              } else {
+                showToast(t("assetsArchived"), "success");
+              }
             } else {
               await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/archive`, {
                 method: "POST",
               });
+              commitSelectedAssetMutation(assets);
+              showToast(t("assetArchived"), "success");
             }
-            commitSelectedAssetMutation(assets);
-            showToast(isMultiple ? t("assetsArchived") : t("assetArchived"), "success");
             window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
           });
         },

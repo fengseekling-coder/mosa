@@ -80,6 +80,18 @@ test("clipboard actions never use renderer clipboard reads in the production app
   assert.match(app, /window\.electronAPI\?\.pasteImage \? pasteClipboardImage : null/);
 });
 
+test("context-menu batch mutations preserve partial failures instead of claiming full success", async () => {
+  const actions = await readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8");
+  assert.match(actions, /function reconcileBatchMutation\(assets = \[\], response = \{\}\)/);
+  assert.match(actions, /if \(!response\?\.partial\) return \{ succeeded: assets, failed: \[\] \};/);
+  assert.match(actions, /commitSelectedAssetMutation\(outcome\.succeeded\)/,
+    "archive only commits assets the server actually archived");
+  assert.match(actions, /batchPartialResult/,
+    "partial favorite/archive results surface an explicit partial-result message");
+  assert.doesNotMatch(actions, /commitSelectedAssetMutation\(assets\);\s*showToast\(isMultiple \? t\("assetsArchived"\)/,
+    "bulk archive must not blindly commit the whole selection after a 207 response");
+});
+
 test("global drag guard blocks default file navigation outside an active library drop target", async () => {
   const app = await readApp();
   const guard = sliceBetween(app, "function setupGlobalDragGuard()", "const favoriteRequests");

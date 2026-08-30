@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssetStore } from "../lib/asset-store.mjs";
 import { assertExternalVerificationLevel } from "../lib/generation-history.mjs";
+import { acquireMosaRuntimeLock } from "../lib/runtime-lock.js";
 import { MCP_SERVER_VERSION } from "../lib/version-identities.mjs";
 
 const managerDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -13,6 +14,20 @@ const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || process.cwd());
 const explicitLibraryDir = process.env.MOSA_LIBRARY_DIR ? resolve(process.env.MOSA_LIBRARY_DIR) : null;
 const libraryDir = explicitLibraryDir || resolve(join(homedir(), "MOSA Library"));
 const store = createAssetStore({ projectRoot, managerDir, libraryDir, explicitLibraryDir });
+// SQLite uses WAL plus insert-only managed filenames for safe App+MCP
+// coexistence. The legacy JSON backend has no cross-process metadata
+// transaction, so it must share the runtime's exclusive lease instead of
+// allowing two writers to race over JSON files.
+const directStoreLease = store.storageKind === "json"
+  ? await acquireMosaRuntimeLock({ libraryDir })
+  : null;
+let directStoreClosed = false;
+
+async function closeDirectStore() {
+  if (directStoreClosed) return;
+  directStoreClosed = true;
+  try { store.close?.(); } finally { await directStoreLease?.release().catch(() => {}); }
+}
 
 const TOOL_ASSET_CREATE = "asset_create";
 const TOOL_ASSET_LIST = "asset_list";
@@ -471,12 +486,24 @@ function validateSchema(schema, value, path) {
     }
   } else if (schema.type === "string") {
     if (typeof value !== "string") return `${path} must be a string.`;
+    if (Number.isInteger(schema.minLength) && value.length < schema.minLength) return `${path} must contain at least ${schema.minLength} characters.`;
+    if (Number.isInteger(schema.maxLength) && value.length > schema.maxLength) return `${path} must contain at most ${schema.maxLength} characters.`;
+    if (typeof schema.pattern === "string") {
+      let pattern;
+      try { pattern = new RegExp(schema.pattern); }
+      catch { return `${path} has an invalid schema pattern.`; }
+      if (!pattern.test(value)) return `${path} must match ${schema.pattern}.`;
+    }
   } else if (schema.type === "boolean") {
     if (typeof value !== "boolean") return `${path} must be a boolean.`;
   } else if (schema.type === "integer") {
     if (!Number.isInteger(value)) return `${path} must be an integer.`;
   } else if (schema.type === "number") {
     if (typeof value !== "number" || !Number.isFinite(value)) return `${path} must be a finite number.`;
+  }
+  if (Array.isArray(value)) {
+    if (Number.isInteger(schema.minItems) && value.length < schema.minItems) return `${path} must contain at least ${schema.minItems} items.`;
+    if (Number.isInteger(schema.maxItems) && value.length > schema.maxItems) return `${path} must contain at most ${schema.maxItems} items.`;
   }
   if (typeof value === "number") {
     if (Number.isFinite(schema.minimum) && value < schema.minimum) return `${path} must be >= ${schema.minimum}.`;
@@ -530,3 +557,9 @@ rl.on("line", async (line) => {
     sendError(null, -32700, error.message);
   }
 });
+rl.on("close", () => { void closeDirectStore(); });
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, () => {
+    void closeDirectStore().finally(() => process.exit(0));
+  });
+}
