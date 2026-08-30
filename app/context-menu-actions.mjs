@@ -72,14 +72,6 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     if (type === "group") {
       items.push(
         {
-          label: t("editGroup"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20h4l10.5-10.5a2.12 2.12 0 0 0-3-3L5 17v3Z"/><path d="m13.5 6 3 3"/></svg>',
-          action: async () => {
-            // Open edit group modal
-            window.dispatchEvent(new CustomEvent("mosa:edit-group", { detail: { groupId: item.id } }));
-          },
-        },
-        {
           label: t("duplicateGroup"),
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
           action: async () => {

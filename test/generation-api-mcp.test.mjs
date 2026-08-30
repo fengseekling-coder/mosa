@@ -89,6 +89,18 @@ test("Generation HTTP API records events, explicit relations, and lineage withou
   const listed = (await listResponse.json()).events;
   assert.deepEqual(listed.map((event) => event.id), [firstEvent.id]);
 
+  const firstPageResponse = await fetch(`${baseUrl}/api/generations?project=default&limit=1`);
+  assert.equal(firstPageResponse.status, 200);
+  const firstPage = await firstPageResponse.json();
+  assert.equal(firstPage.events.length, 1);
+  assert.equal(firstPage.page.limit, 1);
+  assert.equal(firstPage.page.nextCursor, "1");
+  const secondPageResponse = await fetch(`${baseUrl}/api/generations?project=default&limit=1&cursor=${firstPage.page.nextCursor}`);
+  assert.equal(secondPageResponse.status, 200);
+  const secondPage = await secondPageResponse.json();
+  assert.equal(secondPage.events.length, 1);
+  assert.notEqual(secondPage.events[0].id, firstPage.events[0].id);
+
   const lineageResponse = await fetch(`${baseUrl}/api/generations/${encodeURIComponent(secondEvent.id)}/lineage?project=default`);
   assert.equal(lineageResponse.status, 200);
   const lineage = (await lineageResponse.json()).lineage;
@@ -211,6 +223,15 @@ test("MCP exposes generation recording, relation, and lineage tools with the sam
   const relationDefinition = tools.find((tool) => tool.name === "generation_relation_record");
   assert.deepEqual(relationDefinition.inputSchema.properties.verificationLevel.enum, ["user_confirmed", "observed", "inferred"]);
 
+  const invalidList = await callMcp(server, {
+    jsonrpc: "2.0",
+    id: 7,
+    method: "tools/call",
+    params: { name: "asset_list", arguments: { limit: 999 } },
+  });
+  assert.equal(invalidList.error.code, -32602);
+  assert.match(invalidList.error.message, /arguments\.limit must be <= 250/);
+
   const first = await callMcp(server, {
     jsonrpc: "2.0",
     id: 2,
@@ -284,8 +305,8 @@ test("MCP exposes generation recording, relation, and lineage tools with the sam
       },
     },
   });
-  assert.equal(reserved.result.isError, true);
-  assert.equal(reserved.result.structuredContent.error.code, "GENERATION_PROVIDER_VERIFICATION_RESERVED");
+  assert.equal(reserved.error.code, -32602);
+  assert.match(reserved.error.message, /arguments\.verificationLevel must be one of: user_confirmed, observed, inferred/);
 });
 
 function postJson(url, body) {

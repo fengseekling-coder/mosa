@@ -191,16 +191,16 @@
         <section class="library-view" id="libraryView">
         <!-- V2 FilterBar 顶栏：左=.topbar-context（范围标题+类型筛选），右=.topbar-actions
              按 mosa-library-v2 FilterBar 顺序排列：结果计数 → 批量 → 排序 → 筛选 → 搜索框；
-             utility 组（桥接状态+主题）保留但由 V2 样式隐藏，primary 组保留唯一主操作导入素材。
+             utility 组保留主题切换；桥接状态继续通过辅助技术播报但不占可见布局，primary 组保留唯一主操作导入素材。
              六个控件 ID 均唯一；无隐藏复制控件、无溢出菜单。#bridgeStatusMeta 全档位
              visually-hidden（降噪）：不占可见布局但保留辅助技术语义；
-             role=status / aria-live / title / #statusText 播报路径不变（app.js 未动）。 -->
+             #statusText 独立于被隐藏的 utility 组，持续保留 aria-live 播报。 -->
         <header class="topbar">
           <div class="topbar-context"><div class="title-row"><button class="stack-back" id="stackBack" type="button" hidden data-i18n-aria-label="backToStackLibrary" aria-label="返回素材库"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button><h2 id="viewTitle">全部素材</h2></div><div class="topbar-type-filters" role="group" data-i18n-aria-label="typeFilter" aria-label="类型筛选"><button class="type-filter active" type="button" data-type="all" aria-pressed="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="14.5" width="6" height="6" rx="1"/><rect x="3.5" y="14.5" width="6" height="6" rx="1"/></svg><span data-i18n="allTypes">全部</span></button><button class="type-filter" type="button" data-type="img" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m4 18 5.5-5 3.5 3 2.5-2.5L20 18"/></svg><span data-i18n="typeImages">图片</span></button><button class="type-filter" type="button" data-type="video" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3Z"/></svg><span data-i18n="typeVideos">视频</span></button></div></div>
           <div class="topbar-actions">
+            <span class="visually-hidden" id="statusText" role="status" aria-live="polite" aria-relevant="text" aria-atomic="true"></span>
             <div class="topbar-utility-group">
-              <span class="visually-hidden" id="statusText" role="status" aria-live="polite" aria-relevant="text" aria-atomic="true"></span>
-              <div class="bridge-status" id="bridgeStatus" data-state="checking" role="status" aria-live="polite"><span class="bridge-dot" aria-hidden="true"></span><span id="bridgeStatusLabel" data-i18n="statusChecking">检查桥接状态…</span><span class="bridge-status-meta visually-hidden" id="bridgeStatusMeta"></span></div>
+              <div class="bridge-status visually-hidden" id="bridgeStatus" data-state="checking" role="status" aria-live="polite"><span class="bridge-dot" aria-hidden="true"></span><span id="bridgeStatusLabel" data-i18n="statusChecking">检查桥接状态…</span><span class="bridge-status-meta visually-hidden" id="bridgeStatusMeta"></span></div>
               <button class="toolbar-icon" id="themeToggle" type="button" aria-pressed="false" data-i18n-title="darkModeToggle" title="切换暗色模式" data-i18n-aria-label="darkModeToggle" aria-label="切换暗色模式"><svg class="theme-icon theme-icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg><svg class="theme-icon theme-icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></button>
             </div>
             <div class="topbar-work-group">

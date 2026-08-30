@@ -207,7 +207,7 @@ SQLite 迁移：
 
 SQLite 数据库路径为 `$HOME/MOSA Library/mosa.db`（也可由
 `MOSA_LIBRARY_DIR` 指定）。当前 SQLite 实现的 `CURRENT_SCHEMA_VERSION` 为
-`4`，启用 WAL、外键和 busy timeout。主要表和索引包括：
+`12`，启用 WAL、外键和 busy timeout。主要表和索引包括：
 
 - `projects`、`groups`、`assets`：项目、分组、素材原数据、哈希、来源和状态。
 - `tags`、`asset_tags`：标签关联。

@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const ignored = new Set([".git", "node_modules", "assets", "production", "canvas", "outputs"]);
+const ignored = new Set([".git", "node_modules", "coverage", "out", "assets", "production", "canvas", "outputs"]);
 const trackedIgnored = await gitLines(["ls-files", "-ci", "--exclude-standard"]);
 if (trackedIgnored.length > 0) {
   throw new Error(`Tracked files match .gitignore and must be removed from Git tracking:\n${trackedIgnored.join("\n")}`);

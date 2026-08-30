@@ -97,7 +97,4 @@ export function bindContextMenuEvents(options = {}) {
     const { assetId } = event.detail;
     if (assetId) openAssetView(assetId);
   });
-  window.addEventListener("mosa:edit-group", () => {
-    showToast(t("editGroupUnavailable"), "default");
-  });
 }

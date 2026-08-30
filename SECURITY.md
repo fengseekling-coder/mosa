@@ -29,7 +29,7 @@ The maintainer will acknowledge the report, assess its scope, and coordinate dis
 - MOSA is designed for loopback use on `127.0.0.1`. Public ports, reverse proxies, shared-host deployment, and untrusted multi-user access are unsupported.
 - Web Capture is disabled unless `MOSA_WEB_CAPTURE_TOKEN` is explicitly configured. Treat the Token as a local secret.
 - Browser-extension origins, input envelopes, declared MIME types, decoded image bytes, file sizes, and pixel counts must be validated before ingest.
-- Codex, Grok, and Cowart source roots and Cowart insertion targets are explicit allowlists. Do not widen them to work around an import failure.
+- Codex, Grok, and Cowart source roots are explicit allowlists. Do not widen them to work around an import failure.
 - Imported media, Prompt text, provenance, page URLs, and session identifiers are private user data by default.
 
 See [PRIVACY.md](PRIVACY.md) and [docs/operations.md](docs/operations.md) for the data and deployment boundaries.

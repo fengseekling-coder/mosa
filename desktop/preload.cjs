@@ -1,7 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
-  openFileDialog: () => ipcRenderer.invoke("open-file-dialog"),
   pasteImage: () => ipcRenderer.invoke("paste-image"),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
   setLocale: (locale) => ipcRenderer.invoke("set-locale", locale),

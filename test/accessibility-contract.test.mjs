@@ -125,7 +125,8 @@ test("uses a single language chosen from system, Chinese, or English", async () 
   assert.match(app, /function cowartCanvasListSignature\(canvases\)/);
   assert.doesNotMatch(app, /data-cowart-canvas-form/);
   assert.doesNotMatch(app, /data-remove-cowart-canvas/);
-  assert.match(apiClient, /\/api\/cowart-canvases/);
+  assert.doesNotMatch(apiClient, /\/api\/cowart-canvases/, "startup must not duplicate the bridge status sources request");
+  assert.match(app, /fetchStatus: \(\) => apiFetch\("\/api\/bridges"\)/);
 });
 
 test("keeps recipe version history navigable without replacing active edits", async () => {

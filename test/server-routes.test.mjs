@@ -358,6 +358,11 @@ test("invalid cursor returns 400 with INVALID_ASSET_CURSOR code", async (t) => {
   const validPage = await validCursorResponse.json();
   assert.ok(validPage.page);
 
+  const zeroLimitResponse = await fetch(`http://127.0.0.1:${port}/api/assets?limit=0`);
+  assert.equal(zeroLimitResponse.status, 200);
+  const zeroLimitPage = await zeroLimitResponse.json();
+  assert.equal(zeroLimitPage.page.limit, 100, "public API must not turn limit=0 into an unbounded SQLite query");
+
   assert.equal(server.exitCode, null);
 });
 

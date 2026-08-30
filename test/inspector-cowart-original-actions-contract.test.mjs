@@ -49,8 +49,8 @@ test("29-35. show-item-in-folder IPC is minimal, validated, and shell-correct", 
   const [preload, main] = await Promise.all([readPreload(), readMain()]);
 
   assert.match(preload, /showItemInFolder: \(path\) =>\s*\n?\s*ipcRenderer\.invoke\("show-item-in-folder", path\)/, "preload exposes showItemInFolder");
-  // Update checks add two fixed-purpose invokes; renderer still receives no generic shell or URL capability.
-  assert.equal(count(preload, "ipcRenderer.invoke"), 7, "preload exposes only the seven approved narrow invoke channels");
+  // Renderer keeps only the six currently approved fixed-purpose invokes; no generic shell or URL capability is exposed.
+  assert.equal(count(preload, "ipcRenderer.invoke"), 6, "preload exposes only the six approved narrow invoke channels");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "the renderer never receives a shell object");
 
   const handler = sliceBetween(main, 'ipcMain.handle("show-item-in-folder"', "\n}");

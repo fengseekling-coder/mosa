@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
-import { chmod, copyFile, mkdtemp, mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, mkdir, readFile, rm, stat, unlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -9,6 +9,25 @@ import { createDerivativeWorker, processDerivativeJob } from "../lib/derivative-
 import { createAssetStore } from "../lib/asset-store.mjs";
 import { normalizeCreatedAt } from "../lib/recent-window.js";
 import { createSqliteAssetStore, sqliteDatabasePath } from "../lib/sqlite-asset-store.mjs";
+
+test("SQLite managed-file cleanup removes only stale unreferenced files", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-orphan-cleanup-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir: join(root, "library"), initializeFreshLibrary: true });
+  t.after(() => store.close());
+  await store.ensureProject("default");
+  const stale = join(store.imagesDir("default"), "stale-orphan.png");
+  const fresh = join(store.imagesDir("default"), "fresh-orphan.png");
+  await writeFile(stale, "stale");
+  await writeFile(fresh, "fresh");
+  const now = Date.now();
+  const staleTime = new Date(now - 48 * 60 * 60 * 1000);
+  await utimes(stale, staleTime, staleTime);
+  const result = await store.cleanupOrphanedManagedFiles({ olderThanMs: 24 * 60 * 60 * 1000 });
+  assert.equal(result.removed, 1);
+  await assert.rejects(stat(stale), /ENOENT/);
+  assert.equal((await stat(fresh)).isFile(), true);
+});
 
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+1CBR3wAAAABJRU5ErkJggg==", "base64");
 

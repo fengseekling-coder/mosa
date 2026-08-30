@@ -249,7 +249,6 @@ test("preload surface and Electron security boundaries are unchanged", async () 
     "onMenuImport",
     "onMenuSearch",
     "openDownloadPage",
-    "openFileDialog",
     "pasteImage",
     "setLocale",
     "showItemInFolder",
@@ -409,34 +408,11 @@ test("staging extensions mirror the store's supported media set exactly", () => 
   assert.deepEqual([...STAGING_EXTENSIONS].sort(), SUPPORTED_MEDIA_EXTENSIONS);
 });
 
-test("native dialog is single-file and derives its filters from STAGING_EXTENSIONS", async () => {
+test("desktop import uses the renderer picker instead of a redundant native dialog IPC", async () => {
   const main = await readFile(join(root, "desktop", "main.mjs"), "utf8");
-  const dialog = main.match(/ipcMain\.handle\("open-file-dialog"[\s\S]*?\n  }\);/)[0];
-
-  assert.match(dialog, /properties: \["openFile"\]/, "dialog must be single-file");
-  assert.doesNotMatch(dialog, /multiSelections/, "no multi-selection dialog");
-  assert.match(dialog, /filters: importDialogFilters\(\)/, "filters must derive from the staging set");
-  assert.equal(dialog.match(/stageFileForImport/g)?.length, 1, "exactly one file is staged");
-  assert.doesNotMatch(main, /"bmp"|"tiff"|"tif"/, "BMP/TIFF must never be advertised");
-  assert.match(main, /"\.apng"/, "APNG must be advertised");
-  assert.match(main, /"\.avif"/, "AVIF must be advertised");
-
-  const groupLiteral = (name) => {
-    const match = main.match(new RegExp(`${name} = new Set\\(\\[([^\\]]+)\\]\\)`));
-    assert.ok(match, `${name} group literal must exist`);
-    return [...match[1].matchAll(/"(\.[a-z0-9]+)"/g)].map((entry) => entry[1]);
-  };
-  const dialogSet = [...groupLiteral("DIALOG_IMAGE_GROUP"), ...groupLiteral("DIALOG_VIDEO_GROUP")].sort();
-  assert.deepEqual(dialogSet, SUPPORTED_MEDIA_EXTENSIONS, "dialog groups must cover exactly the store set");
-});
-
-test("staging failure propagates via IPC rejection without the raw path", async () => {
-  const main = await readFile(join(root, "desktop", "main.mjs"), "utf8");
-  const dialog = main.match(/ipcMain\.handle\("open-file-dialog"[\s\S]*?\n  }\);/)[0];
-  assert.match(dialog, /console\.error/, "main-process diagnostics are kept");
-  assert.match(dialog, /throw new Error/, "failure must reject instead of returning []");
-  assert.match(dialog, /import-staging failed \(\$\{error\?\.code/, "rejection is sanitized (code only, no path)");
-  assert.doesNotMatch(dialog, /return staged/, "no partial-result return");
+  const preload = await readFile(join(root, "desktop", "preload.cjs"), "utf8");
+  assert.doesNotMatch(main, /ipcMain\.handle\("open-file-dialog"/, "unused native dialog handler stays removed");
+  assert.doesNotMatch(preload, /openFileDialog:/, "unused native dialog capability is not exposed");
 });
 
 test("manual picker/drop pattern matches the store set and stages through the local runtime", async () => {

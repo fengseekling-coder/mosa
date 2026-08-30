@@ -20,7 +20,7 @@ const root = resolve(import.meta.dirname, "..");
 test("renderSettingsMenu does not attach any event listeners", async () => {
   const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
-  const match = /function renderSettingsMenu\(\) \{([\s\S]*?)\n\}\n\nasync function fetchDiagnostics/.exec(app);
+  const match = /function renderSettingsMenu\(\) \{([\s\S]*?)\n\}\n\nfunction cowartCanvasLabel/.exec(app);
   assert.ok(match, "expected to find renderSettingsMenu function body");
   const body = match[1];
 
@@ -74,7 +74,7 @@ test("legacy densityToggle references have been removed from app.js", async () =
 test("renderSettingsMenu uses real state for segmented control active status", async () => {
   const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
-  const match = /function renderSettingsMenu\(\) \{([\s\S]*?)\n\}\n\nasync function fetchDiagnostics/.exec(app);
+  const match = /function renderSettingsMenu\(\) \{([\s\S]*?)\n\}\n\nfunction cowartCanvasLabel/.exec(app);
   assert.ok(match, "expected to find renderSettingsMenu function body");
   const body = match[1];
 
@@ -90,17 +90,13 @@ test("renderSettingsMenu uses real state for segmented control active status", a
   assert.doesNotMatch(body, /"info"\s*===\s*"info"/, "renderSettingsMenu must not contain tautological info comparison");
 });
 
-test("diagnostics shows the product and independent MCP versions", async () => {
+test("removed diagnostics panel leaves no dead renderer hooks or copy", async () => {
   const [app, i18n] = await Promise.all([
     readFile(resolve(root, "app/app.mjs"), "utf8"),
     readFile(resolve(root, "app/i18n.mjs"), "utf8"),
   ]);
-
-  assert.match(app, /data\.productVersion/);
-  assert.match(app, /data\.mcpServerVersion/);
-  assert.match(app, /t\("diagMcpVersion"\)/);
-  assert.match(i18n, /diagMcpVersion: "MCP 版本"/);
-  assert.match(i18n, /diagMcpVersion: "MCP version"/);
+  assert.doesNotMatch(app, /diagnosticsPanel|diagnosticsContent|diagnosticsExpanded|fetchDiagnostics/);
+  assert.doesNotMatch(i18n, /diagMcpVersion|diagUiFingerprint|showDiagnostics|hideDiagnostics/);
 });
 
 test("topbar theme toggle stays synchronized with the shared theme state", async () => {
