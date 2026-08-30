@@ -122,7 +122,9 @@ export interface SqliteAssetStore {
   listGroups(projectId: string): Promise<GroupInfo[]>;
   createGroup(projectId: string, name: string): Promise<void>;
   findAssetByContentHash(projectId: string, contentHash: string): Promise<StoredAsset | null>;
+  findAssetBySourcePath(projectId: string, sourcePath: string): Promise<StoredAsset | null>;
   findAssetByPixelHash(projectId: string, pixelHash: string): Promise<StoredAsset | null>;
+  libraryRevision(projectId?: string): Promise<string>;
   findAutomaticIngestSuppression(projectId: string, hashes: Record<string, unknown>): Promise<Record<string, unknown> | null>;
   listAutomaticIngestSuppressions(projectId: string): Promise<Array<Record<string, unknown>>>;
   listAutomaticIngestSuppressionPage(projectId: string, options?: Record<string, unknown>): Promise<{ suppressions: Array<Record<string, unknown>>; page: { limit: number; nextCursor: string | null } }>;

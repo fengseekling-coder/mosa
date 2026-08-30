@@ -22,7 +22,7 @@ MOSA 当前是绑定 `127.0.0.1` 的本地 Web 应用，也提供共享同一套
 
 ## 环境要求
 
-- 源码模式需要 Node.js 22 或更高版本、npm；桌面开发目前覆盖 macOS arm64 与 Windows 10/11 x64。
+- 源码模式需要 Node.js 22 或更高版本、npm；桌面开发目前覆盖 macOS arm64 与 Windows 10/11 x64。Windows 首次执行 `npm ci` 时请优先使用仓库 `.nvmrc` / `.node-version` 固定的 Node 22.x，与 Windows CI 保持一致，避免 Node 24 下 Electron node-gyp 工具链解析差异触发不必要的 ClangCL 编译要求。
 - 要自动归档 Codex 生图，需要安装 Codex Desktop。
 - 要自动归档 Grok 媒体，需要本机已登录并可写入 `~/.grok/sessions` 的 Grok Build CLI。
 - Cowart 自动归档需要安装 Cowart 插件；不使用 Cowart 时不影响 MOSA 的其他功能。

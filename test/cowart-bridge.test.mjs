@@ -42,6 +42,41 @@ test("archives Cowart page assets once and keeps MOSA-origin images out", async 
   assert.equal(second.skipped.filter((item) => item.reason === "already-archived").length, 1);
 });
 
+test("skips unchanged Cowart candidates without re-querying the asset store", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-cowart-signature-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const canvasDir = join(root, "cowart-data", "mosa");
+  const pageDir = join(canvasDir, "pages", "page");
+  const pageAssetsDir = join(pageDir, "assets");
+  const imagePath = join(pageAssetsDir, "stable.png");
+  await mkdir(pageAssetsDir, { recursive: true });
+  await writeFile(imagePath, "stable-cowart-bytes", "utf8");
+  await writeFile(join(pageDir, "cowart-canvas.json"), JSON.stringify({
+    store: {
+      "asset:stable": { id: "asset:stable", typeName: "asset", type: "image", props: { name: "stable.png", src: "/page-assets/page/stable.png" }, meta: {} },
+      "shape:stable": { id: "shape:stable", typeName: "shape", type: "image", props: { assetId: "asset:stable", w: 100, h: 100, altText: "stable" }, meta: {} },
+    },
+  }), "utf8");
+
+  let sourceLookups = 0;
+  let listCalls = 0;
+  const store = {
+    cowartCanvasDir: canvasDir,
+    async listAssets() { listCalls += 1; return []; },
+    async findAssetBySourcePath() { sourceLookups += 1; return { id: "existing", source: { path: imagePath } }; },
+    async findAssetByContentHash() { throw new Error("content lookup should not run"); },
+    async findAssetByPixelHash() { throw new Error("pixel lookup should not run"); },
+    async createAsset() { throw new Error("create should not run"); },
+  };
+  const processedSignatures = new Map();
+  const first = await reconcileCowartAssets({ store, canvasDir, processedSignatures });
+  const second = await reconcileCowartAssets({ store, canvasDir, processedSignatures });
+  assert.equal(first.skipped[0].reason, "already-archived");
+  assert.equal(second.skipped[0].reason, "unchanged");
+  assert.equal(sourceLookups, 1);
+  assert.equal(listCalls, 0);
+});
+
 test("deduplicates Cowart copies by content even when their page asset paths differ", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-content-dedupe-"));
   t.after(() => rm(root, { recursive: true, force: true }));

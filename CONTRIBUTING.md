@@ -15,7 +15,7 @@ Do not post real Prompts, user assets, Tokens, cookies, credentials, local absol
 
 ## Local Setup
 
-Source development requires Node.js 22 or newer and npm. Desktop-specific work is currently validated on macOS arm64 and Windows 10/11 x64.
+Source development requires Node.js 22 or newer and npm. Desktop-specific work is currently validated on macOS arm64 and Windows 10/11 x64. On Windows, use the repository-pinned Node 22.x from `.nvmrc` / `.node-version` before the initial `npm ci`; this matches the clean Windows CI environment and avoids the Electron native-toolchain resolution differences seen with Node 24.
 
 ```bash
 npm ci

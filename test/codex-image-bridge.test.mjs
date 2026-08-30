@@ -50,6 +50,39 @@ test("archives Codex generated images with task metadata and avoids duplicates",
   assert.equal(second.skipped[0].reason, "already-archived");
 });
 
+test("skips unchanged Codex candidates without touching the asset store twice", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-codex-signature-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const imagesDir = join(root, "generated_images");
+  const imagePath = join(imagesDir, "task-a", "stable.png");
+  await mkdir(join(imagesDir, "task-a"), { recursive: true });
+  await writeFile(imagePath, pngFixture(64, 64));
+
+  let sourceLookups = 0;
+  let listCalls = 0;
+  const store = {
+    codexImagesDir: imagesDir,
+    async listAssets() { listCalls += 1; return []; },
+    async findAssetBySourcePath() {
+      sourceLookups += 1;
+      return { id: "existing", project_id: "default", prompt: "", theme: "", business_fields: {}, source: { path: imagePath } };
+    },
+    async findAssetByContentHash() { throw new Error("content lookup should not run"); },
+    async findAssetByPixelHash() { throw new Error("pixel lookup should not run"); },
+    async updateMetadata() {},
+    async createAsset() { throw new Error("create should not run"); },
+  };
+  const processedSignatures = new Map();
+  const sessionsDir = join(root, "sessions");
+  const first = await reconcileCodexGeneratedImages({ store, imagesDir, sessionsDir, processedSignatures });
+  const second = await reconcileCodexGeneratedImages({ store, imagesDir, sessionsDir, processedSignatures });
+
+  assert.equal(first.skipped[0].reason, "already-archived");
+  assert.equal(second.skipped[0].reason, "unchanged");
+  assert.equal(sourceLookups, 1);
+  assert.equal(listCalls, 0, "indexed bridge lookup must not fall back to full project listing");
+});
+
 test("passes automatic ingest mode and continues after a suppressed Codex image", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-codex-suppressed-"));
   t.after(() => rm(root, { recursive: true, force: true }));

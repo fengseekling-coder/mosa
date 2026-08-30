@@ -7,6 +7,7 @@ import test from "node:test";
 import sharp from "sharp";
 import { createDerivativeWorker, processDerivativeJob } from "../lib/derivative-worker.js";
 import { createAssetStore } from "../lib/asset-store.mjs";
+import { PIXEL_HASH_VERSION, safePixelDigest } from "../lib/image-pixel-hash.js";
 import { normalizeCreatedAt } from "../lib/recent-window.js";
 import { createSqliteAssetStore, sqliteDatabasePath } from "../lib/sqlite-asset-store.mjs";
 
@@ -521,6 +522,7 @@ test("SQLite content-hash lookup uses its index and matches the JSON store's cho
   const found = await store.findAssetByContentHash("default", hash);
   assert.equal(found.id, "same-newest");
   assert.deepEqual(found, await store.getAsset("default", "same-newest"));
+  assert.equal((await store.findAssetBySourcePath("default", sourcePath)).id, "same-newest");
 
   // Any normal metadata edit heals both stored representations of a legacy created_at value.
   const healed = await store.updateMetadata("default", "same-oldest", { rating: 1 });
@@ -557,6 +559,40 @@ test("SQLite content-hash lookup uses its index and matches the JSON store's cho
     WHERE project_id = ? AND content_sha256 = ? ORDER BY archived ASC, mosa_normalize_created_at(created_at) DESC, id DESC LIMIT 1`);
   assert.ok(plan.includes("assets_project_hash_idx"), `expected the content-hash index to be used, got: ${plan}`);
   assert.equal(plan.includes("assets_project_created_idx"), false, `the project-order index must not be walked, got: ${plan}`);
+  const pathPlan = inspect.prepare(`EXPLAIN QUERY PLAN SELECT * FROM assets INDEXED BY assets_project_source_path_idx
+    WHERE project_id = ? AND source_path = ? ORDER BY archived ASC, mosa_normalize_created_at(created_at) DESC, id DESC LIMIT 1`)
+    .all("default", sourcePath).map((row) => row.detail).join(" | ");
+  assert.ok(pathPlan.includes("assets_project_source_path_idx"), `expected the source-path index to be used, got: ${pathPlan}`);
+});
+
+test("SQLite pixel-hash lookup ignores obsolete hash versions", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-pixel-version-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const sourcePath = join(projectRoot, "generated-images", "pixel.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 10, g: 20, b: 30 } } }).png().toFile(sourcePath);
+  const libraryDir = join(root, "library");
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir });
+  t.after(() => { try { store.close(); } catch { /* already closed */ } });
+
+  const pixelHash = await safePixelDigest(sourcePath);
+  const asset = await store.createAsset({
+    assetId: "pixel-version",
+    imagePath: sourcePath,
+    source: { pixel_sha256: pixelHash, pixel_hash_version: PIXEL_HASH_VERSION },
+  });
+  assert.ok(pixelHash);
+  assert.equal((await store.findAssetByPixelHash("default", pixelHash)).id, asset.id);
+
+  const rewrite = new Database(sqliteDatabasePath(libraryDir));
+  const row = rewrite.prepare("SELECT source_json FROM assets WHERE project_id = ? AND id = ?").get("default", asset.id);
+  const source = JSON.parse(row.source_json);
+  source.pixel_hash_version = "legacy-pixel-v0";
+  rewrite.prepare("UPDATE assets SET source_json = ? WHERE project_id = ? AND id = ?").run(JSON.stringify(source), "default", asset.id);
+  rewrite.close();
+
+  assert.equal(await store.findAssetByPixelHash("default", pixelHash), null);
 });
 
 test("runtime storage selection cannot bypass migration completion", async (t) => {

@@ -22,7 +22,10 @@ export const CARD_TITLE_MAX = 52;
 export const SKELETON_TILE_COUNT = 12;
 export const STATUS_ANNOUNCEMENT_DURATION = 3000;
 export const LIVE_REGION_WRITE_DELAY = 32;
-export const LIBRARY_REFRESH_INTERVAL = 5000;
+// Poll only a tiny revision token. The heavier groups/assets refresh runs only
+// after the token changes, so external bridge/MCP writes still appear quickly
+// without continuously querying a large library.
+export const LIBRARY_REFRESH_INTERVAL = 3000;
 export const SOURCE_LABEL_KEYS = {
   "codex-generated": "sourceCodex",
   "cowart-generated": "sourceCowart",

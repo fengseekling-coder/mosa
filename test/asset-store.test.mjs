@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import Database from "better-sqlite3";
+import sharp from "sharp";
 import { createAssetStore } from "../lib/asset-store.mjs";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
+import { PIXEL_HASH_VERSION, safePixelDigest } from "../lib/image-pixel-hash.js";
 
 // createAssetStore falls back to process.env.MOSA_LIBRARY_DIR, so path-selection
 // tests must neutralise it; node:test runs tests in-file sequentially, and each
@@ -32,6 +34,33 @@ test("JSON runtime without any libraryDir keeps assets under managerDir/assets",
   assert.equal(store.libraryDir, null);
   assert.equal(store.assetsRoot, join(managerDir, "assets"));
   assert.equal(store.projectDir("default"), join(managerDir, "assets", "default"));
+});
+
+test("library revision changes for local and external writes without listing assets", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-library-revision-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const jsonProjectRoot = join(root, "json-project");
+  const jsonStore = createAssetStore({ projectRoot: jsonProjectRoot, managerDir: join(jsonProjectRoot, "mosa") });
+  const jsonBefore = await jsonStore.libraryRevision("default");
+  await jsonStore.createGroup({ projectId: "default", name: "Revision Group" });
+  const jsonAfter = await jsonStore.libraryRevision("default");
+  assert.notEqual(jsonAfter, jsonBefore);
+
+  const sqliteProjectRoot = join(root, "sqlite-project");
+  const libraryDir = join(root, "sqlite-library");
+  const sqliteStore = createSqliteAssetStore({ projectRoot: sqliteProjectRoot, managerDir: join(sqliteProjectRoot, "mosa"), libraryDir, initializeFreshLibrary: true });
+  const sqlitePeer = createSqliteAssetStore({ projectRoot: sqliteProjectRoot, managerDir: join(sqliteProjectRoot, "mosa"), libraryDir });
+  t.after(() => { try { sqliteStore.close(); } catch {} try { sqlitePeer.close(); } catch {} });
+
+  const sqliteBefore = await sqliteStore.libraryRevision("default");
+  await sqliteStore.createGroup({ projectId: "default", name: "Local Revision" });
+  const sqliteLocal = await sqliteStore.libraryRevision("default");
+  assert.notEqual(sqliteLocal, sqliteBefore, "same-connection writes advance the local revision");
+
+  await sqlitePeer.createGroup({ projectId: "default", name: "External Revision" });
+  const sqliteExternal = await sqliteStore.libraryRevision("default");
+  assert.notEqual(sqliteExternal, sqliteLocal, "another SQLite connection advances PRAGMA data_version");
 });
 
 test("JSON group stats expose automatic source buckets for sidebar navigation", async (t) => {
@@ -1087,6 +1116,7 @@ test("JSON store looks assets up by content hash without listing the project", a
   assert.equal(found.id, "same-newest");
   assert.equal(found.image_url, `/library/default/images/${found.asset}`, "the match is decorated like getAsset");
   assert.deepEqual(found, await store.getAsset("default", "same-newest"));
+  assert.equal((await store.findAssetBySourcePath("default", sourcePath)).id, "same-newest");
 
   // 2. It agrees with what a full scan of both listings would have found.
   const scanned = [
@@ -1106,6 +1136,27 @@ test("JSON store looks assets up by content hash without listing the project", a
     assert.equal(await store.findAssetByContentHash("default", empty), null);
   }
   assert.equal(await store.findAssetByContentHash("no-such-project", hash), null, "an unknown project must not create anything");
+});
+
+test("JSON pixel-hash lookup ignores obsolete hash versions", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-json-pixel-version-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const sourcePath = join(projectRoot, "generated-images", "pixel.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await sharp({ create: { width: 2, height: 2, channels: 3, background: { r: 10, g: 20, b: 30 } } }).png().toFile(sourcePath);
+  const store = createAssetStore({ projectRoot, managerDir });
+  const pixelHash = await safePixelDigest(sourcePath);
+  const created = await store.createAsset({
+    assetId: "pixel-version",
+    imagePath: sourcePath,
+    source: { pixel_sha256: pixelHash, pixel_hash_version: PIXEL_HASH_VERSION },
+  });
+  assert.ok(pixelHash);
+  assert.equal((await store.findAssetByPixelHash("default", pixelHash)).id, created.id);
+  await store.updateMetadata("default", created.id, { source: { ...created.source, pixel_hash_version: "legacy-pixel-v0" } });
+  assert.equal(await store.findAssetByPixelHash("default", pixelHash), null);
 });
 
 test("readProjectAssets warns on corrupt JSON and still returns valid assets", async (t) => {
