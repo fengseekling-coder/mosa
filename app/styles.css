@@ -405,10 +405,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .asset-card.selected .asset-card-select { box-shadow: 0 0 0 var(--border-width-selected) var(--color-accent); }
 .asset-card.multi-selected .asset-card-select { box-shadow: 0 0 0 var(--border-width-selected) var(--color-accent); }
 .asset-card.is-stack { isolation: isolate; }
+.asset-card.is-stack .card-actions { opacity: 0; pointer-events: none; }
 .asset-card.is-stack::before { content: ""; position: absolute; z-index: -1; inset: 4px -4px -4px 4px; border-radius: var(--radius-card); background: color-mix(in srgb, var(--color-text-primary) 10%, var(--app-card)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-text-primary) 7%, transparent); pointer-events: none; }
 .asset-stack-count { position: absolute; z-index: 3; right: var(--space-1); bottom: var(--space-1); display: inline-flex; min-width: 24px; height: 24px; align-items: center; justify-content: center; padding: 0 7px; border: 1px solid rgb(255 255 255 / .54); border-radius: 999px; color: var(--color-media-backdrop); background: rgb(255 255 255 / .78); box-shadow: 0 2px 8px rgb(0 0 0 / .12); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); font-size: 11px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; }
 .asset-card.stack-drop-target .asset-card-select { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 72%, transparent); transform: scale(.985); }
-.asset-card.stack-reorder-target .asset-card-select::after { box-shadow: inset 3px 0 0 var(--color-accent), inset 0 0 0 1px rgb(28 25 23 / 0.06); }
+.asset-card.stack-reorder-target.stack-reorder-before .asset-card-select::after { box-shadow: inset 3px 0 0 var(--color-accent), inset 0 0 0 1px rgb(28 25 23 / 0.06); }
+.asset-card.stack-reorder-target.stack-reorder-after .asset-card-select::after { box-shadow: inset -3px 0 0 var(--color-accent), inset 0 0 0 1px rgb(28 25 23 / 0.06); }
 .asset-stack-drag-ghost { position: fixed; z-index: var(--z-modal); top: 0; left: 0; display: grid; min-width: 30px; height: 30px; place-items: center; padding: 0 8px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); color: var(--color-text-primary); background: var(--color-surface-raised); box-shadow: var(--shadow-popover); pointer-events: none; font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; }
 body.asset-stack-dragging { cursor: grabbing; user-select: none; }
 .card-scrim { position: absolute; z-index: 1; inset: 0; background: linear-gradient(to bottom, var(--color-scrim), transparent 32%, transparent 68%, var(--color-scrim)); opacity: 0; transition: opacity .15s ease; pointer-events: none; }

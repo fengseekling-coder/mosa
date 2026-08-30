@@ -50,7 +50,10 @@ test("gallery marquee selection is wired into shared web/app renderer", async ()
   assert.match(selection, /startCardId: startCard\?\.dataset\.id \|\| ""/);
   assert.match(selection, /pointer\.startCardId \? MARQUEE_CARD_DRAG_THRESHOLD_PX : MARQUEE_DRAG_THRESHOLD_PX/);
   assert.match(selection, /if \(pointer\.startCardId\) next\.add\(pointer\.startCardId\)/);
-  assert.match(selection, /pointer\.dragging = true;\s+try \{ els\.assetGrid\?\.setPointerCapture/);
+  assert.match(selection, /pointer\.dragging = true;\s+captureDragGeometry\(\);\s+try \{ els\.assetGrid\?\.setPointerCapture/);
+  assert.match(selection, /pointer\.startContentX/);
+  assert.match(selection, /pointer\.cardRects/);
+  assert.match(selection, /scheduleDragSelectionUpdate\(event\.clientX, event\.clientY\)/);
   const beginPointerSection = selection.slice(selection.indexOf("function beginPointer"), selection.indexOf("function movePointer"));
   assert.doesNotMatch(beginPointerSection, /event\.target\.closest\?\.\("\.asset-card, button/);
   assert.match(selection, /window\.addEventListener\("pointermove", movePointer, \{ capture: true \}\)/);
@@ -58,5 +61,5 @@ test("gallery marquee selection is wired into shared web/app renderer", async ()
   assert.match(css, /\.asset-card-select, \.asset-card-select \.thumb \{ user-select: none; -webkit-user-drag: none; \}/);
 
   assert.match(bindings, /state\.selectedIds instanceof Set/);
-  assert.match(bindings, /getAssetMenu\(asset, selectedAssets\)/);
+  assert.match(bindings, /getAssetMenu\(asset, actionAssets, \{/);
 });

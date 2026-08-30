@@ -63,8 +63,14 @@ export function bindContextMenuEvents(options = {}) {
     const selectedAssets = selectedIds.has(asset.id)
       ? state.assets.filter((entry) => selectedIds.has(entry.id))
       : [asset];
+    const selectionContainsStack = !state.activeStackId && selectedAssets.some((entry) => entry.stack?.id);
+    // A mixed root selection may contain logical Stack nodes. A normal asset
+    // menu must never turn those cover IDs into batch mutations.
+    const actionAssets = selectionContainsStack && !asset.stack?.id ? [asset] : selectedAssets;
     contextMenu.show({
-      items: contextMenuActions.getAssetMenu(asset, selectedAssets),
+      items: contextMenuActions.getAssetMenu(asset, actionAssets, {
+        stackNode: !state.activeStackId && Boolean(asset.stack?.id),
+      }),
       x: event.clientX,
       y: event.clientY,
       target: card,

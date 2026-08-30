@@ -37,7 +37,7 @@ test("asset stacks collapse to one gallery node and use the first member as cove
   assert.equal(stack.count, 3);
   assert.equal(stack.cover_asset_id, "b");
 
-  const rootPage = await store.listAssetPage({ projectId: "default", limit: 0, sort: "oldest" });
+  const rootPage = await store.listAssetPage({ projectId: "default", limit: 0, sort: "oldest", collapseStacks: true });
   assert.deepEqual(rootPage.assets.map((asset) => asset.id), ["b", "d"]);
   assert.deepEqual(rootPage.assets[0].stack, { id: stack.id, count: 3 });
 
@@ -61,7 +61,7 @@ test("reordering changes the cover, adding appends, and one remaining member dis
   const removal = await store.removeAssetsFromStack("default", stack.id, ["c", "b", "d"]);
   assert.equal(removal.dissolved, true);
   assert.equal(removal.remainingAssetId, "a");
-  assert.deepEqual((await store.listAssetPage({ projectId: "default", limit: 0, sort: "oldest" })).assets.map((asset) => asset.id), ["a", "b", "c", "d"]);
+  assert.deepEqual((await store.listAssetPage({ projectId: "default", limit: 0, sort: "oldest", collapseStacks: true })).assets.map((asset) => asset.id), ["a", "b", "c", "d"]);
 });
 
 test("archiving a stack member compacts the stack and promotes a new cover", async (t) => {
@@ -80,11 +80,76 @@ test("root search maps hidden member matches back to one stack cover node", asyn
   await store.updateMetadata("default", "c", { prompt: "neon orchid second hidden member" });
   const stack = await store.createAssetStack("default", ["a", "b", "c"], { coverAssetId: "a" });
 
-  const page = await store.listAssetPage({ projectId: "default", query: "neon orchid", limit: 100 });
+  const page = await store.listAssetPage({ projectId: "default", query: "neon orchid", limit: 100, collapseStacks: true });
   assert.equal(page.page.total, 1);
   assert.deepEqual(page.assets.map((asset) => asset.id), ["a"]);
   assert.deepEqual(page.assets[0].stack, { id: stack.id, count: 3 });
 
   const inside = await store.listAssetStackAssets("default", stack.id, { query: "neon orchid" });
   assert.deepEqual(inside.assets.map((asset) => asset.id), ["b", "c"]);
+});
+
+test("root and Stack-interior searches share the same asset-kind intent semantics", async (t) => {
+  const store = await createFixtureStore(t);
+  await store.updateMetadata("default", "b", { prompt: "logo mark exploration" });
+  await store.updateMetadata("default", "c", { prompt: "poster layout exploration" });
+  const stack = await store.createAssetStack("default", ["a", "b", "c"], { coverAssetId: "a" });
+
+  const rootLogo = await store.listAssetPage({ projectId: "default", query: "logo", collapseStacks: true, limit: 100 });
+  assert.deepEqual(rootLogo.assets.map((asset) => asset.id), ["a"]);
+  assert.deepEqual(rootLogo.assets[0].stack, { id: stack.id, count: 3 });
+
+  const insideLogo = await store.listAssetStackAssets("default", stack.id, { query: "logo" });
+  assert.deepEqual(insideLogo.assets.map((asset) => asset.id), ["b"]);
+  const insidePoster = await store.listAssetStackAssets("default", stack.id, { query: "poster" });
+  assert.deepEqual(insidePoster.assets.map((asset) => asset.id), ["c"]);
+});
+
+test("gallery filters match hidden members while raw asset queries keep every member", async (t) => {
+  const store = await createFixtureStore(t);
+  const sourcePath = (await store.getAsset("default", "a")).image_path;
+  await store.createAsset({
+    assetId: "hidden-flow-video",
+    imagePath: sourcePath,
+    prompt: "hidden flow video",
+    favorite: true,
+    created_at: "2026-08-29T12:01:30.000Z",
+    source: { type: "web-flow", media_kind: "video" },
+  });
+  const stack = await store.createAssetStack("default", ["a", "hidden-flow-video"], { coverAssetId: "a" });
+
+  for (const filters of [
+    { source: "web-flow" },
+    { favorite: true },
+    { mediaKind: "video" },
+    { source: "web-flow", query: "hidden flow" },
+  ]) {
+    const page = await store.listAssetPage({ projectId: "default", collapseStacks: true, limit: 100, ...filters });
+    assert.deepEqual(page.assets.map((asset) => asset.id), ["a"]);
+    assert.deepEqual(page.assets[0].stack, { id: stack.id, count: 2 });
+    assert.equal(page.page.total, 1);
+  }
+
+  const raw = await store.listAssetPage({ projectId: "default", source: "web-flow", limit: 100 });
+  assert.deepEqual(raw.assets.map((asset) => asset.id), ["hidden-flow-video"]);
+});
+
+test("changing the first member changes the cover without moving the stack's gallery sort anchor", async (t) => {
+  const store = await createFixtureStore(t);
+  const sourcePath = (await store.getAsset("default", "a")).image_path;
+  await store.createAsset({
+    assetId: "between",
+    imagePath: sourcePath,
+    prompt: "between",
+    created_at: "2026-08-29T12:01:30.000Z",
+    source: { type: "local-file" },
+  });
+  const stack = await store.createAssetStack("default", ["a", "b", "c"], { coverAssetId: "b" });
+  const before = await store.listAssetPage({ projectId: "default", collapseStacks: true, sort: "newest", limit: 0 });
+  assert.deepEqual(before.assets.map((asset) => asset.id), ["d", "between", "b"]);
+
+  const reordered = await store.reorderAssetStack("default", stack.id, ["c", "b", "a"]);
+  assert.equal(reordered.cover_asset_id, "c");
+  const after = await store.listAssetPage({ projectId: "default", collapseStacks: true, sort: "newest", limit: 0 });
+  assert.deepEqual(after.assets.map((asset) => asset.id), ["d", "between", "c"]);
 });
