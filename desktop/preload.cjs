@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   checkForUpdates: (notify = false, anonymousUsageEnabled = true) =>
     ipcRenderer.invoke("check-for-updates", notify === true, anonymousUsageEnabled !== false),
   openDownloadPage: () => ipcRenderer.invoke("open-download-page"),
+  changeLibraryLocation: () => ipcRenderer.invoke("change-library-location"),
   // Phase 4C：仅暴露「在 Finder 中显示」最小能力——不暴露通用 shell、不暴露任意命令
   // 执行或文件读取能力；路径校验与存在性检查在 main 进程完成。
   showItemInFolder: (path) => ipcRenderer.invoke("show-item-in-folder", path),

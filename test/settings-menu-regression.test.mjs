@@ -99,33 +99,20 @@ test("removed diagnostics panel leaves no dead renderer hooks or copy", async ()
   assert.doesNotMatch(i18n, /diagMcpVersion|diagUiFingerprint|showDiagnostics|hideDiagnostics/);
 });
 
-test("topbar theme toggle stays synchronized with the shared theme state", async () => {
-  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
-
-  assert.match(app, /themeToggle:\s*document\.querySelector\("#themeToggle"\)/,
-    "app.js must retain a reference to the visible topbar theme control");
-  assert.match(app, /els\.themeToggle\?\.addEventListener\("click", toggleDarkMode\)/,
-    "the visible topbar theme control must be interactive");
-  assert.match(app, /els\.themeToggle\?\.setAttribute\("aria-pressed", String\(state\.darkMode\)\)/,
-    "the topbar theme control must expose the current state to assistive technology");
-  assert.match(app, /querySelectorAll\("\[data-appearance-opt\]"\)/,
-    "theme changes must synchronize the settings-menu segmented controls");
-});
-
-test("topbar theme toggle exposes a visible icon for each theme", async () => {
-  const [html, css] = await Promise.all([
+test("theme switching is owned by settings instead of a duplicate topbar control", async () => {
+  const [app, html] = await Promise.all([
+    readFile(resolve(root, "app/app.mjs"), "utf8"),
     readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/styles.css"), "utf8"),
   ]);
 
-  assert.match(html, /id="themeToggle"[\s\S]*?class="theme-icon theme-icon-moon"/,
-    "the light theme must show a moon icon");
-  assert.match(html, /id="themeToggle"[\s\S]*?class="theme-icon theme-icon-sun"/,
-    "the dark theme must show a sun icon");
-  assert.match(css, /\.theme-icon-sun \{ display: none; \}/,
-    "the sun icon must stay hidden in light mode");
-  assert.match(css, /\[data-theme="dark"\] \.theme-icon-sun \{ display: block; \}/,
-    "the sun icon must be visible in dark mode");
+  assert.doesNotMatch(html, /id="themeToggle"/,
+    "the topbar must not duplicate the theme control already available in settings");
+  assert.doesNotMatch(app, /themeToggle|toggleDarkMode/,
+    "renderer code must not retain dead wiring for the removed topbar theme button");
+  assert.match(app, /querySelectorAll\("\[data-appearance-opt\]"\)/,
+    "theme changes must synchronize the settings-menu segmented controls");
+  assert.match(app, /button\?\.dataset\.appearanceOpt/,
+    "settings appearance controls must remain interactive");
 });
 
 test("settings popover remains inside the visible desktop viewport", async () => {
@@ -139,4 +126,22 @@ test("settings popover remains inside the visible desktop viewport", async () =>
   assert.match(rule, /bottom:\s*44px/, "the popover must leave room for its trigger");
   assert.match(rule, /max-height:\s*calc\(100vh - 56px\)/, "the popover must fit vertically");
   assert.match(rule, /overflow-y:\s*auto/, "long settings content must scroll inside the popover");
+});
+
+test("settings is the single surface for preferences, storage, privacy, and about", async () => {
+  const [html, app, css] = await Promise.all([
+    readFile(resolve(root, "app/index.html"), "utf8"),
+    readFile(resolve(root, "app/app.mjs"), "utf8"),
+    readFile(resolve(root, "app/styles.css"), "utf8"),
+  ]);
+
+  assert.doesNotMatch(html, /accountModal|accountToggle/, "standalone About UI is removed");
+  assert.doesNotMatch(app, /openAccountModal|closeAccountModal|trapAccountModalFocus/, "standalone About behavior is removed");
+  assert.doesNotMatch(css, /account-modal-card|account-modal-overlay/, "standalone About styles are removed");
+  assert.match(app, /settings-library-summary/, "library summary is folded into Settings");
+  assert.match(app, /privacyPolicySummary/, "privacy copy is folded into Settings");
+  assert.match(app, /data-change-library/, "Settings exposes library relocation when the desktop bridge supports it");
+  assert.match(app, /state\.libraryRoot \|\| state\.libraryPath/, "Settings opens the library root rather than only the active project folder");
+  assert.match(app, /function openSettingsModal\(\)[\s\S]*?renderSettingsMenu\(\);[\s\S]*?els\.settingsMenu\.hidden = false/,
+    "Settings refreshes live path and summary data every time it opens");
 });

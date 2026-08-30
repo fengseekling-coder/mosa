@@ -350,9 +350,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .bridge-status-meta { overflow: hidden; color: var(--color-text-tertiary); text-overflow: ellipsis; }
 .toolbar-icon { display: inline-grid; width: 28px; height: 28px; flex: 0 0 auto; padding: 0; place-items: center; border: 0; border-radius: var(--radius-control); color: var(--color-text-tertiary); background: transparent; cursor: pointer; transition: background-color .12s ease, color .12s ease; }
 .toolbar-icon[hidden] { display: none; }
-.theme-icon-sun { display: none; }
-[data-theme="dark"] .theme-icon-moon { display: none; }
-[data-theme="dark"] .theme-icon-sun { display: block; }
 /* V2（D3）：排序/筛选/批量改无边框安静控件，只靠底色区分状态；Import 仍是全顶栏唯一实心 CTA。 */
 .toolbar-filter { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 12px; font-weight: 500; white-space: nowrap; transition: background-color .12s ease, color .12s ease; }
 .toolbar-filter[aria-expanded="true"] { color: var(--color-text-primary); background: var(--app-hover); }
@@ -890,11 +887,11 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 .modal-overlay { position: fixed; z-index: var(--z-modal); inset: 0; display: none; align-items: center; justify-content: center; padding: 20px; background: var(--color-scrim); backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transition: opacity var(--duration-normal) var(--ease-standard), display var(--duration-normal) allow-discrete; }
 .modal-overlay.open { display: flex; opacity: 1; pointer-events: auto; }
 .modal-card { display: flex; width: 526px; max-width: 100%; max-height: min(760px, 88vh); flex-direction: column; overflow: hidden; border-radius: var(--radius-panel); background: var(--app-bg); box-shadow: var(--shadow-modal); }
-.modal-overlay > .modal-card, .modal-overlay > .account-modal-card { opacity: 0; transform: translateY(8px) scale(.97); }
-.modal-overlay.open > .modal-card, .modal-overlay.open > .account-modal-card { opacity: 1; transform: translateY(0) scale(1); transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard); }
+.modal-overlay > .modal-card { opacity: 0; transform: translateY(8px) scale(.97); }
+.modal-overlay.open > .modal-card { opacity: 1; transform: translateY(0) scale(1); transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard); }
 @starting-style {
   .modal-overlay.open { opacity: 0; }
-  .modal-overlay.open > .modal-card, .modal-overlay.open > .account-modal-card { opacity: 0; transform: translateY(8px) scale(.97); }
+  .modal-overlay.open > .modal-card { opacity: 0; transform: translateY(8px) scale(.97); }
 }
 .group-modal-card { width: 386px; }
 /* ===== ConfirmDialog（Phase 5B / F-15） =====
@@ -1268,7 +1265,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .topbar { box-sizing: border-box; gap: 8px; height: var(--topbar-height); min-height: var(--topbar-height); padding: 0 24px; border: 0; background: transparent; }
 .mosa-v2 .topbar-context { flex: 1 1 auto; align-items: center; }.mosa-v2 .title-row { display: flex; align-items: baseline; gap: 8px; }
 .mosa-v2 .title-row h2 { color: var(--color-text-primary); font-size: 16px; font-weight: 600; letter-spacing: -.01em; }.mosa-v2 #assetCount { color: var(--color-text-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; }
-.mosa-v2 .topbar-actions { gap: 8px; }.mosa-v2 .topbar-utility-group { display: flex; gap: 4px; }.mosa-v2 .topbar-work-group { gap: 4px; }.mosa-v2 .topbar-primary-group { display: flex; }
+.mosa-v2 .topbar-actions { gap: 8px; }.mosa-v2 .topbar-utility-group { display: contents; }.mosa-v2 .topbar-work-group { gap: 4px; }.mosa-v2 .topbar-primary-group { display: flex; }
 .mosa-v2 .toolbar-filter, .mosa-v2 .toolbar-icon, .mosa-v2 .sort-control select { height: 32px; border: 1px solid var(--color-border-subtle); border-radius: 8px; color: var(--color-text-secondary); background: var(--app-input); box-shadow: none; font-size: 12px; }
 .mosa-v2 .toolbar-filter { gap: 6px; padding: 0 10px; }.mosa-v2 .toolbar-filter[aria-pressed="true"] { color: var(--color-text-primary); background: var(--app-chip-active); }
 .mosa-v2 .sort-control select { padding: 0 26px 0 10px; }
@@ -1420,7 +1417,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 /* V2 keeps selection in the sidebar and type filter only.  The retained
    filter-chip node still drives existing query/reset behavior, but must not
    introduce a second legacy toolbar row. */
-.mosa-v2 .active-filters:not([hidden]) { display: flex; }
+.mosa-v2 .active-filters { display: none; }
 
 /* V2 Gallery's neutral zero-result recovery state. */
 .mosa-v2 .grid:has(.gallery-empty-state) { display: flex; }
@@ -1491,26 +1488,45 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 /* V2 Preferences is a centered dialog, not the earlier sidebar flyout. */
 .mosa-v2 .settings-menu { position: fixed; z-index: 800; inset: 0; display: grid; width: auto; max-width: none; max-height: none; place-items: center; overflow: auto; padding: 24px; border: 0; border-radius: 0; background: rgb(0 0 0 / .35); box-shadow: none; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 1; transition: opacity var(--duration-normal) var(--ease-standard), display var(--duration-normal) allow-discrete; }
 .mosa-v2 .settings-menu[hidden] { display: none; opacity: 0; pointer-events: none; }
-.mosa-v2 .settings-modal-card { width: min(512px, 100%); min-height: 496px; max-height: calc(100vh - 48px); overflow: auto; border: 1px solid rgb(255 255 255 / .7); border-radius: 16px; background: rgb(from var(--app-modal) r g b / .94); box-shadow: 0 24px 80px rgb(0 0 0 / .18), 0 0 0 1px rgb(255 255 255 / .32); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); opacity: 1; transform: translateY(0) scale(1); transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard); }
+.mosa-v2 .settings-modal-card { width: min(680px, 100%); max-height: calc(100vh - 48px); overflow: auto; border: 1px solid rgb(255 255 255 / .7); border-radius: 16px; background: rgb(from var(--app-modal) r g b / .96); box-shadow: 0 24px 80px rgb(0 0 0 / .18), 0 0 0 1px rgb(255 255 255 / .32); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); opacity: 1; transform: translateY(0) scale(1); transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard); }
 .mosa-v2 .settings-menu[hidden] .settings-modal-card { opacity: 0; transform: translateY(8px) scale(.97); transition: none; }
 @starting-style {
   .mosa-v2 .settings-menu:not([hidden]) { opacity: 0; }
   .mosa-v2 .settings-menu:not([hidden]) .settings-modal-card { opacity: 0; transform: translateY(8px) scale(.97); }
 }
-.mosa-v2 .settings-modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 28px 32px 20px; }
-.mosa-v2 .settings-modal-header h2 { margin: 0; color: var(--color-text-primary); font-size: 16px; font-weight: 600; letter-spacing: -.01em; line-height: 22px; }
+.mosa-v2 .settings-modal-header { position: sticky; z-index: 2; top: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 24px 28px 18px; border-bottom: 1px solid var(--color-border-subtle); background: rgb(from var(--app-modal) r g b / .92); backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px); }
+.mosa-v2 .settings-modal-header h2 { margin: 0; color: var(--color-text-primary); font-size: 18px; font-weight: 600; letter-spacing: -.01em; line-height: 24px; }
 .mosa-v2 .settings-modal-header p { margin: 2px 0 0; padding: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 19px; }
 .mosa-v2 .settings-modal-close { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: 0 0 32px; padding: 0; border: 1px solid rgb(36 36 255 / .5); border-radius: 10px; color: var(--color-text-secondary); background: transparent; cursor: pointer; }
 .mosa-v2 .settings-modal-close svg { display: block; flex-shrink: 0; }
-.mosa-v2 .settings-modal-body { display: flex; flex-direction: column; gap: 2px; padding: 0 32px 28px; }
-.mosa-v2 .settings-modal-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; column-gap: 12px; min-height: 54px; padding: 6px 8px; border-radius: 8px; }
+.mosa-v2 .settings-modal-body { display: flex; flex-direction: column; gap: 22px; padding: 22px 28px 28px; }
+.mosa-v2 .settings-library-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--color-border-subtle); border-radius: 12px; background: var(--app-card); }
+.mosa-v2 .settings-library-summary > div { display: grid; min-width: 0; gap: 2px; place-items: center; padding: 12px 8px; text-align: center; }
+.mosa-v2 .settings-library-summary > div + div { border-left: 1px solid var(--color-border-subtle); }
+.mosa-v2 .settings-library-summary strong { max-width: 100%; overflow: hidden; color: var(--color-text-primary); font-size: 15px; font-weight: 600; line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .settings-library-summary span { color: var(--color-text-tertiary); font-size: 10px; line-height: 15px; }
+.mosa-v2 .settings-content-section { display: grid; gap: 8px; }
+.mosa-v2 .settings-section-heading { display: grid; gap: 2px; padding: 0 4px; }
+.mosa-v2 .settings-section-heading h3 { margin: 0; color: var(--color-text-primary); font-size: 12px; font-weight: 600; line-height: 18px; }
+.mosa-v2 .settings-section-heading p { margin: 0; padding: 0; color: var(--color-text-tertiary); font-size: 10px; font-weight: 400; line-height: 15px; }
+.mosa-v2 .settings-section-rows { overflow: hidden; border: 1px solid var(--color-border-subtle); border-radius: 12px; background: var(--app-card); }
+.mosa-v2 .settings-modal-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; column-gap: 12px; min-height: 58px; padding: 8px 12px; border-radius: 0; }
+.mosa-v2 .settings-modal-row + .settings-modal-row { border-top: 1px solid var(--color-border-subtle); }
 .mosa-v2 .settings-row-icon { display: grid; width: 18px; height: 18px; place-items: center; color: var(--color-text-secondary); }
 .mosa-v2 .settings-row-copy { min-width: 0; }.mosa-v2 .settings-row-copy h3 { margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 500; line-height: 18px; }.mosa-v2 .settings-row-copy p { min-width: 0; margin: 0; padding: 0; overflow: hidden; color: var(--color-text-tertiary); font-size: 11px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
 .mosa-v2 .settings-path { display: block; font-family: var(--font-family-mono); font-size: 10px; }.mosa-v2 .settings-row-control { display: flex; min-width: 0; align-items: center; }
+.mosa-v2 .settings-inline-actions { display: flex; align-items: center; gap: 4px; }
 .mosa-v2 .settings-menu .segmented { display: flex; gap: 2px; margin: 0; padding: 3px; border: 0; border-radius: 9px; background: rgb(0 0 0 / .04); }.mosa-v2 .settings-menu .segmented-btn { min-width: 38px; height: 26px; padding: 0 8px; border: 0; border-radius: 7px; color: var(--color-text-tertiary); background: transparent; box-shadow: none; font-size: 11px; font-weight: 500; }.mosa-v2 .settings-menu .segmented-btn.active { color: var(--color-text-primary); background: rgb(255 255 255 / .92); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
 .mosa-v2 .settings-text-action { padding: 5px 8px; border: 0; border-radius: 7px; color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 11px; }
+.mosa-v2 .settings-text-action-primary { color: var(--color-accent-active); background: var(--color-accent-subtle); }
+.mosa-v2 .settings-text-action:disabled { cursor: wait; opacity: .55; }
+.mosa-v2 .settings-privacy-note { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 12px; padding: 13px 12px; border-bottom: 1px solid var(--color-border-subtle); }
+.mosa-v2 .settings-privacy-icon { display: grid; width: 18px; height: 18px; place-items: center; color: var(--color-text-secondary); }
+.mosa-v2 .settings-privacy-note h3 { margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 500; line-height: 18px; }
+.mosa-v2 .settings-privacy-note p { margin: 1px 0 0; padding: 0; color: var(--color-text-secondary); font-size: 11px; font-weight: 400; line-height: 16px; }
+.mosa-v2 .settings-privacy-note small { display: block; margin-top: 4px; color: var(--color-text-tertiary); font-size: 10px; line-height: 15px; }
 :root[data-theme="dark"] .mosa-v2 .settings-menu { background: rgb(0 0 0 / .55); }:root[data-theme="dark"] .mosa-v2 .settings-modal-card { border-color: rgb(255 255 255 / .08); background: rgb(30 30 34 / .94); box-shadow: 0 24px 80px rgb(0 0 0 / .55), 0 0 0 1px rgb(255 255 255 / .06); }:root[data-theme="dark"] .mosa-v2 .settings-menu .segmented { background: rgb(255 255 255 / .08); }:root[data-theme="dark"] .mosa-v2 .settings-menu .segmented-btn.active { color: #fff; background: rgb(255 255 255 / .14); box-shadow: none; }
-@media (max-width: 480px) { .mosa-v2 .settings-menu { padding: 12px; }.mosa-v2 .settings-modal-card { min-height: 0; }.mosa-v2 .settings-modal-header { padding: 22px 20px 16px; }.mosa-v2 .settings-modal-body { padding: 0 20px 20px; }.mosa-v2 .settings-modal-row { grid-template-columns: 18px minmax(0, 1fr); row-gap: 6px; }.mosa-v2 .settings-row-control { grid-column: 2; } }
+@media (max-width: 480px) { .mosa-v2 .settings-menu { padding: 12px; }.mosa-v2 .settings-modal-header { padding: 20px 18px 15px; }.mosa-v2 .settings-modal-body { gap: 18px; padding: 18px; }.mosa-v2 .settings-library-summary { grid-template-columns: 1fr; }.mosa-v2 .settings-library-summary > div + div { border-top: 1px solid var(--color-border-subtle); border-left: 0; }.mosa-v2 .settings-modal-row { grid-template-columns: 18px minmax(0, 1fr); row-gap: 7px; }.mosa-v2 .settings-row-control { grid-column: 2; }.mosa-v2 .settings-inline-actions { flex-wrap: wrap; } }
 
 /* V2 collections: names are backed by the local library; the color is a
    presentation preference stored locally so it never changes library records. */
@@ -1539,56 +1555,13 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .nav-group-item { gap: 8px; }
 .mosa-v2 .nav-group-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--group-color); }
 
-/* V2 account surface: a centered, scroll-safe dialog rather than a temporary
-   toast. It remains deliberately local-only: no auth or remote profile state. */
-.mosa-v2 .account-modal-overlay { z-index: 800; padding: 24px; background: rgb(0 0 0 / .35); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-.mosa-v2 .account-modal-card { position: relative; display: flex; width: min(512px, 100%); max-height: min(82vh, 720px); flex-direction: column; overflow: hidden; border: 1px solid var(--color-border-default); border-radius: 16px; color: var(--color-text-primary); background: var(--app-modal); box-shadow: 0 24px 80px rgb(0 0 0 / .18), 0 0 0 1px rgb(255 255 255 / .32); }
-.mosa-v2 .account-modal-scroll { overflow: auto; }
-.mosa-v2 .account-modal-close { position: absolute; z-index: 1; top: 16px; right: 16px; display: grid; width: 32px; height: 32px; place-items: center; padding: 0; border: 0; border-radius: 10px; color: var(--color-text-tertiary); background: transparent; cursor: pointer; }
-.mosa-v2 .account-modal-close:focus-visible, .mosa-v2 .account-edit-button:focus-visible, .mosa-v2 .account-menu-item:focus-visible, .mosa-v2 .account-logout-button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-.mosa-v2 .account-profile { padding: 32px 32px 24px; }
-.mosa-v2 .account-profile-main { display: flex; align-items: center; gap: 16px; }
-.mosa-v2 .account-avatar { display: grid; width: 56px; height: 56px; flex: 0 0 56px; place-items: center; border-radius: 50%; color: var(--color-accent-contrast); background: var(--color-accent); box-shadow: 0 5px 12px rgb(0 0 0 / .14); }
-.mosa-v2 .account-profile-copy { min-width: 0; padding-right: 36px; }
-.mosa-v2 .account-name-row { display: flex; align-items: center; gap: 6px; }
-.mosa-v2 .account-name-row h2 { margin: 0; color: var(--color-text-primary); font-size: 16px; font-weight: 600; line-height: 20px; }
-.mosa-v2 .account-profile-copy p { margin: 2px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 19px; }
-.mosa-v2 .account-edit-button { display: grid; width: 24px; height: 24px; place-items: center; padding: 0; border: 0; border-radius: 6px; color: var(--color-text-tertiary); background: transparent; cursor: pointer; }
-.mosa-v2 .account-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 20px; overflow: hidden; border: 1px solid var(--color-border-default); border-radius: 12px; }
-.mosa-v2 .account-stat-grid > div { display: grid; gap: 2px; place-items: center; padding: 12px 8px; text-align: center; }
-.mosa-v2 .account-stat-grid > div + div { border-left: 1px solid var(--color-border-default); }
-.mosa-v2 .account-stat-grid strong { color: var(--color-text-primary); font-size: 16px; font-weight: 600; line-height: 20px; font-variant-numeric: tabular-nums; }
-.mosa-v2 .account-stat-grid span { color: var(--color-text-tertiary); font-size: 11px; line-height: 16px; }
-.mosa-v2 .account-menu-list { display: grid; gap: 2px; padding: 0 32px 24px; }
-.mosa-v2 .account-menu-item { display: flex; min-height: 56px; align-items: center; gap: 12px; width: 100%; padding: 9px 12px; border: 0; border-radius: 8px; color: var(--color-text-primary); background: transparent; cursor: pointer; text-align: left; }
-.mosa-v2 .account-menu-item > svg, .mosa-v2 .account-logout-button > svg { width: 16px; height: 16px; flex: 0 0 16px; color: var(--color-text-secondary); }
-.mosa-v2 .account-menu-item > span { display: grid; min-width: 0; gap: 1px; }
-.mosa-v2 .account-menu-item strong { color: inherit; font-size: 13px; font-weight: 500; line-height: 18px; }
-.mosa-v2 .account-menu-item small { overflow: hidden; color: var(--color-text-tertiary); font-size: 11px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
-.mosa-v2 .account-info-row { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 4px; border-bottom: 1px solid var(--color-border-default); }
-.mosa-v2 .account-info-row:last-child { border-bottom: 0; }
-.mosa-v2 .account-info-row strong { color: var(--color-text-secondary); font-size: 13px; font-weight: 500; line-height: 18px; }
-.mosa-v2 .account-info-row small { overflow: hidden; max-width: 60%; color: var(--color-text-primary); font-size: 12px; line-height: 17px; text-overflow: ellipsis; white-space: nowrap; }
-.mosa-v2 .account-about-note { margin: 0; padding: 16px 32px 24px; color: var(--color-text-tertiary); font-size: 12px; line-height: 18px; }
-.mosa-v2 .account-logout-wrap { margin: 0 32px; padding: 16px 0 24px; border-top: 1px solid var(--color-border-default); }
-.mosa-v2 .account-logout-button { display: flex; width: 100%; min-height: 48px; align-items: center; gap: 12px; padding: 9px 12px; border: 0; border-radius: 8px; color: var(--color-danger); background: transparent; cursor: pointer; font-size: 13px; font-weight: 500; text-align: left; }
-.mosa-v2 .account-logout-button > svg { color: currentColor; }
-
 @media (hover: hover) and (pointer: fine) {
   .mosa-v2 .group-color-swatch:not(.selected):hover { transform: scale(1.08); }
-  .mosa-v2 .account-modal-close:hover, .mosa-v2 .account-edit-button:hover { color: var(--color-text-secondary); background: var(--app-hover); }
-  .mosa-v2 .account-menu-item:hover { background: var(--app-hover); }
-  .mosa-v2 .account-logout-button:hover { background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
 }
 
-:root[data-theme="dark"] .mosa-v2 .account-modal-overlay { background: rgb(0 0 0 / .55); }
-:root[data-theme="dark"] .mosa-v2 .account-modal-card { border-color: var(--color-border-default); background: var(--app-modal); box-shadow: 0 24px 80px rgb(0 0 0 / .55), 0 0 0 1px rgb(255 255 255 / .06); }
 :root[data-theme="dark"] .mosa-v2 .group-color-swatch.selected { border-color: var(--app-modal); }
 
 @media (max-width: 480px) {
-  .mosa-v2 .account-modal-overlay { padding: 12px; }
-  .mosa-v2 .account-profile, .mosa-v2 .account-menu-list { padding-left: 20px; padding-right: 20px; }
-  .mosa-v2 .account-logout-wrap { margin-left: 20px; margin-right: 20px; }
   .mosa-v2 .group-modal-card .modal-header, .mosa-v2 .group-modal-card .modal-body, .mosa-v2 .group-modal-card .modal-footer { padding-left: 20px; padding-right: 20px; }
 }
 
@@ -2382,7 +2355,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .btn-danger,
   .modal-overlay,
   .modal-overlay.open > .modal-card,
-  .modal-overlay.open > .account-modal-card,
   .mosa-v2 .settings-menu,
   .mosa-v2 .settings-modal-card,
   .image-preview-modal,

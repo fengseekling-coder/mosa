@@ -59,7 +59,7 @@ const state = {
   mediaKind: "all",
   groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0 },
   galleryStatus: "loading", galleryError: null, galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")), storageKind: "unknown",
-  libraryPath: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, groupSaving: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
+  libraryPath: "", libraryRoot: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, groupSaving: false, libraryMoveInProgress: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
   dragCounter: 0,
   stagedPath: "", // P1-2: Track current staged file for cleanup on cancel
   stagingInProgress: false, // P1-3: Prevent concurrent staging requests
@@ -70,7 +70,7 @@ const state = {
   updatePublishedAt: "",
   updateNotes: null,
   anonymousUsageEnabled: safeStorageGet("mosa.anonymous-usage") !== "false",
-  darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null, accountReturnFocus: null,
+  darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null,
   detailReturnFocusAssetId: null, previewReturnFocusAssetId: null,
   imageZoom: 1, imagePanX: 0, imagePanY: 0, imageDragging: false,
   // Bulk-selection gate. The viewer short-circuits while batch mode is active so
@@ -105,8 +105,8 @@ const els = {
   searchInput: document.querySelector("#searchInput"), quickFilters: document.querySelector("#quickFilters"),
   typeFilters: document.querySelector(".topbar-type-filters"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
-  activeFilters: document.querySelector("#activeFilters"), filterPanel: document.querySelector("#filterPanel"), filterToggle: document.querySelector("#filterToggle"), sortSelect: document.querySelector("#sortSelect"), themeToggle: document.querySelector("#themeToggle"),
-  accountToggle: document.querySelector("#accountToggle"), accountModal: document.querySelector("#accountModal"), closeAccountModal: document.querySelector("#closeAccountModal"), accountAssetCount: document.querySelector("#accountAssetCount"), accountCollectionCount: document.querySelector("#accountCollectionCount"), accountLibraryPath: document.querySelector("#accountLibraryPath"), accountStorageEngine: document.querySelector("#accountStorageEngine"), accountVersionValue: document.querySelector("#accountVersionValue"), settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
+  activeFilters: document.querySelector("#activeFilters"), filterPanel: document.querySelector("#filterPanel"), filterToggle: document.querySelector("#filterToggle"), sortSelect: document.querySelector("#sortSelect"),
+  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
   viewTitle: document.querySelector("#viewTitle"), assetCount: document.querySelector("#assetCount"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
 
@@ -188,7 +188,6 @@ const assetStacks = createAssetStackController({
 function applyDarkMode() {
   const appearance = state.darkMode ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", appearance);
-  els.themeToggle?.setAttribute("aria-pressed", String(state.darkMode));
   els.settingsMenu?.querySelectorAll("[data-appearance-opt]").forEach((button) => {
     button.classList.toggle("active", button.dataset.appearanceOpt === appearance);
   });
@@ -211,8 +210,6 @@ function syncSegmentedRadios(container) {
     if (!anyChecked && buttons[0]) buttons[0].tabIndex = 0;
   });
 }
-
-function toggleDarkMode() { state.darkMode = !state.darkMode; safeStorageSet("mosa-dark-mode", String(state.darkMode)); applyDarkMode(); showToast(t("darkModeChanged"), "success"); }
 
 function isSupportedImportFile(file) {
   return Boolean(file?.name && /\.(apng|avif|gif|jpe?g|png|svg|webp|m4v|mov|mp4|webm)$/i.test(file.name));
@@ -571,8 +568,7 @@ function setupKeyboardShortcuts() {
       && els.imagePreviewModal?.hidden
       && els.settingsMenu?.hidden
       && !els.importModal?.classList.contains("open")
-      && !els.groupModal?.classList.contains("open")
-      && !els.accountModal?.classList.contains("open")) { event.preventDefault(); els.searchInput?.focus(); return; }
+      && !els.groupModal?.classList.contains("open")) { event.preventDefault(); els.searchInput?.focus(); return; }
     if (event.key === "Escape") {
       // Phase 3A 运行时修复：bindEvents 先行注册的 Modal 焦点陷阱已消费本次 Escape
       // （preventDefault）时，本链不得再继续向下穿透（否则会关 Modal 同时退出查看模式）。
@@ -580,7 +576,6 @@ function setupKeyboardShortcuts() {
       if (!els.imagePreviewModal?.hidden) { closeImagePreview(); event.preventDefault(); return; }
       if (els.importModal?.classList.contains("open")) { closeImportModal(); event.preventDefault(); return; }
       if (els.groupModal?.classList.contains("open")) { closeGroupModal(); event.preventDefault(); return; }
-      if (els.accountModal?.classList.contains("open")) { closeAccountModal(); event.preventDefault(); return; }
       // Escape 先关最上层 Modal，再退出查看模式，不得穿透。
       if (!els.settingsMenu?.hidden) { closePanel(els.settingsMenu, els.settingsToggle); event.preventDefault(); return; }
       if (state.viewMode === "library" && state.selectedIds?.size) {
@@ -618,7 +613,6 @@ function setupKeyboardShortcuts() {
       && els.imagePreviewModal?.hidden
       && !els.importModal?.classList.contains("open")
       && !els.groupModal?.classList.contains("open")
-      && !els.accountModal?.classList.contains("open")
       && els.settingsMenu?.hidden
       && !event.target.closest?.("[contenteditable]")) {
       if (event.target.matches?.("input, textarea, select")) return; // 输入控件一律不触发 Viewer 快捷键
@@ -879,19 +873,30 @@ function renderSettingsMenu() {
   const settingIcon = (path) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="${path}"/></svg>`;
   const radio = (selected, attribute, value, label) => `<button class="segmented-btn${selected ? " active" : ""}" type="button" role="radio" aria-checked="${selected}" tabindex="${selected ? 0 : -1}" ${attribute}="${value}">${label}</button>`;
   const row = (icon, title, subtitle, control = "") => `<section class="settings-modal-row"><div class="settings-row-icon" aria-hidden="true">${icon}</div><div class="settings-row-copy"><h3>${title}</h3><p>${subtitle}</p></div>${control ? `<div class="settings-row-control">${control}</div>` : ""}</section>`;
+  const section = (title, body, description = "") => `<section class="settings-content-section"><div class="settings-section-heading"><h3>${title}</h3>${description ? `<p>${description}</p>` : ""}</div><div class="settings-section-rows">${body}</div></section>`;
   const visualLocale = state.locale === "en" ? "en" : "zh";
-  const path = escapeHtml(state.libraryPath || state.codexImagesDir || "—");
+  const path = escapeHtml(state.libraryRoot || state.libraryPath || state.codexImagesDir || "—");
   const closeIcon = settingIcon("m6 6 12 12M18 6 6 18");
-  const rows = [
+  const storageLabel = state.storageKind === "sqlite" ? t("storageEngineValue") : (state.storageKind && state.storageKind !== "unknown" ? state.storageKind : "—");
+  const changeLibraryControl = window.electronAPI?.changeLibraryLocation
+    ? `<div class="settings-inline-actions"><button class="settings-text-action" type="button" data-open-library>${t("openLibrary")}</button><button class="settings-text-action settings-text-action-primary" type="button" data-change-library${state.libraryMoveInProgress ? " disabled" : ""}>${state.libraryMoveInProgress ? t("changingLocation") : t("changeLocation")}</button></div>`
+    : `<button class="settings-text-action" type="button" data-open-library>${t("openLibrary")}</button>`;
+  const appearanceRows = [
     row(settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("themeMode"), state.darkMode ? t("themeDarkHint") : t("themeLightHint"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("themeMode"))}">${radio(!state.darkMode, "data-appearance-opt", "light", t("themeLight"))}${radio(state.darkMode, "data-appearance-opt", "dark", t("themeDark"))}</div>`),
     row(settingIcon("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"), t("cardDensity"), state.galleryDensity === "image" ? t("densityImage") : t("densityInfo"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("cardDensity"))}">${radio(state.galleryDensity === "image", "data-density-opt", "image", t("densityImageControl"))}${radio(state.galleryDensity === "info", "data-density-opt", "info", t("densityInfoControl"))}</div>`),
-    row(settingIcon("M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("interfaceLanguage"), visualLocale === "en" ? t("english") : t("chinese"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("interfaceLanguage"))}">${radio(visualLocale === "zh", "data-locale", "zh", "中文")}${radio(visualLocale === "en", "data-locale", "en", "EN")}</div>`),
-    row(settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("libraryPath"), `<span class="settings-path">${path}</span>`, `<button class="settings-text-action" type="button" data-open-library>${t("openLibrary")}</button>`),
-    row(settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6"), t("storageEngine"), t("storageEngineValue")),
+    row(settingIcon("M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("interfaceLanguage"), visualLocale === "en" ? t("english") : t("chinese"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("interfaceLanguage"))}">${radio(visualLocale === "zh", "data-locale", "zh", "中文")}${radio(visualLocale === "en", "data-locale", "en", "EN")}</div>`)
+  ].join("");
+  const storageRows = [
+    row(settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("libraryPath"), `<span class="settings-path" title="${path}">${path}</span>`, changeLibraryControl),
+    row(settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6"), t("storageEngine"), escapeHtml(storageLabel)),
     row(settingIcon("M3 12h4l2-5 4 10 2-5h6"), t("anonymousUsage"), state.anonymousUsageEnabled ? t("anonymousUsageEnabledHint") : t("anonymousUsageDisabledHint"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("anonymousUsage"))}">${radio(state.anonymousUsageEnabled, "data-usage-opt", "on", t("usageOn"))}${radio(!state.anonymousUsageEnabled, "data-usage-opt", "off", t("usageOff"))}</div>`),
+  ].join("");
+  const aboutRows = [
     row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), escapeHtml(updateVersionSummary()), updateVersionControlMarkup())
   ].join("");
-  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" aria-describedby="settingsModalDescription" tabindex="-1"><header class="settings-modal-header"><div><h2 id="settingsModalTitle">${t("preferences")}</h2><p id="settingsModalDescription">${t("preferencesSubtitle")}</p></div><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${rows}</div></div>`;
+  const summary = `<div class="settings-library-summary" aria-label="${escapeHtml(t("librarySummary"))}"><div><strong>${Number(state.groups.total || state.pageTotal || state.assets.length || 0)}</strong><span>${t("assets")}</span></div><div><strong>${Number(state.groups.groups?.length || 0)}</strong><span>${t("collections")}</span></div><div><strong>${escapeHtml(storageLabel)}</strong><span>${t("storageEngine")}</span></div></div>`;
+  const privacy = `<section class="settings-privacy-note"><div class="settings-privacy-icon" aria-hidden="true">${settingIcon("M12 3 5 6v5c0 4.6 2.8 8.2 7 10 4.2-1.8 7-5.4 7-10V6l-7-3Z")}</div><div><h3>${t("privacyPolicy")}</h3><p>${t("privacyPolicySummary")}</p><small>${t("privacyPolicyDetail")}</small></div></section>`;
+  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" aria-describedby="settingsModalDescription" tabindex="-1"><header class="settings-modal-header"><div><h2 id="settingsModalTitle">${t("settings")}</h2><p id="settingsModalDescription">${t("preferencesSubtitle")}</p></div><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${summary}${section(t("appearanceSection"), appearanceRows)}${section(t("storageDataSection"), storageRows, t("storageDataSectionHint"))}${section(t("aboutSection"), `${privacy}${aboutRows}`, t("accountAboutNote"))}</div></div>`;
   syncSegmentedRadios(els.settingsMenu);
 }
 
@@ -957,7 +962,7 @@ function handleLibraryKeyboardNavigation(event) {
 // router. The name is retained for the Phase 3 contract seam; it does not add a
 // second document listener or a second shortcut manager.
 function bindKeyboardNav(event) {
-  if (confirmDialogState.pending || els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open") || els.accountModal?.classList.contains("open")) return;
+  if (confirmDialogState.pending || els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open")) return;
   if (!els.imagePreviewModal?.hidden || !els.settingsMenu?.hidden) return;
   if (event.target.closest?.("[contenteditable]")) return;
   if (event.target.closest?.("[role='tab']")) return;
@@ -1246,7 +1251,6 @@ function bindEvents() {
     clearDetailSelection();
     void loadAssets();
   });
-  els.themeToggle?.addEventListener("click", toggleDarkMode);
   els.activeFilters?.addEventListener("click", (event) => { const chip = event.target.closest("[data-chip]"); if (chip) void removeFilterChip(chip.dataset.chip); });
   els.detailPanel?.addEventListener("click", handleReferenceRightsOpen);
   els.assetGrid?.addEventListener("click", (event) => {
@@ -1369,11 +1373,6 @@ function bindEvents() {
     applyFilterChange();
   });
   els.settingsToggle?.addEventListener("click", toggleSettingsModal);
-  els.accountToggle?.addEventListener("click", openAccountModal);
-  els.closeAccountModal?.addEventListener("click", closeAccountModal);
-  els.accountModal?.addEventListener("click", (event) => {
-    if (event.target === els.accountModal) closeAccountModal();
-  });
   els.settingsMenu?.addEventListener("change", async (event) => {
     const select = event.target.closest("[data-project-select]");
     if (!select) return;
@@ -1434,7 +1433,39 @@ function bindEvents() {
       return setLanguage(localeButton.dataset.locale);
     }
     const openLibraryButton = event.target.closest("[data-open-library]");
-    if (openLibraryButton) runAction(async () => { if (!state.libraryPath) return; await apiFetch("/api/open-folder", { method: "POST", body: { path: state.libraryPath } }); showToast(t("openInFinder"), "success"); });
+    if (openLibraryButton) runAction(async () => {
+      const path = state.libraryRoot || state.libraryPath;
+      if (!path) return;
+      await apiFetch("/api/open-folder", { method: "POST", body: { path } });
+      showToast(t("openInFinder"), "success");
+    });
+    const changeLibraryButton = event.target.closest("[data-change-library]");
+    if (changeLibraryButton && window.electronAPI?.changeLibraryLocation && !state.libraryMoveInProgress) {
+      void (async () => {
+        state.libraryMoveInProgress = true;
+        renderSettingsMenu();
+        try {
+          const result = await window.electronAPI.changeLibraryLocation();
+          if (!result || result.reason === "cancelled") return;
+          if (!result.ok) {
+            const key = result.reason === "not-empty"
+              ? "libraryLocationNeedsEmpty"
+              : result.reason === "managed"
+                ? "libraryLocationManaged"
+                : result.reason === "attached"
+                  ? "libraryLocationAttached"
+                  : "libraryMoveFailed";
+            showToast(t(key), "error");
+          }
+        } catch {
+          showToast(t("libraryMoveFailed"), "error");
+        } finally {
+          state.libraryMoveInProgress = false;
+          renderSettingsMenu();
+        }
+      })();
+      return;
+    }
     const checkUpdatesButton = event.target.closest("[data-check-updates]");
     if (checkUpdatesButton) { void checkForUpdates(); return; }
     const downloadLatestButton = event.target.closest("[data-download-latest]");
@@ -1513,7 +1544,6 @@ function bindEvents() {
   // Phase 5B：ConfirmDialog 陷阱先于其余陷阱注册——Escape 优先级链最前（preventDefault +
   // stopPropagation，不穿透 Viewer/既有 Modal）；ConfirmDialog 未打开时后续陷阱照常工作。
   document.addEventListener("keydown", trapConfirmDialogFocus);
-  document.addEventListener("keydown", trapAccountModalFocus);
   document.addEventListener("keydown", trapImportModalFocus);
   document.addEventListener("keydown", trapSettingsModalFocus);
   document.addEventListener("keydown", trapGroupModalFocus);
@@ -1526,7 +1556,7 @@ function bindEvents() {
     if (!state.detailOpen) return;
     // Phase 3A：查看模式的 Escape 由 setupKeyboardShortcuts 的优先级链统一处理（先浮层后退出）。
     if (state.viewMode === "asset") return;
-    if (els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open") || els.accountModal?.classList.contains("open") || !els.imagePreviewModal?.hidden) return;
+    if (els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open") || !els.imagePreviewModal?.hidden) return;
     if (!els.settingsMenu?.hidden) return;
     event.preventDefault();
     void closeDetailSurface();
@@ -1546,7 +1576,6 @@ function bindDesktopIntegration() {
       || !els.imagePreviewModal?.hidden
       || els.importModal?.classList.contains("open")
       || els.groupModal?.classList.contains("open")
-      || els.accountModal?.classList.contains("open")
     );
     // Never steal paste from a native editor, and never stack an Import modal
     // on top of another modal/lightbox. Image paste remains available from the
@@ -2503,7 +2532,6 @@ function hasBlockingOverlay(except = "") {
   return [
     ["import", Boolean(els.importModal?.classList.contains("open"))],
     ["group", Boolean(els.groupModal?.classList.contains("open"))],
-    ["account", Boolean(els.accountModal?.classList.contains("open"))],
     ["settings", Boolean(els.settingsMenu && !els.settingsMenu.hidden)],
     ["preview", Boolean(els.imagePreviewModal && !els.imagePreviewModal.hidden)],
   ].some(([name, open]) => name !== except && open);
@@ -2541,6 +2569,9 @@ function closeImportModal({ force = false } = {}) {
 function openSettingsModal() {
   if (!els.settingsMenu || !els.settingsMenu.hidden || hasBlockingOverlay("settings")) return;
   state.settingsReturnFocus = document.activeElement;
+  // Settings is rendered on demand so library path/stat changes that landed
+  // after startup are always reflected when the user opens this single panel.
+  renderSettingsMenu();
   els.settingsMenu.hidden = false;
   els.settingsToggle?.setAttribute("aria-expanded", "true");
   requestAnimationFrame(() => els.settingsMenu?.querySelector("[data-settings-close]")?.focus());
@@ -2588,33 +2619,6 @@ function selectGroupColor(color) {
 function selectedGroupColor() {
   return els.groupModal?.querySelector("[data-group-color][aria-pressed='true']")?.dataset.groupColor || GROUP_COLORS[0];
 }
-function refreshAccountSummary() {
-  if (els.accountAssetCount) els.accountAssetCount.textContent = String(state.groups.total || state.assets.length || 0);
-  if (els.accountCollectionCount) els.accountCollectionCount.textContent = String(state.groups.groups.length || 0);
-  if (els.accountLibraryPath) els.accountLibraryPath.textContent = state.libraryPath || "—";
-  if (els.accountStorageEngine || els.accountVersionValue) {
-    void fetch("/api/health").then((response) => response.ok ? response.json() : null).then((data) => {
-      if (!data) return;
-      if (els.accountStorageEngine) els.accountStorageEngine.textContent = data.storage === "sqlite" ? t("storageEngineValue") : data.storage || "—";
-      if (els.accountVersionValue) els.accountVersionValue.textContent = data.productVersion || "—";
-    }).catch(() => {});
-  }
-}
-function openAccountModal() {
-  if (!els.accountModal || els.accountModal.classList.contains("open") || hasBlockingOverlay("account")) return;
-  state.accountReturnFocus = document.activeElement;
-  refreshAccountSummary();
-  els.accountModal.classList.add("open");
-  els.accountModal.setAttribute("aria-hidden", "false");
-  requestAnimationFrame(() => els.closeAccountModal?.focus());
-}
-function closeAccountModal() {
-  if (!els.accountModal?.classList.contains("open")) return;
-  els.accountModal.classList.remove("open");
-  els.accountModal.setAttribute("aria-hidden", "true");
-  if (state.accountReturnFocus instanceof HTMLElement && state.accountReturnFocus.isConnected) state.accountReturnFocus.focus();
-  state.accountReturnFocus = null;
-}
 function openGroupModal() {
   if (state.groupSaving || hasBlockingOverlay("group")) return;
   state.modalReturnFocus = document.activeElement;
@@ -2639,19 +2643,6 @@ function closeGroupModal({ force = false } = {}) {
   if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus();
   state.modalReturnFocus = null;
   return true;
-}
-
-function trapAccountModalFocus(event) {
-  if (event.defaultPrevented) return;
-  if (!els.accountModal?.classList.contains("open")) return;
-  if (event.key === "Escape") { event.preventDefault(); closeAccountModal(); return; }
-  if (event.key !== "Tab") return;
-  const focusable = [...els.accountModal.querySelectorAll("button:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((element) => !element.hasAttribute("hidden"));
-  if (!focusable.length) return;
-  const current = focusable.indexOf(document.activeElement);
-  const next = event.shiftKey ? (current <= 0 ? focusable.length - 1 : current - 1) : (current === focusable.length - 1 ? 0 : current + 1);
-  event.preventDefault();
-  focusable[next].focus();
 }
 
 function trapImportModalFocus(event) {

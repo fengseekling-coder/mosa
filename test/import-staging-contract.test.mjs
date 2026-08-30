@@ -245,6 +245,7 @@ test("preload surface and Electron security boundaries are unchanged", async () 
   const preload = await readFile(join(root, "desktop", "preload.cjs"), "utf8");
   const exposed = [...preload.matchAll(/^\s{2}(\w+):/gm)].map((match) => match[1]).sort();
   assert.deepEqual(exposed, [
+    "changeLibraryLocation",
     "checkForUpdates",
     "onMenuImport",
     "onMenuSearch",

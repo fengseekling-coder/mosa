@@ -331,9 +331,10 @@ test("29. topbar hierarchy intact, single toolbar per mode", async () => {
     assert.equal(html.match(new RegExp(`class="${group}"`, "g")).length, 1, `${group} appears exactly once`);
   }
   // V2 removed batchToggle and filterToggle
-  for (const id of ["bridgeStatus", "themeToggle", "sortSelect", "newAssetTopBtn"]) {
+  for (const id of ["bridgeStatus", "sortSelect", "newAssetTopBtn"]) {
     assert.equal(html.match(new RegExp(`id="${id}"`, "g"))?.length || 0, 1, `#${id} must stay unique`);
   }
+  assert.doesNotMatch(html, /id="themeToggle"/, "theme switching belongs to settings, not the gallery topbar");
   const asset = assetViewSlice(html);
   assert.doesNotMatch(asset, /class="topbar/, "the asset view reuses no gallery topbar markup");
   assert.equal(asset.match(/<header\b/g).length, 1, "the asset view ships exactly one header");

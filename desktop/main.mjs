@@ -1,7 +1,8 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain, clipboard, session, shell, Notification } from "electron";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
+import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve, isAbsolute } from "node:path";
+import { dirname, join, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_MOSA_DESKTOP_PORT, MOSA_RESERVED_PRODUCTION_PORTS } from "../lib/runtime-defaults.mjs";
 import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
@@ -14,7 +15,7 @@ import { desktopPlatformAdapter } from "./platform/index.mjs";
 import { checkForMosaUpdate, MOSA_DOWNLOAD_PAGE_URL } from "./update-service.mjs";
 import { prepareAnonymousUsage } from "./anonymous-usage.mjs";
 import { resolveAllowedFolderPath } from "../lib/server-security.js";
-import { isUrlLikePath } from "../lib/path-safety.mjs";
+import { isPathInsideOrEqual, isUrlLikePath, pathsEqual } from "../lib/path-safety.mjs";
 
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
 const desktopPlatform = desktopPlatformAdapter();
@@ -33,7 +34,27 @@ const desktopDataDir = app.getPath("userData");
 const productionDefaultUserData = join(app.getPath("appData"), app.name);
 const importStagingRoot = importStagingDir(desktopDataDir);
 const desktopPort = process.env.MOSA_DESKTOP_PORT || DEFAULT_MOSA_DESKTOP_PORT;
-const libraryDir = resolve(process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"));
+const LIBRARY_LOCATION_PATH = join(desktopDataDir, "library-location.json");
+const defaultLibraryDir = join(homedir(), "MOSA Library");
+
+function loadSavedLibraryDir() {
+  try {
+    const value = JSON.parse(readFileSync(LIBRARY_LOCATION_PATH, "utf8"));
+    if (typeof value?.path === "string" && isAbsolute(value.path)) return resolve(value.path);
+  } catch {}
+  return null;
+}
+
+function saveLibraryDir(nextLibraryDir) {
+  mkdirSync(dirname(LIBRARY_LOCATION_PATH), { recursive: true });
+  const temporaryPath = `${LIBRARY_LOCATION_PATH}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify({ path: resolve(nextLibraryDir) })}\n`, "utf8");
+  // The userData directory is local and same-volume, so a rename gives us an
+  // atomic preference switch without ever exposing a partially-written path.
+  renameSync(temporaryPath, LIBRARY_LOCATION_PATH);
+}
+
+let libraryDir = resolve(process.env.MOSA_LIBRARY_DIR || loadSavedLibraryDir() || defaultLibraryDir);
 
 // ---- Runtime isolation context (single source of truth, three layers) ----
 // The same context object is passed explicitly through validateRuntimeIsolation,
@@ -307,6 +328,93 @@ function registerIPC() {
       console.warn(`[MOSA] unable to open download page: ${error?.message || error}`);
       return { ok: false };
     }
+  });
+
+  ipcMain.handle("change-library-location", async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return { ok: false, reason: "unavailable" };
+    }
+    // An explicit environment override is an administrator/developer contract;
+    // do not let a renderer preference silently fight it on the next launch.
+    if (process.env.MOSA_LIBRARY_DIR) return { ok: false, reason: "managed" };
+    if (service?.mode !== "owned") return { ok: false, reason: "attached" };
+
+    const selection = await dialog.showOpenDialog(mainWindow, {
+      title: currentLocale === "en" ? "Choose a new MOSA library location" : "选择新的 MOSA 素材库位置",
+      buttonLabel: currentLocale === "en" ? "Choose" : "选择",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (selection.canceled || !selection.filePaths?.[0]) return { ok: false, reason: "cancelled" };
+
+    const nextLibraryDir = resolve(selection.filePaths[0]);
+    if (pathsEqual(nextLibraryDir, libraryDir)) return { ok: false, reason: "cancelled" };
+    // Parent/child moves can recursively copy the library into itself or make
+    // rollback ambiguous. Only independent directories are accepted.
+    if (isPathInsideOrEqual(libraryDir, nextLibraryDir) || isPathInsideOrEqual(nextLibraryDir, libraryDir)) {
+      return { ok: false, reason: "invalid" };
+    }
+    try {
+      const entries = await readdir(nextLibraryDir);
+      if (entries.length > 0) return { ok: false, reason: "not-empty" };
+    } catch (error) {
+      if (error?.code !== "ENOENT") return { ok: false, reason: "unavailable" };
+      await mkdir(nextLibraryDir, { recursive: true });
+    }
+
+    const confirmation = await dialog.showMessageBox(mainWindow, {
+      type: "question",
+      title: currentLocale === "en" ? "Move MOSA Library" : "移动 MOSA 素材库",
+      message: currentLocale === "en"
+        ? "Move the current library to the selected folder?"
+        : "将当前素材库移动到所选文件夹？",
+      detail: currentLocale === "en"
+        ? "MOSA will close its local library service, copy all assets and metadata, then restart. The original is removed only after the copy succeeds."
+        : "MOSA 会先关闭本地素材库服务，完整复制素材与元数据，然后自动重启。复制成功前不会删除原素材库。",
+      buttons: currentLocale === "en" ? ["Cancel", "Move and Restart"] : ["取消", "移动并重启"],
+      defaultId: 1,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (confirmation.response !== 1) return { ok: false, reason: "cancelled" };
+
+    const previousLibraryDir = libraryDir;
+    try {
+      await stopOwnedRuntime();
+      service = null;
+      // The runtime lock has been released by stopOwnedRuntime(). Never copy a
+      // stale lock into the new location even if shutdown cleanup is delayed.
+      const sourceEntries = await readdir(previousLibraryDir, { withFileTypes: true });
+      for (const entry of sourceEntries) {
+        if (entry.name === ".mosa-runtime.lock") continue;
+        await cp(join(previousLibraryDir, entry.name), join(nextLibraryDir, entry.name), {
+          recursive: true,
+          force: false,
+          errorOnExist: true,
+        });
+      }
+      saveLibraryDir(nextLibraryDir);
+    } catch (error) {
+      console.error(`[MOSA] library relocation failed: ${error?.stack || error}`);
+      // The destination was required to be empty before the operation, so it
+      // is safe to remove a partial copy. The original remains authoritative.
+      await rm(nextLibraryDir, { recursive: true, force: true }).catch(() => {});
+      await mkdir(nextLibraryDir, { recursive: true }).catch(() => {});
+      libraryDir = previousLibraryDir;
+      app.relaunch();
+      app.exit(1);
+      return { ok: false, reason: "copy-failed" };
+    }
+
+    // The new copy and persisted location are now complete. Failure to remove
+    // the old directory must never roll back by deleting the new authoritative
+    // copy; at worst the user is left with a harmless duplicate to remove.
+    libraryDir = nextLibraryDir;
+    await rm(previousLibraryDir, { recursive: true, force: true }).catch((error) => {
+      console.warn(`[MOSA] new library is active but the old directory could not be removed: ${error?.message || error}`);
+    });
+    app.relaunch();
+    app.exit(0);
+    return { ok: true, restarting: true };
   });
 
   // Phase 4C：「在 Finder 中显示」最小能力适配。只接受当前主窗口渲染进程发来的

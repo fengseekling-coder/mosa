@@ -264,13 +264,12 @@ test("51-54. anchored overlay, viewer escape, version workflow, and return snaps
   // standalone #filterPanel element (its affordance merged into the
   // `.topbar-type-filters` strip in `.topbar-context`). The Escape chain
   // now starts from the image-preview modal and walks through import /
-  // group / account / settings overlays before view-mode / detail-open
+  // group / settings overlays before view-mode / detail-open
   // fall-through. The contract pins the surviving branches.
   const branches = [
     ["!els.imagePreviewModal?.hidden", "imagePreview"],
     ["els.importModal?.classList.contains(\"open\")", "importModal"],
     ["els.groupModal?.classList.contains(\"open\")", "groupModal"],
-    ["els.accountModal?.classList.contains(\"open\")", "accountModal"],
     ["!els.settingsMenu?.hidden", "settingsMenu"],
   ];
   // Only inspect positions that fall inside the Escape branch (after the

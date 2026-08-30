@@ -61,6 +61,7 @@ export function createApiClient(deps) {
 
     if (library) {
       state.libraryPath = library.path || "";
+      state.libraryRoot = library.libraryDir || "";
       state.codexImagesDir = library.codexGeneratedImagesDir || "";
       state.supportedMediaExtensions = Array.isArray(library.supportedMediaExtensions) ? library.supportedMediaExtensions : [];
       updateCodexHint();
