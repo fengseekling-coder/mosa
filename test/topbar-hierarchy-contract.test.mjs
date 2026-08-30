@@ -41,7 +41,7 @@ function topbarBlock(html) {
   return html.slice(start, end);
 }
 
-const CONTROL_IDS = ["bridgeStatus", "themeToggle", "assetCount", "sortSelect", "searchInput", "newAssetTopBtn"];
+const CONTROL_IDS = ["bridgeStatus", "assetCount", "sortSelect", "searchInput", "newAssetTopBtn"];
 
 // 1. The topbar exposes exactly two regions: context and actions.
 test("1. topbar has context and actions regions", async () => {
@@ -67,15 +67,15 @@ test("2. actions region holds utility / work / primary groups", async () => {
   assert.ok(order[0] < order[1] && order[1] < order[2], "group order must be utility → work → primary");
 });
 
-// 3. Bridge status and theme toggle live in the utility group.
-test("3. bridge status and theme toggle live in the utility group", async () => {
+// 3. The utility group retains bridge live semantics only. Theme switching is
+// owned by Settings so the gallery topbar does not duplicate the control.
+test("3. utility group retains bridge semantics without a theme button", async () => {
   const topbar = topbarBlock(await readHtml());
   const utilityStart = topbar.indexOf('class="topbar-utility-group"');
   const workStart = topbar.indexOf('class="topbar-work-group"');
-  for (const id of ["bridgeStatus", "themeToggle"]) {
-    const at = topbar.indexOf(`id="${id}"`);
-    assert.ok(at > utilityStart && at < workStart, `#${id} must sit inside the utility group`);
-  }
+  const bridgeAt = topbar.indexOf('id="bridgeStatus"');
+  assert.ok(bridgeAt > utilityStart && bridgeAt < workStart, "#bridgeStatus must sit inside the utility group");
+  assert.equal(topbar.includes('id="themeToggle"'), false, "theme toggle must not be duplicated in the topbar");
 });
 
 // 4. The work group carries the V2 FilterBar (count → sort → search + type filters
@@ -108,8 +108,8 @@ test("5. import lives in the primary group", async () => {
   assert.ok(at > primaryStart, "#newAssetTopBtn must sit inside the primary group");
 });
 
-// 6. All six control IDs stay unique in the page.
-test("6. the six control IDs stay unique", async () => {
+// 6. All retained topbar control IDs stay unique in the page.
+test("6. retained control IDs stay unique", async () => {
   const html = await readHtml();
   for (const id of CONTROL_IDS) {
     assert.equal(html.split(`id="${id}"`).length - 1, 1, `#${id} must appear exactly once`);
@@ -122,12 +122,12 @@ test("6. the six control IDs stay unique", async () => {
 
 // 7. The DOM order of the V2 controls is unchanged.
 // 2026-08-18: V2-only token consolidation. The V2 design removed the legacy
-// #batchToggle and #filterToggle buttons; the controls that survived are
-// `bridgeStatus → themeToggle → assetCount → sortSelect → searchInput →
-// newAssetTopBtn` (utility → work → primary).
+// #batchToggle, #filterToggle and the redundant #themeToggle buttons; the
+// controls that survive are `bridgeStatus → assetCount → sortSelect →
+// searchInput → newAssetTopBtn` (utility → work → primary).
 test("7. control DOM order is unchanged", async () => {
   const topbar = topbarBlock(await readHtml());
-  const positions = ["bridgeStatus", "themeToggle", "assetCount", "sortSelect", "searchInput", "newAssetTopBtn"].map((id) => topbar.indexOf(`id="${id}"`));
+  const positions = ["bridgeStatus", "assetCount", "sortSelect", "searchInput", "newAssetTopBtn"].map((id) => topbar.indexOf(`id="${id}"`));
   for (let i = 1; i < positions.length; i += 1) {
     assert.ok(positions[i] > positions[i - 1], `order violated at index ${i}`);
   }
@@ -172,13 +172,12 @@ test("10. bridge status live semantics stay intact", async () => {
   assert.match(app, /els\.statusText\) els\.statusText\.textContent = value;/, "setStatus still publishes the hidden live text");
 });
 
-// 11. Theme toggle keeps its accessible name (icon-only).
-test("11. theme toggle keeps its accessible name", async () => {
-  const button = /<button class="toolbar-icon" id="themeToggle"[^>]*>/.exec(await readHtml());
-  assert.ok(button, "theme toggle must exist");
-  assert.match(button[0], /aria-label="切换暗色模式"/, "aria-label must be preserved");
-  assert.match(button[0], /aria-pressed="false"/, "aria-pressed must be preserved");
-  assert.match(button[0], /data-i18n-aria-label="darkModeToggle"/, "i18n aria-label binding must be preserved");
+// 11. Theme selection is exposed only in Settings.
+test("11. theme selection is not duplicated in the topbar", async () => {
+  const [html, app] = await Promise.all([readHtml(), readApp()]);
+  assert.doesNotMatch(topbarBlock(html), /themeToggle|theme-icon-moon|theme-icon-sun/);
+  assert.match(app, /data-appearance-opt/,
+    "settings must retain the appearance control after the topbar duplicate is removed");
 });
 
 // 12. (Retired) Batch toggle keeps aria-pressed.

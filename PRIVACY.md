@@ -87,7 +87,8 @@ Codex, ChatGPT, Grok, Cowart, Chrome, and any AI or image-generation provider us
 
 ## User Control
 
-- Choose the library location with `MOSA_LIBRARY_DIR`.
+- In the desktop app, choose **Settings → Storage & data → Change location** to move the local library to an empty folder. MOSA copies the existing assets and metadata, switches the saved location only after the copy succeeds, and then restarts.
+- `MOSA_LIBRARY_DIR` remains an explicit runtime override. When it is set, it takes precedence over the saved desktop location and the in-app move control is disabled.
 - Disable web capture by leaving `MOSA_WEB_CAPTURE_TOKEN` unset and disabling or removing the extension.
 - Disable a source bridge by not configuring or running the corresponding source tool.
 - Disable anonymous usage metrics in Preferences. Update checks continue without the anonymous fields.

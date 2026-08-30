@@ -92,35 +92,6 @@
       </div>
     </div>
 
-    <div class="modal-overlay account-modal-overlay" id="accountModal" aria-hidden="true">
-      <div class="account-modal-card" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle" tabindex="-1">
-        <button class="account-modal-close" id="closeAccountModal" type="button" data-i18n-aria-label="closeAccount" aria-label="关闭关于面板">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
-        </button>
-        <div class="account-modal-scroll">
-          <section class="account-profile">
-            <div class="account-profile-main">
-              <div class="account-avatar" aria-hidden="true"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.25"/><path d="M5.5 20c.8-3.1 3-4.75 6.5-4.75s5.7 1.65 6.5 4.75"/></svg></div>
-              <div class="account-profile-copy">
-                <div class="account-name-row"><h2 id="accountModalTitle" data-i18n="accountName">MOSA</h2></div>
-                <p data-i18n="accountRole">本地创意资产库</p>
-              </div>
-            </div>
-            <div class="account-stat-grid">
-              <div><strong id="accountAssetCount">0</strong><span data-i18n="assets">素材</span></div>
-              <div><strong id="accountCollectionCount">0</strong><span data-i18n="collections">收藏集</span></div>
-              <div><strong id="accountStorageEngine">—</strong><span data-i18n="storageEngine">存储引擎</span></div>
-            </div>
-          </section>
-          <section class="account-menu-list" data-i18n-aria-label="account" aria-label="关于 MOSA">
-            <div class="account-info-row"><strong data-i18n="libraryPath">素材库路径</strong><small id="accountLibraryPath">—</small></div>
-            <div class="account-info-row"><strong data-i18n="version">版本</strong><small id="accountVersionValue">—</small></div>
-          </section>
-          <p class="account-about-note" data-i18n="accountAboutNote">MOSA 是本地优先的创意资产库：Prompt、素材与来源信息只保存在您的电脑上，不会上传到云端。</p>
-        </div>
-      </div>
-    </div>
-
     <!-- Phase 5B / F-15：全应用唯一 ConfirmDialog——替换 window.confirm 的四条业务确认
          （批量归档、单素材归档、放弃未保存修改、受限参考图再生）。标题/说明/确认按钮文案
          由 requestConfirmation 动态填充；Cancel 固定复用 cancel。tone 切换确认按钮原语：
@@ -178,7 +149,6 @@
         <div class="sidebar-spacer"></div>
         <div class="sidebar-footer">
           <div class="settings-wrap">
-            <button class="settings-trigger account-trigger" id="accountToggle" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="3.25"/><path d="M5.5 20c.8-3.1 3-4.75 6.5-4.75s5.7 1.65 6.5 4.75"/></svg><span data-i18n="account">个人账户</span></button>
             <button class="settings-trigger" id="settingsToggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="settingsMenu"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06-2.15 2.15-.06-.06A1.7 1.7 0 0 0 15.72 18a1.7 1.7 0 0 0-1.02 1.55V20h-3v-.45A1.7 1.7 0 0 0 10.68 18a1.7 1.7 0 0 0-1.87 1.02l-.06.06-2.15-2.15.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.02H5v-3h.45A1.7 1.7 0 0 0 7 9.96a1.7 1.7 0 0 0-1.02-1.87l-.06-.06 2.15-2.15.06.06A1.7 1.7 0 0 0 10 6.28a1.7 1.7 0 0 0 1.02-1.55V4.3h3v.45A1.7 1.7 0 0 0 15.04 6.3a1.7 1.7 0 0 0 1.87-1.02l.06-.06 2.15 2.15-.06.06A1.7 1.7 0 0 0 18.72 9.3a1.7 1.7 0 0 0 1.55 1.02h.45v3h-.45A1.7 1.7 0 0 0 19.4 15Z"/></svg><span data-i18n="settings">设置</span></button>
           </div>
         </div>
@@ -191,8 +161,8 @@
         <section class="library-view" id="libraryView">
         <!-- V2 FilterBar 顶栏：左=.topbar-context（范围标题+类型筛选），右=.topbar-actions
              按 mosa-library-v2 FilterBar 顺序排列：结果计数 → 批量 → 排序 → 筛选 → 搜索框；
-             utility 组保留主题切换；桥接状态继续通过辅助技术播报但不占可见布局，primary 组保留唯一主操作导入素材。
-             六个控件 ID 均唯一；无隐藏复制控件、无溢出菜单。#bridgeStatusMeta 全档位
+             utility 组只保留不可见的桥接状态语义；主题切换统一收敛到设置面板，primary 组保留唯一主操作导入素材。
+             顶栏不再重复提供主题按钮；无隐藏复制控件、无溢出菜单。#bridgeStatusMeta 全档位
              visually-hidden（降噪）：不占可见布局但保留辅助技术语义；
              #statusText 独立于被隐藏的 utility 组，持续保留 aria-live 播报。 -->
         <header class="topbar">
@@ -201,7 +171,6 @@
             <span class="visually-hidden" id="statusText" role="status" aria-live="polite" aria-relevant="text" aria-atomic="true"></span>
             <div class="topbar-utility-group">
               <div class="bridge-status visually-hidden" id="bridgeStatus" data-state="checking" role="status" aria-live="polite"><span class="bridge-dot" aria-hidden="true"></span><span id="bridgeStatusLabel" data-i18n="statusChecking">检查桥接状态…</span><span class="bridge-status-meta visually-hidden" id="bridgeStatusMeta"></span></div>
-              <button class="toolbar-icon" id="themeToggle" type="button" aria-pressed="false" data-i18n-title="darkModeToggle" title="切换暗色模式" data-i18n-aria-label="darkModeToggle" aria-label="切换暗色模式"><svg class="theme-icon theme-icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg><svg class="theme-icon theme-icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></button>
             </div>
             <div class="topbar-work-group">
               <span class="topbar-result-count" id="assetCount" role="status" aria-live="polite">0 个结果</span>

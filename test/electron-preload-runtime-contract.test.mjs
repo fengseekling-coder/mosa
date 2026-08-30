@@ -11,6 +11,7 @@ const root = resolve(import.meta.dirname, "..");
 const preloadPath = resolve(root, "desktop", "preload.cjs");
 const electronPath = resolve(root, "node_modules", "electron", "dist", "Electron.app", "Contents", "MacOS", "Electron");
 const EXPECTED_API_KEYS = [
+  "changeLibraryLocation",
   "checkForUpdates",
   "onMenuImport",
   "onMenuSearch",
@@ -63,16 +64,30 @@ test("preload path, module format, security settings, and API surface are stable
   assert.doesNotMatch(preload, /openExternal|sendSync|\.send\(/, "generic IPC is not exposed");
   // The preload exposes only narrow, named request channels. Update actions
   // accept no URL from the renderer; the main process owns the fixed website.
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 6, "only the six approved invoke channels remain");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 7, "only the seven approved invoke channels remain");
   assert.deepEqual(sortedApiKeys(preload), EXPECTED_API_KEYS);
   assert.match(preload, /writeClipboardText: \(text\) => ipcRenderer\.invoke\("write-clipboard-text", text\)/);
   assert.match(preload, /showItemInFolder: \(path\) => ipcRenderer\.invoke\("show-item-in-folder", path\)/);
   assert.match(preload, /checkForUpdates: \(notify = false, anonymousUsageEnabled = true\) =>[\s\S]*?ipcRenderer\.invoke\("check-for-updates", notify === true, anonymousUsageEnabled !== false\)/);
   assert.match(preload, /openDownloadPage: \(\) => ipcRenderer\.invoke\("open-download-page"\)/);
+  assert.match(preload, /changeLibraryLocation: \(\) => ipcRenderer\.invoke\("change-library-location"\)/);
   assert.doesNotMatch(preload, /openDownloadPage:\s*\([^)]*url/i, "renderer cannot choose an update destination");
   assert.match(main, /MOSA_DOWNLOAD_PAGE_URL/);
   assert.match(main, /ipcMain\.handle\("check-for-updates"/);
   assert.match(main, /ipcMain\.handle\("open-download-page"/);
+  assert.match(main, /ipcMain\.handle\("change-library-location"/);
+  const relocationHandler = main.slice(main.indexOf('ipcMain.handle("change-library-location"'), main.indexOf('\n\n  // Phase 4C', main.indexOf('ipcMain.handle("change-library-location"')));
+  assert.match(relocationHandler, /event\.sender !== mainWindow\.webContents/, "library relocation validates the sender");
+  assert.match(relocationHandler, /process\.env\.MOSA_LIBRARY_DIR/, "an explicit environment-managed library cannot be overridden in-app");
+  assert.match(relocationHandler, /service\?\.mode !== "owned"/, "attached external runtimes cannot be moved by the desktop shell");
+  assert.match(relocationHandler, /readdir\(nextLibraryDir\)/, "the destination must be inspected before copying");
+  assert.match(relocationHandler, /entries\.length > 0/, "only an empty destination is accepted");
+  assert.match(relocationHandler, /await stopOwnedRuntime\(\)/, "SQLite and the runtime lock are closed before migration");
+  assert.match(relocationHandler, /entry\.name === "\.mosa-runtime\.lock"/, "runtime locks are never copied to the new library");
+  assert.ok(relocationHandler.indexOf("saveLibraryDir(nextLibraryDir)") > relocationHandler.indexOf("await cp(join(previousLibraryDir, entry.name), join(nextLibraryDir, entry.name)"),
+    "the persisted location switches only after the copy succeeds");
+  assert.ok(relocationHandler.indexOf("await rm(previousLibraryDir") > relocationHandler.indexOf("saveLibraryDir(nextLibraryDir)"),
+    "the original library is removed only after a successful copy and preference switch");
   assert.match(main, /ipcMain\.handle\("write-clipboard-text"/);
   const pasteImageHandler = main.slice(main.indexOf('ipcMain.handle("paste-image"'), main.indexOf("\n  });", main.indexOf('ipcMain.handle("paste-image"')));
   assert.match(pasteImageHandler, /event\.sender !== mainWindow\.webContents/);

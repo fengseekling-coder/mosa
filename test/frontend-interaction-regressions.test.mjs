@@ -58,7 +58,8 @@ test("desktop image paste never hijacks editors or stacks over another modal sur
   assert.match(paste, /!els\.imagePreviewModal\?\.hidden/);
   assert.match(paste, /els\.importModal\?\.classList\.contains\("open"\)/);
   assert.match(paste, /els\.groupModal\?\.classList\.contains\("open"\)/);
-  assert.match(paste, /els\.accountModal\?\.classList\.contains\("open"\)/);
+  assert.doesNotMatch(app, /accountModal|openAccountModal|closeAccountModal/,
+    "the retired standalone About dialog must not leave renderer blocking hooks behind");
   assert.match(paste, /if \(editableTarget \|\| blockingSurfaceOpen\) return;/);
   assert.match(paste, /await pasteClipboardImage\(\)/, "paste events use the shared native-image paste path");
 
@@ -136,6 +137,15 @@ test("a consumed Escape cannot also close mobile navigation", async () => {
   assert.ok(consumed >= 0 && mobile > consumed, "defaultPrevented guard precedes the mobile Escape branch");
 });
 
+test("V2 sidebar source selection does not create a redundant active-filter row", async () => {
+  const css = await readStyles();
+
+  assert.match(css, /\.mosa-v2 \.active-filters \{ display: none; \}/,
+    "sidebar/source selection stays represented by the active navigation item only");
+  assert.doesNotMatch(css, /\.mosa-v2 \.active-filters:not\(\[hidden\]\) \{ display: flex; \}/,
+    "active source facets must not reopen the legacy chip/clear-all toolbar");
+});
+
 test("overlay motion is discrete-safe, token-driven, and disabled for reduced motion", async () => {
   const css = await readStyles();
   const reducedMotion = css.slice(css.lastIndexOf("@media (prefers-reduced-motion: reduce)"));
@@ -144,8 +154,8 @@ test("overlay motion is discrete-safe, token-driven, and disabled for reduced mo
     "modal overlays keep their fade while display is removed discretely");
   assert.match(css, /@starting-style \{[\s\S]*?\.modal-overlay\.open \{ opacity: 0; \}/,
     "modal entrance has an explicit starting style instead of a hard cut");
-  assert.match(css, /\.modal-overlay\.open > \.account-modal-card/,
-    "the account dialog participates even though it does not use .modal-card");
+  assert.doesNotMatch(css, /account-modal-card/,
+    "the retired standalone About dialog must not leave a second modal surface behind");
   assert.match(css, /\.image-preview-modal\[hidden\][^}]*pointer-events: none/,
     "a visually exiting preview cannot intercept input after hidden is set");
   assert.match(css, /\.drag-overlay \{[^}]*var\(--duration-fast\)[^}]*allow-discrete/,
