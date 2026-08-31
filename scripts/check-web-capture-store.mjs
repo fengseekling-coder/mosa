@@ -11,6 +11,9 @@ const storeId = String(process.env.MOSA_CHROME_STORE_EXTENSION_ID || MOSA_WEB_CA
 const manifest = JSON.parse(await readFile(resolve(extensionDir, "manifest.json"), "utf8"));
 const background = await readFile(resolve(extensionDir, "background.js"), "utf8");
 const hook = await readFile(resolve(extensionDir, "page-hook.js"), "utf8");
+const content = await readFile(resolve(extensionDir, "content.js"), "utf8");
+const generationRegistry = await readFile(resolve(extensionDir, "generation-registry.js"), "utf8");
+const providers = await readFile(resolve(extensionDir, "provider-sites.js"), "utf8");
 const options = await readFile(resolve(extensionDir, "options.js"), "utf8");
 const privacy = await readFile(resolve(root, "PRIVACY.md"), "utf8");
 
@@ -37,6 +40,17 @@ check(/autoCapture:\s*false/.test(options), "options default must match backgrou
 check(/details\?\.reason === "install"/.test(background), "first install must surface the disclosure/settings page");
 check(/set-capture-enabled/.test(hook), "page hook must support explicit capture enable/disable");
 check(!/forwardedHeaders|rememberRequestHeaders|oai-device-id|oai-client-version|oai-language/i.test(hook), "page hook must not capture ChatGPT authentication headers");
+check(/assertAllowedRemoteMediaUrl/.test(background), "background media downloads must keep a final URL allowlist");
+check(/SIZE_FAILURE_LIMIT/.test(content), "ChatGPT small-file retry must remain bounded");
+check(/generation-registry\.js/.test(JSON.stringify(manifest.content_scripts || [])), "ChatGPT content pipeline must load the generation context registry");
+check(/createGenerationRegistry/.test(generationRegistry) && /providerGenerationCallId/.test(generationRegistry), "generation context registry must reconcile provider generation identities");
+check(/outputs:\s*new Set\(\)/.test(generationRegistry) && /bestPrompt/.test(generationRegistry), "generation registry must keep attempt and output state separate");
+check(/resolvedOutputsForEntry/.test(generationRegistry) && /attemptsCompatible/.test(generationRegistry), "generation registry must fan out shared prompts without merging incompatible attempts");
+check(/promptScope/.test(hook) && /generationStatus/.test(hook) && /looksLikeGenerationErrorText/.test(hook), "ChatGPT hook must preserve prompt scope and generation status while rejecting error prose");
+check(/autoCandidateReadiness/.test(content) && /resolvedForMessage/.test(content) && /resolvedOutputsForEntry/.test(content), "ChatGPT content pipeline must keep stability gating and per-output prompt upgrades");
+check(/PROMPT_KEY_ALIASES/.test(hook) && /revisedprompt/.test(hook), "ChatGPT prompt parser must normalize provider prompt-key casing");
+check(/clearAllPromptRetries/.test(providers), "Google provider delayed capture work must be cancellable");
+check(/if \(!autoCapture\)/.test(providers), "Google provider delayed capture work must honor auto-capture state");
 check(/defaults automatic capture to off/i.test(privacy), "privacy policy must disclose opt-in automatic capture");
 check(/does not read, copy, store, post, or replay ChatGPT Authorization headers/i.test(privacy), "privacy policy must describe the authentication-header boundary");
 
@@ -54,7 +68,11 @@ if (releaseMode) {
     try {
       await access(resolve(extensionDir, relative));
     } catch {
-      failures.push(`missing Chrome Web Store asset: ${relative}`);
+      // Store listing artwork is uploaded through the Chrome Web Store portal
+      // and is intentionally not part of the executable extension package.
+      // Keep this visible to release operators without making a code/package
+      // preflight fail for non-runtime collateral.
+      warnings.push(`Chrome Web Store portal asset not present in repository: ${relative}`);
     }
   }
 }

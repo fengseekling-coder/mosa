@@ -20,16 +20,23 @@
   }
   markReady();
 
-  const PROMPT_KEYS = new Set([
-    "prompt", "revised_prompt", "generation_prompt", "image_prompt",
-    "original_prompt", "caption", "model_caption", "alt_text", "metadata_caption",
+  const PROMPT_KEY_ALIASES = new Map([
+    ["prompt", "prompt"],
+    ["revised_prompt", "revised_prompt"], ["revisedprompt", "revised_prompt"],
+    ["generation_prompt", "generation_prompt"], ["generationprompt", "generation_prompt"],
+    ["image_prompt", "image_prompt"], ["imageprompt", "image_prompt"],
+    ["original_prompt", "original_prompt"], ["originalprompt", "original_prompt"],
+    ["caption", "caption"],
+    ["model_caption", "model_caption"], ["modelcaption", "model_caption"],
+    ["alt_text", "alt_text"], ["alttext", "alt_text"],
+    ["metadata_caption", "metadata_caption"], ["metadatacaption", "metadata_caption"],
   ]);
   const URL_KEYS = new Set([
     "url", "download_url", "src", "image_url", "asset_url", "file_url",
-    "encoded_image_url",
+    "encoded_image_url", "downloadurl", "imageurl", "asseturl", "fileurl", "encodedimageurl",
   ]);
   const ASSET_REFERENCE_KEYS = new Set([
-    "asset_pointer", "asset_id", "file_id", "image_id", "assetid", "fileid", "imageid",
+    "asset_pointer", "assetpointer", "asset_id", "file_id", "image_id", "assetid", "fileid", "imageid",
   ]);
   const CONVERSATION_ID_KEYS = new Set(["conversation_id", "conversationid", "cid"]);
   const MESSAGE_ID_KEYS = new Set(["message_id", "messageid"]);
@@ -42,6 +49,10 @@
     "generation_call_id", "generationcallid",
     "image_generation_call_id", "imagegenerationcallid",
     "image_gen_call_id", "imagegencallid",
+  ]);
+  const GENERATION_STATUS_KEYS = new Set([
+    "status", "state", "generation_status", "generationstatus",
+    "result_status", "resultstatus", "finish_reason", "finishreason",
   ]);
 
   function post(type, payload) {
@@ -70,11 +81,11 @@
       }
       const conversationId = url.searchParams.get("cid") || "";
       const assetId = url.searchParams.get("id") || "";
-      if (!conversationId || !assetId) return null;
+      if (!assetId) return null;
       return {
         conversationId,
         assetId,
-        imageKey: `estuary:${conversationId}:${assetId}`,
+        imageKey: conversationId ? `estuary:${conversationId}:${assetId}` : `asset:${assetId}`,
       };
     } catch {
       return null;
@@ -142,11 +153,59 @@
       .trim();
   }
 
+  function canonicalPromptKey(key) {
+    return PROMPT_KEY_ALIASES.get(String(key || "").toLowerCase()) || "";
+  }
+
   function looksLikePrompt(text) {
     const t = cleanPrompt(text);
     if (t.length < 24 || t.length > 12000) return false;
     if (/^(ok|yes|no|thanks|继续|好的)\b/i.test(t) && t.length < 60) return false;
     return true;
+  }
+
+  function looksLikeGenerationErrorText(text) {
+    const t = cleanPrompt(text);
+    if (!t) return false;
+    return /^(?:generation|image generation|image|request|tool|operation)\b.{0,80}\b(?:failed|failure|error|timed?\s*out|timeout|cancelled|canceled|aborted|blocked|rejected|stopped)\b/i.test(t)
+      || /\b(?:failed|unable|could(?:n't| not))\s+to\s+(?:generate|create|render|produce)\b/i.test(t)
+      || /\b(?:image|generation)\s+(?:service|request)\b.{0,80}\b(?:timed?\s*out|timeout|failed|error)\b/i.test(t)
+      || /\bpartial result\b.{0,80}\b(?:visible|available|returned)\b/i.test(t)
+      || /\bpolicy violation\b/i.test(t)
+      || /(?:生成失败|生成图片时出错|生成时出错|生成错误|生成超时|已取消生成|取消生成|生成已中止|生成被阻止|未能生成|生成已停止|仅返回部分结果|部分结果仍可见)/.test(t);
+  }
+
+  function normalizeGenerationStatus(value) {
+    const raw = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (!raw) return "unknown";
+    if (/^(?:completed?|succeeded|success|done|finished)$/.test(raw)) return "completed";
+    if (/^(?:failed|failure|error|errored|rejected|timeout|timed_out)$/.test(raw)) return "failed";
+    if (/^(?:cancelled|canceled|aborted|stopped)$/.test(raw)) return "cancelled";
+    if (/^(?:partial|incomplete)$/.test(raw)) return "partial";
+    if (/^(?:in_progress|running|generating|streaming|pending|queued)$/.test(raw)) return "in_progress";
+    return "unknown";
+  }
+
+  function generationStatusFromObject(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return "unknown";
+    for (const [key, child] of Object.entries(value)) {
+      const lower = String(key).toLowerCase();
+      if (GENERATION_STATUS_KEYS.has(lower) && typeof child === "string") {
+        const status = normalizeGenerationStatus(child);
+        if (status !== "unknown") return status;
+      }
+      if ((lower === "error" || lower === "failure") && child) return "failed";
+    }
+    return "unknown";
+  }
+
+  function generationStatusRank(status) {
+    return ({ unknown: 0, in_progress: 1, partial: 2, failed: 3, cancelled: 3, completed: 4 })[status] || 0;
+  }
+
+  function preferGenerationStatus(current, candidate) {
+    const next = normalizeGenerationStatus(candidate);
+    return generationStatusRank(next) >= generationStatusRank(current) ? next : current;
   }
 
   function scorePrompt(text) {
@@ -180,20 +239,31 @@
     return hits.length >= 2;
   }
 
-  function promptPriority(key) {
-    if (["revised_prompt", "generation_prompt", "image_prompt"].includes(key)) return 3;
-    if (["metadata_caption", "caption", "model_caption", "alt_text"].includes(key)) return 2;
-    return 1;
+  function promptPriority(key, { generationOwned = false } = {}) {
+    const canonical = canonicalPromptKey(key);
+    return ({
+      revised_prompt: 700,
+      generation_prompt: 650,
+      image_prompt: 600,
+      original_prompt: generationOwned ? 550 : 100,
+      prompt: generationOwned ? 500 : 100,
+      model_caption: 400,
+      metadata_caption: 380,
+      caption: 350,
+      alt_text: 300,
+    })[canonical] || 0;
   }
 
-  function promptStatusForKey(key) {
-    if (["revised_prompt", "generation_prompt", "image_prompt"].includes(key)) return "generation-tool-prompt";
-    if (["metadata_caption", "caption", "model_caption", "alt_text"].includes(key)) return "visible-caption";
+  function promptStatusForKey(key, { generationOwned = false } = {}) {
+    const canonical = canonicalPromptKey(key);
+    if (["revised_prompt", "generation_prompt", "image_prompt"].includes(canonical)) return "generation-tool-prompt";
+    if (generationOwned && ["original_prompt", "prompt"].includes(canonical)) return "generation-tool-prompt";
+    if (["metadata_caption", "caption", "model_caption", "alt_text"].includes(canonical)) return "visible-caption";
     return "user-message";
   }
 
-  function isTrustedGenerationPromptKey(key) {
-    return promptStatusForKey(key) === "generation-tool-prompt";
+  function isTrustedGenerationPromptKey(key, options = {}) {
+    return promptStatusForKey(key, options) === "generation-tool-prompt";
   }
 
   function conversationIdFromLocation() {
@@ -257,6 +327,10 @@
       providerGenerationCallId: extra.providerGenerationCallId || "",
       providerResponseId: extra.providerResponseId || "",
       promptStatus: extra.promptStatus || (p ? "user-message" : "not-available"),
+      promptSource: extra.promptSource || "",
+      promptPriority: Number(extra.promptPriority) || 0,
+      promptScope: extra.promptScope || (p && identity.imageKey ? "output" : p ? "attempt" : ""),
+      generationStatus: normalizeGenerationStatus(extra.generationStatus),
       model: extra.model || "",
       capturedAt: new Date().toISOString(),
       via: extra.via || "network",
@@ -279,15 +353,286 @@
     const toolCallIds = new Set();
     const generationCallIds = new Set();
     let model = "";
+    const toolMarker = [
+      message?.author?.name,
+      message?.recipient,
+      message?.metadata?.tool_name,
+      message?.metadata?.command,
+      message?.metadata?.invoked_plugin?.namespace,
+    ].filter(Boolean).join(" ");
+    const generationToolMarker = /(dall[-_.]?e|image[_ .-]?(gen|generation)|text2im|imagegen)/i.test(toolMarker)
+      || Boolean(
+        message?.metadata?.dalle
+        || message?.metadata?.image_gen
+        || message?.metadata?.imageGen
+        || message?.metadata?.image_generation
+        || message?.metadata?.imageGeneration,
+      );
+    const authorRole = String(message?.author?.role || "").toLowerCase();
+    const generationOwnedMessage = generationToolMarker && ["tool", "assistant"].includes(authorRole);
+
+    function emitScopedGenerationUnits(root) {
+      if (!generationOwnedMessage) return 0;
+      const units = new Map();
+      const toolDefaults = new Map();
+
+      function promptCandidate(key, value) {
+        const canonical = canonicalPromptKey(key);
+        if (!canonical || typeof value !== "string") return null;
+        const text = cleanPrompt(value);
+        const priority = promptPriority(canonical, { generationOwned: true });
+        const status = promptStatusForKey(canonical, { generationOwned: true });
+        if (!text || text.length > 12000 || looksLikeGenerationErrorText(text)) return null;
+        if (status !== "generation-tool-prompt" && !looksLikePrompt(text)) return null;
+        return { text, priority, promptStatus: status, promptSource: canonical };
+      }
+
+      function selectPrompt(candidates) {
+        if (!candidates?.length) return null;
+        const ordered = [...candidates].sort((a, b) => b.priority - a.priority);
+        const best = ordered[0];
+        const tied = ordered.filter((item) => item.priority === best.priority && item.text !== best.text);
+        return tied.length ? null : best;
+      }
+
+      function selectPromptGroups(groups) {
+        const selected = (groups || []).map(selectPrompt).filter(Boolean);
+        if (!selected.length) return null;
+        const byText = new Map();
+        for (const prompt of selected) {
+          const current = byText.get(prompt.text);
+          if (!current || prompt.priority > current.priority) byText.set(prompt.text, prompt);
+        }
+        // Different prompt-only sibling objects are different scopes until the
+        // provider proves otherwise. This keeps collage/panel prompts from
+        // competing by field priority for ownership of the whole output.
+        if (byText.size !== 1) return null;
+        return [...byText.values()][0];
+      }
+
+      function unitFor(toolCallId, generationCallId) {
+        const key = generationCallId ? `generation:${generationCallId}` : toolCallId ? `tool:${toolCallId}` : "";
+        if (!key) return null;
+        if (!units.has(key)) {
+          units.set(key, {
+            toolCallId: toolCallId || "",
+            generationCallId: generationCallId || "",
+            sharedPromptGroups: [],
+            outputs: new Map(),
+            model: "",
+            generationStatus: "unknown",
+          });
+        }
+        const unit = units.get(key);
+        if (toolCallId) unit.toolCallId = toolCallId;
+        if (generationCallId) unit.generationCallId = generationCallId;
+        return unit;
+      }
+
+      function toolDefault(toolCallId) {
+        if (!toolCallId) return null;
+        if (!toolDefaults.has(toolCallId)) {
+          toolDefaults.set(toolCallId, { promptGroups: [], model: "", generationStatus: "unknown" });
+        }
+        return toolDefaults.get(toolCallId);
+      }
+
+      function outputFor(unit, assetId, imageUrl) {
+        if (!unit || (!assetId && !imageUrl)) return null;
+        const proxy = imageUrl ? chatGptImageProxyInfo(imageUrl) : null;
+        const resolvedAssetId = assetId || proxy?.assetId || "";
+        const key = resolvedAssetId ? `asset:${resolvedAssetId}` : `url:${genericImageKey(imageUrl) || imageUrl}`;
+        if (!unit.outputs.has(key)) {
+          unit.outputs.set(key, {
+            assetId: resolvedAssetId,
+            imageUrl: imageUrl || "",
+            prompts: [],
+            generationStatus: "unknown",
+          });
+        }
+        const output = unit.outputs.get(key);
+        if (resolvedAssetId) output.assetId = resolvedAssetId;
+        if (imageUrl && !output.imageUrl) output.imageUrl = imageUrl;
+        return output;
+      }
+
+      const visit = (value, inheritedIds = {}, depth = 0) => {
+        if (!value || depth > 14 || typeof value !== "object") return;
+        if (Array.isArray(value)) {
+          for (const item of value) visit(item, inheritedIds, depth + 1);
+          return;
+        }
+
+        let toolCallId = inheritedIds.toolCallId || "";
+        let generationCallId = inheritedIds.generationCallId || "";
+        for (const [key, child] of Object.entries(value)) {
+          const lower = String(key).toLowerCase();
+          if (TOOL_CALL_ID_KEYS.has(lower) && typeof child === "string" && child.trim()) toolCallId = child.trim();
+          if (GENERATION_CALL_ID_KEYS.has(lower) && typeof child === "string" && child.trim()) generationCallId = child.trim();
+        }
+
+        const unit = unitFor(toolCallId, generationCallId);
+        const defaults = toolDefault(toolCallId);
+        const localPrompts = [];
+        const localAssets = [];
+        const localUrls = [];
+        let localModel = "";
+        let localStatus = generationStatusFromObject(value);
+
+        for (const [key, child] of Object.entries(value)) {
+          const lower = String(key).toLowerCase();
+          const prompt = promptCandidate(lower, child);
+          if (prompt) localPrompts.push(prompt);
+          if (ASSET_REFERENCE_KEYS.has(lower) && typeof child === "string") {
+            const assetId = normalizeAssetId(child);
+            if (assetId) localAssets.push(assetId);
+          }
+          if ((URL_KEYS.has(lower) || typeof child === "string") && isImageishUrl(child)) localUrls.push(child);
+          if ((lower === "model" || lower === "model_slug") && typeof child === "string" && child.trim()) localModel = child.trim();
+          if ((lower === "error" || lower === "failure") && child) localStatus = "failed";
+        }
+
+        if (unit) {
+          if (localModel) unit.model = localModel;
+          unit.generationStatus = preferGenerationStatus(unit.generationStatus, localStatus);
+
+          const uniqueAssets = [...new Set(localAssets)];
+          const uniqueUrls = [...new Set(localUrls)];
+          const localOutputCount = uniqueAssets.length || uniqueUrls.length;
+
+          if (uniqueAssets.length === 1) {
+            const output = outputFor(unit, uniqueAssets[0], uniqueUrls[0] || "");
+            output.generationStatus = preferGenerationStatus(output.generationStatus, localStatus);
+            if (localPrompts.length) output.prompts.push(...localPrompts);
+            for (const extraUrl of uniqueUrls.slice(1)) outputFor(unit, uniqueAssets[0], extraUrl);
+          } else if (uniqueAssets.length > 1) {
+            for (const assetId of uniqueAssets) {
+              const output = outputFor(unit, assetId, "");
+              output.generationStatus = preferGenerationStatus(output.generationStatus, localStatus);
+            }
+            if (localPrompts.length) unit.sharedPromptGroups.push(localPrompts);
+          } else if (uniqueUrls.length === 1) {
+            const output = outputFor(unit, "", uniqueUrls[0]);
+            output.generationStatus = preferGenerationStatus(output.generationStatus, localStatus);
+            if (localPrompts.length) output.prompts.push(...localPrompts);
+          } else if (uniqueUrls.length > 1) {
+            for (const imageUrl of uniqueUrls) {
+              const output = outputFor(unit, "", imageUrl);
+              output.generationStatus = preferGenerationStatus(output.generationStatus, localStatus);
+            }
+            if (localPrompts.length) unit.sharedPromptGroups.push(localPrompts);
+          } else if (localPrompts.length) {
+            unit.sharedPromptGroups.push(localPrompts);
+          }
+
+          if (!generationCallId && defaults) {
+            if (localPrompts.length && !localOutputCount) defaults.promptGroups.push(localPrompts);
+            if (localModel) defaults.model = localModel;
+            defaults.generationStatus = preferGenerationStatus(defaults.generationStatus, localStatus);
+          }
+        }
+
+        const nextIds = { toolCallId, generationCallId };
+        for (const child of Object.values(value)) {
+          if (child && typeof child === "object") visit(child, nextIds, depth + 1);
+        }
+      };
+
+      visit(root);
+      const explicitGenerationCounts = new Map();
+      for (const unit of units.values()) {
+        if (!unit.toolCallId || !unit.generationCallId) continue;
+        explicitGenerationCounts.set(unit.toolCallId, (explicitGenerationCounts.get(unit.toolCallId) || 0) + 1);
+      }
+      const explicitGenerationUnitCount = [...units.values()].filter((unit) => unit.generationCallId).length;
+      const outputUnitCount = [...units.values()].filter((unit) => unit.outputs.size > 0).length;
+      const visibleMessageFailure = (message?.content?.parts || []).some((part) => (
+        typeof part === "string" && looksLikeGenerationErrorText(part)
+      ));
+      let emitted = 0;
+      for (const unit of units.values()) {
+        const defaults = toolDefaults.get(unit.toolCallId) || null;
+        const explicitGenerationCount = explicitGenerationCounts.get(unit.toolCallId) || 0;
+        const canInheritToolDefaults = !unit.generationCallId || explicitGenerationCount <= 1;
+        const sharedPrompt = selectPromptGroups(unit.sharedPromptGroups)
+          || (canInheritToolDefaults ? selectPromptGroups(defaults?.promptGroups || []) : null);
+        const model = unit.model || defaults?.model || "";
+        let unitStatus = canInheritToolDefaults
+          ? preferGenerationStatus(unit.generationStatus, defaults?.generationStatus || "unknown")
+          : unit.generationStatus;
+        if (visibleMessageFailure && explicitGenerationUnitCount <= 1 && outputUnitCount === 1 && unit.outputs.size) {
+          unitStatus = preferGenerationStatus(unitStatus, "failed");
+        }
+        const attemptScope = unit.generationCallId || unit.toolCallId;
+        const generationContextId = context.conversationId && attemptScope
+          ? `chatgpt:${context.conversationId}:${attemptScope}`
+          : attemptScope ? `chatgpt:${attemptScope}` : "";
+
+        for (const output of unit.outputs.values()) {
+          const outputPrompt = selectPrompt(output.prompts);
+          const selected = outputPrompt || sharedPrompt;
+          emitPair(selected?.text || "", output.imageUrl, {
+            assetId: output.assetId,
+            conversationId: context.conversationId,
+            messageId: context.messageId,
+            generationContextId,
+            providerToolCallId: unit.toolCallId,
+            providerGenerationCallId: unit.generationCallId,
+            providerResponseId: context.responseId,
+            promptStatus: selected?.promptStatus || "not-available",
+            promptSource: selected?.promptSource || "",
+            promptPriority: selected?.priority || 0,
+            promptScope: outputPrompt ? "output" : selected ? "attempt" : "",
+            generationStatus: output.generationStatus !== "unknown" ? output.generationStatus : unitStatus,
+            model,
+            via: "message-generation-unit",
+            isGeneration: true,
+          });
+          emitted += 1;
+        }
+
+        const shadowedByExplicitGeneration = !unit.generationCallId && explicitGenerationCount > 0;
+        if (!unit.outputs.size && sharedPrompt && !shadowedByExplicitGeneration) {
+          emitPair(sharedPrompt.text, "", {
+            conversationId: context.conversationId,
+            messageId: context.messageId,
+            generationContextId,
+            providerToolCallId: unit.toolCallId,
+            providerGenerationCallId: unit.generationCallId,
+            providerResponseId: context.responseId,
+            promptStatus: sharedPrompt.promptStatus,
+            promptSource: sharedPrompt.promptSource,
+            promptPriority: sharedPrompt.priority,
+            promptScope: "attempt",
+            generationStatus: unitStatus,
+            model,
+            via: "message-generation-attempt",
+            isGeneration: true,
+          });
+          emitted += 1;
+        }
+      }
+      return emitted;
+    }
+
+    const emittedNestedUnits = emitScopedGenerationUnits(message);
+    if (emittedNestedUnits > 0) return;
 
     function rememberPrompt(key, value) {
-      if (!PROMPT_KEYS.has(key) || typeof value !== "string") return;
+      const canonical = canonicalPromptKey(key);
+      if (!canonical || typeof value !== "string") return;
       const text = cleanPrompt(value);
-      if (!text || text.length > 12000 || (!isTrustedGenerationPromptKey(key) && !looksLikePrompt(text))) return;
+      if (!text || text.length > 12000 || looksLikeGenerationErrorText(text)) return;
+      if (!isTrustedGenerationPromptKey(canonical, { generationOwned: generationOwnedMessage }) && !looksLikePrompt(text)) return;
       const current = prompts.get(text);
-      const priority = promptPriority(key);
+      const priority = promptPriority(canonical, { generationOwned: generationOwnedMessage });
       if (!current || priority > current.priority) {
-        prompts.set(text, { text, priority, promptStatus: promptStatusForKey(key) });
+        prompts.set(text, {
+          text,
+          priority,
+          promptStatus: promptStatusForKey(canonical, { generationOwned: generationOwnedMessage }),
+          promptSource: canonical,
+        });
       }
     }
 
@@ -296,19 +641,26 @@
     // The "Model caption:" marker is OpenAI wording that has changed before, so
     // an unmarked caption is accepted too — but only inside a tool message that
     // owns the image, which is where a caption lives and chat prose does not.
-    function rememberVisibleCaption(value, { hasImageAsset, authorRole }) {
+    function rememberVisibleCaption(value, { hasImageAsset, authorRole, generationOwned }) {
       const text = cleanPrompt(value);
-      if (!looksLikePrompt(text)) return;
-      if (!/^model caption\s*:/i.test(text)) {
-        if (!hasImageAsset || authorRole !== "tool") return;
-        if (!looksLikeGenerationCaption(text)) return;
+      if (!text || text.length > 12000 || looksLikeGenerationErrorText(text)) return;
+      const markedCaption = /^model caption\s*:/i.test(text);
+      if (!markedCaption) {
+        if (!hasImageAsset || !["tool", "assistant"].includes(authorRole)) return;
+        if (authorRole === "assistant" && !generationOwned) return;
+        if (authorRole === "tool" && !generationOwned && !looksLikeGenerationCaption(text)) return;
+        if (/^(?:image generated|generated image|done|completed|success|已生成|生成完成|完成)[.!。！]?$/i.test(text)) return;
+      } else if (!looksLikePrompt(text)) {
+        return;
       }
       const current = prompts.get(text);
-      if (!current || 2 > current.priority) {
-        prompts.set(text, { text, priority: 2, promptStatus: "visible-caption" });
+      const priority = markedCaption ? 425 : 325;
+      if (!current || priority > current.priority) {
+        prompts.set(text, { text, priority, promptStatus: "visible-caption", promptSource: "message-visible-caption" });
       }
     }
 
+    let messageGenerationStatus = generationStatusFromObject(message);
     function scan(value, depth = 0) {
       if (!value || depth > 14 || typeof value !== "object") return;
       if (Array.isArray(value)) {
@@ -317,6 +669,12 @@
       }
       for (const [key, child] of Object.entries(value)) {
         const lower = String(key).toLowerCase();
+        if (GENERATION_STATUS_KEYS.has(lower) && typeof child === "string") {
+          messageGenerationStatus = preferGenerationStatus(messageGenerationStatus, child);
+        }
+        if ((lower === "error" || lower === "failure") && child) {
+          messageGenerationStatus = preferGenerationStatus(messageGenerationStatus, "failed");
+        }
         rememberPrompt(lower, child);
         if (ASSET_REFERENCE_KEYS.has(lower) && typeof child === "string") {
           const assetId = normalizeAssetId(child);
@@ -337,22 +695,20 @@
     scan(message);
     const captionContext = {
       hasImageAsset: assetIds.size > 0 || imageUrls.size > 0,
-      authorRole: String(message?.author?.role || "").toLowerCase(),
+      authorRole,
+      generationOwned: generationOwnedMessage,
     };
     for (const part of message?.content?.parts || []) {
-      if (typeof part === "string") rememberVisibleCaption(part, captionContext);
+      if (typeof part === "string") {
+        if (looksLikeGenerationErrorText(part)) {
+          messageGenerationStatus = preferGenerationStatus(messageGenerationStatus, "failed");
+        }
+        rememberVisibleCaption(part, captionContext);
+      }
     }
     const orderedPrompts = [...prompts.values()].sort((a, b) => b.priority - a.priority);
     const selected = orderedPrompts[0];
     const equallyPreferred = selected ? orderedPrompts.filter((item) => item.priority === selected.priority) : [];
-    const toolMarker = [
-      message?.author?.name,
-      message?.recipient,
-      message?.metadata?.tool_name,
-      message?.metadata?.command,
-      message?.metadata?.invoked_plugin?.namespace,
-    ].filter(Boolean).join(" ");
-    const generationToolMarker = /(dall[-_.]?e|image[_ .-]?(gen|generation)|text2im|imagegen)/i.test(toolMarker);
     const toolOwnedGeneration = captionContext.hasImageAsset
       && generationToolMarker
       && ["tool", "assistant"].includes(captionContext.authorRole);
@@ -399,6 +755,10 @@
         providerGenerationCallId: onlyGenerationCallId,
         providerResponseId: context.responseId,
         promptStatus: boundPrompt?.promptStatus || "not-available",
+        promptSource: boundPrompt?.promptSource || "",
+        promptPriority: boundPrompt?.priority || 0,
+        promptScope: boundPrompt ? (assetIds.size + imageUrls.size > 1 ? "attempt" : "output") : "",
+        generationStatus: messageGenerationStatus,
         model,
         via: "message-metadata-url",
         isGeneration: toolOwnedGeneration || boundPrompt?.promptStatus === "generation-tool-prompt" || boundPrompt?.promptStatus === "visible-caption",
@@ -414,6 +774,10 @@
         providerGenerationCallId: onlyGenerationCallId,
         providerResponseId: context.responseId,
         promptStatus: boundPrompt?.promptStatus || "not-available",
+        promptSource: boundPrompt?.promptSource || "",
+        promptPriority: boundPrompt?.priority || 0,
+        promptScope: boundPrompt ? (assetIds.size + imageUrls.size > 1 ? "attempt" : "output") : "",
+        generationStatus: messageGenerationStatus,
         model,
         via: "message-metadata-asset",
         isGeneration: toolOwnedGeneration || boundPrompt?.promptStatus === "generation-tool-prompt" || boundPrompt?.promptStatus === "visible-caption",
@@ -426,6 +790,10 @@
         providerGenerationCallId: onlyGenerationCallId,
         providerResponseId: context.responseId,
         promptStatus: boundPrompt.promptStatus,
+        promptSource: boundPrompt.promptSource || "",
+        promptPriority: boundPrompt.priority || 0,
+        promptScope: "attempt",
+        generationStatus: messageGenerationStatus,
         model,
         via: "message-prompt-only",
       });
@@ -450,14 +818,29 @@
     }
 
     let localPrompt = "";
+    let localPromptStatus = "not-available";
+    let localPromptPriority = 0;
+    let localPromptSource = "";
     let localUrl = "";
     let localAssetId = "";
     let localModel = "";
+    let localGenerationStatus = generationStatusFromObject(node);
 
     for (const [key, value] of Object.entries(node)) {
       const lower = String(key).toLowerCase();
-      if (PROMPT_KEYS.has(lower) && typeof value === "string" && looksLikePrompt(value)) {
-        localPrompt = cleanPrompt(value);
+      const canonical = canonicalPromptKey(lower);
+      if (canonical && typeof value === "string") {
+        const status = promptStatusForKey(canonical);
+        const text = cleanPrompt(value);
+        const priority = promptPriority(canonical);
+        if (text && !looksLikeGenerationErrorText(text) && text.length <= 12000 && (status === "generation-tool-prompt" || looksLikePrompt(text)) && priority >= localPromptPriority) {
+          localPrompt = text;
+          localPromptStatus = status;
+          localPromptPriority = priority;
+          localPromptSource = canonical;
+        }
+      } else if ((lower === "error" || lower === "failure") && value) {
+        localGenerationStatus = preferGenerationStatus(localGenerationStatus, "failed");
       } else if ((lower === "model" || lower === "model_slug") && typeof value === "string") {
         localModel = value;
       } else if (URL_KEYS.has(lower) && isImageishUrl(value)) {
@@ -469,19 +852,54 @@
       }
     }
 
+    const localGenerationEvidence = localPromptStatus === "generation-tool-prompt" || Boolean(context.generationCallId);
+
     if (localPrompt && localUrl) {
-      emitPair(localPrompt, localUrl, { ...context, model: localModel, via: "same-object" });
+      emitPair(localPrompt, localUrl, {
+        ...context,
+        model: localModel,
+        promptStatus: localPromptStatus,
+        promptSource: localPromptSource,
+        promptPriority: localPromptPriority,
+        promptScope: "output",
+        generationStatus: localGenerationStatus,
+        via: "same-object",
+        isGeneration: localGenerationEvidence,
+      });
       return;
     }
     if (localPrompt && localAssetId) {
-      emitPair(localPrompt, "", { ...context, assetId: localAssetId, model: localModel, via: "same-object-asset" });
+      emitPair(localPrompt, "", {
+        ...context,
+        assetId: localAssetId,
+        model: localModel,
+        promptStatus: localPromptStatus,
+        promptSource: localPromptSource,
+        promptPriority: localPromptPriority,
+        promptScope: "output",
+        generationStatus: localGenerationStatus,
+        via: "same-object-asset",
+        isGeneration: localGenerationEvidence,
+      });
       return;
     }
     if (localUrl) {
-      emitPair("", localUrl, { ...context, model: localModel, via: "url-only" });
+      emitPair("", localUrl, { ...context, model: localModel, generationStatus: localGenerationStatus, via: "url-only", isGeneration: localGenerationEvidence });
+    } else if (localAssetId && localGenerationEvidence) {
+      emitPair("", "", { ...context, assetId: localAssetId, model: localModel, generationStatus: localGenerationStatus, via: "asset-only", isGeneration: true });
     }
     if (localPrompt && !localUrl && !localAssetId) {
-      emitPair(localPrompt, "", { ...context, model: localModel, via: "prompt-only" });
+      emitPair(localPrompt, "", {
+        ...context,
+        model: localModel,
+        promptStatus: localPromptStatus,
+        promptSource: localPromptSource,
+        promptPriority: localPromptPriority,
+        promptScope: "attempt",
+        generationStatus: localGenerationStatus,
+        via: "prompt-only",
+        isGeneration: localGenerationEvidence,
+      });
     }
   }
 
@@ -491,7 +909,12 @@
       post("harvest-skipped", { reason: "payload-too-large", size: text.length, via });
       return;
     }
-    if (text.includes("data:")) {
+    // Only enter the SSE parser when the payload actually contains an SSE
+    // data record. Ordinary conversation JSON may contain the substring
+    // "data:" inside prompts, code blocks, captions, or data URLs; treating
+    // that as SSE used to skip JSON.parse() for the whole conversation.
+    if (/^\s*data:/m.test(text)) {
+      let parsedEvent = false;
       for (const line of text.split(/\n/)) {
         const trimmed = line.trim();
         if (!trimmed.startsWith("data:")) continue;
@@ -499,11 +922,12 @@
         if (!payload || payload === "[DONE]") continue;
         try {
           walkObject(JSON.parse(payload), { conversationId: conversationIdFromLocation() });
+          parsedEvent = true;
         } catch {
           // ignore
         }
       }
-      return;
+      if (parsedEvent) return;
     }
     try {
       walkObject(JSON.parse(text), { conversationId: conversationIdFromLocation() });
@@ -638,7 +1062,7 @@
    * so fetch and XHR never see the caption of an image generated while the page
    * is open. Frames arrive as JSON envelopes whose `body` is base64 SSE text.
    */
-  const WS_INTEREST = /asset_pointer|asset_id|file_id|image_id|file-service|sediment|revised_prompt|generation_prompt|image_prompt|generation_call_id|image_generation_call_id|image_gen_call_id|model[ _]caption|image[_ .-]?(gen|generation)|imagegen|dalle|oaiusercontent|estuary/i;
+  const WS_INTEREST = /asset_pointer|asset_id|file_id|image_id|file-service|sediment|revised_prompt|generation_prompt|image_prompt|generation_call_id|image_generation_call_id|image_gen_call_id|tool_call_id|toolcallid|model[ _]caption|["']prompt["']\s*:|generation_status|finish_reason|["'](?:error|failure)["']\s*:|image[_ .-]?(gen|generation)|imagegen|dalle|oaiusercontent|estuary/i;
 
   function decodeBase64Utf8(value) {
     if (typeof atob !== "function") return "";

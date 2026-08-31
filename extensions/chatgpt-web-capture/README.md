@@ -1,4 +1,4 @@
-# MOSA Web Capture（0.14）
+# MOSA Web Capture（0.14.5）
 
 把 **ChatGPT、Gemini、Flow 和 Google AI Studio 网页**中用户可见的生成图片归档到本机 MOSA。ChatGPT 支持提示词关联；Gemini、Flow 与 Google AI Studio 只会保存和图片局部关联的页面可见 Prompt（明确标为未验证）。
 
@@ -27,7 +27,7 @@ npm start
 
 ## 加载 / 更新扩展
 
-更新扩展代码后，在 `chrome://extensions` 点扩展卡片上的**刷新**，然后硬刷新要使用的网页。官方包通过 manifest public key 固定扩展 ID，因此相同扩展包在不同机器和目录中保持同一身份。
+更新扩展代码后，在 `chrome://extensions` 点扩展卡片上的**刷新**，然后硬刷新要使用的网页。源码 / 本地开发包通过 manifest public key 保持固定的本地扩展 ID；Chrome Web Store 发布包会在打包时移除该 key，并由商店 listing 自身固定扩展身份。
 
 ## 使用
 
@@ -40,7 +40,15 @@ npm start
 
 自动入库关闭时，扩展不会解析 ChatGPT 的网络生成数据，也不会运行 Google 站点的自动 DOM 扫描；手动保存会在本次操作期间临时启用必要的 ChatGPT 页面关联读取。
 
-Prompt 优先级：同一会话消息中的生成 metadata（如 `revised_prompt`）→ 同一图片的资源键（`cid + id`）→ 对应用户消息 → `not-available`（图仍入库）。
+ChatGPT 捕获现在把一次响应明确拆成 **Message / Generation Attempt / Output** 三层，而不是把一个 tool call 里的所有图片和 Prompt 塞进同一个上下文。Attempt 保存 generation-call / tool-call、共享 Prompt 和生成状态；每个 Output 单独保存 provider asset / Estuary identity、输出级 Prompt 和媒体证据。输出级 Prompt 只属于自己的图片；真正的 Attempt 共享 Prompt 才会分发给同一次生成里的多个 Output。图片先到、Prompt 后到或多张图并行完成都可以按稳定标识补齐，不再依赖“最近几秒出现的文字”猜测。
+
+失败、取消、部分完成和重试也作为独立 Attempt 处理。若同一消息中 `gen-a` 失败而 `gen-b` 成功，两个 generation-call 不会因为 message ID 相同而合并；存在多个 Attempt 时，message 级兜底会直接失效，宁可保留 `not-available` 也不会把失败尝试的 Prompt 借给成功图片。一个 Attempt 有多张图时，晚到的共享 Prompt 会逐张升级所有 Output，不会只升级第一张。
+
+如果 ChatGPT 实际只返回一个拼图 / 多宫格文件，它仍然是一个 Output。只有 provider 元数据明确给出整张 Output 的共享 Prompt 时才保存该 Prompt；若只发现多个同优先级 panel Prompt 而无法证明哪一个描述整张拼图，MOSA 会保留 `not-available`，不会任意挑第一条。页面中的 `failed / timeout / cancelled` 等错误说明只作为生成状态证据，不会再被当成 `visible-caption` Prompt。
+
+自动收录还会结合生成状态和短暂的媒体稳定窗口：`in_progress / partial` 输出优先等待后续状态，`completed / failed / cancelled` 进入终态后可立即处理；没有明确状态的媒体需要先稳定一小段时间。这样可以降低中间预览图、错误后的残留图抢先入库的概率，同时保留终态到达后重新确认同一输出的能力。
+
+ChatGPT Prompt 字段使用确定性的来源优先级：`revised_prompt` → `generation_prompt` → `image_prompt` → image-generation 工具内部的 `original_prompt` / `prompt` → `Model caption` / `model_caption` → 其他明确 caption。snake_case 与 camelCase 字段会统一归一化。用户原始指令继续单独保存在 `user_message`，不会伪装成模型实际执行的生图 Prompt。
 不会把整页最后一条用户消息误配给历史图片。
 
 ChatGPT 网页捕获现在会把“媒体”和“生成事件”分开记录。同一张去重后的图片可以对应多次独立生成；MOSA 自己构造的 `capture_context_id` 只用于关联一次网页捕获，不会冒充 OpenAI 的 generation-call ID。若页面运行时数据明确包含 tool-call、generation-call、response 或 provider asset ID，会分别保存为 provider 字段，但其证据等级仍是 `observed`，不是 OpenAI 公共 API 的 `provider_verified`。延迟补抓时优先沿用生成事件自身携带的 conversation ID，不只依赖当前页面 URL。网页捕获不会仅凭会话顺序自动建立父子版本关系。
@@ -53,7 +61,7 @@ ChatGPT 中能够明确识别为本轮上传输入的参考图，会作为该轮
 
 1. **实时流**：ChatGPT 对多数账号用 WebSocket 推流，扩展会解析其中带图片资产的帧（`fetch`/`XHR` 看不到这些）。
 2. **会话元数据**：打开或切换会话时页面自己拉取的会话 JSON。
-3. **主动重读**：入库后 2.8 秒、7.2 秒各重试一次，仅使用当前站点的同源浏览器会话去读当前会话；不会读取、复制或重放 ChatGPT 的 Authorization 请求头。拿到更好的提示词会通过 hash 去重自动升级已入库的图。
+3. **主动重读**：生成证据恢复会在约 2.8 秒、7.2 秒、15 秒分阶段重试；提示词升级仍采用有界延迟重读。所有请求只使用当前站点已有的同源浏览器会话去读当前会话，不会读取、复制或重放 ChatGPT 的 Authorization 请求头。拿到更好的提示词会通过 hash 去重自动升级已入库的图。
 
 第 3 条失败时右下角面板会显示原因，不再静默丢失。
 

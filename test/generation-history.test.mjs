@@ -133,6 +133,8 @@ for (const [name, createStore] of [
       conversation_id: "conversation-a",
       message_id: "message-a",
       effective_prompt: "observed prompt a",
+      prompt_scope: "output",
+      generation_status: "completed",
       verification_level: "observed",
       created_at: "2026-08-27T10:00:00.000Z",
     });
@@ -156,6 +158,8 @@ for (const [name, createStore] of [
       "chatgpt:conversation-b:call-b",
     ]);
     assert.ok(sharedEvents.every((event) => event.provider_generation_call_id === ""), "MOSA capture context must not impersonate a provider call id");
+    assert.equal(sharedEvents.find((event) => event.id === observedA.id)?.prompt_scope, "output");
+    assert.equal(sharedEvents.find((event) => event.id === observedA.id)?.generation_status, "completed");
 
     const verifiedChild = await store.recordGenerationEvent({
       project_id: "default",

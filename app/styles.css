@@ -1485,48 +1485,229 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 16px 16px; }.mosa-v2 .detail { top: 8px; right: 8px; bottom: 8px; width: min(360px, calc(100vw - 80px)); border-radius: 20px; }
 }
 
-/* V2 Preferences is a centered dialog, not the earlier sidebar flyout. */
-.mosa-v2 .settings-menu { position: fixed; z-index: 800; inset: 0; display: grid; width: auto; max-width: none; max-height: none; place-items: center; overflow: auto; padding: 24px; border: 0; border-radius: 0; background: rgb(0 0 0 / .35); box-shadow: none; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 1; transition: opacity var(--duration-normal) var(--ease-standard), display var(--duration-normal) allow-discrete; }
+/* V3 Preferences: persistent local-library rail + one focused settings page. */
+.mosa-v2 .settings-menu {
+  position: fixed;
+  z-index: 800;
+  inset: 0;
+  display: grid;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  place-items: center;
+  overflow: auto;
+  padding: 32px;
+  border: 0;
+  border-radius: 0;
+  background: rgb(0 0 0 / .3);
+  box-shadow: none;
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  opacity: 1;
+  transition: opacity 200ms var(--ease-standard), display 200ms allow-discrete;
+}
 .mosa-v2 .settings-menu[hidden] { display: none; opacity: 0; pointer-events: none; }
-.mosa-v2 .settings-modal-card { width: min(680px, 100%); max-height: calc(100vh - 48px); overflow: auto; border: 1px solid rgb(255 255 255 / .7); border-radius: 16px; background: rgb(from var(--app-modal) r g b / .96); box-shadow: 0 24px 80px rgb(0 0 0 / .18), 0 0 0 1px rgb(255 255 255 / .32); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); opacity: 1; transform: translateY(0) scale(1); transition: opacity var(--duration-normal) var(--ease-standard), transform var(--duration-normal) var(--ease-standard); }
-.mosa-v2 .settings-menu[hidden] .settings-modal-card { opacity: 0; transform: translateY(8px) scale(.97); transition: none; }
+.mosa-v2 .settings-modal-card {
+  box-sizing: border-box;
+  display: grid;
+  width: min(840px, 100%);
+  height: min(640px, calc(100vh - 64px));
+  height: min(640px, calc(100dvh - 64px));
+  grid-template-columns: 208px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / .72);
+  border-radius: 20px;
+  background: rgb(from var(--app-modal) r g b / .94);
+  box-shadow: 0 36px 112px -28px rgb(0 0 0 / .48), 0 0 0 1px rgb(255 255 255 / .24);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: center;
+  transition: opacity 300ms cubic-bezier(.22, 1, .36, 1), transform 300ms cubic-bezier(.22, 1, .36, 1);
+}
+.mosa-v2 .settings-modal-card:focus { outline: 0; }
+.mosa-v2 .settings-menu[hidden] .settings-modal-card { opacity: 0; transform: translateY(12px) scale(.96); transition: none; }
 @starting-style {
   .mosa-v2 .settings-menu:not([hidden]) { opacity: 0; }
-  .mosa-v2 .settings-menu:not([hidden]) .settings-modal-card { opacity: 0; transform: translateY(8px) scale(.97); }
+  .mosa-v2 .settings-menu:not([hidden]) .settings-modal-card { opacity: 0; transform: translateY(12px) scale(.96); }
 }
-.mosa-v2 .settings-modal-header { position: sticky; z-index: 2; top: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 24px 28px 18px; border-bottom: 1px solid var(--color-border-subtle); background: rgb(from var(--app-modal) r g b / .92); backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px); }
-.mosa-v2 .settings-modal-header h2 { margin: 0; color: var(--color-text-primary); font-size: 18px; font-weight: 600; letter-spacing: -.01em; line-height: 24px; }
-.mosa-v2 .settings-modal-header p { margin: 2px 0 0; padding: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 19px; }
-.mosa-v2 .settings-modal-close { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: 0 0 32px; padding: 0; border: 1px solid rgb(36 36 255 / .5); border-radius: 10px; color: var(--color-text-secondary); background: transparent; cursor: pointer; }
+.mosa-v2 .settings-modal-rail {
+  box-sizing: border-box;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 20px 12px 12px;
+  border-right: 1px solid var(--color-border-subtle);
+  background: rgb(from var(--app-sidebar) r g b / .68);
+}
+.mosa-v2 .settings-rail-brand { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 8px; }
+.mosa-v2 .settings-brand-mark {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(145deg, #5757ff, #2424ff);
+  box-shadow: 0 8px 20px -10px rgb(36 36 255 / .72);
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: -.04em;
+}
+.mosa-v2 .settings-rail-brand h2 { color: var(--color-text-primary); font-size: 15px; font-weight: 650; letter-spacing: -.01em; line-height: 20px; }
+.mosa-v2 .settings-rail-brand p { color: var(--color-text-tertiary); font-size: 10px; font-weight: 600; letter-spacing: .08em; line-height: 16px; }
+.mosa-v2 .settings-section-tabs { display: grid; gap: 4px; margin-top: 24px; }
+.mosa-v2 .settings-section-tab {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 44px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 550;
+  text-align: left;
+  transition: color 120ms ease-out, background 120ms ease-out, transform 100ms ease-out;
+}
+.mosa-v2 .settings-section-tab::before { position: absolute; top: 12px; bottom: 12px; left: 0; width: 4px; border-radius: 999px; background: transparent; content: ""; }
+.mosa-v2 .settings-section-tab.active { color: var(--color-text-primary); background: var(--color-accent-subtle); }
+.mosa-v2 .settings-section-tab.active::before { background: var(--color-accent); }
+.mosa-v2 .settings-section-tab-icon { display: grid; width: 20px; height: 20px; flex: 0 0 20px; place-items: center; color: var(--color-text-tertiary); }
+.mosa-v2 .settings-section-tab.active .settings-section-tab-icon { color: var(--color-accent); }
+.mosa-v2 .settings-section-tab:active { transform: scale(.98); }
+.mosa-v2 .settings-library-status {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 12px;
+  margin-top: auto;
+  padding: 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 16px;
+  background: rgb(from var(--app-card) r g b / .62);
+}
+.mosa-v2 .settings-library-status-icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; color: var(--color-accent); background: var(--color-accent-subtle); }
+.mosa-v2 .settings-library-status div:last-child { min-width: 0; }
+.mosa-v2 .settings-library-status span { display: block; color: var(--color-text-tertiary); font-size: 10px; font-weight: 600; line-height: 16px; }
+.mosa-v2 .settings-library-status strong { display: block; overflow: hidden; color: var(--color-text-primary); font-size: 12px; font-weight: 650; line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .settings-library-status small { display: block; overflow: hidden; color: var(--color-text-tertiary); font-size: 9px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .settings-modal-main { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: rgb(from var(--app-modal) r g b / .86); }
+.mosa-v2 .settings-modal-close {
+  position: absolute;
+  z-index: 3;
+  top: 24px;
+  right: 24px;
+  display: flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--color-text-secondary);
+  background: var(--app-hover);
+  cursor: pointer;
+  transition: color 120ms ease-out, background 120ms ease-out, transform 100ms ease-out;
+}
+.mosa-v2 .settings-modal-close:active { transform: scale(.94); }
 .mosa-v2 .settings-modal-close svg { display: block; flex-shrink: 0; }
-.mosa-v2 .settings-modal-body { display: flex; flex-direction: column; gap: 22px; padding: 22px 28px 28px; }
-.mosa-v2 .settings-library-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--color-border-subtle); border-radius: 12px; background: var(--app-card); }
-.mosa-v2 .settings-library-summary > div { display: grid; min-width: 0; gap: 2px; place-items: center; padding: 12px 8px; text-align: center; }
-.mosa-v2 .settings-library-summary > div + div { border-left: 1px solid var(--color-border-subtle); }
-.mosa-v2 .settings-library-summary strong { max-width: 100%; overflow: hidden; color: var(--color-text-primary); font-size: 15px; font-weight: 600; line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
-.mosa-v2 .settings-library-summary span { color: var(--color-text-tertiary); font-size: 10px; line-height: 15px; }
-.mosa-v2 .settings-content-section { display: grid; gap: 8px; }
-.mosa-v2 .settings-section-heading { display: grid; gap: 2px; padding: 0 4px; }
-.mosa-v2 .settings-section-heading h3 { margin: 0; color: var(--color-text-primary); font-size: 12px; font-weight: 600; line-height: 18px; }
-.mosa-v2 .settings-section-heading p { margin: 0; padding: 0; color: var(--color-text-tertiary); font-size: 10px; font-weight: 400; line-height: 15px; }
-.mosa-v2 .settings-section-rows { overflow: hidden; border: 1px solid var(--color-border-subtle); border-radius: 12px; background: var(--app-card); }
-.mosa-v2 .settings-modal-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; column-gap: 12px; min-height: 58px; padding: 8px 12px; border-radius: 0; }
+.mosa-v2 .settings-section-panel { display: flex; min-width: 0; height: 100%; flex-direction: column; outline: 0; }
+.mosa-v2 .settings-section-panel[hidden] { display: none; }
+.mosa-v2 .settings-panel-header { flex: 0 0 auto; padding: 28px 72px 20px 28px; }
+.mosa-v2 .settings-panel-header > p { color: var(--color-accent-active); font-size: 10px; font-weight: 650; letter-spacing: .08em; line-height: 16px; }
+.mosa-v2 .settings-panel-header h3 { margin-top: 4px; color: var(--color-text-primary); font-size: 24px; font-weight: 700; letter-spacing: -.025em; line-height: 28px; }
+.mosa-v2 .settings-panel-header span { display: block; max-width: 500px; margin-top: 8px; color: var(--color-text-secondary); font-size: 12px; line-height: 20px; }
+.mosa-v2 .settings-panel-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 28px 28px; scrollbar-gutter: stable; }
+.mosa-v2 .settings-section-rows { overflow: hidden; border: 1px solid var(--color-border-subtle); border-radius: 16px; background: rgb(from var(--app-card) r g b / .86); }
+.mosa-v2 .settings-modal-row { box-sizing: border-box; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; column-gap: 12px; min-height: 64px; padding: 12px 16px; }
 .mosa-v2 .settings-modal-row + .settings-modal-row { border-top: 1px solid var(--color-border-subtle); }
-.mosa-v2 .settings-row-icon { display: grid; width: 18px; height: 18px; place-items: center; color: var(--color-text-secondary); }
-.mosa-v2 .settings-row-copy { min-width: 0; }.mosa-v2 .settings-row-copy h3 { margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 500; line-height: 18px; }.mosa-v2 .settings-row-copy p { min-width: 0; margin: 0; padding: 0; overflow: hidden; color: var(--color-text-tertiary); font-size: 11px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
-.mosa-v2 .settings-path { display: block; font-family: var(--font-family-mono); font-size: 10px; }.mosa-v2 .settings-row-control { display: flex; min-width: 0; align-items: center; }
+.mosa-v2 .settings-row-icon,
+.mosa-v2 .settings-privacy-icon { box-sizing: border-box; display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid var(--color-border-subtle); border-radius: 8px; color: var(--color-text-secondary); background: var(--app-hover); }
+.mosa-v2 .settings-row-copy { min-width: 0; }
+.mosa-v2 .settings-row-copy h3 { color: var(--color-text-primary); font-size: 13px; font-weight: 600; line-height: 20px; }
+.mosa-v2 .settings-row-copy p { min-width: 0; overflow: hidden; color: var(--color-text-tertiary); font-size: 11px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .settings-path { display: block; font-family: var(--font-family-mono); font-size: 10px; letter-spacing: 0; }
+.mosa-v2 .settings-row-control { display: flex; min-width: 0; align-items: center; }
 .mosa-v2 .settings-inline-actions { display: flex; align-items: center; gap: 4px; }
-.mosa-v2 .settings-menu .segmented { display: flex; gap: 2px; margin: 0; padding: 3px; border: 0; border-radius: 9px; background: rgb(0 0 0 / .04); }.mosa-v2 .settings-menu .segmented-btn { min-width: 38px; height: 26px; padding: 0 8px; border: 0; border-radius: 7px; color: var(--color-text-tertiary); background: transparent; box-shadow: none; font-size: 11px; font-weight: 500; }.mosa-v2 .settings-menu .segmented-btn.active { color: var(--color-text-primary); background: rgb(255 255 255 / .92); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
-.mosa-v2 .settings-text-action { padding: 5px 8px; border: 0; border-radius: 7px; color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 11px; }
+.mosa-v2 .settings-menu .segmented { display: flex; gap: 0; margin: 0; padding: 4px; border: 0; border-radius: 12px; background: rgb(0 0 0 / .05); }
+.mosa-v2 .settings-menu .segmented-btn { min-width: 44px; height: 28px; padding: 0 12px; border: 0; border-radius: 8px; color: var(--color-text-tertiary); background: transparent; box-shadow: none; font-size: 11px; font-weight: 550; transition: color 120ms ease-out, background 120ms ease-out, box-shadow 120ms ease-out, transform 100ms ease-out; }
+.mosa-v2 .settings-menu .segmented-btn.active { color: var(--color-text-primary); background: rgb(255 255 255 / .94); box-shadow: 0 1px 4px rgb(0 0 0 / .12); }
+.mosa-v2 .settings-menu .segmented-btn:active,
+.mosa-v2 .settings-text-action:active { transform: scale(.96); }
+.mosa-v2 .settings-text-action { display: inline-flex; min-height: 32px; align-items: center; justify-content: center; padding: 0 12px; border: 0; border-radius: 8px; color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 11px; font-weight: 550; transition: color 120ms ease-out, background 120ms ease-out, transform 100ms ease-out; }
 .mosa-v2 .settings-text-action-primary { color: var(--color-accent-active); background: var(--color-accent-subtle); }
-.mosa-v2 .settings-text-action:disabled { cursor: wait; opacity: .55; }
-.mosa-v2 .settings-privacy-note { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 12px; padding: 13px 12px; border-bottom: 1px solid var(--color-border-subtle); }
-.mosa-v2 .settings-privacy-icon { display: grid; width: 18px; height: 18px; place-items: center; color: var(--color-text-secondary); }
-.mosa-v2 .settings-privacy-note h3 { margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 500; line-height: 18px; }
-.mosa-v2 .settings-privacy-note p { margin: 1px 0 0; padding: 0; color: var(--color-text-secondary); font-size: 11px; font-weight: 400; line-height: 16px; }
-.mosa-v2 .settings-privacy-note small { display: block; margin-top: 4px; color: var(--color-text-tertiary); font-size: 10px; line-height: 15px; }
-:root[data-theme="dark"] .mosa-v2 .settings-menu { background: rgb(0 0 0 / .55); }:root[data-theme="dark"] .mosa-v2 .settings-modal-card { border-color: rgb(255 255 255 / .08); background: rgb(30 30 34 / .94); box-shadow: 0 24px 80px rgb(0 0 0 / .55), 0 0 0 1px rgb(255 255 255 / .06); }:root[data-theme="dark"] .mosa-v2 .settings-menu .segmented { background: rgb(255 255 255 / .08); }:root[data-theme="dark"] .mosa-v2 .settings-menu .segmented-btn.active { color: #fff; background: rgb(255 255 255 / .14); box-shadow: none; }
-@media (max-width: 480px) { .mosa-v2 .settings-menu { padding: 12px; }.mosa-v2 .settings-modal-header { padding: 20px 18px 15px; }.mosa-v2 .settings-modal-body { gap: 18px; padding: 18px; }.mosa-v2 .settings-library-summary { grid-template-columns: 1fr; }.mosa-v2 .settings-library-summary > div + div { border-top: 1px solid var(--color-border-subtle); border-left: 0; }.mosa-v2 .settings-modal-row { grid-template-columns: 18px minmax(0, 1fr); row-gap: 7px; }.mosa-v2 .settings-row-control { grid-column: 2; }.mosa-v2 .settings-inline-actions { flex-wrap: wrap; } }
+.mosa-v2 .settings-text-action:disabled { cursor: wait; opacity: .56; }
+.mosa-v2 .settings-privacy-note { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 12px; margin-top: 16px; padding: 16px; border: 1px solid var(--color-border-subtle); border-radius: 16px; background: rgb(from var(--app-card) r g b / .64); }
+.mosa-v2 .settings-privacy-note h3 { color: var(--color-text-primary); font-size: 13px; font-weight: 600; line-height: 20px; }
+.mosa-v2 .settings-privacy-note p { color: var(--color-text-secondary); font-size: 11px; line-height: 16px; }
+.mosa-v2 .settings-privacy-note small { display: block; margin-top: 4px; color: var(--color-text-tertiary); font-size: 10px; line-height: 16px; }
+.mosa-v2 .settings-about-card { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 24px; border: 1px solid var(--color-border-subtle); border-radius: 20px; background: rgb(from var(--app-card) r g b / .84); }
+.mosa-v2 .settings-about-mark { display: grid; width: 64px; height: 64px; place-items: center; border-radius: 20px; color: #fff; background: linear-gradient(145deg, #6666ff, #2424ff); box-shadow: 0 16px 32px -18px rgb(36 36 255 / .76); font-size: 24px; font-weight: 760; letter-spacing: -.05em; }
+.mosa-v2 .settings-about-copy h4 { color: var(--color-text-primary); font-size: 18px; font-weight: 700; letter-spacing: -.02em; line-height: 24px; }
+.mosa-v2 .settings-about-copy p { color: var(--color-text-secondary); font-size: 11px; line-height: 16px; }
+.mosa-v2 .settings-about-action { justify-self: end; }
+@media (hover: hover) and (pointer: fine) {
+  .mosa-v2 .settings-section-tab:not(.active):hover,
+  .mosa-v2 .settings-text-action:hover,
+  .mosa-v2 .settings-modal-close:hover { color: var(--color-text-primary); background: var(--app-hover); }
+  .mosa-v2 .settings-text-action-primary:hover { color: var(--color-accent-hover); background: var(--color-accent-subtle); }
+}
+:root[data-theme="dark"] .mosa-v2 .settings-menu { background: rgb(0 0 0 / .56); }
+:root[data-theme="dark"] .mosa-v2 .settings-modal-card { border-color: rgb(255 255 255 / .1); background: rgb(28 28 32 / .92); box-shadow: 0 36px 112px -28px rgb(0 0 0 / .78), 0 0 0 1px rgb(255 255 255 / .06); }
+:root[data-theme="dark"] .mosa-v2 .settings-modal-rail { background: rgb(37 37 42 / .84); }
+:root[data-theme="dark"] .mosa-v2 .settings-modal-main { background: rgb(27 27 31 / .86); }
+:root[data-theme="dark"] .mosa-v2 .settings-menu .segmented { background: rgb(255 255 255 / .08); }
+:root[data-theme="dark"] .mosa-v2 .settings-menu .segmented-btn.active { color: #fff; background: rgb(255 255 255 / .16); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .06); }
+@media (max-width: 700px) {
+  .mosa-v2 .settings-menu { padding: 16px; }
+  .mosa-v2 .settings-modal-card { width: 100%; height: calc(100vh - 32px); height: calc(100dvh - 32px); grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .mosa-v2 .settings-modal-rail { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 16px; border-right: 0; border-bottom: 1px solid var(--color-border-subtle); }
+  .mosa-v2 .settings-rail-brand { padding: 0; }
+  .mosa-v2 .settings-section-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-top: 0; }
+  .mosa-v2 .settings-section-tab { justify-content: center; }
+  .mosa-v2 .settings-section-tab::before { top: auto; right: 16px; bottom: 0; left: 16px; width: auto; height: 4px; }
+  .mosa-v2 .settings-library-status { display: none; }
+}
+@media (max-width: 480px) {
+  .mosa-v2 .settings-menu { padding: 12px; }
+  .mosa-v2 .settings-modal-card { height: calc(100vh - 24px); height: calc(100dvh - 24px); }
+  .mosa-v2 .settings-rail-brand { display: none; }
+  .mosa-v2 .settings-modal-rail { grid-template-columns: 1fr; padding: 8px; }
+  .mosa-v2 .settings-section-tab { height: 40px; gap: 8px; padding: 0 8px; font-size: 11px; }
+  .mosa-v2 .settings-panel-header { padding: 20px 56px 16px 20px; }
+  .mosa-v2 .settings-panel-header h3 { font-size: 20px; line-height: 24px; }
+  .mosa-v2 .settings-panel-scroll { padding: 4px 20px 20px; }
+  .mosa-v2 .settings-modal-close { top: 16px; right: 16px; }
+  .mosa-v2 .settings-modal-row { grid-template-columns: 32px minmax(0, 1fr); row-gap: 8px; }
+  .mosa-v2 .settings-row-control { grid-column: 2; }
+  .mosa-v2 .settings-inline-actions { flex-wrap: wrap; }
+  .mosa-v2 .settings-about-card { grid-template-columns: 48px minmax(0, 1fr); padding: 20px; }
+  .mosa-v2 .settings-about-mark { width: 48px; height: 48px; border-radius: 16px; font-size: 20px; }
+  .mosa-v2 .settings-about-action { grid-column: 2; justify-self: start; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .mosa-v2 .settings-menu,
+  .mosa-v2 .settings-modal-card { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .mosa-v2 .settings-menu { background: rgb(0 0 0 / .42); }
+  .mosa-v2 .settings-modal-card,
+  .mosa-v2 .settings-modal-main { background: var(--app-modal); }
+  .mosa-v2 .settings-modal-rail { background: var(--app-sidebar); }
+}
+@media (prefers-contrast: more) {
+  .mosa-v2 .settings-modal-card,
+  .mosa-v2 .settings-library-status,
+  .mosa-v2 .settings-section-rows,
+  .mosa-v2 .settings-privacy-note,
+  .mosa-v2 .settings-about-card { border-color: var(--color-border-strong); }
+}
 
 /* V2 collections: names are backed by the local library; the color is a
    presentation preference stored locally so it never changes library records. */
@@ -2357,6 +2538,9 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .modal-overlay.open > .modal-card,
   .mosa-v2 .settings-menu,
   .mosa-v2 .settings-modal-card,
+  .mosa-v2 .settings-section-tab,
+  .mosa-v2 .settings-modal-close,
+  .mosa-v2 .settings-text-action,
   .image-preview-modal,
   .image-preview-stage,
   .drag-overlay,
@@ -2372,7 +2556,11 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .detail .detail-overview-heading .detail-overview-open:active,
   .mosa-v2 .detail .detail-overview-heading .detail-overview-original:active,
   .mosa-v2 .detail .section-head-copy:active,
-  .mosa-v2 .detail .detail-tags-add:active {
+  .mosa-v2 .detail .detail-tags-add:active,
+  .mosa-v2 .settings-section-tab:active,
+  .mosa-v2 .settings-modal-close:active,
+  .mosa-v2 .settings-menu .segmented-btn:active,
+  .mosa-v2 .settings-text-action:active {
     transform: none;
   }
 }

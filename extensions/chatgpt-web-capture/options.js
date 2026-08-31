@@ -23,12 +23,30 @@ function normalizeBaseUrl(value) {
   return url.origin;
 }
 
+async function fetchWithTimeout(url, init = {}, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function load() {
-  const response = await chrome.runtime.sendMessage({ type: "mosa.getSettings" });
-  const settings = response?.ok ? response.settings : await chrome.storage.local.get(DEFAULTS);
-  baseUrlEl.value = settings.mosaBaseUrl || DEFAULTS.mosaBaseUrl;
-  tokenEl.value = settings.mosaToken || "";
-  autoCaptureEl.checked = settings.autoCapture !== false;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "mosa.getSettings" });
+    const settings = response?.ok ? response.settings : await chrome.storage.local.get(DEFAULTS);
+    baseUrlEl.value = settings.mosaBaseUrl || DEFAULTS.mosaBaseUrl;
+    tokenEl.value = settings.mosaToken || "";
+    autoCaptureEl.checked = settings.autoCapture !== false;
+  } catch (error) {
+    const settings = await chrome.storage.local.get(DEFAULTS).catch(() => DEFAULTS);
+    baseUrlEl.value = settings.mosaBaseUrl || DEFAULTS.mosaBaseUrl;
+    tokenEl.value = settings.mosaToken || "";
+    autoCaptureEl.checked = settings.autoCapture !== false;
+    setStatus(`设置读取失败：${error instanceof Error ? error.message : String(error)}`, "error");
+  }
 }
 
 document.getElementById("save").addEventListener("click", async () => {
@@ -86,14 +104,14 @@ document.getElementById("test").addEventListener("click", async () => {
   try {
     // A deliberately incomplete ingest request exercises the real Bearer-token
     // path without writing an asset. A valid token reaches image validation.
-    const response = await fetch(`${baseUrl}/api/ingest/web-capture`, {
+    const response = await fetchWithTimeout(`${baseUrl}/api/ingest/web-capture`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ provider: "chatgpt", mimeType: "image/png", imageBase64: "" }),
-    });
+    }, 5000);
     const data = await response.json();
     if (response.status === 400 && data.code === "WEB_CAPTURE_BAD_IMAGE") {
       setStatus("连接和 Token 验证成功。", "success");

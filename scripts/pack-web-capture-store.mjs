@@ -24,6 +24,7 @@ const runtimeFiles = [
   "background.js",
   "content.css",
   "content.js",
+  "generation-registry.js",
   "options.html",
   "options.js",
   "page-hook.js",

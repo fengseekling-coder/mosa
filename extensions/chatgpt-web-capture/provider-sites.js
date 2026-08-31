@@ -47,11 +47,14 @@
   const MIN_EDGE = 512;
   const MIN_VISIBLE_AREA = 96 * 96;
   const CAPTURE_CONCURRENCY = 2;
+  const MAX_LOCAL_IMAGE_BYTES = 15 * 1024 * 1024;
+  const MAX_LOCAL_VIDEO_BYTES = 64 * 1024 * 1024;
   const PROMPT_RETRY_DELAYS = [900, 2_700, 7_200];
   const PROMPT_RETRY_PROVIDERS = new Set(["gemini", "flow", "google-ai-studio"]);
   const seen = new Set();
   const flowMediaProbeInFlight = new Set();
   const promptRetryStates = new Map();
+  let lastProviderUrl = location.href;
   let autoCapture = false;
   let scanTimer = null;
   let observer = null;
@@ -533,6 +536,10 @@
     promptRetryStates.delete(key);
   }
 
+  function clearAllPromptRetries() {
+    for (const key of [...promptRetryStates.keys()]) clearPromptRetry(key);
+  }
+
   function scheduleNextPromptRetry(state) {
     if (!promptRetryStates.has(state.key)) return;
     if (state.timerPending) return;
@@ -553,6 +560,10 @@
 
   function attemptPromptUpgrade(state) {
     if (!promptRetryStates.has(state.key) || state.inFlight) return;
+    if (!autoCapture) {
+      clearPromptRetry(state.key);
+      return;
+    }
     if (currentProvider() !== state.provider) {
       clearPromptRetry(state.key);
       return;
@@ -641,8 +652,7 @@
         && directTurnContainer(turn, "model"));
     }
     if (provider === "flow") {
-      const source = imageSourceFor(img);
-      return Boolean(source?.kind === "local" || flowNearbyPromptCard(img));
+      return Boolean(flowNearbyPromptCard(img));
     }
     return false;
   }
@@ -655,14 +665,21 @@
       // ownership. Restrict the relaxed branch to that exact product surface
       // instead of treating every page-local video anywhere in AI Studio as a
       // generated result.
-      if (AI_STUDIO_VIDEO_PATH.test(String(location.pathname || "").toLowerCase())) return true;
+      if (AI_STUDIO_VIDEO_PATH.test(String(location.pathname || "").toLowerCase())) {
+        return Boolean(flowNearbyPromptCard(video)
+          || elementAttribute(video, "data-generated") === "true"
+          || /generated|result|output/i.test([
+            elementAttribute(video, "aria-label"),
+            elementAttribute(video, "title"),
+            String(video?.parentElement?.className || ""),
+          ].join(" ")));
+      }
       const turn = ancestorWithTag(video, "ms-chat-turn");
       return Boolean(turn?.parentElement?.classList?.contains("chat-session-content")
         && directTurnContainer(turn, "model"));
     }
     if (provider === "flow") {
-      const source = videoSourceFor(video);
-      return Boolean(source?.kind === "local" || flowNearbyPromptCard(video));
+      return Boolean(flowNearbyPromptCard(video));
     }
     return false;
   }
@@ -691,6 +708,7 @@
     if (!response.ok) throw new Error(`Image download failed (${response.status})`);
     const blob = await response.blob();
     if (!blob || blob.size < 100) throw new Error("Downloaded image empty/too small");
+    if (blob.size > MAX_LOCAL_IMAGE_BYTES) throw new Error("Image exceeds MOSA capture size limit.");
     return {
       mimeType: blob.type || mimeTypeForUrl(source.url),
       imageBase64: arrayBufferToBase64(await blob.arrayBuffer()),
@@ -708,6 +726,9 @@
     if (!response.ok) throw new Error(`Video download failed (${response.status})`);
     const blob = await response.blob();
     if (!blob || blob.size < 1024) throw new Error("Downloaded video empty/too small");
+    if (blob.size > MAX_LOCAL_VIDEO_BYTES) {
+      throw new Error("Large page-local video cannot be copied safely; use the provider URL result instead.");
+    }
     return {
       mimeType: blob.type || mimeTypeForUrl(source.url, "video"),
       mediaBase64: arrayBufferToBase64(await blob.arrayBuffer()),
@@ -733,13 +754,14 @@
         durationSeconds: video && Number.isFinite(Number(media?.duration)) ? Number(media.duration) : null,
       };
       if (providerPrompt) Object.assign(payload, providerPrompt);
-      if (source.kind === "local") {
+      if (source.kind === "local" && source.url.startsWith("blob:")) {
         const bytes = video ? await bytesFromVisibleVideo(source, media) : await bytesFromVisibleImage(source, media);
         payload.mimeType = bytes.mimeType;
         if (video) payload.mediaBase64 = bytes.mediaBase64;
         else payload.imageBase64 = bytes.imageBase64;
       } else {
-        // Public Google CDN sources retain the existing background download path.
+        // HTTPS provider URLs are downloaded in the background service worker,
+        // avoiding a second large Base64 copy through content-script messaging.
         if (video) payload.mediaUrl = source.url;
         else payload.imageUrl = source.url;
       }
@@ -767,7 +789,7 @@
 
   async function captureFlowMediaThumbnail(img) {
     const mediaId = flowMediaIdFromImage(img);
-    if (!mediaId || !isVisibleFlowMediaThumbnail(img)) return false;
+    if (!mediaId || !isVisibleFlowMediaThumbnail(img) || !flowNearbyPromptCard(img)) return false;
     const key = `flow-media:${mediaId}`;
     if (seen.has(key) || flowMediaProbeInFlight.has(key)) return true;
     flowMediaProbeInFlight.add(key);
@@ -809,6 +831,12 @@
   function scan() {
     const provider = currentProvider();
     if (!provider || !autoCapture) return;
+    if (location.href !== lastProviderUrl) {
+      lastProviderUrl = location.href;
+      seen.clear();
+      flowMediaProbeInFlight.clear();
+      clearAllPromptRetries();
+    }
     for (const img of document.images || []) {
       if (provider === "flow" && flowMediaIdFromImage(img)) {
         void captureFlowMediaThumbnail(img);
@@ -880,12 +908,14 @@
       else {
         observer?.disconnect();
         if (scanTimer) clearTimeout(scanTimer);
+        scanTimer = null;
+        clearAllPromptRetries();
       }
     }
     if (!changes.autoCapture && !changes.mosaBaseUrl && !changes.mosaToken) return;
     // A corrected address or Token should immediately retry images that were
     // rejected under the previous settings without requiring new generation.
-    seen.clear();
+    if (changes.mosaBaseUrl || changes.mosaToken) seen.clear();
     if (autoCapture) scheduleScan();
   });
 
