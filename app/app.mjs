@@ -23,6 +23,7 @@ let statusTextWriteTimer = null;
 let statusAnnouncementSequence = 0;
 let statusAnnouncementActive = false;
 let libraryRefreshTimer = null;
+let libraryEventSource = null;
 let persistentStatus = { value: "", stateName: "neutral" };
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -53,6 +54,7 @@ function sourceTypeLabel(type) {
 }
 
 const preference = safeStorageGet("mosa.ui-language") || "system";
+const SETTINGS_SECTIONS = ["appearance", "storage", "about"];
 const state = {
   project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, selectedIds: new Set(), selectionProject: "default", detailAsset: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
@@ -70,7 +72,7 @@ const state = {
   updatePublishedAt: "",
   updateNotes: null,
   anonymousUsageEnabled: safeStorageGet("mosa.anonymous-usage") !== "false",
-  darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null,
+  darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null, settingsSection: "appearance",
   detailReturnFocusAssetId: null, previewReturnFocusAssetId: null,
   imageZoom: 1, imagePanX: 0, imagePanY: 0, imageDragging: false,
   // Bulk-selection gate. The viewer short-circuits while batch mode is active so
@@ -131,7 +133,7 @@ const apiClient = createApiClient({
   selectedAsset,
   isDetailEditorActive,
 });
-const { apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
+const { apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged, noteLibraryRevision, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
 
 // ===== New element references =====
 Object.assign(els, {
@@ -781,6 +783,7 @@ async function init() {
       setDetailOpen(false);
       void refreshBridgeStatus();
       bridgeStatusPoller.start();
+      startLibraryEventStream();
       // Single interval: dedupe on hot-reload / repeated init() and stop on unload.
       if (libraryRefreshTimer) clearInterval(libraryRefreshTimer);
       // Pagination owns the current gallery request while an append is in flight.
@@ -873,11 +876,12 @@ function renderSettingsMenu() {
   const settingIcon = (path) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="${path}"/></svg>`;
   const radio = (selected, attribute, value, label) => `<button class="segmented-btn${selected ? " active" : ""}" type="button" role="radio" aria-checked="${selected}" tabindex="${selected ? 0 : -1}" ${attribute}="${value}">${label}</button>`;
   const row = (icon, title, subtitle, control = "") => `<section class="settings-modal-row"><div class="settings-row-icon" aria-hidden="true">${icon}</div><div class="settings-row-copy"><h3>${title}</h3><p>${subtitle}</p></div>${control ? `<div class="settings-row-control">${control}</div>` : ""}</section>`;
-  const section = (title, body, description = "") => `<section class="settings-content-section"><div class="settings-section-heading"><h3>${title}</h3>${description ? `<p>${description}</p>` : ""}</div><div class="settings-section-rows">${body}</div></section>`;
   const visualLocale = state.locale === "en" ? "en" : "zh";
   const path = escapeHtml(state.libraryRoot || state.libraryPath || state.codexImagesDir || "—");
   const closeIcon = settingIcon("m6 6 12 12M18 6 6 18");
   const storageLabel = state.storageKind === "sqlite" ? t("storageEngineValue") : (state.storageKind && state.storageKind !== "unknown" ? state.storageKind : "—");
+  const activeSection = SETTINGS_SECTIONS.includes(state.settingsSection) ? state.settingsSection : "appearance";
+  state.settingsSection = activeSection;
   const changeLibraryControl = window.electronAPI?.changeLibraryLocation
     ? `<div class="settings-inline-actions"><button class="settings-text-action" type="button" data-open-library>${t("openLibrary")}</button><button class="settings-text-action settings-text-action-primary" type="button" data-change-library${state.libraryMoveInProgress ? " disabled" : ""}>${state.libraryMoveInProgress ? t("changingLocation") : t("changeLocation")}</button></div>`
     : `<button class="settings-text-action" type="button" data-open-library>${t("openLibrary")}</button>`;
@@ -891,12 +895,18 @@ function renderSettingsMenu() {
     row(settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6"), t("storageEngine"), escapeHtml(storageLabel)),
     row(settingIcon("M3 12h4l2-5 4 10 2-5h6"), t("anonymousUsage"), state.anonymousUsageEnabled ? t("anonymousUsageEnabledHint") : t("anonymousUsageDisabledHint"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("anonymousUsage"))}">${radio(state.anonymousUsageEnabled, "data-usage-opt", "on", t("usageOn"))}${radio(!state.anonymousUsageEnabled, "data-usage-opt", "off", t("usageOff"))}</div>`),
   ].join("");
-  const aboutRows = [
-    row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), escapeHtml(updateVersionSummary()), updateVersionControlMarkup())
-  ].join("");
-  const summary = `<div class="settings-library-summary" aria-label="${escapeHtml(t("librarySummary"))}"><div><strong>${Number(state.groups.total || state.pageTotal || state.assets.length || 0)}</strong><span>${t("assets")}</span></div><div><strong>${Number(state.groups.groups?.length || 0)}</strong><span>${t("collections")}</span></div><div><strong>${escapeHtml(storageLabel)}</strong><span>${t("storageEngine")}</span></div></div>`;
+  const assetCount = Number(state.groups.total || state.pageTotal || state.assets.length || 0);
+  const collectionCount = Number(state.groups.groups?.length || 0);
   const privacy = `<section class="settings-privacy-note"><div class="settings-privacy-icon" aria-hidden="true">${settingIcon("M12 3 5 6v5c0 4.6 2.8 8.2 7 10 4.2-1.8 7-5.4 7-10V6l-7-3Z")}</div><div><h3>${t("privacyPolicy")}</h3><p>${t("privacyPolicySummary")}</p><small>${t("privacyPolicyDetail")}</small></div></section>`;
-  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" aria-describedby="settingsModalDescription" tabindex="-1"><header class="settings-modal-header"><div><h2 id="settingsModalTitle">${t("settings")}</h2><p id="settingsModalDescription">${t("preferencesSubtitle")}</p></div><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${summary}${section(t("appearanceSection"), appearanceRows)}${section(t("storageDataSection"), storageRows, t("storageDataSectionHint"))}${section(t("aboutSection"), `${privacy}${aboutRows}`, t("accountAboutNote"))}</div></div>`;
+  const navItems = [
+    ["appearance", settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("appearanceSection")],
+    ["storage", settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("storageDataSection")],
+    ["about", settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("aboutSection")],
+  ].map(([id, icon, label]) => `<button class="settings-section-tab${activeSection === id ? " active" : ""}" id="settingsTab-${id}" type="button" role="tab" aria-selected="${activeSection === id}" aria-controls="settingsPanel-${id}" tabindex="${activeSection === id ? 0 : -1}" data-settings-section="${id}"><span class="settings-section-tab-icon" aria-hidden="true">${icon}</span><span>${label}</span></button>`).join("");
+  const panel = (id, title, description, content) => `<section class="settings-section-panel" id="settingsPanel-${id}" role="tabpanel" aria-labelledby="settingsTab-${id}" tabindex="0"${activeSection === id ? "" : " hidden"}><header class="settings-panel-header"><p>${t("settings")}</p><h3>${title}</h3>${description ? `<span>${description}</span>` : ""}</header><div class="settings-panel-scroll">${content}</div></section>`;
+  const aboutCard = `<section class="settings-about-card"><div class="settings-about-mark" aria-hidden="true">M</div><div class="settings-about-copy"><h4>MOSA</h4><p>${escapeHtml(updateVersionSummary())}</p></div><div class="settings-about-action">${updateVersionControlMarkup()}</div></section>`;
+  const libraryStatus = `<aside class="settings-library-status" aria-label="${escapeHtml(t("librarySummary"))}"><div class="settings-library-status-icon" aria-hidden="true">${settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6")}</div><div><span>${t("librarySummary")}</span><strong>${assetCount} ${t("assets")}</strong><small>${collectionCount} ${t("collections")} · ${escapeHtml(storageLabel)}</small></div></aside>`;
+  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" aria-describedby="settingsModalDescription" tabindex="-1"><aside class="settings-modal-rail"><div class="settings-rail-brand"><span class="settings-brand-mark" aria-hidden="true">M</span><div><h2 id="settingsModalTitle">${t("settings")}</h2><p>MOSA</p></div></div><p class="visually-hidden" id="settingsModalDescription">${t("preferencesSubtitle")}</p><nav class="settings-section-tabs" role="tablist" aria-orientation="vertical" aria-label="${escapeHtml(t("settings"))}">${navItems}</nav>${libraryStatus}</aside><main class="settings-modal-main"><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button>${panel("appearance", t("appearanceSection"), "", `<div class="settings-section-rows">${appearanceRows}</div>`)}${panel("storage", t("storageDataSection"), t("storageDataSectionHint"), `<div class="settings-section-rows">${storageRows}</div>${privacy}`)}${panel("about", t("aboutSection"), t("accountAboutNote"), aboutCard)}</main></div>`;
   syncSegmentedRadios(els.settingsMenu);
 }
 
@@ -1044,6 +1054,7 @@ let bridgeStatusPoller = createBridgeStatusPolling();
 // Stop polling when the page goes away and drop any response that lands afterwards.
 window.addEventListener("pagehide", () => {
   bridgeStatusPoller.stop();
+  stopLibraryEventStream();
   if (libraryRefreshTimer) {
     clearInterval(libraryRefreshTimer);
     libraryRefreshTimer = null;
@@ -1052,8 +1063,16 @@ window.addEventListener("pagehide", () => {
 // M6：隐藏标签页暂停轮询（与 refreshLibraryInBackground 的 document.hidden 守卫
 // 对齐）；重新可见时恢复并立即刷新一次，指示灯不落后于真实桥接状态。
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) bridgeStatusPoller.pause();
-  else { bridgeStatusPoller.resume(); void refreshBridgeStatus(); }
+  if (document.hidden) {
+    bridgeStatusPoller.pause();
+    stopLibraryEventStream();
+  }
+  else {
+    bridgeStatusPoller.resume();
+    void refreshBridgeStatus();
+    startLibraryEventStream();
+    if (!isLoadingMore) void refreshLibraryIfChanged();
+  }
 });
 // bfcache 恢复（浏览器“后退”）：pagehide 已终止旧轮询实例（stop 是不可逆的
 // teardown 守卫），pageshow(persisted) 后页面重新可见，重建新实例继续轮询并
@@ -1063,6 +1082,7 @@ window.addEventListener("pageshow", (event) => {
   bridgeStatusPoller = createBridgeStatusPolling();
   void bridgeStatusPoller.refresh();
   bridgeStatusPoller.start();
+  startLibraryEventStream();
   if (!libraryRefreshTimer) {
     libraryRefreshTimer = setInterval(() => {
       if (!isLoadingMore) void refreshLibraryIfChanged();
@@ -1072,6 +1092,41 @@ window.addEventListener("pageshow", (event) => {
 
 function refreshBridgeStatus() {
   return bridgeStatusPoller.refresh();
+}
+
+function stopLibraryEventStream() {
+  libraryEventSource?.close?.();
+  libraryEventSource = null;
+}
+
+function startLibraryEventStream() {
+  if (document.hidden || typeof EventSource !== "function") return;
+  const project = state.project;
+  stopLibraryEventStream();
+  const source = new EventSource(`/api/library-events?project=${encodeURIComponent(project)}`);
+  libraryEventSource = source;
+  source.addEventListener("ready", (event) => {
+    if (source !== libraryEventSource || project !== state.project) return;
+    try {
+      const payload = JSON.parse(event.data || "{}");
+      noteLibraryRevision(payload.revision);
+    } catch {
+      // The periodic revision check remains the fallback.
+    }
+  });
+  source.addEventListener("library-changed", (event) => {
+    if (source !== libraryEventSource || project !== state.project || isLoadingMore) return;
+    let revision = null;
+    try {
+      const payload = JSON.parse(event.data || "{}");
+      revision = payload.revision;
+    } catch {
+      // Refresh still proceeds even if an optional event payload is malformed.
+    }
+    void refreshLibraryInBackground().then((refreshed) => {
+      if (refreshed) noteLibraryRevision(revision);
+    });
+  });
 }
 
 function applyBridgeStatus({ codex, grok, cowart } = {}) {
@@ -1394,10 +1449,17 @@ function bindEvents() {
     if (state.viewMode === "asset") returnToLibrary();
     renderActiveFilters();
     await loadStats(); await loadAssets();
+    startLibraryEventStream();
   });
   els.settingsMenu?.addEventListener("click", (event) => {
     const button = event.target.closest("button");
     if (event.target === els.settingsMenu || button?.dataset.settingsClose !== undefined) { closeSettingsModal(); return; }
+    if (button?.dataset.settingsSection && SETTINGS_SECTIONS.includes(button.dataset.settingsSection)) {
+      state.settingsSection = button.dataset.settingsSection;
+      renderSettingsMenu();
+      requestAnimationFrame(() => els.settingsMenu?.querySelector(`[data-settings-section="${state.settingsSection}"]`)?.focus());
+      return;
+    }
     // Theme/Density segmented buttons
     if (button?.dataset.appearanceOpt) {
       const newTheme = button.dataset.appearanceOpt;
@@ -1707,8 +1769,24 @@ function closePanel(panel, trigger, reason = "escape") {
   trigger?.setAttribute("aria-expanded", "false");
 }
 
-// Settings 的 segmented radiogroup 自持方向键。其余控件保留原生键盘语义。
+// Settings 的分类 tab 与 segmented radiogroup 自持方向键。其余控件保留原生键盘语义。
 function handleSettingsMenuKeydown(event) {
+  const tab = event.target.closest?.('[role="tab"]');
+  if (tab) {
+    const tablist = tab.closest('[role="tablist"]');
+    const tabs = tablist ? [...tablist.querySelectorAll('[role="tab"]')] : [];
+    const index = tabs.indexOf(tab);
+    let next = -1;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % tabs.length;
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index - 1 + tabs.length) % tabs.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = tabs.length - 1;
+    if (next === -1 || !tabs[next]) return;
+    event.preventDefault();
+    event.stopPropagation();
+    tabs[next].click();
+    return;
+  }
   const radio = event.target.closest?.('[role="radio"]');
   if (radio) {
     const group = radio.closest('[role="radiogroup"]');
@@ -2574,7 +2652,7 @@ function openSettingsModal() {
   renderSettingsMenu();
   els.settingsMenu.hidden = false;
   els.settingsToggle?.setAttribute("aria-expanded", "true");
-  requestAnimationFrame(() => els.settingsMenu?.querySelector("[data-settings-close]")?.focus());
+  requestAnimationFrame(() => els.settingsMenu?.querySelector(".settings-modal-card")?.focus());
 }
 function closeSettingsModal({ restoreFocus = true } = {}) {
   if (!els.settingsMenu || els.settingsMenu.hidden) return;
@@ -2659,7 +2737,7 @@ function trapSettingsModalFocus(event) {
   if (els.settingsMenu?.hidden) return;
   if (event.key === "Escape") { event.preventDefault(); closeSettingsModal(); return; }
   if (event.key !== "Tab") return;
-  const focusable = [...els.settingsMenu.querySelectorAll("button:not([disabled]):not([tabindex='-1']), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((element) => !element.hasAttribute("hidden"));
+  const focusable = [...els.settingsMenu.querySelectorAll("button:not([disabled]):not([tabindex='-1']), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((element) => !element.closest("[hidden]"));
   if (!focusable.length) return;
   const current = focusable.indexOf(document.activeElement);
   const next = event.shiftKey ? (current <= 0 ? focusable.length - 1 : current - 1) : (current === focusable.length - 1 ? 0 : current + 1);

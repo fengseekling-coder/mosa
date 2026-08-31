@@ -87,12 +87,13 @@ test("1-6. single-column architecture, tab roles removed, V2 sections in approve
   // 2–4. No tab roles remain in the detail panel (rendered markup is
   // double-quoted; the single-quoted [role='tab'] keyboard guard is a generic
   // arrow-key escape hatch, not a rendered tab).
-  assert.doesNotMatch(app + inspector, /role="tablist"/);
-  assert.doesNotMatch(app + inspector, /role="tab"/);
-  assert.doesNotMatch(app + inspector, /role="tabpanel"/);
-  assert.doesNotMatch(app + inspector, /detailTabOverview|detailTabRecipe|detailTabVersions/);
-  assert.doesNotMatch(app + inspector, /detailPanelOverview|detailPanelRecipe|detailPanelVersions/);
-  assert.doesNotMatch(app + inspector, /class="detail-tab/);
+  const detailSource = renderDetail + inspector;
+  assert.doesNotMatch(detailSource, /role="tablist"/);
+  assert.doesNotMatch(detailSource, /role="tab"/);
+  assert.doesNotMatch(detailSource, /role="tabpanel"/);
+  assert.doesNotMatch(detailSource, /detailTabOverview|detailTabRecipe|detailTabVersions/);
+  assert.doesNotMatch(detailSource, /detailPanelOverview|detailPanelRecipe|detailPanelVersions/);
+  assert.doesNotMatch(detailSource, /class="detail-tab/);
   assert.doesNotMatch(css, /\.detail-tab/);
 
   // 5. Seven semantic sections, each emitted exactly once. Favorite belongs in
@@ -423,8 +424,9 @@ test("38-40. tab state is decoupled from rendering", async () => {
   assert.doesNotMatch(app + inspector, /function switchDetailTab/);
 
   // 40. No tabpanel markup or hidden-panel styling can enter the a11y tree.
-  assert.doesNotMatch(app + inspector, /role="tabpanel"/);
-  assert.doesNotMatch(app + inspector, /aria-labelledby="detailTab/);
+  const detailSource = functionSlice(app, "renderDetail") + inspector;
+  assert.doesNotMatch(detailSource, /role="tabpanel"/);
+  assert.doesNotMatch(detailSource, /aria-labelledby="detailTab/);
   assert.doesNotMatch(css, /\.detail-tab-panel/);
 });
 

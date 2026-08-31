@@ -8,6 +8,7 @@ const hookSource = await readFile(new URL("../extensions/chatgpt-web-capture/pag
 const manifest = JSON.parse(await readFile(new URL("../extensions/chatgpt-web-capture/manifest.json", import.meta.url), "utf8"));
 const backgroundSource = await readFile(new URL("../extensions/chatgpt-web-capture/background.js", import.meta.url), "utf8");
 const contentSource = await readFile(new URL("../extensions/chatgpt-web-capture/content.js", import.meta.url), "utf8");
+const generationRegistrySource = await readFile(new URL("../extensions/chatgpt-web-capture/generation-registry.js", import.meta.url), "utf8");
 const contentCss = await readFile(new URL("../extensions/chatgpt-web-capture/content.css", import.meta.url), "utf8");
 const optionsSource = await readFile(new URL("../extensions/chatgpt-web-capture/options.js", import.meta.url), "utf8");
 const optionsHtml = await readFile(new URL("../extensions/chatgpt-web-capture/options.html", import.meta.url), "utf8");
@@ -115,6 +116,21 @@ function generationEvents(harness) {
   return harness.events.filter((event) => event.type === "generation-meta" && event.payload?.prompt);
 }
 
+function createGenerationRegistryHarness() {
+  const sandbox = {};
+  vm.runInNewContext(generationRegistrySource, sandbox, { filename: "generation-registry.js" });
+  return sandbox.MosaGenerationRegistry.createGenerationRegistry({
+    imageLookupKeys: (imageUrl, meta = {}) => {
+      const keys = [];
+      if (meta.imageKey) keys.push(meta.imageKey);
+      if (meta.assetId) keys.push(`asset:${meta.assetId}`);
+      if (imageUrl) keys.push(`url:${imageUrl}`);
+      return [...new Set(keys)];
+    },
+    promptQuality: (entry) => Number(entry.promptPriority || 0) * 1_000_000 + String(entry.prompt || "").length,
+  });
+}
+
 test("installs the page hook in the main world before ChatGPT page scripts", () => {
   const hook = manifest.content_scripts.find((entry) => entry.js?.includes("page-hook.js"));
   assert.equal(hook?.run_at, "document_start");
@@ -123,7 +139,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.14.1");
+  assert.equal(manifest.version, "0.14.5");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://aistudio.google.com/*"],
@@ -230,7 +246,7 @@ test("Google adapters read only eligible page-local bytes and keep CDN URLs remo
   assert.match(providerSource, /const bytes = video \? await bytesFromVisibleVideo\(source, media\) : await bytesFromVisibleImage\(source, media\)/);
   assert.match(providerSource, /payload\.imageBase64 = bytes\.imageBase64/);
   assert.match(providerSource, /payload\.imageUrl = source\.url/);
-  assert.match(providerSource, /if \(source\.kind === "local"\) \{/);
+  assert.match(providerSource, /if \(source\.kind === "local" && source\.url\.startsWith\("blob:"\)\) \{/);
   assert.match(providerSource, /!isVisibleGeneratedImage\(image\)/);
   assert.match(providerSource, /if \(source\?\.kind !== "local" \|\| !isVisibleGeneratedImage\(img\)\)/);
   assert.match(providerSource, /if \(!response\?\.ok\) seen\.delete\(source\.url\)/);
@@ -435,6 +451,33 @@ test("archives an image-generation tool result even when ChatGPT omits its promp
   assert.equal(generation.payload.generationContextId, "chatgpt:conversation-test:message-no-prompt");
 });
 
+test("ordinary conversation JSON containing data: is not misclassified as SSE", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-data-text",
+          author: { role: "tool", name: "image_gen" },
+          content: {
+            parts: [
+              "Model caption: poster with literal data: labels in the typography system and editorial lighting.",
+              { asset_pointer: "sediment://file-data-text" },
+            ],
+          },
+        },
+      },
+    },
+  });
+
+  await harness.harvest();
+
+  assert.ok(harness.events.some((event) => (
+    event.type === "generation-meta"
+    && event.payload?.imageKey === "estuary:conversation-test:file-data-text"
+  )));
+});
+
 test("keeps provider runtime ids separate from MOSA capture context ids", async () => {
   const harness = createHookHarness({
     conversation_id: "conversation-provider-ids",
@@ -523,6 +566,341 @@ test("accepts an assistant-owned image_gen result when ChatGPT does not use role
   assert.equal(generation.payload.isGeneration, true);
 });
 
+test("treats image_gen dalle.prompt as a trusted generation prompt", async () => {
+  const prompt = "red sun over mountains";
+  const harness = createHookHarness({
+    conversation_id: "conversation-dalle-prompt",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-dalle-prompt",
+          author: { role: "tool", name: "image_gen" },
+          metadata: { dalle: { prompt } },
+          content: { parts: [{ asset_pointer: "sediment://file-dalle-prompt" }] },
+        },
+      },
+    },
+  }, "conversation-dalle-prompt");
+
+  await harness.harvest();
+  const generation = harness.events.find((event) => event.payload?.assetId === "file-dalle-prompt");
+  assert.equal(generation?.payload.prompt, prompt);
+  assert.equal(generation?.payload.promptStatus, "generation-tool-prompt");
+  assert.equal(generation?.payload.promptSource, "prompt");
+});
+
+test("recognizes dalle metadata as generation provenance when the tool name is omitted", async () => {
+  const prompt = "red sun";
+  const harness = createHookHarness({
+    conversation_id: "conversation-dalle-unnamed",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-dalle-unnamed",
+          author: { role: "tool" },
+          metadata: { dalle: { prompt } },
+          content: { parts: [{ asset_pointer: "sediment://file-dalle-unnamed" }] },
+        },
+      },
+    },
+  }, "conversation-dalle-unnamed");
+
+  await harness.harvest();
+  const generation = harness.events.find((event) => event.payload?.assetId === "file-dalle-unnamed");
+  assert.equal(generation?.payload.prompt, prompt);
+  assert.equal(generation?.payload.promptStatus, "generation-tool-prompt");
+  assert.equal(generation?.payload.isGeneration, true);
+});
+
+test("normalizes camelCase ChatGPT prompt and asset fields", async () => {
+  const prompt = "A detailed editorial poster with blue type and warm evening light";
+  const harness = createHookHarness({
+    conversation_id: "conversation-camel-prompt",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-camel-prompt",
+          author: { role: "tool", name: "imageGen" },
+          metadata: { revisedPrompt: prompt },
+          content: { parts: [{ assetPointer: "sediment://file-camel-prompt" }] },
+        },
+      },
+    },
+  }, "conversation-camel-prompt");
+
+  await harness.harvest();
+  const generation = harness.events.find((event) => event.payload?.assetId === "file-camel-prompt");
+  assert.equal(generation?.payload.prompt, prompt);
+  assert.equal(generation?.payload.promptStatus, "generation-tool-prompt");
+  assert.equal(generation?.payload.promptSource, "revised_prompt");
+});
+
+test("uses deterministic provider prompt priority instead of dropping equally trusted fields", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-prompt-priority",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-prompt-priority",
+          author: { role: "tool", name: "image_gen" },
+          metadata: {
+            generation_prompt: "lower-priority generation prompt",
+            revised_prompt: "provider revised prompt wins",
+          },
+          content: { parts: [{ asset_pointer: "sediment://file-priority" }] },
+        },
+      },
+    },
+  }, "conversation-prompt-priority");
+
+  await harness.harvest();
+  const generation = harness.events.find((event) => event.payload?.assetId === "file-priority");
+  assert.equal(generation?.payload.prompt, "provider revised prompt wins");
+  assert.equal(generation?.payload.promptPriority, 700);
+});
+
+test("accepts a plain caption from an assistant-owned image_gen message", async () => {
+  const prompt = "red sun";
+  const harness = createHookHarness({
+    conversation_id: "conversation-assistant-caption",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-assistant-caption",
+          author: { role: "assistant", name: "image_gen" },
+          content: { parts: [{ asset_pointer: "sediment://file-assistant-caption" }, prompt] },
+        },
+      },
+    },
+  }, "conversation-assistant-caption");
+
+  await harness.harvest();
+  const generation = harness.events.find((event) => event.payload?.assetId === "file-assistant-caption");
+  assert.equal(generation?.payload.prompt, prompt);
+  assert.equal(generation?.payload.promptStatus, "visible-caption");
+});
+
+test("keeps revised prompt provenance in generic non-message response objects", async () => {
+  const prompt = "A cinematic desert poster with bold type";
+  const harness = createHookHarness({
+    generation: {
+      revisedPrompt: prompt,
+      assetPointer: "sediment://file-generic-revised",
+    },
+  }, "conversation-generic-revised");
+
+  await harness.harvest();
+  const generation = harness.events.find((event) => event.payload?.assetId === "file-generic-revised");
+  assert.equal(generation?.payload.prompt, prompt);
+  assert.equal(generation?.payload.promptStatus, "generation-tool-prompt");
+  assert.equal(generation?.payload.isGeneration, true);
+});
+
+test("generation registry binds late prompts by stable context and never downgrades the best provider prompt", () => {
+  const sandbox = {};
+  vm.runInNewContext(generationRegistrySource, sandbox, { filename: "generation-registry.js" });
+  const registry = sandbox.MosaGenerationRegistry.createGenerationRegistry({
+    imageLookupKeys: (imageUrl, meta = {}) => {
+      if (meta.assetId) return [`asset:${meta.assetId}`];
+      return imageUrl ? [`url:${imageUrl}`] : [];
+    },
+    promptQuality: (entry) => Number(entry.promptPriority || 0) * 1_000_000 + String(entry.prompt || "").length,
+  });
+
+  registry.remember({
+    imageUrl: "https://images.example/generated.png",
+    conversationId: "conversation-late",
+    messageId: "message-late",
+    providerGenerationCallId: "generation-call-late",
+    isGeneration: true,
+  });
+  registry.remember({
+    prompt: "provider revised prompt",
+    promptStatus: "generation-tool-prompt",
+    promptPriority: 700,
+    conversationId: "conversation-late",
+    messageId: "message-late",
+    providerGenerationCallId: "generation-call-late",
+  });
+  registry.remember({
+    prompt: "later but lower-quality caption that must not overwrite revised prompt",
+    promptStatus: "visible-caption",
+    promptPriority: 325,
+    conversationId: "conversation-late",
+    messageId: "message-late",
+    providerGenerationCallId: "generation-call-late",
+  });
+
+  const resolved = registry.resolvedForImage("https://images.example/generated.png");
+  assert.equal(resolved.prompt, "provider revised prompt");
+  assert.equal(resolved.promptPriority, 700);
+  assert.equal(resolved.isGeneration, true);
+});
+
+test("generation registry keeps sibling outputs distinct inside one tool call", () => {
+  const registry = createGenerationRegistryHarness();
+  registry.remember({
+    assetId: "file-a",
+    prompt: "prompt A",
+    promptStatus: "generation-tool-prompt",
+    promptPriority: 700,
+    promptScope: "output",
+    providerToolCallId: "call-shared",
+    conversationId: "conversation-multi",
+    messageId: "message-multi",
+    isGeneration: true,
+  });
+  registry.remember({
+    assetId: "file-b",
+    prompt: "a longer prompt B that must stay on output B",
+    promptStatus: "generation-tool-prompt",
+    promptPriority: 700,
+    promptScope: "output",
+    providerToolCallId: "call-shared",
+    conversationId: "conversation-multi",
+    messageId: "message-multi",
+    isGeneration: true,
+  });
+
+  const a = registry.resolvedForImage("", { assetId: "file-a" });
+  const b = registry.resolvedForImage("", { assetId: "file-b" });
+  assert.equal(a?.prompt, "prompt A");
+  assert.equal(a?.assetId, "file-a");
+  assert.equal(b?.prompt, "a longer prompt B that must stay on output B");
+  assert.equal(b?.assetId, "file-b");
+});
+
+test("generation registry never binds a failed attempt prompt to a different retry call", () => {
+  const registry = createGenerationRegistryHarness();
+  registry.remember({
+    prompt: "prompt from failed attempt A",
+    promptStatus: "generation-tool-prompt",
+    promptPriority: 700,
+    promptScope: "attempt",
+    generationStatus: "failed",
+    providerGenerationCallId: "gen-a",
+    conversationId: "conversation-retry",
+    messageId: "message-retry",
+    isGeneration: true,
+  });
+  registry.remember({
+    assetId: "file-success",
+    generationStatus: "completed",
+    providerGenerationCallId: "gen-b",
+    conversationId: "conversation-retry",
+    messageId: "message-retry",
+    isGeneration: true,
+  });
+
+  const success = registry.resolvedForImage("", { assetId: "file-success" });
+  assert.equal(success?.prompt, "");
+  assert.equal(success?.providerGenerationCallId, "gen-b");
+  assert.equal(success?.generationStatus, "completed");
+  assert.equal(registry.resolvedForMessage("conversation-retry", "message-retry"), null, "ambiguous retry messages must fail closed");
+});
+
+test("generation registry suppresses a failed shared prompt when a weak reused tool id later completes", () => {
+  const registry = createGenerationRegistryHarness();
+  registry.remember({
+    prompt: "prompt belonging only to the failed weak-id attempt",
+    promptStatus: "generation-tool-prompt",
+    promptPriority: 700,
+    promptScope: "attempt",
+    generationStatus: "failed",
+    providerToolCallId: "weak-reused-call",
+    conversationId: "conversation-weak-retry",
+    messageId: "message-weak-retry",
+    isGeneration: true,
+  });
+  registry.remember({
+    assetId: "file-weak-success",
+    generationStatus: "completed",
+    providerToolCallId: "weak-reused-call",
+    conversationId: "conversation-weak-retry",
+    messageId: "message-weak-retry",
+    isGeneration: true,
+  });
+
+  const success = registry.resolvedForImage("", { assetId: "file-weak-success" });
+  assert.equal(success?.prompt, "");
+  assert.equal(success?.generationStatus, "completed");
+  assert.equal(success?.providerToolCallId, "weak-reused-call");
+});
+
+test("generation registry never uses failed message-only prose as a later output prompt", () => {
+  const registry = createGenerationRegistryHarness();
+  registry.remember({
+    prompt: "message-level text from a failed generation",
+    promptStatus: "generation-tool-prompt",
+    promptPriority: 700,
+    promptScope: "message",
+    generationStatus: "failed",
+    conversationId: "conversation-message-retry",
+    messageId: "message-message-retry",
+    isGeneration: true,
+  });
+  registry.remember({
+    assetId: "file-message-success",
+    providerToolCallId: "message-retry-call",
+    generationStatus: "completed",
+    conversationId: "conversation-message-retry",
+    messageId: "message-message-retry",
+    isGeneration: true,
+  });
+
+  const success = registry.resolvedForImage("", { assetId: "file-message-success" });
+  assert.equal(success?.prompt, "");
+  assert.equal(success?.generationStatus, "completed");
+});
+
+test("attempt-scoped late prompts fan out to every saved output without collapsing output identity", () => {
+  const registry = createGenerationRegistryHarness();
+  for (const assetId of ["file-a", "file-b", "file-c"]) {
+    registry.remember({
+      assetId,
+      providerToolCallId: "call-shared",
+      conversationId: "conversation-fanout",
+      messageId: "message-fanout",
+      isGeneration: true,
+    });
+  }
+  const promptEvent = {
+    prompt: "one provider prompt shared by the whole generation attempt",
+    promptStatus: "generation-tool-prompt",
+    promptPriority: 700,
+    promptScope: "attempt",
+    providerToolCallId: "call-shared",
+    conversationId: "conversation-fanout",
+    messageId: "message-fanout",
+    isGeneration: true,
+  };
+  registry.remember(promptEvent);
+
+  const outputs = registry.resolvedOutputsForEntry(promptEvent);
+  assert.equal(outputs.map((item) => item.assetId).sort().join(","), "file-a,file-b,file-c");
+  assert.ok(outputs.every((item) => item.prompt === promptEvent.prompt));
+  assert.equal(registry.debugSnapshot()[0].outputs.length, 3);
+});
+
+test("content capture uses stable generation context instead of time-window prompt guessing", () => {
+  assert.match(contentSource, /function generationRegistryForPage\(\)/);
+  assert.match(contentSource, /resolvedForImage/);
+  assert.match(contentSource, /imageKeysForEntry/);
+  assert.doesNotMatch(contentSource, /findRecentUnboundPrompt|recentPrompts/);
+});
+
+test("content capture waits for generation stability and upgrades every output independently", () => {
+  assert.match(contentSource, /const AUTO_STABILITY_DELAY_MS = 900/);
+  assert.match(contentSource, /const AUTO_PARTIAL_FALLBACK_MS = 15_000/);
+  assert.match(contentSource, /function autoCandidateReadiness\(candidate, evidence, reason\)/);
+  assert.match(contentSource, /if \(status === "in_progress"\)/);
+  assert.match(contentSource, /if \(status === "partial" && age < AUTO_PARTIAL_FALLBACK_MS\)/);
+  assert.match(contentSource, /readiness\.forceTerminalRefresh/);
+  assert.match(contentSource, /resolvedOutputsForEntry\?\.\(meta\)/);
+  assert.match(contentSource, /for \(const resolvedMeta of targets\)/);
+  assert.match(contentSource, /resolvedForMessage\?\.\(conversationIdFromUrl\(\), domMessageId\)/);
+});
+
 test("websocket image identifiers are treated as interesting generation metadata", async () => {
   const harness = createHookHarness({});
   await harness.socketFrame(JSON.stringify({
@@ -567,7 +945,9 @@ test("background limits generated video capture to Flow and Google AI Studio", (
   assert.match(backgroundSource, /const provider = String\(payload\.provider \|\| "chatgpt"\)/);
   assert.match(backgroundSource, /if \(!WEB_IMAGE_PROVIDERS\.has\(provider\)\)/);
   assert.match(backgroundSource, /if \(mediaKind === "video" && !WEB_VIDEO_PROVIDERS\.has\(provider\)\)/);
-  assert.match(backgroundSource, /fetchMediaAsBase64\(mediaUrl, \{ publicMedia: provider !== "chatgpt", mediaKind \}\)/);
+  assert.match(backgroundSource, /fetchMediaAsBase64\(mediaUrl, \{ publicMedia: false, mediaKind \}\)/);
+  assert.match(backgroundSource, /function assertAllowedRemoteMediaUrl\(value\)/);
+  assert.match(backgroundSource, /const MAX_VIDEO_BYTES = 96 \* 1024 \* 1024/);
   assert.match(backgroundSource, /message\.type === "mosa\.probeFlowMedia"/);
   assert.match(backgroundSource, /async function probeFlowMedia\(url\)/);
   assert.match(backgroundSource, /headers: \{ Range: "bytes=0-31" \}/);
@@ -599,11 +979,13 @@ function loadImageLookupKeys() {
 test("resolves every URL variant of one ChatGPT file to a shared identity", () => {
   const imageLookupKeys = loadImageLookupKeys();
   const estuary = imageLookupKeys("https://chatgpt.com/backend-api/estuary/content?cid=demo&id=file-abc123def&ts=1&sig=first");
+  const estuaryWithoutConversation = imageLookupKeys("https://chatgpt.com/backend-api/estuary/content?id=file-abc123def&ts=2&sig=no-cid");
   const cdn = imageLookupKeys("https://files.oaiusercontent.com/file-abc123def?se=2026-07-26&sig=second");
   const cdnResigned = imageLookupKeys("https://files.oaiusercontent.com/file-abc123def?se=2026-07-27&sig=third");
   const other = imageLookupKeys("https://files.oaiusercontent.com/file-zzz987yyy?se=2026-07-26&sig=fourth");
 
   assert.ok(estuary.includes("asset:file-abc123def"));
+  assert.ok(estuaryWithoutConversation.includes("asset:file-abc123def"), "Estuary asset identity must survive when ChatGPT omits cid");
   assert.ok(cdn.includes("asset:file-abc123def"));
   assert.ok(estuary.some((key) => cdn.includes(key)), "Estuary and CDN links must share an identity");
   assert.deepEqual(cdn, cdnResigned, "a re-signed link is the same image");
@@ -615,7 +997,7 @@ test("archives one row per uploaded reference photo", () => {
   // signed CDN link. Keying on the raw src archived it once per variant.
   assert.match(contentSource, /const savedIdentityKeys = new Set\(\)/);
   assert.match(contentSource, /function isSavedCandidate\(candidate\)/);
-  assert.match(contentSource, /function rememberSavedCandidate\(candidate\)/);
+  assert.match(contentSource, /function rememberSavedCandidate\(candidate, generationStatus = "unknown"\)/);
   assert.match(contentSource, /if \(isSavedCandidate\(candidate\)\) return false;/);
   assert.doesNotMatch(contentSource, /if \(savedKeys\.has\(key\)\) return false;/);
 
@@ -623,7 +1005,7 @@ test("archives one row per uploaded reference photo", () => {
   // size, so capturing both produced two differently sized assets.
   assert.match(contentSource, /function isComposerNode\(node\)/);
   assert.match(contentSource, /if \(!manual && isComposerNode\(img\)\) return false;/);
-  assert.match(contentSource, /if \(!manual && isComposerNode\(el\)\) continue;/);
+  assert.match(contentSource, /if \(manual\) \{[\s\S]*document\.querySelectorAll\("div, section, main, figure"\)/);
 
   // The Estuary proxy and the signed CDN link carry the same file id. Without
   // it they read as two images, and their bytes differ (canvas re-encode vs
@@ -639,11 +1021,13 @@ test("archives one row per uploaded reference photo", () => {
   assert.match(contentSource, /isReference: isReferenceCandidate\(candidate\)/);
   assert.match(backgroundSource, /is_reference: Boolean\(payload\.isReference\)/);
   assert.match(contentSource, /function hasObservedGenerationEvidence\(candidate\)/);
-  assert.match(contentSource, /const evidence = findGenerationEvidenceForImage\(candidate\?\.imageUrl \|\| candidate\?\.key \|\| ""\);/);
+  assert.match(contentSource, /function findGenerationEvidenceForCandidate\(candidate\)/);
+  assert.match(contentSource, /const evidence = findGenerationEvidenceForCandidate\(candidate\);/);
   assert.match(contentSource, /if \(!evidence && isRecoverableGenerationCandidate\(candidate\)\) scheduleGenerationEvidenceRecovery\(candidate\);/);
   assert.match(contentSource, /function enqueueDomFallback\(candidate\)/);
   assert.match(contentSource, /reason: "dom-fallback"/);
-  assert.match(contentSource, /const minEdge = reference \? 32 : manual \? 360 : MIN_EDGE/);
+  assert.match(contentSource, /const provenGeneration = !manual && !reference/);
+  assert.match(contentSource, /const minEdge = reference \? 32 : manual \? 360 : provenGeneration \? 256 : MIN_EDGE/);
   assert.match(contentSource, /if \(!reference && byteLength > 0 && byteLength < MIN_BYTES\) return false/);
   assert.match(contentSource, /const needsReferenceRepair = stagedReferences > 0[\s\S]*isSavedCandidate\(candidate\)/);
   assert.match(contentSource, /force: needsReferenceRepair/);
@@ -671,6 +1055,32 @@ test("automatic capture does not starve new images behind already-saved DOM cand
   assert.match(scan, /if \(isRecoverableGenerationCandidate\(candidate\)\) scheduleGenerationEvidenceRecovery\(candidate\);/);
   assert.match(scan, /\}\)\.slice\(0, 6\);/);
   assert.doesNotMatch(scan, /for \(const candidate of candidates\.slice\(0, 6\)\)/);
+});
+
+test("ChatGPT DOM fallback recognizes generated-image turn structure without legacy role nesting", () => {
+  assert.match(contentSource, /const CHATGPT_TURN_SELECTOR = '\[data-testid\^="conversation-turn-"\]'/);
+  assert.match(contentSource, /function hasGeneratedImageDomMarker\(image\)/);
+  assert.match(contentSource, /generated image\|image generated/);
+  assert.match(contentSource, /const explicitGeneratedImage = hasGeneratedImageDomMarker\(image\)/);
+  assert.match(contentSource, /if \(!roleScope && !turnOwnsAssistantContent && !explicitGeneratedImage\) return false;/);
+  assert.match(contentSource, /if \(explicitGeneratedImage\) return true;/);
+  assert.match(contentSource, /attributeFilter: \["src", "srcset", "alt", "aria-label"\]/);
+});
+
+test("ChatGPT generation evidence recovery spans slow multi-image renders", () => {
+  assert.match(contentSource, /const GENERATION_EVIDENCE_RECOVERY_DELAYS = \[2_800, 7_200, 15_000\]/);
+  assert.match(contentSource, /GENERATION_EVIDENCE_RECOVERY_DELAYS\.map\(\(delay, index\) => setTimeout/);
+  assert.match(contentSource, /index !== GENERATION_EVIDENCE_RECOVERY_DELAYS\.length - 1/);
+  assert.match(contentSource, /enqueueDomFallback\(candidate\);/);
+});
+
+test("temporary small ChatGPT generation candidates remain retryable", () => {
+  const ingestStart = contentSource.indexOf("async function ingestCandidate(candidate");
+  const enqueueStart = contentSource.indexOf("function enqueueAuto(candidate", ingestStart);
+  const ingest = contentSource.slice(ingestStart, enqueueStart);
+  assert.ok(ingestStart >= 0 && enqueueStart > ingestStart);
+  assert.match(ingest, /hasObservedGenerationEvidence\(candidate\) \|\| isRecoverableGenerationCandidate\(candidate\)/);
+  assert.match(ingest, /failedAt\.set\(key, Date\.now\(\)\)/);
 });
 
 test("promptless generation events can archive before the DOM finishes rendering", () => {
@@ -773,13 +1183,267 @@ test("does not flatten multiple image tool calls into one prompt binding", async
   await harness.harvest();
   const generations = harness.events.filter((event) => event.type === "generation-meta" && event.payload?.isGeneration);
   assert.equal(generations.length, 2);
-  assert.deepEqual(generations.map((event) => event.payload.prompt), ["", ""]);
-  assert.deepEqual(generations.map((event) => event.payload.promptStatus), ["not-available", "not-available"]);
-  assert.ok(generations.every((event) => /asset:file-[ab]$/.test(event.payload.generationContextId)), "ambiguous calls should fall back to per-output asset contexts");
+  assert.deepEqual(generations.map((event) => event.payload.prompt), [
+    "first detailed cinematic image prompt",
+    "second detailed editorial image prompt",
+  ]);
+  assert.deepEqual(generations.map((event) => event.payload.promptStatus), ["generation-tool-prompt", "generation-tool-prompt"]);
+  assert.deepEqual(generations.map((event) => event.payload.providerToolCallId), ["call-a", "call-b"]);
+});
+
+test("one image tool call keeps per-output prompts on their own sibling images", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-one-call-many-outputs",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-one-call-many-outputs",
+          author: { role: "tool", name: "image_gen" },
+          metadata: {
+            call: {
+              tool_call_id: "call-shared",
+              outputs: [
+                { revised_prompt: "red editorial poster for output A", asset_pointer: "sediment://file-output-a" },
+                { revised_prompt: "blue cinematic poster for output B", asset_pointer: "sediment://file-output-b" },
+              ],
+            },
+          },
+          content: { parts: [] },
+        },
+      },
+    },
+  }, "conversation-one-call-many-outputs");
+
+  await harness.harvest();
+  const outputs = harness.events.filter((event) => event.type === "generation-meta" && event.payload?.assetId?.startsWith("file-output-"));
+  assert.equal(outputs.length, 2);
+  const byAsset = new Map(outputs.map((event) => [event.payload.assetId, event.payload]));
+  assert.equal(byAsset.get("file-output-a")?.prompt, "red editorial poster for output A");
+  assert.equal(byAsset.get("file-output-a")?.promptScope, "output");
+  assert.equal(byAsset.get("file-output-b")?.prompt, "blue cinematic poster for output B");
+  assert.equal(byAsset.get("file-output-b")?.promptScope, "output");
+});
+
+test("a promptless sibling output is still emitted when another image call succeeds with a prompt", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-partial-multi",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-partial-multi",
+          author: { role: "tool", name: "image_gen" },
+          metadata: {
+            calls: [
+              { tool_call_id: "call-a", prompt: "complete prompt for output A", asset_pointer: "sediment://file-a-complete" },
+              { tool_call_id: "call-b", asset_pointer: "sediment://file-b-promptless", status: "failed" },
+            ],
+          },
+          content: { parts: [] },
+        },
+      },
+    },
+  }, "conversation-partial-multi");
+
+  await harness.harvest();
+  const outputs = harness.events.filter((event) => event.type === "generation-meta" && event.payload?.assetId);
+  const byAsset = new Map(outputs.map((event) => [event.payload.assetId, event.payload]));
+  assert.equal(byAsset.get("file-a-complete")?.prompt, "complete prompt for output A");
+  assert.equal(byAsset.get("file-b-promptless")?.prompt, "");
+  assert.equal(byAsset.get("file-b-promptless")?.promptStatus, "not-available");
+  assert.equal(byAsset.get("file-b-promptless")?.generationStatus, "failed");
+  assert.equal(byAsset.get("file-b-promptless")?.isGeneration, true);
+});
+
+test("output-specific failure status is not overwritten by an attempt-level completed state", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-mixed-status",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-mixed-status",
+          author: { role: "tool", name: "image_gen" },
+          metadata: {
+            call: {
+              tool_call_id: "call-mixed-status",
+              status: "completed",
+              outputs: [
+                { asset_pointer: "sediment://file-status-ok", status: "completed" },
+                { asset_pointer: "sediment://file-status-failed", status: "failed" },
+              ],
+            },
+          },
+          content: { parts: [] },
+        },
+      },
+    },
+  }, "conversation-mixed-status");
+
+  await harness.harvest();
+  const outputs = harness.events.filter((event) => event.type === "generation-meta" && event.payload?.assetId?.startsWith("file-status-"));
+  const byAsset = new Map(outputs.map((event) => [event.payload.assetId, event.payload]));
+  assert.equal(byAsset.get("file-status-ok")?.generationStatus, "completed");
+  assert.equal(byAsset.get("file-status-failed")?.generationStatus, "failed");
+});
+
+test("generation error prose beside a surviving image is status evidence, never a prompt", async () => {
+  const errorText = "Generation failed while creating the cinematic poster because the image service timed out; a partial result may still be visible.";
+  const harness = createHookHarness({
+    conversation_id: "conversation-error-image",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-error-image",
+          author: { role: "tool", name: "image_gen" },
+          metadata: { call: { tool_call_id: "call-error-image", asset_pointer: "sediment://file-error-image" } },
+          content: { parts: [errorText] },
+        },
+      },
+    },
+  }, "conversation-error-image");
+
+  await harness.harvest();
+  const output = harness.events.find((event) => event.type === "generation-meta" && event.payload?.assetId === "file-error-image")?.payload;
+  assert.ok(output);
+  assert.equal(output.prompt, "");
+  assert.equal(output.promptStatus, "not-available");
+  assert.equal(output.generationStatus, "failed");
+});
+
+test("failed attempt prompt does not leak into a later successful retry in the same tool call", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-retry-boundary",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-retry-boundary",
+          author: { role: "tool", name: "image_gen" },
+          metadata: {
+            call: {
+              tool_call_id: "call-retry",
+              attempts: [
+                {
+                  generation_call_id: "gen-failed",
+                  status: "failed",
+                  revised_prompt: "prompt belonging only to the failed attempt",
+                },
+                {
+                  generation_call_id: "gen-success",
+                  status: "completed",
+                  asset_pointer: "sediment://file-retry-success",
+                },
+              ],
+            },
+          },
+          content: { parts: [] },
+        },
+      },
+    },
+  }, "conversation-retry-boundary");
+
+  await harness.harvest();
+  const success = harness.events.find((event) => event.type === "generation-meta" && event.payload?.assetId === "file-retry-success")?.payload;
+  assert.ok(success);
+  assert.equal(success.providerGenerationCallId, "gen-success");
+  assert.equal(success.generationStatus, "completed");
+  assert.equal(success.prompt, "");
+  const failed = harness.events.find((event) => event.type === "generation-meta" && event.payload?.providerGenerationCallId === "gen-failed")?.payload;
+  assert.equal(failed?.prompt, "prompt belonging only to the failed attempt");
+  assert.equal(failed?.generationStatus, "failed");
+});
+
+test("one collage asset with several panel prompts stays prompt-ambiguous instead of choosing a panel", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-collage",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-collage",
+          author: { role: "tool", name: "image_gen" },
+          metadata: {
+            call: {
+              tool_call_id: "call-collage",
+              panels: [
+                { revised_prompt: "panel one revised prompt: a red product poster with dramatic light" },
+                { generation_prompt: "panel two generation prompt: a blue product poster with soft light" },
+              ],
+              result: { asset_pointer: "sediment://file-collage" },
+            },
+          },
+          content: { parts: [] },
+        },
+      },
+    },
+  }, "conversation-collage");
+
+  await harness.harvest();
+  const collage = harness.events.find((event) => event.type === "generation-meta" && event.payload?.assetId === "file-collage")?.payload;
+  assert.ok(collage);
+  assert.equal(collage.prompt, "");
+  assert.equal(collage.promptStatus, "not-available");
+});
+
+test("one shared attempt prompt can legitimately bind to every output in that call", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-shared-prompt",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-shared-prompt",
+          author: { role: "tool", name: "image_gen" },
+          metadata: {
+            call: {
+              tool_call_id: "call-shared-prompt",
+              revised_prompt: "one shared prompt for a coordinated three-image campaign",
+              outputs: [
+                { asset_pointer: "sediment://file-shared-a" },
+                { asset_pointer: "sediment://file-shared-b" },
+                { asset_pointer: "sediment://file-shared-c" },
+              ],
+            },
+          },
+          content: { parts: [] },
+        },
+      },
+    },
+  }, "conversation-shared-prompt");
+
+  await harness.harvest();
+  const outputs = harness.events.filter((event) => event.type === "generation-meta" && event.payload?.assetId?.startsWith("file-shared-"));
+  assert.equal(outputs.length, 3);
+  assert.ok(outputs.every((event) => event.payload.prompt === "one shared prompt for a coordinated three-image campaign"));
+  assert.ok(outputs.every((event) => event.payload.promptScope === "attempt"));
+});
+
+test("binds prompt and asset when one image call splits them across nested request/result objects", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-split-call",
+    mapping: {
+      generated: {
+        message: {
+          id: "message-split-call",
+          author: { role: "tool", name: "image_gen" },
+          metadata: {
+            calls: [{
+              tool_call_id: "call-split",
+              request: { revisedPrompt: "A precise split-call prompt for a red architectural poster" },
+              result: { assetPointer: "sediment://file-split-call" },
+            }],
+          },
+          content: { parts: [] },
+        },
+      },
+    },
+  }, "conversation-split-call");
+
+  await harness.harvest();
+  const generation = harness.events.find((event) => event.payload?.assetId === "file-split-call");
+  assert.equal(generation?.payload.prompt, "A precise split-call prompt for a red architectural poster");
+  assert.equal(generation?.payload.providerToolCallId, "call-split");
+  assert.equal(generation?.payload.promptSource, "revised_prompt");
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.14.1");
+  assert.equal(manifest.version, "0.14.5");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
@@ -793,7 +1457,7 @@ test("keeps a same-message user instruction separate and retries for a late capt
   assert.match(contentSource, /function enqueueDomCandidateForImage\(imageUrl, reason\)/);
   assert.match(contentSource, /function schedulePromptRecovery\(candidate\)/);
   assert.match(contentSource, /function currentViewportCandidate\(candidates\)/);
-  assert.match(contentSource, /const delays = \[2_800, 7_200\]/);
+  assert.match(contentSource, /const delays = \[2_800, 7_200, 15_000\]/);
 });
 
 test("an orphaned content script explains itself instead of dying on sendMessage", () => {
@@ -897,6 +1561,8 @@ test("startup context loss disconnects an initialized observer without a TDZ err
     document: { getElementById: () => null },
     extensionAlive: () => false,
     observer: { disconnectCalled: 0, disconnect() { this.disconnectCalled += 1; } },
+    autoStabilityStates: new Map(),
+    autoStabilityTimers: new Map(),
     generationEvidenceRecoveryTimers: new Map(),
     promptRecoveryTimers: new Map(),
     scanTimer: null,
@@ -921,6 +1587,8 @@ test("an open page follows auto-capture changes from local storage only", () => 
   const context = {
     chrome: { storage: { onChanged: { addListener: (callback) => { storageListener = callback; } } } },
     clearTimeout,
+    autoStabilityStates: new Map(),
+    autoStabilityTimers: new Map(),
     observer: { disconnect() {} },
     scanTimer: null,
     requestCurrentConversationRefresh: () => false,

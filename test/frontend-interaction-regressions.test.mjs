@@ -254,6 +254,19 @@ test("background library polling yields while an infinite-scroll append is in fl
   assert.match(apiClient, /if \(revision === lastLibraryRevision\) return false;/, "unchanged libraries do not reload groups or assets");
 });
 
+test("library updates use a realtime event stream with revision polling as fallback", async () => {
+  const app = await readApp();
+  const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
+
+  assert.match(app, /new EventSource\(`\/api\/library-events\?project=\$\{encodeURIComponent\(project\)\}`\)/);
+  assert.match(app, /source\.addEventListener\("library-changed"/);
+  assert.match(app, /void refreshLibraryInBackground\(\)\.then/);
+  assert.match(app, /if \(!isLoadingMore\) void refreshLibraryIfChanged\(\);/, "visibility recovery keeps a direct lightweight fallback check");
+  assert.match(app, /stopLibraryEventStream\(\);/, "hidden or torn-down pages release their SSE connection");
+  assert.match(apiClient, /function noteLibraryRevision\(revision\)/);
+  assert.match(apiClient, /\/api\/library-revision\?project=/, "periodic revision polling remains as a reconnect/failure fallback");
+});
+
 test("background stats refresh skips the effectively static library-path request", async () => {
   const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
   const stats = sliceBetween(apiClient, "async function loadStats(options = {})", "let assetRequestSequence = 0;");

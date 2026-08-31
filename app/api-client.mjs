@@ -322,6 +322,10 @@ export function createApiClient(deps) {
 
   let lastLibraryRevision = null;
   let libraryRevisionInFlight = false;
+  function noteLibraryRevision(revision) {
+    if (revision == null) return;
+    lastLibraryRevision = String(revision);
+  }
   async function refreshLibraryIfChanged() {
     if (document.hidden || libraryRevisionInFlight) return false;
     libraryRevisionInFlight = true;
@@ -373,5 +377,6 @@ export function createApiClient(deps) {
     apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged,
     refreshAssetPageTotalInBackground, refreshLoadedAssetsInBackground, reloadLoadedAssetPages,
     buildAssetPageParams, requestAssetPage, requestAssetTotal, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion,
+    noteLibraryRevision,
   };
 }

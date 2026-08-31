@@ -21,6 +21,12 @@
   const MIN_EDGE = 480; // px — drop small UI logos
   const MIN_BYTES = 20 * 1024; // server also enforces this
   const COMPOSER_SELECTOR = 'form, [data-type="unified-composer"], [data-testid="composer"]';
+  const CHATGPT_TURN_SELECTOR = '[data-testid^="conversation-turn-"]';
+  const GENERATION_EVIDENCE_RECOVERY_DELAYS = [2_800, 7_200, 15_000];
+  const SIZE_FAILURE_LIMIT = 3;
+  const SIZE_FAILURE_BACKOFF_MS = 60_000;
+  const AUTO_STABILITY_DELAY_MS = 900;
+  const AUTO_PARTIAL_FALLBACK_MS = 15_000;
   const STYLE_HINTS = [
     "poster", "illustration", "typography", "vector", "style", "lighting",
     "camera", "composition", "palette", "cinematic", "editorial", "scene",
@@ -31,8 +37,6 @@
   const networkMeta = [];
   /** Stable image identity -> latest bound prompt for that exact generated asset */
   const imagePromptMap = new Map();
-  /** Recent unbound prompts (prompt-only events), newest last */
-  const recentPrompts = [];
   const inFlight = new Set();
   const savedKeys = new Set();
   /**
@@ -57,7 +61,12 @@
   const promptUpgradeInFlight = new Set();
   const promptRecoveryTimers = new Map();
   const generationEvidenceRecoveryTimers = new Map();
+  const autoStabilityStates = new Map();
+  const autoStabilityTimers = new Map();
+  const savedGenerationStatuses = new Map();
+  let generationRegistry = null;
   const failedAt = new Map(); // key -> timestamp, retry after cooldown
+  const sizeFailureStates = new Map(); // stable image identity -> bounded small-file retry state
   // The conversation endpoint is enough to recover a caption that was rendered
   // from ChatGPT's cache, but was never seen by the page network hook.
   const conversationRefreshRequestedAt = new Map();
@@ -101,20 +110,27 @@
 
   function resetConversationTransientState() {
     networkMeta.splice(0, networkMeta.length);
-    recentPrompts.splice(0, recentPrompts.length);
     imagePromptMap.clear();
+    generationRegistry?.clear?.();
     capturedCandidates.clear();
     conversationRefreshRequestedAt.clear();
     for (const timers of promptRecoveryTimers.values()) {
       for (const timer of timers) clearTimeout(timer);
     }
     promptRecoveryTimers.clear();
-    for (const timer of generationEvidenceRecoveryTimers.values()) clearTimeout(timer);
+    for (const timers of generationEvidenceRecoveryTimers.values()) {
+      for (const timer of timers) clearTimeout(timer);
+    }
     generationEvidenceRecoveryTimers.clear();
+    for (const timer of autoStabilityTimers.values()) clearTimeout(timer);
+    autoStabilityTimers.clear();
+    autoStabilityStates.clear();
+    savedGenerationStatuses.clear();
     promptUpgradeInFlight.clear();
     referenceSyncKeys.clear();
     failedNetworkIdentityKeys.clear();
     failedAt.clear();
+    sizeFailureStates.clear();
   }
 
   function showToast(message, isError = false) {
@@ -162,8 +178,12 @@
       }
       const conversationId = url.searchParams.get("cid") || "";
       const assetId = url.searchParams.get("id") || "";
-      if (!conversationId || !assetId) return null;
-      return { conversationId, assetId, imageKey: `estuary:${conversationId}:${assetId}` };
+      if (!assetId) return null;
+      return {
+        conversationId,
+        assetId,
+        imageKey: conversationId ? `estuary:${conversationId}:${assetId}` : `asset:${assetId}`,
+      };
     } catch {
       return null;
     }
@@ -264,9 +284,49 @@
     return Boolean(scope.querySelector?.('textarea, [contenteditable="true"]'));
   }
 
+  function conversationTurnForNode(node) {
+    return node?.closest?.(CHATGPT_TURN_SELECTOR) || null;
+  }
+
+  function turnContainsRole(turn, role) {
+    return Boolean(turn?.querySelector?.(`[data-message-author-role="${role}"]`));
+  }
+
+  function nearestPrecedingUserScope(node) {
+    if (!node) return null;
+    let nearest = null;
+    const seen = new Set();
+    const candidates = document.querySelectorAll(
+      `[data-message-author-role="user"], ${CHATGPT_TURN_SELECTOR}`,
+    );
+    for (const candidate of candidates) {
+      const scope = candidate.matches?.(CHATGPT_TURN_SELECTOR)
+        ? (turnContainsRole(candidate, "user") ? candidate : null)
+        : (conversationTurnForNode(candidate) || candidate);
+      if (!scope || seen.has(scope)) continue;
+      seen.add(scope);
+      if (scope.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) nearest = scope;
+    }
+    return nearest;
+  }
+
+  function hasGeneratedImageDomMarker(image) {
+    if (!(image instanceof HTMLImageElement)) return false;
+    const label = [image.getAttribute("alt"), image.getAttribute("aria-label")]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    return /^(?:generated image|image generated)(?:\b|:)/i.test(label)
+      || /^(?:已?生成的?(?:图片|图像)|生成(?:图片|图像))(?:\b|[:：])?/i.test(label);
+  }
+
   /** A picture inside a user turn is an uploaded reference, not a generation. */
   function isReferenceCandidate(candidate) {
-    return Boolean(candidate?.el?.closest?.('[data-message-author-role="user"]'));
+    const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
+    if (!image || hasGeneratedImageDomMarker(image)) return false;
+    if (image.closest?.('[data-message-author-role="user"]')) return true;
+    const turn = conversationTurnForNode(image);
+    return Boolean(turn?.querySelector?.('[data-message-author-role="user"]'));
   }
 
   /**
@@ -279,10 +339,15 @@
   function isRecoverableGenerationCandidate(candidate) {
     const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
     if (!image || isComposerNode(image) || isReferenceCandidate(candidate)) return false;
-    const scope = image.closest?.('[data-message-author-role="assistant"], [data-message-author-role="tool"]');
-    if (!scope) return false;
     const src = candidate.imageUrl || candidate.key || image.currentSrc || image.src || "";
-    if (!src || !isLikelyGeneratedUrl(src)) return false;
+    if (!src || isBlockedUrl(src)) return false;
+    const turn = conversationTurnForNode(image);
+    const roleScope = image.closest?.('[data-message-author-role="assistant"], [data-message-author-role="tool"]');
+    const turnOwnsAssistantContent = Boolean(turn?.querySelector?.('[data-message-author-role="assistant"], [data-message-author-role="tool"]'));
+    const explicitGeneratedImage = hasGeneratedImageDomMarker(image);
+    if (!roleScope && !turnOwnsAssistantContent && !explicitGeneratedImage) return false;
+    if (!isLikelyGeneratedUrl(src) && !explicitGeneratedImage) return false;
+    if (explicitGeneratedImage) return true;
     if (src.startsWith("blob:")) return true;
     if (chatGptImageProxyInfo(src)) return true;
     try {
@@ -300,7 +365,8 @@
     if (!src || isBlockedUrl(src)) return false;
     const w = img.naturalWidth || img.width || 0;
     const h = img.naturalHeight || img.height || 0;
-    const minEdge = manual ? 360 : MIN_EDGE;
+    const explicitGeneratedImage = hasGeneratedImageDomMarker(img);
+    const minEdge = manual ? 360 : explicitGeneratedImage ? 256 : MIN_EDGE;
     if (w > 0 && h > 0) {
       if (w < minEdge || h < minEdge) return false;
       const ratio = w / h;
@@ -309,6 +375,7 @@
         return false;
       }
     }
+    if (explicitGeneratedImage) return true;
     if (isLikelyGeneratedUrl(src)) return true;
     if (src.startsWith("blob:") && (w >= minEdge || manual)) return true;
     // Manual: accept any large on-page image (full viewer often uses non-CDN hosts).
@@ -324,7 +391,9 @@
     const h = candidate.height || 0;
     // References are inputs, not output candidates. Do not reuse the output/logo
     // threshold or legitimate thumbnails and low-resolution identity guides are lost.
-    const minEdge = reference ? 32 : manual ? 360 : MIN_EDGE;
+    const provenGeneration = !manual && !reference
+      && (hasObservedGenerationEvidence(candidate) || isRecoverableGenerationCandidate(candidate));
+    const minEdge = reference ? 32 : manual ? 360 : provenGeneration ? 256 : MIN_EDGE;
     if (w > 0 && h > 0 && (w < minEdge || h < minEdge)) return false;
     const url = candidate.imageUrl || candidate.key || "";
     if (isBlockedUrl(url)) return false;
@@ -349,25 +418,28 @@
         height: img.naturalHeight || img.height || 0,
       });
     }
-    // CSS backgrounds
-    for (const el of document.querySelectorAll("div, section, main, figure")) {
-      const rect = el.getBoundingClientRect?.();
-      if (!rect || rect.width < (manual ? 300 : 360) || rect.height < (manual ? 300 : 360)) continue;
-      if (!manual && isComposerNode(el)) continue;
-      const bg = getComputedStyle(el).backgroundImage || "";
-      const match = /url\(["']?(https?:\/\/[^"')]+|blob:[^"')]+)["']?\)/i.exec(bg);
-      if (!match) continue;
-      const url = match[1];
-      if (isBlockedUrl(url) || byKey.has(url)) continue;
-      if (!manual && !isLikelyGeneratedUrl(url) && !url.startsWith("blob:")) continue;
-      byKey.set(url, {
-        key: url,
-        el,
-        imageUrl: url.startsWith("data:") ? "" : url,
-        dataUrl: url.startsWith("data:") ? url : "",
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      });
+    // CSS-background discovery is kept only for an explicit manual save. The
+    // automatic path already receives provider URLs from the page hook and
+    // scanning every div/section plus computed style on each mutation was a
+    // major long-conversation layout cost.
+    if (manual) {
+      for (const el of document.querySelectorAll("div, section, main, figure")) {
+        const rect = el.getBoundingClientRect?.();
+        if (!rect || rect.width < 300 || rect.height < 300) continue;
+        const bg = getComputedStyle(el).backgroundImage || "";
+        const match = /url\(["']?(https?:\/\/[^"')]+|blob:[^"')]+)["']?\)/i.exec(bg);
+        if (!match) continue;
+        const url = match[1];
+        if (isBlockedUrl(url) || byKey.has(url)) continue;
+        byKey.set(url, {
+          key: url,
+          el,
+          imageUrl: url.startsWith("data:") ? "" : url,
+          dataUrl: url.startsWith("data:") ? url : "",
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        });
+      }
     }
     return [...byKey.values()].sort((a, b) => (b.width * b.height) - (a.width * a.height));
   }
@@ -434,8 +506,13 @@
       for (const timer of timers) clearTimeout(timer);
     }
     promptRecoveryTimers.clear();
-    for (const timer of generationEvidenceRecoveryTimers.values()) clearTimeout(timer);
+    for (const timers of generationEvidenceRecoveryTimers.values()) {
+      for (const timer of timers) clearTimeout(timer);
+    }
     generationEvidenceRecoveryTimers.clear();
+    for (const timer of autoStabilityTimers.values()) clearTimeout(timer);
+    autoStabilityTimers.clear();
+    autoStabilityStates.clear();
     setStatus(CONTEXT_LOST_MESSAGE, true);
     showToast(CONTEXT_LOST_MESSAGE, true);
   }
@@ -472,6 +549,20 @@
       .replace(/<\|has_watermark\|>/g, "")
       .replace(/\n?展开\s*$/g, "")
       .trim();
+  }
+
+  function normalizeGenerationStatus(value) {
+    const raw = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (["completed", "complete", "succeeded", "success", "done", "finished"].includes(raw)) return "completed";
+    if (["failed", "failure", "error", "errored", "rejected", "timeout", "timed_out"].includes(raw)) return "failed";
+    if (["cancelled", "canceled", "aborted", "stopped"].includes(raw)) return "cancelled";
+    if (["partial", "incomplete"].includes(raw)) return "partial";
+    if (["in_progress", "running", "generating", "streaming", "pending", "queued"].includes(raw)) return "in_progress";
+    return "unknown";
+  }
+
+  function isTerminalGenerationStatus(value) {
+    return ["completed", "failed", "cancelled"].includes(normalizeGenerationStatus(value));
   }
 
   function isShortEditCommand(text) {
@@ -519,6 +610,10 @@
       imageKey,
       assetId,
       promptStatus: String(item.promptStatus || item.prompt_status || ""),
+      promptSource: String(item.promptSource || item.prompt_source || ""),
+      promptPriority: Number(item.promptPriority || item.prompt_priority) || 0,
+      promptScope: String(item.promptScope || item.prompt_scope || ""),
+      generationStatus: normalizeGenerationStatus(item.generationStatus || item.generation_status),
       conversationId: String(item.conversationId || item.conversation_id || ""),
       messageId: String(item.messageId || item.message_id || ""),
       generationContextId: String(item.generationContextId || item.generation_context_id || ""),
@@ -536,12 +631,21 @@
     networkMeta.push(entry);
     if (networkMeta.length > 120) networkMeta.splice(0, networkMeta.length - 120);
 
+    const registry = generationRegistryForPage();
+    const context = registry?.remember?.(entry) || null;
+    const resolvedContext = context ? registry?.resolvedForEntry?.(entry) : null;
+
     const lookupKeys = imageLookupKeys(imageUrl, { imageKey, assetId });
-    if (prompt && lookupKeys.length) {
-      for (const key of lookupKeys) imagePromptMap.set(key, entry);
-    } else if (prompt) {
-      recentPrompts.push({ ...entry, at: Date.now() });
-      if (recentPrompts.length > 40) recentPrompts.splice(0, recentPrompts.length - 40);
+    const registryImageKeys = context ? registry?.imageKeysForEntry?.(entry) || [] : [];
+    const effectiveKeys = [...new Set([...lookupKeys, ...registryImageKeys])];
+    const effectivePrompt = resolvedContext?.prompt ? resolvedContext : entry;
+    if (effectivePrompt.prompt && effectiveKeys.length) {
+      for (const key of effectiveKeys) {
+        const current = imagePromptMap.get(key);
+        if (!current || metaPromptQuality(effectivePrompt) >= metaPromptQuality(current)) {
+          imagePromptMap.set(key, effectivePrompt);
+        }
+      }
     }
     return entry;
   }
@@ -551,6 +655,8 @@
    * (that was attaching the first Bangkok caption to every later city image).
    */
   function findBoundPromptForImage(imageUrl) {
+    const registryResolved = generationRegistryForPage()?.resolvedForImage?.(imageUrl);
+    if (registryResolved?.prompt) return registryResolved;
     const wantedKeys = imageLookupKeys(imageUrl);
     for (const key of wantedKeys) {
       if (imagePromptMap.has(key)) return imagePromptMap.get(key);
@@ -561,12 +667,24 @@
   }
 
   function findGenerationEvidenceForImage(imageUrl) {
+    const registryResolved = generationRegistryForPage()?.resolvedForImage?.(imageUrl);
+    if (registryResolved?.isGeneration) return registryResolved;
     const wantedKeys = imageLookupKeys(imageUrl);
     if (!wantedKeys.length) return null;
     return [...networkMeta].reverse().find((item) => (
       item.isGeneration === true
       && imageLookupKeys(item.imageUrl, item).some((key) => wantedKeys.includes(key))
     )) || null;
+  }
+
+  function findGenerationEvidenceForCandidate(candidate) {
+    const imageRef = candidate?.imageUrl || candidate?.key || "";
+    const exact = findGenerationEvidenceForImage(imageRef);
+    if (exact) return exact;
+    const messageId = messageIdForCandidate(candidate);
+    if (!messageId) return null;
+    const messageResolved = generationRegistryForPage()?.resolvedForMessage?.(conversationIdFromUrl(), messageId);
+    return messageResolved?.isGeneration ? messageResolved : null;
   }
 
   /**
@@ -577,16 +695,13 @@
    */
   function hasObservedGenerationEvidence(candidate) {
     if (isReferenceCandidate(candidate)) return false;
-    return Boolean(findGenerationEvidenceForImage(candidate?.imageUrl || candidate?.key || ""));
+    return Boolean(findGenerationEvidenceForCandidate(candidate));
   }
 
   function referenceCandidatesForGeneration(candidate) {
     const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
     if (!image) return [];
-    let nearestUser = null;
-    for (const user of document.querySelectorAll('[data-message-author-role="user"]')) {
-      if (user.compareDocumentPosition(image) & Node.DOCUMENT_POSITION_FOLLOWING) nearestUser = user;
-    }
+    const nearestUser = nearestPrecedingUserScope(image);
     if (!nearestUser) return [];
     const references = [];
     for (const img of nearestUser.querySelectorAll("img")) {
@@ -613,7 +728,7 @@
    * reference would make later generations lose their reference lineage.
    */
   async function stageGenerationReferences(candidate) {
-    const evidence = findGenerationEvidenceForImage(candidate?.imageUrl || candidate?.key || "");
+    const evidence = findGenerationEvidenceForCandidate(candidate);
     if (!evidence) return { generationContextId: "", stagedReferences: 0 };
     const generationContextId = evidence.generationContextId || "";
     let stagedReferences = 0;
@@ -638,8 +753,66 @@
     return rank * 10_000 + Math.min(cleanPromptText(prompt).length, 5_000);
   }
 
+  function metaPromptQuality(entry) {
+    const explicitPriority = Number(entry?.promptPriority || entry?.prompt_priority) || 0;
+    return explicitPriority * 1_000_000 + promptQuality(entry?.promptStatus || entry?.prompt_status, entry?.prompt);
+  }
+
+  function generationRegistryForPage() {
+    if (generationRegistry) return generationRegistry;
+    const factory = globalThis.MosaGenerationRegistry?.createGenerationRegistry;
+    if (typeof factory !== "function") return null;
+    generationRegistry = factory({
+      imageLookupKeys,
+      promptQuality: metaPromptQuality,
+    });
+    return generationRegistry;
+  }
+
   function candidateLookupKeys(candidate) {
     return imageLookupKeys(candidate?.imageUrl || candidate?.key || "");
+  }
+
+  function candidateOperationKey(candidate) {
+    const keys = candidateLookupKeys(candidate);
+    return keys.find((key) => key.startsWith("asset:"))
+      || keys.find((key) => key.startsWith("estuary:"))
+      || keys[0]
+      || candidate?.key
+      || candidate?.imageUrl
+      || "";
+  }
+
+  function candidateSizeSignature(candidate) {
+    const width = Number(candidate?.el?.naturalWidth || candidate?.width || 0);
+    const height = Number(candidate?.el?.naturalHeight || candidate?.height || 0);
+    return `${width}x${height}`;
+  }
+
+  function markSizeFailure(candidate) {
+    const key = candidateOperationKey(candidate);
+    if (!key) return;
+    const signature = candidateSizeSignature(candidate);
+    const previous = sizeFailureStates.get(key);
+    const count = previous?.signature === signature ? previous.count + 1 : 1;
+    sizeFailureStates.set(key, {
+      signature,
+      count,
+      blockedUntil: count >= SIZE_FAILURE_LIMIT ? Date.now() + SIZE_FAILURE_BACKOFF_MS : 0,
+    });
+    failedAt.set(key, Date.now());
+  }
+
+  function isSizeFailureBlocked(candidate) {
+    const key = candidateOperationKey(candidate);
+    const state = key ? sizeFailureStates.get(key) : null;
+    if (!state) return false;
+    if (state.signature !== candidateSizeSignature(candidate)) {
+      sizeFailureStates.delete(key);
+      return false;
+    }
+    if (state.blockedUntil && Date.now() < state.blockedUntil) return true;
+    return false;
   }
 
   function rememberCandidate(candidate) {
@@ -653,24 +826,102 @@
     return candidateLookupKeys(candidate).some((identity) => savedIdentityKeys.has(identity));
   }
 
-  function rememberSavedCandidate(candidate) {
+  function rememberSavedCandidate(candidate, generationStatus = "unknown") {
     const key = candidate?.key || candidate?.imageUrl;
     if (key) savedKeys.add(key);
-    for (const identity of candidateLookupKeys(candidate)) savedIdentityKeys.add(identity);
+    const normalizedStatus = normalizeGenerationStatus(generationStatus);
+    for (const identity of candidateLookupKeys(candidate)) {
+      savedIdentityKeys.add(identity);
+      savedGenerationStatuses.set(identity, normalizedStatus);
+    }
+  }
+
+  function savedGenerationStatusForCandidate(candidate) {
+    for (const identity of candidateLookupKeys(candidate)) {
+      if (savedGenerationStatuses.has(identity)) return savedGenerationStatuses.get(identity) || "unknown";
+    }
+    return "unknown";
+  }
+
+  function clearAutoStability(candidateKey) {
+    const timer = autoStabilityTimers.get(candidateKey);
+    if (timer) clearTimeout(timer);
+    autoStabilityTimers.delete(candidateKey);
+    autoStabilityStates.delete(candidateKey);
+  }
+
+  function scheduleAutoStabilityRetry(candidate, reason, delayMs) {
+    const candidateKey = candidateOperationKey(candidate);
+    if (!candidateKey || autoStabilityTimers.has(candidateKey)) return;
+    const timer = setTimeout(() => {
+      autoStabilityTimers.delete(candidateKey);
+      if (autoCapture && !contextLost) enqueueAuto(candidate, `${reason}-stability`);
+    }, Math.max(120, delayMs));
+    autoStabilityTimers.set(candidateKey, timer);
+  }
+
+  function autoCandidateReadiness(candidate, evidence, reason) {
+    const candidateKey = candidateOperationKey(candidate);
+    if (!candidateKey) return { ready: false, forceTerminalRefresh: false };
+    const status = normalizeGenerationStatus(evidence?.generationStatus);
+    const savedStatus = savedGenerationStatusForCandidate(candidate);
+    const forceTerminalRefresh = isSavedCandidate(candidate)
+      && isTerminalGenerationStatus(status)
+      && !isTerminalGenerationStatus(savedStatus);
+
+    if (isTerminalGenerationStatus(status)) {
+      clearAutoStability(candidateKey);
+      return { ready: true, forceTerminalRefresh };
+    }
+
+    const now = Date.now();
+    const signature = `${candidateSizeSignature(candidate)}|${candidate?.imageUrl || candidate?.key || ""}`;
+    const previous = autoStabilityStates.get(candidateKey);
+    const state = previous?.signature === signature
+      ? previous
+      : { signature, firstSeenAt: now, lastSeenAt: now };
+    state.lastSeenAt = now;
+    autoStabilityStates.set(candidateKey, state);
+
+    const age = now - state.firstSeenAt;
+    if (status === "in_progress") {
+      requestCurrentConversationRefresh(candidate);
+      if (age < AUTO_PARTIAL_FALLBACK_MS) {
+        scheduleAutoStabilityRetry(candidate, reason, Math.min(1_500, AUTO_PARTIAL_FALLBACK_MS - age));
+      }
+      // An explicit in-progress marker is stronger evidence than elapsed time.
+      // Do not archive a provider-declared intermediate image just because a
+      // watchdog timer expired; the 5s scan and metadata refresh will pick it
+      // up as soon as ChatGPT reports a terminal state.
+      return { ready: false, forceTerminalRefresh: false };
+    }
+
+    if (status === "partial" && age < AUTO_PARTIAL_FALLBACK_MS) {
+      requestCurrentConversationRefresh(candidate);
+      scheduleAutoStabilityRetry(candidate, reason, Math.min(1_500, AUTO_PARTIAL_FALLBACK_MS - age));
+      return { ready: false, forceTerminalRefresh: false };
+    }
+
+    if (age < AUTO_STABILITY_DELAY_MS) {
+      scheduleAutoStabilityRetry(candidate, reason, AUTO_STABILITY_DELAY_MS - age);
+      return { ready: false, forceTerminalRefresh: false };
+    }
+
+    clearAutoStability(candidateKey);
+    return { ready: true, forceTerminalRefresh };
   }
 
   function rememberSavedPrompt(candidate, resolved) {
-    const rank = promptQuality(resolved?.promptStatus, resolved?.prompt);
+    const rank = metaPromptQuality(resolved);
     for (const key of candidateLookupKeys(candidate)) {
       savedPromptRanks.set(key, Math.max(savedPromptRanks.get(key) ?? -1, rank));
     }
   }
 
-  function savedPromptRankForMeta(meta) {
-    const keys = imageLookupKeys(meta?.imageUrl || "", meta || {});
+  function savedPromptRankForKeys(keys) {
     let rank = -1;
     for (const key of keys) rank = Math.max(rank, savedPromptRanks.get(key) ?? -1);
-    return { keys, rank };
+    return rank;
   }
 
   async function withAutoCaptureSlot(task) {
@@ -703,24 +954,32 @@
    * an already archived, lower-quality image; MOSA's hash dedupe upgrades it.
    */
   function schedulePromptUpgrade(meta) {
-    if (!cleanPromptText(meta?.prompt)) return;
-    const { keys, rank: savedRank } = savedPromptRankForMeta(meta);
-    const nextRank = promptQuality(meta.promptStatus, meta.prompt);
-    if (!keys.length || savedRank < 0 || savedRank >= nextRank) return;
-    const candidate = findCandidateForMeta(keys);
-    if (!candidate) return;
-    const candidateKey = candidate.key || candidate.imageUrl;
-    if (!candidateKey || promptUpgradeInFlight.has(candidateKey)) return;
-    clearPromptRecovery(candidateKey);
+    const registry = generationRegistryForPage();
+    const resolvedOutputs = registry?.resolvedOutputsForEntry?.(meta) || [];
+    const targets = resolvedOutputs.length ? resolvedOutputs : [registry?.resolvedForEntry?.(meta) || meta];
 
-    promptUpgradeInFlight.add(candidateKey);
-    withAutoCaptureSlot(() => ingestCandidate(candidate, {
-        silentSkip: true,
-        reason: "prompt-upgrade",
-        force: true,
-      }))
-      .catch(() => {})
-      .finally(() => promptUpgradeInFlight.delete(candidateKey));
+    for (const resolvedMeta of targets) {
+      if (!cleanPromptText(resolvedMeta?.prompt)) continue;
+      const keys = imageLookupKeys(resolvedMeta?.imageUrl || "", resolvedMeta || {});
+      if (!keys.length) continue;
+      const savedRank = savedPromptRankForKeys(keys);
+      const nextRank = metaPromptQuality(resolvedMeta);
+      if (savedRank < 0 || savedRank >= nextRank) continue;
+      const candidate = findCandidateForMeta(keys);
+      if (!candidate) continue;
+      const candidateKey = candidateOperationKey(candidate) || candidate.key || candidate.imageUrl;
+      if (!candidateKey || promptUpgradeInFlight.has(candidateKey)) continue;
+      clearPromptRecovery(candidate.key || candidate.imageUrl || candidateKey);
+
+      promptUpgradeInFlight.add(candidateKey);
+      withAutoCaptureSlot(() => ingestCandidate(candidate, {
+          silentSkip: true,
+          reason: "prompt-upgrade",
+          force: true,
+        }))
+        .catch(() => {})
+        .finally(() => promptUpgradeInFlight.delete(candidateKey));
+    }
   }
 
   function clearPromptRecovery(candidateKey) {
@@ -737,9 +996,10 @@
     if (!candidateKey || !imageRef || promptRecoveryTimers.has(candidateKey)) return;
 
     // The image can become visible before ChatGPT stores its tool caption.
-    // Retry only this conversation twice; a later bound caption upgrades the
-    // already archived fallback through the normal hash-dedupe route.
-    const delays = [2_800, 7_200];
+    // Re-read the active conversation on the same bounded schedule used by
+    // generation-evidence recovery; the context registry can then bind a late
+    // prompt even after the image was already archived.
+    const delays = [2_800, 7_200, 15_000];
     const timers = delays.map((delay, index) => setTimeout(() => {
       if (findBoundPromptForImage(imageRef)) {
         clearPromptRecovery(candidateKey);
@@ -765,28 +1025,20 @@
     const candidateKey = candidateLookupKeys(candidate)[0] || candidate?.key || candidate?.imageUrl || "";
     if (!candidateKey || generationEvidenceRecoveryTimers.has(candidateKey)) return;
     requestCurrentConversationRefresh(candidate);
-    const timer = setTimeout(() => {
-      generationEvidenceRecoveryTimers.delete(candidateKey);
-      const imageRef = candidate?.imageUrl || candidate?.key || "";
-      if (findGenerationEvidenceForImage(imageRef)) {
+    const timers = GENERATION_EVIDENCE_RECOVERY_DELAYS.map((delay, index) => setTimeout(() => {
+      if (findGenerationEvidenceForCandidate(candidate)) {
+        const activeTimers = generationEvidenceRecoveryTimers.get(candidateKey) || [];
+        for (const timer of activeTimers) clearTimeout(timer);
+        generationEvidenceRecoveryTimers.delete(candidateKey);
         enqueueAuto(candidate, "evidence-recovered");
         return;
       }
-      // Recovery can legitimately fail on some ChatGPT session shapes. Keep a
-      // high-confidence assistant/tool image rather than losing the asset; a
-      // later metadata event can still upgrade its Prompt through hash dedupe.
+      requestCurrentConversationRefresh(candidate);
+      if (index !== GENERATION_EVIDENCE_RECOVERY_DELAYS.length - 1) return;
+      generationEvidenceRecoveryTimers.delete(candidateKey);
       enqueueDomFallback(candidate);
-    }, 2_800);
-    generationEvidenceRecoveryTimers.set(candidateKey, timer);
-  }
-
-  function findRecentUnboundPrompt(withinMs = 8000) {
-    const now = Date.now();
-    for (let i = recentPrompts.length - 1; i >= 0; i -= 1) {
-      const item = recentPrompts[i];
-      if (now - item.at <= withinMs && item.prompt) return item;
-    }
-    return null;
+    }, delay));
+    generationEvidenceRecoveryTimers.set(candidateKey, timers);
   }
 
   function buildStoredPrompt({ generationPrompt, generationStatus = "", userMessage, via }) {
@@ -856,11 +1108,7 @@
   function userMessageForCandidate(candidate) {
     const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
     if (!image) return "";
-    let nearest = null;
-    for (const user of document.querySelectorAll('[data-message-author-role="user"]')) {
-      if (!(user.compareDocumentPosition(image) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
-      nearest = user;
-    }
+    const nearest = nearestPrecedingUserScope(image);
     return String(nearest?.innerText || "").trim();
   }
 
@@ -868,7 +1116,7 @@
     const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
     if (!image) return null;
     return image.closest(
-      '[data-message-author-role="assistant"], [data-message-author-role="tool"], [data-message-id], article',
+      `[data-message-author-role="assistant"], [data-message-author-role="tool"], [data-message-id], ${CHATGPT_TURN_SELECTOR}, article`,
     );
   }
 
@@ -891,7 +1139,16 @@
   }
 
   function messageIdForCandidate(candidate) {
-    return String(messageScopeForCandidate(candidate)?.getAttribute?.("data-message-id") || "").trim();
+    const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
+    if (!image) return "";
+    const directMessage = image.closest?.("[data-message-id]");
+    const direct = String(directMessage?.getAttribute?.("data-message-id") || "").trim();
+    if (direct) return direct;
+    const turn = conversationTurnForNode(image);
+    const nestedMessage = String(turn?.querySelector?.("[data-message-id]")?.getAttribute?.("data-message-id") || "").trim();
+    if (nestedMessage) return nestedMessage;
+    const testId = String(turn?.getAttribute?.("data-testid") || "").trim();
+    return testId.startsWith("conversation-turn-") ? testId.slice("conversation-turn-".length) : "";
   }
 
   function requestCurrentConversationRefresh(candidate) {
@@ -927,6 +1184,8 @@
   function resolvePrompt(imageUrl, candidate) {
     const userMessage = userMessageForCandidate(candidate);
     const providerAssetId = chatGptImageProxyInfo(imageUrl)?.assetId || "";
+    const registry = generationRegistryForPage();
+    const generationEvidence = findGenerationEvidenceForImage(imageUrl);
 
     const bound = findBoundPromptForImage(imageUrl);
     if (bound?.prompt) {
@@ -938,6 +1197,10 @@
       });
       return {
         ...built,
+        promptSource: bound.promptSource || built.promptSource,
+        promptPriority: Number(bound.promptPriority) || 0,
+        promptScope: bound.promptScope || "output",
+        generationStatus: normalizeGenerationStatus(bound.generationStatus),
         model: bound.model || "",
         conversationId: bound.conversationId || "",
         messageId: bound.messageId || "",
@@ -946,6 +1209,39 @@
         providerGenerationCallId: bound.providerGenerationCallId || "",
         providerResponseId: bound.providerResponseId || "",
         providerAssetId: bound.assetId || providerAssetId,
+      };
+    }
+
+    // Preview/blob URLs can lose their provider asset identity. Use the
+    // containing message only when the registry proves there is exactly one
+    // generation attempt in that message. Error + retry messages with several
+    // attempts intentionally fail closed here instead of borrowing a sibling
+    // attempt's prompt.
+    const domMessageId = messageIdForCandidate(candidate);
+    const messageBound = domMessageId
+      ? registry?.resolvedForMessage?.(conversationIdFromUrl(), domMessageId)
+      : null;
+    if (messageBound?.prompt && messageBound.isGeneration) {
+      const built = buildStoredPrompt({
+        generationPrompt: messageBound.prompt,
+        generationStatus: messageBound.promptStatus,
+        userMessage,
+        via: `message:${messageBound.via || "registry"}`,
+      });
+      return {
+        ...built,
+        promptSource: messageBound.promptSource || built.promptSource,
+        promptPriority: Number(messageBound.promptPriority) || 0,
+        promptScope: messageBound.promptScope || "attempt",
+        generationStatus: normalizeGenerationStatus(messageBound.generationStatus),
+        model: messageBound.model || "",
+        conversationId: messageBound.conversationId || conversationIdFromUrl(),
+        messageId: messageBound.messageId || domMessageId,
+        generationContextId: messageBound.generationContextId || "",
+        providerToolCallId: messageBound.providerToolCallId || "",
+        providerGenerationCallId: messageBound.providerGenerationCallId || "",
+        providerResponseId: messageBound.providerResponseId || "",
+        providerAssetId: messageBound.assetId || providerAssetId,
       };
     }
 
@@ -960,28 +1256,19 @@
         userMessage,
         via: "dom-message-caption",
       });
-      return { ...built, model: "", conversationId: conversationIdFromUrl(), messageId: messageIdForCandidate(candidate), generationContextId: "", providerToolCallId: "", providerGenerationCallId: "", providerResponseId: "", providerAssetId };
-    }
-
-    // Only use a very recent unbound prompt (same generation turn), never session-global best.
-    const recent = findRecentUnboundPrompt(8000);
-    if (recent?.prompt) {
-      const built = buildStoredPrompt({
-        generationPrompt: recent.prompt,
-        generationStatus: recent.promptStatus,
-        userMessage,
-        via: `recent:${recent.via || "network"}`,
-      });
       return {
         ...built,
-        model: recent.model || "",
-        conversationId: recent.conversationId || "",
-        messageId: recent.messageId || "",
-        generationContextId: recent.generationContextId || "",
-        providerToolCallId: recent.providerToolCallId || "",
-        providerGenerationCallId: recent.providerGenerationCallId || "",
-        providerResponseId: recent.providerResponseId || "",
-        providerAssetId: recent.assetId || providerAssetId,
+        promptPriority: 425,
+        promptScope: "output",
+        generationStatus: normalizeGenerationStatus(generationEvidence?.generationStatus),
+        model: "",
+        conversationId: conversationIdFromUrl(),
+        messageId: messageIdForCandidate(candidate),
+        generationContextId: "",
+        providerToolCallId: "",
+        providerGenerationCallId: "",
+        providerResponseId: "",
+        providerAssetId,
       };
     }
 
@@ -990,7 +1277,20 @@
       userMessage,
       via: "user-fallback",
     });
-    return { ...built, model: "", conversationId: conversationIdFromUrl(), messageId: "", generationContextId: "", providerToolCallId: "", providerGenerationCallId: "", providerResponseId: "", providerAssetId };
+    return {
+      ...built,
+      promptPriority: 0,
+      promptScope: "",
+      generationStatus: normalizeGenerationStatus(generationEvidence?.generationStatus),
+      model: "",
+      conversationId: conversationIdFromUrl(),
+      messageId: "",
+      generationContextId: "",
+      providerToolCallId: "",
+      providerGenerationCallId: "",
+      providerResponseId: "",
+      providerAssetId,
+    };
   }
 
   async function originalBytesFromUrl(url) {
@@ -1055,11 +1355,12 @@
   }
 
   function canAttempt(candidate, { force = false } = {}) {
-    const key = candidate?.key || candidate?.imageUrl;
+    const key = candidateOperationKey(candidate);
     if (!key) return false;
     if (inFlight.has(key)) return false;
     if (force) return true;
     if (isSavedCandidate(candidate)) return false;
+    if (isSizeFailureBlocked(candidate)) return false;
     const domRecovered = candidate?.el instanceof HTMLImageElement
       && candidate.el.complete
       && candidate.el.naturalWidth > 0
@@ -1071,7 +1372,8 @@
   }
 
   async function ingestCandidate(candidate, { silentSkip = false, reason = "manual", force = false, generationContextId = "" } = {}) {
-    const key = candidate.key || candidate.imageUrl;
+    const rawKey = candidate.key || candidate.imageUrl;
+    const key = candidateOperationKey(candidate) || rawKey;
     const manual = reason.startsWith("manual");
     const reference = isReferenceCandidate(candidate) || reason === "auto-reference";
     rememberCandidate(candidate);
@@ -1084,7 +1386,10 @@
       return null;
     }
     if (!isArchiveWorthyCandidate(candidate, { manual, reference })) {
-      if (!manual) savedKeys.add(key);
+      if (!manual) {
+        if (hasObservedGenerationEvidence(candidate) || isRecoverableGenerationCandidate(candidate)) markSizeFailure(candidate);
+        else savedKeys.add(key);
+      }
       if (!silentSkip) showToast("已跳过：不像生成大图（logo/小图）", true);
       setStatus("跳过小图/logo");
       return null;
@@ -1110,7 +1415,10 @@
       // Approximate decoded size from base64.
       const approxBytes = Math.floor((imageBase64.length || 0) * 0.75);
       if (!reference && approxBytes > 0 && approxBytes < MIN_BYTES) {
-        if (!manual) savedKeys.add(key);
+        if (!manual) {
+          if (hasObservedGenerationEvidence(candidate) || isRecoverableGenerationCandidate(candidate)) markSizeFailure(candidate);
+          else savedKeys.add(key);
+        }
         if (!silentSkip) showToast(`已跳过小文件 ${(approxBytes / 1024).toFixed(0)}KB（logo）`, true);
         setStatus("跳过小文件");
         return null;
@@ -1126,6 +1434,9 @@
           userMessage: resolved.userMessage,
           model: resolved.model,
           promptSource: resolved.promptSource,
+          promptPriority: Number(resolved.promptPriority) || 0,
+          promptScope: resolved.promptScope || "",
+          generationStatus: normalizeGenerationStatus(resolved.generationStatus),
           isReference: isReferenceCandidate(candidate),
           mimeType,
           imageBase64,
@@ -1144,8 +1455,9 @@
       if (!response?.ok) throw new Error(response?.error || "Unknown extension error");
 
       const result = response.result;
-      rememberSavedCandidate(candidate);
+      rememberSavedCandidate(candidate, resolved.generationStatus);
       failedAt.delete(key);
+      sizeFailureStates.delete(key);
       for (const identity of candidateLookupKeys(candidate)) failedNetworkIdentityKeys.delete(identity);
       rememberSavedPrompt(candidate, resolved);
 
@@ -1174,7 +1486,10 @@
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       if (/too small|IMAGE_TOO_SMALL|logo/i.test(msg)) {
-        if (!manual) savedKeys.add(key);
+        if (!manual) {
+          if (hasObservedGenerationEvidence(candidate) || isRecoverableGenerationCandidate(candidate)) markSizeFailure(candidate);
+          else savedKeys.add(key);
+        }
       } else {
         failedAt.set(key, Date.now());
         if (reason === "network" && !candidate.el) {
@@ -1198,12 +1513,14 @@
   function enqueueAuto(candidate, reason) {
     if (!autoCapture) return;
     if (!isArchiveWorthyCandidate(candidate, { manual: false })) return;
-    const evidence = findGenerationEvidenceForImage(candidate?.imageUrl || candidate?.key || "");
+    const evidence = findGenerationEvidenceForCandidate(candidate);
     if (!evidence || isReferenceCandidate(candidate)) {
       if (!evidence && isRecoverableGenerationCandidate(candidate)) scheduleGenerationEvidenceRecovery(candidate);
       return;
     }
     rememberCandidate(candidate);
+    const readiness = autoCandidateReadiness(candidate, evidence, reason);
+    if (!readiness.ready) return;
     withAutoCaptureSlot(async () => {
         try {
           const { generationContextId, stagedReferences } = await stageGenerationReferences(candidate);
@@ -1216,7 +1533,7 @@
             silentSkip: true,
             reason,
             generationContextId,
-            force: needsReferenceRepair,
+            force: needsReferenceRepair || readiness.forceTerminalRefresh,
           });
           // A forced duplicate ingest is intentional: it lets the server merge
           // references that appeared in the DOM after the network result was archived.
@@ -1597,7 +1914,6 @@
         if (!isArchiveWorthyCandidate(candidate)) return false;
         if (candidate.el instanceof HTMLImageElement) {
           if (!candidate.el.complete) return false;
-          if (candidate.el.naturalWidth > 0 && candidate.el.naturalWidth < MIN_EDGE) return false;
         }
         if (hasObservedGenerationEvidence(candidate)) return true;
         if (isRecoverableGenerationCandidate(candidate)) scheduleGenerationEvidenceRecovery(candidate);
@@ -1646,6 +1962,19 @@
       if (data.payload.prompt || data.payload.imageUrl || data.payload.imageKey) {
         const meta = rememberMeta(data.payload);
         schedulePromptUpgrade(meta);
+        if (meta.isGeneration) {
+          const keys = imageLookupKeys(meta.imageUrl || "", meta);
+          const candidate = findCandidateForMeta(keys);
+          if (candidate) {
+            const candidateKey = candidateLookupKeys(candidate)[0] || candidate.key || candidate.imageUrl || "";
+            const timers = generationEvidenceRecoveryTimers.get(candidateKey) || [];
+            for (const timer of timers) clearTimeout(timer);
+            if (candidateKey) generationEvidenceRecoveryTimers.delete(candidateKey);
+            enqueueAuto(candidate, "metadata-recovered");
+          } else {
+            scheduleScan(true);
+          }
+        }
       }
     }
 
@@ -1705,7 +2034,7 @@
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["src", "srcset", "style", "class"],
+      attributeFilter: ["src", "srcset", "alt", "aria-label"],
     });
   };
 
@@ -1742,6 +2071,9 @@
     } else {
       observer?.disconnect();
       if (scanTimer) clearTimeout(scanTimer);
+      for (const timer of autoStabilityTimers.values()) clearTimeout(timer);
+      autoStabilityTimers.clear();
+      autoStabilityStates.clear();
     }
   });
 })();

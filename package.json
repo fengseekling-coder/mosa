@@ -22,7 +22,7 @@
     "mcp": "node mcp/server.mjs",
     "build": "tsc && node scripts/write-build-identity.mjs",
     "pretest": "npm run build",
-    "test": "node --import ./test/clean-test-env.mjs --test",
+    "test": "node --import ./test/clean-test-env.mjs --test \"test/*.test.mjs\"",
     "pretest:e2e": "npm run build",
     "test:e2e": "node scripts/e2e-critical-flows.mjs",
     "test:coverage": "c8 --reporter=html --reporter=text npm test",

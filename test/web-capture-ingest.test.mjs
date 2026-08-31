@@ -181,6 +181,8 @@ test("ingests chatgpt web capture bytes and dedupes by content hash", async () =
         provider: "chatgpt",
         prompt: "Model caption: A poster-style vector illustration travel poster of Bangkok with bold typography, limited red and cream palette, geometric flat layout.",
         prompt_status: "generation-tool-prompt",
+        prompt_scope: "output",
+        generation_status: "completed",
         user_message: "做一张曼谷海报",
         imageBase64: SAMPLE_PNG_BASE64,
         mimeType: "image/jpeg",
@@ -202,10 +204,16 @@ test("ingests chatgpt web capture bytes and dedupes by content hash", async () =
     assert.equal(first.asset.source?.generation_batch_id, "chatgpt:demo:turn-42");
     assert.equal(first.asset.source?.provider_tool_call_id, "call-web-42");
     assert.equal(first.asset.source?.provider_generation_call_id, null);
+    assert.equal(first.asset.source?.prompt_scope, "output");
+    assert.equal(first.asset.source?.generation_status, "completed");
+    assert.equal(first.asset.business_fields?.prompt_scope, "output");
+    assert.equal(first.asset.business_fields?.generation_status, "completed");
     const [generation] = await store.listGenerationEvents("default", { captureContextId: "chatgpt:demo:call-web-42" });
     assert.equal(generation.provider_tool_call_id, "call-web-42");
     assert.equal(generation.provider_generation_call_id, "");
     assert.equal(generation.provider_response_id, "resp-web-42");
+    assert.equal(generation.prompt_scope, "output");
+    assert.equal(generation.generation_status, "completed");
     assert.equal(generation.verification_level, "observed");
     assert.ok(first.contentHash);
 
@@ -227,6 +235,53 @@ test("ingests chatgpt web capture bytes and dedupes by content hash", async () =
     store.close?.();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("deduplicated ChatGPT output advances generation status from partial to completed", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-generation-status-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  t.after(() => store.close?.());
+  await store.ensureProject("default");
+  const tempRoot = join(libraryDir, ".web-capture-tmp");
+  const baseInput = {
+    provider: "chatgpt",
+    imageBase64: SAMPLE_PNG_BASE64,
+    mimeType: "image/jpeg",
+    conversationId: "status-conversation",
+    messageId: "status-message",
+    generationContextId: "chatgpt:status-conversation:call-status",
+    providerToolCallId: "call-status",
+    providerGenerationCallId: "gen-status",
+    providerAssetId: "file-status",
+    prompt_scope: "attempt",
+  };
+
+  const partial = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: { ...baseInput, generation_status: "partial", capturedAt: "2026-08-31T00:00:00.000Z" },
+  });
+  assert.equal(partial.status, "imported");
+  assert.equal(partial.asset.source?.generation_status, "partial");
+
+  const completed = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: { ...baseInput, generation_status: "completed", capturedAt: "2026-08-31T00:00:01.000Z" },
+  });
+  assert.equal(completed.status, "skipped");
+  assert.equal(completed.reason, "already-archived-recipe-merged");
+  assert.equal(completed.asset.source?.generation_status, "completed");
+  assert.equal(completed.asset.business_fields?.generation_status, "completed");
+  const events = await store.listGenerationEvents("default", { assetId: partial.asset.id });
+  assert.equal(events.length, 1);
+  assert.equal(events[0].generation_status, "completed");
+  assert.equal(events[0].provider_generation_call_id, "gen-status");
 });
 
 test("records a reliable capture session without inventing a generation batch", async (t) => {
@@ -897,6 +952,55 @@ test("rejects tiny logo images, blanks unbound short prompts, and preserves user
     assert.equal(upgraded.upgraded, true);
     assert.equal(upgraded.asset.prompt, "red sun");
     assert.equal(upgraded.asset.source?.prompt_status, "generation-tool-prompt");
+  } finally {
+    store.close?.();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("provider prompt priority prevents a later lower-quality generation field from downgrading an archived prompt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-prompt-priority-"));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  try {
+    await store.ensureProject("default");
+    const tempRoot = join(libraryDir, ".web-capture-tmp");
+    const first = await ingestWebCapture({
+      store,
+      tempRoot,
+      input: {
+        provider: "chatgpt",
+        imageBase64: SAMPLE_PNG_BASE64,
+        mimeType: "image/jpeg",
+        prompt: "provider revised prompt",
+        prompt_status: "generation-tool-prompt",
+        prompt_source: "revised_prompt",
+        prompt_priority: 700,
+        generationContextId: "chatgpt:test:revised",
+      },
+    });
+    assert.equal(first.status, "imported");
+    assert.equal(first.asset.prompt, "provider revised prompt");
+    assert.equal(first.asset.business_fields?.prompt_priority, 700);
+
+    const lower = await ingestWebCapture({
+      store,
+      tempRoot,
+      input: {
+        provider: "chatgpt",
+        imageBase64: SAMPLE_PNG_BASE64,
+        mimeType: "image/jpeg",
+        prompt: "a much longer generation prompt that arrived later but comes from a lower-priority provider field and must not replace revised_prompt",
+        prompt_status: "generation-tool-prompt",
+        prompt_source: "generation_prompt",
+        prompt_priority: 650,
+        generationContextId: "chatgpt:test:lower",
+      },
+    });
+    assert.equal(lower.status, "skipped");
+    assert.equal(lower.asset.prompt, "provider revised prompt");
+    assert.equal(lower.asset.business_fields?.prompt_priority, 700);
   } finally {
     store.close?.();
     await rm(root, { recursive: true, force: true });

@@ -8,6 +8,18 @@ const STORAGE_KEYS = ["mosaBaseUrl", "mosaToken", "autoCapture"];
 const LEGACY_DEV_TOKEN = "mosa-web-capture-dev";
 const WEB_IMAGE_PROVIDERS = new Set(["chatgpt", "gemini", "flow", "google-ai-studio"]);
 const WEB_VIDEO_PROVIDERS = new Set(["flow", "google-ai-studio"]);
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 96 * 1024 * 1024;
+const REMOTE_MEDIA_HOSTS = new Set([
+  "chatgpt.com",
+  "chat.openai.com",
+  "images.openai.com",
+  "labs.google",
+  "aistudio.google.com",
+  "storage.googleapis.com",
+  "generativelanguage.googleapis.com",
+  "flow-content.google",
+]);
 let settingsMigration;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -191,7 +203,10 @@ function migrateSettingsToLocal() {
     };
     await chrome.storage.local.set(patch);
     await chrome.storage.sync.remove(STORAGE_KEYS);
-  })();
+  })().catch((error) => {
+    settingsMigration = undefined;
+    throw error;
+  });
   return settingsMigration;
 }
 
@@ -214,6 +229,9 @@ async function fetchMediaAsBase64(url, { publicMedia = false, mediaKind = "image
     return { mimeType: match[1], mediaBase64: match[2] };
   }
 
+  assertAllowedRemoteMediaUrl(url);
+  const maxBytes = mediaKind === "video" ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+
   const attempts = [
     ...(publicMedia ? [] : [{ credentials: "include", cache: "no-cache" }]),
     { credentials: "omit", cache: "no-cache" },
@@ -227,10 +245,18 @@ async function fetchMediaAsBase64(url, { publicMedia = false, mediaKind = "image
         lastError = new Error(`Failed to download ${label} (${response.status})`);
         continue;
       }
+      const declaredLength = Number(response.headers.get("content-length") || 0);
+      if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+        response.body?.cancel?.().catch?.(() => {});
+        throw new Error(`${label === "video" ? "Video" : "Image"} exceeds MOSA capture size limit.`);
+      }
       const blob = await response.blob();
       if (!blob || blob.size < 100) {
         lastError = new Error(`Downloaded ${label} empty/too small`);
         continue;
+      }
+      if (blob.size > maxBytes) {
+        throw new Error(`${label === "video" ? "Video" : "Image"} exceeds MOSA capture size limit.`);
       }
       const mimeType = blob.type || guessMime(url, mediaKind) || (mediaKind === "video" ? "video/mp4" : "image/png");
       const buffer = await blob.arrayBuffer();
@@ -240,6 +266,23 @@ async function fetchMediaAsBase64(url, { publicMedia = false, mediaKind = "image
     }
   }
   throw lastError || new Error(`Failed to download ${label}`);
+}
+
+function assertAllowedRemoteMediaUrl(value) {
+  let url;
+  try {
+    url = new URL(String(value || ""));
+  } catch {
+    throw new Error("Invalid media URL.");
+  }
+  if (url.protocol !== "https:") throw new Error("Unsupported media URL protocol.");
+  const host = url.hostname.toLowerCase();
+  const allowed = REMOTE_MEDIA_HOSTS.has(host)
+    || host.endsWith(".oaiusercontent.com")
+    || host.endsWith(".blob.core.windows.net")
+    || host.endsWith(".googleusercontent.com")
+    || host.endsWith(".ggpht.com");
+  if (!allowed) throw new Error("Unsupported media host.");
 }
 
 async function ingestToMosa(payload = {}) {
@@ -258,7 +301,7 @@ async function ingestToMosa(payload = {}) {
   // Prefer server-side (extension background) download for remote URLs.
   const mediaUrl = mediaKind === "video" ? payload.mediaUrl : payload.imageUrl;
   if (!mediaBase64 && mediaUrl) {
-    const fetched = await fetchMediaAsBase64(mediaUrl, { publicMedia: provider !== "chatgpt", mediaKind });
+    const fetched = await fetchMediaAsBase64(mediaUrl, { publicMedia: false, mediaKind });
     mediaBase64 = fetched.mediaBase64;
     mimeType = fetched.mimeType || mimeType;
   }
@@ -275,6 +318,9 @@ async function ingestToMosa(payload = {}) {
         prompt_status: payload.promptStatus || (payload.prompt ? "user-message" : "not-available"),
         user_message: payload.userMessage || payload.user_message || "",
         prompt_source: payload.promptSource || payload.prompt_source || "",
+        prompt_priority: Number(payload.promptPriority || payload.prompt_priority) || 0,
+        prompt_scope: payload.promptScope || payload.prompt_scope || "",
+        generation_status: payload.generationStatus || payload.generation_status || "unknown",
         is_reference: Boolean(payload.isReference),
         mediaKind,
         ...(mediaKind === "video" ? { mediaBase64 } : { imageBase64: mediaBase64 }),

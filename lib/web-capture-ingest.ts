@@ -44,6 +44,8 @@ const MIME_TO_EXT: Record<string, string> = { "image/png": ".png", "image/jpeg":
 const VIDEO_MIME_TO_EXT: Record<string, string> = { "video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov", "video/x-m4v": ".m4v" };
 const VIDEO_PROVIDERS = new Set(["flow", "google-ai-studio"]);
 const PROMPT_STATUSES = new Set(["user-message", "visible-caption", "not-available", "generation-tool-prompt", "provider-visible-prompt"]);
+const PROMPT_SCOPES = new Set(["output", "attempt", "message", ""]);
+const GENERATION_STATUSES = new Set(["unknown", "in_progress", "partial", "completed", "failed", "cancelled"]);
 const MIME_TO_FORMATS: Record<string, Set<string>> = { "image/png": new Set(["png"]), "image/jpeg": new Set(["jpeg"]), "image/webp": new Set(["webp"]), "image/gif": new Set(["gif"]), "image/avif": new Set(["avif", "heif"]) };
 export const WEB_CAPTURE_MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 export const WEB_CAPTURE_MAX_VIDEO_BYTES = 96 * 1024 * 1024;
@@ -74,7 +76,7 @@ interface Store {
   assetsRoot?: string;
   [key: string]: unknown;
 }
-interface WebCaptureInput { provider?: string; mediaKind?: string; media_kind?: string; mimeType?: string; mime_type?: string; imageBase64?: string; image_base64?: string; imageBytes?: Buffer | Uint8Array; mediaBase64?: string; media_base64?: string; mediaBytes?: Buffer | Uint8Array; width?: number; height?: number; durationSeconds?: number; duration_seconds?: number; prompt?: string; prompt_status?: string; promptStatus?: string; prompt_source?: string; promptSource?: string; user_message?: string; userMessage?: string; pageUrl?: string; page_url?: string; conversationId?: string; conversation_id?: string; messageId?: string; message_id?: string; generationContextId?: string; generation_context_id?: string; providerToolCallId?: string; provider_tool_call_id?: string; providerGenerationCallId?: string; provider_generation_call_id?: string; providerResponseId?: string; provider_response_id?: string; providerAssetId?: string; provider_asset_id?: string; model?: string; capturedAt?: string; captured_at?: string; captureMode?: string; capture_mode?: string; assetId?: string; is_reference?: boolean; isReference?: boolean; extensionVersion?: string; extension_version?: string; }
+interface WebCaptureInput { provider?: string; mediaKind?: string; media_kind?: string; mimeType?: string; mime_type?: string; imageBase64?: string; image_base64?: string; imageBytes?: Buffer | Uint8Array; mediaBase64?: string; media_base64?: string; mediaBytes?: Buffer | Uint8Array; width?: number; height?: number; durationSeconds?: number; duration_seconds?: number; prompt?: string; prompt_status?: string; promptStatus?: string; prompt_source?: string; promptSource?: string; prompt_priority?: number; promptPriority?: number; prompt_scope?: string; promptScope?: string; generation_status?: string; generationStatus?: string; user_message?: string; userMessage?: string; pageUrl?: string; page_url?: string; conversationId?: string; conversation_id?: string; messageId?: string; message_id?: string; generationContextId?: string; generation_context_id?: string; providerToolCallId?: string; provider_tool_call_id?: string; providerGenerationCallId?: string; provider_generation_call_id?: string; providerResponseId?: string; provider_response_id?: string; providerAssetId?: string; provider_asset_id?: string; model?: string; capturedAt?: string; captured_at?: string; captureMode?: string; capture_mode?: string; assetId?: string; is_reference?: boolean; isReference?: boolean; extensionVersion?: string; extension_version?: string; }
 interface IngestResult { status: string; reason?: string; asset?: StoredAsset; attachment?: ReferenceAttachment; contentHash: string; upgraded?: boolean; recipeMerged?: boolean; }
 interface WebCaptureIngest { ingest(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; status(): Record<string, unknown>; assertToken(provided: string): void; readReference(projectId: string, fileName: string): Promise<{ stream: NodeJS.ReadableStream; fileName: string }>; pruneReferences(projectId: string, referencedIds: Iterable<string>): Promise<{ removed: number; retained: number; failed: number }>; tempRoot: string; token: string; }
 
@@ -103,7 +105,7 @@ export async function cleanupWebCaptureTemp(tempRoot: string, { ttlMs = DEFAULT_
   return removed;
 }
 
-export function createWebCaptureIngest(options: { store?: Store; libraryDir?: string; tempRoot?: string; projectId?: string; token?: string; allowedOrigins?: string[]; } = {}): WebCaptureIngest {
+export function createWebCaptureIngest(options: { store?: Store; libraryDir?: string; tempRoot?: string; projectId?: string; token?: string; allowedOrigins?: string[]; onLibraryChange?: (projectId: string, result: IngestResult) => void | Promise<void>; } = {}): WebCaptureIngest {
   const store = options.store as Store;
   if (!store || typeof store.createAsset !== "function" || typeof store.listAssets !== "function") throw new Error("Web capture ingest requires a MOSA store.");
   const libraryDir = resolve(options.libraryDir || store.libraryDir || store.assetsRoot!);
@@ -124,7 +126,24 @@ export function createWebCaptureIngest(options: { store?: Store; libraryDir?: st
     assertToken(authToken);
     const run = ingestQueue.then(() => ingestWebCapture({ store, referenceStore, tempRoot, projectId, input }));
     ingestQueue = run.then(() => undefined, () => undefined);
-    try { const result = await run; state.lastIngestAt = new Date().toISOString(); state.lastError = null; if (result.status === "imported") { state.lastImportCount = 1; state.totalImported += 1; state.lastSkippedReason = null; } else { state.lastImportCount = 0; state.totalSkipped += 1; state.lastSkippedReason = result.reason || "skipped"; } return result; } catch (error) { state.lastError = error instanceof Error ? error.message : String(error); throw error; }
+    try {
+      const result = await run;
+      state.lastIngestAt = new Date().toISOString();
+      state.lastError = null;
+      if (result.status === "imported") {
+        state.lastImportCount = 1;
+        state.totalImported += 1;
+        state.lastSkippedReason = null;
+      } else {
+        state.lastImportCount = 0;
+        state.totalSkipped += 1;
+        state.lastSkippedReason = result.reason || "skipped";
+      }
+      if (result.status === "imported" || result.upgraded || result.recipeMerged) {
+        await options.onLibraryChange?.(projectId, result);
+      }
+      return result;
+    } catch (error) { state.lastError = error instanceof Error ? error.message : String(error); throw error; }
   }
   return { ingest, status, assertToken, readReference: referenceStore.read, pruneReferences: referenceStore.pruneUnused, tempRoot, token };
 }
@@ -151,6 +170,9 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
   let prompt = String(input.prompt || "").trim(); const userMessage = String(input.user_message || input.userMessage || "").trim();
   const suppliedPromptStatus = String(input.prompt_status || input.promptStatus || "").trim();
   const promptSource = String(input.prompt_source || input.promptSource || "").trim();
+  const promptPriority = Math.max(0, Math.min(1000, Number(input.prompt_priority ?? input.promptPriority) || 0));
+  const promptScope = normalizePromptScope(input.prompt_scope || input.promptScope);
+  const generationStatus = normalizeGenerationStatus(input.generation_status || input.generationStatus);
   const trustedGenerationPrompt = ["generation-tool-prompt", "visible-caption"].includes(suppliedPromptStatus);
   // Gemini, Flow, and AI Studio can expose a narrowly associated visible user
   // prompt. None is verified to be the exact prompt executed by the provider.
@@ -185,6 +207,7 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
     captured_at: capturedAt,
     capture_mode: captureMode,
     generation_context_id: generationContextId || null,
+    generation_status: generationStatus,
   };
   const referenceLibraryDir = store.libraryDir || (store.assetsRoot ? dirname(store.assetsRoot) : dirname(tempRoot));
   const referenceStore = options.referenceStore || createReferenceAttachmentStore(resolve(referenceLibraryDir));
@@ -225,6 +248,9 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
       prompt: duplicatePromptAllowed ? prompt : "",
       promptStatus: duplicatePromptAllowed ? normalizedPromptStatus : "not-available",
       promptSource,
+      promptPriority: duplicatePromptAllowed ? promptPriority : 0,
+      promptScope: duplicatePromptAllowed ? promptScope : "",
+      generationStatus,
       userMessage,
       model,
       provider,
@@ -234,6 +260,8 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
       promptStatus: duplicatePromptAllowed ? normalizedPromptStatus : "not-available",
       userMessage,
       promptSource,
+      promptPriority: duplicatePromptAllowed ? promptPriority : 0,
+      promptScope: duplicatePromptAllowed ? promptScope : "",
       model,
       provider,
     });
@@ -253,6 +281,8 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
       userMessage,
       prompt,
       promptStatus: normalizedPromptStatus,
+      promptScope,
+      generationStatus,
       references: asset.references,
       capturedAt,
     });
@@ -302,6 +332,9 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
         capture_channel: "chrome-extension",
         prompt_status: normalizedPromptStatus,
         prompt_source: promptSource || null,
+        prompt_priority: promptPriority || 0,
+        prompt_scope: promptScope || null,
+        generation_status: generationStatus,
         user_message: userMessage || null,
         file_bytes: imageBytes.length,
         mime_type: mimeType,
@@ -315,6 +348,7 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
         capture_mode: captureMode,
         generation_context_id: generationContextId || null,
         capture_context_id: generationContextId || null,
+        generation_status: generationStatus,
         provider_tool_call_id: providerToolCallId || null,
         provider_generation_call_id: providerGenerationCallId || null,
         provider_response_id: providerResponseId || null,
@@ -329,6 +363,8 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
         generation_batch_id: generationBatchId || null,
         prompt_status: normalizedPromptStatus,
         prompt_source: promptSource || null,
+        prompt_priority: promptPriority || 0,
+        prompt_scope: promptScope || null,
         user_message: userMessage || null,
         captured_at: capturedAt,
         capture_extension_version: String(input.extensionVersion || input.extension_version || ""),
@@ -365,6 +401,8 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
       userMessage,
       prompt,
       promptStatus: normalizedPromptStatus,
+      promptScope,
+      generationStatus,
       references: asset.references,
       capturedAt,
     });
@@ -412,6 +450,9 @@ async function ingestWebVideoCapture(options: {
   const userMessage = String(input.user_message || input.userMessage || "").trim();
   const suppliedPromptStatus = String(input.prompt_status || input.promptStatus || "").trim();
   const promptSource = String(input.prompt_source || input.promptSource || "").trim();
+  const promptPriority = Math.max(0, Math.min(1000, Number(input.prompt_priority ?? input.promptPriority) || 0));
+  const promptScope = normalizePromptScope(input.prompt_scope || input.promptScope);
+  const generationStatus = normalizeGenerationStatus(input.generation_status || input.generationStatus);
   const trustedGenerationPrompt = ["generation-tool-prompt", "visible-caption"].includes(suppliedPromptStatus);
   const providerVisiblePrompt = suppliedPromptStatus === "provider-visible-prompt";
   if (!trustedGenerationPrompt && !providerVisiblePrompt) prompt = "";
@@ -446,6 +487,7 @@ async function ingestWebVideoCapture(options: {
     captured_at: capturedAt,
     capture_mode: captureMode,
     generation_context_id: generationContextId || null,
+    generation_status: generationStatus,
   };
   const referenceLibraryDir = store.libraryDir || (store.assetsRoot ? dirname(store.assetsRoot) : dirname(tempRoot));
   const referenceStore = options.referenceStore || createReferenceAttachmentStore(resolve(referenceLibraryDir));
@@ -467,6 +509,9 @@ async function ingestWebVideoCapture(options: {
       prompt,
       promptStatus: normalizedPromptStatus,
       promptSource,
+      promptPriority,
+      promptScope,
+      generationStatus,
       userMessage,
       model,
       provider,
@@ -476,6 +521,8 @@ async function ingestWebVideoCapture(options: {
       promptStatus: normalizedPromptStatus,
       userMessage,
       promptSource,
+      promptPriority,
+      promptScope,
       model,
       provider,
     });
@@ -495,6 +542,8 @@ async function ingestWebVideoCapture(options: {
       userMessage,
       prompt,
       promptStatus: normalizedPromptStatus,
+      promptScope,
+      generationStatus,
       references: asset.references,
       capturedAt,
     });
@@ -546,6 +595,9 @@ async function ingestWebVideoCapture(options: {
         media_kind: "video",
         prompt_status: normalizedPromptStatus,
         prompt_source: promptSource || null,
+        prompt_priority: promptPriority || 0,
+        prompt_scope: promptScope || null,
+        generation_status: generationStatus,
         user_message: userMessage || null,
         file_bytes: videoBytes.length,
         mime_type: mimeType,
@@ -561,6 +613,7 @@ async function ingestWebVideoCapture(options: {
         capture_mode: captureMode,
         generation_context_id: generationContextId || null,
         capture_context_id: generationContextId || null,
+        generation_status: generationStatus,
         provider_tool_call_id: providerToolCallId || null,
         provider_generation_call_id: providerGenerationCallId || null,
         provider_response_id: providerResponseId || null,
@@ -575,6 +628,8 @@ async function ingestWebVideoCapture(options: {
         generation_batch_id: generationBatchId || null,
         prompt_status: normalizedPromptStatus,
         prompt_source: promptSource || null,
+        prompt_priority: promptPriority || 0,
+        prompt_scope: promptScope || null,
         user_message: userMessage || null,
         captured_at: capturedAt,
         capture_extension_version: String(input.extensionVersion || input.extension_version || ""),
@@ -606,6 +661,8 @@ async function ingestWebVideoCapture(options: {
       userMessage,
       prompt,
       promptStatus: normalizedPromptStatus,
+      promptScope,
+      generationStatus,
       references: asset.references,
       capturedAt,
     });
@@ -646,6 +703,8 @@ async function recordCapturedGeneration(store: Store, asset: StoredAsset, input:
   userMessage: string;
   prompt: string;
   promptStatus: string;
+  promptScope?: string;
+  generationStatus?: string;
   references?: unknown;
   capturedAt: string;
 }): Promise<Metadata | null> {
@@ -666,12 +725,16 @@ async function recordCapturedGeneration(store: Store, asset: StoredAsset, input:
     user_prompt: input.userMessage,
     effective_prompt: input.prompt,
     prompt_status: input.promptStatus,
+    prompt_scope: normalizePromptScope(input.promptScope),
+    generation_status: normalizeGenerationStatus(input.generationStatus),
     capture_channel: "chrome-extension",
     verification_level: "observed",
     references: Array.isArray(input.references) ? input.references : [],
     evidence: {
       source: "web-capture",
       relation_status: "unresolved",
+      generation_status: normalizeGenerationStatus(input.generationStatus),
+      prompt_scope: normalizePromptScope(input.promptScope),
       note: "Observed from provider web UI/runtime metadata; not provider-API verified.",
     },
     created_at: input.capturedAt,
@@ -781,6 +844,21 @@ function normalizeMediaMetric(value: unknown, max: number, allowFraction = false
 
 function safeTokenEqual(provided: string, configured: string): boolean { if (!provided || !configured) return false; const a = Buffer.from(provided); const b = Buffer.from(configured); return a.length === b.length && timingSafeEqual(a, b); }
 function normalizeMime(value: string): string { const m = String(value || "image/png").trim().toLowerCase(); return m === "image/jpg" ? "image/jpeg" : m; }
+function normalizePromptScope(value: unknown): string {
+  const scope = String(value || "").trim().toLowerCase();
+  return PROMPT_SCOPES.has(scope) ? scope : "";
+}
+function normalizeGenerationStatus(value: unknown): string {
+  const raw = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const aliases: Record<string, string> = {
+    complete: "completed", succeeded: "completed", success: "completed", done: "completed", finished: "completed",
+    failure: "failed", error: "failed", errored: "failed", rejected: "failed", timeout: "failed", timed_out: "failed",
+    canceled: "cancelled", aborted: "cancelled", stopped: "cancelled",
+    incomplete: "partial", running: "in_progress", generating: "in_progress", streaming: "in_progress", pending: "in_progress", queued: "in_progress",
+  };
+  const normalized = aliases[raw] || raw || "unknown";
+  return GENERATION_STATUSES.has(normalized) ? normalized : "unknown";
+}
 function onceProjectListing(store: Store, projectId: string): () => Promise<StoredAsset[]> { let pending: Promise<StoredAsset[]> | null = null; return () => { if (!pending) pending = Promise.all([store.listAssets({ projectId }), store.listAssets({ projectId, archived: true }).catch(() => [])]).then(([a, b]) => [...a, ...b]); return pending; }; }
 async function findArchivedDuplicate(store: Store, projectId: string, contentHash: string, pixelHash: string, projectAssets: () => Promise<StoredAsset[]>): Promise<StoredAsset | null> {
   const byBytes = typeof store.findAssetByContentHash === "function" ? await store.findAssetByContentHash(projectId, contentHash) : (await projectAssets()).find((a) => a.source?.content_sha256 === contentHash) || null;
@@ -893,6 +971,9 @@ async function mergeDuplicateGenerationRecipe(
     prompt: string;
     promptStatus: string;
     promptSource: string;
+    promptPriority?: number;
+    promptScope?: string;
+    generationStatus?: string;
     userMessage: string;
     model: string;
     provider: string;
@@ -907,15 +988,17 @@ async function mergeDuplicateGenerationRecipe(
   });
   const currentReferences = Array.isArray(existing.references) ? existing.references : [];
   const currentContext = String(existing.source?.generation_context_id || existing.business_fields?.generation_context_id || "");
+  const currentGenerationStatus = normalizeGenerationStatus(existing.source?.generation_status || existing.business_fields?.generation_status);
   const contextChanged = Boolean(input.generationContextId && input.generationContextId !== currentContext);
+  const nextGenerationStatus = normalizeGenerationStatus(input.generationStatus);
+  const statusChanged = nextGenerationStatus !== "unknown" && nextGenerationStatus !== currentGenerationStatus;
   const referencesChanged = referenceIdentityList(currentReferences) !== referenceIdentityList(references);
   // Plain prompt/user-message upgrades are handled by maybeUpgradePrompt below.
   // This merge exists specifically for a distinct generation occurrence or a
   // late-arriving reference set, otherwise it would swallow the normal upgrade signal.
-  if (!contextChanged && !referencesChanged) return { asset: existing, merged: false };
+  if (!contextChanged && !referencesChanged && !statusChanged) return { asset: existing, merged: false };
 
   const updated = await store.updateMetadata(existing.project_id, existing.id, {
-    ...(input.prompt ? { prompt: input.prompt, theme: promptTheme(input.prompt, providerLabelFor(input.provider)) } : {}),
     references,
     source: {
       ...(existing.source || {}),
@@ -925,10 +1008,13 @@ async function mergeDuplicateGenerationRecipe(
       provider_generation_call_id: input.providerGenerationCallId || existing.source?.provider_generation_call_id || null,
       provider_response_id: input.providerResponseId || existing.source?.provider_response_id || null,
       provider_asset_id: input.providerAssetId || existing.source?.provider_asset_id || null,
+      generation_status: statusChanged ? nextGenerationStatus : existing.source?.generation_status || currentGenerationStatus,
       verification_level: existing.source?.verification_level || "observed",
       message_id: input.messageId || existing.source?.message_id || null,
-      prompt_status: input.prompt ? input.promptStatus : existing.source?.prompt_status || "not-available",
-      prompt_source: input.promptSource || existing.source?.prompt_source || null,
+      prompt_status: existing.source?.prompt_status || existing.business_fields?.prompt_status || "not-available",
+      prompt_source: existing.source?.prompt_source || existing.business_fields?.prompt_source || null,
+      prompt_priority: existing.source?.prompt_priority || existing.business_fields?.prompt_priority || 0,
+      prompt_scope: existing.source?.prompt_scope || existing.business_fields?.prompt_scope || input.promptScope || null,
       user_message: input.userMessage || existing.source?.user_message || null,
       model: input.model || existing.source?.model || null,
     },
@@ -936,12 +1022,19 @@ async function mergeDuplicateGenerationRecipe(
       ...(existing.business_fields || {}),
       generation_context_id: input.generationContextId || existing.business_fields?.generation_context_id || null,
       capture_context_id: input.generationContextId || existing.business_fields?.capture_context_id || existing.business_fields?.generation_context_id || null,
+      generation_status: statusChanged ? nextGenerationStatus : existing.business_fields?.generation_status || currentGenerationStatus,
       verification_level: existing.business_fields?.verification_level || "observed",
-      prompt_status: input.prompt ? input.promptStatus : existing.business_fields?.prompt_status || "not-available",
-      prompt_source: input.promptSource || existing.business_fields?.prompt_source || null,
+      prompt_status: existing.business_fields?.prompt_status || existing.source?.prompt_status || "not-available",
+      prompt_source: existing.business_fields?.prompt_source || existing.source?.prompt_source || null,
+      prompt_priority: existing.business_fields?.prompt_priority || existing.source?.prompt_priority || 0,
+      prompt_scope: existing.business_fields?.prompt_scope || existing.source?.prompt_scope || input.promptScope || null,
       user_message: input.userMessage || existing.business_fields?.user_message || null,
     },
-    recipe_change_summary: contextChanged ? "Generation occurrence merged" : "Generation references merged",
+    recipe_change_summary: contextChanged
+      ? "Generation occurrence merged"
+      : referencesChanged
+        ? "Generation references merged"
+        : "Generation status updated",
   });
   return { asset: updated, merged: true };
 }
@@ -962,9 +1055,11 @@ const PROMPT_STATUS_RANK: Record<string, number> = {
   "generation-tool-prompt": 3,
 };
 
-function promptRank(status: string, text: unknown): number {
+function promptRank(status: string, text: unknown, priority = 0): number {
   const base = PROMPT_STATUS_RANK[status] ?? 0;
-  return base * 10000 + Math.min(String(text || "").trim().length, 5000);
+  return Math.max(0, Number(priority) || 0) * 1_000_000
+    + base * 10000
+    + Math.min(String(text || "").trim().length, 5000);
 }
 
 function placeHints(text: unknown): string[] {
@@ -1028,6 +1123,8 @@ interface PromptUpgrade {
   userMessage?: string;
   user_message?: string;
   promptSource?: string;
+  promptPriority?: number;
+  promptScope?: string;
   model?: string;
   provider?: string;
 }
@@ -1060,8 +1157,10 @@ async function maybeUpgradePrompt(store: Store, existing: StoredAsset, next: Pro
       || (currentPrompt ? "user-message" : "not-available"),
   );
   const nextStatus = next.promptStatus || "user-message";
-  const currentRank = promptRank(currentStatus, currentPrompt);
-  const nextRank = promptRank(nextStatus, nextPrompt);
+  const currentPriority = Number(existing.source?.prompt_priority || existing.business_fields?.prompt_priority) || 0;
+  const nextPriority = Math.max(0, Number(next.promptPriority) || 0);
+  const currentRank = promptRank(currentStatus, currentPrompt, currentPriority);
+  const nextRank = promptRank(nextStatus, nextPrompt, nextPriority);
   const places = placeHints(userMessage || nextPrompt);
   const placeUpgrade = places.length > 0
     && mentionsAnyPlace(userMessage || nextPrompt, places)
@@ -1078,6 +1177,8 @@ async function maybeUpgradePrompt(store: Store, existing: StoredAsset, next: Pro
       ...(existing.source || {}),
       prompt_status: nextStatus,
       prompt_source: next.promptSource || existing.source?.prompt_source || null,
+      prompt_priority: nextPriority,
+      prompt_scope: normalizePromptScope(next.promptScope) || existing.source?.prompt_scope || null,
       user_message: next.userMessage || existing.source?.user_message || null,
       model: next.model || existing.source?.model || null,
     },
@@ -1085,6 +1186,8 @@ async function maybeUpgradePrompt(store: Store, existing: StoredAsset, next: Pro
       ...(existing.business_fields || {}),
       prompt_status: nextStatus,
       prompt_source: next.promptSource || existing.business_fields?.prompt_source || null,
+      prompt_priority: nextPriority,
+      prompt_scope: normalizePromptScope(next.promptScope) || existing.business_fields?.prompt_scope || null,
       user_message: next.userMessage || existing.business_fields?.user_message || null,
     },
   });

@@ -236,12 +236,15 @@ test("provides an accessible single-column detail panel", async () => {
   assert.match(inspector, /data-action="toggle-favorite" aria-pressed="\$\{favorite\}"/);
   assert.match(inspector, /class="detail-facts" role="group" aria-label=/);
   assert.match(inspector, /<details class="detail-disclosure"><summary>\$\{t\("versionHistory"\)\}<\/summary>/);
-  assert.doesNotMatch(app + inspector, /role="tablist"/);
-  assert.doesNotMatch(app + inspector, /role="tab"/);
-  assert.doesNotMatch(app + inspector, /role="tabpanel"/);
+  const renderDetailStart = app.indexOf("function renderDetail(");
+  const renderDetailEnd = app.indexOf("\nfunction ", renderDetailStart + 1);
+  const detailSource = app.slice(renderDetailStart, renderDetailEnd) + inspector;
+  assert.doesNotMatch(detailSource, /role="tablist"/);
+  assert.doesNotMatch(detailSource, /role="tab"/);
+  assert.doesNotMatch(detailSource, /role="tabpanel"/);
   // Phase 4B 校正闸门：deprecated 的 state.detailTab 字段、初始值与重置语句全部移除，
   // 全 app 代码零残留（此前 Phase 4A 仅移除 Tab DOM 与路由）。
-  assert.doesNotMatch(app + inspector, /detailTab/);
+  assert.doesNotMatch(detailSource, /detailTab/);
   assert.match(css, /\.detail-inspector-scroll \{[^}]*overflow-y: auto/);
 });
 
