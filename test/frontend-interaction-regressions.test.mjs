@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
@@ -81,16 +82,105 @@ test("clipboard actions never use renderer clipboard reads in the production app
   assert.match(app, /window\.electronAPI\?\.pasteImage \? pasteClipboardImage : null/);
 });
 
-test("context-menu batch mutations preserve partial failures instead of claiming full success", async () => {
+test("context-menu image copy uses the stored original rather than a thumbnail", async () => {
+  const [app, actions, preload, main] = await Promise.all([
+    readApp(),
+    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
+    readFile(resolve(root, "desktop/preload.cjs"), "utf8"),
+    readFile(resolve(root, "desktop/main.mjs"), "utf8"),
+  ]);
+  assert.match(actions, /label: t\("copyImage"\)/);
+  assert.match(actions, /copyOriginalImage\(asset\)/);
+  assert.match(app, /const imagePath = String\(asset\.image_path \|\| ""\)\.trim\(\);/);
+  assert.match(app, /const imageUrl = String\(asset\.image_url \|\| ""\)\.trim\(\);/);
+  assert.doesNotMatch(app, /writeClipboardImage\([^)]*thumbnail_url/);
+  assert.match(preload, /write-clipboard-image/);
+  assert.match(main, /nativeImage\.createFromPath\(allowedTarget\)/);
+});
+
+test("context-menu favorite batch mutations preserve partial failures instead of claiming full success", async () => {
   const actions = await readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8");
   assert.match(actions, /function reconcileBatchMutation\(assets = \[\], response = \{\}\)/);
   assert.match(actions, /if \(!response\?\.partial\) return \{ succeeded: assets, failed: \[\] \};/);
-  assert.match(actions, /commitSelectedAssetMutation\(outcome\.succeeded\)/,
-    "archive only commits assets the server actually archived");
+  assert.match(actions, /const outcome = reconcileBatchMutation\(assets, response\);/,
+    "favorite reconciles partial batch results before reporting success");
+  assert.match(actions, /if \(outcome\.failed\.length\)/,
+    "favorite keeps partial failures visible instead of claiming full success");
   assert.match(actions, /batchPartialResult/,
-    "partial favorite/archive results surface an explicit partial-result message");
-  assert.doesNotMatch(actions, /commitSelectedAssetMutation\(assets\);\s*showToast\(isMultiple \? t\("assetsArchived"\)/,
-    "bulk archive must not blindly commit the whole selection after a 207 response");
+    "partial favorite results surface an explicit partial-result message");
+  assert.doesNotMatch(actions, /t\("archiveAsset"\)/,
+    "archive is intentionally absent from the asset context menu");
+});
+
+test("manual sidebar groups create and rename inline without routing through the group modal", async () => {
+  const [app, html, actions, bindings] = await Promise.all([
+    readApp(),
+    readFile(resolve(root, "app/index.html"), "utf8"),
+    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
+    readFile(resolve(root, "app/context-menu-bindings.mjs"), "utf8"),
+  ]);
+  assert.match(html, /id="addGroupBtn"/);
+  assert.match(html, /id="sidebarManualGroupList"/);
+  assert.match(app, /function startSidebarGroupCreate\(\)/);
+  assert.match(app, /function startSidebarGroupRename\(groupName\)/);
+  assert.match(app, /async function commitSidebarGroupEdit\(\)/);
+  assert.match(app, /addGroupBtn\?\.addEventListener\("click"[\s\S]*?startSidebarGroupCreate\(\)/);
+  assert.match(app, /sidebarManualGroupList\?\.addEventListener\("focusout"[\s\S]*?commitSidebarGroupEdit\(\)/);
+  assert.match(app, /event\.key === "Enter"[\s\S]*?commitSidebarGroupEdit\(\)/);
+  assert.match(actions, /label: t\("renameGroup"\)/);
+  assert.match(bindings, /mosa:begin-sidebar-group-rename/);
+});
+
+test("sidebar smart and manual groups collapse independently and keep compact navigation density", async () => {
+  const [app, html, css] = await Promise.all([
+    readApp(),
+    readFile(resolve(root, "app/index.html"), "utf8"),
+    readFile(resolve(root, "app/styles.css"), "utf8"),
+  ]);
+  assert.match(html, /id="smartGroupsToggle"[^>]*aria-expanded="true"[^>]*aria-controls="sidebarGroupList"/);
+  assert.match(html, /id="assetCategoriesToggle"[^>]*aria-expanded="true"[^>]*aria-controls="sidebarManualGroupList"/);
+  assert.match(app, /sidebarSmartCollapsed: safeStorageGet\("mosa\.sidebar-smart-collapsed"\) === "true"/);
+  assert.match(app, /sidebarManualCollapsed: safeStorageGet\("mosa\.sidebar-manual-collapsed"\) === "true"/);
+  assert.match(app, /function syncSidebarSectionVisibility\(\)/);
+  assert.match(app, /function setSidebarSectionCollapsed\(section, collapsed\)/);
+  assert.match(app, /function startSidebarGroupCreate\(\) \{[\s\S]*?setSidebarSectionCollapsed\("manual", false\)/);
+  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 32px;/);
+  assert.match(css, /\.mosa-v2 \.sidebar-group-list \{ gap: 0;/);
+  assert.match(css, /\.mosa-v2 \.sidebar-section-toggle\[aria-expanded="false"\] \.sidebar-section-chevron \{ transform: rotate\(-90deg\); \}/);
+});
+
+test("group deletion uses a second confirmation to decide whether assets are kept", async () => {
+  const [actions, dialog, html, translations] = await Promise.all([
+    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
+    readFile(resolve(root, "app/confirm-dialog.mjs"), "utf8"),
+    readFile(resolve(root, "app/index.html"), "utf8"),
+    import(pathToFileURL(resolve(root, "app/i18n.mjs")).href).then((module) => module.default),
+  ]);
+  assert.match(actions, /const confirmed = await requestConfirmation\([\s\S]*?title: t\("deleteGroupTitle"\)[\s\S]*?if \(!confirmed\) return;/,
+    "the original delete-group confirmation remains the first gate");
+  assert.match(actions, /const deleteAssets = await requestFollowupConfirmation\([\s\S]*?title: t\("deleteGroupAssetsTitle"\)[\s\S]*?cancelLabel: t\("keepGroupAssetsAction"\)/,
+    "after group deletion is confirmed, a second two-button prompt asks whether to delete the assets");
+  assert.match(dialog, /async function requestFollowupConfirmation\(options = \{\}\)[\s\S]*?requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)[\s\S]*?return requestConfirmation\(options\);/,
+    "follow-up confirmation waits for the first dialog's closed state to paint before reusing the overlay");
+  assert.match(actions, /params\.set\("deleteAssets", "true"\)/,
+    "the irreversible branch is explicit in the API request");
+  assert.doesNotMatch(dialog, /alternateLabel|confirmDialogAlternate/,
+    "the shared dialog has returned to the original two-button contract");
+  assert.doesNotMatch(html, /confirmDialogAlternate|btn-danger-solid/,
+    "there is no separate delete-group-and-assets button in the dialog shell");
+  assert.equal(translations.zh.keepGroupAssetsAction, "保留素材");
+  assert.equal(translations.zh.deleteGroupAssetsAction, "删除素材");
+});
+
+test("group export paginates until exhaustion without a silent asset cap", async () => {
+  const actions = await readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8");
+  assert.doesNotMatch(actions, /collected\.length\s*<\s*5000/,
+    "group export must not silently truncate libraries at 5000 assets");
+  assert.match(actions, /const seenCursors = new Set\(\);/,
+    "cursor-cycle detection bounds broken pagination without truncating valid exports");
+  assert.match(actions, /if \(seenCursors\.has\(cursor\)\) throw new Error\("Group export pagination stalled\."\);/);
+  assert.match(actions, /if \(!cursor\) break;/,
+    "pagination terminates only when the server reports no next cursor");
 });
 
 test("global drag guard blocks default file navigation outside an active library drop target", async () => {
@@ -191,12 +281,65 @@ test("image preview keeps media alive through its exit transition and cancels st
 
 test("masonry image loads only repair their own card instead of remeasuring the whole grid", async () => {
   const app = await readApp();
+  const css = await readStyles();
   const masonry = sliceBetween(app, "let masonryResizeObserver = null;", "let infiniteScrollObserver = null;");
 
   assert.match(masonry, /layoutMasonry\(\[\.\.\.masonryPendingCards\]\)/, "pending decoded cards are measured as a bounded batch");
   assert.match(masonry, /const card = media\.closest\("\.asset-card"\);\s*if \(card\) scheduleMasonryLayout\(card\);/, "an image settle schedules only its containing card");
   assert.doesNotMatch(masonry, /addEventListener\("load",\s*schedule/, "media load must not schedule a full-grid layout");
   assert.match(masonry, /Math\.abs\(width - masonryObservedWidth\) < 0\.5/, "ResizeObserver ignores height-only churn from masonry itself");
+  assert.match(masonry, /card\.classList\.remove\("masonry-content-virtualized"\);[\s\S]*?getBoundingClientRect\(\)[\s\S]*?card\.classList\.add\("masonry-content-virtualized"\)/,
+    "offscreen content virtualization is enabled only after the real masonry height is measured");
+  assert.match(css, /\.asset-card\.masonry-content-virtualized\s*\{[^}]*content-visibility:\s*auto;/,
+    "laid-out cards use browser-native offscreen rendering virtualization");
+});
+
+test("gallery card creation parses each changed batch once instead of one template per card", async () => {
+  const app = await readApp();
+  const creation = sliceBetween(app, "function initializeAssetCardElement", "function reconcileAssetCards(entries)");
+  const reconcile = sliceBetween(app, "function reconcileAssetCards(entries)", "// F-24：入场动画范围");
+
+  assert.match(creation, /function createAssetCardElements\(entries\)/);
+  assert.match(creation, /template\.innerHTML = entries\.map\(\(entry\) => entry\.markup\.trim\(\)\)\.join\(""\)/,
+    "one template parse materializes the whole changed batch");
+  assert.match(reconcile, /const createdCards = createAssetCardElements\(entriesNeedingCards\)/);
+  assert.doesNotMatch(reconcile, /document\.createElement\("template"\)/,
+    "reconciliation does not parse markup inside the per-card loop");
+});
+
+test("loaded-page refresh fetches off-DOM and commits the gallery once", async () => {
+  const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
+  const reload = sliceBetween(apiClient, "async function reloadLoadedAssetPages(options = {})", "async function refreshLoadedAssetsInBackground()");
+  const refresh = sliceBetween(apiClient, "async function refreshLoadedAssetsInBackground()", "async function refreshLibraryInBackground()");
+
+  assert.doesNotMatch(reload, /loadAssets\(/, "loaded pages are not committed one at a time");
+  assert.match(reload, /const pages = \[\];[\s\S]*?for \(let page = 0; page < pageCount; page \+= 1\)/,
+    "all currently loaded pages are assembled in a private snapshot first");
+  assert.equal((reload.match(/renderGrid\(/g) || []).length, 1, "the refreshed snapshot has one gallery commit point");
+  assert.match(refresh, /reloadLoadedAssetPages\(\{ background: true, firstResult: result \}\)/,
+    "the already-fetched first page is reused instead of adding another request");
+  assert.match(refresh, /assetListVersion\(incoming\) !== assetListVersion\(visible\)/,
+    "same IDs with changed metadata must still refresh the loaded gallery window");
+  assert.doesNotMatch(refresh, /incomingIds|visibleIds/,
+    "background refresh must not reduce change detection to asset IDs only");
+});
+
+test("bridge status exposes active reconciliation instead of reporting ready", async () => {
+  const app = await readApp();
+  const applyStatus = sliceBetween(app, "function applyBridgeStatus", "function applyBridgeStatusFailure");
+  assert.match(applyStatus, /codex\?\.busy \|\| grok\?\.busy \|\| cowart\?\.busy/,
+    "renderer must consume the bridge busy signal");
+  assert.match(applyStatus, /bridgeBusy\) setStatus\(t\("statusBridgeBusy"\), "warn"\)/,
+    "active reconciliation must be visible before the ready state");
+});
+
+test("keyed gallery refresh lets native scroll anchoring preserve the viewed card", async () => {
+  const app = await readApp();
+  const render = sliceBetween(app, "function renderGrid()", "/** Routed through the state machine");
+  assert.match(render, /changedCards\.length >= state\.assets\.length/,
+    "numeric scroll restoration is reserved for a full populated replacement");
+  assert.doesNotMatch(render, /if \(savedScrollTop !== null\) \{\s*requestAnimationFrame/,
+    "incremental keyed refreshes must not always overwrite Chromium scroll anchoring");
 });
 
 test("gallery card actions use grid-level delegation instead of per-card closures", async () => {
@@ -238,9 +381,31 @@ test("infinite-scroll append uses a tail-only render path and virtualizes decode
   assert.match(virtualization, /media\.src = source/, "virtualized thumbnails restore when they approach the viewport");
 });
 
+test("large galleries use explicit masonry placement and bounded card hydration", async () => {
+  const app = await readApp();
+  const css = await readFile(resolve(root, "app/styles.css"), "utf8");
+  const virtualization = sliceBetween(app, "function galleryVirtualSpanKey", "function bindGalleryVideoFrame");
+  const masonry = sliceBetween(app, "function layoutMasonry", "function scheduleMasonryLayout");
+
+  assert.match(app, /const GALLERY_CARD_VIRTUAL_THRESHOLD = 96;/,
+    "virtualization starts within the first page instead of crossing a late full-DOM cliff");
+  assert.match(virtualization, /data-virtual-span="\$\{span\}"/,
+    "virtual placeholders preserve an explicit masonry span before hydration");
+  assert.match(virtualization, /galleryCardVirtualVisiblePendingChanges/,
+    "visible hydration has a priority queue independent from background preloading");
+  assert.match(virtualization, /if \(batch\.length >= 4\) break;/,
+    "card hydration is split into bounded animation-frame batches");
+  assert.match(masonry, /const columnEnds = Array\(columnCount\)\.fill\(1\)/,
+    "masonry placement tracks column heights in a linear pass");
+  assert.match(masonry, /card\.style\.gridColumnStart = String\(columnStart\)/);
+  assert.match(masonry, /card\.style\.gridRowStart = String\(rowStart\)/);
+  assert.doesNotMatch(css, /grid-auto-flow:\s*dense/,
+    "the browser must not run dense backtracking across thousands of masonry items");
+});
+
 test("background library polling yields while an infinite-scroll append is in flight", async () => {
   const app = await readApp();
-  const init = sliceBetween(app, "async function init()", "function renderSettingsMenu()");
+  const init = sliceBetween(app, "async function init()", "async function loadProductVersion()");
   const pageshow = sliceBetween(app, 'window.addEventListener("pageshow",', "function refreshBridgeStatus()");
   const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
 

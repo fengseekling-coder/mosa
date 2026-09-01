@@ -48,6 +48,7 @@ test("1-7. a single app-wide ConfirmDialog with dialog semantics", async () => {
   assert.match(overlay, /<p id="confirmDialogDescription">/, "description is real text content");
   assert.match(overlay, /<button class="btn-secondary" id="confirmDialogCancel" type="button"/, "Cancel is a native button");
   assert.match(overlay, /<button class="btn-danger" id="confirmDialogConfirm" type="button"/, "Confirm is a native button");
+  assert.doesNotMatch(overlay, /confirmDialogAlternate/, "ConfirmDialog stays a two-button surface");
   assert.match(overlay, /data-i18n="cancel"/, "Cancel reuses the shared cancel copy");
   assert.match(html, /class="modal-overlay confirm-dialog-overlay" id="confirmDialog"/, "reuses the modal-overlay shell");
 });
@@ -333,20 +334,18 @@ test("58. dialog styles without !important", async () => {
   assert.match(css, /\.confirm-dialog-copy \{ padding: 20px 20px 16px; overflow-wrap: break-word; \}/, "copy wraps instead of overflowing");
   assert.match(css, /\.btn-danger \{ border: 1px solid var\(--color-danger\); color: var\(--color-danger\); background: var\(--app-card\); \}/,
     "the danger confirm button consumes the approved DestructiveButton recipe");
+  assert.doesNotMatch(css, /\.btn-danger-solid\b/, "ConfirmDialog does not carry a third destructive-button recipe");
   assert.match(css, /:where\(\.action-btn\.danger, \.batch-bar-btn\.danger, \.btn-danger\):not\(:disabled\):not\(\[aria-disabled="true"\]\):hover/,
     "danger hover stays inside the precise-pointer media guard");
 });
 
-test("context-menu bulk archive and delete pass the selected count into titles", async () => {
+test("context-menu bulk delete passes the selected count into its title", async () => {
   const source = await readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8");
   const { default: translations } = await import(pathToFileURL(resolve(root, "app/i18n.mjs")).href);
 
-  assert.match(translations.zh.archiveAssetsTitle, /\{count\}/);
-  assert.match(translations.en.archiveAssetsTitle, /\{count\}/);
   assert.match(translations.zh.deleteAssetsTitle, /\{count\}/);
   assert.match(translations.en.deleteAssetsTitle, /\{count\}/);
-  assert.match(source, /t\("archiveAssetsTitle", \{ count: assets\.length \}\)/);
   assert.match(source, /t\("deleteAssetsTitle", \{ count: assets\.length \}\)/);
-  assert.doesNotMatch(source, /t\("archiveAssetsTitle"\)/);
   assert.doesNotMatch(source, /t\("deleteAssetsTitle"\)/);
+  assert.doesNotMatch(source, /t\("archiveAsset"\)/, "archive is no longer exposed from the asset context menu");
 });

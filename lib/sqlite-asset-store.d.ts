@@ -121,6 +121,8 @@ export interface SqliteAssetStore {
   getAssetGenerationHistory(projectId: string, assetId: string): Promise<Record<string, unknown>>;
   listGroups(projectId: string): Promise<GroupInfo[]>;
   createGroup(projectId: string, name: string): Promise<void>;
+  renameGroup(projectId: string, groupName: string, nextGroupName: string): Promise<Record<string, unknown>>;
+  deleteGroup(projectId: string, groupName: string, options?: { deleteAssets?: boolean }): Promise<Record<string, unknown>>;
   findAssetByContentHash(projectId: string, contentHash: string): Promise<StoredAsset | null>;
   findAssetBySourcePath(projectId: string, sourcePath: string): Promise<StoredAsset | null>;
   findAssetByPixelHash(projectId: string, pixelHash: string): Promise<StoredAsset | null>;

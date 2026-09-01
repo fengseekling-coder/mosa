@@ -141,9 +141,22 @@
             <li><button class="nav-item" data-filter="recent" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="nav-item-text" data-i18n="recent">最近</span><span class="nav-count" id="countRecent">—</span></button></li>
           </ul>
           <div class="sidebar-group-heading">
-            <p class="nav-label" data-i18n="sourceGroups">来源</p>
+            <button class="sidebar-section-toggle" id="smartGroupsToggle" type="button" aria-expanded="true" aria-controls="sidebarGroupList">
+              <span class="nav-label" data-i18n="smartGroups">智能分组</span>
+              <svg class="sidebar-section-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
+            </button>
           </div>
-          <ul class="sidebar-group-list" id="sidebarGroupList" data-i18n-aria-label="sourceGroups" aria-label="来源"></ul>
+          <ul class="sidebar-group-list" id="sidebarGroupList" data-i18n-aria-label="smartGroups" aria-label="智能分组"></ul>
+          <div class="sidebar-group-heading sidebar-manual-group-heading">
+            <button class="sidebar-section-toggle" id="assetCategoriesToggle" type="button" aria-expanded="true" aria-controls="sidebarManualGroupList">
+              <span class="nav-label" data-i18n="assetCategories">素材分类</span>
+              <svg class="sidebar-section-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
+            </button>
+            <button class="add-group-button" id="addGroupBtn" type="button" data-i18n-aria-label="addGroup" aria-label="添加分组" title="添加分组">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+          </div>
+          <ul class="sidebar-group-list sidebar-manual-group-list" id="sidebarManualGroupList" data-i18n-aria-label="assetCategories" aria-label="素材分类"></ul>
         </nav>
 
         <div class="sidebar-spacer"></div>

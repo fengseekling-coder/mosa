@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, ipcMain, clipboard, session, shell, Notification } from "electron";
+import { app, BrowserWindow, Menu, dialog, ipcMain, clipboard, nativeImage, session, shell, Notification } from "electron";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -16,6 +16,7 @@ import { checkForMosaUpdate, MOSA_DOWNLOAD_PAGE_URL } from "./update-service.mjs
 import { prepareAnonymousUsage } from "./anonymous-usage.mjs";
 import { resolveAllowedFolderPath } from "../lib/server-security.js";
 import { isPathInsideOrEqual, isUrlLikePath, pathsEqual } from "../lib/path-safety.mjs";
+import { getBuildIdentity } from "../lib/build-identity.mjs";
 
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
 const desktopPlatform = desktopPlatformAdapter();
@@ -24,6 +25,7 @@ const desktopPlatform = desktopPlatformAdapter();
 // when packaged. Deriving it from the module location keeps both modes on a
 // single source of truth instead of the app path API.
 const appRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const expectedServiceIdentity = getBuildIdentity(join(appRoot, "app"));
 // `desktopDataDir` is the *actual* userData after Chromium applied the QA
 // --user-data-dir override (if any). It is deliberately NOT the production
 // default: Electron rewrites userData before any JS runs, so the un-overridden
@@ -303,6 +305,31 @@ function registerIPC() {
     return { ok: true };
   });
 
+  // Copy the stored full-resolution asset, never a gallery thumbnail or preview.
+  // The renderer may only request files inside the active MOSA library; decoding
+  // and clipboard access stay in the trusted main process.
+  ipcMain.handle("write-clipboard-image", async (event, path) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return { ok: false, reason: "unavailable" };
+    }
+    if (typeof path !== "string" || !path.trim()) return { ok: false, reason: "invalid" };
+    const target = path.trim();
+    if (!isAbsolute(target) || (isUrlLikePath(target) && /^[a-z][a-z0-9+.-]*:/i.test(target))) {
+      return { ok: false, reason: "invalid" };
+    }
+    if (!existsSync(target)) return { ok: false, reason: "missing" };
+    try {
+      const allowedTarget = resolveAllowedFolderPath(target, [libraryDir]);
+      if (!allowedTarget) return { ok: false, reason: "not-allowed" };
+      const image = nativeImage.createFromPath(allowedTarget);
+      if (image.isEmpty()) return { ok: false, reason: "unsupported" };
+      clipboard.writeImage(image);
+      return { ok: true };
+    } catch {
+      return { ok: false, reason: "unavailable" };
+    }
+  });
+
   ipcMain.handle("set-locale", async (event, locale) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return false;
     if (locale !== "zh" && locale !== "en") return false;
@@ -312,11 +339,11 @@ function registerIPC() {
     return true;
   });
 
-  ipcMain.handle("check-for-updates", async (event, notify = false, anonymousUsageEnabled = true) => {
+  ipcMain.handle("check-for-updates", async (event, notify = false) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
       return { status: "unavailable", currentVersion: app.getVersion() };
     }
-    return runUpdateCheck({ notify: notify === true, anonymousUsageEnabled: anonymousUsageEnabled !== false });
+    return runUpdateCheck({ notify: notify === true });
   });
 
   ipcMain.handle("open-download-page", async (event) => {
@@ -437,13 +464,13 @@ function registerIPC() {
   });
 }
 
-function runUpdateCheck({ notify = false, anonymousUsageEnabled = true } = {}) {
+function runUpdateCheck({ notify = false } = {}) {
   const currentVersion = app.getVersion();
   if (isolationContext.qaRun) return Promise.resolve({ status: "disabled", currentVersion });
   if (updateCheckPromise) return updateCheckPromise;
   const anonymousUsage = prepareAnonymousUsage({
     userDataDir: desktopDataDir,
-    enabled: anonymousUsageEnabled,
+    enabled: true,
     platform: process.platform,
     arch: process.arch,
     currentVersion,
@@ -500,6 +527,7 @@ async function createMainWindow() {
       port: desktopPort,
       libraryDir,
       allowPortFallback: !process.env.MOSA_DESKTOP_PORT,
+      expectedIdentity: expectedServiceIdentity,
       importStagingRoot,
       isolationContext,
       runtimeOptions: {

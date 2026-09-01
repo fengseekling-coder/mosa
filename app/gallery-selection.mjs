@@ -32,6 +32,8 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
   let autoScrollFrame = 0;
   let selectionUpdateFrame = 0;
   let pendingSelectionPoint = null;
+  let stackedAssetSetSource = null;
+  let stackedAssetIds = new Set();
 
   function ensureSelectionSet() {
     if (!(state.selectedIds instanceof Set)) state.selectedIds = new Set(state.selectedIds || []);
@@ -46,20 +48,44 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     return new Set((state.assets || []).map((asset) => asset.id));
   }
 
-  function syncRenderedSelection({ prune = true } = {}) {
+  function currentStackedAssetIds() {
+    if (stackedAssetSetSource !== state.assets) {
+      stackedAssetSetSource = state.assets;
+      stackedAssetIds = new Set((state.assets || []).filter((asset) => asset.stack?.id).map((asset) => asset.id));
+    }
+    return stackedAssetIds;
+  }
+
+  function applyCardSelectionState(card, selectedIds) {
+    if (!(card instanceof HTMLElement)) return;
+    const id = card.dataset.id;
+    if (!id) return;
+    const multiSelected = selectedIds.has(id);
+    const detailSelected = id === state.selectedId;
+    card.classList.toggle("multi-selected", multiSelected);
+    card.querySelector(".asset-card-select")?.setAttribute("aria-pressed", String(detailSelected || multiSelected));
+  }
+
+  function syncCardSelectionState(id, selectedIds) {
+    if (!id || !els.assetGrid) return;
+    const card = els.assetGrid.querySelector(`:scope > .asset-card[data-id="${CSS.escape(id)}"]`);
+    applyCardSelectionState(card, selectedIds);
+  }
+
+  function syncRenderedSelection({ prune = true, changedIds = null } = {}) {
     const selectedIds = ensureSelectionSet();
     if (prune) {
       const validIds = loadedIds();
       for (const id of selectedIds) if (!validIds.has(id)) selectedIds.delete(id);
     }
 
-    els.assetGrid?.querySelectorAll(":scope > .asset-card").forEach((card) => {
-      const id = card.dataset.id;
-      const multiSelected = selectedIds.has(id);
-      const detailSelected = id === state.selectedId;
-      card.classList.toggle("multi-selected", multiSelected);
-      card.querySelector(".asset-card-select")?.setAttribute("aria-pressed", String(detailSelected || multiSelected));
-    });
+    if (changedIds instanceof Set) {
+      for (const id of changedIds) syncCardSelectionState(id, selectedIds);
+    } else {
+      els.assetGrid?.querySelectorAll(":scope > .asset-card").forEach((card) => {
+        applyCardSelectionState(card, selectedIds);
+      });
+    }
 
     const count = selectedIds.size;
     if (els.selectionBar) els.selectionBar.hidden = count === 0;
@@ -68,7 +94,8 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     if (els.selectionSelectAll) els.selectionSelectAll.disabled = !state.assets.length || count >= state.assets.length;
     if (els.selectionClear) els.selectionClear.disabled = count === 0;
     if (els.selectionStack) {
-      const includesExistingStack = (state.assets || []).some((asset) => selectedIds.has(asset.id) && asset.stack?.id);
+      const stackedIds = currentStackedAssetIds();
+      const includesExistingStack = [...selectedIds].some((id) => stackedIds.has(id));
       els.selectionStack.disabled = state.storageKind !== "sqlite" || count < 2 || includesExistingStack;
     }
     if (els.selectionRemoveFromStack) els.selectionRemoveFromStack.disabled = count === 0;
@@ -82,8 +109,11 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
 
   function commitSelection(nextSelection, { announce = false } = {}) {
     const current = ensureSelectionSet();
+    const changedIds = new Set();
+    for (const id of current) if (!nextSelection.has(id)) changedIds.add(id);
+    for (const id of nextSelection) if (!current.has(id)) changedIds.add(id);
     if (!sameIds(current, nextSelection)) state.selectedIds = new Set(nextSelection);
-    syncRenderedSelection({ prune: false });
+    syncRenderedSelection({ prune: false, changedIds });
     if (announce) announceSelection();
   }
 

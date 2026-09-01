@@ -19,8 +19,10 @@ test("keeps the import flow keyboard-accessible", async () => {
   assert.match(html, /data-i18n-aria-label="closeImport"/);
   assert.match(html, /data-i18n-aria-label="closePreview"/);
   assert.match(html, /<button class="nav-item active"/);
-  assert.match(html, /data-i18n="sourceGroups"/);
-  assert.doesNotMatch(html, /id="addGroupBtn"/);
+  assert.match(html, /data-i18n="smartGroups"/);
+  assert.match(html, /data-i18n="assetCategories"/);
+  assert.match(html, /id="addGroupBtn"[^>]*data-i18n-aria-label="addGroup"/);
+  assert.match(html, /id="sidebarManualGroupList"[^>]*data-i18n-aria-label="assetCategories"/);
   assert.match(html, /id="groupModal"/);
   assert.match(html, /aria-labelledby="groupModalTitle" tabindex="-1"/);
   assert.match(app, /class="asset-card-select" type="button"/);

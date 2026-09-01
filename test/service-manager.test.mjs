@@ -75,6 +75,61 @@ test("attaches only to a matching MOSA health identity and leaves it running", a
   assert.equal(server.listening, true);
 });
 
+test("rejects a same-library MOSA runtime whose build identity is stale", async (t) => {
+  const root = await temporaryRoot(t, "mosa-service-stale-build-");
+  const libraryDir = join(root, "library");
+  const server = createServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({
+      product: "mosa",
+      libraryDir,
+      storage: "sqlite",
+      productVersion: "0.2.0",
+      gitSha: "old-sha",
+      uiFingerprint: "old-ui",
+      runtimeFingerprint: "old-runtime",
+    }));
+  });
+  await listen(server);
+  t.after(() => close(server));
+
+  await assert.rejects(
+    startMosaService({
+      port: server.address().port,
+      libraryDir,
+      expectedIdentity: {
+        productVersion: "0.2.0",
+        gitSha: "new-sha",
+        uiFingerprint: "new-ui",
+        runtimeFingerprint: "new-runtime",
+      },
+    }),
+    /different build identity/,
+  );
+  assert.equal(server.listening, true, "desktop must not kill a process it does not own");
+});
+
+test("rejects unversioned same-library services when desktop has a verifiable build identity", async (t) => {
+  const root = await temporaryRoot(t, "mosa-service-unversioned-build-");
+  const libraryDir = join(root, "library");
+  const server = createServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ product: "mosa", libraryDir, storage: "sqlite" }));
+  });
+  await listen(server);
+  t.after(() => close(server));
+
+  await assert.rejects(
+    startMosaService({
+      port: server.address().port,
+      libraryDir,
+      expectedIdentity: { runtimeFingerprint: "expected-runtime" },
+    }),
+    /cannot report it/,
+  );
+  assert.equal(server.listening, true);
+});
+
 test("attaches to a matching pre-health-endpoint MOSA runtime", async (t) => {
   const root = await temporaryRoot(t, "mosa-service-legacy-attach-");
   const libraryDir = join(root, "library");

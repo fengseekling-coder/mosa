@@ -21,8 +21,9 @@ interface Store { createAsset(params: Record<string, unknown>, options?: Record<
 interface MediaCandidate { mediaPath: string; discoveredPath: string; relativePath: string; sessionId: string; sessionPath: string | null; mediaFolder: string; mediaKind: string; fileName: string; fileStem: string; fileStat: Stats; generatedAt: string; }
 interface GenerationMetadata { sessionId: string; prompt: string; promptStatus: string; sessionPath: string | null; sessionUpdatedAt: string | null; callId: string | null; generatedAt: string | null; model: string | null; toolName: string | null; aspectRatio: string | null; matched: boolean; }
 interface SessionMetadata { sessionId: string; sessionPath: string | null; mediaPrompts: Map<string, GenerationMetadata>; }
+interface CachedSessionMetadata { mtimeMs: number; size: number; metadata: SessionMetadata; warnings: string[]; }
 interface MediaInfo { width: number | null; height: number | null; ratio: string; mimeType: string; bytes: number; media_kind: string; }
-interface BridgeStatus { sessionsDir: string; enabled: boolean; watching: boolean; polling: boolean; lastScanAt: string | null; lastImportedAt: string | null; lastImportCount: number; totalImported: number; lastSkippedCount: number; lastError: string | null; lastWarning: string | null; }
+interface BridgeStatus { sessionsDir: string; enabled: boolean; watching: boolean; polling: boolean; busy: boolean; lastScanAt: string | null; lastImportedAt: string | null; lastImportCount: number; totalImported: number; lastSkippedCount: number; lastError: string | null; lastWarning: string | null; }
 interface ReconcileResult { imported: unknown[]; skipped: Array<{ path: string; reason: string; error?: string }>; updated: string[]; candidates: number; warnings: string[]; queued?: boolean; }
 interface Bridge { start(): Promise<BridgeStatus>; stop(): Promise<void>; reconcile(): Promise<ReconcileResult>; scheduleReconcile(): void; status(): BridgeStatus; }
 interface MediaPromptCall { toolName: string; prompt: string; contextUserPrompt: string; aspectRatio: string | null; model: string; callId: string; }
@@ -38,16 +39,17 @@ export function createGrokMediaBridge(options: { store?: Store; sessionsDir?: st
   const debounceMs = options.debounceMs != null && Number.isFinite(options.debounceMs) ? Math.max(0, options.debounceMs) : 500;
   const pollIntervalMs = options.pollIntervalMs != null && Number.isFinite(options.pollIntervalMs) ? Math.max(250, options.pollIntervalMs) : 30000;
   const processedSignatures = new Map<string, string>();
+  const sessionMetadataCache = new Map<string, CachedSessionMetadata>();
   let watcher: FSWatcher | null = null; let poller: ReturnType<typeof setInterval> | null = null; let timer: ReturnType<typeof setTimeout> | null = null;
   let enabled = false; let reconciling = false; let reconcileAgain = false;
   let activeReconcile: Promise<ReconcileResult> | null = null; let stopPromise: Promise<void> | null = null;
-  const state: Omit<BridgeStatus, "watching" | "polling"> = { sessionsDir, enabled: false, lastScanAt: null, lastImportedAt: null, lastImportCount: 0, totalImported: 0, lastSkippedCount: 0, lastError: null, lastWarning: null };
+  const state: Omit<BridgeStatus, "watching" | "polling" | "busy"> = { sessionsDir, enabled: false, lastScanAt: null, lastImportedAt: null, lastImportCount: 0, totalImported: 0, lastSkippedCount: 0, lastError: null, lastWarning: null };
   async function reconcile(): Promise<ReconcileResult> {
     if (!enabled) return { imported: [], skipped: [], updated: [], queued: true, candidates: 0, warnings: [] };
     if (reconciling) { reconcileAgain = true; return { imported: [], skipped: [], updated: [], queued: true, candidates: 0, warnings: [] }; }
     reconciling = true;
     const run = (async (): Promise<ReconcileResult> => {
-      try { const result = await reconcileGrokMedia({ store: store!, sessionsDir, projectId, processedSignatures }); state.lastScanAt = new Date().toISOString(); state.lastImportCount = result.imported.length; state.lastSkippedCount = result.skipped.length; state.totalImported += result.imported.length; state.lastError = null; state.lastWarning = result.warnings?.length ? result.warnings.slice(0, 5).join("; ") : null; if (result.imported.length > 0) state.lastImportedAt = state.lastScanAt; return result; } catch (error) { state.lastScanAt = new Date().toISOString(); state.lastError = error instanceof Error ? error.message : String(error); throw error; } finally { reconciling = false; activeReconcile = null; if (reconcileAgain && enabled) { reconcileAgain = false; scheduleReconcile(); } else reconcileAgain = false; }
+      try { const result = await reconcileGrokMedia({ store: store!, sessionsDir, projectId, processedSignatures, sessionMetadataCache }); state.lastScanAt = new Date().toISOString(); state.lastImportCount = result.imported.length; state.lastSkippedCount = result.skipped.length; state.totalImported += result.imported.length; state.lastError = null; state.lastWarning = result.warnings?.length ? result.warnings.slice(0, 5).join("; ") : null; if (result.imported.length > 0) state.lastImportedAt = state.lastScanAt; return result; } catch (error) { state.lastScanAt = new Date().toISOString(); state.lastError = error instanceof Error ? error.message : String(error); throw error; } finally { reconciling = false; activeReconcile = null; if (reconcileAgain && enabled) { reconcileAgain = false; scheduleReconcile(); } else reconcileAgain = false; }
     })();
     activeReconcile = run;
     return run;
@@ -55,12 +57,12 @@ export function createGrokMediaBridge(options: { store?: Store; sessionsDir?: st
   function scheduleReconcile(): void { if (!enabled) return; if (timer) clearTimeout(timer); timer = setTimeout(() => { timer = null; if (enabled) reconcile().catch(() => {}); }, debounceMs); }
   async function start(): Promise<BridgeStatus> { if (enabled) return apiStatus(); enabled = true; state.enabled = true; try { await mkdir(sessionsDir, { recursive: true }); if (!enabled) return apiStatus(); await reconcile(); if (!enabled) return apiStatus(); try { watcher = watch(sessionsDir, { recursive: true }, () => scheduleReconcile()); watcher.on("error", () => { watcher?.close(); watcher = null; }); } catch { watcher = null; } if (!enabled) { watcher?.close(); watcher = null; return apiStatus(); } poller = setInterval(() => { if (enabled) reconcile().catch(() => {}); }, pollIntervalMs); return apiStatus(); } catch (error) { enabled = false; state.enabled = false; throw error; } }
   function stop(): Promise<void> { if (stopPromise) return stopPromise; enabled = false; state.enabled = false; reconcileAgain = false; if (timer) clearTimeout(timer); timer = null; if (poller) clearInterval(poller); poller = null; watcher?.close(); watcher = null; const currentReconcile = activeReconcile; stopPromise = Promise.resolve(currentReconcile).catch(() => {}).then(() => {}).finally(() => { stopPromise = null; }); return stopPromise; }
-  function apiStatus(): BridgeStatus { return { ...state, watching: Boolean(watcher), polling: Boolean(poller) }; }
+  function apiStatus(): BridgeStatus { return { ...state, watching: Boolean(watcher), polling: Boolean(poller), busy: reconciling || reconcileAgain || Boolean(timer) }; }
   return { start, stop, reconcile, scheduleReconcile, status: apiStatus };
 }
 
-export async function reconcileGrokMedia(options: { store: Store; sessionsDir: string; projectId?: string; knownHashes?: Set<string> | null; processedSignatures?: Map<string, string> | null; }): Promise<ReconcileResult> {
-  const { store, sessionsDir, projectId = DEFAULT_PROJECT_ID, knownHashes: knownHashesOpt, processedSignatures = null } = options;
+export async function reconcileGrokMedia(options: { store: Store; sessionsDir: string; projectId?: string; knownHashes?: Set<string> | null; processedSignatures?: Map<string, string> | null; sessionMetadataCache?: Map<string, CachedSessionMetadata> | null; }): Promise<ReconcileResult> {
+  const { store, sessionsDir, projectId = DEFAULT_PROJECT_ID, knownHashes: knownHashesOpt, processedSignatures = null, sessionMetadataCache = null } = options;
   const root = resolve(sessionsDir); let rootReal: string;
   try { rootReal = await realpath(root); } catch (error: unknown) { if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return { imported: [], skipped: [], updated: [], candidates: 0, warnings: [] }; throw error; }
   const { candidates, skipped: discoverySkipped } = await readGrokMediaCandidates(root, rootReal);
@@ -68,7 +70,17 @@ export async function reconcileGrokMedia(options: { store: Store; sessionsDir: s
   const lookup = createBridgeAssetLookup(store, projectId);
   const contentHashes = knownHashesOpt || new Set<string>();
   const sessionIds = new Set(candidates.map((c) => c.sessionId).filter(Boolean));
-  const { sessions: sessionMetadata, warnings } = await readGrokSessionMetadata(rootReal, sessionIds, candidates);
+  if (sessionMetadataCache) {
+    const liveSessionRoots = new Set<string>();
+    for (const sessionPath of new Set(candidates.map((candidate) => candidate.sessionPath).filter(Boolean) as string[])) {
+      const canonical = await realpath(sessionPath).catch(() => null);
+      if (canonical) liveSessionRoots.add(canonical);
+    }
+    for (const chatPath of sessionMetadataCache.keys()) {
+      if (!liveSessionRoots.has(dirname(chatPath))) sessionMetadataCache.delete(chatPath);
+    }
+  }
+  const { sessions: sessionMetadata, warnings } = await readGrokSessionMetadata(rootReal, sessionIds, candidates, sessionMetadataCache);
   const imported: unknown[] = []; const skipped: Array<{ path: string; reason: string; error?: string }> = [...discoverySkipped]; const updated: string[] = [];
 
   for (const candidate of candidates) {
@@ -195,8 +207,9 @@ function candidateSignature(candidate: MediaCandidate, generation: GenerationMet
     candidate.fileStat.size,
     candidate.fileStat.mtimeMs,
     generation.promptStatus,
-    generation.sessionUpdatedAt || "",
+    generation.sessionPath || "",
     generation.callId || "",
+    generation.generatedAt || "",
     generation.model || "",
     generation.toolName || "",
     generation.prompt,
@@ -209,18 +222,18 @@ function pruneProcessedSignatures(cache: Map<string, string>, livePaths: string[
 
 function promptTheme(prompt: string): string { const text = String(prompt || "").trim(); if (!text) return ""; return text.split(/\r?\n/, 1)[0].slice(0, 120); }
 
-async function readGrokSessionMetadata(sessionsRoot: string, sessionIds: Set<string>, candidates: MediaCandidate[]): Promise<{ sessions: Map<string, SessionMetadata>; warnings: string[] }> {
+async function readGrokSessionMetadata(sessionsRoot: string, sessionIds: Set<string>, candidates: MediaCandidate[], sessionMetadataCache: Map<string, CachedSessionMetadata> | null = null): Promise<{ sessions: Map<string, SessionMetadata>; warnings: string[] }> {
   const result = new Map<string, SessionMetadata>(); const warnings: string[] = []; if (!sessionIds.size) return { sessions: result, warnings };
   const sessionPaths = new Map<string, string | null>(); for (const c of candidates) { if (c.sessionId && c.sessionPath && !sessionPaths.has(c.sessionId)) sessionPaths.set(c.sessionId, c.sessionPath); }
-  await Promise.all([...sessionIds].map(async (sid) => { const parsed = await readSessionMetadataFile(sid, sessionPaths.get(sid) || null, sessionsRoot); result.set(sid, parsed.metadata); warnings.push(...parsed.warnings); }));
+  await Promise.all([...sessionIds].map(async (sid) => { const parsed = await readSessionMetadataFile(sid, sessionPaths.get(sid) || null, sessionsRoot, sessionMetadataCache); result.set(sid, parsed.metadata); warnings.push(...parsed.warnings); }));
   return { sessions: result, warnings };
 }
 
-async function readSessionMetadataFile(sessionId: string, sessionPath: string | null, sessionsRoot: string): Promise<{ metadata: SessionMetadata; warnings: string[] }> {
+async function readSessionMetadataFile(sessionId: string, sessionPath: string | null, sessionsRoot: string, sessionMetadataCache: Map<string, CachedSessionMetadata> | null = null): Promise<{ metadata: SessionMetadata; warnings: string[] }> {
   const warnings: string[] = [];
   if (!sessionPath || !isSafeChildPath(sessionsRoot, sessionPath)) return { metadata: { sessionId, sessionPath: null, mediaPrompts: new Map() }, warnings };
   const chatPath = join(sessionPath, "chat_history.jsonl");
-  const chatSafe = await openSafeSessionFile(chatPath, sessionsRoot, "chat_history.jsonl", warnings, sessionId);
+  const chatSafe = await inspectSafeSessionFile(chatPath, sessionsRoot, "chat_history.jsonl", warnings, sessionId);
   if (!chatSafe.ok) { if (chatSafe.reason !== "missing") warnings.push(`session ${sessionId}: rejected chat_history.jsonl (${chatSafe.reason})`); return { metadata: { sessionId, sessionPath, mediaPrompts: new Map() }, warnings }; }
   // Fail closed: an existing but unsafe summary.json must not pair with chat provenance.
   // Missing optional summary.json and malformed JSON remain non-fatal.
@@ -229,7 +242,14 @@ async function readSessionMetadataFile(sessionId: string, sessionPath: string | 
     warnings.push(`session ${sessionId}: rejected summary.json (${summarySafe.reason})`);
     return { metadata: { sessionId, sessionPath, mediaPrompts: new Map() }, warnings };
   }
-  const raw = chatSafe.text!; const chatStat = chatSafe.stat!;
+  const chatStat = chatSafe.stat!;
+  const cached = sessionMetadataCache?.get(chatSafe.path!);
+  if (cached?.mtimeMs === chatStat.mtimeMs && cached?.size === chatStat.size) {
+    return { metadata: cached.metadata, warnings: [...cached.warnings] };
+  }
+  let raw: string;
+  try { raw = await readFile(chatSafe.path!, "utf8"); }
+  catch { return { metadata: { sessionId, sessionPath, mediaPrompts: new Map() }, warnings: [...warnings, `session ${sessionId}: rejected chat_history.jsonl (read-failed)`] }; }
   const mediaPrompts = new Map<string, GenerationMetadata>(); const pendingCalls = new Map<string, MediaPromptCall>();
   let currentModel: string | null = null; let latestUserPrompt = ""; let parseFailures = 0;
 
@@ -254,14 +274,16 @@ async function readSessionMetadataFile(sessionId: string, sessionPath: string | 
     if (pending) pendingCalls.delete(callId);
   }
   if (parseFailures > 0) warnings.push(`session ${sessionId}: ignored ${parseFailures} malformed line(s)`);
-  return { metadata: { sessionId, sessionPath, mediaPrompts }, warnings };
+  const metadata = { sessionId, sessionPath, mediaPrompts };
+  sessionMetadataCache?.set(chatSafe.path!, { mtimeMs: chatStat.mtimeMs, size: chatStat.size, metadata, warnings: [...warnings] });
+  return { metadata, warnings };
 }
 
-async function openSafeSessionFile(filePath: string, sessionsRoot: string, label: string, warnings: string[], sessionId: string): Promise<{ ok: boolean; text?: string; stat?: Stats; reason?: string }> {
+async function inspectSafeSessionFile(filePath: string, sessionsRoot: string, label: string, warnings: string[], sessionId: string): Promise<{ ok: boolean; path?: string; stat?: Stats; reason?: string }> {
   try { const ls = await lstat(filePath); if (ls.isSymbolicLink()) { warnings.push(`session ${sessionId}: rejected ${label} (symlink-rejected)`); return { ok: false, reason: "symlink-rejected" }; } if (!ls.isFile()) return { ok: false, reason: "not-a-file" }; } catch (error: unknown) { if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return { ok: false, reason: "missing" }; return { ok: false, reason: "stat-failed" }; }
   let canonical: string; try { canonical = await realpath(filePath); } catch { return { ok: false, reason: "not-ready" }; }
   if (!isSafeChildPath(sessionsRoot, canonical)) return { ok: false, reason: "out-of-root" };
-  try { return { ok: true, text: await readFile(canonical, "utf8"), stat: await stat(canonical) }; } catch { return { ok: false, reason: "read-failed" }; }
+  try { return { ok: true, path: canonical, stat: await stat(canonical) }; } catch { return { ok: false, reason: "stat-failed" }; }
 }
 
 async function assertSafeSessionFile(filePath: string, sessionsRoot: string): Promise<{ ok: boolean; path?: string; reason?: string }> {

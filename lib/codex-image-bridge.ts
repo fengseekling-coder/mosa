@@ -10,6 +10,7 @@ const IMAGE_EXTENSIONS = new Set([".apng", ".avif", ".gif", ".jpg", ".jpeg", ".p
 const DEFAULT_PROJECT_ID = "default";
 interface ImageCandidate { imagePath: string; taskId: string | null; fileName: string; fileStem: string; fileStat: Stats; generatedAt: string; }
 interface TaskMetadataEntry { taskId: string; fallback: GenerationMetadata; imagePrompts: Map<string, GenerationMetadata>; }
+interface CachedTaskMetadata { mtimeMs: number; size: number; metadata: TaskMetadataEntry; }
 interface GenerationMetadata { taskId: string; prompt: string; promptStatus: string; sessionPath: string | null; sessionUpdatedAt: string | null; callId: string | null; generatedAt: string | null; model: string | null; }
 interface ImageInfo { width: number | null; height: number | null; ratio: string; mimeType: string; bytes: number; }
 interface StoredAsset {
@@ -23,7 +24,7 @@ interface StoredAsset {
   [key: string]: unknown;
 }
 interface Store { createAsset(params: Record<string, unknown>, options?: Record<string, unknown>): Promise<StoredAsset>; listAssets(filters: Record<string, unknown>): Promise<StoredAsset[]>; findAssetBySourcePath?(projectId: string, sourcePath: string): Promise<StoredAsset | null>; findAssetByContentHash?(projectId: string, contentHash: string): Promise<StoredAsset | null>; findAssetByPixelHash?(projectId: string, pixelHash: string): Promise<StoredAsset | null>; updateMetadata(projectId: string, assetId: string, metadata: Record<string, unknown>): Promise<void>; codexImagesDir: string; [key: string]: unknown; }
-interface BridgeStatus { imagesDir: string; sessionsDir: string; enabled: boolean; watching: boolean; polling: boolean; lastScanAt: string | null; lastImportedAt: string | null; lastImportCount: number; totalImported: number; lastSkippedCount: number; lastError: string | null; }
+interface BridgeStatus { imagesDir: string; sessionsDir: string; enabled: boolean; watching: boolean; polling: boolean; busy: boolean; lastScanAt: string | null; lastImportedAt: string | null; lastImportCount: number; totalImported: number; lastSkippedCount: number; lastError: string | null; }
 interface ReconcileResult { imported: unknown[]; skipped: Array<{ path: string; reason: string; error?: string }>; updated?: string[]; candidates: number; queued?: boolean; }
 interface Bridge { start(): Promise<BridgeStatus>; stop(): Promise<void>; reconcile(): Promise<ReconcileResult>; scheduleReconcile(): void; status(): BridgeStatus; }
 
@@ -38,16 +39,18 @@ export function createCodexImageBridge(options: { store?: Store; imagesDir?: str
   const debounceMs = options.debounceMs != null && Number.isFinite(options.debounceMs) ? Math.max(0, options.debounceMs) : 500;
   const pollIntervalMs = options.pollIntervalMs != null && Number.isFinite(options.pollIntervalMs) ? Math.max(250, options.pollIntervalMs) : 30000;
   const processedSignatures = new Map<string, string>();
+  const sessionPathCache = new Map<string, string>();
+  const sessionMetadataCache = new Map<string, CachedTaskMetadata>();
   let watcher: FSWatcher | null = null; let poller: ReturnType<typeof setInterval> | null = null; let timer: ReturnType<typeof setTimeout> | null = null;
   let enabled = false; let reconciling = false; let reconcileAgain = false;
   let activeReconcile: Promise<ReconcileResult> | null = null; let stopPromise: Promise<void> | null = null;
-  const state: Omit<BridgeStatus, "watching" | "polling"> = { imagesDir, sessionsDir, enabled: false, lastScanAt: null, lastImportedAt: null, lastImportCount: 0, totalImported: 0, lastSkippedCount: 0, lastError: null };
+  const state: Omit<BridgeStatus, "watching" | "polling" | "busy"> = { imagesDir, sessionsDir, enabled: false, lastScanAt: null, lastImportedAt: null, lastImportCount: 0, totalImported: 0, lastSkippedCount: 0, lastError: null };
   async function reconcile(): Promise<ReconcileResult> {
     if (!enabled) return { imported: [], skipped: [], queued: true, candidates: 0 };
     if (reconciling) { reconcileAgain = true; return { imported: [], skipped: [], queued: true, candidates: 0 }; }
     reconciling = true;
     const run = (async (): Promise<ReconcileResult> => {
-      try { const result = await reconcileCodexGeneratedImages({ store: store!, imagesDir, sessionsDir, projectId, processedSignatures }); state.lastScanAt = new Date().toISOString(); state.lastImportCount = result.imported.length; state.lastSkippedCount = result.skipped.length; state.totalImported += result.imported.length; state.lastError = null; if (result.imported.length > 0) state.lastImportedAt = state.lastScanAt; return result; } catch (error) { state.lastScanAt = new Date().toISOString(); state.lastError = error instanceof Error ? error.message : String(error); throw error; } finally { reconciling = false; activeReconcile = null; if (reconcileAgain && enabled) { reconcileAgain = false; scheduleReconcile(); } else reconcileAgain = false; }
+      try { const result = await reconcileCodexGeneratedImages({ store: store!, imagesDir, sessionsDir, projectId, processedSignatures, sessionPathCache, sessionMetadataCache }); state.lastScanAt = new Date().toISOString(); state.lastImportCount = result.imported.length; state.lastSkippedCount = result.skipped.length; state.totalImported += result.imported.length; state.lastError = null; if (result.imported.length > 0) state.lastImportedAt = state.lastScanAt; return result; } catch (error) { state.lastScanAt = new Date().toISOString(); state.lastError = error instanceof Error ? error.message : String(error); throw error; } finally { reconciling = false; activeReconcile = null; if (reconcileAgain && enabled) { reconcileAgain = false; scheduleReconcile(); } else reconcileAgain = false; }
     })();
     activeReconcile = run;
     return run;
@@ -55,12 +58,12 @@ export function createCodexImageBridge(options: { store?: Store; imagesDir?: str
   function scheduleReconcile(): void { if (!enabled) return; if (timer) clearTimeout(timer); timer = setTimeout(() => { timer = null; if (enabled) reconcile().catch(() => {}); }, debounceMs); }
   async function start(): Promise<BridgeStatus> { if (enabled) return apiStatus(); enabled = true; state.enabled = true; try { await mkdir(imagesDir, { recursive: true }); if (!enabled) return apiStatus(); await reconcile(); if (!enabled) return apiStatus(); try { watcher = watch(imagesDir, { recursive: true }, () => scheduleReconcile()); watcher.on("error", () => { watcher?.close(); watcher = null; }); } catch { watcher = null; } if (!enabled) { watcher?.close(); watcher = null; return apiStatus(); } poller = setInterval(() => { if (enabled) reconcile().catch(() => {}); }, pollIntervalMs); return apiStatus(); } catch (error) { enabled = false; state.enabled = false; throw error; } }
   function stop(): Promise<void> { if (stopPromise) return stopPromise; enabled = false; state.enabled = false; reconcileAgain = false; if (timer) clearTimeout(timer); timer = null; if (poller) clearInterval(poller); poller = null; watcher?.close(); watcher = null; const currentReconcile = activeReconcile; stopPromise = Promise.resolve(currentReconcile).catch(() => {}).then(() => {}).finally(() => { stopPromise = null; }); return stopPromise; }
-  function apiStatus(): BridgeStatus { return { ...state, watching: Boolean(watcher), polling: Boolean(poller) }; }
+  function apiStatus(): BridgeStatus { return { ...state, watching: Boolean(watcher), polling: Boolean(poller), busy: reconciling || reconcileAgain || Boolean(timer) }; }
   return { start, stop, reconcile, scheduleReconcile, status: apiStatus };
 }
 
-export async function reconcileCodexGeneratedImages(options: { store: Store; imagesDir?: string; sessionsDir?: string; projectId?: string; knownHashes?: Set<string> | null; processedSignatures?: Map<string, string> | null; }): Promise<ReconcileResult> {
-  const { store, imagesDir: imagesDirOpt, sessionsDir: sessionsDirOpt, projectId = DEFAULT_PROJECT_ID, knownHashes: knownHashesOpt, processedSignatures = null } = options;
+export async function reconcileCodexGeneratedImages(options: { store: Store; imagesDir?: string; sessionsDir?: string; projectId?: string; knownHashes?: Set<string> | null; processedSignatures?: Map<string, string> | null; sessionPathCache?: Map<string, string> | null; sessionMetadataCache?: Map<string, CachedTaskMetadata> | null; }): Promise<ReconcileResult> {
+  const { store, imagesDir: imagesDirOpt, sessionsDir: sessionsDirOpt, projectId = DEFAULT_PROJECT_ID, knownHashes: knownHashesOpt, processedSignatures = null, sessionPathCache = null, sessionMetadataCache = null } = options;
   const root = resolve(imagesDirOpt || store.codexImagesDir);
   const candidates = await readCodexImageCandidates(root);
   if (processedSignatures) pruneProcessedSignatures(processedSignatures, candidates.map((candidate) => candidate.imagePath));
@@ -70,7 +73,8 @@ export async function reconcileCodexGeneratedImages(options: { store: Store; ima
   const lookup = createBridgeAssetLookup(store, projectId);
   const contentHashes = knownHashesOpt || new Set<string>();
   const taskIds = new Set(candidates.map((c) => c.taskId).filter(Boolean) as string[]);
-  const taskMetadata = await readCodexTaskMetadata(sessionsDir, taskIds);
+  pruneCodexSessionCaches(taskIds, sessionPathCache, sessionMetadataCache);
+  const taskMetadata = await readCodexTaskMetadata(sessionsDir, taskIds, sessionPathCache, sessionMetadataCache);
   const imported: unknown[] = []; const skipped: Array<{ path: string; reason: string; error?: string }> = []; const updated: string[] = [];
   for (const candidate of candidates) {
     const task = taskMetadata.get(candidate.taskId || "") || emptyTaskMetadata(candidate.taskId || "");
@@ -143,7 +147,6 @@ async function upgradeGenerationMetadata(store: Store, asset: StoredAsset, gener
   const nextSource: Record<string, unknown> = {
     ...(asset.source || {}),
     codex_session_path: generation.sessionPath || asset.source?.codex_session_path || null,
-    codex_session_updated_at: generation.sessionUpdatedAt || asset.source?.codex_session_updated_at || null,
     codex_image_generation_call_id: generation.callId || asset.source?.codex_image_generation_call_id || null,
     codex_image_generated_at: generation.generatedAt || asset.source?.codex_image_generated_at || null,
     model: generation.model || asset.source?.model || null,
@@ -151,7 +154,6 @@ async function upgradeGenerationMetadata(store: Store, asset: StoredAsset, gener
   };
   const sourceChanged = [
     "codex_session_path",
-    "codex_session_updated_at",
     "codex_image_generation_call_id",
     "codex_image_generated_at",
     "model",
@@ -159,6 +161,11 @@ async function upgradeGenerationMetadata(store: Store, asset: StoredAsset, gener
   ].some((key) => asset.source?.[key] !== nextSource[key]);
   const businessStatusChanged = asset.business_fields?.prompt_status !== generation.promptStatus;
   if (!promptChanged && !themeChanged && !sourceChanged && !businessStatusChanged) return false;
+
+  // Session mtime is provenance, not business identity. Record the freshest
+  // value only when a real prompt/call/model/provenance upgrade already
+  // warrants a write; mtime churn alone must never create a library revision.
+  if (generation.sessionUpdatedAt) nextSource.codex_session_updated_at = generation.sessionUpdatedAt;
 
   await store.updateMetadata(asset.project_id, asset.id, {
     ...(promptChanged ? { prompt: generation.prompt } : {}),
@@ -174,7 +181,7 @@ async function upgradeGenerationMetadata(store: Store, asset: StoredAsset, gener
 
 function metadataForCandidate(task: TaskMetadataEntry, candidate: ImageCandidate): GenerationMetadata { return task.imagePrompts.get(candidate.imagePath) || task.fallback; }
 function candidateSignature(candidate: ImageCandidate, generation: GenerationMetadata): string {
-  return [candidate.fileStat.size, candidate.fileStat.mtimeMs, generation.promptStatus, generation.sessionUpdatedAt || "", generation.callId || "", generation.model || "", generation.prompt].join("\u001f");
+  return [candidate.fileStat.size, candidate.fileStat.mtimeMs, generation.promptStatus, generation.sessionPath || "", generation.callId || "", generation.generatedAt || "", generation.model || "", generation.prompt].join("\u001f");
 }
 function pruneProcessedSignatures(cache: Map<string, string>, livePaths: string[]): void {
   const live = new Set(livePaths);
@@ -182,17 +189,65 @@ function pruneProcessedSignatures(cache: Map<string, string>, livePaths: string[
 }
 function promptTheme(prompt: string): string { const match = /^Asset type:\s*(.+)$/mi.exec(String(prompt || "")); return match?.[1]?.trim() || ""; }
 
-async function readCodexTaskMetadata(sessionsDir: string, taskIds: Set<string>): Promise<Map<string, TaskMetadataEntry>> {
+function pruneCodexSessionCaches(taskIds: Set<string>, sessionPathCache: Map<string, string> | null, sessionMetadataCache: Map<string, CachedTaskMetadata> | null): void {
+  if (!sessionPathCache) return;
+  const livePaths = new Set<string>();
+  for (const [taskId, sessionPath] of sessionPathCache) {
+    if (!taskIds.has(taskId)) sessionPathCache.delete(taskId);
+    else livePaths.add(sessionPath);
+  }
+  if (sessionMetadataCache) {
+    for (const sessionPath of sessionMetadataCache.keys()) if (!livePaths.has(sessionPath)) sessionMetadataCache.delete(sessionPath);
+  }
+}
+
+async function findCodexSessionPaths(sessionsDir: string, taskIds: Set<string>): Promise<Map<string, string>> {
+  const matching = new Map<string, string>();
+  if (!taskIds.size) return matching;
+  const sessionFiles = await walkFiles(sessionsDir);
+  for (const filePath of sessionFiles) {
+    const match = /([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\.jsonl$/i.exec(filePath);
+    if (match && taskIds.has(match[1])) matching.set(match[1], filePath);
+    if (matching.size === taskIds.size) break;
+  }
+  return matching;
+}
+
+async function readCodexTaskMetadata(sessionsDir: string, taskIds: Set<string>, sessionPathCache: Map<string, string> | null = null, sessionMetadataCache: Map<string, CachedTaskMetadata> | null = null): Promise<Map<string, TaskMetadataEntry>> {
   const result = new Map<string, TaskMetadataEntry>(); if (!taskIds.size) return result;
-  const sessionFiles = await walkFiles(sessionsDir); const matching = new Map<string, string>();
-  for (const filePath of sessionFiles) { const match = /([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\.jsonl$/i.exec(filePath); if (match && taskIds.has(match[1])) matching.set(match[1], filePath); }
-  await Promise.all([...taskIds].map(async (taskId) => { result.set(taskId, await readTaskMetadataFile(taskId, matching.get(taskId))); }));
+  const matching = new Map<string, string>();
+  const unresolved = new Set<string>();
+  for (const taskId of taskIds) {
+    const cachedPath = sessionPathCache?.get(taskId);
+    if (cachedPath) matching.set(taskId, cachedPath);
+    else unresolved.add(taskId);
+  }
+  if (unresolved.size) {
+    const discovered = await findCodexSessionPaths(sessionsDir, unresolved);
+    for (const [taskId, sessionPath] of discovered) {
+      matching.set(taskId, sessionPath);
+      sessionPathCache?.set(taskId, sessionPath);
+    }
+  }
+  await Promise.all([...taskIds].map(async (taskId) => {
+    const sessionPath = matching.get(taskId);
+    const metadata = await readTaskMetadataFile(taskId, sessionPath, sessionMetadataCache);
+    if (sessionPath && metadata.fallback.sessionPath === null) {
+      sessionPathCache?.delete(taskId);
+      sessionMetadataCache?.delete(sessionPath);
+    }
+    result.set(taskId, metadata);
+  }));
   return result;
 }
 
-async function readTaskMetadataFile(taskId: string, sessionPath: string | undefined): Promise<TaskMetadataEntry> {
+async function readTaskMetadataFile(taskId: string, sessionPath: string | undefined, sessionMetadataCache: Map<string, CachedTaskMetadata> | null = null): Promise<TaskMetadataEntry> {
   if (!sessionPath) return emptyTaskMetadata(taskId);
-  try { const [raw, sessionStat] = await Promise.all([readFile(sessionPath, "utf8"), stat(sessionPath)]); const userTexts: string[] = []; const imagePrompts = new Map<string, GenerationMetadata>(); let currentModel: string | null = null;
+  try {
+    const sessionStat = await stat(sessionPath);
+    const cached = sessionMetadataCache?.get(sessionPath);
+    if (cached?.mtimeMs === sessionStat.mtimeMs && cached?.size === sessionStat.size) return cached.metadata;
+    const raw = await readFile(sessionPath, "utf8"); const userTexts: string[] = []; const imagePrompts = new Map<string, GenerationMetadata>(); let currentModel: string | null = null;
     for (const line of raw.split("\n")) { if (!line) continue; let event: Record<string, unknown>; try { event = JSON.parse(line); } catch { continue; }
       const turnContext = event?.type === "turn_context" ? event.payload as Record<string, unknown> | null : null; if (turnContext) { currentModel = String(turnContext.model || "").trim() || currentModel; continue; }
       const generatedImage = event?.type === "event_msg" && (event.payload as Record<string, unknown>)?.type === "image_generation_end" ? event.payload as Record<string, unknown> : null;
@@ -201,7 +256,9 @@ async function readTaskMetadataFile(taskId: string, sessionPath: string | undefi
       for (const part of (message.content as Array<Record<string, unknown>>) || []) { const text = String(part?.text || "").trim(); if (part?.type === "input_text" && isUserPrompt(text)) userTexts.push(text); }
     }
     const fallback: GenerationMetadata = { taskId, prompt: userTexts.at(-1) || "", promptStatus: userTexts.length ? "task-user-prompt" : "not-available-in-session", sessionPath, sessionUpdatedAt: sessionStat.mtime.toISOString(), callId: null, generatedAt: null, model: null };
-    return { taskId, fallback, imagePrompts };
+    const metadata = { taskId, fallback, imagePrompts };
+    sessionMetadataCache?.set(sessionPath, { mtimeMs: sessionStat.mtimeMs, size: sessionStat.size, metadata });
+    return metadata;
   } catch { return emptyTaskMetadata(taskId); }
 }
 

@@ -32,6 +32,22 @@ test("SQLite managed-file cleanup removes only stale unreferenced files", async 
 
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+1CBR3wAAAABJRU5ErkJggg==", "base64");
 
+test("SQLite read-only library queries do not materialize project asset directories", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-read-only-project-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir: join(root, "library"), initializeFreshLibrary: true });
+  t.after(() => store.close());
+  const projectId = "read-only-project";
+  const projectDir = store.projectDir(projectId);
+
+  const page = await store.listAssetPage({ projectId, limit: 20 });
+  const groups = await store.listGroups(projectId);
+  assert.deepEqual(page.assets, []);
+  assert.deepEqual(groups.groups, []);
+  await assert.rejects(stat(projectDir), /ENOENT/,
+    "read paths must not pay mkdir/INSERT project setup costs");
+});
+
 test("SQLite materializes search and filter scalars without changing search semantics", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-search-scalars-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -227,6 +243,13 @@ test("SQLite deleting a group clears asset assignments and its search index", as
   const asset = await store.createAsset({ assetId: "grouped-fixture", imagePath: sourcePath, prompt: "group deletion fixture", group: "Aurora" });
   assert.equal((await store.listAssetPage({ projectId: "default", query: "Aurora", limit: 10 })).page.total, 1);
 
+  await store.renameGroup("default", "Aurora", "Nebula");
+  assert.equal((await store.getAsset("default", asset.id)).group, "Nebula");
+  assert.deepEqual((await store.listGroups("default")).groups, [["Nebula", 1]]);
+  assert.equal((await store.listAssetPage({ projectId: "default", query: "Nebula", limit: 10 })).page.total, 1);
+  assert.equal((await store.listAssetPage({ projectId: "default", query: "Aurora", limit: 10 })).page.total, 0);
+  await store.renameGroup("default", "Nebula", "Aurora");
+
   await store.deleteGroup("default", "Aurora");
 
   assert.equal((await store.getAsset("default", asset.id)).group, "");
@@ -235,6 +258,61 @@ test("SQLite deleting a group clears asset assignments and its search index", as
 
   await store.createGroup({ projectId: "default", name: "Aurora" });
   assert.deepEqual((await store.listGroups("default")).groups, [["Aurora", 0]]);
+});
+
+test("SQLite group deletion can explicitly delete every asset in the group", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-delete-group-assets-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, ONE_PIXEL_PNG);
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir: join(root, "library") });
+  t.after(() => store.close());
+
+  await store.createGroup({ projectId: "default", name: "Disposable" });
+  const first = await store.createAsset({ assetId: "group-delete-a", imagePath: sourcePath, group: "Disposable" });
+  const second = await store.createAsset({ assetId: "group-delete-b", imagePath: sourcePath, group: "Disposable" });
+
+  const result = await store.deleteGroup("default", "Disposable", { deleteAssets: true });
+
+  assert.equal(result.deletedAssets, 2);
+  await assert.rejects(store.getAsset("default", first.id), /not found/i);
+  await assert.rejects(store.getAsset("default", second.id), /not found/i);
+  assert.deepEqual((await store.listGroups("default")).groups, []);
+});
+
+test("SQLite group deletion is all-or-nothing when a later asset fails preflight", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-delete-group-atomic-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, ONE_PIXEL_PNG);
+  const libraryDir = join(root, "library");
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir });
+  t.after(() => store.close());
+
+  await store.createGroup({ projectId: "default", name: "Atomic" });
+  const first = await store.createAsset({ assetId: "group-atomic-a", imagePath: sourcePath, group: "Atomic" });
+  const second = await store.createAsset({ assetId: "group-atomic-b", imagePath: sourcePath, group: "Atomic" });
+
+  // Corrupt only the second managed path. The group delete must discover this
+  // before committing any row deletion, rather than deleting the first asset
+  // and then surfacing an error for the second.
+  const inspect = new Database(sqliteDatabasePath(libraryDir));
+  inspect.prepare("UPDATE assets SET original_path = ? WHERE project_id = ? AND id = ?")
+    .run(sourcePath, "default", second.id);
+  inspect.close();
+
+  await assert.rejects(
+    store.deleteGroup("default", "Atomic", { deleteAssets: true }),
+    /Unsafe asset path/,
+  );
+
+  assert.equal((await store.getAsset("default", first.id)).id, first.id);
+  assert.equal((await store.getAsset("default", second.id)).id, second.id);
+  assert.deepEqual((await store.listGroups("default")).groups, [["Atomic", 2]]);
 });
 
 test("SQLite deleteAsset commits the row before unlinking files", async (t) => {
@@ -771,6 +849,46 @@ test("SQLite schema v7 backfills conversation and generation-batch scalars", asy
   assert.ok(migrations.includes(10));
   assert.ok(migrations.includes(11));
   assert.ok(migrations.includes(12));
+});
+
+test("SQLite upgrades a legacy assets table before creating the source-path index", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-schema-source-path-order-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const libraryDir = join(root, "library");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, ONE_PIXEL_PNG);
+
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir });
+  await store.createAsset({
+    assetId: "legacy-source-path",
+    imagePath: sourcePath,
+    source: { type: "web-chatgpt", path: sourcePath },
+  });
+  store.close();
+
+  const databasePath = sqliteDatabasePath(libraryDir);
+  const legacy = new Database(databasePath);
+  legacy.exec(`
+    DROP INDEX IF EXISTS assets_project_source_path_idx;
+    ALTER TABLE assets DROP COLUMN source_path;
+    UPDATE library_meta SET value = '11' WHERE key = 'schema_version';
+    DELETE FROM schema_migrations WHERE version = 12;
+  `);
+  legacy.close();
+
+  const upgraded = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir });
+  const restored = await upgraded.findAssetBySourcePath("default", sourcePath);
+  upgraded.close();
+
+  const inspected = new Database(databasePath, { readonly: true });
+  const columns = inspected.prepare("PRAGMA table_info(assets)").all().map((row) => row.name);
+  const indexes = inspected.prepare("PRAGMA index_list(assets)").all().map((row) => row.name);
+  inspected.close();
+  assert.ok(columns.includes("source_path"));
+  assert.ok(indexes.includes("assets_project_source_path_idx"));
+  assert.equal(restored?.id, "legacy-source-path");
 });
 
 test("SQLite schema v2 migration backfills current recipes for existing assets", async (t) => {

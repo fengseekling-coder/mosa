@@ -83,6 +83,71 @@ test("skips unchanged Codex candidates without touching the asset store twice", 
   assert.equal(listCalls, 0, "indexed bridge lookup must not fall back to full project listing");
 });
 
+test("caches Codex session parsing and ignores unrelated session mtime churn", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-codex-session-cache-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const imagesDir = join(root, "generated_images");
+  const sessionsDir = join(root, "sessions");
+  const taskId = "019f776f-f6d5-7692-b9e5-dd280fc09f88";
+  const imagePath = join(imagesDir, taskId, "cached.png");
+  const sessionPath = join(sessionsDir, `rollout-test-${taskId}.jsonl`);
+  await mkdir(join(imagesDir, taskId), { recursive: true });
+  await mkdir(sessionsDir, { recursive: true });
+  await writeFile(imagePath, pngFixture(64, 64));
+  const revisedPrompt = "Use case: cache-test\nAsset type: stable image\nPrimary request: Keep this prompt stable.";
+  await writeFile(sessionPath, `${JSON.stringify({
+    type: "event_msg",
+    timestamp: "2026-08-31T01:00:00.000Z",
+    payload: { type: "image_generation_end", call_id: "stable-call", saved_path: imagePath, revised_prompt: revisedPrompt },
+  })}\n`);
+
+  let sourceLookups = 0;
+  let updates = 0;
+  const store = {
+    codexImagesDir: imagesDir,
+    async listAssets() { return []; },
+    async findAssetBySourcePath() {
+      sourceLookups += 1;
+      return {
+        id: "existing",
+        project_id: "default",
+        prompt: revisedPrompt,
+        theme: "stable image",
+        business_fields: { prompt_status: "image-generation-revised-prompt" },
+        source: {
+          path: imagePath,
+          codex_session_path: sessionPath,
+          codex_image_generation_call_id: "stable-call",
+          codex_image_generated_at: "2026-08-31T01:00:00.000Z",
+          prompt_status: "image-generation-revised-prompt",
+        },
+      };
+    },
+    async updateMetadata() { updates += 1; },
+    async createAsset() { throw new Error("create should not run"); },
+  };
+  const processedSignatures = new Map();
+  const sessionPathCache = new Map();
+  const sessionMetadataCache = new Map();
+  const options = { store, imagesDir, sessionsDir, processedSignatures, sessionPathCache, sessionMetadataCache };
+
+  await reconcileCodexGeneratedImages(options);
+  const updatesAfterFirstReconcile = updates;
+  const firstCached = sessionMetadataCache.get(sessionPath)?.metadata;
+  await reconcileCodexGeneratedImages(options);
+  assert.equal(sessionMetadataCache.get(sessionPath)?.metadata, firstCached, "unchanged JSONL must reuse parsed metadata");
+
+  await appendFile(sessionPath, `${JSON.stringify({
+    type: "response_item",
+    payload: { type: "message", role: "user", content: [{ type: "input_text", text: "unrelated follow-up conversation" }] },
+  })}\n`);
+  const third = await reconcileCodexGeneratedImages(options);
+  assert.equal(third.skipped[0].reason, "unchanged", "session mtime alone must not invalidate an archived image");
+  assert.equal(sourceLookups, 1);
+  assert.equal(updates, updatesAfterFirstReconcile, "unrelated session churn must not write asset metadata again");
+  assert.notEqual(sessionMetadataCache.get(sessionPath)?.metadata, firstCached, "changed JSONL should refresh the parse cache once");
+});
+
 test("passes automatic ingest mode and continues after a suppressed Codex image", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-codex-suppressed-"));
   t.after(() => rm(root, { recursive: true, force: true }));

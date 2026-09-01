@@ -505,8 +505,63 @@ test("persists manually created groups, including empty groups", async (t) => {
   await writeFile(sourcePath, "fixture image", "utf8");
   await store.createAsset({ assetId: "grouped-fixture", imagePath: sourcePath, group: "Inspiration board" });
 
+  await store.renameGroup("default", "Inspiration board", "Mood board");
+  assert.equal((await store.getAsset("default", "grouped-fixture")).group, "Mood board");
+  await assert.rejects(store.renameGroup("default", "Missing", "Other"), /Group not found/);
+
   stats = await createAssetStore({ projectRoot, managerDir }).listGroups("default");
-  assert.deepEqual(stats.groups, [["Inspiration board", 1]]);
+  assert.deepEqual(stats.groups, [["Mood board", 1]]);
+});
+
+test("JSON group deletion can explicitly delete every asset in the group", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-delete-group-assets-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const sourceDir = join(projectRoot, "generated-images");
+  const sourcePath = join(sourceDir, "fixture.png");
+  await mkdir(sourceDir, { recursive: true });
+  await writeFile(sourcePath, "fixture image", "utf8");
+  const store = createAssetStore({ projectRoot, managerDir });
+  await store.createGroup({ projectId: "default", name: "Disposable" });
+  const first = await store.createAsset({ assetId: "group-delete-a", imagePath: sourcePath, group: "Disposable" });
+  const second = await store.createAsset({ assetId: "group-delete-b", imagePath: sourcePath, group: "Disposable" });
+
+  const result = await store.deleteGroup("default", "Disposable", { deleteAssets: true });
+
+  assert.equal(result.deletedAssets, 2);
+  await assert.rejects(store.getAsset("default", first.id), /not found/i);
+  await assert.rejects(store.getAsset("default", second.id), /not found/i);
+  assert.deepEqual((await store.listGroups("default")).groups, []);
+});
+
+test("JSON group deletion rolls metadata back when a later logical write fails", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-delete-group-assets-rollback-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const sourceDir = join(projectRoot, "generated-images");
+  const sourcePath = join(sourceDir, "fixture.png");
+  await mkdir(sourceDir, { recursive: true });
+  await writeFile(sourcePath, "fixture image", "utf8");
+  const store = createAssetStore({ projectRoot, managerDir });
+  await store.createGroup({ projectId: "default", name: "Atomic" });
+  const first = await store.createAsset({ assetId: "group-rollback-a", imagePath: sourcePath, group: "Atomic" });
+  const second = await store.createAsset({ assetId: "group-rollback-b", imagePath: sourcePath, group: "Atomic" });
+
+  const originalEventsFile = store.generationEventsFile.bind(store);
+  let calls = 0;
+  store.generationEventsFile = (projectId) => {
+    calls += 1;
+    if (calls === 2) return store.projectDir(projectId);
+    return originalEventsFile(projectId);
+  };
+
+  await assert.rejects(store.deleteGroup("default", "Atomic", { deleteAssets: true }));
+
+  assert.equal((await store.getAsset("default", first.id)).group, "Atomic");
+  assert.equal((await store.getAsset("default", second.id)).group, "Atomic");
+  assert.deepEqual((await store.listGroups("default")).groups, [["Atomic", 2]]);
 });
 
 test("keeps concurrent group creations from independent store instances", async (t) => {

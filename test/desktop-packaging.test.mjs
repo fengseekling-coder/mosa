@@ -347,7 +347,7 @@ test("packaged smoke waits for the real renderer and tears Electron down before 
   assert.match(source, /waitForRenderer\(/, "packaged smoke must wait for renderer readiness");
   assert.match(source, /document\.querySelector\('#appShell'\)/, "renderer readiness must require the real MOSA app shell");
   assert.match(source, /window\.electronAPI/, "renderer readiness must verify preload exposure");
-  assert.match(source, /await stopChild\(child\)/, "cleanup must wait for Electron teardown");
+  assert.match(source, /await stopChild\(.*\.child\)/, "cleanup must wait for Electron teardown");
   assert.match(source, /signalProcessTree\(childProcess\.pid, \{ force: true \}\)/, "teardown must have a bounded process-tree hard-stop fallback");
 });
 
@@ -380,7 +380,7 @@ test("exposes only the minimal show-in-folder capability to the renderer", async
   assert.doesNotMatch(preload, /stage-dropped-file/, "stage-dropped-file IPC was removed as dead code");
   assert.doesNotMatch(preload, /openFileDialog:/, "unused open-file dialog IPC was removed");
   assert.doesNotMatch(main, /ipcMain\.handle\("open-file-dialog"/, "unused open-file dialog handler was removed");
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 7, "no invoke channel beyond the seven currently approved narrow requests");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 8, "no invoke channel beyond the eight currently approved narrow requests");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "shell is never exposed to the renderer");
   assert.doesNotMatch(preload, /exec\(|spawn\(|execFile\(/, "no arbitrary command execution");
 
