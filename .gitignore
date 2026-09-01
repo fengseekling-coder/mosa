@@ -47,6 +47,11 @@ npm-debug.log*
 
 # Electron build output.
 /desktop/out/
+
+# Chrome Web Store extension packages are build artifacts, never source.
+# Listed explicitly so a typo in the /out/ rule cannot leak them upstream.
+/out/store/
+*.Chrome-Web-Store.zip
 /out/
 
 # Test coverage reports.
