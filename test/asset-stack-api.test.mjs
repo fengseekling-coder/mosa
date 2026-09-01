@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { removeTestPath as rm } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -62,6 +63,14 @@ test("Stack API keeps raw assets complete while gallery view collapses to one lo
   const stack = (await stacked.json()).stack;
   assert.equal(stack.count, 2);
 
+  const stackPageOne = await (await fetch(`${runtime.url}/api/asset-stacks/${encodeURIComponent(stack.id)}/assets?project=default&limit=1`)).json();
+  assert.deepEqual(stackPageOne.assets.map((asset) => asset.id), ["a"]);
+  assert.equal(stackPageOne.page.total, 2);
+  assert.equal(typeof stackPageOne.page.nextCursor, "string");
+  const stackPageTwo = await (await fetch(`${runtime.url}/api/asset-stacks/${encodeURIComponent(stack.id)}/assets?project=default&limit=1&cursor=${encodeURIComponent(stackPageOne.page.nextCursor)}`)).json();
+  assert.deepEqual(stackPageTwo.assets.map((asset) => asset.id), ["b"]);
+  assert.equal(stackPageTwo.page.nextCursor, null);
+
   const raw = await (await fetch(`${runtime.url}/api/assets?project=default&limit=100`)).json();
   assert.deepEqual(raw.assets.map((asset) => asset.id).sort(), ["a", "b", "c"]);
 
@@ -77,9 +86,20 @@ test("Stack API keeps raw assets complete while gallery view collapses to one lo
   ]) {
     const result = await (await fetch(`${runtime.url}/api/assets?project=default&limit=100&${query}`)).json();
     assert.deepEqual(result.assets.map((asset) => asset.id), ["a"]);
+    assert.deepEqual(result.assets[0].stack, { id: stack.id, count: 2, match_count: 1 });
     assert.equal(result.page.total, 1);
   }
 
   const inside = await (await fetch(`${runtime.url}/api/asset-stacks/${encodeURIComponent(stack.id)}/assets?project=default&q=hidden%20needle`)).json();
   assert.deepEqual(inside.assets.map((asset) => asset.id), ["b"]);
+
+  const dissolved = await fetch(`${runtime.url}/api/asset-stacks/${encodeURIComponent(stack.id)}`, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: "default" }),
+  });
+  assert.equal(dissolved.status, 200);
+  assert.deepEqual((await dissolved.json()).assetIds, ["a", "b"]);
+  const afterDissolve = await (await fetch(`${runtime.url}/api/assets?project=default&view=gallery&limit=100`)).json();
+  assert.deepEqual(afterDissolve.assets.map((asset) => asset.id).sort(), ["a", "b", "c"]);
 });

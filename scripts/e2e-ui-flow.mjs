@@ -191,6 +191,15 @@ export function createStackUiFlowSource() {
   const secondId = initialCards[1].dataset.id;
   ctrlClick(initialCards[0].querySelector('.asset-card-select'));
   ctrlClick(initialCards[1].querySelector('.asset-card-select'));
+  // A small drag of an existing multi-selection onto one of its own members
+  // must be a no-op, not an accidental Stack creation.
+  const selfDropFrom = initialCards[0].getBoundingClientRect();
+  const selfDropTo = initialCards[1].getBoundingClientRect();
+  pointer(initialCards[0].querySelector('.asset-card-select'), 'pointerdown', selfDropFrom.left + selfDropFrom.width / 2, selfDropFrom.top + selfDropFrom.height / 2, 90);
+  pointer(window, 'pointermove', selfDropTo.left + selfDropTo.width / 2, selfDropTo.top + selfDropTo.height / 2, 90);
+  pointer(window, 'pointerup', selfDropTo.left + selfDropTo.width / 2, selfDropTo.top + selfDropTo.height / 2, 90);
+  await sleep(80);
+  if (document.querySelector('#assetGrid > .asset-card.is-stack')) throw new Error('Self-drop unexpectedly created a Stack');
   const stackButton = await waitFor(
     () => {
       const button = document.querySelector('#selectionStack');
@@ -205,7 +214,7 @@ export function createStackUiFlowSource() {
   );
   const stackId = stackCard.dataset.stackId;
   const rootCountAfterStack = document.querySelectorAll('#assetGrid > .asset-card').length;
-  stackCard.querySelector('.asset-card-select').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+  stackCard.querySelector('.asset-card-select').click();
   await waitFor(
     () => !document.querySelector('#stackBack')?.hidden
       && document.querySelector('#assetGrid')?.getAttribute('aria-busy') === 'false'
@@ -248,6 +257,7 @@ export function createStackUiFlowSource() {
     rootCountAfterStack,
     currentRootCount: document.querySelectorAll('#assetGrid > .asset-card').length,
     stackCount: returnedStack.querySelector('.asset-stack-count')?.textContent || '',
+    dualCountLabel: document.querySelector('#assetCount')?.textContent?.includes('·') || false,
   };
 })()
 `;

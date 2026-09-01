@@ -39,7 +39,7 @@ export interface StoredAsset {
   prompt_file?: string;
   recipe_snapshots?: unknown[];
   active_recipe_snapshot_id?: string | null;
-  stack?: { id: string; count: number };
+  stack?: { id: string; count: number; match_count?: number };
   stack_position?: number;
   [key: string]: unknown;
 }
@@ -95,7 +95,7 @@ export interface SqliteAssetStore {
   listAssets(filters: AssetListFilters): Promise<StoredAsset[]>;
   listAssetPage(filters: AssetListFilters): Promise<AssetPage>;
   getAssetStack(projectId: string, stackId: string): Promise<AssetStackSummary>;
-  listAssetStackAssets(projectId: string, stackId: string, filters?: AssetListFilters): Promise<{ stack: AssetStackSummary; assets: StoredAsset[]; page: { total: number; nextCursor: null } }>;
+  listAssetStackAssets(projectId: string, stackId: string, filters?: AssetListFilters): Promise<{ stack: AssetStackSummary; assets: StoredAsset[]; page: { total: number; nextCursor: string | null; limit: number; sort: string } }>;
   createAssetStack(projectId: string, assetIds: string[], options?: { coverAssetId?: string }): Promise<AssetStackSummary>;
   addAssetsToStack(projectId: string, stackId: string, assetIds: string[]): Promise<AssetStackSummary>;
   reorderAssetStack(projectId: string, stackId: string, assetIds: string[]): Promise<AssetStackSummary>;

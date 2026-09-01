@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, symlink } from "node:fs/promises";
+import { removeTestPath as rm } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { isAllowedIngestOrigin, isAllowedLocalOrigin, isApprovedExtensionOrigin, parseAllowedIngestOrigins, resolveAllowedFolderPath } from "../lib/server-security.js";

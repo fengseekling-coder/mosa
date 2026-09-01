@@ -1,15 +1,17 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile, mkdir, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, writeFile, mkdir, readFile, readdir } from "node:fs/promises";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
 import { DISABLEABLE_BRIDGES } from "../lib/runtime-bridges.mjs";
+import { removeTestPath as rm } from "./test-cleanup.mjs";
 
-const repositoryRoot = resolve(new URL("..", import.meta.url).pathname);
+const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 /**
  * Minimal 1×1 PNG (67 bytes) used as a fixture image so that createAsset can

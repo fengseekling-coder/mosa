@@ -71,6 +71,9 @@ export function createApiClient(deps) {
     state.groups = nextGroups;
     if (!options.background || changed) {
       renderQuickFilters();
+      const assetsBelongToProject = !state.assets.length
+        || state.assets.every((asset) => (asset.project_id || project) === project);
+      if (state.galleryStatus !== "loading" && assetsBelongToProject) updateViewTitle();
     }
     return true;
   }
@@ -88,7 +91,7 @@ export function createApiClient(deps) {
   // 只读查询快照上取页，绝不读取运行中已变化的筛选状态；游标必须与发出时的排序同行。
   function buildAssetPageParams(request, options = {}) {
     const params = new URLSearchParams({ project: request.project, q: request.query });
-    if (!request.stackId) params.set("limit", "100");
+    params.set("limit", "100");
     // The sort is resolved by the store across the whole query, so the cursor must
     // travel with the same order it was issued under.
     params.set("sort", request.sort);
@@ -114,9 +117,9 @@ export function createApiClient(deps) {
 
   function requestAssetTotal(request) {
     const params = buildAssetPageParams(request);
+    params.set("limit", "1");
     if (request.stackId) return apiFetch(`/api/asset-stacks/${encodeURIComponent(request.stackId)}/assets?${params}`);
     params.set("view", "gallery");
-    params.set("limit", "1");
     return apiFetch(`/api/assets?${params}`);
   }
 
@@ -446,6 +449,7 @@ export function createApiClient(deps) {
       asset.version_index || "",
       asset.stack?.id || "",
       asset.stack?.count || "",
+      asset.stack?.match_count || "",
     ].join("\u001f")).join("|");
   }
 

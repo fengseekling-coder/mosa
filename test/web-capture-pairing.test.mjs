@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { access, mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import {
   MOSA_WEB_CAPTURE_EXTENSION_ORIGINS,
   MOSA_WEB_CAPTURE_STORE_EXTENSION_ID,
 } from "../desktop/web-capture-pairing.mjs";
+import { removeTestPath as rm } from "./test-cleanup.mjs";
 
 test("desktop Web Capture pairing accepts both development and Chrome Web Store identities", () => {
   assert.match(MOSA_WEB_CAPTURE_EXTENSION_ID, /^[a-p]{32}$/);
@@ -42,6 +43,8 @@ test("desktop creates one private persistent Web Capture token", async (t) => {
   const tokenPath = join(root, "web-capture-token");
   await access(tokenPath);
   assert.equal((await readFile(tokenPath, "utf8")).trim(), first);
-  const mode = (await stat(tokenPath)).mode & 0o777;
-  assert.equal(mode, 0o600);
+  if (process.platform !== "win32") {
+    const mode = (await stat(tokenPath)).mode & 0o777;
+    assert.equal(mode, 0o600);
+  }
 });

@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { getBuildIdentity, resetBuildIdentityCache, computeRuntimeFingerprint, computeUiFingerprint } from "../lib/build-identity.mjs";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
 import { MCP_SERVER_VERSION } from "../lib/version-identities.mjs";
+import { removeTestPath as rm } from "./test-cleanup.mjs";
 
-const repositoryRoot = resolve(new URL("..", import.meta.url).pathname);
+const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 async function makeTempDir(prefix) {
   const dir = await mkdtemp(join(tmpdir(), prefix));
