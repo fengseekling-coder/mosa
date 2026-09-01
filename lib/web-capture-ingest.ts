@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { lstat, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import sharp from "sharp";
+import sharp from "./sharp-runtime.js";
 import { createdAtTimestamp } from "./recent-window.js";
 import { createReferenceAttachmentStore, type ReferenceAttachment } from "./reference-attachment-store.js";
 import { PIXEL_HASH_VERSION, safePixelDigest } from "./image-pixel-hash.js";

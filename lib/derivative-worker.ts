@@ -1,11 +1,13 @@
-import sharp from "sharp";
 import { mkdir } from "node:fs/promises";
 import { dirname, extname } from "node:path";
+import sharp from "./sharp-runtime.js";
 
 const DEFAULT_CONCURRENCY = 2;
 const VIDEO_EXTENSIONS = new Set([".m4v", ".mov", ".mp4", ".webm"]);
 
 interface DerivativeJob {
+  project_id?: string;
+  asset_id?: string;
   original_path?: string;
   previewPath: string;
   mediumPath: string;
@@ -16,6 +18,8 @@ interface DerivativeStore {
   derivativesAvailable?: boolean;
   claimDerivativeJob(): Promise<DerivativeJob | null>;
   completeDerivativeJob(job: DerivativeJob, result: Record<string, unknown>): Promise<void>;
+  isAssetActive?(projectId: string, assetId: string): Promise<boolean>;
+  withAssetLifecycleLock?<T>(projectId: string, assetId: string, task: () => Promise<T>): Promise<T>;
 }
 
 interface DerivativeWorker {
@@ -82,7 +86,13 @@ export function createDerivativeWorker(options: {
 }
 
 export async function processDerivativeJob(store: DerivativeStore, job: DerivativeJob): Promise<Record<string, unknown>> {
-  try {
+  const run = async (): Promise<Record<string, unknown>> => {
+    const projectId = String(job.project_id || "default");
+    const assetId = String(job.asset_id || "");
+    if (assetId && store.isAssetActive && !await store.isAssetActive(projectId, assetId)) {
+      return { ok: false, skipped: true, error: "Asset is no longer active." };
+    }
+    try {
     if (VIDEO_EXTENSIONS.has(extname(String(job.original_path || "")).toLowerCase())) {
       const error = "Video assets are served as original media; derivative generation is skipped.";
       await store.completeDerivativeJob(job, { error });
@@ -108,8 +118,14 @@ export async function processDerivativeJob(store: DerivativeStore, job: Derivati
     const result = { previewPath: job.previewPath, mediumPath: job.mediumPath, thumbnailPath: job.thumbnailPath, width, height };
     await store.completeDerivativeJob(job, result);
     return { ok: true, ...result };
-  } catch (error) {
-    await store.completeDerivativeJob(job, { error: error instanceof Error ? error.message : String(error) });
-    return { ok: false, error };
-  }
+    } catch (error) {
+      await store.completeDerivativeJob(job, { error: error instanceof Error ? error.message : String(error) });
+      return { ok: false, error };
+    }
+  };
+  const projectId = String(job.project_id || "default");
+  const assetId = String(job.asset_id || "");
+  return assetId && store.withAssetLifecycleLock
+    ? store.withAssetLifecycleLock(projectId, assetId, run)
+    : run();
 }

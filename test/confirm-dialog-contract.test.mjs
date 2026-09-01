@@ -339,13 +339,13 @@ test("58. dialog styles without !important", async () => {
     "danger hover stays inside the precise-pointer media guard");
 });
 
-test("context-menu bulk delete passes the selected count into its title", async () => {
+test("context-menu bulk Trash action passes the selected count into its title", async () => {
   const source = await readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8");
   const { default: translations } = await import(pathToFileURL(resolve(root, "app/i18n.mjs")).href);
 
-  assert.match(translations.zh.deleteAssetsTitle, /\{count\}/);
-  assert.match(translations.en.deleteAssetsTitle, /\{count\}/);
-  assert.match(source, /t\("deleteAssetsTitle", \{ count: assets\.length \}\)/);
-  assert.doesNotMatch(source, /t\("deleteAssetsTitle"\)/);
+  assert.match(translations.zh.moveAssetsToTrashTitle, /\{count\}/);
+  assert.match(translations.en.moveAssetsToTrashTitle, /\{count\}/);
+  assert.match(source, /t\("moveAssetsToTrashTitle", \{ count: assets\.length \}\)/);
+  assert.doesNotMatch(source, /t\("moveAssetsToTrashTitle"\)/);
   assert.doesNotMatch(source, /t\("archiveAsset"\)/, "archive is no longer exposed from the asset context menu");
 });

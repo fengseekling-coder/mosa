@@ -96,7 +96,7 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     if (els.selectionStack) {
       const stackedIds = currentStackedAssetIds();
       const includesExistingStack = [...selectedIds].some((id) => stackedIds.has(id));
-      els.selectionStack.disabled = state.storageKind !== "sqlite" || count < 2 || includesExistingStack;
+      els.selectionStack.disabled = state.scope === "trash" || state.storageKind !== "sqlite" || count < 2 || includesExistingStack;
     }
     if (els.selectionRemoveFromStack) els.selectionRemoveFromStack.disabled = count === 0;
     return count;

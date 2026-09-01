@@ -336,7 +336,7 @@ test("imports a Codex default generated image and preserves its provenance", asy
 });
 
 for (const kind of ["json", "sqlite"]) {
-  test(`${kind} deleteAsset removes managed files without deleting the source`, async (t) => {
+  test(`${kind} deleteAsset moves assets to Trash, restores them, and only permanent deletion removes managed files`, async (t) => {
     const root = await mkdtemp(join(tmpdir(), `mosa-delete-${kind}-`));
     t.after(() => rm(root, { recursive: true, force: true }));
     const projectRoot = join(root, "project");
@@ -352,6 +352,29 @@ for (const kind of ["json", "sqlite"]) {
 
     const asset = await store.createAsset({ assetId: `delete-${kind}`, imagePath: sourcePath, prompt: "remove me" });
     await store.deleteAsset("default", asset.id);
+    assert.equal((await store.listAssets({ projectId: "default" })).some((item) => item.id === asset.id), false);
+    const trashed = await store.listAssets({ projectId: "default", trash: true });
+    assert.equal(trashed.length, 1);
+    assert.equal(trashed[0].id, asset.id);
+    assert.ok(trashed[0].deleted_at);
+    assert.equal((await store.listAutomaticIngestSuppressions("default")).length, 1,
+      "Trash keeps automatic collectors from immediately re-importing the same asset");
+    await stat(asset.image_path);
+    if (asset.prompt_path) await stat(asset.prompt_path);
+
+    const restored = await store.restoreAsset("default", asset.id);
+    assert.equal(restored.deleted_at, null);
+    assert.equal((await store.listAssets({ projectId: "default" })).some((item) => item.id === asset.id), true);
+    assert.deepEqual(await store.listAutomaticIngestSuppressions("default"), [],
+      "restoring an asset clears the deletion suppression that belongs to it");
+
+    await store.deleteAsset("default", asset.id);
+    const deletedAtMs = Date.parse((await store.getAsset("default", asset.id)).deleted_at);
+    const earlyPurge = await store.purgeExpiredTrash({ nowMs: deletedAtMs + (89 * 24 * 60 * 60 * 1000) });
+    assert.equal(earlyPurge.removed, 0, "Trash retention is per-asset and lasts the full 90 days");
+    await stat(asset.image_path);
+    const duePurge = await store.purgeExpiredTrash({ nowMs: deletedAtMs + (90 * 24 * 60 * 60 * 1000) });
+    assert.equal(duePurge.removed, 1);
     await assert.rejects(store.getAsset("default", asset.id), /not found/i);
     await assert.rejects(stat(asset.image_path), { code: "ENOENT" });
     if (asset.prompt_path) await assert.rejects(stat(asset.prompt_path), { code: "ENOENT" });
@@ -514,7 +537,7 @@ test("persists manually created groups, including empty groups", async (t) => {
   assert.deepEqual(stats.groups, [["Mood board", 1]]);
 });
 
-test("JSON group deletion can explicitly delete every asset in the group", async (t) => {
+test("JSON group deletion moves every asset in the group to Trash and keeps them restorable", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-delete-group-assets-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const projectRoot = join(root, "project");
@@ -531,9 +554,14 @@ test("JSON group deletion can explicitly delete every asset in the group", async
   const result = await store.deleteGroup("default", "Disposable", { deleteAssets: true });
 
   assert.equal(result.deletedAssets, 2);
-  await assert.rejects(store.getAsset("default", first.id), /not found/i);
-  await assert.rejects(store.getAsset("default", second.id), /not found/i);
+  assert.equal((await store.listAssets({ projectId: "default" })).length, 0);
+  assert.deepEqual((await store.listAssets({ projectId: "default", trash: true })).map((item) => item.id).sort(), [first.id, second.id].sort());
+  assert.equal((await store.listAutomaticIngestSuppressions("default")).length, 1,
+    "group Trash moves suppress automatic re-import of the deleted content");
   assert.deepEqual((await store.listGroups("default")).groups, []);
+  await store.restoreAsset("default", first.id);
+  assert.equal((await store.getAsset("default", first.id)).group, "Disposable");
+  assert.deepEqual((await store.listGroups("default")).groups, [["Disposable", 1]]);
 });
 
 test("JSON group deletion rolls metadata back when a later logical write fails", async (t) => {
@@ -550,18 +578,16 @@ test("JSON group deletion rolls metadata back when a later logical write fails",
   const first = await store.createAsset({ assetId: "group-rollback-a", imagePath: sourcePath, group: "Atomic" });
   const second = await store.createAsset({ assetId: "group-rollback-b", imagePath: sourcePath, group: "Atomic" });
 
-  const originalEventsFile = store.generationEventsFile.bind(store);
-  let calls = 0;
-  store.generationEventsFile = (projectId) => {
-    calls += 1;
-    if (calls === 2) return store.projectDir(projectId);
-    return originalEventsFile(projectId);
-  };
+  const originalGroupsFile = store.groupsFile.bind(store);
+  store.groupsFile = (projectId) => store.projectDir(projectId);
 
   await assert.rejects(store.deleteGroup("default", "Atomic", { deleteAssets: true }));
+  store.groupsFile = originalGroupsFile;
 
   assert.equal((await store.getAsset("default", first.id)).group, "Atomic");
+  assert.equal((await store.getAsset("default", first.id)).deleted_at, null);
   assert.equal((await store.getAsset("default", second.id)).group, "Atomic");
+  assert.equal((await store.getAsset("default", second.id)).deleted_at, null);
   assert.deepEqual((await store.listGroups("default")).groups, [["Atomic", 2]]);
 });
 

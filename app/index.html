@@ -139,6 +139,7 @@
             <li><button class="nav-item active" data-filter="all" type="button" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span class="nav-item-text" data-i18n="allAssets">全部素材</span><span class="nav-count" id="countAll">—</span></button></li>
             <li><button class="nav-item" data-filter="favorite" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg><span class="nav-item-text" data-i18n="favorites">收藏</span><span class="nav-count" id="countFav">—</span></button></li>
             <li><button class="nav-item" data-filter="recent" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="nav-item-text" data-i18n="recent">最近</span><span class="nav-count" id="countRecent">—</span></button></li>
+            <li><button class="nav-item" data-filter="trash" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg><span class="nav-item-text" data-i18n="trash">回收站</span><span class="nav-count" id="countTrash">—</span></button></li>
           </ul>
           <div class="sidebar-group-heading">
             <button class="sidebar-section-toggle" id="smartGroupsToggle" type="button" aria-expanded="true" aria-controls="sidebarGroupList">
@@ -191,6 +192,7 @@
               <div class="topbar-search"><svg class="topbar-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input id="searchInput" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="搜索所有素材..." data-i18n-aria-label="searchPlaceholder" aria-label="搜索素材" /></div>
             </div>
             <div class="topbar-primary-group">
+              <button class="toolbar-filter trash-empty-button" id="emptyTrashBtn" type="button" hidden data-i18n="emptyTrash">清空回收站</button>
               <button class="create-button" id="newAssetTopBtn" type="button" data-i18n-aria-label="importAsset" aria-label="导入素材"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="importAsset">导入素材</span></button>
             </div>
           </div>

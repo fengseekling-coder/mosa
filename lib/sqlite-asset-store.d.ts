@@ -20,6 +20,7 @@ export interface StoredAsset {
   tags?: string[];
   favorite?: boolean;
   archived?: boolean;
+  deleted_at?: string | null;
   group?: string;
   category?: string;
   rating?: number;
@@ -52,6 +53,7 @@ export interface AssetListFilters {
   sourceType?: string;
   favorite?: boolean;
   archived?: boolean;
+  trash?: boolean;
   group?: string;
   tags?: string[];
   sessionId?: string;
@@ -108,6 +110,14 @@ export interface SqliteAssetStore {
   assetFileInfo(projectId: string, fileName: string): Promise<{ size: number }>;
   assetReadStream(projectId: string, fileName: string, options?: { start?: number; end?: number }): Promise<NodeJS.ReadableStream>;
   archiveAsset(projectId: string, assetId: string): Promise<StoredAsset>;
+  deleteAsset(projectId: string, assetId: string): Promise<Record<string, unknown>>;
+  restoreAsset(projectId: string, assetId: string): Promise<StoredAsset>;
+  permanentlyDeleteAsset(projectId: string, assetId: string): Promise<Record<string, unknown>>;
+  purgeExpiredTrash(options?: { nowMs?: number; retentionMs?: number }): Promise<{ due: number; removed: number; failed: number }>;
+  emptyTrash(projectId?: string): Promise<{ removed: number; failed: Array<Record<string, unknown>>; partial: boolean }>;
+  cleanupPermanentDeletionStaging(): Promise<{ removed: number; failed: number }>;
+  isAssetActive(projectId: string, assetId: string): Promise<boolean>;
+  withAssetLifecycleLock<T>(projectId: string, assetId: string, task: () => Promise<T>): Promise<T>;
   duplicateAsset(projectId: string, assetId: string): Promise<StoredAsset>;
   createVersion(projectId: string, parentId: string, params: Record<string, unknown>): Promise<StoredAsset>;
   versionHistory(projectId: string, assetId: string): Promise<unknown>;
@@ -150,3 +160,4 @@ export interface SqliteAssetStoreOptions {
 }
 
 export function createSqliteAssetStore(options: SqliteAssetStoreOptions): SqliteAssetStore;
+export const TRASH_RETENTION_MS: number;

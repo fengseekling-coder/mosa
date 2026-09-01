@@ -144,9 +144,64 @@ test("import rejections reach the client as 400 with a code, and the format list
 
   const deleted = await fetch(`${runtime.url}/api/assets/default/${encodeURIComponent(asset.id)}`, { method: "DELETE" });
   assert.equal(deleted.status, 200);
-  assert.deepEqual((await deleted.json()).result, { id: asset.id, project_id: "default", deleted: true });
-  const missing = await fetch(`${runtime.url}/api/assets/default/${encodeURIComponent(asset.id)}`);
-  assert.equal(missing.status, 404);
+  const deletedResult = (await deleted.json()).result;
+  assert.deepEqual({ ...deletedResult, deleted_at: Boolean(deletedResult.deleted_at) }, {
+    id: asset.id,
+    project_id: "default",
+    deleted: true,
+    trashed: true,
+    deleted_at: true,
+  });
+  const retained = await fetch(`${runtime.url}/api/assets/default/${encodeURIComponent(asset.id)}`);
+  assert.equal(retained.status, 200);
+  assert.equal(Boolean((await retained.json()).asset.deleted_at), true);
+});
+
+test("Trash HTTP lifecycle hides, restores, and permanently deletes an asset", async (t) => {
+  const { dir, generated, imagePath } = await makeWorkspace(t, "mosa-trash-api-");
+  const runtime = await startMosaRuntime({
+    port: 0,
+    projectRoot: dir,
+    libraryDir: join(dir, "library"),
+    assetsRoot: join(dir, "assets"),
+    generatedImagesDir: generated,
+    codexImagesDir: join(dir, "codex-images"),
+    codexSessionsDir: join(dir, "sessions"),
+    grokSessionsDir: join(dir, "grok-sessions"),
+    cowartCanvasDir: join(dir, "cowart-data"),
+    cowartRegistryPath: join(dir, "state", "cowart-projects.json"),
+  });
+  t.after(() => runtime.stop());
+
+  const createdResponse = await fetch(`${runtime.url}/api/assets/create`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: "default", imagePath }),
+  });
+  assert.equal(createdResponse.status, 200);
+  const asset = (await createdResponse.json()).asset;
+  const assetUrl = `${runtime.url}/api/assets/default/${encodeURIComponent(asset.id)}`;
+
+  assert.equal((await fetch(assetUrl, { method: "DELETE" })).status, 200);
+  const activeAfterDelete = await (await fetch(`${runtime.url}/api/assets?project=default&limit=100`)).json();
+  assert.equal(activeAfterDelete.assets.some((item) => item.id === asset.id), false);
+  const trashAfterDelete = await (await fetch(`${runtime.url}/api/assets?project=default&trash=1&limit=100`)).json();
+  assert.equal(trashAfterDelete.assets.some((item) => item.id === asset.id), true);
+  assert.ok(trashAfterDelete.assets.find((item) => item.id === asset.id)?.deleted_at);
+
+  const restored = await fetch(`${assetUrl}/restore`, { method: "POST" });
+  assert.equal(restored.status, 200);
+  assert.equal((await restored.json()).asset.deleted_at, null);
+  const activeAfterRestore = await (await fetch(`${runtime.url}/api/assets?project=default&limit=100`)).json();
+  assert.equal(activeAfterRestore.assets.some((item) => item.id === asset.id), true);
+
+  assert.equal((await fetch(assetUrl, { method: "DELETE" })).status, 200);
+  const permanent = await fetch(`${assetUrl}/permanent`, { method: "DELETE" });
+  assert.equal(permanent.status, 200);
+  assert.equal((await permanent.json()).result.permanent, true);
+  assert.equal((await fetch(assetUrl)).status, 404);
+  const trashAfterPermanentDelete = await (await fetch(`${runtime.url}/api/assets?project=default&trash=1&limit=100`)).json();
+  assert.equal(trashAfterPermanentDelete.assets.some((item) => item.id === asset.id), false);
 });
 
 test("shows only the four everyday fields and hides the rest behind advanced settings", async () => {

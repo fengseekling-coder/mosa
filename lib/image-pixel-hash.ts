@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import sharp from "sharp";
+import sharp from "./sharp-runtime.js";
 
 export const DEFAULT_PIXEL_HASH_LIMIT = 40_000_000;
 export const PIXEL_HASH_VERSION = "display-pixels-v2";

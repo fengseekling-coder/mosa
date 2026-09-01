@@ -23,6 +23,13 @@ let statusTextWriteTimer = null;
 let statusAnnouncementSequence = 0;
 let statusAnnouncementActive = false;
 let libraryRefreshTimer = null;
+const TRASH_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+
+function trashRemainingDays(deletedAt) {
+  const deletedAtMs = Date.parse(String(deletedAt || ""));
+  if (!Number.isFinite(deletedAtMs)) return 0;
+  return Math.max(0, Math.ceil((deletedAtMs + TRASH_RETENTION_MS - Date.now()) / (24 * 60 * 60 * 1000)));
+}
 let libraryEventSource = null;
 let persistentStatus = { value: "", stateName: "neutral" };
 let sidebarGroupEdit = null;
@@ -59,7 +66,7 @@ const state = {
   project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, selectedIds: new Set(), selectionProject: "default", detailAsset: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
-  groups: { total: 0, favorites: 0, recent: 0, codex: 0, cowart: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0 },
+  groups: { total: 0, favorites: 0, recent: 0, trash: 0, codex: 0, cowart: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0 },
   galleryStatus: "loading", galleryError: null, galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")), storageKind: "unknown",
   libraryPath: "", libraryRoot: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, groupSaving: false, libraryMoveInProgress: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
   dragCounter: 0,
@@ -161,6 +168,7 @@ Object.assign(els, {
   selectionStack: document.querySelector("#selectionStack"),
   selectionRemoveFromStack: document.querySelector("#selectionRemoveFromStack"),
   stackBack: document.querySelector("#stackBack"),
+  emptyTrashBtn: document.querySelector("#emptyTrashBtn"),
   assetZoomValue: document.querySelector("#assetZoomValue"),
   assetViewNav: document.querySelector("#assetViewNav"),
   assetViewPrev: document.querySelector("#assetViewPrev"),
@@ -1128,6 +1136,7 @@ const contextMenuActions = createContextMenuActions({
   requestFollowupConfirmation,
   confirmDetailNavigation,
   discardDetailDraft,
+  releaseAssetMedia: releaseAssetMediaForDeletion,
   openGroupModal,
   getGroupColor: colorForGroup,
   saveGroupColor,
@@ -1136,6 +1145,28 @@ const contextMenuActions = createContextMenuActions({
   isVideoAsset,
   pasteClipboardImage: window.electronAPI?.pasteImage ? pasteClipboardImage : null,
 });
+
+async function releaseAssetMediaForDeletion(assets = []) {
+  const ids = new Set(assets.map((asset) => asset?.id).filter(Boolean));
+  if (!ids.size) return;
+  if (state.imagePreviewId && ids.has(state.imagePreviewId)) {
+    els.imagePreviewVideo?.pause?.();
+    els.imagePreviewVideo?.removeAttribute("src");
+    els.imagePreviewVideo?.load?.();
+    els.imagePreviewImage?.removeAttribute("src");
+  }
+  if (state.selectedId && ids.has(state.selectedId)) {
+    els.assetViewVideo?.pause?.();
+    els.assetViewVideo?.removeAttribute("src");
+    els.assetViewVideo?.load?.();
+    els.detailPanel?.querySelectorAll("video").forEach((video) => {
+      video.pause?.();
+      video.removeAttribute("src");
+      video.load?.();
+    });
+  }
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 0));
+}
 
 function isDetailEditorActive() {
   const active = document.activeElement;
@@ -1302,7 +1333,7 @@ function updateCodexHint() {
 }
 
 function updateViewTitle() {
-  const titles = { all: t("allAssets"), favorite: t("favorites"), recent: t("recent") };
+  const titles = { all: t("allAssets"), favorite: t("favorites"), recent: t("recent"), trash: t("trash") };
   const hasFacets = Object.values(state.facets || {}).some(Boolean);
   const hasRefinements = Boolean(state.query || state.scope !== "all" || hasFacets
     || (state.mediaKind && state.mediaKind !== "all"));
@@ -1326,8 +1357,12 @@ function updateViewTitle() {
         ? t("searchFavorite")
         : state.scope === "recent"
           ? t("searchRecent")
-          : t("searchAll");
+          : state.scope === "trash"
+            ? t("searchTrash")
+            : t("searchAll");
   }
+  if (els.emptyTrashBtn) els.emptyTrashBtn.hidden = state.scope !== "trash" || Number(state.groups?.trash || 0) === 0;
+  if (els.newAssetTopBtn) els.newAssetTopBtn.hidden = state.scope === "trash";
   // A count of 0 while the first request is still open is the bug the audit saw
   // as "sidebar 405, workspace 0".
   const resultCount = state.pageTotal || state.assets.length;
@@ -1356,7 +1391,11 @@ function compactGenerationIdentifier(value) {
 function activeFilterChips() {
   const chips = [];
   if (state.query) chips.push({ kind: "query", label: t("chipSearch"), value: `“${state.query}”` });
-  if (state.scope !== "all") chips.push({ kind: "scope", label: t("chipScope"), value: state.scope === "favorite" ? t("favorites") : t("recent") });
+  if (state.scope !== "all") chips.push({
+    kind: "scope",
+    label: t("chipScope"),
+    value: state.scope === "favorite" ? t("favorites") : state.scope === "recent" ? t("recent") : t("trash"),
+  });
   if (state.mediaKind && state.mediaKind !== "all") chips.push({ kind: "type", label: t("typeFilter"), value: state.mediaKind === "img" ? t("typeImages") : t("typeVideos") });
   for (const key of FACET_KEYS) {
     const value = state.facets[key];
@@ -1516,6 +1555,28 @@ function bindEvents() {
       return;
     }
     openImagePreview(id, selectButton);
+  });
+  els.emptyTrashBtn?.addEventListener("click", async () => {
+    if (state.scope !== "trash" || !Number(state.groups?.trash || 0)) return;
+    const confirmed = await requestConfirmation({
+      title: t("emptyTrashTitle"),
+      description: t("emptyTrashDescription"),
+      confirmLabel: t("emptyTrash"),
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    await runAction(async () => {
+      await releaseAssetMediaForDeletion(state.assets);
+      const result = await apiFetch("/api/trash", { method: "DELETE", body: { projectId: state.project } });
+      if (result.partial) {
+        showToast(t("trashPartialDelete", { count: result.failed?.length || 0 }), "error");
+      } else {
+        showToast(t("trashEmptied"), "success");
+      }
+      clearDetailSelection();
+      gallerySelection.clear();
+      await Promise.all([loadStats(), loadAssets()]);
+    });
   });
   els.newAssetTopBtn?.addEventListener("click", openImportModal);
   els.browseFileBtn?.addEventListener("click", () => {
@@ -2059,7 +2120,7 @@ function clearImportForm() {
 
 function renderQuickFilters() {
   if (!els.quickFilters) return;
-  const counts = { all: state.groups.total, favorite: state.groups.favorites, recent: state.groups.recent };
+  const counts = { all: state.groups.total, favorite: state.groups.favorites, recent: state.groups.recent, trash: state.groups.trash };
   els.quickFilters.querySelectorAll("[data-filter]").forEach((button) => { const active = button.dataset.filter === state.scope; button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active)); button.querySelector(".nav-count").textContent = counts[button.dataset.filter] ?? "—"; });
   renderSidebarGroups();
 }
@@ -2222,9 +2283,12 @@ let galleryCardVirtualLastScrollTop = Number.NEGATIVE_INFINITY;
 const galleryCardVirtualVisiblePendingChanges = new Map();
 const galleryCardVirtualBackgroundPendingChanges = new Map();
 let galleryCardVirtualBatchFrame = null;
+let galleryCardVirtualWindowFrame = null;
 const galleryCardVirtualEntries = new Map();
 const galleryCardVirtualHydratedIds = new Set();
 const galleryCardVirtualSpanCache = new Map();
+let galleryCardVirtualGeometryColumns = [];
+const galleryCardVirtualGeometryById = new Map();
 const GALLERY_CARD_VIRTUAL_THRESHOLD = 96;
 const GALLERY_CARD_INITIAL_HYDRATE = 40;
 
@@ -2281,7 +2345,7 @@ function shouldHydrateGalleryCard(entry, ordinal) {
   return false;
 }
 
-function replaceVirtualGalleryCards(observerEntries) {
+function replaceVirtualGalleryCards(observerEntries, { deferHydratedLayout = false } = {}) {
   const grid = els.assetGrid;
   const bottomOffset = grid ? Math.max(0, grid.scrollHeight - grid.scrollTop - grid.clientHeight) : null;
   const preserveBottomOffset = bottomOffset !== null && bottomOffset <= 1200;
@@ -2331,7 +2395,8 @@ function replaceVirtualGalleryCards(observerEntries) {
   });
 
   if (hydratedCards.length) {
-    layoutMasonry(hydratedCards);
+    if (deferHydratedLayout) hydratedCards.forEach((card) => scheduleMasonryLayout(card));
+    else layoutMasonry(hydratedCards);
     setupGalleryMediaVirtualization(hydratedCards);
   }
   if (changed) {
@@ -2349,16 +2414,19 @@ function flushGalleryCardVirtualPendingChanges() {
   const grid = els.assetGrid;
   if (!grid || (!galleryCardVirtualVisiblePendingChanges.size && !galleryCardVirtualBackgroundPendingChanges.size)) return;
   const batch = [];
-  const takeChanges = (pending) => {
+  const takeChanges = (pending, limit) => {
     for (const [id, change] of pending) {
       pending.delete(id);
       if (!change.target?.isConnected) continue;
       batch.push(change);
-      if (batch.length >= 4) break;
+      if (batch.length >= limit) break;
     }
   };
-  takeChanges(galleryCardVirtualVisiblePendingChanges);
-  if (batch.length < 4) takeChanges(galleryCardVirtualBackgroundPendingChanges);
+  // Visible placeholders are a correctness failure, not background work. Drain
+  // the currently visible set in one frame; only the 1200px warm zone remains
+  // capped so preloading can never steal the frame budget from the viewport.
+  if (galleryCardVirtualVisiblePendingChanges.size) takeChanges(galleryCardVirtualVisiblePendingChanges, galleryCardVirtualVisiblePendingChanges.size);
+  else takeChanges(galleryCardVirtualBackgroundPendingChanges, 4);
   if (batch.length) replaceVirtualGalleryCards(batch);
   if (galleryCardVirtualVisiblePendingChanges.size || galleryCardVirtualBackgroundPendingChanges.size) {
     galleryCardVirtualBatchFrame = requestAnimationFrame(flushGalleryCardVirtualPendingChanges);
@@ -2368,6 +2436,47 @@ function flushGalleryCardVirtualPendingChanges() {
 function scheduleGalleryCardVirtualPendingChanges() {
   if (galleryCardVirtualBatchFrame !== null || (!galleryCardVirtualVisiblePendingChanges.size && !galleryCardVirtualBackgroundPendingChanges.size)) return;
   galleryCardVirtualBatchFrame = requestAnimationFrame(flushGalleryCardVirtualPendingChanges);
+}
+
+function flushVisibleGalleryCardVirtualChanges() {
+  if (!galleryCardVirtualVisiblePendingChanges.size) return;
+  const changes = [];
+  for (const [id, change] of galleryCardVirtualVisiblePendingChanges) {
+    galleryCardVirtualVisiblePendingChanges.delete(id);
+    if (change.target?.isConnected) changes.push(change);
+  }
+  if (changes.length) replaceVirtualGalleryCards(changes, { deferHydratedLayout: true });
+}
+
+function queueGalleryCardVirtualChange(change, visible = false) {
+  const card = change?.target;
+  const id = card?.dataset?.id || "";
+  if (!id) return;
+  if (visible) {
+    galleryCardVirtualBackgroundPendingChanges.delete(id);
+    galleryCardVirtualVisiblePendingChanges.set(id, change);
+    return;
+  }
+  // IntersectionObserver notifications can be delivered after a synchronous
+  // indexed scroll check. Never let an older warm-zone notification demote a
+  // card that the current viewport has already promoted to visible priority.
+  if (galleryCardVirtualVisiblePendingChanges.has(id)) return;
+  galleryCardVirtualBackgroundPendingChanges.set(id, change);
+}
+
+function galleryCardVirtualLowerBound(column, minRow) {
+  let low = 0;
+  let high = column.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (column[middle].rowEnd < minRow) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function galleryCardVirtualNode(grid, id) {
+  return grid.querySelector(`:scope > .asset-card[data-id="${CSS.escape(id)}"]`);
 }
 
 function syncGalleryCardVirtualWindow() {
@@ -2380,23 +2489,28 @@ function syncGalleryCardVirtualWindow() {
   const visibleMaxRow = grid.scrollTop + grid.clientHeight;
   const desiredVisible = new Map();
   const desiredBackground = new Map();
-  grid.querySelectorAll(":scope > .asset-card").forEach((card) => {
-    const rowStart = Number.parseInt(card.style.gridRowStart || "", 10);
-    const span = Number.parseInt(String(card.style.gridRowEnd || "").replace(/\D+/g, ""), 10);
-    if (!Number.isFinite(rowStart) || !Number.isFinite(span) || span <= 0) return;
-    const rowEnd = rowStart + span;
-    const shouldHydrate = rowEnd >= minRow && rowStart <= maxRow;
-    if (shouldHydrate === !card.classList.contains("asset-card-virtual-placeholder")) return;
-    const change = { target: card, isIntersecting: shouldHydrate };
-    const visibleHydration = shouldHydrate
-      && card.classList.contains("asset-card-virtual-placeholder")
-      && rowEnd >= visibleMinRow
-      && rowStart <= visibleMaxRow;
-    const id = card.dataset.id || "";
-    if (!id) return;
-    if (visibleHydration) desiredVisible.set(id, change);
-    else desiredBackground.set(id, change);
-  });
+  // Masonry placement produces ordered, non-overlapping ranges per column.
+  // Binary-search those ranges so scroll work is proportional to the viewport
+  // instead of to every loaded asset in the library.
+  for (const column of galleryCardVirtualGeometryColumns) {
+    for (let index = galleryCardVirtualLowerBound(column, minRow); index < column.length; index += 1) {
+      const geometry = column[index];
+      if (geometry.rowStart > maxRow) break;
+      const card = galleryCardVirtualNode(grid, geometry.id);
+      if (!card?.classList.contains("asset-card-virtual-placeholder")) continue;
+      const change = { target: card, isIntersecting: true };
+      if (geometry.rowEnd >= visibleMinRow && geometry.rowStart <= visibleMaxRow) desiredVisible.set(geometry.id, change);
+      else desiredBackground.set(geometry.id, change);
+    }
+  }
+  for (const id of galleryCardVirtualHydratedIds) {
+    const geometry = galleryCardVirtualGeometryById.get(id);
+    if (!geometry || (geometry.rowEnd >= minRow && geometry.rowStart <= maxRow)) continue;
+    const card = galleryCardVirtualNode(grid, id);
+    if (card && !card.classList.contains("asset-card-virtual-placeholder")) {
+      desiredBackground.set(id, { target: card, isIntersecting: false });
+    }
+  }
   for (const id of galleryCardVirtualVisiblePendingChanges.keys()) {
     if (!desiredVisible.has(id)) galleryCardVirtualVisiblePendingChanges.delete(id);
   }
@@ -2410,7 +2524,20 @@ function syncGalleryCardVirtualWindow() {
   desiredBackground.forEach((change, id) => {
     if (!galleryCardVirtualVisiblePendingChanges.has(id)) galleryCardVirtualBackgroundPendingChanges.set(id, change);
   });
+  // Viewport correctness must not depend on requestAnimationFrame. Electron can
+  // throttle rAF for an occluded/background window, which previously left real
+  // visible placeholders on large programmatic jumps. The visible set is
+  // viewport-bounded; only warm-zone work remains deferred and rate-limited.
+  flushVisibleGalleryCardVirtualChanges();
   scheduleGalleryCardVirtualPendingChanges();
+}
+
+function scheduleGalleryCardVirtualWindowSync() {
+  if (galleryCardVirtualWindowFrame !== null) return;
+  galleryCardVirtualWindowFrame = requestAnimationFrame(() => {
+    galleryCardVirtualWindowFrame = null;
+    syncGalleryCardVirtualWindow();
+  });
 }
 
 function handleGalleryCardVirtualScroll() {
@@ -2418,6 +2545,9 @@ function handleGalleryCardVirtualScroll() {
   if (!grid) return;
   if (Math.abs(grid.scrollTop - galleryCardVirtualLastScrollTop) < 64) return;
   galleryCardVirtualLastScrollTop = grid.scrollTop;
+  // The indexed lookup is already viewport-bounded, so perform it in the
+  // scroll callback instead of risking a stale rAF coalescing a large jump.
+  // DOM replacement remains deferred and batched by the hydration scheduler.
   syncGalleryCardVirtualWindow();
 }
 
@@ -2433,6 +2563,44 @@ function setupGalleryCardVirtualization() {
     galleryCardVirtualBackgroundPendingChanges.clear();
     if (galleryCardVirtualBatchFrame !== null) cancelAnimationFrame(galleryCardVirtualBatchFrame);
     galleryCardVirtualBatchFrame = null;
+    if (galleryCardVirtualWindowFrame !== null) cancelAnimationFrame(galleryCardVirtualWindowFrame);
+    galleryCardVirtualWindowFrame = null;
+    galleryCardVirtualGeometryColumns = [];
+    galleryCardVirtualGeometryById.clear();
+    return;
+  }
+  if ("IntersectionObserver" in window) {
+    if (galleryCardVirtualObservedGrid !== grid || !galleryCardVirtualObserver) {
+      galleryCardVirtualObserver?.disconnect();
+      galleryCardVirtualObservedGrid = grid;
+      galleryCardVirtualObserver = new IntersectionObserver((entries) => {
+        const bounds = grid.getBoundingClientRect();
+        entries.forEach((entry) => {
+          const card = entry.target;
+          if (!(card instanceof HTMLElement) || !card.isConnected) return;
+          const isPlaceholder = card.classList.contains("asset-card-virtual-placeholder");
+          if (entry.isIntersecting && isPlaceholder) {
+            const rect = entry.boundingClientRect;
+            const visible = rect.bottom > bounds.top && rect.top < bounds.bottom;
+            queueGalleryCardVirtualChange({ target: card, isIntersecting: true }, visible);
+          } else if (!entry.isIntersecting && !isPlaceholder) {
+            queueGalleryCardVirtualChange({ target: card, isIntersecting: false });
+          }
+        });
+        scheduleGalleryCardVirtualPendingChanges();
+      }, { root: grid, rootMargin: "1200px 0px" });
+    }
+    grid.querySelectorAll(":scope > .asset-card").forEach((card) => galleryCardVirtualObserver.observe(card));
+    // IntersectionObserver is the primary driver, while the indexed scroll
+    // lookup is a deterministic correctness guard for large programmatic jumps
+    // and compositor timing. It is viewport-bounded, so this does not restore
+    // the old O(N) scroll scan.
+    if (galleryCardVirtualScrollGrid !== grid) {
+      galleryCardVirtualScrollGrid?.removeEventListener("scroll", handleGalleryCardVirtualScroll);
+      galleryCardVirtualScrollGrid = grid;
+      galleryCardVirtualLastScrollTop = Number.NEGATIVE_INFINITY;
+      galleryCardVirtualScrollGrid.addEventListener("scroll", handleGalleryCardVirtualScroll, { passive: true });
+    }
     return;
   }
   galleryCardVirtualObserver?.disconnect();
@@ -2563,20 +2731,30 @@ function layoutMasonry(cards = null) {
   if (!grid) return;
   const gridStyles = getComputedStyle(grid);
   const galleryGap = Number.parseFloat(gridStyles.getPropertyValue("--gallery-gap")) || Number.parseFloat(gridStyles.columnGap) || 0;
-  const targets = cards || grid.querySelectorAll(".asset-card");
+  const targets = cards ? [...cards] : [...grid.querySelectorAll(".asset-card")];
+  const measureTargets = [];
   const measurements = [];
   let needsPlacement = !cards;
+  let allTargetsUnplaced = Boolean(cards?.length);
   targets.forEach((card) => {
     if (!(card instanceof HTMLElement) || !card.isConnected) return;
-    if (!card.style.gridColumnStart || !card.style.gridRowStart) needsPlacement = true;
+    const alreadyPlaced = Boolean(card.style.gridColumnStart && card.style.gridRowStart);
+    if (!alreadyPlaced) needsPlacement = true;
+    else allTargetsUnplaced = false;
     if (card.classList.contains("asset-card-virtual-placeholder")) return;
     // content-visibility is enabled only after the real masonry span has been
     // measured. Temporarily expose the card when a relayout is required so an
     // offscreen intrinsic placeholder can never feed a fake height back into
     // the masonry algorithm.
+    const previousSpan = Number.parseInt(String(card.style.gridRowEnd || "").replace(/\D+/g, ""), 10);
     card.classList.remove("masonry-content-virtualized");
     card.style.removeProperty("grid-row-end");
-    const previousSpan = Number.parseInt(String(card.style.gridRowEnd || "").replace(/\D+/g, ""), 10);
+    measureTargets.push([card, previousSpan]);
+  });
+  // All layout-affecting writes above are complete before the first geometry
+  // read, so Chromium performs one layout flush instead of a write/read cycle
+  // for every card.
+  measureTargets.forEach(([card, previousSpan]) => {
     const height = card.getBoundingClientRect().height || 0;
     if (height) measurements.push([card, Math.ceil(height + galleryGap), previousSpan]);
   });
@@ -2590,9 +2768,44 @@ function layoutMasonry(cards = null) {
     invalidateCardGeometryCache();
     return;
   }
-  const allCards = [...grid.querySelectorAll(":scope > .asset-card")];
   const columnCount = Math.max(1, gridStyles.gridTemplateColumns.split(/\s+/).filter(Boolean).length);
+  const canAppendIncrementally = allTargetsUnplaced
+    && galleryCardVirtualGeometryColumns.length === columnCount
+    && galleryCardVirtualGeometryById.size > 0
+    && targets.every((card) => card instanceof HTMLElement && card.dataset.id && !galleryCardVirtualGeometryById.has(card.dataset.id));
+  if (canAppendIncrementally) {
+    const columnEnds = galleryCardVirtualGeometryColumns.map((column) => column.at(-1)?.rowEnd || 1);
+    targets.forEach((card) => {
+      if (!(card instanceof HTMLElement) || !card.isConnected) return;
+      let span = Number.parseInt(String(card.style.gridRowEnd || "").replace(/\D+/g, ""), 10);
+      if (!Number.isFinite(span) || span <= 0) {
+        const entry = galleryCardVirtualEntries.get(card.dataset.id || "");
+        if (!entry) return;
+        span = estimatedGalleryCardSpan(entry.asset);
+        card.style.gridRowEnd = `span ${span}`;
+      }
+      let columnIndex = 0;
+      for (let index = 1; index < columnEnds.length; index += 1) {
+        if (columnEnds[index] < columnEnds[columnIndex]) columnIndex = index;
+      }
+      const rowStart = columnEnds[columnIndex];
+      const columnStart = columnIndex + 1;
+      card.style.gridColumnStart = String(columnStart);
+      card.style.gridRowStart = String(rowStart);
+      const id = card.dataset.id;
+      const geometry = { id, rowStart, rowEnd: rowStart + span, columnIndex };
+      galleryCardVirtualGeometryColumns[columnIndex].push(geometry);
+      galleryCardVirtualGeometryById.set(id, geometry);
+      columnEnds[columnIndex] += span;
+    });
+    invalidateCardGeometryCache();
+    if (state.assets.length >= GALLERY_CARD_VIRTUAL_THRESHOLD) scheduleGalleryCardVirtualWindowSync();
+    return;
+  }
+  const allCards = [...grid.querySelectorAll(":scope > .asset-card")];
   const columnEnds = Array(columnCount).fill(1);
+  const nextGeometryColumns = Array.from({ length: columnCount }, () => []);
+  galleryCardVirtualGeometryById.clear();
   allCards.forEach((card) => {
     let span = Number.parseInt(String(card.style.gridRowEnd || "").replace(/\D+/g, ""), 10);
     if (!Number.isFinite(span) || span <= 0) {
@@ -2609,9 +2822,17 @@ function layoutMasonry(cards = null) {
     const columnStart = columnIndex + 1;
     if (card.style.gridColumnStart !== String(columnStart)) card.style.gridColumnStart = String(columnStart);
     if (card.style.gridRowStart !== String(rowStart)) card.style.gridRowStart = String(rowStart);
+    const id = card.dataset.id || "";
+    if (id) {
+      const geometry = { id, rowStart, rowEnd: rowStart + span, columnIndex };
+      nextGeometryColumns[columnIndex].push(geometry);
+      galleryCardVirtualGeometryById.set(id, geometry);
+    }
     columnEnds[columnIndex] += span;
   });
+  galleryCardVirtualGeometryColumns = nextGeometryColumns;
   invalidateCardGeometryCache();
+  if (state.assets.length >= GALLERY_CARD_VIRTUAL_THRESHOLD) scheduleGalleryCardVirtualWindowSync();
 }
 function scheduleMasonryLayout(card = null) {
   if (card) masonryPendingCards.add(card);
@@ -2723,6 +2944,8 @@ function assetCardRenderKey(asset, selected) {
     selected ? "1" : "0",
     asset.group || "",
     asset.version_index || "",
+    asset.deleted_at || "",
+    state.scope === "trash" ? String(trashRemainingDays(asset.deleted_at)) : "",
     asset.stack?.id || "",
     asset.stack?.count || "",
     asset.stack?.match_count || "",
@@ -2917,19 +3140,28 @@ function renderGrid() {
     // 业务 class 与 data 属性全部保留（现有事件绑定依赖）；aria-pressed 表达收藏态。
     const favBtn = `<button class="card-action-btn card-favorite${isFav ? " is-fav" : ""}" type="button" data-fav-id="${escapeHtml(asset.id)}" aria-pressed="${Boolean(isFav)}" aria-label="${escapeHtml(favoriteLabel)}" title="${escapeHtml(favoriteLabel)}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.95 5.97 6.59.96-4.77 4.65 1.13 6.57L12 17.57l-5.9 3.08 1.13-6.57-4.77-4.65 6.59-.96L12 2.5z"/></svg></button>`;
     const copyBtn = `<button class="card-action-btn card-quick-copy" type="button" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button>`;
-    const cardActions = `<div class="card-actions">${favBtn}${copyBtn}</div>`;
+    // Trash cards expose restore/permanent-delete through the Trash actions,
+    // so do not render favorite/copy controls there at all. Removing the
+    // focusable controls from the markup is safer than hiding them with CSS.
+    const cardActions = state.scope === "trash" ? "" : `<div class="card-actions">${favBtn}${copyBtn}</div>`;
     const stackBadge = isStack
       ? `<span class="asset-stack-count" aria-hidden="true">${stackHasPartialMatch ? `${stackMatchCount}/${Number(asset.stack.count)}` : Number(asset.stack.count)}</span>`
+      : "";
+    const trashBadge = state.scope === "trash" && asset.deleted_at
+      ? `<span class="trash-countdown">${escapeHtml(t("trashDaysRemaining", { count: trashRemainingDays(asset.deleted_at) }))}</span>`
       : "";
     const entry = {
       id: asset.id,
       asset,
       renderKey: assetCardRenderKey(asset, selected),
       animateCard,
-      markup: `<article class="asset-card${selected ? " selected" : ""}${isStack ? " is-stack" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}"${isStack ? ` data-stack-id="${escapeHtml(asset.stack.id)}"` : ""} title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}"${stackDescription}>${media}<span class="card-scrim" aria-hidden="true"></span>${stackBadge}<span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`,
+      markup: `<article class="asset-card${selected ? " selected" : ""}${isStack ? " is-stack" : ""}${state.scope === "trash" ? " is-trash" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}"${isStack ? ` data-stack-id="${escapeHtml(asset.stack.id)}"` : ""} title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}"${stackDescription}>${media}<span class="card-scrim" aria-hidden="true"></span>${stackBadge}${trashBadge}<span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`,
     };
     galleryCardVirtualEntries.set(entry.id, entry);
-    return shouldHydrateGalleryCard(entry, ordinal) ? entry : virtualGalleryCardEntry(entry);
+    const hydrateCard = shouldHydrateGalleryCard(entry, ordinal);
+    if (hydrateCard) galleryCardVirtualHydratedIds.add(entry.id);
+    else galleryCardVirtualHydratedIds.delete(entry.id);
+    return hydrateCard ? entry : virtualGalleryCardEntry(entry);
   });
   // Populated renders are reconciled by asset id. Unchanged cards keep their
   // decoded media and DOM nodes; only changed/new cards are recreated.

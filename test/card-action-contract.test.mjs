@@ -47,8 +47,8 @@ function cardActionRules(css) {
 // 1. renderGrid() renders the .card-actions container.
 test("1. app.js renders the .card-actions container", async () => {
   const app = await readApp();
-  assert.match(app, /const cardActions = `<div class="card-actions">\$\{favBtn\}\$\{copyBtn\}<\/div>`;/,
-    "renderGrid must wrap both quick actions in a single .card-actions container");
+  assert.match(app, /const cardActions = state\.scope === "trash" \? "" : `<div class="card-actions">\$\{favBtn\}\$\{copyBtn\}<\/div>`;/,
+    "renderGrid must wrap both quick actions in a single .card-actions container and omit them from Trash cards");
   assert.match(app, /\$\{info\}\$\{cardActions\}<\/article>/,
     "the container must live inside the card article, after the info block");
 });

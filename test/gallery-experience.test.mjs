@@ -101,6 +101,8 @@ test("gallery never falls back to a full-resolution original while thumbnails ar
   assert.match(store, /thumbnail_ready: Boolean\(asset\.thumbnail_path\)/);
   assert.match(inspector, /mode === "thumb" && asset\.thumbnail_ready === false/);
   assert.match(inspector, /image-thumb-pending/);
+  assert.match(inspector, /thumbSrcset/);
+  assert.match(inspector, /sizes="\(max-width: 720px\) calc\(50vw - 24px\), 240px"/);
 });
 
 test("video cards lazily reveal a first-frame poster and adopt the real media aspect ratio", async () => {
