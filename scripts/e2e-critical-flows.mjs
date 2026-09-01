@@ -128,7 +128,8 @@ async function runWebStackRound() {
     });
     const result = JSON.parse(String(output || "{}").split(/\r?\n/).filter(Boolean).at(-1) || "{}");
     if (!result.stackId || result.stackCount !== "2" || result.newCoverId === result.originalCoverId
-      || result.returnedCoverId !== result.newCoverId || result.currentRootCount !== result.rootCountAfterStack) {
+      || result.returnedCoverId !== result.newCoverId || result.currentRootCount !== result.rootCountAfterStack
+      || result.dualCountLabel !== true) {
       throw new Error(`Unexpected Stack UI result: ${JSON.stringify(result)}`);
     }
   } catch (error) {

@@ -1,4 +1,4 @@
-const STACK_DRAG_THRESHOLD_PX = 4;
+const STACK_DRAG_THRESHOLD_PX = 8;
 
 function emptyFacets() {
   return { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" };
@@ -28,7 +28,11 @@ function moveBlockRelative(items, movingIds, targetId, placement = "before") {
 function stackViewIsUnfiltered(state) {
   if (!state.activeStackId) return false;
   if (state.query || state.scope !== "all" || (state.mediaKind && state.mediaKind !== "all")) return false;
-  return !Object.values(state.facets || {}).some(Boolean);
+  if (Object.values(state.facets || {}).some(Boolean)) return false;
+  // Reorder sends the complete member order as one atomic replacement. With
+  // paged Stacks, only allow the gesture after every member has been loaded so
+  // a partial page can never overwrite or reject the unseen tail.
+  return !state.nextCursor && state.assets.length >= Number(state.pageTotal || state.assets.length);
 }
 
 export function createAssetStackController({
@@ -48,6 +52,7 @@ export function createAssetStackController({
   let dropTarget = null;
   let dropPlacement = "";
   let mutationInFlight = false;
+  let suppressClickAfterDrag = false;
 
   function clearDropTarget() {
     dropTarget?.classList.remove("stack-drop-target", "stack-reorder-target", "stack-reorder-before", "stack-reorder-after");
@@ -60,6 +65,31 @@ export function createAssetStackController({
     ghost = null;
     document.body.classList.remove("asset-stack-dragging");
     clearDropTarget();
+  }
+
+  function releasePointerCapture(pointerId) {
+    if (!els.assetGrid || pointerId == null) return;
+    try {
+      if (els.assetGrid.hasPointerCapture?.(pointerId)) els.assetGrid.releasePointerCapture(pointerId);
+    } catch {
+      // Pointer capture may already have been released by the browser/OS.
+    }
+  }
+
+  function cancelPointerGesture({ releaseCapture = true } = {}) {
+    const hadPointer = Boolean(pointer);
+    const pointerId = pointer?.id;
+    pointer = null;
+    state.assetStackDragCandidate = false;
+    state.assetStackDragging = false;
+    if (releaseCapture && pointerId != null) releasePointerCapture(pointerId);
+    removeGhost();
+    return hadPointer;
+  }
+
+  function suppressSyntheticClick() {
+    suppressClickAfterDrag = true;
+    window.setTimeout(() => { suppressClickAfterDrag = false; }, 0);
   }
 
   function createGhost(count) {
@@ -121,13 +151,13 @@ export function createAssetStackController({
     };
     state.activeStackId = stackId;
     state.activeStackSummary = initialSummary ? { ...initialSummary, id: stackId } : null;
-    state.query = "";
-    state.scope = "all";
-    state.facets = emptyFacets();
-    state.mediaKind = "all";
+    // Keep the root search/filter context when opening a Stack. Root gallery
+    // search can match hidden members, so clearing refinements here made users
+    // lose the exact member(s) that caused the Stack to appear. Any refinements
+    // changed while inside are still discarded on exit in favor of this root
+    // snapshot, preserving the previous navigation contract.
     state.selectedId = null;
     gallerySelection.clear();
-    if (els.searchInput) els.searchInput.value = "";
     syncChrome();
     const loaded = await loadAssets({ preserveScroll: false });
     if (!loaded) return false;
@@ -276,6 +306,7 @@ export function createAssetStackController({
       if (Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) < STACK_DRAG_THRESHOLD_PX) return;
       pointer.dragging = true;
       state.assetStackDragging = true;
+      try { els.assetGrid?.setPointerCapture(event.pointerId); } catch { /* global listeners keep the gesture alive */ }
       document.body.classList.add("asset-stack-dragging");
     }
     event.preventDefault();
@@ -317,7 +348,11 @@ export function createAssetStackController({
       showToast?.(t("stackAssetsAdded", { count: toAdd.length }), "success");
       return true;
     }
-    const ids = movingIds.includes(targetId) ? movingIds : [...movingIds, targetId];
+    // Dropping a multi-selection back onto one of its own members is a common
+    // tiny mouse-jitter path. Treat it as a no-op instead of unexpectedly
+    // creating a new Stack from the selection.
+    if (movingIds.includes(targetId)) return false;
+    const ids = [...movingIds, targetId];
     if (ids.length < 2) return false;
     await apiFetch("/api/asset-stacks", {
       method: "POST",
@@ -351,10 +386,12 @@ export function createAssetStackController({
     pointer = null;
     state.assetStackDragCandidate = false;
     state.assetStackDragging = false;
+    releasePointerCapture(drag.id);
     removeGhost();
     if (!completed || canceled) {
       return;
     }
+    suppressSyntheticClick();
     event.preventDefault();
     if (!targetId) return;
     void runStackMutation(() => state.activeStackId
@@ -363,10 +400,7 @@ export function createAssetStackController({
   }
 
   function abandonStackContext() {
-    pointer = null;
-    state.assetStackDragCandidate = false;
-    state.assetStackDragging = false;
-    removeGhost();
+    cancelPointerGesture();
     state.activeStackId = "";
     state.activeStackSummary = null;
     state.stackReturnSnapshot = null;
@@ -380,9 +414,19 @@ export function createAssetStackController({
 
   function bind() {
     els.assetGrid?.addEventListener("pointerdown", beginPointer);
+    els.assetGrid?.addEventListener("click", (event) => {
+      if (!suppressClickAfterDrag) return;
+      suppressClickAfterDrag = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, { capture: true });
+    els.assetGrid?.addEventListener("lostpointercapture", () => {
+      if (pointer?.dragging) cancelPointerGesture({ releaseCapture: false });
+    });
     window.addEventListener("pointermove", movePointer, { passive: false });
     window.addEventListener("pointerup", endPointer);
     window.addEventListener("pointercancel", (event) => endPointer(event, { canceled: true }));
+    window.addEventListener("blur", () => { cancelPointerGesture(); });
     els.stackBack?.addEventListener("click", () => { void exitStack(); });
     els.selectionStack?.addEventListener("click", () => { void createStackFromSelection(); });
     els.selectionRemoveFromStack?.addEventListener("click", () => { void removeSelectedFromStack(); });

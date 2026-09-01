@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { getNotificationTextForAssetsImported } from "../desktop/notification-i18n.mjs";
 
-const repositoryRoot = resolve(new URL("..", import.meta.url).pathname);
+const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 test("getNotificationTextForAssetsImported formats the count placeholder", () => {
   assert.equal(getNotificationTextForAssetsImported(1, "zh"), "1 个新素材已导入");

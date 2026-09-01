@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
-import { chmod, copyFile, mkdtemp, mkdir, readFile, rm, stat, unlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, mkdir, readFile, stat, unlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { createAssetStore } from "../lib/asset-store.mjs";
 import { PIXEL_HASH_VERSION, safePixelDigest } from "../lib/image-pixel-hash.js";
 import { normalizeCreatedAt } from "../lib/recent-window.js";
 import { createSqliteAssetStore, sqliteDatabasePath } from "../lib/sqlite-asset-store.mjs";
+import { removeTestPath as rm } from "./test-cleanup.mjs";
 
 test("SQLite managed-file cleanup removes only stale unreferenced files", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-orphan-cleanup-"));

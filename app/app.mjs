@@ -1300,8 +1300,16 @@ function updateCodexHint() {
 
 function updateViewTitle() {
   const titles = { all: t("allAssets"), favorite: t("favorites"), recent: t("recent") };
+  const hasFacets = Object.values(state.facets || {}).some(Boolean);
+  const hasRefinements = Boolean(state.query || state.scope !== "all" || hasFacets
+    || (state.mediaKind && state.mediaKind !== "all"));
   els.viewTitle.textContent = state.activeStackId
-    ? t("stackItemCount", { count: state.activeStackSummary?.count || state.pageTotal || state.assets.length })
+    ? (hasRefinements
+      ? t("stackMatchCount", {
+        matched: state.pageTotal || state.assets.length,
+        total: state.activeStackSummary?.count || state.pageTotal || state.assets.length,
+      })
+      : t("stackItemCount", { count: state.activeStackSummary?.count || state.pageTotal || state.assets.length }))
     : (titles[state.scope] || t("allAssets"));
   // Match V2 SearchBar's scope-aware hint without changing the shared search
   // control or any query semantics.
@@ -1319,9 +1327,20 @@ function updateViewTitle() {
   }
   // A count of 0 while the first request is still open is the bug the audit saw
   // as "sidebar 405, workspace 0".
+  const resultCount = state.pageTotal || state.assets.length;
+  const libraryAssetCount = Number(state.groups?.total || 0);
   els.assetCount.textContent = state.galleryStatus === "loading"
     ? t("galleryLoading")
-    : (state.galleryStatus === "error" ? "" : t("resultCount", { count: state.pageTotal || state.assets.length }));
+    : state.galleryStatus === "error"
+      ? ""
+      : state.activeStackId && hasRefinements
+        ? t("stackMatchCount", {
+          matched: resultCount,
+          total: state.activeStackSummary?.count || resultCount,
+        })
+        : !state.activeStackId && !hasRefinements && libraryAssetCount > 0 && libraryAssetCount !== resultCount
+          ? t("galleryEntryAssetCount", { entries: resultCount, assets: libraryAssetCount })
+          : t("resultCount", { count: resultCount });
   renderActiveFilters();
 }
 
@@ -1445,6 +1464,11 @@ function bindEvents() {
       if (id && gallerySelection.handleCardClick(event, id)) return;
       if (id) {
         gallerySelection.clear();
+        const asset = state.assets.find((item) => item.id === id);
+        if (!state.activeStackId && asset?.stack?.id) {
+          void assetStacks.enterStack(asset.stack.id, asset.stack);
+          return;
+        }
         void selectAsset(id);
       }
       return;
@@ -1473,11 +1497,12 @@ function bindEvents() {
     const selectButton = event.target.closest(".asset-card-select");
     if (!selectButton) return;
     event.stopPropagation();
-    const id = selectButton.closest(".asset-card")?.dataset.id;
+    const card = selectButton.closest(".asset-card");
+    const id = card?.dataset.id;
     if (!id) return;
     const asset = state.assets.find((item) => item.id === id);
-    if (!state.activeStackId && asset?.stack?.id) {
-      void assetStacks.enterStack(asset.stack.id, asset.stack);
+    if (card?.dataset.stackId || asset?.stack?.id) {
+      if (!state.activeStackId && asset?.stack?.id) void assetStacks.enterStack(asset.stack.id, asset.stack);
       return;
     }
     openImagePreview(id, selectButton);
@@ -2690,6 +2715,7 @@ function assetCardRenderKey(asset, selected) {
     asset.version_index || "",
     asset.stack?.id || "",
     asset.stack?.count || "",
+    asset.stack?.match_count || "",
     state.locale,
   ].join("\u001f");
 }
@@ -2865,7 +2891,13 @@ function renderGrid() {
     const media = assetMediaPreviewMarkup(asset, "thumb");
     // Short, structured label instead of the full prompt.
     const label = t("cardAccessibleName", { title: title || asset.id, source: sourceLabel, date });
-    const stackDescription = isStack ? ` aria-description="${escapeHtml(t("stackAccessibleName", { label, count: asset.stack.count }))}"` : "";
+    const stackMatchCount = Math.max(0, Number(asset.stack?.match_count || 0));
+    const stackHasPartialMatch = isStack && stackMatchCount > 0 && stackMatchCount < Number(asset.stack.count);
+    const stackDescription = isStack
+      ? ` aria-description="${escapeHtml(stackHasPartialMatch
+        ? t("stackMatchAccessibleName", { label, count: asset.stack.count, matched: stackMatchCount })
+        : t("stackAccessibleName", { label, count: asset.stack.count }))}"`
+      : "";
     const versionIndex = Number(asset.version_index) || 0;
     const badge = versionIndex > 1 ? t("versionLabelShort", { number: versionIndex }) : (asset.group || "");
     const info = `<div class="asset-card-info"><p class="asset-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</p><p class="asset-card-meta"><span>${escapeHtml(sourceLabel)}</span><span>${escapeHtml(date)}</span>${badge ? `<span class="asset-card-badge" title="${escapeHtml(badge)}">${escapeHtml(badge)}</span>` : ""}</p></div>`;
@@ -2876,7 +2908,9 @@ function renderGrid() {
     const favBtn = `<button class="card-action-btn card-favorite${isFav ? " is-fav" : ""}" type="button" data-fav-id="${escapeHtml(asset.id)}" aria-pressed="${Boolean(isFav)}" aria-label="${escapeHtml(favoriteLabel)}" title="${escapeHtml(favoriteLabel)}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.95 5.97 6.59.96-4.77 4.65 1.13 6.57L12 17.57l-5.9 3.08 1.13-6.57-4.77-4.65 6.59-.96L12 2.5z"/></svg></button>`;
     const copyBtn = `<button class="card-action-btn card-quick-copy" type="button" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button>`;
     const cardActions = `<div class="card-actions">${favBtn}${copyBtn}</div>`;
-    const stackBadge = isStack ? `<span class="asset-stack-count" aria-hidden="true">${Number(asset.stack.count)}</span>` : "";
+    const stackBadge = isStack
+      ? `<span class="asset-stack-count" aria-hidden="true">${stackHasPartialMatch ? `${stackMatchCount}/${Number(asset.stack.count)}` : Number(asset.stack.count)}</span>`
+      : "";
     const entry = {
       id: asset.id,
       asset,

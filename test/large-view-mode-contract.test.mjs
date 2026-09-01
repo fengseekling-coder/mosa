@@ -141,15 +141,18 @@ test("9. compact 960–1120 keeps three columns (no detail drop)", async () => {
   assert.doesNotMatch(rail, /\.detail \{[^}]*position: static/, "detail must not re-enter the document flow in the rail band");
 });
 
-// 10. Library v2 uses the inspector drawer as the single card destination.
-// The historical canvas viewer stays available for its own controls, but a card
-// press must never switch the primary UI away from the V2 gallery context.
-test("10. single click on a card opens the V2 detail inspector", async () => {
+// 10. Ordinary assets keep the V2 inspector as their single-click destination,
+// while a collapsed Stack is a logical node and opens its member view instead
+// of leaking the cover asset into the Inspector.
+test("10. single click opens an asset inspector or enters a logical Stack", async () => {
   const app = await readApp();
   const cards = sliceBetween(app, 'const selectButton = event.target.closest(".asset-card-select")', 'const loadMoreButton = event.target.closest');
   assert.match(cards, /const id = selectButton\.closest\("\.asset-card"\)\?\.dataset\.id;/,
     "card click resolves the asset id");
-  assert.match(cards, /if \(id\) \{\s+gallerySelection\.clear\(\);\s+void selectAsset\(id\);\s+\}/, "card click clears batch selection before opening the V2 detail inspector");
+  assert.match(cards, /if \(id\) \{\s+gallerySelection\.clear\(\);[\s\S]*?void selectAsset\(id\);\s+\}/,
+    "ordinary asset click clears batch selection before opening the V2 detail inspector");
+  assert.match(cards, /if \(!state\.activeStackId && asset\?\.stack\?\.id\) \{\s+void assetStacks\.enterStack\(asset\.stack\.id, asset\.stack\);\s+return;\s+\}/,
+    "collapsed Stack click enters the Stack rather than opening its cover asset");
   assert.doesNotMatch(cards, /openAssetView/, "card click does not enter the retired canvas viewer");
 });
 

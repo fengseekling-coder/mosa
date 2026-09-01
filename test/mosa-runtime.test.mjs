@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { pipeStreamToResponse } from "../lib/http-response.mjs";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
+import { removeTestPath as rm } from "./test-cleanup.mjs";
 
-const repositoryRoot = resolve(new URL("..", import.meta.url).pathname);
+const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 function runtimeOptions(root, overrides = {}) {
   const libraryDir = join(root, "library");

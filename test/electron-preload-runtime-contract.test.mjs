@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { removeTestPath as rm } from "./test-cleanup.mjs";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";

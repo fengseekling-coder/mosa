@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { removeTestPath as rm } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -49,6 +50,26 @@ test("asset stacks collapse to one gallery node and use the first member as cove
   assert.deepEqual(inside.assets.map((asset) => asset.stack_position), [0, 1, 2]);
 });
 
+test("stack members page by stable manual position without changing the total", async (t) => {
+  const store = await createFixtureStore(t);
+  const stack = await store.createAssetStack("default", ["a", "b", "c", "d"], { coverAssetId: "b" });
+
+  const first = await store.listAssetStackAssets("default", stack.id, { limit: 2 });
+  assert.deepEqual(first.assets.map((asset) => asset.id), ["b", "a"]);
+  assert.equal(first.page.total, 4);
+  assert.equal(typeof first.page.nextCursor, "string");
+
+  const second = await store.listAssetStackAssets("default", stack.id, { limit: 2, cursor: first.page.nextCursor });
+  assert.deepEqual(second.assets.map((asset) => asset.id), ["c", "d"]);
+  assert.equal(second.page.total, 4);
+  assert.equal(second.page.nextCursor, null);
+
+  await assert.rejects(
+    store.listAssetStackAssets("default", stack.id, { limit: 2, cursor: first.page.nextCursor, query: "different" }),
+    /Invalid Stack cursor/,
+  );
+});
+
 test("reordering changes the cover, adding appends, and one remaining member dissolves automatically", async (t) => {
   const store = await createFixtureStore(t);
   const stack = await store.createAssetStack("default", ["a", "b", "c"], { coverAssetId: "b" });
@@ -83,7 +104,7 @@ test("root search maps hidden member matches back to one stack cover node", asyn
   const page = await store.listAssetPage({ projectId: "default", query: "neon orchid", limit: 100, collapseStacks: true });
   assert.equal(page.page.total, 1);
   assert.deepEqual(page.assets.map((asset) => asset.id), ["a"]);
-  assert.deepEqual(page.assets[0].stack, { id: stack.id, count: 3 });
+  assert.deepEqual(page.assets[0].stack, { id: stack.id, count: 3, match_count: 2 });
 
   const inside = await store.listAssetStackAssets("default", stack.id, { query: "neon orchid" });
   assert.deepEqual(inside.assets.map((asset) => asset.id), ["b", "c"]);
@@ -97,7 +118,7 @@ test("root and Stack-interior searches share the same asset-kind intent semantic
 
   const rootLogo = await store.listAssetPage({ projectId: "default", query: "logo", collapseStacks: true, limit: 100 });
   assert.deepEqual(rootLogo.assets.map((asset) => asset.id), ["a"]);
-  assert.deepEqual(rootLogo.assets[0].stack, { id: stack.id, count: 3 });
+  assert.deepEqual(rootLogo.assets[0].stack, { id: stack.id, count: 3, match_count: 1 });
 
   const insideLogo = await store.listAssetStackAssets("default", stack.id, { query: "logo" });
   assert.deepEqual(insideLogo.assets.map((asset) => asset.id), ["b"]);
@@ -126,7 +147,7 @@ test("gallery filters match hidden members while raw asset queries keep every me
   ]) {
     const page = await store.listAssetPage({ projectId: "default", collapseStacks: true, limit: 100, ...filters });
     assert.deepEqual(page.assets.map((asset) => asset.id), ["a"]);
-    assert.deepEqual(page.assets[0].stack, { id: stack.id, count: 2 });
+    assert.deepEqual(page.assets[0].stack, { id: stack.id, count: 2, match_count: 1 });
     assert.equal(page.page.total, 1);
   }
 
@@ -152,4 +173,24 @@ test("changing the first member changes the cover without moving the stack's gal
   assert.equal(reordered.cover_asset_id, "c");
   const after = await store.listAssetPage({ projectId: "default", collapseStacks: true, sort: "newest", limit: 0 });
   assert.deepEqual(after.assets.map((asset) => asset.id), ["d", "between", "c"]);
+});
+
+test("name ordering follows the visible Stack cover and its later metadata edits", async (t) => {
+  const store = await createFixtureStore(t);
+  await store.updateMetadata("default", "a", { theme: "Omega" });
+  await store.updateMetadata("default", "b", { theme: "Zulu" });
+  await store.updateMetadata("default", "c", { theme: "Alpha" });
+  await store.updateMetadata("default", "d", { theme: "Middle" });
+  const stack = await store.createAssetStack("default", ["a", "b", "c"], { coverAssetId: "b" });
+
+  const before = await store.listAssetPage({ projectId: "default", collapseStacks: true, sort: "name", limit: 0 });
+  assert.deepEqual(before.assets.map((asset) => asset.id), ["d", "b"]);
+
+  await store.reorderAssetStack("default", stack.id, ["c", "b", "a"]);
+  const afterReorder = await store.listAssetPage({ projectId: "default", collapseStacks: true, sort: "name", limit: 0 });
+  assert.deepEqual(afterReorder.assets.map((asset) => asset.id), ["c", "d"]);
+
+  await store.updateMetadata("default", "c", { theme: "Zzz Cover" });
+  const afterRename = await store.listAssetPage({ projectId: "default", collapseStacks: true, sort: "name", limit: 0 });
+  assert.deepEqual(afterRename.assets.map((asset) => asset.id), ["d", "c"]);
 });

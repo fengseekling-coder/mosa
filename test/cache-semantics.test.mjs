@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
 import { DISABLEABLE_BRIDGES } from "../lib/runtime-bridges.mjs";
+import { removeTestPath as rm } from "./test-cleanup.mjs";
 
-const repositoryRoot = new URL("..", import.meta.url).pathname;
+const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 
 test("static resource cache semantics: no-cache for UI files and immutable for library images", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cache-semantics-"));
