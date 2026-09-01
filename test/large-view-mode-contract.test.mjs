@@ -141,19 +141,26 @@ test("9. compact 960–1120 keeps three columns (no detail drop)", async () => {
   assert.doesNotMatch(rail, /\.detail \{[^}]*position: static/, "detail must not re-enter the document flow in the rail band");
 });
 
-// 10. Ordinary assets keep the V2 inspector as their single-click destination,
-// while a collapsed Stack is a logical node and opens its member view instead
-// of leaking the cover asset into the Inspector.
-test("10. single click opens an asset inspector or enters a logical Stack", async () => {
+// 10. Ordinary assets keep the V2 inspector as their single-click destination.
+// A collapsed Stack is a logical node: single-click selects it without
+// navigating or leaking its cover into the Inspector, while double-click opens
+// the Stack member view.
+test("10. single click selects a logical Stack and double click enters it", async () => {
   const app = await readApp();
   const cards = sliceBetween(app, 'const selectButton = event.target.closest(".asset-card-select")', 'const loadMoreButton = event.target.closest');
   assert.match(cards, /const id = selectButton\.closest\("\.asset-card"\)\?\.dataset\.id;/,
     "card click resolves the asset id");
   assert.match(cards, /if \(id\) \{\s+gallerySelection\.clear\(\);[\s\S]*?void selectAsset\(id\);\s+\}/,
     "ordinary asset click clears batch selection before opening the V2 detail inspector");
-  assert.match(cards, /if \(!state\.activeStackId && asset\?\.stack\?\.id\) \{\s+void assetStacks\.enterStack\(asset\.stack\.id, asset\.stack\);\s+return;\s+\}/,
-    "collapsed Stack click enters the Stack rather than opening its cover asset");
+  assert.match(cards, /if \(!state\.activeStackId && asset\?\.stack\?\.id\) \{[\s\S]*?state\.selectedId = id;[\s\S]*?updateSelectedCard\(\);[\s\S]*?return;/,
+    "collapsed Stack click only selects the logical Stack card");
+  assert.doesNotMatch(cards, /assetStacks\.enterStack/,
+    "single-click must not enter a collapsed Stack");
   assert.doesNotMatch(cards, /openAssetView/, "card click does not enter the retired canvas viewer");
+
+  const doubleClick = sliceBetween(app, 'els.assetGrid?.addEventListener("dblclick"', 'els.newAssetTopBtn?.addEventListener');
+  assert.match(doubleClick, /assetStacks\.enterStack\(asset\.stack\.id, asset\.stack\)/,
+    "double-click enters a collapsed Stack");
 });
 
 // 11. The card favourite quick action does not bubble.

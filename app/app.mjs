@@ -643,15 +643,18 @@ function setupKeyboardShortcuts() {
       if (event.key === "f" || event.key === "F") { event.preventDefault(); fitAssetView(true); return; }
     }
     const galleryEnterTarget = event.target === els.assetGrid || Boolean(event.target.closest?.(".asset-card-select"));
+    const galleryEnterCardId = event.target.closest?.(".asset-card")?.dataset.id || "";
+    const galleryEnterAssetId = galleryEnterCardId || state.selectedId || "";
     if (event.key === "Enter"
       && galleryEnterTarget
       && state.viewMode === "library"
-      && state.selectedId
+      && galleryEnterAssetId
       && !state.selectedIds?.size
       && els.imagePreviewModal?.hidden
       && !hasBlockingOverlay()
       && els.settingsMenu?.hidden) {
-      const asset = selectedAsset();
+      const asset = state.assets.find((item) => item.id === galleryEnterAssetId)
+        || (galleryEnterAssetId === state.selectedId ? selectedAsset() : null);
       if (asset) {
         event.preventDefault();
         if (!state.activeStackId && asset.stack?.id) void assetStacks.enterStack(asset.stack.id, asset.stack);
@@ -1466,7 +1469,14 @@ function bindEvents() {
         gallerySelection.clear();
         const asset = state.assets.find((item) => item.id === id);
         if (!state.activeStackId && asset?.stack?.id) {
-          void assetStacks.enterStack(asset.stack.id, asset.stack);
+          // A collapsed Stack is a logical gallery node. Single-click only
+          // selects it; navigation is reserved for double-click (or Enter),
+          // which prevents accidental entry while browsing or marqueeing.
+          if (!state.detailOpen && state.viewMode === "library") {
+            clearDetailSelection();
+            state.selectedId = id;
+            updateSelectedCard();
+          }
           return;
         }
         void selectAsset(id);

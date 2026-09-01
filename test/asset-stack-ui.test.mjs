@@ -30,6 +30,20 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
   assert.match(app, /assetStacks\.bind\(\)/);
   assert.match(app, /asset\?\.stack\?\.id/);
   assert.match(app, /assetStacks\.enterStack\(asset\.stack\.id, asset\.stack\)/);
+  const singleClick = app.slice(
+    app.indexOf('els.assetGrid?.addEventListener("click"'),
+    app.indexOf('els.assetGrid?.addEventListener("dblclick"'),
+  );
+  const doubleClick = app.slice(
+    app.indexOf('els.assetGrid?.addEventListener("dblclick"'),
+    app.indexOf('els.newAssetTopBtn?.addEventListener'),
+  );
+  assert.doesNotMatch(singleClick, /assetStacks\.enterStack/,
+    "collapsed Stack single-click must not navigate");
+  assert.match(singleClick, /state\.selectedId = id;[\s\S]*?updateSelectedCard\(\)/,
+    "collapsed Stack single-click keeps a lightweight logical selection");
+  assert.match(doubleClick, /assetStacks\.enterStack\(asset\.stack\.id, asset\.stack\)/,
+    "collapsed Stack double-click opens the Stack");
   assert.match(app, /asset-stack-count/);
   assert.match(app, /galleryEntryAssetCount/);
   assert.match(app, /stackMatchAccessibleName/);
