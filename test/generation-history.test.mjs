@@ -311,8 +311,11 @@ for (const [name, createStore] of [
 
     const childEventIds = new Set((await store.listGenerationEvents("default", { assetId: childAsset.id })).map((event) => event.id));
     await store.deleteAsset("default", childAsset.id);
+    assert.equal((await store.listGenerationEvents("default", { assetId: childAsset.id })).length, childEventIds.size,
+      "moving an asset to Trash preserves its generation history for restore");
+    await store.permanentlyDeleteAsset("default", childAsset.id);
     assert.equal((await store.listGenerationEvents("default", { assetId: childAsset.id })).length, 0,
-      "hard-deleting an asset removes its generation events in every backend");
+      "permanently deleting an asset removes its generation events in every backend");
     const remainingHistory = await store.getAssetGenerationHistory("default", sharedAsset.id);
     assert.equal(remainingHistory.relations.some((relation) => (
       childEventIds.has(relation.child_generation_id) || childEventIds.has(relation.parent_generation_id)

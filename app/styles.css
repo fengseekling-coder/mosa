@@ -352,6 +352,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .toolbar-icon[hidden] { display: none; }
 /* V2（D3）：排序/筛选/批量改无边框安静控件，只靠底色区分状态；Import 仍是全顶栏唯一实心 CTA。 */
 .toolbar-filter { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 12px; font-weight: 500; white-space: nowrap; transition: background-color .12s ease, color .12s ease; }
+.toolbar-filter[hidden] { display: none; }
 .toolbar-filter[aria-expanded="true"] { color: var(--color-text-primary); background: var(--app-hover); }
 .toolbar-filter[aria-pressed="true"] { color: var(--color-accent-active); background: var(--color-accent-subtle); }
 .filter-dot { display: inline-grid; min-width: 16px; height: 16px; margin-left: 2px; padding: 0 4px; place-items: center; border-radius: 999px; color: var(--color-accent-contrast); background: var(--color-accent); font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -393,7 +394,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
    落于画布；选中态改由 .asset-card-select 承担 2px 环，.card-check 承担
    16px 角标勾，不再靠卡片描边表达。 */
 .asset-card { position: relative; width: 100%; align-self: start; }
-.asset-card-virtual-placeholder { contain: layout paint style; pointer-events: none; }
+.asset-card-virtual-placeholder { align-self: stretch; contain: layout paint style; pointer-events: none; }
 .asset-card-virtual-surface { display: block; width: 100%; height: 100%; min-height: 48px; border-radius: var(--radius-card); background: var(--app-hover); opacity: .28; }
 .asset-card.masonry-content-virtualized {
   /* Masonry has already fixed the outer grid span, so Chromium can skip the
@@ -413,6 +414,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .asset-card.is-stack .card-actions { opacity: 0; pointer-events: none; }
 .asset-card.is-stack::before { content: ""; position: absolute; z-index: -1; inset: 4px -4px -4px 4px; border-radius: var(--radius-card); background: color-mix(in srgb, var(--color-text-primary) 10%, var(--app-card)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-text-primary) 7%, transparent); pointer-events: none; }
 .asset-stack-count { position: absolute; z-index: 3; right: var(--space-1); bottom: var(--space-1); display: inline-flex; min-width: 24px; height: 24px; align-items: center; justify-content: center; padding: 0 7px; border: 1px solid rgb(255 255 255 / .54); border-radius: 999px; color: var(--color-media-backdrop); background: rgb(255 255 255 / .78); box-shadow: 0 2px 8px rgb(0 0 0 / .12); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); font-size: 11px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; }
+.trash-countdown { position: absolute; z-index: 3; left: var(--space-1); bottom: var(--space-1); display: inline-flex; min-height: 24px; align-items: center; padding: 0 8px; border: 1px solid rgb(255 255 255 / .5); border-radius: 999px; color: var(--color-media-backdrop); background: rgb(255 255 255 / .82); box-shadow: 0 2px 8px rgb(0 0 0 / .12); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); font-size: 11px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; }
+.trash-empty-button { white-space: nowrap; }
 .asset-card.is-stack.is-video .video-badge { right: auto; left: var(--space-1); }
 .asset-card.stack-drop-target .asset-card-select { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 72%, transparent); transform: scale(.985); }
 .asset-card.stack-reorder-target.stack-reorder-before .asset-card-select::after { box-shadow: inset 3px 0 0 var(--color-accent), inset 0 0 0 1px rgb(28 25 23 / 0.06); }

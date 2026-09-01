@@ -301,7 +301,7 @@ test("same source URL with changed content remains eligible for automatic import
   assert.equal(next.id, "url-changed-content");
 });
 
-test("SQLite keeps suppression lookup indexed and deletes the row atomically with the asset", async (t) => {
+test("SQLite keeps suppression lookup indexed and soft-deletes the asset atomically with suppression", async (t) => {
   const { store, libraryDir, sourcePath } = await setupStore(t, "sqlite-index");
   const asset = await store.createAsset({ assetId: "indexed-delete", imagePath: sourcePath }, { ingestMode: "manual" });
   await store.deleteAsset("default", asset.id);
@@ -312,7 +312,8 @@ test("SQLite keeps suppression lookup indexed and deletes the row atomically wit
   assert.match(suppression.content_sha256, /^[a-f0-9]{64}$/);
   assert.equal(suppression.pixel_sha256, "");
   assert.equal(suppression.reason, "user-deleted");
-  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM assets WHERE id = ?").get(asset.id).count, 0);
+  const trashed = database.prepare("SELECT deleted_at FROM assets WHERE id = ?").get(asset.id);
+  assert.match(trashed.deleted_at, /^\d{4}-\d{2}-\d{2}T/);
   const plan = database.prepare(`EXPLAIN QUERY PLAN
     SELECT 1 FROM automatic_ingest_suppressions INDEXED BY automatic_suppressions_project_content_idx
     WHERE project_id = ? AND content_sha256 = ?

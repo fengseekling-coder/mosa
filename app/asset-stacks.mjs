@@ -212,7 +212,7 @@ export function createAssetStackController({
   }
 
   async function createStackFromSelection(coverAssetId = "") {
-    if (state.activeStackId || state.storageKind !== "sqlite") return false;
+    if (state.activeStackId || state.scope === "trash" || state.storageKind !== "sqlite") return false;
     const selectedIds = [...(state.selectedIds instanceof Set ? state.selectedIds : new Set())];
     if (selectedIds.length < 2) return false;
     const coverId = coverAssetId && selectedIds.includes(coverAssetId)
@@ -253,6 +253,7 @@ export function createAssetStackController({
 
   function beginPointer(event) {
     if (mutationInFlight) return;
+    if (state.scope === "trash") return;
     if (!state.activeStackId && state.storageKind !== "sqlite") return;
     if (event.button !== 0 || event.isPrimary === false || event.pointerType === "touch") return;
     // Shift-drag belongs to additive marquee selection even when the pointer

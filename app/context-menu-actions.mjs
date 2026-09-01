@@ -3,7 +3,7 @@
  * Defines all context menu items and their actions
  */
 
-export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, openGroupModal, getGroupColor, saveGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage }) {
+export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, getGroupColor, saveGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage }) {
   const { apiFetch } = apiClient;
   // getGroupColor falls back to the deterministic palette so call sites can rely
   // on a single source of truth for group colors (mirrors app.mjs colorForGroup).
@@ -202,6 +202,55 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
    * Get single asset context menu
    */
   function getAssetMenu(asset, selectedAssets = [], options = {}) {
+    if (state.scope === "trash") {
+      const assets = selectedAssets.length > 1 ? selectedAssets : [asset];
+      return [
+        {
+          label: assets.length > 1 ? t("restoreAssets", { count: assets.length }) : t("restoreAsset"),
+          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8v5h5"/><path d="M5.5 13a7 7 0 1 0 2-7"/></svg>',
+          action: async () => {
+            await runAction(async () => {
+              for (const item of assets) {
+                await apiFetch(`/api/assets/${encodeURIComponent(item.project_id)}/${encodeURIComponent(item.id)}/restore`, { method: "POST" });
+              }
+              showToast(assets.length > 1 ? t("assetsRestored", { count: assets.length }) : t("assetRestored"), "success");
+              window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
+              window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
+            });
+          },
+        },
+        { separator: true },
+        {
+          label: t("permanentDelete"),
+          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4h8v2m2 0-1 15H7L6 6"/><path d="M10 10v7M14 10v7"/></svg>',
+          danger: true,
+          action: async () => {
+            const confirmed = await requestConfirmation({
+              title: assets.length > 1 ? t("permanentDeleteAssetsTitle", { count: assets.length }) : t("permanentDeleteTitle"),
+              description: t("permanentDeleteDescription"),
+              confirmLabel: t("permanentDelete"),
+              tone: "danger",
+            });
+            if (!confirmed) return;
+            await runAction(async () => {
+              await releaseAssetMedia?.(assets);
+              const failed = [];
+              for (const item of assets) {
+                try {
+                  await apiFetch(`/api/assets/${encodeURIComponent(item.project_id)}/${encodeURIComponent(item.id)}/permanent`, { method: "DELETE" });
+                } catch (error) {
+                  failed.push(error);
+                }
+              }
+              if (failed.length) showToast(t("trashPartialDelete", { count: failed.length }), "error");
+              else showToast(assets.length > 1 ? t("assetsPermanentlyDeleted", { count: assets.length }) : t("assetPermanentlyDeleted"), "success");
+              window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
+              window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
+            });
+          },
+        },
+      ];
+    }
     if (options.stackNode && asset?.stack?.id) {
       return [
         {
@@ -442,15 +491,15 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     // Danger zone
     items.push(
       {
-        label: t("deleteAsset"),
+        label: t("moveToTrash"),
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/></svg>',
         danger: true,
         action: async () => {
           const assets = isMultiple ? selectedAssets : [asset];
           const confirmed = await requestConfirmation({
-            title: isMultiple ? t("deleteAssetsTitle", { count: assets.length }) : t("deleteAssetTitle"),
-            description: isMultiple ? t("deleteAssetsDescription") : t("deleteAssetDescription"),
-            confirmLabel: t("delete"),
+            title: isMultiple ? t("moveAssetsToTrashTitle", { count: assets.length }) : t("moveToTrashTitle"),
+            description: t("moveToTrashDescription"),
+            confirmLabel: t("moveToTrash"),
             tone: "danger",
           });
           if (!confirmed) return;
@@ -463,7 +512,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               });
             }
             commitSelectedAssetMutation(assets);
-            showToast(isMultiple ? t("assetsDeleted") : t("assetDeleted"), "success");
+            showToast(isMultiple ? t("assetsMovedToTrash", { count: assets.length }) : t("assetMovedToTrash"), "success");
             window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
           });
         },

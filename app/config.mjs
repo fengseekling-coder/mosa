@@ -14,7 +14,7 @@ export const SIDEBAR_SOURCE_TYPES = [
   "grok-generated",
   "cowart-generated",
 ];
-export const SCOPES = ["all", "favorite", "recent"];
+export const SCOPES = ["all", "favorite", "recent", "trash"];
 export const FACET_KEYS = ["source", "group", "category", "style", "conversation", "generationBatch"];
 export const SIDEBAR_GROUP_LIMIT = 5;
 export const GALLERY_DENSITIES = ["image", "info"];

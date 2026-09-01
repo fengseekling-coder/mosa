@@ -163,13 +163,34 @@ test("group deletion uses a second confirmation to decide whether assets are kep
   assert.match(dialog, /async function requestFollowupConfirmation\(options = \{\}\)[\s\S]*?requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)[\s\S]*?return requestConfirmation\(options\);/,
     "follow-up confirmation waits for the first dialog's closed state to paint before reusing the overlay");
   assert.match(actions, /params\.set\("deleteAssets", "true"\)/,
-    "the irreversible branch is explicit in the API request");
+    "the move-to-Trash branch is explicit in the API request");
   assert.doesNotMatch(dialog, /alternateLabel|confirmDialogAlternate/,
     "the shared dialog has returned to the original two-button contract");
   assert.doesNotMatch(html, /confirmDialogAlternate|btn-danger-solid/,
     "there is no separate delete-group-and-assets button in the dialog shell");
   assert.equal(translations.zh.keepGroupAssetsAction, "保留素材");
-  assert.equal(translations.zh.deleteGroupAssetsAction, "删除素材");
+  assert.equal(translations.zh.deleteGroupAssetsAction, "移到回收站");
+});
+
+test("Trash is a first-class 90-day scope with restore and permanent-delete actions", async () => {
+  const [config, html, app, client, actions, translations] = await Promise.all([
+    readFile(resolve(root, "app/config.mjs"), "utf8"),
+    readFile(resolve(root, "app/index.html"), "utf8"),
+    readFile(resolve(root, "app/app.mjs"), "utf8"),
+    readFile(resolve(root, "app/api-client.mjs"), "utf8"),
+    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
+    import(pathToFileURL(resolve(root, "app/i18n.mjs")).href).then((module) => module.default),
+  ]);
+  assert.match(config, /SCOPES = \["all", "favorite", "recent", "trash"\]/);
+  assert.match(html, /data-filter="recent"[\s\S]*?data-filter="trash"/, "Trash sits directly after Recent in the primary navigation");
+  assert.match(html, /id="emptyTrashBtn"/);
+  assert.match(client, /request\.scope === "trash"[\s\S]*?params\.set\("trash", "1"\)/);
+  assert.match(app, /TRASH_RETENTION_MS = 90 \* 24 \* 60 \* 60 \* 1000/);
+  assert.match(app, /trashRemainingDays\(asset\.deleted_at\)/);
+  assert.match(actions, /\/restore`[\s\S]*?method: "POST"/);
+  assert.match(actions, /\/permanent`[\s\S]*?method: "DELETE"/);
+  assert.equal(translations.zh.trash, "回收站");
+  assert.equal(translations.zh.trashDaysRemaining, "{count} 天后删除");
 });
 
 test("group export paginates until exhaustion without a silent asset cap", async () => {
@@ -393,10 +414,24 @@ test("large galleries use explicit masonry placement and bounded card hydration"
     "virtual placeholders preserve an explicit masonry span before hydration");
   assert.match(virtualization, /galleryCardVirtualVisiblePendingChanges/,
     "visible hydration has a priority queue independent from background preloading");
-  assert.match(virtualization, /if \(batch\.length >= 4\) break;/,
-    "card hydration is split into bounded animation-frame batches");
+  assert.match(virtualization, /new IntersectionObserver\([\s\S]*?rootMargin: "1200px 0px"/,
+    "native intersection observation drives card hydration in supported browsers");
+  assert.match(virtualization, /galleryCardVirtualLowerBound/,
+    "the non-IntersectionObserver fallback binary-searches per-column masonry geometry instead of scanning every card");
+  assert.match(virtualization, /takeChanges\(galleryCardVirtualVisiblePendingChanges, galleryCardVirtualVisiblePendingChanges\.size\)/,
+    "visible hydration drains the viewport before bounded background preloading");
+  assert.match(virtualization, /flushVisibleGalleryCardVirtualChanges\(\);[\s\S]*?scheduleGalleryCardVirtualPendingChanges\(\);/,
+    "viewport hydration is synchronous and does not depend on a throttled animation frame");
+  assert.match(virtualization, /replaceVirtualGalleryCards\(changes, \{ deferHydratedLayout: true \}\)/,
+    "visible cards replace placeholders immediately while exact height measurement is deferred");
+  assert.match(virtualization, /galleryCardVirtualScrollGrid\.addEventListener\("scroll", handleGalleryCardVirtualScroll/,
+    "indexed scroll synchronization guards large compositor jumps without an O(N) card scan");
   assert.match(masonry, /const columnEnds = Array\(columnCount\)\.fill\(1\)/,
     "masonry placement tracks column heights in a linear pass");
+  assert.match(masonry, /const canAppendIncrementally =[\s\S]*?galleryCardVirtualGeometryColumns\[columnIndex\]\.push\(geometry\)[\s\S]*?return;/,
+    "infinite-scroll append extends existing masonry columns instead of re-placing the full gallery");
+  assert.match(masonry, /const previousSpan[\s\S]*?removeProperty\("grid-row-end"\)[\s\S]*?measureTargets\.forEach[\s\S]*?getBoundingClientRect\(\)/,
+    "masonry preserves the previous span and batches layout writes before geometry reads");
   assert.match(masonry, /card\.style\.gridColumnStart = String\(columnStart\)/);
   assert.match(masonry, /card\.style\.gridRowStart = String\(rowStart\)/);
   assert.doesNotMatch(css, /grid-auto-flow:\s*dense/,

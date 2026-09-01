@@ -261,7 +261,7 @@ test("SQLite deleting a group clears asset assignments and its search index", as
   assert.deepEqual((await store.listGroups("default")).groups, [["Aurora", 0]]);
 });
 
-test("SQLite group deletion can explicitly delete every asset in the group", async (t) => {
+test("SQLite group deletion moves every asset in the group to Trash and keeps them restorable", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-delete-group-assets-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const projectRoot = join(root, "project");
@@ -278,12 +278,17 @@ test("SQLite group deletion can explicitly delete every asset in the group", asy
   const result = await store.deleteGroup("default", "Disposable", { deleteAssets: true });
 
   assert.equal(result.deletedAssets, 2);
-  await assert.rejects(store.getAsset("default", first.id), /not found/i);
-  await assert.rejects(store.getAsset("default", second.id), /not found/i);
+  assert.equal((await store.listAssetPage({ projectId: "default", limit: 10 })).page.total, 0);
+  assert.deepEqual((await store.listAssetPage({ projectId: "default", trash: true, limit: 10 })).assets.map((item) => item.id).sort(), [first.id, second.id].sort());
+  assert.equal((await store.listAutomaticIngestSuppressions("default")).length, 1,
+    "group Trash moves suppress automatic re-import of the deleted content");
   assert.deepEqual((await store.listGroups("default")).groups, []);
+  await store.restoreAsset("default", first.id);
+  assert.equal((await store.getAsset("default", first.id)).group, "Disposable");
+  assert.deepEqual((await store.listGroups("default")).groups, [["Disposable", 1]]);
 });
 
-test("SQLite group deletion is all-or-nothing when a later asset fails preflight", async (t) => {
+test("SQLite group Trash move is atomic metadata work and does not touch managed files", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-delete-group-atomic-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const projectRoot = join(root, "project");
@@ -298,34 +303,35 @@ test("SQLite group deletion is all-or-nothing when a later asset fails preflight
   const first = await store.createAsset({ assetId: "group-atomic-a", imagePath: sourcePath, group: "Atomic" });
   const second = await store.createAsset({ assetId: "group-atomic-b", imagePath: sourcePath, group: "Atomic" });
 
-  // Corrupt only the second managed path. The group delete must discover this
-  // before committing any row deletion, rather than deleting the first asset
-  // and then surfacing an error for the second.
+  // Trash is a logical state transition. Even an unavailable managed path must
+  // not turn the operation into a partial hard delete.
   const inspect = new Database(sqliteDatabasePath(libraryDir));
   inspect.prepare("UPDATE assets SET original_path = ? WHERE project_id = ? AND id = ?")
     .run(sourcePath, "default", second.id);
   inspect.close();
 
-  await assert.rejects(
-    store.deleteGroup("default", "Atomic", { deleteAssets: true }),
-    /Unsafe asset path/,
-  );
+  const result = await store.deleteGroup("default", "Atomic", { deleteAssets: true });
 
-  assert.equal((await store.getAsset("default", first.id)).id, first.id);
-  assert.equal((await store.getAsset("default", second.id)).id, second.id);
-  assert.deepEqual((await store.listGroups("default")).groups, [["Atomic", 2]]);
+  assert.equal(result.deletedAssets, 2);
+  assert.equal((await store.listAssetPage({ projectId: "default", limit: 10 })).page.total, 0);
+  assert.equal((await store.listAssetPage({ projectId: "default", trash: true, limit: 10 })).page.total, 2);
+  await stat(first.image_path);
 });
 
-test("SQLite deleteAsset commits the row before unlinking files", async (t) => {
+test("SQLite deleteAsset is a soft-delete and permanent deletion stages files before removing the row", async (t) => {
   const source = await readFile(new URL("../lib/sqlite-asset-store.mjs", import.meta.url), "utf8");
   const start = source.indexOf("async deleteAsset(projectId, assetId)");
-  const end = source.indexOf("async duplicateAsset(projectId, assetId, input = {})", start);
+  const end = source.indexOf("async restoreAsset(projectId, assetId)", start);
   assert.ok(start > -1 && end > start, "deleteAsset is present");
   const body = source.slice(start, end);
-  const transactionAt = body.indexOf("database.transaction(");
-  const unlinkAt = body.lastIndexOf("unlink(filePath)");
-  assert.ok(transactionAt > -1 && unlinkAt > -1, "deleteAsset still deletes rows and files");
-  assert.ok(transactionAt < unlinkAt, "the asset row is removed before originals are unlinked");
+  assert.match(body, /UPDATE assets SET deleted_at/);
+  assert.doesNotMatch(body, /unlink\(/);
+  const permanentStart = source.indexOf("async permanentlyDeleteAsset(projectId, assetId)");
+  const permanentEnd = source.indexOf("async purgeExpiredTrash", permanentStart);
+  const permanentBody = source.slice(permanentStart, permanentEnd);
+  assert.match(permanentBody, /stageFilesForPermanentDeletion/);
+  assert.match(permanentBody, /await staged\.rollback\(\)/);
+  assert.match(permanentBody, /await staged\.commit\(\)/);
 
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-delete-asset-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -337,14 +343,9 @@ test("SQLite deleteAsset commits the row before unlinking files", async (t) => {
   t.after(() => store.close());
 
   const asset = await store.createAsset({ assetId: "delete-row-first", imagePath: sourcePath, prompt: "delete order fixture" });
-  const imageDir = dirname(asset.image_path);
-  await chmod(imageDir, 0o555);
-  try {
-    await store.deleteAsset("default", asset.id);
-    await assert.rejects(store.getAsset("default", asset.id), /not found/i);
-  } finally {
-    await chmod(imageDir, 0o755);
-  }
+  await store.deleteAsset("default", asset.id);
+  assert.ok((await store.getAsset("default", asset.id)).deleted_at);
+  await stat(asset.image_path);
 });
 
 test("SQLite recipe snapshots change only with generation inputs and remain immutable", async (t) => {
@@ -727,11 +728,11 @@ test("SQLite schema v1 upgrades once without changing completed migration state"
   const pixelIndex = upgraded.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'assets_project_pixel_hash_idx'").get();
   upgraded.close();
 
-  assert.equal(schemaAfterUpgrade.value, "12");
+  assert.equal(schemaAfterUpgrade.value, "13");
   assert.notEqual(schemaAfterUpgrade.updated_at, originalTimestamp);
   assert.deepEqual(migrationState, { value: "completed", updated_at: originalTimestamp });
   assert.deepEqual(migrationDetails, { value: '{"verified":true}', updated_at: originalTimestamp });
-  assert.deepEqual(migrationVersions, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  assert.deepEqual(migrationVersions, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
   assert.equal(parentIndex.name, "asset_versions_parent_idx");
   assert.equal(pixelColumn.name, "pixel_sha256");
   assert.equal(pixelIndex.name, "assets_project_pixel_hash_idx");
@@ -802,7 +803,7 @@ test("SQLite schema v5 upgrades suppression identity to include pixel hash versi
     pixel_hash_version: "opaque-static-v1",
     deleted_at: "2026-08-20T00:00:00.000Z",
   });
-  assert.equal(schemaVersion, "12");
+  assert.equal(schemaVersion, "13");
 });
 
 test("SQLite schema v7 backfills conversation and generation-batch scalars", async (t) => {
@@ -844,12 +845,13 @@ test("SQLite schema v7 backfills conversation and generation-batch scalars", asy
   const migrations = inspected.prepare("SELECT version FROM schema_migrations ORDER BY version").all().map((row) => row.version);
   inspected.close();
   assert.deepEqual(scalars, { conversation_id: "legacy-conversation", generation_batch: "legacy-batch" });
-  assert.equal(schemaVersion, "12");
+  assert.equal(schemaVersion, "13");
   assert.ok(migrations.includes(8));
   assert.ok(migrations.includes(9));
   assert.ok(migrations.includes(10));
   assert.ok(migrations.includes(11));
   assert.ok(migrations.includes(12));
+  assert.ok(migrations.includes(13));
 });
 
 test("SQLite upgrades a legacy assets table before creating the source-path index", async (t) => {
@@ -937,16 +939,16 @@ test("SQLite refuses to downgrade a newer schema", async (t) => {
   future.exec(`
     CREATE TABLE library_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-    INSERT INTO library_meta (key, value, updated_at) VALUES ('schema_version', '13', 'future');
+    INSERT INTO library_meta (key, value, updated_at) VALUES ('schema_version', '14', 'future');
   `);
   future.close();
 
   assert.throws(
     () => createSqliteAssetStore({ projectRoot: root, managerDir: join(root, "mosa"), libraryDir }),
-    /schema version 13 is newer than supported version 12/,
+    /schema version 14 is newer than supported version 13/,
   );
   const inspected = new Database(databasePath, { readonly: true });
-  assert.deepEqual(inspected.prepare("SELECT value, updated_at FROM library_meta WHERE key = 'schema_version'").get(), { value: "13", updated_at: "future" });
+  assert.deepEqual(inspected.prepare("SELECT value, updated_at FROM library_meta WHERE key = 'schema_version'").get(), { value: "14", updated_at: "future" });
   inspected.close();
 });
 

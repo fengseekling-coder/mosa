@@ -684,7 +684,12 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
       ].filter(Boolean).join(", ");
       return `<img class="detail-image" src="${escapeHtml(url)}"${srcset ? ` srcset="${srcset}" sizes="360px"` : ""} alt="${escapeHtml(title)}" title="${escapeHtml(t("viewFullImage"))}" decoding="async" />`;
     }
-    return `<img class="thumb" src="${escapeHtml(url)}" data-gallery-src="${escapeHtml(url)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async"${mediaDimensionAttributes(asset)} />`;
+    const thumbSrcset = [
+      asset.thumbnail_url && asset.thumbnail_url !== asset.image_url ? `${escapeHtml(asset.thumbnail_url)} 400w` : "",
+      asset.medium_ready && asset.medium_url && asset.medium_url !== asset.image_url ? `${escapeHtml(asset.medium_url)} 960w` : "",
+      asset.preview_ready && asset.preview_url && asset.preview_url !== asset.image_url ? `${escapeHtml(asset.preview_url)} 1600w` : "",
+    ].filter(Boolean).join(", ");
+    return `<img class="thumb" src="${escapeHtml(url)}"${thumbSrcset ? ` srcset="${thumbSrcset}" sizes="(max-width: 720px) calc(50vw - 24px), 240px"` : ""} data-gallery-src="${escapeHtml(url)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async"${mediaDimensionAttributes(asset)} />`;
   }
 
   return { fileDimensionsText, fileFormatText, fileSizeText, fileAspectRatioText, formatFileSize, fileFactRowMarkup, fileFactTagMarkup, detailFavoriteButtonMarkup, detailFileSectionMarkup, detailPromptSectionMarkup, promptReferencesMarkup, editRecipeFieldsMarkup, detailSourceSectionMarkup, detailVersionSectionMarkup, versionPickerMarkup, versionOptionLabel, detailVersionSummaryMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, originalMediaCapability, originalMediaActionMarkup, detailMoreSectionMarkup, versionHistoryMarkup, generationHistoryMarkup, recipeHistoryDisclosureMarkup, referenceRightsSummary, recipeHistoryMarkup, categoryOptions, buildSourceRows, sourceName, sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup };
