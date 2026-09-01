@@ -20,7 +20,7 @@ const root = resolve(import.meta.dirname, "..");
 test("renderSettingsMenu does not attach any event listeners", async () => {
   const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
-  const match = /function renderSettingsMenu\(\) \{([\s\S]*?)\n\}\n\nfunction cowartCanvasLabel/.exec(app);
+  const match = /function renderSettingsMenu\(\{ force = false \} = \{\}\) \{([\s\S]*?)\n\}\n\nfunction cowartCanvasLabel/.exec(app);
   assert.ok(match, "expected to find renderSettingsMenu function body");
   const body = match[1];
 
@@ -74,7 +74,7 @@ test("legacy densityToggle references have been removed from app.js", async () =
 test("renderSettingsMenu uses real state for segmented control active status", async () => {
   const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
-  const match = /function renderSettingsMenu\(\) \{([\s\S]*?)\n\}\n\nfunction cowartCanvasLabel/.exec(app);
+  const match = /function renderSettingsMenu\(\{ force = false \} = \{\}\) \{([\s\S]*?)\n\}\n\nfunction cowartCanvasLabel/.exec(app);
   assert.ok(match, "expected to find renderSettingsMenu function body");
   const body = match[1];
 
@@ -82,7 +82,7 @@ test("renderSettingsMenu uses real state for segmented control active status", a
   assert.match(body, /state\.darkMode/, "renderSettingsMenu must use state.darkMode for theme active status");
   // Density active state must key off state.galleryDensity, not a tautological literal.
   assert.match(body, /state\.galleryDensity/, "renderSettingsMenu must use state.galleryDensity for density active status");
-  assert.match(body, /state\.anonymousUsageEnabled/, "renderSettingsMenu must use state.anonymousUsageEnabled for anonymous metrics status");
+  assert.doesNotMatch(body, /anonymousUsage|data-usage-opt/, "anonymous telemetry must not be exposed as a user-facing settings toggle");
   // No tautological self-comparisons that would make the active class always-on.
   assert.doesNotMatch(body, /"light"\s*===\s*"light"/, "renderSettingsMenu must not contain tautological light comparison");
   assert.doesNotMatch(body, /"dark"\s*===\s*"dark"/, "renderSettingsMenu must not contain tautological dark comparison");
@@ -128,7 +128,7 @@ test("settings popover remains inside the visible desktop viewport", async () =>
   assert.match(rule, /overflow-y:\s*auto/, "long settings content must scroll inside the popover");
 });
 
-test("settings is the single surface for preferences, storage, privacy, and about", async () => {
+test("settings is the single surface for preferences, storage, and about", async () => {
   const [html, app, css] = await Promise.all([
     readFile(resolve(root, "app/index.html"), "utf8"),
     readFile(resolve(root, "app/app.mjs"), "utf8"),
@@ -138,8 +138,9 @@ test("settings is the single surface for preferences, storage, privacy, and abou
   assert.doesNotMatch(html, /accountModal|accountToggle/, "standalone About UI is removed");
   assert.doesNotMatch(app, /openAccountModal|closeAccountModal|trapAccountModalFocus/, "standalone About behavior is removed");
   assert.doesNotMatch(css, /account-modal-card|account-modal-overlay/, "standalone About styles are removed");
-  assert.match(app, /settings-library-status/, "local library status is persistently visible in the Settings rail");
-  assert.match(app, /privacyPolicySummary/, "privacy copy is folded into Settings");
+  assert.match(app, /data-settings-library-path/, "the local library path is visible in the unified Settings surface");
+  assert.doesNotMatch(app, /settingsLocalFirst|preferencesSubtitle|settings-header-mark|headerIcon/,
+    "Settings avoids redundant explanatory copy and decorative header chrome");
   assert.match(app, /data-change-library/, "Settings exposes library relocation when the desktop bridge supports it");
   assert.match(app, /state\.libraryRoot \|\| state\.libraryPath/, "Settings opens the library root rather than only the active project folder");
   assert.match(app, /function openSettingsModal\(\)[\s\S]*?renderSettingsMenu\(\);[\s\S]*?els\.settingsMenu\.hidden = false/,
@@ -148,51 +149,69 @@ test("settings is the single surface for preferences, storage, privacy, and abou
     "Settings initially focuses the dialog container without forcing a close-button focus ring");
 });
 
-test("settings uses a rail and one focused category instead of the legacy long list", async () => {
+test("settings uses one compact surface instead of category navigation", async () => {
   const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
-  assert.match(app, /const SETTINGS_SECTIONS = \["appearance", "storage", "about"\]/,
-    "Settings declares the three focused categories");
-  assert.match(app, /settingsSection: "appearance"/,
-    "Settings keeps an explicit active-category state");
-  assert.match(app, /class="settings-modal-rail"/,
-    "Settings renders a dedicated navigation rail");
-  assert.match(app, /class="settings-section-tabs" role="tablist"/,
-    "the category rail exposes tablist semantics");
-  assert.match(app, /role="tab"[\s\S]*?data-settings-section="\$\{id\}"/,
-    "each category is a delegated tab control");
-  assert.match(app, /role="tabpanel"[\s\S]*?activeSection === id \? "" : " hidden"/,
-    "only the active category panel is visible");
-  assert.match(app, /class="settings-library-status"/,
-    "the rail retains MOSA's local-library context");
-  assert.doesNotMatch(app, /settings-library-summary/,
-    "the rejected three-column summary strip stays removed");
+  assert.doesNotMatch(app, /SETTINGS_SECTIONS|settingsSection|settings-section-tabs|settings-modal-rail/,
+    "Settings must not keep category state or a navigation rail");
+  assert.doesNotMatch(app, /role="tab"|role="tabpanel"|data-settings-section/,
+    "the compact Settings surface has no fake multi-page tab semantics");
+  assert.match(app, /section\(t\("appearance"\), appearanceRows\)/,
+    "appearance controls render directly in the unified surface");
+  assert.match(app, /section\(t\("storageDataSection"\), storageRows\)/,
+    "storage controls render directly in the unified surface");
+  assert.match(app, /section\(t\("aboutSection"\), aboutRow, "settings-about-block"\)/,
+    "about information renders directly in the unified surface");
+  assert.match(app, /const aboutRow = row\([\s\S]*?t\("version"\)/,
+    "the About section presents version information directly instead of repeating the product name");
+  assert.doesNotMatch(app, /settings-section-rows/,
+    "settings groups do not wrap rows in visible card containers");
 });
 
-test("settings category tabs support delegated clicks, arrow keys, and hidden-panel-safe focus", async () => {
+test("settings avoids full rerenders for normal interactions and keeps radio keyboard navigation", async () => {
   const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
-  assert.match(app, /button\?\.dataset\.settingsSection[\s\S]*?state\.settingsSection = button\.dataset\.settingsSection;[\s\S]*?renderSettingsMenu\(\)/,
-    "delegated category clicks update state and render once");
-  assert.match(app, /function handleSettingsMenuKeydown\(event\)[\s\S]*?\[role="tab"\][\s\S]*?ArrowRight[\s\S]*?ArrowDown[\s\S]*?ArrowLeft[\s\S]*?ArrowUp[\s\S]*?Home[\s\S]*?End/,
-    "category tabs support the complete desktop tab-key navigation set");
-  assert.match(app, /querySelectorAll\("button:not\(\[disabled\]\):not\(\[tabindex='-1'\]\)[\s\S]*?\.filter\(\(element\) => !element\.closest\("\[hidden\]"\)\)/,
-    "the focus trap excludes controls inside inactive hidden panels");
+  assert.match(app, /function syncSettingsMenuView\(\)/,
+    "Settings has a local state synchronizer for stable in-place updates");
+  assert.match(app, /if \(existingDialog && !force\) \{[\s\S]*?syncSettingsMenuView\(\);[\s\S]*?return;/,
+    "normal refreshes synchronize the existing dialog rather than replacing its DOM");
+  assert.doesNotMatch(app, /dataset\.usageOpt|data-usage-opt/,
+    "anonymous telemetry is not exposed as a user-facing Settings control");
+  assert.match(app, /function handleSettingsMenuKeydown\(event\)[\s\S]*?\[role="radio"\][\s\S]*?ArrowRight[\s\S]*?ArrowDown[\s\S]*?ArrowLeft[\s\S]*?ArrowUp[\s\S]*?Home[\s\S]*?End/,
+    "segmented controls retain complete desktop arrow-key navigation");
+  assert.match(app, /group\.dataset\.activeIndex = String\(Math\.max\(0, activeIndex\)\)/,
+    "segmented controls synchronize the sliding thumb with their active radio");
+  assert.match(app, /class="segmented-thumb" aria-hidden="true"/,
+    "segmented controls render one non-interactive sliding thumb");
+  assert.doesNotMatch(app, /handleSettingsMenuKeydown\(event\)[\s\S]*?\[role="tab"\]/,
+    "removed category tabs leave no dead keyboard branch");
 });
 
-test("settings dialog geometry follows the 4px spatial grid", async () => {
+test("settings dialog uses the compact unified geometry", async () => {
   const css = await readFile(resolve(root, "app/styles.css"), "utf8");
 
-  assert.match(css, /\.mosa-v2 \.settings-menu \{[\s\S]*?padding: 32px;[\s\S]*?backdrop-filter: blur\(16px\)/,
+  assert.match(css, /\.mosa-v2 \.settings-menu \{[\s\S]*?padding: 24px;[\s\S]*?backdrop-filter: blur\(18px\)/,
     "the modal scrim uses grid-aligned padding and a restrained material blur");
-  assert.match(css, /\.mosa-v2 \.settings-modal-card \{[\s\S]*?width: min\(840px, 100%\);[\s\S]*?height: min\(640px, calc\(100dvh - 64px\)\);[\s\S]*?grid-template-columns: 208px minmax\(0, 1fr\);[\s\S]*?border-radius: 20px;/,
-    "the wider two-column dialog, rail, viewport inset, and radius stay on the 4px grid");
-  assert.match(css, /\.mosa-v2 \.settings-section-tab::before \{[^}]*width: 4px;/,
-    "the active category indicator uses a 4px rail");
-  assert.match(css, /\.mosa-v2 \.settings-modal-row \{[^}]*grid-template-columns: 32px minmax\(0, 1fr\) auto;[^}]*min-height: 64px;[^}]*padding: 12px 16px;/,
-    "setting rows align icon wells, copy, and controls to the 4px grid");
-  assert.match(css, /\.mosa-v2 \.settings-menu \.segmented-btn \{[^}]*min-width: 44px;[^}]*height: 28px;[^}]*padding: 0 12px;[^}]*border-radius: 8px;/,
-    "segmented controls use grid-aligned hit geometry");
-  assert.match(css, /@media \(prefers-reduced-transparency: reduce\) \{[\s\S]*?\.mosa-v2 \.settings-modal-card,[\s\S]*?backdrop-filter: none;/,
+  assert.match(css, /\.mosa-v2 \.settings-modal-card \{[\s\S]*?width: min\(520px, 100%\);[\s\S]*?max-height: min\(560px, calc\(100dvh - 48px\)\);[\s\S]*?border-radius: 20px;/,
+    "the dialog is compact, single-column, and viewport constrained");
+  assert.match(css, /\.mosa-v2 \.settings-modal-row \{[^}]*grid-template-columns: 24px minmax\(0, 1fr\) 164px;[^}]*min-height: 52px;[^}]*padding: 8px 0;/,
+    "setting rows use one stable three-column alignment grid");
+  assert.match(css, /\.mosa-v2 \.settings-block \+ \.settings-block \{[^}]*padding-top: 18px;[^}]*border-top: 1px solid var\(--color-border-subtle\);/,
+    "settings sections are separated by spacing plus one quiet structural rule");
+  assert.match(css, /\.mosa-v2 \.settings-block > h3 \{[^}]*font-size: 12px;[^}]*font-weight: 650;/,
+    "section labels have a distinct hierarchy above individual setting rows");
+  assert.match(css, /\.mosa-v2 \.settings-block > h3::before \{[^}]*width: 3px;[^}]*height: 12px;/,
+    "section labels use one restrained accent marker instead of another container");
+  assert.match(css, /\.mosa-v2 \.settings-menu \.segmented \{[^}]*width: 164px;[^}]*height: 30px;[^}]*padding: 2px;[^}]*border-radius: 999px;/,
+    "segmented controls use one compact pill track");
+  assert.match(css, /\.mosa-v2 \.settings-menu \.segmented-thumb \{[^}]*width: calc\(\(100% - 4px\) \/ 2\);[^}]*transition: transform 180ms/,
+    "the selected segment is represented by one smoothly sliding thumb");
+  assert.match(css, /\.mosa-v2 \.settings-menu \.segmented\[data-active-index="1"\] \.segmented-thumb \{ transform: translateX\(100%\); \}/,
+    "the thumb moves to the second option without rebuilding the dialog");
+  assert.match(css, /\.mosa-v2 \.settings-text-action \{[^}]*border: 0;[^}]*background: transparent;/,
+    "secondary actions stay visually flat instead of adding nested button boxes");
+  assert.match(css, /\.mosa-v2 \.settings-menu\[data-refreshing="true"\] \.settings-modal-card \{ transition: none; \}/,
+    "visible Settings rebuilds cannot replay the entrance transition");
+  assert.match(css, /@media \(prefers-reduced-transparency: reduce\) \{[\s\S]*?\.mosa-v2 \.settings-menu,[\s\S]*?\.mosa-v2 \.settings-modal-card \{[^}]*backdrop-filter: none;/,
     "the settings material has a solid accessibility fallback");
 });

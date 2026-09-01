@@ -98,11 +98,13 @@ export async function processDerivativeJob(store: DerivativeStore, job: Derivati
     const swapsAxes = orientation >= 5 && orientation <= 8;
     const width = swapsAxes ? Number(metadata.height) : Number(metadata.width);
     const height = swapsAxes ? Number(metadata.width) : Number(metadata.height);
-    await Promise.all([
-      sharp(String(job.original_path), { animated: false }).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).webp({ quality: 84 }).toFile(job.previewPath),
-      sharp(String(job.original_path), { animated: false }).rotate().resize({ width: 960, height: 960, fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toFile(job.mediumPath),
-      sharp(String(job.original_path), { animated: false }).rotate().resize({ width: 400, height: 400, fit: "inside", withoutEnlargement: true }).webp({ quality: 78 }).toFile(job.thumbnailPath),
-    ]);
+    // Keep per-job image work serial. With the worker concurrency at two, the
+    // previous Promise.all could fan out to six simultaneous libvips encode
+    // pipelines during burst ingestion and contend directly with Chromium for
+    // CPU. Thumbnail first improves perceived readiness without CPU spikes.
+    await sharp(String(job.original_path), { animated: false }).rotate().resize({ width: 400, height: 400, fit: "inside", withoutEnlargement: true }).webp({ quality: 78 }).toFile(job.thumbnailPath);
+    await sharp(String(job.original_path), { animated: false }).rotate().resize({ width: 960, height: 960, fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toFile(job.mediumPath);
+    await sharp(String(job.original_path), { animated: false }).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).webp({ quality: 84 }).toFile(job.previewPath);
     const result = { previewPath: job.previewPath, mediumPath: job.mediumPath, thumbnailPath: job.thumbnailPath, width, height };
     await store.completeDerivativeJob(job, result);
     return { ok: true, ...result };

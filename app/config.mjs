@@ -25,7 +25,10 @@ export const LIVE_REGION_WRITE_DELAY = 32;
 // Poll only a tiny revision token. The heavier groups/assets refresh runs only
 // after the token changes, so external bridge/MCP writes still appear quickly
 // without continuously querying a large library.
-export const LIBRARY_REFRESH_INTERVAL = 3000;
+// EventSource is the primary change signal. Keep a low-frequency revision
+// check only as a recovery path for dropped/unsupported SSE connections; a
+// foreground/visibility resume also performs an immediate check.
+export const LIBRARY_REFRESH_INTERVAL = 30000;
 export const SOURCE_LABEL_KEYS = {
   "codex-generated": "sourceCodex",
   "cowart-generated": "sourceCowart",

@@ -3,7 +3,7 @@
  * Defines all context menu items and their actions
  */
 
-export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, confirmDetailNavigation, discardDetailDraft, openGroupModal, getGroupColor, saveGroupColor, writeClipboardText, pasteClipboardImage }) {
+export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, openGroupModal, getGroupColor, saveGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage }) {
   const { apiFetch } = apiClient;
   // getGroupColor falls back to the deterministic palette so call sites can rely
   // on a single source of truth for group colors (mirrors app.mjs colorForGroup).
@@ -61,16 +61,28 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     return { succeeded, failed };
   }
 
-  // Full manifest of one group via the existing paged asset query. The cap keeps
-  // a runaway cursor loop bounded; local groups are far below it.
+  // Full manifest of one group via the existing paged asset query. Never cap a
+  // user's export by an arbitrary asset count: cursor-loop detection provides
+  // the safety bound without silently truncating large libraries.
   async function fetchGroupAssets(groupName) {
     const collected = [];
+    const seenAssetIds = new Set();
+    const seenCursors = new Set();
     let cursor = "";
-    while (collected.length < 5000) {
+    while (true) {
+      if (cursor) {
+        if (seenCursors.has(cursor)) throw new Error("Group export pagination stalled.");
+        seenCursors.add(cursor);
+      }
       const params = new URLSearchParams({ project: state.project, group: groupName, limit: "100" });
       if (cursor) params.set("cursor", cursor);
       const result = await apiFetch(`/api/assets?${params}`);
-      collected.push(...(result.assets || []));
+      for (const asset of result.assets || []) {
+        const id = String(asset?.id || "");
+        if (id && seenAssetIds.has(id)) continue;
+        if (id) seenAssetIds.add(id);
+        collected.push(asset);
+      }
       cursor = result.page?.nextCursor || "";
       if (!cursor) break;
     }
@@ -85,6 +97,13 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
 
     if (type === "group") {
       items.push(
+        {
+          label: t("renameGroup"),
+          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>',
+          action: async () => {
+            window.dispatchEvent(new CustomEvent("mosa:rename-group", { detail: { groupName: item.name } }));
+          },
+        },
         {
           label: t("duplicateGroup"),
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
@@ -144,10 +163,20 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               });
               if (!confirmed) return;
 
-              await apiFetch(`/api/groups/${encodeURIComponent(item.name)}?project=${encodeURIComponent(state.project)}`, {
+              const deleteAssets = await requestFollowupConfirmation({
+                title: t("deleteGroupAssetsTitle"),
+                description: t("deleteGroupAssetsDescription"),
+                confirmLabel: t("deleteGroupAssetsAction"),
+                cancelLabel: t("keepGroupAssetsAction"),
+                tone: "danger",
+              });
+
+              const params = new URLSearchParams({ project: state.project });
+              if (deleteAssets) params.set("deleteAssets", "true");
+              await apiFetch(`/api/groups/${encodeURIComponent(item.name)}?${params}`, {
                 method: "DELETE",
               });
-              showToast(t("groupDeleted"), "success");
+              showToast(t(deleteAssets ? "groupAndAssetsDeleted" : "groupDeleted"), "success");
 
               // Clear group filter if the deleted group was active
               if (state.facets.group === item.name) {
@@ -225,6 +254,19 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               showToast(t("pathCopied"), "success");
             } catch {
               showToast(t("copyFailed"), "error");
+            }
+          },
+        },
+        {
+          label: t("copyImage"),
+          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 4 4 2-2 5 5"/></svg>',
+          disabled: typeof copyOriginalImage !== "function" || Boolean(isVideoAsset?.(asset)) || !(asset.image_path || asset.image_url),
+          action: async () => {
+            try {
+              await copyOriginalImage(asset);
+              showToast(t("imageCopied"), "success");
+            } catch {
+              showToast(t("copyImageFailed"), "error");
             }
           },
         },
@@ -375,45 +417,6 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
 
     // Danger zone
     items.push(
-      {
-        label: t("archiveAsset"),
-        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="5" rx="1"/><path d="M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8M10 12h4"/></svg>',
-        danger: true,
-        action: async () => {
-          const assets = isMultiple ? selectedAssets : [asset];
-          const confirmed = await requestConfirmation({
-            title: isMultiple ? t("archiveAssetsTitle", { count: assets.length }) : t("archiveAssetTitle"),
-            description: isMultiple ? t("archiveAssetsDescription") : t("archiveAssetDescription"),
-            confirmLabel: t("archive"),
-            tone: "danger",
-          });
-          if (!confirmed) return;
-          if (!await confirmSelectedAssetMutation(assets)) return;
-
-          await runAction(async () => {
-            if (isMultiple) {
-              const response = await apiFetch("/api/assets/batch", {
-                method: "POST",
-                body: { action: "archive", projectId: state.project, assetIds: assets.map((entry) => entry.id) },
-              });
-              const outcome = reconcileBatchMutation(assets, response);
-              commitSelectedAssetMutation(outcome.succeeded);
-              if (outcome.failed.length) {
-                showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
-              } else {
-                showToast(t("assetsArchived"), "success");
-              }
-            } else {
-              await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/archive`, {
-                method: "POST",
-              });
-              commitSelectedAssetMutation(assets);
-              showToast(t("assetArchived"), "success");
-            }
-            window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
-          });
-        },
-      },
       {
         label: t("deleteAsset"),
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/></svg>',

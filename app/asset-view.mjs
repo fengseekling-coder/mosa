@@ -108,6 +108,7 @@ export function createAssetViewer({
     discardDetailDraft();
     // 画廊上下文快照：真实滚动容器的 scrollTop（经 getLibraryScrollContainer 解析）；
     // requestKey 标识结果集语义，查看期间搜索/筛选/排序/项目变化时恢复自动降级。
+    assetViewReturnGridWidth = els.assetGrid?.clientWidth || 0;
     state.libraryReturnSnapshot = {
       scrollTop: getLibraryScrollContainer().scrollTop,
       focusedAssetId: trigger?.closest?.(".asset-card")?.dataset.id || id,
@@ -132,6 +133,7 @@ export function createAssetViewer({
     setupAssetViewInteraction();
     renderAssetView();
     updateAssetViewNav();
+    preloadAssetViewNeighbors();
     setDetailOpen(true);
     updateSelectedCard();
     // 返回是查看模式的主操作：进入后焦点落在返回按钮（同步聚焦——rAF 在隐藏窗口不执行）。
@@ -144,6 +146,8 @@ export function createAssetViewer({
     if (state.viewMode !== "asset") return;
     // Phase 3B：先清理舞台交互（wheel/pointer 监听、拖拽会话、ResizeObserver），再切回 Library。
     teardownAssetViewInteraction();
+    cancelAssetViewDetailRender();
+    cancelAssetViewNeighborPreloads();
     cancelAssetViewOriginalPreload();
     assetViewStageAssetId = null;
     assetViewStageAssetUrl = null;
@@ -159,7 +163,10 @@ export function createAssetViewer({
     assetViewSequence.generation += 1;
     const snapshot = state.libraryReturnSnapshot;
     state.libraryReturnSnapshot = null;
+    const returnGridWidth = assetViewReturnGridWidth;
+    assetViewReturnGridWidth = 0;
     setViewMode("library");
+    const galleryWasDirty = assetViewGalleryDirty;
     if (assetViewGalleryDirty) {
       renderGrid({ preserveScroll: true });
       updateViewTitle();
@@ -182,7 +189,8 @@ export function createAssetViewer({
         // BUG-10（Batch 2A）：Viewer 内追加页的 Gallery 渲染发生在 hidden 容器中，
         // 图片 load 时的 masonry 测量全为 0（卡片塌陷为几像素）。返回后重新调度布局
         // ——重新绑定 load 监听并同步 + rAF 各布局一次，保证滚动恢复前容器高度真实。
-        setupMasonryLayout();
+        const gridWidthChanged = Math.abs((els.assetGrid?.clientWidth || 0) - returnGridWidth) >= 0.5;
+        if (galleryWasDirty || gridWidthChanged) setupMasonryLayout();
         // 恢复时重新解析当前真实容器（查看期间视口/布局可能已变化）。
         getLibraryScrollContainer().scrollTop = snapshot.scrollTop;
         const activeEl = document.activeElement;
@@ -218,6 +226,61 @@ export function createAssetViewer({
   let assetViewPanSession = null;
   const assetViewActivePointers = new Map();
   let assetViewPinchSession = null;
+  let assetViewTransformFrame = null;
+  let assetViewDetailFrame = null;
+  let assetViewDetailSecondFrame = null;
+  const assetViewNeighborPreloads = new Map();
+
+  function cancelAssetViewDetailRender() {
+    if (assetViewDetailFrame !== null) cancelAnimationFrame(assetViewDetailFrame);
+    if (assetViewDetailSecondFrame !== null) cancelAnimationFrame(assetViewDetailSecondFrame);
+    assetViewDetailFrame = null;
+    assetViewDetailSecondFrame = null;
+  }
+
+  // Keep the media swap on the current frame. The Inspector rebuild starts
+  // after one paint, so rapid Previous/Next navigation cannot make both large
+  // DOM updates compete for the same frame budget.
+  function scheduleAssetViewDetailRender(assetId) {
+    cancelAssetViewDetailRender();
+    assetViewDetailFrame = requestAnimationFrame(() => {
+      assetViewDetailFrame = null;
+      assetViewDetailSecondFrame = requestAnimationFrame(() => {
+        assetViewDetailSecondFrame = null;
+        if (state.viewMode !== "asset" || state.selectedId !== assetId) return;
+        renderDetail({ syncAssetView: false });
+      });
+    });
+  }
+
+  function cancelAssetViewNeighborPreloads() {
+    for (const loader of assetViewNeighborPreloads.values()) loader.src = "";
+    assetViewNeighborPreloads.clear();
+  }
+
+  function preloadAssetViewNeighbors() {
+    if (state.viewMode !== "asset" || assetViewSequence.index < 0) return;
+    const wanted = new Set();
+    for (const offset of [-1, 1, 2]) {
+      const id = assetViewSequence.ids[assetViewSequence.index + offset];
+      if (!id) continue;
+      const asset = state.assets.find((candidate) => candidate.id === id);
+      if (!asset || isVideoAsset(asset)) continue;
+      const url = asset.preview_url || asset.medium_url || asset.image_url || "";
+      if (!url) continue;
+      wanted.add(url);
+      if (assetViewNeighborPreloads.has(url)) continue;
+      const loader = new Image();
+      loader.decoding = "async";
+      loader.src = url;
+      assetViewNeighborPreloads.set(url, loader);
+    }
+    for (const [url, loader] of assetViewNeighborPreloads) {
+      if (wanted.has(url)) continue;
+      loader.src = "";
+      assetViewNeighborPreloads.delete(url);
+    }
+  }
 
   // ----- 集中式纯几何 helper：事件处理器只组装输入，不复制公式 -----
   // 舞台可用几何 = content box（clientWidth/Height 去掉 padding），与 contain 语义一致。
@@ -265,6 +328,19 @@ export function createAssetViewer({
     if (!assetViewOriginalPreload) return;
     assetViewOriginalPreload.src = "";
     assetViewOriginalPreload = null;
+  }
+
+  function scheduleAssetViewTransformApply() {
+    if (assetViewTransformFrame !== null) return;
+    assetViewTransformFrame = requestAnimationFrame(() => {
+      assetViewTransformFrame = null;
+      applyAssetViewTransform();
+    });
+  }
+
+  function cancelAssetViewTransformApply() {
+    if (assetViewTransformFrame !== null) cancelAnimationFrame(assetViewTransformFrame);
+    assetViewTransformFrame = null;
   }
 
   async function maybeUpgradeAssetViewOriginal() {
@@ -393,7 +469,7 @@ export function createAssetViewer({
     announceGalleryStatus(t("zoomAnnouncement", { percent: Math.round(assetViewTransform.scale * 100) }));
   }
 
-  function setAssetViewScale(targetScale, pointerX = 0, pointerY = 0, { announce = false } = {}) {
+  function setAssetViewScale(targetScale, pointerX = 0, pointerY = 0, { announce = false, defer = false } = {}) {
     if (!assetViewImageReady()) return false;
     const scale = clampAssetViewScale(targetScale);
     if (Math.abs(scale - assetViewTransform.scale) <= ASSET_VIEW_SCALE_EPSILON) {
@@ -406,7 +482,8 @@ export function createAssetViewer({
     assetViewTransform.scale = scale;
     assetViewTransform.offsetX = offsets.offsetX;
     assetViewTransform.offsetY = offsets.offsetY;
-    applyAssetViewTransform();
+    if (defer) scheduleAssetViewTransformApply();
+    else applyAssetViewTransform();
     void maybeUpgradeAssetViewOriginal();
     if (announce) announceAssetViewZoom();
     return true;
@@ -463,6 +540,7 @@ export function createAssetViewer({
   // 切换素材/错误兜底：回到 fit 语义并清理内联几何与瞬时 pointer 状态（不持久化缩放记忆）。
   function resetAssetViewTransform() {
     cancelAssetViewPan();
+    cancelAssetViewTransformApply();
     cancelAssetViewOriginalPreload();
     assetViewTransform.mode = "fit";
     assetViewTransform.scale = 1;
@@ -510,7 +588,7 @@ export function createAssetViewer({
     // wheel（小 delta 连续事件）共用同一指针中心公式，滚轮方向沿用旧 Lightbox（上滚放大）。
     const factor = Math.pow(ASSET_VIEW_ZOOM_STEP, -event.deltaY / 100);
     const pointer = assetViewStagePointer(event.clientX, event.clientY);
-    zoomAssetViewBy(factor, pointer.x, pointer.y);
+    zoomAssetViewBy(factor, pointer.x, pointer.y, { defer: true });
   }
 
   function handleAssetViewPointerDown(event) {
@@ -558,7 +636,7 @@ export function createAssetViewer({
     );
     assetViewTransform.offsetX = offsets.offsetX;
     assetViewTransform.offsetY = offsets.offsetY;
-    applyAssetViewTransform();
+    scheduleAssetViewTransformApply();
   }
 
   function handleAssetViewPointerEnd(event) {
@@ -683,7 +761,7 @@ export function createAssetViewer({
     assetViewTransform.scale = targetScale;
     assetViewTransform.offsetX = offsets.offsetX;
     assetViewTransform.offsetY = offsets.offsetY;
-    applyAssetViewTransform();
+    scheduleAssetViewTransformApply();
     session.changed ||= changed;
     return changed;
   }
@@ -733,6 +811,7 @@ export function createAssetViewer({
     if (!assetViewInteractionActive || !stage) return;
     assetViewInteractionActive = false;
     cancelAssetViewPan();
+    cancelAssetViewTransformApply();
     stage.removeEventListener("wheel", handleAssetViewWheel);
     stage.removeEventListener("pointerdown", handleAssetViewPointerDown);
     stage.removeEventListener("pointermove", handleAssetViewPointerMove);
@@ -759,6 +838,7 @@ export function createAssetViewer({
     snapshot: null,
   };
   let assetViewGalleryDirty = false;
+  let assetViewReturnGridWidth = 0;
 
   let assetViewAssetSetSource = null;
   let assetViewAssetIds = new Set();
@@ -906,9 +986,10 @@ export function createAssetViewer({
     state.recipeHistory = null;
     state.generationHistory = null;
     renderAssetView();
-    renderDetail();
     updateSelectedCard();
     updateAssetViewNav();
+    preloadAssetViewNeighbors();
+    scheduleAssetViewDetailRender(id);
     // 焦点策略：若本次导航使持焦按钮自身到达边界变为 disabled，焦点不得掉到 <body>——
     // 移到另一侧仍可用的导航按钮；两侧皆不可用（单项序列）时回到 Viewer Header 的返回按钮。
     const active = document.activeElement;

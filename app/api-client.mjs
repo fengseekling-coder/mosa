@@ -267,13 +267,81 @@ export function createApiClient(deps) {
   }
 
   async function reloadLoadedAssetPages(options = {}) {
+    const requestId = ++assetRequestSequence;
+    const request = currentAssetRequest();
+    const requestKey = assetRequestKey(request);
     const pageCount = Math.max(1, Number(state.loadedPageCount) || 1);
-    const firstApplied = await loadAssets({ background: options.background !== false, preserveScroll: true });
-    if (!firstApplied) return false;
-    for (let page = 1; page < pageCount && state.nextCursor; page += 1) {
-      const appended = await loadAssets({ append: true, background: options.background !== false, preserveScroll: true });
-      if (!appended) return false;
+    const background = options.background !== false;
+    setGalleryBusy(true, requestId, request);
+
+    // Fetch the whole currently-loaded window off-DOM first. The old flow
+    // committed page 1 immediately and then appended pages one by one, which
+    // temporarily collapsed scrollHeight and could clamp a deep scroll
+    // position. This snapshot stays private until every requested page is
+    // ready, then the gallery is committed exactly once.
+    const pages = [];
+    let result = options.firstResult || null;
+    let cursor = null;
+    try {
+      for (let page = 0; page < pageCount; page += 1) {
+        if (!result) result = await requestAssetPage(request, { cursor });
+        if (!isCurrentAssetRequest(requestId, request)) return false;
+        pages.push(result);
+        const nextCursor = result.page?.nextCursor || null;
+        if (!nextCursor || nextCursor === cursor) break;
+        cursor = nextCursor;
+        result = null;
+      }
+    } catch {
+      if (isCurrentAssetRequest(requestId, request)) setGalleryBusy(false, requestId, request);
+      return false;
     }
+    if (!isCurrentAssetRequest(requestId, request)) return false;
+
+    const previousAssets = state.assets;
+    const previousSelected = selectedAsset();
+    const seen = new Set();
+    const nextAssets = [];
+    for (const page of pages) {
+      for (const asset of page.assets || []) {
+        const key = `${asset.project_id || request.project}\u001f${asset.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        nextAssets.push(asset);
+      }
+    }
+    const lastPage = pages.at(-1) || {};
+    const firstPage = pages[0] || {};
+    const nextSelected = nextAssets.find((asset) => asset.id === state.selectedId)
+      || (state.detailAsset?.id === state.selectedId && state.detailAsset.project_id === request.project ? state.detailAsset : null);
+    const selectedChanged = assetVersion(previousSelected) !== assetVersion(nextSelected);
+    const assetsChanged = assetListVersion(previousAssets) !== assetListVersion(nextAssets);
+    const preserveDirtySelection = Boolean(state.detailOpen && state.detailDirty && previousSelected
+      && previousSelected.project_id === request.project
+      && !nextAssets.some((asset) => asset.id === previousSelected.id && asset.project_id === previousSelected.project_id));
+
+    state.assets = nextAssets;
+    if (request.stackId && firstPage.stack) state.activeStackSummary = firstPage.stack;
+    state.galleryStatus = "ready";
+    state.galleryError = null;
+    state.pageTotal = Number(firstPage.page?.total || nextAssets.length);
+    state.nextCursor = lastPage.page?.nextCursor || null;
+    state.loadedPageCount = Math.max(1, pages.length);
+    if (preserveDirtySelection) state.detailAsset = previousSelected;
+    if (state.detailAsset?.project_id !== request.project) state.detailAsset = null;
+    if (state.detailAsset && state.assets.some((asset) => asset.id === state.detailAsset.id && asset.project_id === state.detailAsset.project_id)) state.detailAsset = null;
+    if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)
+      && !(state.detailAsset?.id === state.selectedId && state.detailAsset.project_id === request.project)) state.selectedId = null;
+
+    if (!background || assetsChanged) {
+      renderGrid({ animate: previousAssets.length === 0, preserveScroll: true });
+      updateViewTitle();
+    }
+    lastCommittedAssetRequestKey = requestKey;
+    if (state.detailOpen && !isDetailEditorActive()
+      && (!background || !state.selectedId || selectedChanged)) renderDetail();
+    if (state.viewMode === "asset") updateAssetViewNav();
+    setGalleryBusy(false, requestId, request);
     return true;
   }
 
@@ -291,9 +359,9 @@ export function createApiClient(deps) {
 
     const incoming = result.assets || [];
     const visible = state.assets.slice(0, incoming.length);
-    const incomingIds = incoming.map((asset) => `${asset.project_id || request.project}\u001f${asset.id}`).join("|");
-    const visibleIds = visible.map((asset) => `${asset.project_id || request.project}\u001f${asset.id}`).join("|");
-    if (incomingIds !== visibleIds) return reloadLoadedAssetPages({ background: true });
+    if (assetListVersion(incoming) !== assetListVersion(visible)) {
+      return reloadLoadedAssetPages({ background: true, firstResult: result });
+    }
 
     const total = Number(result.page?.total);
     if (Number.isFinite(total) && state.pageTotal !== total) {
@@ -366,7 +434,19 @@ export function createApiClient(deps) {
   }
 
   function assetListVersion(assets) {
-    return assets.map((asset) => `${asset.id}:${asset.updated_at || ""}:${asset.image_url || ""}`).join("|");
+    return assets.map((asset) => [
+      asset.project_id || state.project,
+      asset.id,
+      asset.updated_at || "",
+      asset.image_url || "",
+      asset.thumbnail_url || "",
+      asset.preview_url || "",
+      asset.favorite ? "1" : "0",
+      asset.group || "",
+      asset.version_index || "",
+      asset.stack?.id || "",
+      asset.stack?.count || "",
+    ].join("\u001f")).join("|");
   }
 
   function assetVersion(asset) {

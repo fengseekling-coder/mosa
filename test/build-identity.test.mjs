@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { getBuildIdentity, resetBuildIdentityCache, computeUiFingerprint } from "../lib/build-identity.mjs";
+import { getBuildIdentity, resetBuildIdentityCache, computeRuntimeFingerprint, computeUiFingerprint } from "../lib/build-identity.mjs";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
 import { MCP_SERVER_VERSION } from "../lib/version-identities.mjs";
 
@@ -34,19 +34,21 @@ function runtimeOptions(root, overrides = {}) {
   };
 }
 
-test("getBuildIdentity reads productVersion, gitSha, and uiFingerprint from build-identity.json", async () => {
+test("getBuildIdentity reads productVersion, Git, UI, and runtime fingerprints from build-identity.json", async () => {
   const tempAppDir = await makeTempDir("mosa-build-id-");
   t_after_cleanup(tempAppDir);
   await writeFile(join(tempAppDir, "build-identity.json"), JSON.stringify({
     productVersion: "1.2.3",
     gitSha: "abc123def456",
     uiFingerprint: "fingerprint-hash",
+    runtimeFingerprint: "runtime-hash",
   }));
   resetBuildIdentityCache();
   const identity = getBuildIdentity(tempAppDir);
   assert.equal(identity.productVersion, "1.2.3");
   assert.equal(identity.gitSha, "abc123def456");
   assert.equal(identity.uiFingerprint, "fingerprint-hash");
+  assert.equal(identity.runtimeFingerprint, "runtime-hash");
   resetBuildIdentityCache();
 });
 
@@ -56,6 +58,7 @@ test("getBuildIdentity returns unknown for all fields when build-identity.json i
   assert.equal(identity.productVersion, "unknown");
   assert.equal(identity.gitSha, "unknown");
   assert.equal(identity.uiFingerprint, "unknown");
+  assert.equal(identity.runtimeFingerprint, "unknown");
   resetBuildIdentityCache();
 });
 
@@ -66,12 +69,14 @@ test("getBuildIdentity returns unknown for fields that are not strings", async (
     productVersion: 123,
     gitSha: null,
     uiFingerprint: undefined,
+    runtimeFingerprint: 123,
   }));
   resetBuildIdentityCache();
   const identity = getBuildIdentity(tempAppDir);
   assert.equal(identity.productVersion, "unknown");
   assert.equal(identity.gitSha, "unknown");
   assert.equal(identity.uiFingerprint, "unknown");
+  assert.equal(identity.runtimeFingerprint, "unknown");
   resetBuildIdentityCache();
 });
 
@@ -96,6 +101,19 @@ test("computeUiFingerprint hashes the browser entry files and every local ES mod
   assert.equal(fp1, fp3);
 });
 
+test("computeRuntimeFingerprint changes when runtime code changes", async () => {
+  const root = await makeTempDir("mosa-runtime-fingerprint-");
+  t_after_cleanup(root);
+  await mkdir(join(root, "lib", "api"), { recursive: true });
+  await writeFile(join(root, "server.mjs"), "export const server = 1;\n");
+  await writeFile(join(root, "lib", "runtime.mjs"), "export const runtime = 1;\n");
+  await writeFile(join(root, "lib", "api", "route.js"), "export const route = 1;\n");
+  const first = computeRuntimeFingerprint(root);
+  assert.match(first, /^[0-9a-f]{64}$/);
+  await writeFile(join(root, "lib", "runtime.mjs"), "export const runtime = 2;\n");
+  assert.notEqual(computeRuntimeFingerprint(root), first);
+});
+
 test("the repository app/ directory has a build-identity.json with valid fields", async () => {
   const appDir = join(repositoryRoot, "app");
   resetBuildIdentityCache();
@@ -103,7 +121,9 @@ test("the repository app/ directory has a build-identity.json with valid fields"
   assert.ok(identity.productVersion !== "unknown", "productVersion should be set by the build step");
   assert.ok(identity.gitSha !== "unknown", "gitSha should be set by the build step");
   assert.ok(identity.uiFingerprint !== "unknown", "uiFingerprint should be set by the build step");
+  assert.ok(identity.runtimeFingerprint !== "unknown", "runtimeFingerprint should be set by the build step");
   assert.match(identity.uiFingerprint, /^[0-9a-f]{64}$/, "uiFingerprint should be a SHA-256 hex digest");
+  assert.match(identity.runtimeFingerprint, /^[0-9a-f]{64}$/, "runtimeFingerprint should be a SHA-256 hex digest");
   resetBuildIdentityCache();
 });
 
@@ -117,7 +137,15 @@ test("uiFingerprint in build-identity.json matches the actual browser-delivered 
   resetBuildIdentityCache();
 });
 
-test("/api/health returns product, MCP, Git, and UI build identities", async (t) => {
+test("runtimeFingerprint in build-identity.json matches the actual local runtime code", async () => {
+  const appDir = join(repositoryRoot, "app");
+  resetBuildIdentityCache();
+  const identity = getBuildIdentity(appDir);
+  assert.equal(identity.runtimeFingerprint, computeRuntimeFingerprint(repositoryRoot));
+  resetBuildIdentityCache();
+});
+
+test("/api/health returns product, MCP, Git, UI, and runtime build identities", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-health-build-id-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const service = await startMosaRuntime(runtimeOptions(root));
@@ -131,6 +159,7 @@ test("/api/health returns product, MCP, Git, and UI build identities", async (t)
   assert.equal(health.mcpServerVersion, MCP_SERVER_VERSION);
   assert.equal(typeof health.gitSha, "string");
   assert.equal(typeof health.uiFingerprint, "string");
+  assert.equal(typeof health.runtimeFingerprint, "string");
 
   // Verify against the actual build-identity.json in app/
   resetBuildIdentityCache();
@@ -138,6 +167,7 @@ test("/api/health returns product, MCP, Git, and UI build identities", async (t)
   assert.equal(health.productVersion, identity.productVersion);
   assert.equal(health.gitSha, identity.gitSha);
   assert.equal(health.uiFingerprint, identity.uiFingerprint);
+  assert.equal(health.runtimeFingerprint, identity.runtimeFingerprint);
   resetBuildIdentityCache();
 });
 

@@ -14,7 +14,7 @@ import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { computeUiFingerprint } from "../lib/build-identity.mjs";
+import { computeRuntimeFingerprint, computeUiFingerprint } from "../lib/build-identity.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
@@ -39,8 +39,14 @@ if (uiFingerprint === "unknown") {
   throw new Error("Cannot compute MOSA UI fingerprint: required app shell files are missing or unreadable.");
 }
 
+// --- runtimeFingerprint ----------------------------------------------
+const runtimeFingerprint = computeRuntimeFingerprint(root);
+if (runtimeFingerprint === "unknown") {
+  throw new Error("Cannot compute MOSA runtime fingerprint: server/runtime files are missing or unreadable.");
+}
+
 // --- Write -----------------------------------------------------------
-const identity = { productVersion, gitSha, uiFingerprint };
+const identity = { productVersion, gitSha, uiFingerprint, runtimeFingerprint };
 const outPath = join(appDir, "build-identity.json");
 writeFileSync(outPath, JSON.stringify(identity, null, 2) + "\n");
 console.log(`Build identity written to ${outPath}`);

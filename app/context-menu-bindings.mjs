@@ -18,7 +18,7 @@ export function bindContextMenuEvents(options = {}) {
     t,
   } = options;
 
-  els.sidebarGroupList?.addEventListener("contextmenu", (event) => {
+  const bindGroupContextMenu = (list) => list?.addEventListener("contextmenu", (event) => {
     const groupItem = event.target.closest("[data-filter][data-value]");
     if (!groupItem) return;
     event.preventDefault();
@@ -42,6 +42,8 @@ export function bindContextMenuEvents(options = {}) {
       target: groupItem,
     });
   });
+  bindGroupContextMenu(els.sidebarGroupList);
+  bindGroupContextMenu(els.sidebarManualGroupList);
 
   els.assetGrid?.addEventListener("contextmenu", (event) => {
     const card = event.target.closest(".asset-card");
@@ -88,6 +90,10 @@ export function bindContextMenuEvents(options = {}) {
   });
   window.addEventListener("mosa:refresh-groups", () => {
     void loadStats().catch((error) => console.warn("Group refresh failed:", error));
+  });
+  window.addEventListener("mosa:rename-group", (event) => {
+    const groupName = String(event.detail?.groupName || "");
+    if (groupName) window.dispatchEvent(new CustomEvent("mosa:begin-sidebar-group-rename", { detail: { groupName } }));
   });
   window.addEventListener("mosa:select-asset", (event) => {
     const { assetId } = event.detail;

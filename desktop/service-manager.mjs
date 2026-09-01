@@ -60,6 +60,7 @@ export async function startMosaService(options = {}) {
     ? [...new Set([port, ...discoveryPorts])]
     : [port];
   let lastConflict = null;
+  let identityMismatch = null;
   const availablePorts = [];
 
   for (const candidatePort of candidatePorts) {
@@ -72,13 +73,24 @@ export async function startMosaService(options = {}) {
     };
 
     const initial = await probeMosaService(probeOptions);
-    if (initial.state === "attached") return attachedService(initial);
+    if (initial.state === "attached") {
+      const identityConflict = serviceIdentityConflict(initial, options.expectedIdentity);
+      if (!identityConflict) return attachedService(initial);
+      lastConflict = identityConflict;
+      identityMismatch = identityConflict;
+      continue;
+    }
     if (initial.state === "conflict") {
       lastConflict = initial.error;
       continue;
     }
     availablePorts.push(candidatePort);
   }
+
+  // A verified MOSA for this exact library is already alive, but it does not
+  // match the desktop build. Starting a second runtime on another port would
+  // race the same library lock and, worse, conceal the stale-service problem.
+  if (identityMismatch) throw identityMismatch;
 
   for (const candidatePort of availablePorts) {
     const probeOptions = {
@@ -100,7 +112,12 @@ export async function startMosaService(options = {}) {
       return ownedService(runtime);
     } catch (error) {
       const retry = await probeMosaService(probeOptions);
-      if (retry.state === "attached") return attachedService(retry);
+      if (retry.state === "attached") {
+        const identityConflict = serviceIdentityConflict(retry, options.expectedIdentity);
+        if (!identityConflict) return attachedService(retry);
+        lastConflict = identityConflict;
+        continue;
+      }
       if (retry.state === "conflict") {
         lastConflict = retry.error;
         continue;
@@ -148,6 +165,10 @@ export async function probeMosaService(options = {}) {
       port,
       libraryDir,
       storage: typeof health.storage === "string" ? health.storage : "unknown",
+      productVersion: typeof health.productVersion === "string" ? health.productVersion : "unknown",
+      gitSha: typeof health.gitSha === "string" ? health.gitSha : "unknown",
+      uiFingerprint: typeof health.uiFingerprint === "string" ? health.uiFingerprint : "unknown",
+      runtimeFingerprint: typeof health.runtimeFingerprint === "string" ? health.runtimeFingerprint : "unknown",
     };
   } catch (error) {
     if (isConnectionRefused(error)) return { state: "unavailable" };
@@ -193,6 +214,10 @@ function attachedService(details) {
     port: details.port,
     libraryDir: details.libraryDir,
     storage: details.storage,
+    productVersion: details.productVersion || "unknown",
+    gitSha: details.gitSha || "unknown",
+    uiFingerprint: details.uiFingerprint || "unknown",
+    runtimeFingerprint: details.runtimeFingerprint || "unknown",
     stop: async () => {},
   };
 }
@@ -214,6 +239,26 @@ function ownedService(runtime) {
 
 function conflict(message, cause) {
   return { state: "conflict", error: new MosaServiceConflictError(message, { cause }) };
+}
+
+function serviceIdentityConflict(details, expectedIdentity) {
+  if (!expectedIdentity || typeof expectedIdentity !== "object") return null;
+  const fields = ["productVersion", "gitSha", "uiFingerprint", "runtimeFingerprint"];
+  const mismatches = [];
+  for (const field of fields) {
+    const expected = String(expectedIdentity[field] || "unknown");
+    const actual = String(details[field] || "unknown");
+    if (expected === "unknown") continue;
+    if (actual === "unknown") {
+      mismatches.push(`${field} expected ${expected} but the running service cannot report it`);
+      continue;
+    }
+    if (expected !== actual) mismatches.push(`${field} expected ${expected} but found ${actual}`);
+  }
+  if (!mismatches.length) return null;
+  return new MosaServiceConflictError(
+    `A MOSA service for this library is already running with a different build identity (${mismatches.join("; ")}). Restart MOSA so the service and desktop app use the same build.`,
+  );
 }
 
 function isConnectionRefused(error) {

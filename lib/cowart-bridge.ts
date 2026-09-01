@@ -11,7 +11,7 @@ interface StoredAsset { source?: Record<string, unknown>; id?: string; image_pat
 interface Store { createAsset(params: Record<string, unknown>, options?: Record<string, unknown>): Promise<unknown>; listAssets(filters: Record<string, unknown>): Promise<StoredAsset[]>; findAssetBySourcePath?(projectId: string, sourcePath: string): Promise<StoredAsset | null>; findAssetByContentHash?(projectId: string, contentHash: string): Promise<StoredAsset | null>; findAssetByPixelHash?(projectId: string, pixelHash: string): Promise<StoredAsset | null>; cowartCanvasDir: string; [key: string]: unknown; }
 interface AssetCandidate { canvasDir: string; pageId: string; imagePath: string; assetUrl: string; cowartAssetId: string; shapeId: string | null; shapeMeta: Record<string, unknown>; annotationSourceShapeId: string | null; replacedAiImageHolder: string | null; mosaAssetId: string | null; altText: string; ratio: string; fileSize: number; mtimeMs: number; }
 interface ReconcileResult { imported: unknown[]; skipped: Array<{ path: string; reason: string }>; candidates: number; queued?: boolean; }
-interface BridgeStatus { canvasDir: string; cowartProjectDir: string | null; sourceId: string | null; enabled: boolean; watching: boolean; polling: boolean; lastScanAt: string | null; lastImportedAt: string | null; lastImportCount: number; totalImported: number; lastSkippedCount: number; lastError: string | null; }
+interface BridgeStatus { canvasDir: string; cowartProjectDir: string | null; sourceId: string | null; enabled: boolean; watching: boolean; polling: boolean; busy: boolean; lastScanAt: string | null; lastImportedAt: string | null; lastImportCount: number; totalImported: number; lastSkippedCount: number; lastError: string | null; }
 interface Bridge { start(): Promise<BridgeStatus>; stop(): Promise<void>; reconcile(): Promise<ReconcileResult>; scheduleReconcile(): void; status(): BridgeStatus; }
 interface CanvasStoreRecord { typeName?: string; type?: string; id?: string; meta?: Record<string, unknown>; props?: Record<string, unknown>; [key: string]: unknown; }
 interface CanvasSnapshot { store?: Record<string, CanvasStoreRecord>; }
@@ -27,7 +27,7 @@ export function createCowartAssetBridge(options: { store?: Store; canvasDir?: st
   const pollIntervalMs = options.pollIntervalMs != null && Number.isFinite(options.pollIntervalMs) ? Math.max(100, options.pollIntervalMs) : 30000;
   const processedSignatures = new Map<string, string>();
   let watcher: FSWatcher | null = null; let poller: ReturnType<typeof setInterval> | null = null; let timer: ReturnType<typeof setTimeout> | null = null; let reconciling = false; let reconcileAgain = false; let enabled = false; let activeReconcile: Promise<ReconcileResult> | null = null; let stopPromise: Promise<void> | null = null;
-  const state: Omit<BridgeStatus, "watching" | "polling"> = { canvasDir, cowartProjectDir, sourceId, enabled: false, lastScanAt: null, lastImportedAt: null, lastImportCount: 0, totalImported: 0, lastSkippedCount: 0, lastError: null };
+  const state: Omit<BridgeStatus, "watching" | "polling" | "busy"> = { canvasDir, cowartProjectDir, sourceId, enabled: false, lastScanAt: null, lastImportedAt: null, lastImportCount: 0, totalImported: 0, lastSkippedCount: 0, lastError: null };
 
   async function reconcile(): Promise<ReconcileResult> {
     if (!enabled) return { imported: [], skipped: [], queued: true, candidates: 0 };
@@ -72,7 +72,7 @@ export function createCowartAssetBridge(options: { store?: Store; canvasDir?: st
     stopPromise = Promise.resolve(currentReconcile).catch(() => {}).then(() => {}).finally(() => { stopPromise = null; });
     return stopPromise;
   }
-  function apiStatus(): BridgeStatus { return { ...state, watching: Boolean(watcher), polling: Boolean(poller) }; }
+  function apiStatus(): BridgeStatus { return { ...state, watching: Boolean(watcher), polling: Boolean(poller), busy: reconciling || reconcileAgain || Boolean(timer) }; }
   return { start, stop, reconcile, scheduleReconcile, status: apiStatus };
 }
 

@@ -346,12 +346,14 @@ test("24. query semantics and order preserved", async () => {
   assert.match(functionBody(app, "openAssetView"), /assetViewSequence\.ids = state\.assets\.map\(\(asset\) => asset\.id\);/, "the session starts from the exact rendered order");
 });
 
-// 25. The Inspector data pipeline is untouched by lazy loading.
-test("25. inspector pipeline intact", async () => {
+// 25. The Inspector data pipeline remains intact, but is deliberately deferred
+// until after the main media frame during in-sequence navigation.
+test("25. inspector pipeline intact and deferred", async () => {
   const app = await readApp();
   const load = stripJsComments(functionBody(app, "loadNextAssetViewPage"));
   assert.doesNotMatch(load, /renderDetail|versionHistory|recipeHistory/, "lazy loading never re-renders or resets the inspector");
-  assert.match(stripJsComments(functionBody(app, "navigateAssetView")), /renderDetail\(\)/, "in-sequence navigation still re-renders the inspector");
+  assert.match(stripJsComments(functionBody(app, "navigateAssetView")), /scheduleAssetViewDetailRender\(id\)/, "in-sequence navigation defers the inspector until after the media frame");
+  assert.match(stripJsComments(functionBody(app, "scheduleAssetViewDetailRender")), /renderDetail\(\{ syncAssetView: false \}\)/, "the deferred inspector does not redundantly render the main media again");
 });
 
 // 26. Switching assets after a boundary load still resets the transform to fit.

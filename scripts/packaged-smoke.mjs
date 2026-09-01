@@ -22,44 +22,79 @@ const libraryDir = join(temp, "library");
 const userData = join(temp, "user-data");
 await mkdir(libraryDir, { recursive: true });
 await mkdir(userData, { recursive: true });
-const port = await freePort();
-const cdpPort = await freePort();
-
-const child = spawn(binary, [...ELECTRON_QA_FLAGS, `--user-data-dir=${userData}`, `--remote-debugging-port=${cdpPort}`], {
-  env: {
-    ...process.env,
-    MOSA_RUNTIME_MODE: "qa",
-    MOSA_LIBRARY_DIR: libraryDir,
-    MOSA_DESKTOP_PORT: String(port),
-    MOSA_USER_DATA: userData,
-    MOSA_QA_RUN: "1",
-    MOSA_DISABLE_BRIDGES: "cowart,cowartDiscovery,codex,grok",
-  },
-  stdio: ["ignore", "pipe", "pipe"],
-});
-const stdout = collect(child.stdout);
-const stderr = collect(child.stderr);
+const expectedIdentity = JSON.parse(await readFile(resolve(rootDir, "app", "build-identity.json"), "utf8"));
+let activeLaunch = null;
 
 try {
-  const health = await waitForHealth(`http://127.0.0.1:${port}/api/health`, child);
-  if (health.product !== "mosa") throw new Error("Unexpected packaged product.");
-  if (resolve(health.libraryDir) !== resolve(libraryDir)) throw new Error("Library isolation failed.");
-  if (health.storage !== "sqlite") throw new Error(`Expected sqlite, got ${health.storage}`);
-  const expectedIdentity = JSON.parse(await readFile(resolve(rootDir, "app", "build-identity.json"), "utf8"));
-  if (health.gitSha !== expectedIdentity.gitSha || health.uiFingerprint !== expectedIdentity.uiFingerprint) {
-    throw new Error("Packaged build identity does not match the current source build.");
-  }
-  const renderer = await waitForRenderer(`http://127.0.0.1:${port}`, cdpPort, child);
+  activeLaunch = await launchPackaged({ libraryDir, userData });
+  const firstHealth = await waitForHealth(`${activeLaunch.origin}/api/health`, activeLaunch.child);
+  assertPackagedHealth(firstHealth, { libraryDir, expectedIdentity });
+  const renderer = await waitForRenderer(activeLaunch.origin, activeLaunch.cdpPort, activeLaunch.child);
   if (!renderer.appShell) throw new Error("Packaged renderer did not mount the MOSA app shell.");
   if (!renderer.preload) throw new Error("Packaged renderer did not expose the Electron preload API.");
-  const imported = await verifyPackagedImport(`http://127.0.0.1:${port}`);
-  console.log(JSON.stringify({ ok: true, storage: health.storage, renderer: true, preload: true, import: imported }));
+  const importedAssetId = await verifyPackagedImport(activeLaunch.origin);
+
+  await stopChild(activeLaunch.child);
+  activeLaunch = null;
+
+  activeLaunch = await launchPackaged({ libraryDir, userData });
+  const restartHealth = await waitForHealth(`${activeLaunch.origin}/api/health`, activeLaunch.child);
+  assertPackagedHealth(restartHealth, { libraryDir, expectedIdentity });
+  const restartRenderer = await waitForRenderer(activeLaunch.origin, activeLaunch.cdpPort, activeLaunch.child);
+  if (!restartRenderer.appShell || !restartRenderer.preload) {
+    throw new Error("Packaged renderer/preload did not recover after restart.");
+  }
+  await verifyPersistedAsset(activeLaunch.origin, importedAssetId);
+
+  console.log(JSON.stringify({
+    ok: true,
+    storage: restartHealth.storage,
+    renderer: true,
+    preload: true,
+    import: true,
+    restartPersistence: true,
+  }));
 } catch (error) {
-  const details = [stderr().trim(), stdout().trim()].filter(Boolean).join("\n");
+  const details = activeLaunch
+    ? [activeLaunch.stderr().trim(), activeLaunch.stdout().trim()].filter(Boolean).join("\n")
+    : "";
   throw new Error(`${error instanceof Error ? error.message : String(error)}${details ? `\n${details}` : ""}`, { cause: error });
 } finally {
-  await stopChild(child);
+  if (activeLaunch) await stopChild(activeLaunch.child);
   await rm(temp, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+}
+
+async function launchPackaged({ libraryDir: isolatedLibraryDir, userData: isolatedUserData }) {
+  const port = await freePort();
+  const cdpPort = await freePort();
+  const child = spawn(binary, [...ELECTRON_QA_FLAGS, `--user-data-dir=${isolatedUserData}`, `--remote-debugging-port=${cdpPort}`], {
+    env: {
+      ...process.env,
+      MOSA_RUNTIME_MODE: "qa",
+      MOSA_LIBRARY_DIR: isolatedLibraryDir,
+      MOSA_DESKTOP_PORT: String(port),
+      MOSA_USER_DATA: isolatedUserData,
+      MOSA_QA_RUN: "1",
+      MOSA_DISABLE_BRIDGES: "cowart,cowartDiscovery,codex,grok",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return {
+    child,
+    cdpPort,
+    origin: `http://127.0.0.1:${port}`,
+    stdout: collect(child.stdout),
+    stderr: collect(child.stderr),
+  };
+}
+
+function assertPackagedHealth(health, { libraryDir: isolatedLibraryDir, expectedIdentity: identity }) {
+  if (health.product !== "mosa") throw new Error("Unexpected packaged product.");
+  if (resolve(health.libraryDir) !== resolve(isolatedLibraryDir)) throw new Error("Library isolation failed.");
+  if (health.storage !== "sqlite") throw new Error(`Expected sqlite, got ${health.storage}`);
+  if (health.gitSha !== identity.gitSha || health.uiFingerprint !== identity.uiFingerprint) {
+    throw new Error("Packaged build identity does not match the current source build.");
+  }
 }
 
 async function verifyPackagedImport(origin) {
@@ -87,12 +122,28 @@ async function verifyPackagedImport(origin) {
       const asset = (await assetResponse.json()).asset;
       if (asset?.thumbnail_url) {
         const thumbnail = await fetch(`${origin}${asset.thumbnail_url}`);
-        if (thumbnail.ok && String(thumbnail.headers.get("content-type") || "").startsWith("image/")) return true;
+        if (thumbnail.ok && String(thumbnail.headers.get("content-type") || "").startsWith("image/")) return assetId;
       }
     }
     await sleep(100);
   }
   throw new Error("Packaged derivative generation did not produce a readable thumbnail.");
+}
+
+async function verifyPersistedAsset(origin, assetId) {
+  const end = Date.now() + 30000;
+  while (Date.now() < end) {
+    const response = await fetch(`${origin}/api/assets/default/${encodeURIComponent(assetId)}`);
+    if (response.ok) {
+      const asset = (await response.json()).asset;
+      if (asset?.id === assetId && asset?.prompt === "packaged smoke import" && asset.thumbnail_url) {
+        const thumbnail = await fetch(`${origin}${asset.thumbnail_url}`);
+        if (thumbnail.ok && String(thumbnail.headers.get("content-type") || "").startsWith("image/")) return true;
+      }
+    }
+    await sleep(100);
+  }
+  throw new Error("Packaged asset was not readable after application restart.");
 }
 
 function freePort() {

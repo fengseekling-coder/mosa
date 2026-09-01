@@ -25,6 +25,7 @@ let statusAnnouncementActive = false;
 let libraryRefreshTimer = null;
 let libraryEventSource = null;
 let persistentStatus = { value: "", stateName: "neutral" };
+let sidebarGroupEdit = null;
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 // Clear and repopulate the shared status node in separate DOM mutations. This
@@ -54,7 +55,6 @@ function sourceTypeLabel(type) {
 }
 
 const preference = safeStorageGet("mosa.ui-language") || "system";
-const SETTINGS_SECTIONS = ["appearance", "storage", "about"];
 const state = {
   project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, selectedIds: new Set(), selectionProject: "default", detailAsset: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
@@ -71,8 +71,9 @@ const state = {
   latestVersion: "",
   updatePublishedAt: "",
   updateNotes: null,
-  anonymousUsageEnabled: safeStorageGet("mosa.anonymous-usage") !== "false",
-  darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null, settingsSection: "appearance",
+  darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null,
+  sidebarSmartCollapsed: safeStorageGet("mosa.sidebar-smart-collapsed") === "true",
+  sidebarManualCollapsed: safeStorageGet("mosa.sidebar-manual-collapsed") === "true",
   detailReturnFocusAssetId: null, previewReturnFocusAssetId: null,
   imageZoom: 1, imagePanX: 0, imagePanY: 0, imageDragging: false,
   // Bulk-selection gate. The viewer short-circuits while batch mode is active so
@@ -91,7 +92,9 @@ const applyLanguage = createLanguageApplier({
   refreshUI: () => {
     updateCodexHint();
     window.electronAPI?.setLocale?.(state.locale);
-    renderSettingsMenu();
+    // Locale changes are the only settings update that needs fresh copy.
+    // Rebuild without replaying the dialog entrance animation.
+    renderSettingsMenu({ force: true });
     if (els.sortSelect) els.sortSelect.value = state.sort;
     renderQuickFilters();
     updateViewTitle();
@@ -108,7 +111,7 @@ const els = {
   typeFilters: document.querySelector(".topbar-type-filters"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
   activeFilters: document.querySelector("#activeFilters"), filterPanel: document.querySelector("#filterPanel"), filterToggle: document.querySelector("#filterToggle"), sortSelect: document.querySelector("#sortSelect"),
-  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
+  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
   viewTitle: document.querySelector("#viewTitle"), assetCount: document.querySelector("#assetCount"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
 
@@ -203,13 +206,21 @@ function syncSegmentedRadios(container) {
   container?.querySelectorAll(".segmented").forEach((group) => {
     const buttons = [...group.querySelectorAll(".segmented-btn")];
     let anyChecked = false;
+    let activeIndex = -1;
     for (const button of buttons) {
       const checked = button.classList.contains("active");
-      if (checked) anyChecked = true;
+      if (checked) {
+        anyChecked = true;
+        activeIndex = buttons.indexOf(button);
+      }
       button.setAttribute("aria-checked", String(checked));
       button.tabIndex = checked ? 0 : -1;
     }
-    if (!anyChecked && buttons[0]) buttons[0].tabIndex = 0;
+    if (!anyChecked && buttons[0]) {
+      buttons[0].tabIndex = 0;
+      activeIndex = 0;
+    }
+    group.dataset.activeIndex = String(Math.max(0, activeIndex));
   });
 }
 
@@ -842,9 +853,9 @@ async function checkForUpdates({ notify = false, silent = false } = {}) {
   const api = window.electronAPI;
   if (!api?.checkForUpdates || state.updateStatus === "checking") return null;
   state.updateStatus = "checking";
-  renderSettingsMenu();
+  syncSettingsMenuView();
   try {
-    const result = await api.checkForUpdates(notify === true, state.anonymousUsageEnabled);
+    const result = await api.checkForUpdates(notify === true);
     if (result?.status === "ok") safeStorageSet("mosa.update-last-checked", String(Date.now()));
     if (result?.currentVersion) state.productVersion = String(result.currentVersion).replace(/^v/i, "");
     if (result?.status === "ok") {
@@ -867,47 +878,86 @@ async function checkForUpdates({ notify = false, silent = false } = {}) {
     if (!silent) showToast(t("updateCheckFailed"), "error");
     return null;
   } finally {
-    renderSettingsMenu();
+    syncSettingsMenuView();
   }
 }
 
-function renderSettingsMenu() {
+function syncSettingsMenuView() {
+  const menu = els.settingsMenu;
+  if (!menu?.querySelector(".settings-modal-card")) return;
+  const setRadioState = (selector, selectedValue) => {
+    menu.querySelectorAll(selector).forEach((button) => {
+      button.classList.toggle("active", button.value === selectedValue || button.dataset.appearanceOpt === selectedValue || button.dataset.densityOpt === selectedValue || button.dataset.locale === selectedValue);
+    });
+  };
+  setRadioState("[data-appearance-opt]", state.darkMode ? "dark" : "light");
+  setRadioState("[data-density-opt]", state.galleryDensity);
+  setRadioState("[data-locale]", state.locale === "en" ? "en" : "zh");
+
+  const libraryPath = state.libraryRoot || state.libraryPath || state.codexImagesDir || "—";
+  const pathNode = menu.querySelector("[data-settings-library-path]");
+  if (pathNode) {
+    pathNode.textContent = libraryPath;
+    pathNode.title = libraryPath;
+  }
+  const storageNode = menu.querySelector("[data-settings-storage-engine]");
+  if (storageNode) storageNode.textContent = state.storageKind === "sqlite" ? t("storageEngineValue") : (state.storageKind && state.storageKind !== "unknown" ? state.storageKind : "—");
+  const versionNode = menu.querySelector("[data-settings-version]");
+  if (versionNode) versionNode.textContent = updateVersionSummary();
+  const updateAction = menu.querySelector("[data-settings-update-action]");
+  if (updateAction) {
+    const markup = updateVersionControlMarkup();
+    if (updateAction.innerHTML !== markup) updateAction.innerHTML = markup;
+  }
+  const changeLibraryButton = menu.querySelector("[data-change-library]");
+  if (changeLibraryButton) {
+    changeLibraryButton.disabled = state.libraryMoveInProgress;
+    changeLibraryButton.textContent = state.libraryMoveInProgress ? t("changingLocation") : t("changeLocation");
+  }
+  syncSegmentedRadios(menu);
+}
+
+function renderSettingsMenu({ force = false } = {}) {
   if (!els.settingsMenu) return;
-  const settingIcon = (path) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="${path}"/></svg>`;
+  const existingDialog = els.settingsMenu.querySelector(".settings-modal-card");
+  if (existingDialog && !force) {
+    syncSettingsMenuView();
+    return;
+  }
+
+  const refreshingVisibleDialog = Boolean(existingDialog && !els.settingsMenu.hidden);
+  if (refreshingVisibleDialog) els.settingsMenu.setAttribute("data-refreshing", "true");
+
+  const settingIcon = (path) => `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
   const radio = (selected, attribute, value, label) => `<button class="segmented-btn${selected ? " active" : ""}" type="button" role="radio" aria-checked="${selected}" tabindex="${selected ? 0 : -1}" ${attribute}="${value}">${label}</button>`;
-  const row = (icon, title, subtitle, control = "") => `<section class="settings-modal-row"><div class="settings-row-icon" aria-hidden="true">${icon}</div><div class="settings-row-copy"><h3>${title}</h3><p>${subtitle}</p></div>${control ? `<div class="settings-row-control">${control}</div>` : ""}</section>`;
+  const segmented = (ariaLabel, attribute, selectedValue, options) => {
+    const activeIndex = Math.max(0, options.findIndex((option) => option.value === selectedValue));
+    const buttons = options.map((option) => radio(option.value === selectedValue, attribute, option.value, option.label)).join("");
+    return `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(ariaLabel)}" data-active-index="${activeIndex}"><span class="segmented-thumb" aria-hidden="true"></span>${buttons}</div>`;
+  };
+  const row = (icon, title, subtitle, control = "", extraClass = "") => `<div class="settings-modal-row${extraClass ? ` ${extraClass}` : ""}"><div class="settings-row-icon" aria-hidden="true">${icon}</div><div class="settings-row-copy"><h4>${title}</h4>${subtitle ? `<p>${subtitle}</p>` : ""}</div>${control ? `<div class="settings-row-control">${control}</div>` : ""}</div>`;
+  const section = (title, rows, extraClass = "") => `<section class="settings-block${extraClass ? ` ${extraClass}` : ""}"><h3>${title}</h3>${rows}</section>`;
   const visualLocale = state.locale === "en" ? "en" : "zh";
   const path = escapeHtml(state.libraryRoot || state.libraryPath || state.codexImagesDir || "—");
   const closeIcon = settingIcon("m6 6 12 12M18 6 6 18");
   const storageLabel = state.storageKind === "sqlite" ? t("storageEngineValue") : (state.storageKind && state.storageKind !== "unknown" ? state.storageKind : "—");
-  const activeSection = SETTINGS_SECTIONS.includes(state.settingsSection) ? state.settingsSection : "appearance";
-  state.settingsSection = activeSection;
   const changeLibraryControl = window.electronAPI?.changeLibraryLocation
-    ? `<div class="settings-inline-actions"><button class="settings-text-action" type="button" data-open-library>${t("openLibrary")}</button><button class="settings-text-action settings-text-action-primary" type="button" data-change-library${state.libraryMoveInProgress ? " disabled" : ""}>${state.libraryMoveInProgress ? t("changingLocation") : t("changeLocation")}</button></div>`
-    : `<button class="settings-text-action" type="button" data-open-library>${t("openLibrary")}</button>`;
+    ? `<div class="settings-inline-actions"><button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button><button class="settings-text-action" type="button" data-change-library${state.libraryMoveInProgress ? " disabled" : ""}>${state.libraryMoveInProgress ? t("changingLocation") : t("change")}</button></div>`
+    : `<button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button>`;
   const appearanceRows = [
-    row(settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("themeMode"), state.darkMode ? t("themeDarkHint") : t("themeLightHint"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("themeMode"))}">${radio(!state.darkMode, "data-appearance-opt", "light", t("themeLight"))}${radio(state.darkMode, "data-appearance-opt", "dark", t("themeDark"))}</div>`),
-    row(settingIcon("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"), t("cardDensity"), state.galleryDensity === "image" ? t("densityImage") : t("densityInfo"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("cardDensity"))}">${radio(state.galleryDensity === "image", "data-density-opt", "image", t("densityImageControl"))}${radio(state.galleryDensity === "info", "data-density-opt", "info", t("densityInfoControl"))}</div>`),
-    row(settingIcon("M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("interfaceLanguage"), visualLocale === "en" ? t("english") : t("chinese"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("interfaceLanguage"))}">${radio(visualLocale === "zh", "data-locale", "zh", "中文")}${radio(visualLocale === "en", "data-locale", "en", "EN")}</div>`)
+    row(settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("themeMode"), "", segmented(t("themeMode"), "data-appearance-opt", state.darkMode ? "dark" : "light", [{ value: "light", label: t("themeLight") }, { value: "dark", label: t("themeDark") }])),
+    row(settingIcon("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"), t("cardDensity"), "", segmented(t("cardDensity"), "data-density-opt", state.galleryDensity, [{ value: "image", label: t("densityImageControl") }, { value: "info", label: t("densityInfoControl") }])),
+    row(settingIcon("M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("interfaceLanguage"), "", segmented(t("interfaceLanguage"), "data-locale", visualLocale, [{ value: "zh", label: "中文" }, { value: "en", label: "EN" }]))
   ].join("");
   const storageRows = [
-    row(settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("libraryPath"), `<span class="settings-path" title="${path}">${path}</span>`, changeLibraryControl),
-    row(settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6"), t("storageEngine"), escapeHtml(storageLabel)),
-    row(settingIcon("M3 12h4l2-5 4 10 2-5h6"), t("anonymousUsage"), state.anonymousUsageEnabled ? t("anonymousUsageEnabledHint") : t("anonymousUsageDisabledHint"), `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(t("anonymousUsage"))}">${radio(state.anonymousUsageEnabled, "data-usage-opt", "on", t("usageOn"))}${radio(!state.anonymousUsageEnabled, "data-usage-opt", "off", t("usageOff"))}</div>`),
+    row(settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("libraryPath"), `<span class="settings-path" data-settings-library-path title="${path}">${path}</span>`, changeLibraryControl, "settings-library-row"),
+    row(settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6"), t("storageEngine"), "", `<span class="settings-static-value" data-settings-storage-engine>${escapeHtml(storageLabel)}</span>`),
   ].join("");
-  const assetCount = Number(state.groups.total || state.pageTotal || state.assets.length || 0);
-  const collectionCount = Number(state.groups.groups?.length || 0);
-  const privacy = `<section class="settings-privacy-note"><div class="settings-privacy-icon" aria-hidden="true">${settingIcon("M12 3 5 6v5c0 4.6 2.8 8.2 7 10 4.2-1.8 7-5.4 7-10V6l-7-3Z")}</div><div><h3>${t("privacyPolicy")}</h3><p>${t("privacyPolicySummary")}</p><small>${t("privacyPolicyDetail")}</small></div></section>`;
-  const navItems = [
-    ["appearance", settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("appearanceSection")],
-    ["storage", settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("storageDataSection")],
-    ["about", settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("aboutSection")],
-  ].map(([id, icon, label]) => `<button class="settings-section-tab${activeSection === id ? " active" : ""}" id="settingsTab-${id}" type="button" role="tab" aria-selected="${activeSection === id}" aria-controls="settingsPanel-${id}" tabindex="${activeSection === id ? 0 : -1}" data-settings-section="${id}"><span class="settings-section-tab-icon" aria-hidden="true">${icon}</span><span>${label}</span></button>`).join("");
-  const panel = (id, title, description, content) => `<section class="settings-section-panel" id="settingsPanel-${id}" role="tabpanel" aria-labelledby="settingsTab-${id}" tabindex="0"${activeSection === id ? "" : " hidden"}><header class="settings-panel-header"><p>${t("settings")}</p><h3>${title}</h3>${description ? `<span>${description}</span>` : ""}</header><div class="settings-panel-scroll">${content}</div></section>`;
-  const aboutCard = `<section class="settings-about-card"><div class="settings-about-mark" aria-hidden="true">M</div><div class="settings-about-copy"><h4>MOSA</h4><p>${escapeHtml(updateVersionSummary())}</p></div><div class="settings-about-action">${updateVersionControlMarkup()}</div></section>`;
-  const libraryStatus = `<aside class="settings-library-status" aria-label="${escapeHtml(t("librarySummary"))}"><div class="settings-library-status-icon" aria-hidden="true">${settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6")}</div><div><span>${t("librarySummary")}</span><strong>${assetCount} ${t("assets")}</strong><small>${collectionCount} ${t("collections")} · ${escapeHtml(storageLabel)}</small></div></aside>`;
-  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" aria-describedby="settingsModalDescription" tabindex="-1"><aside class="settings-modal-rail"><div class="settings-rail-brand"><span class="settings-brand-mark" aria-hidden="true">M</span><div><h2 id="settingsModalTitle">${t("settings")}</h2><p>MOSA</p></div></div><p class="visually-hidden" id="settingsModalDescription">${t("preferencesSubtitle")}</p><nav class="settings-section-tabs" role="tablist" aria-orientation="vertical" aria-label="${escapeHtml(t("settings"))}">${navItems}</nav>${libraryStatus}</aside><main class="settings-modal-main"><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button>${panel("appearance", t("appearanceSection"), "", `<div class="settings-section-rows">${appearanceRows}</div>`)}${panel("storage", t("storageDataSection"), t("storageDataSectionHint"), `<div class="settings-section-rows">${storageRows}</div>${privacy}`)}${panel("about", t("aboutSection"), t("accountAboutNote"), aboutCard)}</main></div>`;
-  syncSegmentedRadios(els.settingsMenu);
+  const aboutRow = row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), `<span data-settings-version>${escapeHtml(updateVersionSummary())}</span>`, `<div data-settings-update-action>${updateVersionControlMarkup()}</div>`, "settings-about-row");
+
+  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" tabindex="-1"><header class="settings-modal-header"><h2 id="settingsModalTitle">${t("settings")}</h2><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${section(t("appearance"), appearanceRows)}${section(t("storageDataSection"), storageRows)}${section(t("aboutSection"), aboutRow, "settings-about-block")}</div></div>`;
+  syncSettingsMenuView();
+  if (refreshingVisibleDialog) requestAnimationFrame(() => els.settingsMenu?.removeAttribute("data-refreshing"));
 }
 
 function cowartCanvasLabel(canvas = {}) {
@@ -920,14 +970,24 @@ function cowartCanvasLabel(canvas = {}) {
 const ARROW_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 // Cards in the same masonry column share a left edge to within a rounding error.
 const COLUMN_TOLERANCE_PX = 4;
+let cachedCardGeometry = null;
+let cachedCardGeometryGrid = null;
+
+function invalidateCardGeometryCache() {
+  cachedCardGeometry = null;
+  cachedCardGeometryGrid = null;
+}
 
 /** Rendered card geometry, so navigation follows what the reader can see. */
 function cardGeometry() {
+  if (cachedCardGeometry && cachedCardGeometryGrid === els.assetGrid) return cachedCardGeometry;
   const cards = [...(els.assetGrid?.querySelectorAll(".asset-card") || [])];
-  return cards.map((card) => {
+  cachedCardGeometryGrid = els.assetGrid;
+  cachedCardGeometry = cards.map((card) => {
     const box = card.getBoundingClientRect();
     return { id: card.dataset.id, left: box.left, top: box.top, bottom: box.bottom, centerX: box.left + box.width / 2, centerY: box.top + box.height / 2 };
   }).filter((entry) => entry.id);
+  return cachedCardGeometry;
 }
 
 /**
@@ -988,7 +1048,7 @@ function bindKeyboardNav(event) {
 
 // ===== ConfirmDialog（已提取至 confirm-dialog.mjs，R1 批次 3）=====
 const confirmDialog = createConfirmDialog({ els, state, t, closePanel });
-const { requestConfirmation, closeConfirmDialog, trapConfirmDialogFocus, isConfirmFocusTarget, confirmDialogState } = confirmDialog;
+const { requestConfirmation, requestFollowupConfirmation, closeConfirmDialog, trapConfirmDialogFocus, isConfirmFocusTarget, confirmDialogState } = confirmDialog;
 
 const toastManager = createToastManager({ els, state, t, isConfirmFocusTarget });
 function showToast(message, type = "default") { return toastManager.show(message, type); }
@@ -1001,6 +1061,52 @@ async function writeClipboardText(value) {
   }
   if (!navigator.clipboard?.writeText) throw new Error(t("copyFailed"));
   await navigator.clipboard.writeText(text);
+}
+
+async function clipboardPngBlob(blob) {
+  if (blob.type === "image/png") return blob;
+  if (typeof createImageBitmap !== "function") throw new Error(t("copyImageFailed"));
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error(t("copyImageFailed"));
+    context.drawImage(bitmap, 0, 0);
+    return await new Promise((resolvePromise, reject) => {
+      canvas.toBlob((pngBlob) => {
+        if (pngBlob) resolvePromise(pngBlob);
+        else reject(new Error(t("copyImageFailed")));
+      }, "image/png");
+    });
+  } finally {
+    bitmap.close?.();
+  }
+}
+
+async function writeClipboardImage(asset = {}) {
+  if (isVideoAsset(asset)) throw new Error(t("copyImageFailed"));
+  const imagePath = String(asset.image_path || "").trim();
+  if (window.electronAPI?.writeClipboardImage && imagePath) {
+    const result = await window.electronAPI.writeClipboardImage(imagePath);
+    if (result?.ok !== true) throw new Error(t("copyImageFailed"));
+    return;
+  }
+
+  const imageUrl = String(asset.image_url || "").trim();
+  if (!imageUrl || !navigator.clipboard?.write || typeof ClipboardItem !== "function") {
+    throw new Error(t("copyImageFailed"));
+  }
+  const response = await fetch(imageUrl, { cache: "no-store" });
+  if (!response.ok) throw new Error(t("copyImageFailed"));
+  const sourceBlob = await response.blob();
+  if (!sourceBlob.type.startsWith("image/")) throw new Error(t("copyImageFailed"));
+  // Browser clipboard implementations are most interoperable with PNG. This
+  // conversion keeps the original image dimensions and pixels; importantly,
+  // it starts from image_url (the stored original), never thumbnail_url.
+  const clipboardBlob = await clipboardPngBlob(sourceBlob);
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": clipboardBlob })]);
 }
 // 只读调试钩子：仅供契约/运行时验证取证（队列位置、remaining、暂停原因），
 // 不向 UI 暴露、不参与任何业务决策。
@@ -1016,12 +1122,15 @@ const contextMenuActions = createContextMenuActions({
   showToast,
   runAction,
   requestConfirmation,
+  requestFollowupConfirmation,
   confirmDetailNavigation,
   discardDetailDraft,
   openGroupModal,
   getGroupColor: colorForGroup,
   saveGroupColor,
   writeClipboardText,
+  copyOriginalImage: writeClipboardImage,
+  isVideoAsset,
   pasteClipboardImage: window.electronAPI?.pasteImage ? pasteClipboardImage : null,
 });
 
@@ -1142,10 +1251,12 @@ function applyBridgeStatus({ codex, grok, cowart } = {}) {
     const codexOn = Boolean(codex?.enabled);
     const cowartOn = Boolean(cowart?.enabled);
     const grokOn = Boolean(grok?.enabled);
+    const bridgeBusy = Boolean(codex?.busy || grok?.busy || cowart?.busy);
     const importedCount = Number(cowart?.totalImported || 0) + Number(codex?.totalImported || 0) + Number(grok?.totalImported || 0);
     const monitoredCount = Number(cowart?.monitoredCount || 0);
     // Grok is optional: global readiness only requires Codex + Cowart.
     if (hasError) setStatus(t("statusBridgeError"), "error");
+    else if (bridgeBusy) setStatus(t("statusBridgeBusy"), "warn");
     else if (codexOn && cowartOn) setStatus(t("statusReady"), "ok");
     else if (codexOn || cowartOn || grokOn) setStatus(t("statusBridgePartial"), "warn");
     else setStatus(t("statusBridgeOff"), "warn");
@@ -1266,6 +1377,7 @@ async function removeFilterChip(kind) {
 
 function bindEvents() {
   syncMobileNavigation();
+  syncSidebarSectionVisibility();
   els.mobileNavToggle?.addEventListener("click", () => setMobileNavOpen(true));
   els.mobileNavClose?.addEventListener("click", () => setMobileNavOpen(false, { restoreFocus: true }));
   els.mobileNavScrim?.addEventListener("click", () => setMobileNavOpen(false, { restoreFocus: true }));
@@ -1415,9 +1527,49 @@ function bindEvents() {
     });
   });
   els.quickFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) void setFilter(button.dataset.filter); });
+  els.smartGroupsToggle?.addEventListener("click", () => setSidebarSectionCollapsed("smart", !state.sidebarSmartCollapsed));
+  els.assetCategoriesToggle?.addEventListener("click", () => setSidebarSectionCollapsed("manual", !state.sidebarManualCollapsed));
   els.sidebarGroupList?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-filter]"); if (button) void setFilter(button.dataset.filter, button.dataset.value);
   });
+  els.addGroupBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    startSidebarGroupCreate();
+  });
+  els.sidebarManualGroupList?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-sidebar-group-editor]")) return;
+    const button = event.target.closest("[data-filter]");
+    if (button) void setFilter(button.dataset.filter, button.dataset.value);
+  });
+  els.sidebarManualGroupList?.addEventListener("dblclick", (event) => {
+    const button = event.target.closest('[data-filter="group"][data-value]');
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    startSidebarGroupRename(button.dataset.value);
+  });
+  els.sidebarManualGroupList?.addEventListener("input", (event) => {
+    const input = event.target.closest("[data-sidebar-group-input]");
+    if (input && sidebarGroupEdit) sidebarGroupEdit.value = input.value;
+  });
+  els.sidebarManualGroupList?.addEventListener("keydown", (event) => {
+    if (!event.target.closest("[data-sidebar-group-input]")) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void commitSidebarGroupEdit();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelSidebarGroupEdit();
+    }
+  });
+  els.sidebarManualGroupList?.addEventListener("focusout", (event) => {
+    if (!event.target.closest("[data-sidebar-group-input]")) return;
+    queueMicrotask(() => {
+      if (sidebarGroupEdit && !els.sidebarManualGroupList?.contains(document.activeElement)) void commitSidebarGroupEdit();
+    });
+  });
+  window.addEventListener("mosa:begin-sidebar-group-rename", (event) => startSidebarGroupRename(event.detail?.groupName));
   els.typeFilters?.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-type]");
     if (!button || button.dataset.type === state.mediaKind) return;
@@ -1454,12 +1606,6 @@ function bindEvents() {
   els.settingsMenu?.addEventListener("click", (event) => {
     const button = event.target.closest("button");
     if (event.target === els.settingsMenu || button?.dataset.settingsClose !== undefined) { closeSettingsModal(); return; }
-    if (button?.dataset.settingsSection && SETTINGS_SECTIONS.includes(button.dataset.settingsSection)) {
-      state.settingsSection = button.dataset.settingsSection;
-      renderSettingsMenu();
-      requestAnimationFrame(() => els.settingsMenu?.querySelector(`[data-settings-section="${state.settingsSection}"]`)?.focus());
-      return;
-    }
     // Theme/Density segmented buttons
     if (button?.dataset.appearanceOpt) {
       const newTheme = button.dataset.appearanceOpt;
@@ -1483,13 +1629,6 @@ function bindEvents() {
       return;
     }
 
-    if (button?.dataset.usageOpt) {
-      state.anonymousUsageEnabled = button.dataset.usageOpt === "on";
-      safeStorageSet("mosa.anonymous-usage", String(state.anonymousUsageEnabled));
-      renderSettingsMenu();
-      return;
-    }
-
     const localeButton = event.target.closest("[data-locale]");
     if (localeButton) {
       return setLanguage(localeButton.dataset.locale);
@@ -1505,7 +1644,7 @@ function bindEvents() {
     if (changeLibraryButton && window.electronAPI?.changeLibraryLocation && !state.libraryMoveInProgress) {
       void (async () => {
         state.libraryMoveInProgress = true;
-        renderSettingsMenu();
+        syncSettingsMenuView();
         try {
           const result = await window.electronAPI.changeLibraryLocation();
           if (!result || result.reason === "cancelled") return;
@@ -1523,7 +1662,7 @@ function bindEvents() {
           showToast(t("libraryMoveFailed"), "error");
         } finally {
           state.libraryMoveInProgress = false;
-          renderSettingsMenu();
+          syncSettingsMenuView();
         }
       })();
       return;
@@ -1769,24 +1908,9 @@ function closePanel(panel, trigger, reason = "escape") {
   trigger?.setAttribute("aria-expanded", "false");
 }
 
-// Settings 的分类 tab 与 segmented radiogroup 自持方向键。其余控件保留原生键盘语义。
+// Settings keeps native button semantics; segmented radiogroups additionally
+// support desktop arrow-key navigation without introducing a second UI state.
 function handleSettingsMenuKeydown(event) {
-  const tab = event.target.closest?.('[role="tab"]');
-  if (tab) {
-    const tablist = tab.closest('[role="tablist"]');
-    const tabs = tablist ? [...tablist.querySelectorAll('[role="tab"]')] : [];
-    const index = tabs.indexOf(tab);
-    let next = -1;
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % tabs.length;
-    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index - 1 + tabs.length) % tabs.length;
-    else if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = tabs.length - 1;
-    if (next === -1 || !tabs[next]) return;
-    event.preventDefault();
-    event.stopPropagation();
-    tabs[next].click();
-    return;
-  }
   const radio = event.target.closest?.('[role="radio"]');
   if (radio) {
     const group = radio.closest('[role="radiogroup"]');
@@ -1928,6 +2052,124 @@ function renderSidebarGroups() {
     return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="source" data-value="${escapeHtml(sourceType)}" type="button" aria-pressed="${active}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(label)}">${escapeHtml(label)}</span><span class="nav-count">${count}</span></button></li>`;
   }).join("");
   els.sidebarGroupList.innerHTML = items;
+
+  if (!els.sidebarManualGroupList) return;
+  const manualItems = (Array.isArray(state.groups.groups) ? state.groups.groups : []).map(([groupName, count]) => {
+    if (sidebarGroupEdit?.mode === "rename" && sidebarGroupEdit.originalName === groupName) {
+      return sidebarGroupEditorMarkup(groupName, sidebarGroupEdit.value, colorForGroup(groupName));
+    }
+    const active = state.facets.group === groupName;
+    const color = colorForGroup(groupName);
+    return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="group" data-value="${escapeHtml(groupName)}" type="button" aria-pressed="${active}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(groupName)}">${escapeHtml(groupName)}</span><span class="nav-count">${Number(count || 0)}</span></button></li>`;
+  }).join("");
+  const createEditor = sidebarGroupEdit?.mode === "create"
+    ? sidebarGroupEditorMarkup("", sidebarGroupEdit.value, sidebarGroupEdit.color)
+    : "";
+  els.sidebarManualGroupList.innerHTML = `${manualItems}${createEditor}`;
+  syncSidebarSectionVisibility();
+  if (sidebarGroupEdit) requestAnimationFrame(focusSidebarGroupEditor);
+}
+
+function syncSidebarSectionVisibility() {
+  const sync = (toggle, list, collapsed) => {
+    if (list) list.hidden = collapsed;
+    if (toggle) toggle.setAttribute("aria-expanded", String(!collapsed));
+  };
+  sync(els.smartGroupsToggle, els.sidebarGroupList, state.sidebarSmartCollapsed);
+  sync(els.assetCategoriesToggle, els.sidebarManualGroupList, state.sidebarManualCollapsed);
+}
+
+function setSidebarSectionCollapsed(section, collapsed) {
+  if (section === "smart") {
+    state.sidebarSmartCollapsed = Boolean(collapsed);
+    safeStorageSet("mosa.sidebar-smart-collapsed", String(state.sidebarSmartCollapsed));
+  } else if (section === "manual") {
+    state.sidebarManualCollapsed = Boolean(collapsed);
+    safeStorageSet("mosa.sidebar-manual-collapsed", String(state.sidebarManualCollapsed));
+  } else {
+    return;
+  }
+  syncSidebarSectionVisibility();
+}
+
+function sidebarGroupEditorMarkup(originalName, value = "", color = GROUP_COLORS[0]) {
+  return `<li class="sidebar-group-editor" data-sidebar-group-editor data-original-name="${escapeHtml(originalName)}"><span class="sidebar-group-editor-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><input class="sidebar-group-editor-input" data-sidebar-group-input type="text" maxlength="80" value="${escapeHtml(value)}" placeholder="${escapeHtml(t("inlineGroupPlaceholder"))}" aria-label="${escapeHtml(t(originalName ? "renameGroup" : "addGroup"))}" /></li>`;
+}
+
+function focusSidebarGroupEditor() {
+  const input = els.sidebarManualGroupList?.querySelector("[data-sidebar-group-input]");
+  if (!(input instanceof HTMLInputElement)) return;
+  if (document.activeElement !== input) {
+    input.focus();
+    input.select();
+  }
+}
+
+function startSidebarGroupCreate() {
+  setSidebarSectionCollapsed("manual", false);
+  if (sidebarGroupEdit) return focusSidebarGroupEditor();
+  sidebarGroupEdit = { mode: "create", value: "", color: GROUP_COLORS[0], saving: false };
+  renderSidebarGroups();
+}
+
+function startSidebarGroupRename(groupName) {
+  const name = String(groupName || "").trim();
+  if (!name) return;
+  setSidebarSectionCollapsed("manual", false);
+  sidebarGroupEdit = { mode: "rename", originalName: name, value: name, color: colorForGroup(name), saving: false };
+  renderSidebarGroups();
+}
+
+function cancelSidebarGroupEdit() {
+  if (!sidebarGroupEdit || sidebarGroupEdit.saving) return;
+  sidebarGroupEdit = null;
+  renderSidebarGroups();
+}
+
+async function commitSidebarGroupEdit() {
+  const draft = sidebarGroupEdit;
+  if (!draft || draft.saving) return;
+  const input = els.sidebarManualGroupList?.querySelector("[data-sidebar-group-input]");
+  const name = String(input?.value ?? draft.value ?? "").trim().replace(/\s+/g, " ").slice(0, 80);
+  if (!name) {
+    cancelSidebarGroupEdit();
+    return;
+  }
+  if (draft.mode === "rename" && name === draft.originalName) {
+    cancelSidebarGroupEdit();
+    return;
+  }
+  draft.value = name;
+  draft.saving = true;
+  if (input instanceof HTMLInputElement) input.disabled = true;
+  try {
+    if (draft.mode === "create") {
+      const result = await apiFetch("/api/groups", { method: "POST", body: { projectId: state.project, name } });
+      saveGroupColor(result.group.name, draft.color);
+      showToast(`${t("groupCreated")}${result.group.name}`, "success");
+    } else {
+      const originalName = draft.originalName;
+      const result = await apiFetch(`/api/groups/${encodeURIComponent(originalName)}`, {
+        method: "PATCH",
+        body: { projectId: state.project, name },
+      });
+      const colors = groupColorMap();
+      const previousColor = colors[originalName] || draft.color;
+      delete colors[originalName];
+      colors[result.group.name] = GROUP_COLORS.includes(previousColor) ? previousColor : deterministicGroupColor(result.group.name);
+      safeStorageSet(groupColorStorageKey(), JSON.stringify(colors));
+      if (state.facets.group === originalName) state.facets.group = result.group.name;
+      showToast(`${t("groupRenamed")}${result.group.name}`, "success");
+    }
+    sidebarGroupEdit = null;
+    await loadStats();
+    if (draft.mode === "rename" && state.facets.group) await loadAssets();
+  } catch (error) {
+    draft.saving = false;
+    if (input instanceof HTMLInputElement) input.disabled = false;
+    showToast(error?.message || t("groupNameRequired"), "error");
+    focusSidebarGroupEditor();
+  }
 }
 
 let masonryResizeObserver = null;
@@ -1938,6 +2180,237 @@ let masonryFullLayoutPending = false;
 const masonryPendingCards = new Set();
 let galleryMediaObserver = null;
 let galleryMediaObservedGrid = null;
+let galleryCardVirtualObserver = null;
+let galleryCardVirtualObservedGrid = null;
+let galleryCardVirtualScrollGrid = null;
+let galleryCardVirtualLastScrollTop = Number.NEGATIVE_INFINITY;
+const galleryCardVirtualVisiblePendingChanges = new Map();
+const galleryCardVirtualBackgroundPendingChanges = new Map();
+let galleryCardVirtualBatchFrame = null;
+const galleryCardVirtualEntries = new Map();
+const galleryCardVirtualHydratedIds = new Set();
+const galleryCardVirtualSpanCache = new Map();
+const GALLERY_CARD_VIRTUAL_THRESHOLD = 96;
+const GALLERY_CARD_INITIAL_HYDRATE = 40;
+
+function galleryVirtualSpanKey(assetId) {
+  return `${state.galleryDensity}\u001f${Math.round(galleryCardColumnWidth())}\u001f${assetId}`;
+}
+
+function galleryCardColumnWidth() {
+  const grid = els.assetGrid;
+  if (!grid) return 180;
+  const tracks = getComputedStyle(grid).gridTemplateColumns.split(/\s+/).map(Number.parseFloat).filter((value) => Number.isFinite(value) && value > 0);
+  if (tracks.length) return tracks[0];
+  return Math.max(120, grid.clientWidth / 5);
+}
+
+function galleryAssetAspect(asset = {}) {
+  const width = Number(asset.width || asset.business_fields?.width);
+  const height = Number(asset.height || asset.business_fields?.height);
+  if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) return height / width;
+  const match = /^\s*(\d+(?:\.\d+)?)\s*[:/x×]\s*(\d+(?:\.\d+)?)\s*$/iu.exec(String(asset.ratio || ""));
+  if (match) {
+    const ratioWidth = Number(match[1]);
+    const ratioHeight = Number(match[2]);
+    if (ratioWidth > 0 && ratioHeight > 0) return ratioHeight / ratioWidth;
+  }
+  return 1;
+}
+
+function estimatedGalleryCardSpan(asset) {
+  const cached = galleryCardVirtualSpanCache.get(galleryVirtualSpanKey(asset.id));
+  if (cached) return cached;
+  const mediaHeight = galleryCardColumnWidth() * Math.min(16 / 9, Math.max(0.35, galleryAssetAspect(asset)));
+  const infoHeight = state.galleryDensity === "info" ? 44 : 0;
+  const grid = els.assetGrid;
+  const styles = grid ? getComputedStyle(grid) : null;
+  const gap = styles ? (Number.parseFloat(styles.getPropertyValue("--gallery-gap")) || Number.parseFloat(styles.columnGap) || 0) : 0;
+  return Math.max(48, Math.ceil(mediaHeight + infoHeight + gap));
+}
+
+function virtualGalleryCardEntry(entry) {
+  const span = estimatedGalleryCardSpan(entry.asset);
+  return {
+    ...entry,
+    renderKey: `${entry.renderKey}\u001fvirtual`,
+    animateCard: false,
+    markup: `<article class="asset-card asset-card-virtual-placeholder" data-id="${escapeHtml(entry.id)}" data-virtual-span="${span}" aria-hidden="true"><span class="asset-card-virtual-surface"></span></article>`,
+  };
+}
+
+function shouldHydrateGalleryCard(entry, ordinal) {
+  if (state.assets.length < GALLERY_CARD_VIRTUAL_THRESHOLD) return true;
+  if (ordinal < GALLERY_CARD_INITIAL_HYDRATE) return true;
+  if (entry.id === state.selectedId || galleryCardVirtualHydratedIds.has(entry.id)) return true;
+  return false;
+}
+
+function replaceVirtualGalleryCards(observerEntries) {
+  const grid = els.assetGrid;
+  const bottomOffset = grid ? Math.max(0, grid.scrollHeight - grid.scrollTop - grid.clientHeight) : null;
+  const preserveBottomOffset = bottomOffset !== null && bottomOffset <= 1200;
+  const replacements = [];
+  for (const item of observerEntries) {
+    const card = item.target;
+    if (!(card instanceof HTMLElement) || !card.isConnected) continue;
+    const entry = galleryCardVirtualEntries.get(card.dataset.id || "");
+    if (!entry) continue;
+    const hydrate = item.isIntersecting;
+    if (hydrate && !card.classList.contains("asset-card-virtual-placeholder")) continue;
+    if (!hydrate && card.classList.contains("asset-card-virtual-placeholder")) continue;
+    if (!hydrate && (card.contains(document.activeElement) || card.classList.contains("selected") || card.classList.contains("multi-selected") || card.matches(".stack-drop-target, .stack-reorder-target"))) continue;
+
+    if (!hydrate) {
+      const span = Number.parseInt(String(card.style.gridRowEnd || "").replace(/\D+/g, ""), 10);
+      if (Number.isFinite(span) && span > 0) galleryCardVirtualSpanCache.set(galleryVirtualSpanKey(entry.id), span);
+    }
+    replacements.push({ card, entry, hydrate });
+  }
+  if (!replacements.length) return;
+
+  const replacementEntries = replacements.map(({ entry, hydrate }) => hydrate ? entry : virtualGalleryCardEntry(entry));
+  const createdCards = createAssetCardElements(replacementEntries);
+  const hydratedCards = [];
+  const changedIds = new Set();
+  let changed = false;
+
+  replacements.forEach(({ card, entry, hydrate }) => {
+    const replacement = createdCards.get(entry.id);
+    if (!replacement) return;
+    galleryCardVirtualObserver?.unobserve(card);
+    if (card.style.gridColumnStart) replacement.style.gridColumnStart = card.style.gridColumnStart;
+    if (card.style.gridRowStart) replacement.style.gridRowStart = card.style.gridRowStart;
+    if (hydrate && card.style.gridRowEnd) replacement.style.gridRowEnd = card.style.gridRowEnd;
+    if (hydrate) {
+      galleryCardVirtualHydratedIds.add(entry.id);
+      hydratedCards.push(replacement);
+    } else {
+      galleryCardVirtualHydratedIds.delete(entry.id);
+      releaseObservedGalleryMedia(card);
+    }
+    card.replaceWith(replacement);
+    galleryCardVirtualObserver?.observe(replacement);
+    changedIds.add(entry.id);
+    changed = true;
+  });
+
+  if (hydratedCards.length) {
+    layoutMasonry(hydratedCards);
+    setupGalleryMediaVirtualization(hydratedCards);
+  }
+  if (changed) {
+    invalidateCardGeometryCache();
+    gallerySelection.syncRenderedSelection({ prune: false, changedIds });
+    if (preserveBottomOffset && grid) {
+      const targetScrollTop = Math.max(0, grid.scrollHeight - grid.clientHeight - bottomOffset);
+      if (Math.abs(grid.scrollTop - targetScrollTop) > 0.5) grid.scrollTop = targetScrollTop;
+    }
+  }
+}
+
+function flushGalleryCardVirtualPendingChanges() {
+  galleryCardVirtualBatchFrame = null;
+  const grid = els.assetGrid;
+  if (!grid || (!galleryCardVirtualVisiblePendingChanges.size && !galleryCardVirtualBackgroundPendingChanges.size)) return;
+  const batch = [];
+  const takeChanges = (pending) => {
+    for (const [id, change] of pending) {
+      pending.delete(id);
+      if (!change.target?.isConnected) continue;
+      batch.push(change);
+      if (batch.length >= 4) break;
+    }
+  };
+  takeChanges(galleryCardVirtualVisiblePendingChanges);
+  if (batch.length < 4) takeChanges(galleryCardVirtualBackgroundPendingChanges);
+  if (batch.length) replaceVirtualGalleryCards(batch);
+  if (galleryCardVirtualVisiblePendingChanges.size || galleryCardVirtualBackgroundPendingChanges.size) {
+    galleryCardVirtualBatchFrame = requestAnimationFrame(flushGalleryCardVirtualPendingChanges);
+  }
+}
+
+function scheduleGalleryCardVirtualPendingChanges() {
+  if (galleryCardVirtualBatchFrame !== null || (!galleryCardVirtualVisiblePendingChanges.size && !galleryCardVirtualBackgroundPendingChanges.size)) return;
+  galleryCardVirtualBatchFrame = requestAnimationFrame(flushGalleryCardVirtualPendingChanges);
+}
+
+function syncGalleryCardVirtualWindow() {
+  const grid = els.assetGrid;
+  if (!grid || state.assets.length < GALLERY_CARD_VIRTUAL_THRESHOLD) return;
+  const preload = 1200;
+  const minRow = Math.max(0, grid.scrollTop - preload);
+  const maxRow = grid.scrollTop + grid.clientHeight + preload;
+  const visibleMinRow = grid.scrollTop;
+  const visibleMaxRow = grid.scrollTop + grid.clientHeight;
+  const desiredVisible = new Map();
+  const desiredBackground = new Map();
+  grid.querySelectorAll(":scope > .asset-card").forEach((card) => {
+    const rowStart = Number.parseInt(card.style.gridRowStart || "", 10);
+    const span = Number.parseInt(String(card.style.gridRowEnd || "").replace(/\D+/g, ""), 10);
+    if (!Number.isFinite(rowStart) || !Number.isFinite(span) || span <= 0) return;
+    const rowEnd = rowStart + span;
+    const shouldHydrate = rowEnd >= minRow && rowStart <= maxRow;
+    if (shouldHydrate === !card.classList.contains("asset-card-virtual-placeholder")) return;
+    const change = { target: card, isIntersecting: shouldHydrate };
+    const visibleHydration = shouldHydrate
+      && card.classList.contains("asset-card-virtual-placeholder")
+      && rowEnd >= visibleMinRow
+      && rowStart <= visibleMaxRow;
+    const id = card.dataset.id || "";
+    if (!id) return;
+    if (visibleHydration) desiredVisible.set(id, change);
+    else desiredBackground.set(id, change);
+  });
+  for (const id of galleryCardVirtualVisiblePendingChanges.keys()) {
+    if (!desiredVisible.has(id)) galleryCardVirtualVisiblePendingChanges.delete(id);
+  }
+  for (const id of galleryCardVirtualBackgroundPendingChanges.keys()) {
+    if (!desiredBackground.has(id)) galleryCardVirtualBackgroundPendingChanges.delete(id);
+  }
+  desiredVisible.forEach((change, id) => {
+    galleryCardVirtualBackgroundPendingChanges.delete(id);
+    galleryCardVirtualVisiblePendingChanges.set(id, change);
+  });
+  desiredBackground.forEach((change, id) => {
+    if (!galleryCardVirtualVisiblePendingChanges.has(id)) galleryCardVirtualBackgroundPendingChanges.set(id, change);
+  });
+  scheduleGalleryCardVirtualPendingChanges();
+}
+
+function handleGalleryCardVirtualScroll() {
+  const grid = els.assetGrid;
+  if (!grid) return;
+  if (Math.abs(grid.scrollTop - galleryCardVirtualLastScrollTop) < 64) return;
+  galleryCardVirtualLastScrollTop = grid.scrollTop;
+  syncGalleryCardVirtualWindow();
+}
+
+function setupGalleryCardVirtualization() {
+  const grid = els.assetGrid;
+  if (!grid || state.assets.length < GALLERY_CARD_VIRTUAL_THRESHOLD) {
+    galleryCardVirtualObserver?.disconnect();
+    galleryCardVirtualObservedGrid = null;
+    if (galleryCardVirtualScrollGrid) galleryCardVirtualScrollGrid.removeEventListener("scroll", handleGalleryCardVirtualScroll);
+    galleryCardVirtualScrollGrid = null;
+    galleryCardVirtualLastScrollTop = Number.NEGATIVE_INFINITY;
+    galleryCardVirtualVisiblePendingChanges.clear();
+    galleryCardVirtualBackgroundPendingChanges.clear();
+    if (galleryCardVirtualBatchFrame !== null) cancelAnimationFrame(galleryCardVirtualBatchFrame);
+    galleryCardVirtualBatchFrame = null;
+    return;
+  }
+  galleryCardVirtualObserver?.disconnect();
+  galleryCardVirtualObserver = null;
+  galleryCardVirtualObservedGrid = grid;
+  if (galleryCardVirtualScrollGrid !== grid) {
+    galleryCardVirtualScrollGrid?.removeEventListener("scroll", handleGalleryCardVirtualScroll);
+    galleryCardVirtualScrollGrid = grid;
+    galleryCardVirtualLastScrollTop = Number.NEGATIVE_INFINITY;
+    galleryCardVirtualScrollGrid.addEventListener("scroll", handleGalleryCardVirtualScroll, { passive: true });
+  }
+  handleGalleryCardVirtualScroll();
+}
 
 function bindGalleryVideoFrame(video) {
   if (!(video instanceof HTMLVideoElement) || video.dataset.galleryVideoBound === "true") return;
@@ -2057,12 +2530,53 @@ function layoutMasonry(cards = null) {
   const galleryGap = Number.parseFloat(gridStyles.getPropertyValue("--gallery-gap")) || Number.parseFloat(gridStyles.columnGap) || 0;
   const targets = cards || grid.querySelectorAll(".asset-card");
   const measurements = [];
+  let needsPlacement = !cards;
   targets.forEach((card) => {
     if (!(card instanceof HTMLElement) || !card.isConnected) return;
+    if (!card.style.gridColumnStart || !card.style.gridRowStart) needsPlacement = true;
+    if (card.classList.contains("asset-card-virtual-placeholder")) return;
+    // content-visibility is enabled only after the real masonry span has been
+    // measured. Temporarily expose the card when a relayout is required so an
+    // offscreen intrinsic placeholder can never feed a fake height back into
+    // the masonry algorithm.
+    card.classList.remove("masonry-content-virtualized");
+    card.style.removeProperty("grid-row-end");
+    const previousSpan = Number.parseInt(String(card.style.gridRowEnd || "").replace(/\D+/g, ""), 10);
     const height = card.getBoundingClientRect().height || 0;
-    if (height) measurements.push([card, Math.ceil(height + galleryGap)]);
+    if (height) measurements.push([card, Math.ceil(height + galleryGap), previousSpan]);
   });
-  measurements.forEach(([card, span]) => { card.style.gridRowEnd = `span ${span}`; });
+  measurements.forEach(([card, span, previousSpan]) => {
+    if (!Number.isFinite(previousSpan) || previousSpan !== span) needsPlacement = true;
+    card.style.gridRowEnd = `span ${span}`;
+    if (card.dataset.id) galleryCardVirtualSpanCache.set(galleryVirtualSpanKey(card.dataset.id), span);
+    card.classList.add("masonry-content-virtualized");
+  });
+  if (!needsPlacement) {
+    invalidateCardGeometryCache();
+    return;
+  }
+  const allCards = [...grid.querySelectorAll(":scope > .asset-card")];
+  const columnCount = Math.max(1, gridStyles.gridTemplateColumns.split(/\s+/).filter(Boolean).length);
+  const columnEnds = Array(columnCount).fill(1);
+  allCards.forEach((card) => {
+    let span = Number.parseInt(String(card.style.gridRowEnd || "").replace(/\D+/g, ""), 10);
+    if (!Number.isFinite(span) || span <= 0) {
+      const entry = galleryCardVirtualEntries.get(card.dataset.id || "");
+      if (!entry) return;
+      span = estimatedGalleryCardSpan(entry.asset);
+      card.style.gridRowEnd = `span ${span}`;
+    }
+    let columnIndex = 0;
+    for (let index = 1; index < columnEnds.length; index += 1) {
+      if (columnEnds[index] < columnEnds[columnIndex]) columnIndex = index;
+    }
+    const rowStart = columnEnds[columnIndex];
+    const columnStart = columnIndex + 1;
+    if (card.style.gridColumnStart !== String(columnStart)) card.style.gridColumnStart = String(columnStart);
+    if (card.style.gridRowStart !== String(rowStart)) card.style.gridRowStart = String(rowStart);
+    columnEnds[columnIndex] += span;
+  });
+  invalidateCardGeometryCache();
 }
 function scheduleMasonryLayout(card = null) {
   if (card) masonryPendingCards.add(card);
@@ -2119,11 +2633,20 @@ function setupMasonryLayout(options = {}) {
       const width = entries[0]?.contentRect?.width ?? grid.clientWidth;
       if (Math.abs(width - masonryObservedWidth) < 0.5) return;
       masonryObservedWidth = width;
+      galleryCardVirtualSpanCache.clear();
+      grid.querySelectorAll(":scope > .asset-card-virtual-placeholder").forEach((card) => {
+        const entry = galleryCardVirtualEntries.get(card.dataset.id || "");
+        if (!entry) return;
+        const span = estimatedGalleryCardSpan(entry.asset);
+        card.dataset.virtualSpan = String(span);
+        card.style.gridRowEnd = `span ${span}`;
+      });
       scheduleMasonryLayout();
     });
     masonryResizeObserver.observe(grid);
   }
   setupGalleryMediaVirtualization(layoutTargets || null);
+  setupGalleryCardVirtualization();
   setupInfiniteScroll();
 }
 
@@ -2171,11 +2694,12 @@ function assetCardRenderKey(asset, selected) {
   ].join("\u001f");
 }
 
-function createAssetCardElement(markup, renderKey, animateCard) {
-  const template = document.createElement("template");
-  template.innerHTML = markup.trim();
-  const card = template.content.firstElementChild;
+function initializeAssetCardElement(card, renderKey, animateCard) {
   if (!(card instanceof HTMLElement)) return null;
+  if (card.classList.contains("asset-card-virtual-placeholder")) {
+    const span = Number.parseInt(card.dataset.virtualSpan || "", 10);
+    if (Number.isFinite(span) && span > 0) card.style.gridRowEnd = `span ${span}`;
+  }
   if (card.classList.contains("is-stack")) {
     const actions = card.querySelector(".card-actions");
     actions?.setAttribute("inert", "");
@@ -2184,6 +2708,19 @@ function createAssetCardElement(markup, renderKey, animateCard) {
   card.dataset.renderKey = renderKey;
   if (animateCard) card.addEventListener("animationend", () => card.classList.remove("card-enter"), { once: true });
   return card;
+}
+
+function createAssetCardElements(entries) {
+  if (!entries.length) return new Map();
+  const template = document.createElement("template");
+  template.innerHTML = entries.map((entry) => entry.markup.trim()).join("");
+  const cards = [...template.content.children];
+  const created = new Map();
+  entries.forEach((entry, index) => {
+    const card = initializeAssetCardElement(cards[index], entry.renderKey, entry.animateCard);
+    if (card) created.set(entry.id, card);
+  });
+  return created;
 }
 
 function reconcileAssetCards(entries) {
@@ -2199,11 +2736,16 @@ function reconcileAssetCards(entries) {
   const desiredCards = [];
   const changedCards = [];
   let replacedFocusedCard = false;
+  const entriesNeedingCards = entries.filter((entry) => {
+    const card = existingCards.get(entry.id);
+    return !card || card.dataset.renderKey !== entry.renderKey;
+  });
+  const createdCards = createAssetCardElements(entriesNeedingCards);
 
   for (const entry of entries) {
     let card = existingCards.get(entry.id) || null;
     if (!card || card.dataset.renderKey !== entry.renderKey) {
-      const replacement = createAssetCardElement(entry.markup, entry.renderKey, entry.animateCard);
+      const replacement = createdCards.get(entry.id) || null;
       if (!replacement) continue;
       if (card) {
         if (card.contains(document.activeElement)) replacedFocusedCard = true;
@@ -2233,6 +2775,7 @@ function reconcileAssetCards(entries) {
   if (state.nextCursor) {
     grid.insertAdjacentHTML("beforeend", `<div class="asset-load-more"><button type="button" data-action="load-more">${escapeHtml(t("loadMore"))}</button></div><div class="infinite-scroll-sentinel" data-sentinel="true"></div>`);
   }
+  if (changedCards.length || existingCards.size !== desiredCards.length) invalidateCardGeometryCache();
   return { changedCards, replacedFocusedCard };
 }
 
@@ -2240,16 +2783,13 @@ function appendAssetCards(entries) {
   const grid = els.assetGrid;
   if (!grid) return [];
   grid.querySelectorAll(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel").forEach((element) => element.remove());
-  const changedCards = [];
-  for (const entry of entries) {
-    const card = createAssetCardElement(entry.markup, entry.renderKey, entry.animateCard);
-    if (!card) continue;
-    grid.append(card);
-    changedCards.push(card);
-  }
+  const createdCards = createAssetCardElements(entries);
+  const changedCards = entries.map((entry) => createdCards.get(entry.id)).filter(Boolean);
+  if (changedCards.length) grid.append(...changedCards);
   if (state.nextCursor) {
     grid.insertAdjacentHTML("beforeend", `<div class="asset-load-more"><button type="button" data-action="load-more">${escapeHtml(t("loadMore"))}</button></div><div class="infinite-scroll-sentinel" data-sentinel="true"></div>`);
   }
+  if (changedCards.length) invalidateCardGeometryCache();
   return changedCards;
 }
 
@@ -2304,9 +2844,17 @@ function renderGrid() {
     && existingCardCount === animateFrom
     && els.assetGrid.dataset.renderedDensity === state.galleryDensity;
   const renderAssets = canAppendFast ? state.assets.slice(animateFrom) : state.assets;
+  if (!canAppendFast) {
+    galleryCardVirtualEntries.clear();
+    const currentIds = new Set(state.assets.map((asset) => asset.id));
+    for (const id of galleryCardVirtualHydratedIds) {
+      if (!currentIds.has(id)) galleryCardVirtualHydratedIds.delete(id);
+    }
+  }
   // F-24：闭包序号判断入场动画范围（保持 map 回调签名与既有契约一致）。
   let cardOrdinal = canAppendFast ? animateFrom : 0;
   const cards = renderAssets.map((asset) => {
+    const ordinal = cardOrdinal;
     const animateCard = animate && cardOrdinal >= animateFrom;
     cardOrdinal += 1;
     const title = cardShortTitle(asset);
@@ -2329,12 +2877,15 @@ function renderGrid() {
     const copyBtn = `<button class="card-action-btn card-quick-copy" type="button" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button>`;
     const cardActions = `<div class="card-actions">${favBtn}${copyBtn}</div>`;
     const stackBadge = isStack ? `<span class="asset-stack-count" aria-hidden="true">${Number(asset.stack.count)}</span>` : "";
-    return {
+    const entry = {
       id: asset.id,
+      asset,
       renderKey: assetCardRenderKey(asset, selected),
       animateCard,
       markup: `<article class="asset-card${selected ? " selected" : ""}${isStack ? " is-stack" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}"${isStack ? ` data-stack-id="${escapeHtml(asset.stack.id)}"` : ""} title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}"${stackDescription}>${media}<span class="card-scrim" aria-hidden="true"></span>${stackBadge}<span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`,
     };
+    galleryCardVirtualEntries.set(entry.id, entry);
+    return shouldHydrateGalleryCard(entry, ordinal) ? entry : virtualGalleryCardEntry(entry);
   });
   // Populated renders are reconciled by asset id. Unchanged cards keep their
   // decoded media and DOM nodes; only changed/new cards are recreated.
@@ -2350,10 +2901,17 @@ function renderGrid() {
   els.assetGrid.dataset.renderedDensity = state.galleryDensity;
   const requiresFullMasonry = !canAppendFast && (previousDensity !== state.galleryDensity || changedCards.length >= state.assets.length);
   setupMasonryLayout(requiresFullMasonry ? {} : { cards: changedCards, full: false });
-  // Restore on the next frame once replacement cards have restored enough
-  // scroll height for the prior position to be valid again. Clamp when a
-  // mutation removed rows (for example un-favoriting inside Favorites).
-  if (savedScrollTop !== null) {
+  // Keyed incremental reconciliation keeps unchanged card nodes mounted, so
+  // Chromium's native scroll anchoring can preserve the actual viewed card
+  // when new assets are inserted above it. Writing the old numeric scrollTop
+  // after every background refresh would override that correction and create
+  // the visible "gallery nudge". Only fall back to numeric restoration when
+  // the render replaced the whole populated set and no stable DOM anchor is
+  // left for the browser to use.
+  const needsNumericScrollRestore = savedScrollTop !== null
+    && !canAppendFast
+    && changedCards.length >= state.assets.length;
+  if (needsNumericScrollRestore) {
     requestAnimationFrame(() => {
       const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
       scrollContainer.scrollTop = Math.min(savedScrollTop, maxScrollTop);
@@ -2568,7 +3126,20 @@ function selectedAsset() {
     || null;
 }
 
-function updateSelectedCard() { els.assetGrid?.querySelectorAll(".asset-card").forEach((card) => { const selected = card.dataset.id === state.selectedId; const multiSelected = state.selectedIds?.has(card.dataset.id); card.classList.toggle("selected", selected); card.querySelector(".asset-card-select")?.setAttribute("aria-pressed", String(selected || multiSelected)); }); }
+let lastSelectedCardId = null;
+function updateSelectedCard() {
+  if (!els.assetGrid) return;
+  const ids = new Set([lastSelectedCardId, state.selectedId].filter(Boolean));
+  for (const id of ids) {
+    const card = els.assetGrid.querySelector(`:scope > .asset-card[data-id="${CSS.escape(id)}"]`);
+    if (!card) continue;
+    const selected = id === state.selectedId;
+    const multiSelected = Boolean(state.selectedIds?.has(id));
+    card.classList.toggle("selected", selected);
+    card.querySelector(".asset-card-select")?.setAttribute("aria-pressed", String(selected || multiSelected));
+  }
+  lastSelectedCardId = state.selectedId || null;
+}
 function setDetailOpen(open) {
   const wasOpen = state.detailOpen;
   state.detailOpen = Boolean(open); els.appShell?.classList.toggle("details-open", state.detailOpen); document.body.classList.toggle("detail-open", state.detailOpen); els.detailPanel?.setAttribute("aria-hidden", String(!state.detailOpen));
@@ -2918,7 +3489,7 @@ let detailRenderSequence = 0;
 // 在面板内时焦点恢复优先（浏览器会把聚焦的 #detailTitle 滚入视野）。
 let detailRenderedAssetId = null;
 
-function renderDetail() {
+function renderDetail({ syncAssetView = true } = {}) {
   if (!els.detailPanel) return;
   // Rebuilding destroys every input; cancel a pending debounced save so it
   // cannot fire against the fresh DOM. An in-flight PATCH is left to resolve
@@ -2967,7 +3538,7 @@ function renderDetail() {
   detailRenderedAssetId = asset.id;
   if (hadPanelFocus) els.detailPanel.querySelector("#detailTitle")?.focus();
   // Phase 3A：详情内容变化（版本切换/后台刷新/语言切换）时同步查看模式舞台主图。
-  if (state.viewMode === "asset") renderAssetView();
+  if (syncAssetView && state.viewMode === "asset") renderAssetView();
   // P2：该素材的历史已有缓存（同素材重渲染：收藏切换/自动保存后的后台刷新/
   // 语言切换）时不重发两个历史请求；导航换素材时缓存已被清空，照常拉取。
   if (!cachedHistory) void loadVersionHistory(asset);

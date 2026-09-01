@@ -54,7 +54,8 @@
     "qa:web": "node scripts/qa-launcher.mjs --type web",
     "qa:electron": "node scripts/qa-launcher.mjs --type electron --no-build",
     "qa:packaged": "node scripts/qa-launcher.mjs --type packaged --no-build",
-    "qa:packaged:smoke": "node scripts/packaged-smoke.mjs"
+    "qa:packaged:smoke": "node scripts/packaged-smoke.mjs",
+    "qa:gallery:performance": "node scripts/qa-gallery-virtualization.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.1",

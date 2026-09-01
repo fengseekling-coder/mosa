@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -182,6 +182,60 @@ test("skips unchanged Grok candidates without re-querying the asset store", asyn
   assert.equal(second.skipped.some((item) => item.reason === "unchanged"), true);
   assert.equal(sourceLookups, 1);
   assert.equal(listCalls, 0);
+});
+
+test("caches Grok session parsing and ignores unrelated chat mtime churn", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-grok-session-cache-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const fixture = await createGrokSessionFixture(root);
+  const chatPath = join(fixture.sessionPath, "chat_history.jsonl");
+  let sourceLookups = 0;
+  let updates = 0;
+  const store = {
+    async listAssets() { return []; },
+    async findAssetBySourcePath() {
+      sourceLookups += 1;
+      return {
+        id: "existing",
+        project_id: "default",
+        prompt: "一只红色机甲在雨夜城市中行走，电影级灯光，横向构图",
+        theme: "一只红色机甲在雨夜城市中行走，电影级灯光，横向构图",
+        business_fields: { prompt_status: "generation-tool-prompt" },
+        source: {
+          path: fixture.mediaPath,
+          grok_media_path: fixture.mediaPath,
+          grok_session_path: fixture.sessionPath,
+          grok_tool_call_id: "call-test-media-1",
+          model: "grok-4.5-build",
+          generation_tool: "image_gen",
+          media_kind: "image",
+          prompt_status: "generation-tool-prompt",
+        },
+      };
+    },
+    async updateMetadata() { updates += 1; },
+    async createAsset() { throw new Error("create should not run"); },
+  };
+  const processedSignatures = new Map();
+  const sessionMetadataCache = new Map();
+  const options = { store, sessionsDir: fixture.sessionsDir, processedSignatures, sessionMetadataCache };
+
+  await reconcileGrokMedia(options);
+  const updatesAfterFirstReconcile = updates;
+  const canonicalChatPath = await realpath(chatPath);
+  const firstCached = sessionMetadataCache.get(canonicalChatPath)?.metadata;
+  await reconcileGrokMedia(options);
+  assert.equal(sessionMetadataCache.get(canonicalChatPath)?.metadata, firstCached, "unchanged JSONL must reuse parsed metadata");
+
+  await appendFile(chatPath, `${JSON.stringify({
+    type: "user",
+    content: [{ type: "text", text: "<user_query>unrelated follow-up conversation</user_query>" }],
+  })}\n`);
+  const third = await reconcileGrokMedia(options);
+  assert.equal(third.skipped.some((item) => item.reason === "unchanged"), true, "chat mtime alone must not invalidate archived media");
+  assert.equal(sourceLookups, 1);
+  assert.equal(updates, updatesAfterFirstReconcile, "unrelated chat churn must not write asset metadata again");
+  assert.notEqual(sessionMetadataCache.get(canonicalChatPath)?.metadata, firstCached, "changed JSONL should refresh the parse cache once");
 });
 
 test("retries a deterministic Grok asset id collision through automatic identity dedupe", async (t) => {

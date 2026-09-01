@@ -4,6 +4,7 @@ node_modules
 .env.*
 !.env.example
 npm-debug.log*
+/.mosa-server.log
 *.bak-*
 /.claude/settings.local.json
 /.zcode/

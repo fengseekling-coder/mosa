@@ -44,6 +44,17 @@ export function createConfirmDialog({ els, state, t, closePanel }) {
     });
   }
 
+  async function requestFollowupConfirmation(options = {}) {
+    // A follow-up must not reopen the same transitioning overlay in the same
+    // frame. Give the closed state two paints so the next dialog is guaranteed
+    // to materialize as a distinct confirmation instead of being swallowed by
+    // the discrete display/opacity transition.
+    await new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+    return requestConfirmation(options);
+  }
+
   function closeConfirmDialog(result) {
     if (!confirmDialogState.pending) return;
     const { resolve } = confirmDialogState;
@@ -115,6 +126,6 @@ export function createConfirmDialog({ els, state, t, closePanel }) {
   }
 
   return {
-    requestConfirmation, closeConfirmDialog, trapConfirmDialogFocus, isConfirmFocusTarget, confirmDialogState,
+    requestConfirmation, requestFollowupConfirmation, closeConfirmDialog, trapConfirmDialogFocus, isConfirmFocusTarget, confirmDialogState,
   };
 }

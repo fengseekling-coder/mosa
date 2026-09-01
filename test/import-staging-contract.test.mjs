@@ -253,6 +253,7 @@ test("preload surface and Electron security boundaries are unchanged", async () 
     "pasteImage",
     "setLocale",
     "showItemInFolder",
+    "writeClipboardImage",
     "writeClipboardText",
   ], "electronAPI surface must match the approved narrow desktop capabilities");
 

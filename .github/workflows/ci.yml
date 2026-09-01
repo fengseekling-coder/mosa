@@ -33,6 +33,8 @@ jobs:
       - run: node -e "require('electron')"
       - run: node -e "if (process.arch !== 'arm64') throw new Error('Expected arm64 macOS runner')"
       - run: node --test test/desktop-packaging.test.mjs test/electron-preload-runtime-contract.test.mjs
+        env:
+          MOSA_ELECTRON_PRELOAD_SMOKE: "1"
       - run: npm run test:e2e
       - run: npm run desktop:package
       - run: codesign --verify --deep --strict --verbose=2 out/MOSA-darwin-arm64/MOSA.app
@@ -50,6 +52,8 @@ jobs:
       - run: node -e "require('electron')"
       - run: node -e "if (process.arch !== 'x64') throw new Error('Expected x64 Windows runner')"
       - run: node --test test/desktop-packaging.test.mjs test/desktop-platform-adapter.test.mjs test/desktop-runtime-paths.test.mjs test/electron-preload-runtime-contract.test.mjs test/path-safety.test.mjs test/source-locations.test.mjs
+        env:
+          MOSA_ELECTRON_PRELOAD_SMOKE: "1"
       - run: npm run test:e2e
       - run: npm run desktop:package:windows
       - run: npm run qa:packaged:smoke
