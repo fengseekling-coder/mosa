@@ -1,0 +1,21 @@
+#!/bin/sh
+# MOSA pre-push hook: block Chrome Web Store build artifacts from the source repo.
+# Install with: git config core.hooksPath scripts/hooks && chmod +x scripts/hooks/pre-push
+# Or link manually: ln -sf ../../scripts/hooks/pre-push .git/hooks/pre-push
+set -eu
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+    range="$local_sha"
+  else
+    range="${remote_sha}..${local_sha}"
+  fi
+  offenders=$(git diff --name-only --diff-filter=ACM "$range" -- 'out/store/*' '*.Chrome-Web-Store.zip' 2>/dev/null || true)
+  if [ -n "$offenders" ]; then
+    echo "pre-push: refusing to push Chrome Web Store build artifacts:" >&2
+    echo "$offenders" | sed 's/^/  /' >&2
+    echo "These are build outputs and are gitignored. Remove them with:" >&2
+    echo "  git rm --cached <path>" >&2
+    exit 1
+  fi
+done
