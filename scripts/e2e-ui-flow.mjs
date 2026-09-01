@@ -167,6 +167,9 @@ export function createStackUiFlowSource() {
   function ctrlClick(element) {
     element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }));
   }
+  function doubleClick(element) {
+    element.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, detail: 2 }));
+  }
   function pointer(target, type, x, y, pointerId = 91) {
     target.dispatchEvent(new PointerEvent(type, {
       bubbles: true,
@@ -214,7 +217,7 @@ export function createStackUiFlowSource() {
   );
   const stackId = stackCard.dataset.stackId;
   const rootCountAfterStack = document.querySelectorAll('#assetGrid > .asset-card').length;
-  stackCard.querySelector('.asset-card-select').click();
+  doubleClick(stackCard.querySelector('.asset-card-select'));
   await waitFor(
     () => !document.querySelector('#stackBack')?.hidden
       && document.querySelector('#assetGrid')?.getAttribute('aria-busy') === 'false'
