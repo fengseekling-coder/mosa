@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 export const ANONYMOUS_USAGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -28,11 +28,14 @@ function readProfile(path) {
 }
 
 function writeProfile(path, profile) {
+  const temporaryPath = `${path}.tmp-${process.pid}`;
   try {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${JSON.stringify(profile, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    writeFileSync(temporaryPath, `${JSON.stringify(profile, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    renameSync(temporaryPath, path);
     return true;
   } catch {
+    try { rmSync(temporaryPath, { force: true }); } catch {}
     return false;
   }
 }
