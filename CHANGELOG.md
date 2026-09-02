@@ -2,7 +2,15 @@
 
 This file records user-visible changes. Internal deployment notes, local paths, and development handoffs are intentionally not tracked in the public repository.
 
-## 0.2.0 — Unreleased / 待发布
+## 0.2.1 — 2026-09-02
+
+### Reliability and privacy / 可靠性与隐私
+
+- Packaged desktop builds now report the same minimal anonymous install/activity UUID regardless of whether the app package came from the MOSA website, GitHub, or a directly shared copy.
+- Anonymous usage reporting is independent from update-manifest parsing, retries with the same installation UUID after transient failures, and persists the local UUID/profile atomically.
+- Development and QA launches remain excluded from production usage metrics.
+
+## 0.2.0 — 2026-08-28
 
 > **Local visual memory for AI creation.**
 > 把 Codex、ChatGPT、Grok 与 Cowart 中的创作结果，连同可用的 Prompt、来源和版本，留在自己的电脑上。
