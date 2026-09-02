@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
@@ -11,6 +12,11 @@ import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PROBE_TIMEOUT_MS = 1500;
+const DEFAULT_UPGRADE_STOP_TIMEOUT_MS = 5000;
+const DEFAULT_UPGRADE_STOP_POLL_MS = 100;
+const DEFAULT_UPGRADE_READY_TIMEOUT_MS = 30_000;
+const DEFAULT_UPGRADE_READY_POLL_MS = 100;
+const RUNTIME_LOCK_FILE_NAME = ".mosa-runtime.lock";
 
 export class MosaServiceConflictError extends Error {
   constructor(message, options = {}) {
@@ -19,9 +25,30 @@ export class MosaServiceConflictError extends Error {
   }
 }
 
+export class MosaServiceBuildMismatchError extends MosaServiceConflictError {
+  constructor({ details, expectedIdentity, mismatches }) {
+    const runningVersion = normalizedIdentityValue(details?.productVersion);
+    const expectedVersion = normalizedIdentityValue(expectedIdentity?.productVersion);
+    const runningLabel = runningVersion === "unknown" ? "another build" : `v${runningVersion}`;
+    const expectedLabel = expectedVersion === "unknown" ? "This MOSA build" : `MOSA v${expectedVersion}`;
+    super(`${expectedLabel} found ${runningLabel} of the local MOSA service using the same library. Quit the previous MOSA instance and reopen this version.`);
+    this.name = "MosaServiceBuildMismatchError";
+    this.code = "MOSA_SERVICE_BUILD_MISMATCH";
+    this.service = Object.freeze({ ...details });
+    this.expectedIdentity = Object.freeze({ ...expectedIdentity });
+    this.mismatches = Object.freeze(mismatches.map((item) => Object.freeze({ ...item })));
+    this.upgradeEligible = compareMosaVersions(expectedVersion, runningVersion) === 1;
+  }
+}
+
+export function shouldAllowStaleServiceUpgrade({ isPackaged, qaRun, explicitPort } = {}) {
+  return isPackaged === true && !qaRun && !explicitPort;
+}
+
 /**
  * Attaches to a verified local MOSA service or starts one that this process
- * owns. It deliberately never terminates a process that already owns a port.
+ * owns. Existing processes are left alone by default; the packaged desktop
+ * may explicitly opt into the narrow older-version retirement path below.
  *
  * `options.isolationContext` carries the QA runtime parameters that
  * desktop/main.mjs resolved once (runtimeMode, qaRun, expected/actual
@@ -88,9 +115,38 @@ export async function startMosaService(options = {}) {
   }
 
   // A verified MOSA for this exact library is already alive, but it does not
-  // match the desktop build. Starting a second runtime on another port would
-  // race the same library lock and, worse, conceal the stale-service problem.
-  if (identityMismatch) throw identityMismatch;
+  // match the desktop build. A packaged upgrade may retire an *older* verified
+  // MOSA owner for this same library, then retry once. QA/dev callers stay
+  // fail-closed unless they explicitly opt in, and same/newer builds are never
+  // terminated automatically.
+  if (identityMismatch) {
+    if (
+      options.allowStaleServiceUpgrade === true
+      && identityMismatch.upgradeEligible === true
+      && hasCompleteServiceIdentity(identityMismatch.expectedIdentity)
+    ) {
+      const upgradeService = options.upgradeService || retireOlderMosaService;
+      const retired = await upgradeService(identityMismatch, {
+        host,
+        fetchImpl: options.fetchImpl,
+        probeTimeoutMs: options.probeTimeoutMs,
+      });
+      if (retired) {
+        const replacement = await waitForUpgradedMosaService(identityMismatch, {
+          host,
+          fetchImpl: options.fetchImpl,
+          probeImpl: options.upgradeProbeImpl,
+          probeTimeoutMs: options.probeTimeoutMs,
+          timeoutMs: options.upgradeReadyTimeoutMs,
+          pollMs: options.upgradeReadyPollMs,
+          sleepImpl: options.upgradeReadySleepImpl,
+          nowImpl: options.upgradeReadyNowImpl,
+        });
+        return attachedService(replacement);
+      }
+    }
+    throw identityMismatch;
+  }
 
   for (const candidatePort of availablePorts) {
     const probeOptions = {
@@ -151,7 +207,7 @@ export async function probeMosaService(options = {}) {
     } else if (response.status === 404) {
       health = await probeLegacyMosaIdentity({ url, fetchImpl, signal: controller.signal });
     } else {
-      return conflict(`Port ${port} is occupied by a service that is not a healthy MOSA runtime.`);
+      return conflict(`Port ${port} is occupied by a service that is not a healthy MOSA runtime.`, null, { retryable: true });
     }
     if (health?.product !== "mosa" || typeof health.libraryDir !== "string") {
       return conflict(`Port ${port} is occupied by a service that is not MOSA.`);
@@ -175,10 +231,115 @@ export async function probeMosaService(options = {}) {
     const reason = error?.name === "AbortError"
       ? `Port ${port} did not respond before the MOSA probe timed out.`
       : `Port ${port} is occupied but could not be verified as MOSA.`;
-    return conflict(reason, error);
+    return conflict(reason, error, { retryable: true });
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Retire a verified older MOSA runtime so a packaged desktop upgrade can take
+ * ownership of the same library. The compatibility path is intentionally
+ * narrow: the live service, semantic version, and library lock must all agree
+ * before SIGTERM is sent, and we never escalate to SIGKILL.
+ */
+export async function retireOlderMosaService(conflict, options = {}) {
+  if (!(conflict instanceof MosaServiceBuildMismatchError) || conflict.upgradeEligible !== true) return false;
+  const service = conflict.service;
+  if (!service || !Number.isInteger(service.port) || typeof service.libraryDir !== "string") return false;
+
+  const readFileImpl = options.readFileImpl || readFile;
+  const lockPath = join(service.libraryDir, RUNTIME_LOCK_FILE_NAME);
+  const owner = await readRuntimeLockOwner(lockPath, readFileImpl);
+  if (!owner || owner.pid === process.pid) return false;
+
+  const probeImpl = options.probeImpl || probeMosaService;
+  const probeOptions = {
+    host: options.host || DEFAULT_HOST,
+    port: service.port,
+    libraryDir: service.libraryDir,
+    fetchImpl: options.fetchImpl,
+    timeoutMs: options.probeTimeoutMs,
+  };
+  const current = await probeImpl(probeOptions);
+  if (current.state !== "attached" || !sameReportedServiceIdentity(current, service)) return false;
+  const currentConflict = serviceIdentityConflict(current, conflict.expectedIdentity);
+  if (!(currentConflict instanceof MosaServiceBuildMismatchError) || currentConflict.upgradeEligible !== true) return false;
+
+  const isProcessAlive = options.isProcessAlive || defaultIsProcessAlive;
+  if (!isProcessAlive(owner.pid)) return false;
+  const terminateProcess = options.terminateProcess || ((pid) => process.kill(pid, "SIGTERM"));
+  try {
+    terminateProcess(owner.pid);
+  } catch {
+    return false;
+  }
+
+  const timeoutMs = positiveInteger(options.timeoutMs, DEFAULT_UPGRADE_STOP_TIMEOUT_MS);
+  const pollMs = positiveInteger(options.pollMs, DEFAULT_UPGRADE_STOP_POLL_MS);
+  const maxChecks = Math.max(1, Math.ceil(timeoutMs / pollMs));
+  const sleepImpl = options.sleepImpl || ((delayMs) => new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs)));
+
+  for (let check = 0; check < maxChecks; check += 1) {
+    const alive = isProcessAlive(owner.pid);
+    const status = await probeImpl(probeOptions);
+    if (!alive && (status.state === "unavailable" || (status.state === "conflict" && status.retryable === true))) return true;
+    if (status.state === "conflict" && status.retryable !== true) return false;
+    if (status.state === "attached") {
+      // A KeepAlive launch agent can restart the local source runtime as soon
+      // as the older owner exits. That is safe to accept only when the
+      // replacement already reports this desktop build's complete identity;
+      // the caller will probe again and attach to it on the retry.
+      if (!serviceIdentityConflict(status, conflict.expectedIdentity)) return true;
+      // Any other new owner is not the service we verified before signaling.
+      // Never continue polling or signal a second process in that case.
+      if (!sameReportedServiceIdentity(status, service)) return false;
+    }
+    if (check + 1 < maxChecks) await sleepImpl(pollMs);
+  }
+  return false;
+}
+
+async function waitForUpgradedMosaService(conflict, options = {}) {
+  const service = conflict?.service;
+  if (!(conflict instanceof MosaServiceBuildMismatchError) || !service) {
+    throw new MosaServiceConflictError("The local MOSA service could not be verified for upgrade handoff.");
+  }
+
+  const probeImpl = options.probeImpl || probeMosaService;
+  const probeOptions = {
+    host: options.host || DEFAULT_HOST,
+    port: service.port,
+    libraryDir: service.libraryDir,
+    fetchImpl: options.fetchImpl,
+    timeoutMs: options.probeTimeoutMs,
+  };
+  const timeoutMs = positiveInteger(options.timeoutMs, DEFAULT_UPGRADE_READY_TIMEOUT_MS);
+  const pollMs = positiveInteger(options.pollMs, DEFAULT_UPGRADE_READY_POLL_MS);
+  const sleepImpl = options.sleepImpl || ((delayMs) => new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs)));
+  const nowImpl = options.nowImpl || Date.now;
+  const deadline = nowImpl() + timeoutMs;
+
+  while (true) {
+    const status = await probeImpl(probeOptions);
+    if (status.state === "attached") {
+      const identityConflict = serviceIdentityConflict(status, conflict.expectedIdentity);
+      if (!identityConflict) return status;
+      // After the verified old owner has been retired, any attached identity
+      // other than the exact target belongs to a new owner. Fail closed and
+      // never signal it or fall through to startRuntime.
+      throw identityConflict;
+    }
+    if (status.state === "conflict" && status.retryable !== true) throw status.error;
+
+    const remainingMs = deadline - nowImpl();
+    if (remainingMs <= 0) break;
+    await sleepImpl(Math.min(pollMs, remainingMs));
+  }
+
+  throw new MosaServiceConflictError(
+    "The local MOSA service did not finish restarting after the previous version exited. Reopen MOSA after the local service is ready.",
+  );
 }
 
 async function probeLegacyMosaIdentity({ url, fetchImpl, signal }) {
@@ -237,8 +398,8 @@ function ownedService(runtime) {
   };
 }
 
-function conflict(message, cause) {
-  return { state: "conflict", error: new MosaServiceConflictError(message, { cause }) };
+function conflict(message, cause, { retryable = false } = {}) {
+  return { state: "conflict", error: new MosaServiceConflictError(message, { cause }), retryable };
 }
 
 function serviceIdentityConflict(details, expectedIdentity) {
@@ -246,19 +407,96 @@ function serviceIdentityConflict(details, expectedIdentity) {
   const fields = ["productVersion", "gitSha", "uiFingerprint", "runtimeFingerprint"];
   const mismatches = [];
   for (const field of fields) {
-    const expected = String(expectedIdentity[field] || "unknown");
-    const actual = String(details[field] || "unknown");
+    const expected = normalizedIdentityValue(expectedIdentity[field]);
+    const actual = normalizedIdentityValue(details[field]);
     if (expected === "unknown") continue;
     if (actual === "unknown") {
-      mismatches.push(`${field} expected ${expected} but the running service cannot report it`);
+      mismatches.push({ field, expected, actual });
       continue;
     }
-    if (expected !== actual) mismatches.push(`${field} expected ${expected} but found ${actual}`);
+    if (expected !== actual) mismatches.push({ field, expected, actual });
   }
   if (!mismatches.length) return null;
-  return new MosaServiceConflictError(
-    `A MOSA service for this library is already running with a different build identity (${mismatches.join("; ")}). Restart MOSA so the service and desktop app use the same build.`,
-  );
+  return new MosaServiceBuildMismatchError({ details, expectedIdentity, mismatches });
+}
+
+export function compareMosaVersions(left, right) {
+  const leftVersion = parseMosaVersion(left);
+  const rightVersion = parseMosaVersion(right);
+  if (!leftVersion || !rightVersion) return null;
+  for (const key of ["major", "minor", "patch"]) {
+    if (leftVersion[key] > rightVersion[key]) return 1;
+    if (leftVersion[key] < rightVersion[key]) return -1;
+  }
+  return comparePrerelease(leftVersion.prerelease, rightVersion.prerelease);
+}
+
+function parseMosaVersion(value) {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(String(value || "").trim());
+  if (!match) return null;
+  const [major, minor, patch] = match.slice(1, 4).map(Number);
+  if (![major, minor, patch].every(Number.isSafeInteger)) return null;
+  const prerelease = match[4] ? match[4].split(".") : [];
+  if (prerelease.some((part) => !part || (/^\d+$/.test(part) && !Number.isSafeInteger(Number(part))))) return null;
+  return { major, minor, patch, prerelease };
+}
+
+function comparePrerelease(left, right) {
+  if (!left.length && !right.length) return 0;
+  if (!left.length) return 1;
+  if (!right.length) return -1;
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    if (index >= left.length) return -1;
+    if (index >= right.length) return 1;
+    const leftPart = left[index];
+    const rightPart = right[index];
+    if (leftPart === rightPart) continue;
+    const leftNumeric = /^\d+$/.test(leftPart);
+    const rightNumeric = /^\d+$/.test(rightPart);
+    if (leftNumeric && rightNumeric) return Number(leftPart) > Number(rightPart) ? 1 : -1;
+    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
+    return leftPart > rightPart ? 1 : -1;
+  }
+  return 0;
+}
+
+function normalizedIdentityValue(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "unknown";
+}
+
+function hasCompleteServiceIdentity(identity) {
+  return ["productVersion", "gitSha", "uiFingerprint", "runtimeFingerprint"]
+    .every((field) => normalizedIdentityValue(identity?.[field]) !== "unknown");
+}
+
+function sameReportedServiceIdentity(left, right) {
+  return ["productVersion", "gitSha", "uiFingerprint", "runtimeFingerprint"]
+    .every((field) => normalizedIdentityValue(left?.[field]) === normalizedIdentityValue(right?.[field]));
+}
+
+async function readRuntimeLockOwner(lockPath, readFileImpl) {
+  try {
+    const parsed = JSON.parse(await readFileImpl(lockPath, "utf8"));
+    if (typeof parsed?.token !== "string" || !parsed.token || !Number.isInteger(parsed?.pid) || parsed.pid <= 0) return null;
+    return { token: parsed.token, pid: parsed.pid };
+  } catch {
+    return null;
+  }
+}
+
+function defaultIsProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+function positiveInteger(value, fallback) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : fallback;
 }
 
 function isConnectionRefused(error) {

@@ -8,7 +8,7 @@ import { DEFAULT_MOSA_DESKTOP_PORT, MOSA_RESERVED_PRODUCTION_PORTS } from "../li
 import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
 import { parseDisabledBridges } from "../lib/runtime-bridges.mjs";
 import { cleanupOrphanStagedFiles, importStagingDir, writeStagedPng } from "../lib/import-staging.mjs";
-import { startMosaService } from "./service-manager.mjs";
+import { shouldAllowStaleServiceUpgrade, startMosaService } from "./service-manager.mjs";
 import { getDesktopText, getNotificationTextForAssetsImported, getUpdateNotificationText } from "./notification-i18n.mjs";
 import { loadOrCreateWebCaptureToken, MOSA_WEB_CAPTURE_DEFAULT_ORIGINS } from "./web-capture-pairing.mjs";
 import { desktopPlatformAdapter } from "./platform/index.mjs";
@@ -150,6 +150,12 @@ if (!app.requestSingleInstanceLock()) {
     stopBridgeNotificationPoll();
     void stopOwnedRuntime().catch(console.error).finally(() => app.exit(0));
   });
+
+  // A newer packaged MOSA may ask this process to yield the shared local
+  // runtime with SIGTERM. Route that signal through Electron's normal quit
+  // lifecycle so bridge work drains, SQLite closes, and the runtime lock is
+  // released before the process exits.
+  process.once("SIGTERM", () => app.quit());
 }
 
 function loadBounds() {
@@ -563,6 +569,15 @@ async function createMainWindow() {
       port: desktopPort,
       libraryDir,
       allowPortFallback: !process.env.MOSA_DESKTOP_PORT,
+      // Normal packaged launches may replace a strictly older MOSA runtime
+      // that owns this exact library. QA, source development, and explicit
+      // port launches stay fail-closed so test tooling never terminates an
+      // unrelated local process.
+      allowStaleServiceUpgrade: shouldAllowStaleServiceUpgrade({
+        isPackaged: app.isPackaged,
+        qaRun: isolationContext.qaRun,
+        explicitPort: Boolean(process.env.MOSA_DESKTOP_PORT),
+      }),
       expectedIdentity: expectedServiceIdentity,
       importStagingRoot,
       isolationContext,
