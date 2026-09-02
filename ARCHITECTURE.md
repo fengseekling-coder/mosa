@@ -1,7 +1,7 @@
 # MOSA 系统架构
 
 本文档描述仓库当前实现，而不是未来重构方案。产品版本以根目录
-`package.json` 的 `version` 字段为准（当前为 `0.2.0`）。运行时要求 Node.js
+`package.json` 的 `version` 字段为准（当前为 `0.2.1`）。运行时要求 Node.js
 22 或更高版本；桌面层共享同一套 Electron/Renderer/Runtime 代码，目前明确支持
 `darwin-arm64` 与 `win32-x64` 两个打包目标，其中 Windows 10/11 x64 处于 Preview/Testing 阶段。
 

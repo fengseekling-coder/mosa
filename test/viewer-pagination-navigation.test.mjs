@@ -366,5 +366,5 @@ test("26. transform resets on switch", async () => {
 // 27. The lockfile is untouched by Batch 2A.
 test("27. package-lock unchanged", async () => {
   const lock = await readLock();
-  assert.equal(sha256(lock), "ecf0fdc199de87ccd30ffe6a7da4624c2f632700cd8348194a30b79dd2e2a69f", "package-lock.json must not change in Batch 2A");
+  assert.equal(sha256(lock), "5f63f56e0757215ab2e5f2773de24afe1e7fa9a5bddc41adde805856f0fe09ec", "package-lock.json must not change in Batch 2A");
 });

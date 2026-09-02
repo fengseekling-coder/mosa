@@ -321,7 +321,7 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
   const manifest = JSON.parse(pkg);
   assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must stay untouched");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
-  assert.equal(sha256(lock), "ecf0fdc199de87ccd30ffe6a7da4624c2f632700cd8348194a30b79dd2e2a69f", "package-lock.json must stay untouched");
+  assert.equal(sha256(lock), "5f63f56e0757215ab2e5f2773de24afe1e7fa9a5bddc41adde805856f0fe09ec", "package-lock.json must stay untouched");
 
   // 48. app.js gains no new imports (no new runtime dependencies, no
   // third-party Select component).

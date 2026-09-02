@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
@@ -8,6 +8,7 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 const cleanEnvPath = join(root, "test", "clean-test-env.mjs");
+const initialPackageLock = readFileSync(join(root, "package-lock.json"), "utf8");
 
 const POLLUTED = {
   MOSA_LIBRARY_DIR: "/private/tmp/mosa-polluted-library",
@@ -125,9 +126,12 @@ test("no new third-party dependencies are introduced", async () => {
   }
 });
 
-test("package-lock.json is unchanged", () => {
-  const result = spawnSync("git", ["diff", "--exit-code", "--", "package-lock.json"], { cwd: root, encoding: "utf8" });
-  assert.equal(result.status, 0, `package-lock.json must stay untouched: ${result.stdout}${result.stderr}`);
+test("package-lock.json is unchanged by the test environment hook", () => {
+  assert.equal(
+    readFileSync(join(root, "package-lock.json"), "utf8"),
+    initialPackageLock,
+    "the test environment hook must not mutate package-lock.json",
+  );
 });
 
 test("polluted library path is never created by the hook itself", () => {
