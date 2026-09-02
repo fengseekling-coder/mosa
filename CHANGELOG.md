@@ -2,7 +2,7 @@
 
 This file records user-visible changes. Internal deployment notes, local paths, and development handoffs are intentionally not tracked in the public repository.
 
-## 0.2.1 — 2026-09-02
+## 0.2.1-rc.1 — 2026-09-02 / Release Candidate
 
 ### Reliability and privacy / 可靠性与隐私
 
