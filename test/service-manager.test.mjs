@@ -6,7 +6,13 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
-import { MosaServiceConflictError, startMosaService } from "../desktop/service-manager.mjs";
+import {
+  MosaServiceBuildMismatchError,
+  MosaServiceConflictError,
+  compareMosaVersions,
+  retireOlderMosaService,
+  startMosaService,
+} from "../desktop/service-manager.mjs";
 import { removeTestPath as rm } from "./test-cleanup.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -106,7 +112,14 @@ test("rejects a same-library MOSA runtime whose build identity is stale", async 
         runtimeFingerprint: "new-runtime",
       },
     }),
-    /different build identity/,
+    (error) => {
+      assert.ok(error instanceof MosaServiceBuildMismatchError);
+      assert.equal(error.code, "MOSA_SERVICE_BUILD_MISMATCH");
+      assert.equal(error.upgradeEligible, false, "same product version is not an automatic upgrade target");
+      assert.match(error.message, /v0\.2\.0/);
+      assert.doesNotMatch(error.message, /sha|fingerprint|new-sha|old-sha/i, "startup copy does not expose internal build identifiers");
+      return true;
+    },
   );
   assert.equal(server.listening, true, "desktop must not kill a process it does not own");
 });
@@ -127,9 +140,164 @@ test("rejects unversioned same-library services when desktop has a verifiable bu
       libraryDir,
       expectedIdentity: { runtimeFingerprint: "expected-runtime" },
     }),
-    /cannot report it/,
+    (error) => {
+      assert.ok(error instanceof MosaServiceBuildMismatchError);
+      assert.equal(error.upgradeEligible, false, "an unversioned service is never terminated automatically");
+      assert.doesNotMatch(error.message, /runtimeFingerprint|expected-runtime/);
+      return true;
+    },
   );
   assert.equal(server.listening, true);
+});
+
+test("compares MOSA release and prerelease versions for upgrade eligibility", () => {
+  assert.equal(compareMosaVersions("0.2.1-rc.1", "0.2.0"), 1);
+  assert.equal(compareMosaVersions("0.2.1", "0.2.1-rc.1"), 1);
+  assert.equal(compareMosaVersions("0.2.1-rc.2", "0.2.1-rc.1"), 1);
+  assert.equal(compareMosaVersions("0.2.1-rc.1", "0.2.1"), -1);
+  assert.equal(compareMosaVersions("0.2.1", "0.2.1"), 0);
+  assert.equal(compareMosaVersions("unknown", "0.2.0"), null);
+});
+
+test("packaged upgrade path retires a strictly older verified service and retries once", async (t) => {
+  const root = await temporaryRoot(t, "mosa-service-upgrade-retry-");
+  const libraryDir = join(root, "library");
+  const port = await availablePort();
+  const oldServer = createServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({
+      product: "mosa",
+      libraryDir,
+      storage: "sqlite",
+      productVersion: "0.2.0",
+      gitSha: "old-sha",
+      uiFingerprint: "old-ui",
+      runtimeFingerprint: "unknown",
+    }));
+  });
+  await listen(oldServer, port);
+  t.after(() => close(oldServer));
+
+  let upgradeCalls = 0;
+  let runtimeStarts = 0;
+  const service = await startMosaService({
+    port,
+    libraryDir,
+    expectedIdentity: {
+      productVersion: "0.2.1-rc.1",
+      gitSha: "new-sha",
+      uiFingerprint: "new-ui",
+      runtimeFingerprint: "new-runtime",
+    },
+    allowStaleServiceUpgrade: true,
+    upgradeService: async (conflict) => {
+      upgradeCalls += 1;
+      assert.ok(conflict instanceof MosaServiceBuildMismatchError);
+      assert.equal(conflict.upgradeEligible, true);
+      await close(oldServer);
+      return true;
+    },
+    startRuntime: async ({ port: requestedPort }) => {
+      runtimeStarts += 1;
+      return {
+        url: `http://127.0.0.1:${requestedPort}`,
+        port: requestedPort,
+        libraryDir,
+        storage: "sqlite",
+        stop: async () => {},
+      };
+    },
+  });
+
+  assert.equal(upgradeCalls, 1);
+  assert.equal(runtimeStarts, 1);
+  assert.equal(service.mode, "owned");
+  assert.equal(service.port, port);
+  await service.stop();
+});
+
+test("controlled retirement requires matching service identity and lock owner, then sends SIGTERM only", async () => {
+  const libraryDir = resolve("/tmp/mosa-controlled-upgrade-library");
+  const service = {
+    state: "attached",
+    url: "http://127.0.0.1:43517",
+    port: 43517,
+    libraryDir,
+    storage: "sqlite",
+    productVersion: "0.2.0",
+    gitSha: "old-sha",
+    uiFingerprint: "old-ui",
+    runtimeFingerprint: "unknown",
+  };
+  const conflict = new MosaServiceBuildMismatchError({
+    details: service,
+    expectedIdentity: {
+      productVersion: "0.2.1-rc.1",
+      gitSha: "new-sha",
+      uiFingerprint: "new-ui",
+      runtimeFingerprint: "new-runtime",
+    },
+    mismatches: [{ field: "productVersion", expected: "0.2.1-rc.1", actual: "0.2.0" }],
+  });
+  const probes = [service, { state: "unavailable" }];
+  const alive = [true, false];
+  const signals = [];
+
+  const retired = await retireOlderMosaService(conflict, {
+    readFileImpl: async () => JSON.stringify({ token: "old-runtime-token", pid: 4242 }),
+    probeImpl: async () => probes.shift() || { state: "unavailable" },
+    isProcessAlive: () => alive.shift() ?? false,
+    terminateProcess: (pid) => signals.push({ pid, signal: "SIGTERM" }),
+    sleepImpl: async () => {},
+    timeoutMs: 100,
+    pollMs: 100,
+  });
+
+  assert.equal(retired, true);
+  assert.deepEqual(signals, [{ pid: 4242, signal: "SIGTERM" }]);
+});
+
+test("controlled retirement accepts a KeepAlive replacement only after it matches the requested build", async () => {
+  const libraryDir = resolve("/tmp/mosa-keepalive-upgrade-library");
+  const staleService = {
+    state: "attached",
+    url: "http://127.0.0.1:43517",
+    port: 43517,
+    libraryDir,
+    storage: "sqlite",
+    productVersion: "0.2.0",
+    gitSha: "old-sha",
+    uiFingerprint: "old-ui",
+    runtimeFingerprint: "old-runtime",
+  };
+  const expectedIdentity = {
+    productVersion: "0.2.1-rc.1",
+    gitSha: "new-sha",
+    uiFingerprint: "new-ui",
+    runtimeFingerprint: "new-runtime",
+  };
+  const restartedService = { ...staleService, ...expectedIdentity };
+  const conflict = new MosaServiceBuildMismatchError({
+    details: staleService,
+    expectedIdentity,
+    mismatches: [{ field: "productVersion", expected: "0.2.1-rc.1", actual: "0.2.0" }],
+  });
+  const probes = [staleService, restartedService];
+  const alive = [true, false];
+  const signals = [];
+
+  const retired = await retireOlderMosaService(conflict, {
+    readFileImpl: async () => JSON.stringify({ token: "old-runtime-token", pid: 4242 }),
+    probeImpl: async () => probes.shift() || restartedService,
+    isProcessAlive: () => alive.shift() ?? false,
+    terminateProcess: (pid) => signals.push({ pid, signal: "SIGTERM" }),
+    sleepImpl: async () => {},
+    timeoutMs: 100,
+    pollMs: 100,
+  });
+
+  assert.equal(retired, true);
+  assert.deepEqual(signals, [{ pid: 4242, signal: "SIGTERM" }]);
 });
 
 test("attaches to a matching pre-health-endpoint MOSA runtime", async (t) => {

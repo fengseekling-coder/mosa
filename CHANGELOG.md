@@ -2,6 +2,14 @@
 
 This file records user-visible changes. Internal deployment notes, local paths, and development handoffs are intentionally not tracked in the public repository.
 
+## 0.2.1-rc.2 — 2026-09-02 / Release Candidate
+
+### Desktop upgrade reliability / 桌面升级可靠性
+
+- A newer packaged MOSA build can now take over a verified, strictly older local runtime for the same library, then reconnect only after the replacement reports the new build identity.
+- Development, QA, explicit-port, same-version, newer-version, and unverified local runtimes remain fail-closed and are never stopped automatically.
+- Startup errors no longer expose internal build fingerprints or Git identifiers to users.
+
 ## 0.2.1-rc.1 — 2026-09-02 / Release Candidate
 
 ### Reliability and privacy / 可靠性与隐私

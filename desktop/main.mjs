@@ -150,6 +150,12 @@ if (!app.requestSingleInstanceLock()) {
     stopBridgeNotificationPoll();
     void stopOwnedRuntime().catch(console.error).finally(() => app.exit(0));
   });
+
+  // A newer packaged MOSA may ask this process to yield the shared local
+  // runtime with SIGTERM. Route that signal through Electron's normal quit
+  // lifecycle so bridge work drains, SQLite closes, and the runtime lock is
+  // released before the process exits.
+  process.once("SIGTERM", () => app.quit());
 }
 
 function loadBounds() {
@@ -563,6 +569,11 @@ async function createMainWindow() {
       port: desktopPort,
       libraryDir,
       allowPortFallback: !process.env.MOSA_DESKTOP_PORT,
+      // Normal packaged launches may replace a strictly older MOSA runtime
+      // that owns this exact library. QA, source development, and explicit
+      // port launches stay fail-closed so test tooling never terminates an
+      // unrelated local process.
+      allowStaleServiceUpgrade: app.isPackaged && !isolationContext.qaRun && !process.env.MOSA_DESKTOP_PORT,
       expectedIdentity: expectedServiceIdentity,
       importStagingRoot,
       isolationContext,
