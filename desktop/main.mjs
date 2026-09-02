@@ -8,7 +8,7 @@ import { DEFAULT_MOSA_DESKTOP_PORT, MOSA_RESERVED_PRODUCTION_PORTS } from "../li
 import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
 import { parseDisabledBridges } from "../lib/runtime-bridges.mjs";
 import { cleanupOrphanStagedFiles, importStagingDir, writeStagedPng } from "../lib/import-staging.mjs";
-import { startMosaService } from "./service-manager.mjs";
+import { shouldAllowStaleServiceUpgrade, startMosaService } from "./service-manager.mjs";
 import { getDesktopText, getNotificationTextForAssetsImported, getUpdateNotificationText } from "./notification-i18n.mjs";
 import { loadOrCreateWebCaptureToken, MOSA_WEB_CAPTURE_DEFAULT_ORIGINS } from "./web-capture-pairing.mjs";
 import { desktopPlatformAdapter } from "./platform/index.mjs";
@@ -573,7 +573,11 @@ async function createMainWindow() {
       // that owns this exact library. QA, source development, and explicit
       // port launches stay fail-closed so test tooling never terminates an
       // unrelated local process.
-      allowStaleServiceUpgrade: app.isPackaged && !isolationContext.qaRun && !process.env.MOSA_DESKTOP_PORT,
+      allowStaleServiceUpgrade: shouldAllowStaleServiceUpgrade({
+        isPackaged: app.isPackaged,
+        qaRun: isolationContext.qaRun,
+        explicitPort: Boolean(process.env.MOSA_DESKTOP_PORT),
+      }),
       expectedIdentity: expectedServiceIdentity,
       importStagingRoot,
       isolationContext,
