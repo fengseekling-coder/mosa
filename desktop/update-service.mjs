@@ -94,6 +94,36 @@ export function buildUpdateFeedUrl(anonymousUsage = null) {
   return url.toString();
 }
 
+export async function reportAnonymousUsage({ anonymousUsage, fetchImpl = globalThis.fetch, timeoutMs = 8_000 } = {}) {
+  if (typeof fetchImpl !== "function") throw new Error("Usage report fetch is unavailable.");
+  const url = buildUpdateFeedUrl(anonymousUsage);
+  if (url === MOSA_UPDATE_FEED_URL) return { reported: false, reason: "invalid-telemetry" };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
+  try {
+    // Usage reporting is intentionally independent from update-manifest parsing.
+    // A HEAD request reaches the same first-party endpoint (and therefore the
+    // existing Nginx usage log) without downloading the manifest body. This
+    // lets every packaged MOSA build report a stable anonymous installation ID
+    // regardless of whether the app was obtained from the website, GitHub, or
+    // a directly shared package.
+    const response = await fetchImpl(url, {
+      method: "HEAD",
+      headers: {
+        accept: "application/json",
+        "cache-control": "no-cache",
+      },
+      redirect: "error",
+      signal: controller.signal,
+    });
+    if (!response?.ok) throw new Error(`Usage report returned HTTP ${response?.status || 0}.`);
+    return { reported: true };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function checkForMosaUpdate({ currentVersion, anonymousUsage = null, fetchImpl = globalThis.fetch, timeoutMs = 8_000 } = {}) {
   const current = parseVersion(currentVersion);
   if (!current) throw new Error("Invalid current MOSA version.");

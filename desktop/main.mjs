@@ -12,7 +12,7 @@ import { startMosaService } from "./service-manager.mjs";
 import { getDesktopText, getNotificationTextForAssetsImported, getUpdateNotificationText } from "./notification-i18n.mjs";
 import { loadOrCreateWebCaptureToken, MOSA_WEB_CAPTURE_DEFAULT_ORIGINS } from "./web-capture-pairing.mjs";
 import { desktopPlatformAdapter } from "./platform/index.mjs";
-import { checkForMosaUpdate, MOSA_DOWNLOAD_PAGE_URL } from "./update-service.mjs";
+import { checkForMosaUpdate, MOSA_DOWNLOAD_PAGE_URL, reportAnonymousUsage } from "./update-service.mjs";
 import { prepareAnonymousUsage } from "./anonymous-usage.mjs";
 import { resolveAllowedFolderPath } from "../lib/server-security.js";
 import { isPathInsideOrEqual, isUrlLikePath, pathsEqual } from "../lib/path-safety.mjs";
@@ -109,6 +109,7 @@ let windowPromise = null;
 let ipcRegistered = false;
 let currentLocale = "zh"; // safe default matching original Chinese-only notifications
 let updateCheckPromise = null;
+let usageReportPromise = null;
 const rendererConsoleErrors = new Set();
 const MAX_RENDERER_CONSOLE_ERRORS = 32;
 
@@ -124,7 +125,13 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow.focus();
   });
 
-  app.whenReady().then(openMainWindow).catch(reportStartupFailure);
+  app.whenReady().then(() => {
+    // Usage telemetry belongs to the packaged desktop lifecycle, not to the
+    // website download flow or renderer initialization. Start it as soon as
+    // Electron is ready so GitHub/directly shared packages are counted too.
+    void runAnonymousUsageReport();
+    return openMainWindow();
+  }).catch(reportStartupFailure);
 
   app.on("activate", () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
@@ -464,10 +471,15 @@ function registerIPC() {
   });
 }
 
-function runUpdateCheck({ notify = false } = {}) {
+function runAnonymousUsageReport() {
   const currentVersion = app.getVersion();
-  if (isolationContext.qaRun) return Promise.resolve({ status: "disabled", currentVersion });
-  if (updateCheckPromise) return updateCheckPromise;
+  // Development and QA launches must never pollute production usage metrics.
+  // A package obtained from any distribution channel still has isPackaged=true.
+  if (isolationContext.qaRun || !app.isPackaged) {
+    return Promise.resolve({ status: "disabled", currentVersion });
+  }
+  if (usageReportPromise) return usageReportPromise;
+
   const anonymousUsage = prepareAnonymousUsage({
     userDataDir: desktopDataDir,
     enabled: true,
@@ -475,9 +487,33 @@ function runUpdateCheck({ notify = false } = {}) {
     arch: process.arch,
     currentVersion,
   });
-  updateCheckPromise = checkForMosaUpdate({ currentVersion, anonymousUsage: anonymousUsage.telemetry })
+  if (!anonymousUsage.telemetry) {
+    return Promise.resolve({ status: "skipped", currentVersion });
+  }
+
+  usageReportPromise = reportAnonymousUsage({ anonymousUsage: anonymousUsage.telemetry })
     .then((result) => {
-      if (anonymousUsage.telemetry) anonymousUsage.commit();
+      if (result.reported && !anonymousUsage.commit()) {
+        console.warn("[MOSA] anonymous usage reached the server but the local report timestamp could not be persisted");
+      }
+      return { status: result.reported ? "ok" : "skipped", currentVersion };
+    })
+    .catch((error) => {
+      console.warn(`[MOSA] anonymous usage report failed: ${error?.message || error}`);
+      return { status: "error", currentVersion, code: "USAGE_REPORT_FAILED" };
+    })
+    .finally(() => {
+      usageReportPromise = null;
+    });
+  return usageReportPromise;
+}
+
+function runUpdateCheck({ notify = false } = {}) {
+  const currentVersion = app.getVersion();
+  if (isolationContext.qaRun) return Promise.resolve({ status: "disabled", currentVersion });
+  if (updateCheckPromise) return updateCheckPromise;
+  updateCheckPromise = checkForMosaUpdate({ currentVersion })
+    .then((result) => {
       if (notify && result.updateAvailable && Notification.isSupported()) {
         const copy = getUpdateNotificationText(result.latestVersion, currentLocale);
         const notification = new Notification({ title: copy.title, body: copy.body, silent: true });

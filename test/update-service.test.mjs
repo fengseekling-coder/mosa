@@ -8,6 +8,7 @@ import {
   checkForMosaUpdate,
   compareVersions,
   parseUpdateManifest,
+  reportAnonymousUsage,
 } from "../desktop/update-service.mjs";
 
 test("version comparison follows semver ordering for MOSA releases", () => {
@@ -48,6 +49,42 @@ test("anonymous usage tagging keeps the update origin and path fixed", () => {
   assert.equal(url.searchParams.get("arch"), "arm64");
   assert.equal(url.searchParams.get("version"), "0.2.0");
   assert.equal(buildUpdateFeedUrl({ event: "daily_active", installationId: "not-a-uuid" }), MOSA_UPDATE_FEED_URL);
+});
+
+test("anonymous usage reporting uses a bodyless first-party request and requires success", async () => {
+  let request = null;
+  const telemetry = {
+    event: "first_launch",
+    installationId: "123e4567-e89b-42d3-a456-426614174000",
+    platform: "windows",
+    arch: "x64",
+    version: "0.2.0",
+  };
+  const result = await reportAnonymousUsage({
+    anonymousUsage: telemetry,
+    fetchImpl: async (url, options) => {
+      request = { url, options };
+      return { ok: true, status: 200 };
+    },
+  });
+  const requestUrl = new URL(request.url);
+  assert.equal(`${requestUrl.origin}${requestUrl.pathname}`, MOSA_UPDATE_FEED_URL);
+  assert.equal(requestUrl.searchParams.get("install_id"), telemetry.installationId);
+  assert.equal(request.options.method, "HEAD");
+  assert.equal(request.options.redirect, "error");
+  assert.deepEqual(result, { reported: true });
+
+  await assert.rejects(
+    reportAnonymousUsage({
+      anonymousUsage: telemetry,
+      fetchImpl: async () => ({ ok: false, status: 503 }),
+    }),
+    /HTTP 503/,
+  );
+  assert.deepEqual(
+    await reportAnonymousUsage({ anonymousUsage: { ...telemetry, installationId: "invalid" } }),
+    { reported: false, reason: "invalid-telemetry" },
+  );
 });
 
 test("update check compares the fixed HTTPS feed against the installed version", async () => {
