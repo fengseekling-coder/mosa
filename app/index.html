@@ -174,7 +174,7 @@
              组合切换：退出布局、Tab 顺序与辅助技术树；既有内容保持原缩进以最小化 diff。 -->
         <section class="library-view" id="libraryView">
         <!-- V2 FilterBar 顶栏：左=.topbar-context（范围标题+类型筛选），右=.topbar-actions
-             按 mosa-library-v2 FilterBar 顺序排列：结果计数 → 批量 → 排序 → 筛选 → 搜索框；
+             work 组只保留排序与搜索框；
              utility 组只保留不可见的桥接状态语义；主题切换统一收敛到设置面板，primary 组保留唯一主操作导入素材。
              顶栏不再重复提供主题按钮；无隐藏复制控件、无溢出菜单。#bridgeStatusMeta 全档位
              visually-hidden（降噪）：不占可见布局但保留辅助技术语义；
@@ -187,7 +187,6 @@
               <div class="bridge-status visually-hidden" id="bridgeStatus" data-state="checking" role="status" aria-live="polite"><span class="bridge-dot" aria-hidden="true"></span><span id="bridgeStatusLabel" data-i18n="statusChecking">检查桥接状态…</span><span class="bridge-status-meta visually-hidden" id="bridgeStatusMeta"></span></div>
             </div>
             <div class="topbar-work-group">
-              <span class="topbar-result-count" id="assetCount" role="status" aria-live="polite">0 个结果</span>
               <label class="sort-control"><span class="visually-hidden" data-i18n="sortLabel">排序</span><select id="sortSelect" data-i18n-aria-label="sortLabel" aria-label="排序"><option value="newest" data-i18n="sortNewest">最新优先</option><option value="oldest" data-i18n="sortOldest">最旧优先</option><option value="name" data-i18n="sortName">按名称</option></select></label>
               <div class="topbar-search"><svg class="topbar-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input id="searchInput" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="搜索所有素材..." data-i18n-aria-label="searchPlaceholder" aria-label="搜索素材" /></div>
             </div>

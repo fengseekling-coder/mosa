@@ -260,7 +260,7 @@ export function createStackUiFlowSource() {
     rootCountAfterStack,
     currentRootCount: document.querySelectorAll('#assetGrid > .asset-card').length,
     stackCount: returnedStack.querySelector('.asset-stack-count')?.textContent || '',
-    dualCountLabel: document.querySelector('#assetCount')?.textContent?.includes('·') || false,
+    topbarStatsRemoved: document.querySelector('#assetCount') === null,
   };
 })()
 `;

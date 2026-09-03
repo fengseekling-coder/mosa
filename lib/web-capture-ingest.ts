@@ -187,8 +187,8 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
   const pixelHash = imageMetadata.pixelHash || "";
   const projectAssets = onceProjectListing(store, projectId);
   const pageUrl = String(input.pageUrl || input.page_url || "").trim(); const conversationId = String(input.conversationId || input.conversation_id || "").trim();
-  const sourceMediaUrl = String(input.sourceMediaUrl || input.source_media_url || "").trim();
-  const finalMediaUrl = String(input.finalMediaUrl || input.final_media_url || "").trim();
+  const sourceMediaUrl = sanitizeStoredMediaUrl(input.sourceMediaUrl || input.source_media_url);
+  const finalMediaUrl = sanitizeStoredMediaUrl(input.finalMediaUrl || input.final_media_url);
   const messageId = String(input.messageId || input.message_id || "").trim(); const model = String(input.model || "").trim();
   const generationContextId = String(input.generationContextId || input.generation_context_id || "").trim();
   const providerToolCallId = String(input.providerToolCallId || input.provider_tool_call_id || "").trim();
@@ -465,8 +465,8 @@ async function ingestWebVideoCapture(options: {
     : "not-available";
   const projectAssets = onceProjectListing(store, projectId);
   const pageUrl = String(input.pageUrl || input.page_url || "").trim();
-  const sourceMediaUrl = String(input.sourceMediaUrl || input.source_media_url || "").trim();
-  const finalMediaUrl = String(input.finalMediaUrl || input.final_media_url || "").trim();
+  const sourceMediaUrl = sanitizeStoredMediaUrl(input.sourceMediaUrl || input.source_media_url);
+  const finalMediaUrl = sanitizeStoredMediaUrl(input.finalMediaUrl || input.final_media_url);
   const conversationId = String(input.conversationId || input.conversation_id || "").trim();
   const messageId = String(input.messageId || input.message_id || "").trim();
   const model = String(input.model || "").trim();
@@ -848,6 +848,25 @@ function normalizeMediaMetric(value: unknown, max: number, allowFraction = false
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0 || number > max) return 0;
   return allowFraction ? number : Math.round(number);
+}
+
+function sanitizeStoredMediaUrl(value: unknown): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:") return "";
+    const retained = new URLSearchParams();
+    for (const key of ["id", "cid", "name", "asset_id", "assetId", "media_id", "mediaId"]) {
+      const entry = url.searchParams.get(key);
+      if (entry) retained.set(key, entry.slice(0, 512));
+    }
+    url.search = retained.toString();
+    url.hash = "";
+    return url.href;
+  } catch {
+    return "";
+  }
 }
 
 function safeTokenEqual(provided: string, configured: string): boolean { if (!provided || !configured) return false; const a = Buffer.from(provided); const b = Buffer.from(configured); return a.length === b.length && timingSafeEqual(a, b); }
