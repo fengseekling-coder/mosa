@@ -1254,6 +1254,32 @@ test("HTTP ingest endpoint accepts chrome-extension origin with token", async (t
   assert.match(body.asset?.prompt || "", /Hong Kong/i);
   assert.equal(body.asset?.source?.user_message, "在做一版 香港 的");
 
+  const binaryImage = await noiseImage(72);
+  const binaryMetadata = Buffer.from(JSON.stringify({
+    provider: "chatgpt",
+    mediaKind: "image",
+    mimeType: "image/png",
+    pageUrl: "https://chatgpt.com/c/binary-test",
+    sourceMediaUrl: "https://images.openai.com/binary-test.png",
+    finalMediaUrl: "https://cdn.example.invalid/binary-test.png",
+  }), "utf8");
+  const binaryHeader = Buffer.alloc(4);
+  binaryHeader.writeUInt32BE(binaryMetadata.length, 0);
+  const binaryImported = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture-binary`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/octet-stream",
+      origin: "chrome-extension://abc123",
+      authorization: "Bearer test-token",
+    },
+    body: Buffer.concat([binaryHeader, binaryMetadata, binaryImage]),
+  });
+  assert.equal(binaryImported.status, 201);
+  const binaryBody = await binaryImported.json();
+  assert.equal(binaryBody.status, "imported");
+  assert.equal(binaryBody.asset?.source?.capture_occurrences?.[0]?.source_media_url, "https://images.openai.com/binary-test.png");
+  assert.equal(binaryBody.asset?.source?.capture_occurrences?.[0]?.final_media_url, "https://cdn.example.invalid/binary-test.png");
+
   const referenceResponse = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture`, {
     method: "POST",
     headers: {

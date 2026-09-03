@@ -362,12 +362,8 @@ test("loaded-page refresh fetches off-DOM and commits the gallery once", async (
   assert.match(reload, /const pages = \[\];[\s\S]*?for \(let page = 0; page < pageCount; page \+= 1\)/,
     "all currently loaded pages are assembled in a private snapshot first");
   assert.equal((reload.match(/renderGrid\(/g) || []).length, 1, "the refreshed snapshot has one gallery commit point");
-  assert.match(refresh, /reloadLoadedAssetPages\(\{ background: true, firstResult: result \}\)/,
-    "the already-fetched first page is reused instead of adding another request");
-  assert.match(refresh, /assetListVersion\(incoming\) !== assetListVersion\(visible\)/,
-    "same IDs with changed metadata must still refresh the loaded gallery window");
-  assert.doesNotMatch(refresh, /incomingIds|visibleIds/,
-    "background refresh must not reduce change detection to asset IDs only");
+  assert.match(refresh, /return reloadLoadedAssetPages\(\{ background: true \}\)/,
+    "a revision change reloads the complete loaded window so changes beyond page one cannot be hidden");
 });
 
 test("bridge status exposes active reconciliation instead of reporting ready", async () => {
@@ -476,7 +472,7 @@ test("background library polling yields while an infinite-scroll append is in fl
   assert.doesNotMatch(init, /setInterval\(refreshLibraryInBackground,\s*2500\)/);
   assert.match(init, /LIBRARY_REFRESH_INTERVAL/);
   assert.match(apiClient, /\/api\/library-revision\?project=/, "timer polls only a lightweight revision token");
-  assert.match(apiClient, /if \(revision === lastLibraryRevision\) return false;/, "unchanged libraries do not reload groups or assets");
+  assert.match(apiClient, /if \(nextRevision === lastLibraryRevision\) return false;/, "unchanged libraries do not reload groups or assets");
 });
 
 test("library updates use a realtime event stream with revision polling as fallback", async () => {
@@ -485,10 +481,13 @@ test("library updates use a realtime event stream with revision polling as fallb
 
   assert.match(app, /new EventSource\(`\/api\/library-events\?project=\$\{encodeURIComponent\(project\)\}`\)/);
   assert.match(app, /source\.addEventListener\("library-changed"/);
-  assert.match(app, /void refreshLibraryInBackground\(\)\.then/);
+  assert.match(app, /void reconcileLibraryRevision\(payload\.revision\)/, "SSE ready reconciles the revision instead of blindly advancing the displayed baseline");
+  assert.match(app, /void reconcileLibraryRevision\(revision\)/, "library-changed reconciles only after the visible library catches up");
   assert.match(app, /if \(!isLoadingMore\) void refreshLibraryIfChanged\(\);/, "visibility recovery keeps a direct lightweight fallback check");
   assert.match(app, /stopLibraryEventStream\(\);/, "hidden or torn-down pages release their SSE connection");
   assert.match(apiClient, /function noteLibraryRevision\(revision\)/);
+  assert.match(apiClient, /async function reconcileLibraryRevision\(revision\)/);
+  assert.match(apiClient, /return reloadLoadedAssetPages\(\{ background: true \}\)/, "revision-triggered refreshes reconcile the complete loaded window");
   assert.match(apiClient, /\/api\/library-revision\?project=/, "periodic revision polling remains as a reconnect/failure fallback");
 });
 

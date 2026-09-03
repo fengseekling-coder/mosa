@@ -143,7 +143,7 @@ const apiClient = createApiClient({
   selectedAsset,
   isDetailEditorActive,
 });
-const { apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged, noteLibraryRevision, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
+const { apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged, reconcileLibraryRevision, noteLibraryRevision, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
 
 // ===== New element references =====
 Object.assign(els, {
@@ -1252,7 +1252,7 @@ function startLibraryEventStream() {
     if (source !== libraryEventSource || project !== state.project) return;
     try {
       const payload = JSON.parse(event.data || "{}");
-      noteLibraryRevision(payload.revision);
+      void reconcileLibraryRevision(payload.revision);
     } catch {
       // The periodic revision check remains the fallback.
     }
@@ -1266,9 +1266,7 @@ function startLibraryEventStream() {
     } catch {
       // Refresh still proceeds even if an optional event payload is malformed.
     }
-    void refreshLibraryInBackground().then((refreshed) => {
-      if (refreshed) noteLibraryRevision(revision);
-    });
+    void reconcileLibraryRevision(revision);
   });
 }
 

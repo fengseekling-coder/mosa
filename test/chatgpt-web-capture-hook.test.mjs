@@ -12,6 +12,7 @@ const generationRegistrySource = await readFile(new URL("../extensions/chatgpt-w
 const contentCss = await readFile(new URL("../extensions/chatgpt-web-capture/content.css", import.meta.url), "utf8");
 const optionsSource = await readFile(new URL("../extensions/chatgpt-web-capture/options.js", import.meta.url), "utf8");
 const optionsHtml = await readFile(new URL("../extensions/chatgpt-web-capture/options.html", import.meta.url), "utf8");
+const providerPolicySource = await readFile(new URL("../extensions/chatgpt-web-capture/provider-policy.js", import.meta.url), "utf8");
 const providerSource = await readFile(new URL("../extensions/chatgpt-web-capture/provider-sites.js", import.meta.url), "utf8");
 
 function createHookHarness(payload, conversationId = "conversation-test", options = {}) {
@@ -19,6 +20,7 @@ function createHookHarness(payload, conversationId = "conversation-test", option
   const requestedUrls = [];
   const requestedInits = [];
   let messageListener = null;
+  const documentElement = { dataset: {} };
   const window = {
     fetch: async (url, init) => {
       requestedUrls.push(String(url));
@@ -70,16 +72,20 @@ function createHookHarness(payload, conversationId = "conversation-test", option
     TextDecoder: globalThis.TextDecoder,
     Uint8Array: globalThis.Uint8Array,
     ArrayBuffer: globalThis.ArrayBuffer,
-    document: { documentElement: {}, addEventListener: () => {} },
+    document: { documentElement, addEventListener: () => {} },
     location: { origin: "https://chatgpt.com", pathname: `/c/${conversationId}` },
     window,
   }, { filename: "page-hook.js" });
+
+  const bridgeChannel = String(documentElement.dataset.mosaPageHookChannel || "");
+  assert.ok(bridgeChannel, "page hook should publish a per-document bridge channel");
 
   if (options.captureEnabled !== false && messageListener) {
     messageListener({
       source: window,
       data: {
         source: "mosa-chatgpt-capture",
+        channel: bridgeChannel,
         type: "set-capture-enabled",
         payload: { enabled: true },
       },
@@ -104,7 +110,7 @@ function createHookHarness(payload, conversationId = "conversation-test", option
       assert.ok(messageListener, "page hook should listen for refresh requests");
       messageListener({
         source: window,
-        data: { source: "mosa-chatgpt-capture", type: "refresh-current-conversation" },
+        data: { source: "mosa-chatgpt-capture", channel: bridgeChannel, type: "refresh-current-conversation" },
       });
       await setImmediate();
       await setImmediate();
@@ -139,7 +145,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.14.5");
+  assert.equal(manifest.version, "0.14.7");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://aistudio.google.com/*"],
@@ -152,9 +158,9 @@ test("declares the supported Google media sites and provider content script", ()
     "https://storage.googleapis.com/*",
     "https://flow-content.google/*",
   ]) assert.ok(manifest.host_permissions.includes(host), `missing ${host}`);
-  assert.match(providerSource, /"gemini\.google\.com": "gemini"/);
-  assert.match(providerSource, /"labs\.google": "flow"/);
-  assert.match(providerSource, /"aistudio\.google\.com": "google-ai-studio"/);
+  assert.match(providerPolicySource, /host === "gemini\.google\.com"/);
+  assert.match(providerPolicySource, /host === "labs\.google"/);
+  assert.match(providerPolicySource, /host === "aistudio\.google\.com"/);
 });
 
 test("Google adapters capture visible images and supported Flow / AI Studio videos with bounded Prompt lookup", () => {
@@ -228,7 +234,8 @@ test("Google adapters capture visible images and supported Flow / AI Studio vide
   assert.match(providerSource, /const PROMPT_RETRY_DELAYS = \[900, 2_700, 7_200\]/);
   assert.match(providerSource, /function schedulePromptRetry\(provider, source, mediaKind = "image"\)/);
   assert.match(providerSource, /function attemptPendingPromptUpgrades\(\)/);
-  assert.match(providerSource, /characterData: true/);
+  assert.match(providerSource, /characterData: false/);
+  assert.match(providerSource, /attributeFilter: \["src", "srcset", "class", "aria-hidden", "hidden"\]/);
   assert.match(providerSource, /document\.addEventListener\("load", \(\) => \{ if \(autoCapture\) scheduleScan\(\); \}, true\)/);
   assert.match(providerSource, /function startProviderObserver\(\)/);
   assert.match(providerSource, /observer\?\.disconnect\(\)/);
@@ -315,7 +322,7 @@ test("uses safe local extension settings without a public Token default", () => 
 });
 
 test("defaults capture off and keeps Chrome permissions minimal", () => {
-  assert.deepEqual(manifest.permissions, ["storage", "contextMenus"]);
+  assert.deepEqual(manifest.permissions, ["storage", "contextMenus", "alarms"]);
   assert.equal(manifest.permissions.includes("activeTab"), false);
   assert.match(backgroundSource, /autoCapture:\s*false/);
   assert.match(optionsSource, /autoCapture:\s*false/);
@@ -940,12 +947,21 @@ test("does not treat an unrelated tool image as generated artwork", async () => 
 });
 
 test("background limits generated video capture to Flow and Google AI Studio", () => {
+  assert.match(backgroundSource, /import "\.\/provider-policy\.js"/);
+  assert.match(backgroundSource, /function senderAllowedForMessage\(message, sender\)/);
+  assert.match(backgroundSource, /sender\.id !== chrome\.runtime\.id/);
+  assert.match(backgroundSource, /Number\(sender\.frameId \?\? 0\) !== 0/);
+  assert.match(backgroundSource, /transfer\.senderKey !== senderKey\(sender\)/);
   assert.match(backgroundSource, /new Set\(\["chatgpt", "gemini", "flow", "google-ai-studio"\]\)/);
   assert.match(backgroundSource, /WEB_VIDEO_PROVIDERS = new Set\(\["flow", "google-ai-studio"\]\)/);
   assert.match(backgroundSource, /const provider = String\(payload\.provider \|\| "chatgpt"\)/);
   assert.match(backgroundSource, /if \(!WEB_IMAGE_PROVIDERS\.has\(provider\)\)/);
   assert.match(backgroundSource, /if \(mediaKind === "video" && !WEB_VIDEO_PROVIDERS\.has\(provider\)\)/);
-  assert.match(backgroundSource, /fetchMediaAsBase64\(mediaUrl, \{ publicMedia: false, mediaKind \}\)/);
+  assert.match(backgroundSource, /fetchMediaAsBase64\(mediaUrl, \{ publicMedia: false, mediaKind, binary: mediaKind === "video" \}\)/);
+  assert.match(backgroundSource, /\/api\/ingest\/web-capture-binary/);
+  assert.match(backgroundSource, /message\.type === "mosa\.beginVideoTransfer"/);
+  assert.match(backgroundSource, /message\.type === "mosa\.videoTransferChunk"/);
+  assert.match(backgroundSource, /message\.type === "mosa\.commitVideoTransfer"/);
   assert.match(backgroundSource, /function assertAllowedRemoteMediaUrl\(value\)/);
   assert.match(backgroundSource, /const MAX_VIDEO_BYTES = 96 \* 1024 \* 1024/);
   assert.match(backgroundSource, /message\.type === "mosa\.probeFlowMedia"/);
@@ -954,6 +970,13 @@ test("background limits generated video capture to Flow and Google AI Studio", (
   assert.match(backgroundSource, /finalPath\.includes\("\/video\/"\)/);
   assert.match(backgroundSource, /\.\.\.\(publicMedia \? \[\] : \[\{ credentials: "include", cache: "no-cache" \}\]\)/);
   assert.doesNotMatch(backgroundSource, /provider:\s*"chatgpt"/);
+});
+
+test("ChatGPT page bridge rejects messages outside the current document channel", () => {
+  assert.match(hookSource, /mosaPageHookChannel = bridgeChannel/);
+  assert.match(hookSource, /data\.channel !== bridgeChannel/);
+  assert.match(contentSource, /function pageHookChannel\(\)/);
+  assert.match(contentSource, /data\.channel !== channel/);
 });
 
 test("clears the legacy development Token and verifies the real ingest authorization path", () => {
@@ -1031,7 +1054,7 @@ test("archives one row per uploaded reference photo", () => {
   assert.match(contentSource, /if \(!reference && byteLength > 0 && byteLength < MIN_BYTES\) return false/);
   assert.match(contentSource, /const needsReferenceRepair = stagedReferences > 0[\s\S]*isSavedCandidate\(candidate\)/);
   assert.match(contentSource, /force: needsReferenceRepair/);
-  assert.match(contentSource, /referenceSyncKeys\.add\(syncKey\)/);
+  assert.match(contentSource, /rememberSet\(referenceSyncKeys, syncKey\)/);
   // A previously-seen reference still has to reach the server for each new
   // generation context. The server deduplicates the blob and appends usage.
   const stageReferences = /async function stageGenerationReferences\(candidate\) \{[\s\S]*?\n {2}\}/.exec(contentSource)?.[0] || "";
@@ -1126,6 +1149,26 @@ test("splits sibling generations without tool call ids into per-asset reference 
       "chatgpt:conversation-multi-asset:asset:file-two",
     ],
   );
+  assert.deepEqual(
+    manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.js,
+    ["provider-policy.js", "provider-sites.js"],
+  );
+});
+
+test("provider policy classifies only supported top-level product URLs", () => {
+  const sandbox = { URL };
+  vm.runInNewContext(providerPolicySource, sandbox, { filename: "provider-policy.js" });
+  const policy = sandbox.MosaProviderPolicy;
+  assert.equal(policy.providerForPageUrl("https://chatgpt.com/c/abc"), "chatgpt");
+  assert.equal(policy.providerForPageUrl("https://gemini.google.com/app/abc"), "gemini");
+  assert.equal(policy.providerForPageUrl("https://aistudio.google.com/generate-video"), "google-ai-studio");
+  assert.equal(policy.providerForPageUrl("https://labs.google/fx/en/tools/flow/project/abc"), "flow");
+  assert.equal(policy.providerForPageUrl("https://labs.google/search"), "");
+  assert.equal(policy.providerForPageUrl("http://gemini.google.com/app/abc"), "");
+  assert.equal(policy.providerForPageUrl("https://evil.example/?next=https://gemini.google.com"), "");
+  assert.equal(policy.supportsVideo("flow"), true);
+  assert.equal(policy.supportsVideo("google-ai-studio"), true);
+  assert.equal(policy.supportsVideo("gemini"), false);
 });
 
 test("url and asset events of one generation share a single reference scope", async () => {
@@ -1443,7 +1486,7 @@ test("binds prompt and asset when one image call splits them across nested reque
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.14.5");
+  assert.equal(manifest.version, "0.14.7");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);

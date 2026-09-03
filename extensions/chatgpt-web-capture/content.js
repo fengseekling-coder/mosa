@@ -64,6 +64,7 @@
   const autoStabilityStates = new Map();
   const autoStabilityTimers = new Map();
   const savedGenerationStatuses = new Map();
+  const SESSION_CACHE_MAX = 4096;
   let generationRegistry = null;
   const failedAt = new Map(); // key -> timestamp, retry after cooldown
   const sizeFailureStates = new Map(); // stable image identity -> bounded small-file retry state
@@ -76,6 +77,7 @@
   let scanTimer = null;
   let lastUrl = location.href;
   let lastConversationId = conversationIdFromUrl();
+  let conversationEpoch = 0;
   let hookReady = document.documentElement?.dataset?.mosaPageHook === "1";
   let lastError = "";
   let lastStatus = "starting";
@@ -89,9 +91,30 @@
   let panelDragState = null;
   let manualHookDisableTimer = null;
 
+  function pageHookChannel() {
+    return String(document.documentElement?.dataset?.mosaPageHookChannel || "").trim();
+  }
+
+  function rememberSet(set, value, maxSize = SESSION_CACHE_MAX) {
+    if (!value) return;
+    set.delete(value);
+    set.add(value);
+    while (set.size > maxSize) set.delete(set.values().next().value);
+  }
+
+  function rememberMap(map, key, value, maxSize = SESSION_CACHE_MAX) {
+    if (!key) return;
+    map.delete(key);
+    map.set(key, value);
+    while (map.size > maxSize) map.delete(map.keys().next().value);
+  }
+
   function setPageHookCaptureEnabled(enabled) {
+    const channel = pageHookChannel();
+    if (!channel) return;
     window.postMessage({
       source: "mosa-chatgpt-capture",
+      channel,
       type: "set-capture-enabled",
       payload: { enabled: enabled === true },
     }, "*");
@@ -109,6 +132,7 @@
   }
 
   function resetConversationTransientState() {
+    conversationEpoch += 1;
     networkMeta.splice(0, networkMeta.length);
     imagePromptMap.clear();
     generationRegistry?.clear?.();
@@ -828,11 +852,11 @@
 
   function rememberSavedCandidate(candidate, generationStatus = "unknown") {
     const key = candidate?.key || candidate?.imageUrl;
-    if (key) savedKeys.add(key);
+    rememberSet(savedKeys, key);
     const normalizedStatus = normalizeGenerationStatus(generationStatus);
     for (const identity of candidateLookupKeys(candidate)) {
-      savedIdentityKeys.add(identity);
-      savedGenerationStatuses.set(identity, normalizedStatus);
+      rememberSet(savedIdentityKeys, identity);
+      rememberMap(savedGenerationStatuses, identity, normalizedStatus);
     }
   }
 
@@ -914,7 +938,7 @@
   function rememberSavedPrompt(candidate, resolved) {
     const rank = metaPromptQuality(resolved);
     for (const key of candidateLookupKeys(candidate)) {
-      savedPromptRanks.set(key, Math.max(savedPromptRanks.get(key) ?? -1, rank));
+      rememberMap(savedPromptRanks, key, Math.max(savedPromptRanks.get(key) ?? -1, rank));
     }
   }
 
@@ -1173,8 +1197,11 @@
 
     // page-hook.js derives the endpoint from its own location; the content
     // script never supplies a URL or any credential-bearing request detail.
+    const channel = pageHookChannel();
+    if (!channel) return false;
     window.postMessage({
       source: "mosa-chatgpt-capture",
+      channel,
       type: "refresh-current-conversation",
       payload: { conversationId },
     }, "*");
@@ -1372,6 +1399,7 @@
   }
 
   async function ingestCandidate(candidate, { silentSkip = false, reason = "manual", force = false, generationContextId = "" } = {}) {
+    const taskConversationEpoch = conversationEpoch;
     const rawKey = candidate.key || candidate.imageUrl;
     const key = candidateOperationKey(candidate) || rawKey;
     const manual = reason.startsWith("manual");
@@ -1388,7 +1416,7 @@
     if (!isArchiveWorthyCandidate(candidate, { manual, reference })) {
       if (!manual) {
         if (hasObservedGenerationEvidence(candidate) || isRecoverableGenerationCandidate(candidate)) markSizeFailure(candidate);
-        else savedKeys.add(key);
+        else rememberSet(savedKeys, key);
       }
       if (!silentSkip) showToast("已跳过：不像生成大图（logo/小图）", true);
       setStatus("跳过小图/logo");
@@ -1408,8 +1436,10 @@
       for (let i = 0; i < waits && !findBoundPromptForImage(imageRef); i += 1) {
         await new Promise((r) => setTimeout(r, 350));
       }
+      if (taskConversationEpoch !== conversationEpoch) return null;
       const resolved = resolvePrompt(imageRef, candidate);
       const { mimeType, imageBase64 } = await bytesFromUrlOrImg(candidate);
+      if (taskConversationEpoch !== conversationEpoch) return null;
       if (!imageBase64) throw new Error("未能读取图片字节（下载失败或跨域）");
 
       // Approximate decoded size from base64.
@@ -1417,7 +1447,7 @@
       if (!reference && approxBytes > 0 && approxBytes < MIN_BYTES) {
         if (!manual) {
           if (hasObservedGenerationEvidence(candidate) || isRecoverableGenerationCandidate(candidate)) markSizeFailure(candidate);
-          else savedKeys.add(key);
+          else rememberSet(savedKeys, key);
         }
         if (!silentSkip) showToast(`已跳过小文件 ${(approxBytes / 1024).toFixed(0)}KB（logo）`, true);
         setStatus("跳过小文件");
@@ -1488,7 +1518,7 @@
       if (/too small|IMAGE_TOO_SMALL|logo/i.test(msg)) {
         if (!manual) {
           if (hasObservedGenerationEvidence(candidate) || isRecoverableGenerationCandidate(candidate)) markSizeFailure(candidate);
-          else savedKeys.add(key);
+          else rememberSet(savedKeys, key);
         }
       } else {
         failedAt.set(key, Date.now());
@@ -1537,7 +1567,7 @@
           });
           // A forced duplicate ingest is intentional: it lets the server merge
           // references that appeared in the DOM after the network result was archived.
-          if (needsReferenceRepair && result) referenceSyncKeys.add(syncKey);
+          if (needsReferenceRepair && result) rememberSet(referenceSyncKeys, syncKey);
         } catch {
           // keep queue alive
         }
@@ -1952,6 +1982,8 @@
     if (event.source !== window) return;
     const data = event.data;
     if (!data || data.source !== "mosa-chatgpt-capture") return;
+    const channel = pageHookChannel();
+    if (!channel || data.channel !== channel) return;
 
     if (data.type === "generation-meta" && data.payload) {
       if (data.payload.hookReady) {

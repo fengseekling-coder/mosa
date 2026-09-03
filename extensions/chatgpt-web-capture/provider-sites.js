@@ -3,11 +3,6 @@
   // adapter uses only rendered image data. Gemini, Flow, and AI Studio may
   // additionally read one structurally-associated visible user Prompt. None
   // of these paths scans the whole page, other sessions, or editors.
-  const SITE_BY_HOST = {
-    "gemini.google.com": "gemini",
-    "aistudio.google.com": "google-ai-studio",
-    "labs.google": "flow",
-  };
   const IMAGE_HOSTS = new Set([
     "lh3.googleusercontent.com",
     "lh4.googleusercontent.com",
@@ -25,7 +20,9 @@
   // Flow may insert a locale segment between /fx/ and /tools/ (for example
   // /fx/en/tools/flow/project/<id>). Keep the route gate explicit so the
   // provider still stays limited to Flow itself.
-  const FLOW_PATH = /^\/(?:fx\/(?:(?:[a-z]{2,3}(?:-[a-z0-9]{2,8})?)\/)?tools\/)?flow(?:\/|$)/;
+  const providerPolicy = globalThis.MosaProviderPolicy;
+  if (!providerPolicy) return;
+  const { FLOW_PATH } = providerPolicy;
   const FLOW_MEDIA_REDIRECT_PATH = "/fx/api/trpc/media.getMediaUrlRedirect";
   const AI_STUDIO_VIDEO_PATH = /^\/generate-video(?:\/|$)/;
   // Flow places a media grid and its Prompt card in the same generation row,
@@ -48,9 +45,11 @@
   const MIN_VISIBLE_AREA = 96 * 96;
   const CAPTURE_CONCURRENCY = 2;
   const MAX_LOCAL_IMAGE_BYTES = 15 * 1024 * 1024;
-  const MAX_LOCAL_VIDEO_BYTES = 64 * 1024 * 1024;
+  const MAX_LOCAL_VIDEO_BYTES = 96 * 1024 * 1024;
+  const VIDEO_TRANSFER_CHUNK_BYTES = 3 * 1024 * 1024;
   const PROMPT_RETRY_DELAYS = [900, 2_700, 7_200];
   const PROMPT_RETRY_PROVIDERS = new Set(["gemini", "flow", "google-ai-studio"]);
+  const SEEN_MAX = 2048;
   const seen = new Set();
   const flowMediaProbeInFlight = new Set();
   const promptRetryStates = new Map();
@@ -61,6 +60,13 @@
   let captureInFlight = 0;
   const captureWaiters = [];
   let toastTimer = null;
+
+  function rememberSeen(key) {
+    if (!key) return;
+    seen.delete(key);
+    seen.add(key);
+    while (seen.size > SEEN_MAX) seen.delete(seen.values().next().value);
+  }
 
   function showToast(message, isError = false) {
     let toast = document.getElementById("mosa-provider-capture-toast");
@@ -103,11 +109,7 @@
   }
 
   function currentProvider() {
-    const host = String(location.hostname || "").toLowerCase();
-    const provider = SITE_BY_HOST[host];
-    if (provider !== "flow") return provider || "";
-    const path = String(location.pathname || "").toLowerCase();
-    return FLOW_PATH.test(path) ? provider : "";
+    return providerPolicy.providerForPageUrl(location.href);
   }
 
   function extensionAlive() {
@@ -385,6 +387,14 @@
 
       if (reusePromptCards.length === 1) {
         return reusePromptCards[0].prompt;
+      }
+      // Localized Flow builds do not necessarily render the English “Reuse
+      // Prompt” label. When the generation row contains exactly one viable
+      // text card, the structural one-to-one association is stronger evidence
+      // than a language-specific control label. Stay fail-closed when two text
+      // cards are present so we never guess between adjacent generations.
+      if (reusePromptCards.length === 0 && promptCards.length === 1) {
+        return promptCards[0].prompt;
       }
       node = parent;
     }
@@ -731,39 +741,75 @@
     }
     return {
       mimeType: blob.type || mimeTypeForUrl(source.url, "video"),
-      mediaBase64: arrayBufferToBase64(await blob.arrayBuffer()),
+      blob,
     };
   }
 
-  async function sendCapture(provider, source, media, { captureMode = "automatic", mediaKind = "image" } = {}) {
+  async function sendChunkedVideo(payload, blob) {
+    const transferId = `video-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    const totalChunks = Math.ceil(blob.size / VIDEO_TRANSFER_CHUNK_BYTES);
+    const begin = await chrome.runtime.sendMessage({
+      type: "mosa.beginVideoTransfer",
+      transferId,
+      totalBytes: blob.size,
+      totalChunks,
+      payload,
+    });
+    if (!begin?.ok) return begin;
+    for (let index = 0; index < totalChunks; index += 1) {
+      const start = index * VIDEO_TRANSFER_CHUNK_BYTES;
+      const end = Math.min(blob.size, start + VIDEO_TRANSFER_CHUNK_BYTES);
+      const chunkBase64 = arrayBufferToBase64(await blob.slice(start, end).arrayBuffer());
+      const response = await chrome.runtime.sendMessage({
+        type: "mosa.videoTransferChunk",
+        transferId,
+        index,
+        chunkBase64,
+      });
+      if (!response?.ok) return response;
+    }
+    return chrome.runtime.sendMessage({ type: "mosa.commitVideoTransfer", transferId });
+  }
+
+  async function sendCapture(provider, source, media, { captureMode = "automatic", mediaKind = "image", trustMediaMetrics = true } = {}) {
     return withCaptureSlot(async () => {
       if (!extensionAlive()) return { response: { ok: false, error: "MOSA extension is unavailable." }, hasPrompt: false };
+      const capturePageUrl = location.href;
       const video = mediaKind === "video";
       const providerPrompt = visiblePromptForProvider(provider, media);
       const payload = {
         provider,
         mediaKind,
         mimeType: source.mimeType || mimeTypeForUrl(source.url, mediaKind),
-        pageUrl: location.href,
+        pageUrl: capturePageUrl,
         promptStatus: "not-available",
         promptSource: video ? "provider-visible-video" : "provider-visible-image",
         captureMode,
         capturedAt: new Date().toISOString(),
-        width: video ? Number(media?.videoWidth || media?.naturalWidth || media?.width || 0) : Number(media?.naturalWidth || media?.width || 0),
-        height: video ? Number(media?.videoHeight || media?.naturalHeight || media?.height || 0) : Number(media?.naturalHeight || media?.height || 0),
-        durationSeconds: video && Number.isFinite(Number(media?.duration)) ? Number(media.duration) : null,
+        width: trustMediaMetrics ? (video ? Number(media?.videoWidth || media?.naturalWidth || media?.width || 0) : Number(media?.naturalWidth || media?.width || 0)) : 0,
+        height: trustMediaMetrics ? (video ? Number(media?.videoHeight || media?.naturalHeight || media?.height || 0) : Number(media?.naturalHeight || media?.height || 0)) : 0,
+        durationSeconds: trustMediaMetrics && video && Number.isFinite(Number(media?.duration)) ? Number(media.duration) : null,
       };
       if (providerPrompt) Object.assign(payload, providerPrompt);
       if (source.kind === "local" && source.url.startsWith("blob:")) {
         const bytes = video ? await bytesFromVisibleVideo(source, media) : await bytesFromVisibleImage(source, media);
+        if (location.href !== capturePageUrl) {
+          return { response: { ok: false, error: "Provider page changed before capture completed." }, hasPrompt: Boolean(providerPrompt?.prompt) };
+        }
         payload.mimeType = bytes.mimeType;
-        if (video) payload.mediaBase64 = bytes.mediaBase64;
-        else payload.imageBase64 = bytes.imageBase64;
+        if (video) {
+          const response = await sendChunkedVideo(payload, bytes.blob);
+          return { response, hasPrompt: Boolean(providerPrompt?.prompt) };
+        }
+        payload.imageBase64 = bytes.imageBase64;
       } else {
         // HTTPS provider URLs are downloaded in the background service worker,
         // avoiding a second large Base64 copy through content-script messaging.
         if (video) payload.mediaUrl = source.url;
         else payload.imageUrl = source.url;
+      }
+      if (location.href !== capturePageUrl) {
+        return { response: { ok: false, error: "Provider page changed before capture completed." }, hasPrompt: Boolean(providerPrompt?.prompt) };
       }
       const response = await chrome.runtime.sendMessage({
         type: "mosa.ingest",
@@ -803,17 +849,17 @@
       if (!probeResponse?.ok || !probeResponse.result) return false;
       const probe = probeResponse.result;
       if (probe.mediaKind === "video" && probe.mediaUrl) {
-        seen.add(key);
+        rememberSeen(key);
         const result = await sendCapture("flow", {
           kind: "remote",
           url: probe.mediaUrl,
           mimeType: probe.mimeType || "video/mp4",
-        }, img, { mediaKind: "video" });
+        }, img, { mediaKind: "video", trustMediaMetrics: false });
         if (!result?.response?.ok) seen.delete(key);
         return true;
       }
       if (probe.mediaKind === "image") {
-        seen.add(key);
+        rememberSeen(key);
         const result = await sendCapture("flow", source, img);
         if (!result?.response?.ok) seen.delete(key);
         else if (!result.hasPrompt) schedulePromptRetry("flow", source);
@@ -845,7 +891,7 @@
       if (!isProviderGeneratedOutput(provider, img)) continue;
       const source = imageSourceFor(img);
       if (!source || seen.has(source.url)) continue;
-      seen.add(source.url);
+      rememberSeen(source.url);
       sendCapture(provider, source, img)
         .then(({ response, hasPrompt }) => {
           // Authentication, origin, or service failures must remain retryable.
@@ -860,7 +906,7 @@
         if (!isProviderGeneratedVideo(provider, video)) continue;
         const source = videoSourceFor(video);
         if (!source || seen.has(source.url)) continue;
-        seen.add(source.url);
+        rememberSeen(source.url);
         sendCapture(provider, source, video, { mediaKind: "video" })
           .then(({ response, hasPrompt }) => {
             if (!response?.ok) seen.delete(source.url);
@@ -887,8 +933,11 @@
       childList: true,
       subtree: true,
       attributes: true,
-      characterData: true,
-      attributeFilter: ["src", "srcset", "style", "class", "aria-label", "title", "data-tooltip", "aria-hidden", "hidden", "contenteditable"],
+      // Text-only prompt changes are covered by the bounded prompt-retry
+      // timers. Observing every character/style/title mutation on an Angular
+      // document caused scans for unrelated UI animation and typing.
+      characterData: false,
+      attributeFilter: ["src", "srcset", "class", "aria-hidden", "hidden"],
     });
   }
 

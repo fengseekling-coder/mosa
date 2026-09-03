@@ -6,11 +6,14 @@
   if (window.__mosaPageHookInstalled) return;
   window.__mosaPageHookInstalled = true;
   let captureEnabled = false;
+  const bridgeChannel = globalThis.crypto?.randomUUID?.()
+    || `mosa-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
   function markReady() {
     if (document.documentElement) {
       try {
         document.documentElement.dataset.mosaPageHook = "1";
+        document.documentElement.dataset.mosaPageHookChannel = bridgeChannel;
       } catch {
         // The hook itself still works in test/minimal document environments.
       }
@@ -57,7 +60,7 @@
 
   function post(type, payload) {
     try {
-      window.postMessage({ source: "mosa-chatgpt-capture", type, payload }, "*");
+      window.postMessage({ source: "mosa-chatgpt-capture", channel: bridgeChannel, type, payload }, "*");
     } catch {
       // ignore
     }
@@ -993,6 +996,7 @@
     if (event.source !== window) return;
     const data = event.data;
     if (data?.source !== "mosa-chatgpt-capture") return;
+    if (data.channel !== bridgeChannel) return;
     if (data.type === "set-capture-enabled") {
       captureEnabled = data.payload?.enabled === true;
       return;

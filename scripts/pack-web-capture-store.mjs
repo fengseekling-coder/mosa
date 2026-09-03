@@ -28,6 +28,7 @@ const runtimeFiles = [
   "options.html",
   "options.js",
   "page-hook.js",
+  "provider-policy.js",
   "provider-sites.js",
 ];
 
