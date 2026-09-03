@@ -359,11 +359,14 @@ export function createApiClient(deps) {
     if (document.hidden || libraryRefreshInFlight) return false;
     libraryRefreshInFlight = true;
     try {
-      await Promise.all([
+      const [statsRefreshed, assetsRefreshed] = await Promise.all([
         loadStats({ background: true }),
         state.loadedPageCount > 1 ? refreshLoadedAssetsInBackground() : loadAssets({ background: true }),
       ]);
-      return true;
+      // Both loaders use `false` as their stale/failed/no-commit signal. Do not
+      // advance the revision baseline unless the visible gallery and its
+      // navigation stats actually reconciled to the advertised revision.
+      return statsRefreshed !== false && assetsRefreshed !== false;
     } catch {
       // A transient refresh failure should not interrupt the active library view.
       return false;
