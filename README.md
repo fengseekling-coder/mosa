@@ -7,7 +7,19 @@ MOSA is a local-first library for AI-generated images, videos, Prompts, provenan
 
 **Local-first · Prompt & provenance · Version history · No MOSA cloud account**
 
-[Quick start](#quick-start) · [中文使用指南](docs/guide.zh-CN.md) · [Privacy](PRIVACY.md) · [Documentation](#documentation)
+[Quick start](#quick-start) · [Downloads](#downloads) · [中文使用指南](docs/guide.zh-CN.md) · [Privacy](PRIVACY.md) · [Documentation](#documentation)
+
+## Downloads
+
+Download the current MOSA packages from the [official download page](https://mosa.azhuilab.com/#download). The page and its [release manifest](https://mosa.azhuilab.com/releases/latest.json) are the source of truth for newer versions, package sizes, and SHA-256 values.
+
+| Package | Platform | Download | Status |
+| --- | --- | --- | --- |
+| MOSA Desktop `0.2.1-rc.4` | macOS arm64 | [Download ZIP](https://mosa.azhuilab.com/downloads/MOSA-darwin-arm64-0.2.1-rc.4.zip) | Preview package; unsigned |
+| MOSA Desktop `0.2.1-rc.4` | Windows x64 | [Download ZIP](https://mosa.azhuilab.com/downloads/MOSA-win32-x64-0.2.1-rc.4.zip) | Preview package; unsigned |
+| MOSA Web Capture `0.14.5` | Chrome / Chromium | [Download ZIP](https://mosa.azhuilab.com/downloads/MOSA-Web-Capture-0.14.5.zip) · [Install guide](https://mosa.azhuilab.com/guide/) | Developer-mode package; not a signed CRX |
+
+Desktop ZIPs are hosted outside Git history because of their size. Use the official download page for the newest published package; the direct links above identify the currently published files.
 
 ## Why MOSA
 
