@@ -66,7 +66,7 @@ export function createApiClient(deps) {
       state.supportedMediaExtensions = Array.isArray(library.supportedMediaExtensions) ? library.supportedMediaExtensions : [];
       updateCodexHint();
     }
-    const nextGroups = { total: 0, favorites: 0, recent: 0, trash: 0, codex: 0, cowart: 0, grok: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0, ...(result.groups || {}) };
+    const nextGroups = { total: 0, favorites: 0, recent: 0, unorganized: 0, trash: 0, codex: 0, cowart: 0, grok: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0, ...(result.groups || {}) };
     const changed = JSON.stringify(nextGroups) !== JSON.stringify(state.groups);
     state.groups = nextGroups;
     if (!options.background || changed) {
@@ -98,6 +98,7 @@ export function createApiClient(deps) {
     if (options.cursor) params.set("cursor", options.cursor);
     if (request.scope === "favorite") params.set("favorite", "1");
     else if (request.scope === "recent") params.set("recent", "1");
+    else if (request.scope === "unorganized") params.set("unorganized", "1");
     else if (request.scope === "trash") params.set("trash", "1");
     if (request.mediaKind && request.mediaKind !== "all") params.set("mediaKind", request.mediaKind);
     for (const key of FACET_KEYS) {
@@ -235,6 +236,7 @@ export function createApiClient(deps) {
     // Phase 3C：后台刷新不重新排序 session 序列，但有效性可能变化——仅同步导航边界
     // 与位置（缺失 ID 在导航时跳过，总数基于当前有效 ID 重算）。
     if (state.viewMode === "asset") updateAssetViewNav();
+    if (!options.append && state.loadedPageCount <= 1) noteLibraryRevision(result.revision);
     setGalleryBusy(false, requestId, request);
     return true;
   }
@@ -350,29 +352,7 @@ export function createApiClient(deps) {
   }
 
   async function refreshLoadedAssetsInBackground() {
-    const requestId = ++backgroundTotalRequestSequence;
-    const request = currentAssetRequest();
-    let result;
-    try {
-      result = await requestAssetPage(request);
-    } catch {
-      return false;
-    }
-    if (requestId !== backgroundTotalRequestSequence
-      || assetRequestKey(request) !== assetRequestKey(currentAssetRequest())) return false;
-
-    const incoming = result.assets || [];
-    const visible = state.assets.slice(0, incoming.length);
-    if (assetListVersion(incoming) !== assetListVersion(visible)) {
-      return reloadLoadedAssetPages({ background: true, firstResult: result });
-    }
-
-    const total = Number(result.page?.total);
-    if (Number.isFinite(total) && state.pageTotal !== total) {
-      state.pageTotal = total;
-      updateViewTitle();
-    }
-    return true;
+    return reloadLoadedAssetPages({ background: true });
   }
 
   async function refreshLibraryInBackground() {
@@ -398,6 +378,14 @@ export function createApiClient(deps) {
     if (revision == null) return;
     lastLibraryRevision = String(revision);
   }
+  async function reconcileLibraryRevision(revision) {
+    if (revision == null) return false;
+    const nextRevision = String(revision);
+    if (nextRevision === lastLibraryRevision) return false;
+    const refreshed = await refreshLibraryInBackground();
+    if (refreshed) lastLibraryRevision = nextRevision;
+    return refreshed;
+  }
   async function refreshLibraryIfChanged() {
     if (document.hidden || libraryRevisionInFlight) return false;
     libraryRevisionInFlight = true;
@@ -406,14 +394,7 @@ export function createApiClient(deps) {
       const result = await apiFetch(`/api/library-revision?project=${encodeURIComponent(project)}`);
       if (project !== state.project) return false;
       const revision = result?.revision == null ? null : String(result.revision);
-      if (lastLibraryRevision === null) {
-        lastLibraryRevision = revision;
-        return false;
-      }
-      if (revision === lastLibraryRevision) return false;
-      const refreshed = await refreshLibraryInBackground();
-      if (refreshed) lastLibraryRevision = revision;
-      return refreshed;
+      return reconcileLibraryRevision(revision);
     } catch {
       return false;
     } finally {
@@ -463,6 +444,6 @@ export function createApiClient(deps) {
     apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged,
     refreshAssetPageTotalInBackground, refreshLoadedAssetsInBackground, reloadLoadedAssetPages,
     buildAssetPageParams, requestAssetPage, requestAssetTotal, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion,
-    noteLibraryRevision,
+    noteLibraryRevision, reconcileLibraryRevision,
   };
 }

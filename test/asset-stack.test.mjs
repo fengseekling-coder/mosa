@@ -50,6 +50,23 @@ test("asset stacks collapse to one gallery node and use the first member as cove
   assert.deepEqual(inside.assets.map((asset) => asset.stack_position), [0, 1, 2]);
 });
 
+test("Unorganized excludes both manually grouped assets and assets already organized into a stack", async (t) => {
+  const store = await createFixtureStore(t);
+  await store.createGroup({ projectId: "default", name: "Reviewed" });
+  await store.updateMetadata("default", "d", { group: "Reviewed" });
+  await store.createAssetStack("default", ["a", "b"], { coverAssetId: "a" });
+
+  const raw = await store.listAssets({ projectId: "default", unorganized: true, sort: "oldest" });
+  assert.deepEqual(raw.map((asset) => asset.id), ["c"]);
+
+  const gallery = await store.listAssetPage({ projectId: "default", unorganized: true, collapseStacks: true, limit: 0, sort: "oldest" });
+  assert.deepEqual(gallery.assets.map((asset) => asset.id), ["c"]);
+  assert.equal(gallery.page.total, 1);
+
+  const stats = await store.listGroups("default");
+  assert.equal(stats.unorganized, 1);
+});
+
 test("stack members page by stable manual position without changing the total", async (t) => {
   const store = await createFixtureStore(t);
   const stack = await store.createAssetStack("default", ["a", "b", "c", "d"], { coverAssetId: "b" });

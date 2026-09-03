@@ -2,6 +2,15 @@
 
 This file records user-visible changes. Internal deployment notes, local paths, and development handoffs are intentionally not tracked in the public repository.
 
+## 0.2.1-rc.4 — 2026-09-02 / Release Candidate
+
+### Library organization and desktop branding / 素材整理与桌面品牌
+
+- Added an **Unorganized / 未整理** library view. It shows assets that are neither in a manual group nor part of a Stack, so the items that still need curation have a dedicated place.
+- Refined sidebar navigation so selecting a primary view, source, or manual group establishes one clear library context while other filters can still refine it.
+- macOS and Windows desktop packages now use the MOSA app icon instead of Electron’s default icon.
+- Build identity is generated only inside each package, preventing an outdated tracked identity file from being included in a new build.
+
 ## 0.2.1-rc.3 — 2026-09-02 / Release Candidate
 
 ### Desktop upgrade reliability / 桌面升级可靠性

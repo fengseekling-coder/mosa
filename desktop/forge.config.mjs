@@ -2,6 +2,11 @@ import { MakerZIP } from "@electron-forge/maker-zip";
 import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
 import { access, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  desktopIconBasePath,
+  desktopIconOutputDir,
+  generateDesktopIcons,
+} from "./icon-assets.mjs";
 
 const PACKAGED_MANIFEST_KEYS = [
   "name",
@@ -186,7 +191,8 @@ export function packageIgnorePatternsForTarget(target = resolveDesktopPackagingT
   // The desktop bundle has one runtime surface. Everything else at the
   // repository root is development, documentation, or another distribution.
   /^\/(?!app(?:\/|$)|desktop(?:\/|$)|lib(?:\/|$)|node_modules(?:\/|$)|LICENSE$|package\.json$).+/,
-  /^\/desktop\/(?:forge\.config\.mjs|preload\.mjs)$/,
+  /^\/desktop\/assets(?:\/|$)/,
+  /^\/desktop\/(?:forge\.config\.mjs|icon-assets\.mjs|preload\.mjs)$/,
   /^\/lib\/.*(?:\.ts|\.js\.map)$/,
   /^\/node_modules\/\.package-lock\.json$/,
   new RegExp(`^/node_modules/(?!(?:better-sqlite3|detect-libc|node-addon-api|semver|sharp)(?:/|$)|@img(?:/(?:${allowedImagePackages})(?:/|$)|$)).+`),
@@ -199,12 +205,16 @@ export const packageIgnorePatterns = packageIgnorePatternsForTarget(activeTarget
 export function createForgeConfig({ target = activeTarget, env = process.env } = {}) {
   const macPackaging = target.platform === "darwin" ? macReleasePackagingConfig(env) : {};
   const ignore = packageIgnorePatternsForTarget(target);
+  const outDir = env.MOSA_FORGE_OUT_DIR || "out";
+  const iconOutputDir = desktopIconOutputDir({ outDir });
+  const icon = desktopIconBasePath({ outDir });
   return {
   // Forge normally writes to repository-local out/. QA environments may route
   // generated packages elsewhere without changing the release layout.
-  outDir: env.MOSA_FORGE_OUT_DIR || "out",
+  outDir,
   packagerConfig: {
     name: "MOSA",
+    icon,
     ...(target.platform === "darwin" ? { appBundleId: "com.azhuilab.mosa" } : {}),
     ...macPackaging,
     ignore,
@@ -216,6 +226,11 @@ export function createForgeConfig({ target = activeTarget, env = process.env } =
   },
   rebuildConfig: {},
   hooks: {
+    // Keep one SVG source of truth in the repository and create native icon
+    // containers immediately before Forge packages a desktop target.
+    generateAssets: async () => {
+      await generateDesktopIcons({ outputDir: iconOutputDir });
+    },
     // Electron Forge passes the actual target into this hook. Prune only to
     // that native runtime and fail closed if the target dependency is absent.
     packageAfterPrune: async (_config, buildPath, _electronVersion, platform, arch) => {

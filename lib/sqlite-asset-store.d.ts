@@ -52,6 +52,8 @@ export interface AssetListFilters {
   skill?: string;
   sourceType?: string;
   favorite?: boolean;
+  recent?: boolean;
+  unorganized?: boolean;
   archived?: boolean;
   trash?: boolean;
   group?: string;
