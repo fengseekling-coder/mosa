@@ -835,7 +835,7 @@
 
   async function captureFlowMediaThumbnail(img) {
     const mediaId = flowMediaIdFromImage(img);
-    if (!mediaId || !isVisibleFlowMediaThumbnail(img) || !flowNearbyPromptCard(img)) return false;
+    if (!mediaId || !isVisibleFlowMediaThumbnail(img)) return false;
     const key = `flow-media:${mediaId}`;
     if (seen.has(key) || flowMediaProbeInFlight.has(key)) return true;
     flowMediaProbeInFlight.add(key);
@@ -856,6 +856,7 @@
           mimeType: probe.mimeType || "video/mp4",
         }, img, { mediaKind: "video", trustMediaMetrics: false });
         if (!result?.response?.ok) seen.delete(key);
+        else if (!result.hasPrompt) schedulePromptRetry("flow", source, "video");
         return true;
       }
       if (probe.mediaKind === "image") {

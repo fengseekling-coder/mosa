@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 // Phase 2B (F-18 / O4-A): topbar action-hierarchy contract. The workspace bar is
-// split into .topbar-context (title + count) and .topbar-actions with three action
+// split into .topbar-context (title + type filters) and .topbar-actions with three action
 // groups (utility / work / primary); Import stays the single primary action; the
 // bridge status is de-noised (dot + capped short label, meta visually-hidden) while
 // role=status / aria-live / title / #statusText keep full state semantics; compact
@@ -41,7 +41,7 @@ function topbarBlock(html) {
   return html.slice(start, end);
 }
 
-const CONTROL_IDS = ["bridgeStatus", "assetCount", "sortSelect", "searchInput", "newAssetTopBtn"];
+const CONTROL_IDS = ["bridgeStatus", "sortSelect", "searchInput", "newAssetTopBtn"];
 
 // 1. The topbar exposes exactly two regions: context and actions.
 test("1. topbar has context and actions regions", async () => {
@@ -54,7 +54,7 @@ test("1. topbar has context and actions regions", async () => {
   assert.ok(context[1].includes('id="viewTitle"'), "context holds the view title");
   assert.ok(context[1].includes('class="topbar-type-filters"'), "context holds the V2 type filters");
   const actions = topbar.slice(topbar.indexOf('class="topbar-actions"'));
-  assert.ok(actions.includes('id="assetCount"'), "the V2 result count lives in the actions region");
+  assert.equal(actions.includes('id="assetCount"'), false, "the topbar no longer renders library statistics");
 });
 
 // 2. The actions region holds exactly the three approved groups.
@@ -78,23 +78,22 @@ test("3. utility group retains bridge semantics without a theme button", async (
   assert.equal(topbar.includes('id="themeToggle"'), false, "theme toggle must not be duplicated in the topbar");
 });
 
-// 4. The work group carries the V2 FilterBar (count → sort → search + type filters
+// 4. The work group carries the V2 FilterBar (sort → search + type filters
 // in the context). 2026-08-18: V2-only token consolidation. The V2 design
 // removed the legacy #batchToggle and #filterToggle buttons (their affordances
 // merged into the V2 type-filter strip in `.topbar-context` and the
 // `.filter-panel` popover, which is now anchored from the `data-type` chips
-// instead of a dedicated toggle). The work group now keeps the count + sort
-// + search triad that the V2 FilterBar shows.
-test("4. batch, sort and filter live in the work group", async () => {
+// instead of a dedicated toggle). The work group now keeps only sort + search.
+test("4. sort and search live in the work group", async () => {
   const topbar = topbarBlock(await readHtml());
   const workStart = topbar.indexOf('class="topbar-work-group"');
   const primaryStart = topbar.indexOf('class="topbar-primary-group"');
-  for (const marker of ['id="assetCount"', 'class="sort-control"', 'id="sortSelect"', 'id="searchInput"']) {
+  for (const marker of ['class="sort-control"', 'id="sortSelect"', 'id="searchInput"']) {
     const at = topbar.indexOf(marker);
     assert.ok(at > workStart && at < primaryStart, `${marker} must sit inside the work group`);
   }
-  // V2 (2026-08-16) order inside the work group: count → sort → search.
-  const positions = ['id="assetCount"', 'id="sortSelect"', 'id="searchInput"'].map((m) => topbar.indexOf(m));
+  // Work-group order: sort → search.
+  const positions = ['id="sortSelect"', 'id="searchInput"'].map((m) => topbar.indexOf(m));
   for (let i = 1; i < positions.length; i += 1) {
     assert.ok(positions[i] > positions[i - 1], `V2 order violated at ${i}`);
   }
@@ -123,11 +122,11 @@ test("6. retained control IDs stay unique", async () => {
 // 7. The DOM order of the V2 controls is unchanged.
 // 2026-08-18: V2-only token consolidation. The V2 design removed the legacy
 // #batchToggle, #filterToggle and the redundant #themeToggle buttons; the
-// controls that survive are `bridgeStatus → assetCount → sortSelect →
+// controls that survive are `bridgeStatus → sortSelect →
 // searchInput → newAssetTopBtn` (utility → work → primary).
 test("7. control DOM order is unchanged", async () => {
   const topbar = topbarBlock(await readHtml());
-  const positions = ["bridgeStatus", "assetCount", "sortSelect", "searchInput", "newAssetTopBtn"].map((id) => topbar.indexOf(`id="${id}"`));
+  const positions = ["bridgeStatus", "sortSelect", "searchInput", "newAssetTopBtn"].map((id) => topbar.indexOf(`id="${id}"`));
   for (let i = 1; i < positions.length; i += 1) {
     assert.ok(positions[i] > positions[i - 1], `order violated at index ${i}`);
   }

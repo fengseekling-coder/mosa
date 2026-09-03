@@ -27,7 +27,7 @@ test("keeps the import flow keyboard-accessible", async () => {
   assert.match(html, /aria-labelledby="groupModalTitle" tabindex="-1"/);
   assert.match(app, /class="asset-card-select" type="button"/);
   assert.doesNotMatch(app, /card-overlay|asset-source-badge/);
-  assert.match(html, /id="assetCount" role="status" aria-live="polite"/);
+  assert.doesNotMatch(html, /id="assetCount"/);
   assert.match(html, /id="bridgeStatus" data-state="checking" role="status" aria-live="polite"/);
   assert.match(app, /function trapImportModalFocus\(event\)/);
   assert.match(app, /function trapGroupModalFocus\(event\)/);

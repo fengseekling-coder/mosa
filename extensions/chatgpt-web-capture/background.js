@@ -11,6 +11,7 @@ const CAPTURE_QUEUE_KEY = "mosaCaptureQueueV1";
 const CAPTURE_QUEUE_ALARM = "mosa-capture-queue";
 const CAPTURE_QUEUE_MAX_ITEMS = 256;
 const CAPTURE_QUEUE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const CAPTURE_QUEUE_MAX_ATTEMPTS = 3;
 const LEGACY_DEV_TOKEN = "mosa-web-capture-dev";
 const WEB_IMAGE_PROVIDERS = new Set(["chatgpt", "gemini", "flow", "google-ai-studio"]);
 const WEB_VIDEO_PROVIDERS = new Set(["flow", "google-ai-studio"]);
@@ -115,6 +116,19 @@ async function readCaptureQueue() {
     .slice(-CAPTURE_QUEUE_MAX_ITEMS);
 }
 
+async function pruneStoredCaptureQueue() {
+  queueMutationPromise = queueMutationPromise.then(async () => {
+    const stored = await chrome.storage.local.get({ [CAPTURE_QUEUE_KEY]: [] });
+    const raw = Array.isArray(stored[CAPTURE_QUEUE_KEY]) ? stored[CAPTURE_QUEUE_KEY] : [];
+    const now = Date.now();
+    const next = raw
+      .filter((item) => item && item.payload && now - Number(item.createdAt || 0) <= CAPTURE_QUEUE_MAX_AGE_MS)
+      .slice(-CAPTURE_QUEUE_MAX_ITEMS);
+    if (next.length !== raw.length) await writeCaptureQueue(next);
+  });
+  await queueMutationPromise;
+}
+
 async function writeCaptureQueue(queue) {
   await chrome.storage.local.set({ [CAPTURE_QUEUE_KEY]: queue.slice(-CAPTURE_QUEUE_MAX_ITEMS) });
 }
@@ -160,6 +174,12 @@ async function markQueuedCaptureFailure(id, error) {
   await queueMutationPromise;
 }
 
+function mosaUnavailableError(message) {
+  const error = new Error(message);
+  error.code = "MOSA_UNAVAILABLE";
+  return error;
+}
+
 async function ingestWithQueue(payload = {}) {
   const queueId = await enqueueCapture(payload);
   try {
@@ -174,6 +194,7 @@ async function ingestWithQueue(payload = {}) {
 function drainCaptureQueue() {
   if (queueDrainPromise) return queueDrainPromise;
   queueDrainPromise = (async () => {
+    await pruneStoredCaptureQueue();
     const queue = await readCaptureQueue();
     if (!queue.length) return;
     for (const item of queue) {
@@ -182,9 +203,10 @@ function drainCaptureQueue() {
         await removeQueuedCapture(item.id);
       } catch (error) {
         await markQueuedCaptureFailure(item.id, error);
-        // MOSA being offline affects every queued item. Stop here rather than
-        // repeatedly downloading large media into a dead local endpoint.
-        break;
+        if (error?.code === "MOSA_UNAVAILABLE") break;
+        if (Number(item.attempts || 0) + 1 >= CAPTURE_QUEUE_MAX_ATTEMPTS) {
+          await removeQueuedCapture(item.id);
+        }
       }
     }
   })().finally(() => { queueDrainPromise = undefined; });
@@ -256,14 +278,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         throw new Error("Unknown or invalid video transfer chunk.");
       }
       if (!transfer.chunks[index]) {
-        const decodedBytes = Math.floor(chunkBase64.length * 3 / 4)
-          - (chunkBase64.endsWith("==") ? 2 : chunkBase64.endsWith("=") ? 1 : 0);
-        transfer.receivedBytes += decodedBytes;
+        const chunkBytes = base64ToBytes(chunkBase64);
+        transfer.receivedBytes += chunkBytes.byteLength;
         if (transfer.receivedBytes > transfer.totalBytes || transfer.receivedBytes > MAX_VIDEO_BYTES) {
           chunkedVideoTransfers.delete(transferId);
           throw new Error("Chunked video exceeds declared size.");
         }
-        transfer.chunks[index] = chunkBase64;
+        // Decode each chunk immediately so the service worker never retains a
+        // full-video Base64 copy alongside the binary payload.
+        transfer.chunks[index] = chunkBytes;
       }
       sendResponse({ ok: true });
     } catch (error) {
@@ -281,8 +304,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
     chunkedVideoTransfers.delete(transferId);
-    const binaryParts = transfer.chunks.map((chunk) => base64ToBytes(chunk));
-    ingestToMosa(transfer.payload, { binaryParts })
+    ingestToMosa(transfer.payload, { binaryParts: transfer.chunks })
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
     return true;
@@ -555,6 +577,24 @@ function assertAllowedRemoteMediaUrl(value) {
   if (!allowed) throw new Error("Unsupported media host.");
 }
 
+function sanitizeProvenanceUrl(value) {
+  if (!value) return "";
+  try {
+    const url = new URL(String(value));
+    if (url.protocol !== "https:") return "";
+    const retained = new URLSearchParams();
+    for (const key of ["id", "cid", "name", "asset_id", "assetId", "media_id", "mediaId"]) {
+      const entry = url.searchParams.get(key);
+      if (entry) retained.set(key, entry.slice(0, 512));
+    }
+    url.search = retained.toString();
+    url.hash = "";
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
 function binaryCaptureEnvelope(metadata, parts) {
   const metadataBytes = new TextEncoder().encode(JSON.stringify(metadata));
   if (metadataBytes.byteLength > 256 * 1024) throw new Error("Capture metadata is too large.");
@@ -590,7 +630,7 @@ async function ingestToMosa(payload = {}, { binaryParts = null } = {}) {
   if (!mediaBase64 && !mediaBinaryParts && mediaUrl) {
     if (!await ensureMosaAvailable(baseUrl)) {
       const repaired = await repairPairing().catch(() => null);
-      if (!repaired) throw new Error(`无法连接 MOSA (${baseUrl})。请确认 MOSA App 正在运行。`);
+      if (!repaired) throw mosaUnavailableError(`无法连接 MOSA (${baseUrl})。请确认 MOSA App 正在运行。`);
       baseUrl = repaired.baseUrl;
       token = repaired.token;
     }
@@ -617,8 +657,8 @@ async function ingestToMosa(payload = {}, { binaryParts = null } = {}) {
     height: Number(payload.height) || 0,
     durationSeconds: Number.isFinite(Number(payload.durationSeconds)) ? Number(payload.durationSeconds) : null,
     pageUrl: payload.pageUrl || "",
-    sourceMediaUrl: mediaUrl || payload.sourceMediaUrl || "",
-    finalMediaUrl: finalMediaUrl || payload.finalMediaUrl || "",
+    sourceMediaUrl: sanitizeProvenanceUrl(mediaUrl || payload.sourceMediaUrl || ""),
+    finalMediaUrl: sanitizeProvenanceUrl(finalMediaUrl || payload.finalMediaUrl || ""),
     conversationId: payload.conversationId || "",
     messageId: payload.messageId || "",
     generationContextId: payload.generationContextId || "",
@@ -659,11 +699,16 @@ async function ingestToMosa(payload = {}, { binaryParts = null } = {}) {
     const repaired = await repairPairing().catch(() => null);
     if (!repaired) {
       const msg = error instanceof Error ? error.message : String(error);
-      throw new Error(`无法连接 MOSA (${baseUrl})：${msg}。请确认 MOSA App 正在运行。`);
+      throw mosaUnavailableError(`无法连接 MOSA (${baseUrl})：${msg}。请确认 MOSA App 正在运行。`);
     }
     baseUrl = repaired.baseUrl;
     token = repaired.token;
-    response = await requestIngest();
+    try {
+      response = await requestIngest();
+    } catch (retryError) {
+      const msg = retryError instanceof Error ? retryError.message : String(retryError);
+      throw mosaUnavailableError(`无法连接 MOSA (${baseUrl})：${msg}。请确认 MOSA App 正在运行。`);
+    }
   }
 
   if (response.status === 401 || response.status === 403) {

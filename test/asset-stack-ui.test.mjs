@@ -45,7 +45,6 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
   assert.match(doubleClick, /assetStacks\.enterStack\(asset\.stack\.id, asset\.stack\)/,
     "collapsed Stack double-click opens the Stack");
   assert.match(app, /asset-stack-count/);
-  assert.match(app, /galleryEntryAssetCount/);
   assert.match(app, /stackMatchAccessibleName/);
   assert.match(css, /\.asset-card\.is-stack \.card-actions \{ opacity: 0; pointer-events: none; \}/);
   assert.match(app, /actions\?\.setAttribute\("inert", ""\)/);
@@ -105,6 +104,5 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
   assert.match(i18n, /operationInProgress:/);
   assert.match(i18n, /searchStack:/);
   assert.match(i18n, /stackMatchCount:/);
-  assert.match(i18n, /galleryEntryAssetCount:/);
   assert.match(i18n, /dissolveStack:/);
 });

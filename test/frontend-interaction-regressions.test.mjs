@@ -488,6 +488,8 @@ test("library updates use a realtime event stream with revision polling as fallb
   assert.match(apiClient, /function noteLibraryRevision\(revision\)/);
   assert.match(apiClient, /async function reconcileLibraryRevision\(revision\)/);
   assert.match(apiClient, /return reloadLoadedAssetPages\(\{ background: true \}\)/, "revision-triggered refreshes reconcile the complete loaded window");
+  assert.match(apiClient, /return statsRefreshed !== false && assetsRefreshed !== false;/,
+    "a failed or stale background loader must not consume the advertised library revision");
   assert.match(apiClient, /\/api\/library-revision\?project=/, "periodic revision polling remains as a reconnect/failure fallback");
 });
 

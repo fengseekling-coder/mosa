@@ -145,7 +145,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.14.7");
+  assert.equal(manifest.version, "0.14.8");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://aistudio.google.com/*"],
@@ -172,6 +172,8 @@ test("Google adapters capture visible images and supported Flow / AI Studio vide
   assert.match(providerSource, /function flowMediaIdFromImage\(img\)/);
   assert.match(providerSource, /media\.getMediaUrlRedirect/);
   assert.match(providerSource, /function captureFlowMediaThumbnail\(img\)/);
+  assert.match(providerSource, /if \(!mediaId \|\| !isVisibleFlowMediaThumbnail\(img\)\) return false;/,
+    "Flow media capture must not require Prompt text to render before the media");
   assert.match(providerSource, /type: "mosa\.probeFlowMedia"/);
   assert.match(providerSource, /probe\.mediaKind === "video"/);
   assert.match(providerSource, /function isVisibleGeneratedVideo\(video\)/);
@@ -962,6 +964,12 @@ test("background limits generated video capture to Flow and Google AI Studio", (
   assert.match(backgroundSource, /message\.type === "mosa\.beginVideoTransfer"/);
   assert.match(backgroundSource, /message\.type === "mosa\.videoTransferChunk"/);
   assert.match(backgroundSource, /message\.type === "mosa\.commitVideoTransfer"/);
+  assert.match(backgroundSource, /transfer\.chunks\[index\] = chunkBytes/,
+    "chunked video transfer should retain decoded bytes instead of a full Base64 copy");
+  assert.match(backgroundSource, /CAPTURE_QUEUE_MAX_ATTEMPTS = 3/);
+  assert.match(backgroundSource, /await pruneStoredCaptureQueue\(\)/);
+  assert.match(backgroundSource, /error\?\.code === "MOSA_UNAVAILABLE"/);
+  assert.match(backgroundSource, /function sanitizeProvenanceUrl\(value\)/);
   assert.match(backgroundSource, /function assertAllowedRemoteMediaUrl\(value\)/);
   assert.match(backgroundSource, /const MAX_VIDEO_BYTES = 96 \* 1024 \* 1024/);
   assert.match(backgroundSource, /message\.type === "mosa\.probeFlowMedia"/);
@@ -1486,7 +1494,7 @@ test("binds prompt and asset when one image call splits them across nested reque
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.14.7");
+  assert.equal(manifest.version, "0.14.8");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);

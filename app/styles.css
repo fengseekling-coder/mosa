@@ -307,7 +307,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
    which keeps its native title bar. */
 .topbar { -webkit-app-region: drag; }
 .topbar button, .topbar input, .topbar select, .topbar a, .topbar label, .topbar .type-filter, .topbar .topbar-search, .topbar .topbar-utility-group, .topbar .topbar-work-group { -webkit-app-region: no-drag; }
-/* Phase 2B / F-18：顶栏语义分组。context=范围标题+计数（占据剩余空间，可截断）；
+/* Phase 2B / F-18：顶栏语义分组。context=范围标题+类型筛选（占据剩余空间，可截断）；
    actions 内 utility/work/primary 三个操作组，组间 --space-1，组内 6px（延续既有 .topbar-right 运行值）；
    primary 前一道细分隔线（Border Token）标出唯一主操作，无卡片容器/阴影/渐变。 */
 .topbar-context { display: flex; min-width: 0; flex: 1 1 auto; align-items: baseline; }
@@ -315,8 +315,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .topbar-type-filters { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; margin-left: var(--space-2); }
 .type-filter { display: inline-flex; align-items: center; gap: 6px; height: var(--control-sm); padding: 0 12px; border: 0; border-radius: 6px; color: var(--color-text-secondary); background: transparent; font-size: 12px; cursor: pointer; }
 .type-filter.active { color: var(--color-text-primary); background: var(--app-chip-active); font-weight: 500; }
-/* V2 FilterBar：结果计数（顶栏右侧，排序之前）。 */
-.topbar-result-count { flex: 0 0 auto; padding: 0 8px; color: var(--color-text-tertiary); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* V2 FilterBar：唯一搜索框位于顶栏右侧（筛选之后），256px 定宽、32px 高；
    图标装饰（aria-hidden），accessible name 由 input aria-label 提供；
    清除沿用原生 type="search"；焦点态只改变底色，不增加外扩描边或光晕。 */
@@ -1269,14 +1267,13 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .topbar-type-filters { margin-left: 0; gap: 4px; }
 .mosa-v2 .type-filter { height: 32px; gap: 6px; padding: 0 12px; border-radius: 6px; font-size: 12px; }
 .mosa-v2 .type-filter.active { background: var(--app-chip-active); }
-.mosa-v2 .topbar-result-count { padding: 0 8px; color: var(--color-text-tertiary); font-size: 12px; }
 .mosa-v2 .topbar-search input { box-sizing: border-box; border: 0; background: transparent; font-size: 12px; }
 .mosa-v2 .topbar-search input:focus, .mosa-v2 .topbar-search input:focus-visible { border-color: transparent; box-shadow: none; outline: 0; }
 
 .mosa-v2 .library { background: var(--app-bg); }
 .mosa-v2 .topbar { box-sizing: border-box; gap: 8px; height: var(--topbar-height); min-height: var(--topbar-height); padding: 0 24px; border: 0; background: transparent; }
 .mosa-v2 .topbar-context { flex: 1 1 auto; align-items: center; }.mosa-v2 .title-row { display: flex; align-items: baseline; gap: 8px; }
-.mosa-v2 .title-row h2 { color: var(--color-text-primary); font-size: 16px; font-weight: 600; letter-spacing: -.01em; }.mosa-v2 #assetCount { color: var(--color-text-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; }
+.mosa-v2 .title-row h2 { color: var(--color-text-primary); font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
 .mosa-v2 .topbar-actions { gap: 8px; }.mosa-v2 .topbar-utility-group { display: contents; }.mosa-v2 .topbar-work-group { gap: 4px; }.mosa-v2 .topbar-primary-group { display: flex; }
 .mosa-v2 .toolbar-filter, .mosa-v2 .toolbar-icon, .mosa-v2 .sort-control select { height: 32px; border: 1px solid var(--color-border-subtle); border-radius: 8px; color: var(--color-text-secondary); background: var(--app-input); box-shadow: none; font-size: 12px; }
 .mosa-v2 .toolbar-filter { gap: 6px; padding: 0 10px; }.mosa-v2 .toolbar-filter[aria-pressed="true"] { color: var(--color-text-primary); background: var(--app-chip-active); }
@@ -1834,7 +1831,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .topbar-context { flex: 0 0 auto; padding-left: 52px; }
   .mosa-v2 .topbar-actions { display: block; }
   .mosa-v2 .topbar-work-group { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
-  .mosa-v2 .topbar-result-count { margin-right: auto; padding-left: 0; }
   .mosa-v2 .topbar-search { box-sizing: border-box; width: 100%; order: 4; }
   .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 16px 16px; }
   .mosa-v2 .grid { column-gap: var(--gallery-gap); row-gap: 0; }

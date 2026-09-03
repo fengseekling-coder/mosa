@@ -140,8 +140,9 @@ test("separates loading, failed, empty and populated gallery states", async () =
   assert.match(app, /state\.galleryStatus = "error"/);
   // The skeleton is painted before the first request, not after it fails.
   assert.match(app, /bindEvents\(\);[\s\S]*?renderGrid\(\);/);
-  // A count of zero must not appear while the first request is open.
-  assert.match(app, /state\.galleryStatus === "loading"\s*\n?\s*\? t\("galleryLoading"\)/);
+  // Loading remains announced by the skeleton even though the topbar no longer
+  // renders a result/statistics counter.
+  assert.match(app, /gallery-skeleton[\s\S]*?t\("galleryLoading"\)/);
   assert.match(css, /\.gallery-skeleton \{/);
   assert.match(css, /\.asset-skeleton \{/);
   // The skeleton is painted from module scope, so anything it reads must be
