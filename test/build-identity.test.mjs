@@ -129,6 +129,14 @@ test("the repository app/ directory has a build-identity.json with valid fields"
   resetBuildIdentityCache();
 });
 
+test("build identity exists only under app/ and never at the repository root", async () => {
+  await assert.rejects(
+    readFile(join(repositoryRoot, "build-identity.json"), "utf8"),
+    (error) => error?.code === "ENOENT",
+    "repository-root build-identity.json is a stale generated-file location and must stay absent",
+  );
+});
+
 test("uiFingerprint in build-identity.json matches the actual browser-delivered app shell", async () => {
   const appDir = join(repositoryRoot, "app");
   resetBuildIdentityCache();

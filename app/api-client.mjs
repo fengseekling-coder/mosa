@@ -66,7 +66,7 @@ export function createApiClient(deps) {
       state.supportedMediaExtensions = Array.isArray(library.supportedMediaExtensions) ? library.supportedMediaExtensions : [];
       updateCodexHint();
     }
-    const nextGroups = { total: 0, favorites: 0, recent: 0, trash: 0, codex: 0, cowart: 0, grok: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0, ...(result.groups || {}) };
+    const nextGroups = { total: 0, favorites: 0, recent: 0, unorganized: 0, trash: 0, codex: 0, cowart: 0, grok: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0, ...(result.groups || {}) };
     const changed = JSON.stringify(nextGroups) !== JSON.stringify(state.groups);
     state.groups = nextGroups;
     if (!options.background || changed) {
@@ -98,6 +98,7 @@ export function createApiClient(deps) {
     if (options.cursor) params.set("cursor", options.cursor);
     if (request.scope === "favorite") params.set("favorite", "1");
     else if (request.scope === "recent") params.set("recent", "1");
+    else if (request.scope === "unorganized") params.set("unorganized", "1");
     else if (request.scope === "trash") params.set("trash", "1");
     if (request.mediaKind && request.mediaKind !== "all") params.set("mediaKind", request.mediaKind);
     for (const key of FACET_KEYS) {

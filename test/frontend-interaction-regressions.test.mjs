@@ -149,6 +149,24 @@ test("sidebar smart and manual groups collapse independently and keep compact na
   assert.match(css, /\.mosa-v2 \.sidebar-section-toggle\[aria-expanded="false"\] \.sidebar-section-chevron \{ transform: rotate\(-90deg\); \}/);
 });
 
+test("sidebar primary, smart-source, and manual-group navigation stay mutually exclusive", async () => {
+  const app = await readApp();
+  const navigation = sliceBetween(app, "function isSidebarNavigationActive", "function toggleFacet");
+  const rendering = sliceBetween(app, "function renderQuickFilters()", "function syncSidebarSectionVisibility()");
+
+  assert.match(navigation, /function setSidebarNavigationState\(type, value = ""\)/);
+  assert.match(navigation, /state\.facets\.source = "";\s*state\.facets\.group = "";/,
+    "switching sidebar zones clears the other group/source selection");
+  assert.match(navigation, /state\.scope = "all";\s*state\.facets\.source = "";\s*state\.facets\.group = "";\s*if \(!wasActive\) state\.facets\[navType\] = navValue;/,
+    "smart/manual group navigation replaces the primary scope instead of intersecting it");
+  assert.match(rendering, /isSidebarNavigationActive\(button\.dataset\.filter\)/,
+    "primary navigation active styling uses the shared exclusive selection");
+  assert.match(rendering, /isSidebarNavigationActive\("source", sourceType\)/,
+    "smart groups use the same exclusive active-state rule");
+  assert.match(rendering, /isSidebarNavigationActive\("group", groupName\)/,
+    "manual groups use the same exclusive active-state rule");
+});
+
 test("group deletion uses a second confirmation to decide whether assets are kept", async () => {
   const [actions, dialog, html, translations] = await Promise.all([
     readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
@@ -172,17 +190,24 @@ test("group deletion uses a second confirmation to decide whether assets are kep
   assert.equal(translations.zh.deleteGroupAssetsAction, "移到回收站");
 });
 
-test("Trash is a first-class 90-day scope with restore and permanent-delete actions", async () => {
-  const [config, html, app, client, actions, translations] = await Promise.all([
+test("Unorganized replaces Recent in primary navigation and Trash remains a first-class 90-day scope", async () => {
+  const [config, html, app, client, routes, actions, translations] = await Promise.all([
     readFile(resolve(root, "app/config.mjs"), "utf8"),
     readFile(resolve(root, "app/index.html"), "utf8"),
     readFile(resolve(root, "app/app.mjs"), "utf8"),
     readFile(resolve(root, "app/api-client.mjs"), "utf8"),
+    readFile(resolve(root, "lib/api/asset-routes.mjs"), "utf8"),
     readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
     import(pathToFileURL(resolve(root, "app/i18n.mjs")).href).then((module) => module.default),
   ]);
-  assert.match(config, /SCOPES = \["all", "favorite", "recent", "trash"\]/);
-  assert.match(html, /data-filter="recent"[\s\S]*?data-filter="trash"/, "Trash sits directly after Recent in the primary navigation");
+  assert.match(config, /SCOPES = \["all", "favorite", "unorganized", "trash"\]/);
+  assert.match(html, /data-filter="unorganized"[\s\S]*?data-filter="trash"/, "Trash sits directly after Unorganized in the primary navigation");
+  assert.doesNotMatch(html, /data-filter="recent"/, "Recent is no longer a primary navigation destination");
+  assert.equal(translations.zh.unorganized, "未整理");
+  assert.equal(translations.en.unorganized, "Unorganized");
+  assert.match(client, /request\.scope === "unorganized"[\s\S]*?params\.set\("unorganized", "1"\)/);
+  assert.match(routes, /unorganized: url\.searchParams\.get\("unorganized"\) === "1"/);
+  assert.match(app, /unorganized: state\.groups\.unorganized/);
   assert.match(html, /id="emptyTrashBtn"/);
   assert.match(client, /request\.scope === "trash"[\s\S]*?params\.set\("trash", "1"\)/);
   assert.match(app, /TRASH_RETENTION_MS = 90 \* 24 \* 60 \* 60 \* 1000/);

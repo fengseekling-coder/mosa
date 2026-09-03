@@ -13,6 +13,11 @@ import forgeConfig, {
   resolveDesktopPackagingTarget,
 } from "../desktop/forge.config.mjs";
 import {
+  DESKTOP_ICON_SOURCE_PATH,
+  desktopIconBasePath,
+  generateDesktopIcons,
+} from "../desktop/icon-assets.mjs";
+import {
   assertDesktopPackagingNode,
   desktopPackagingNodeError,
 } from "../scripts/check-desktop-package-node.mjs";
@@ -29,6 +34,7 @@ test("desktop packaging accepts Node 22 and rejects other major versions", () =>
 test("packages MOSA with ASAR and unpacked native dependencies", () => {
   assert.equal(forgeConfig.outDir, "out");
   assert.equal(forgeConfig.packagerConfig.name, "MOSA");
+  assert.equal(forgeConfig.packagerConfig.icon, desktopIconBasePath({ outDir: "out" }));
   assert.equal(forgeConfig.packagerConfig.appBundleId, "com.azhuilab.mosa");
   const sign = forgeConfig.packagerConfig.osxSign;
   assert.equal(sign.identity, "-");
@@ -45,6 +51,7 @@ test("packages MOSA with ASAR and unpacked native dependencies", () => {
     "node_modules/@img/sharp-libvips-darwin-arm64",
   );
   assert.equal(typeof forgeConfig.hooks.packageAfterPrune, "function");
+  assert.equal(typeof forgeConfig.hooks.generateAssets, "function");
   assert.deepEqual(forgeConfig.packagerConfig.ignore, packageIgnorePatterns);
   assert.equal(forgeConfig.plugins.some((plugin) => plugin.name === "auto-unpack-natives"), true);
   assert.equal(forgeConfig.makers.some((maker) => maker.name === "zip"), true);
@@ -67,6 +74,7 @@ test("Windows Forge config omits mac signing and selects Windows native runtime 
   assert.equal("appBundleId" in config.packagerConfig, false);
   assert.equal("osxSign" in config.packagerConfig, false);
   assert.equal("osxNotarize" in config.packagerConfig, false);
+  assert.equal(config.packagerConfig.icon, desktopIconBasePath({ outDir: "out" }));
   assert.equal(config.packagerConfig.asar.unpackDir, "node_modules/@img/sharp-win32-x64");
   assert.equal(config.makers.some((maker) => maker.name === "zip" && maker.platforms.includes("win32")), true);
 
@@ -75,6 +83,29 @@ test("Windows Forge config omits mac signing and selects Windows native runtime 
   assert.equal(ignored("/node_modules/@img/sharp-win32-x64/package.json"), false);
   assert.equal(ignored("/node_modules/@img/sharp-darwin-arm64/package.json"), true);
   assert.equal(ignored("/node_modules/better-sqlite3/prebuilds/win32-x64.node"), false);
+});
+
+test("desktop icon source generates valid macOS and Windows icon containers", async (t) => {
+  const outputDir = await mkdtemp(join(tmpdir(), "mosa-desktop-icons-"));
+  t.after(() => rm(outputDir, { recursive: true, force: true }));
+
+  const source = await readFile(DESKTOP_ICON_SOURCE_PATH, "utf8");
+  assert.match(source, /linearGradient id="mosaGradient"/);
+  assert.match(source, /stroke-linecap="round"/);
+
+  const paths = await generateDesktopIcons({ outputDir });
+  const [icns, ico, png] = await Promise.all([
+    readFile(paths.icns),
+    readFile(paths.ico),
+    readFile(paths.png),
+  ]);
+
+  assert.equal(icns.subarray(0, 4).toString("ascii"), "icns");
+  assert.equal(icns.readUInt32BE(4), icns.length);
+  assert.equal(ico.readUInt16LE(0), 0);
+  assert.equal(ico.readUInt16LE(2), 1);
+  assert.equal(ico.readUInt16LE(4), 7);
+  assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 });
 
 test("release packaging fails closed when Apple signing credentials are incomplete", () => {
@@ -125,7 +156,9 @@ test("desktop package excludes every non-runtime project surface", () => {
     "/bin/mosa.mjs",
     "/CHANGELOG.md",
     "/COMMERCIAL-LICENSE.md",
+    "/desktop/assets/mosa-app-icon.svg",
     "/desktop/forge.config.mjs",
+    "/desktop/icon-assets.mjs",
     "/desktop/preload.mjs",
     "/dist/lib/server-security.js",
     "/docs/operations.md",

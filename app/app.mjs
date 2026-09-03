@@ -66,7 +66,7 @@ const state = {
   project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, selectedIds: new Set(), selectionProject: "default", detailAsset: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
-  groups: { total: 0, favorites: 0, recent: 0, trash: 0, codex: 0, cowart: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0 },
+  groups: { total: 0, favorites: 0, recent: 0, unorganized: 0, trash: 0, codex: 0, cowart: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0 },
   galleryStatus: "loading", galleryError: null, galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")), storageKind: "unknown",
   libraryPath: "", libraryRoot: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, groupSaving: false, libraryMoveInProgress: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
   dragCounter: 0,
@@ -1333,7 +1333,7 @@ function updateCodexHint() {
 }
 
 function updateViewTitle() {
-  const titles = { all: t("allAssets"), favorite: t("favorites"), recent: t("recent"), trash: t("trash") };
+  const titles = { all: t("allAssets"), favorite: t("favorites"), unorganized: t("unorganized"), trash: t("trash") };
   const hasFacets = Object.values(state.facets || {}).some(Boolean);
   const hasRefinements = Boolean(state.query || state.scope !== "all" || hasFacets
     || (state.mediaKind && state.mediaKind !== "all"));
@@ -1355,8 +1355,8 @@ function updateViewTitle() {
       ? t("searchGroup", { group: activeGroup })
       : state.scope === "favorite"
         ? t("searchFavorite")
-        : state.scope === "recent"
-          ? t("searchRecent")
+        : state.scope === "unorganized"
+          ? t("searchUnorganized")
           : state.scope === "trash"
             ? t("searchTrash")
             : t("searchAll");
@@ -1394,7 +1394,7 @@ function activeFilterChips() {
   if (state.scope !== "all") chips.push({
     kind: "scope",
     label: t("chipScope"),
-    value: state.scope === "favorite" ? t("favorites") : state.scope === "recent" ? t("recent") : t("trash"),
+    value: state.scope === "favorite" ? t("favorites") : state.scope === "unorganized" ? t("unorganized") : t("trash"),
   });
   if (state.mediaKind && state.mediaKind !== "all") chips.push({ kind: "type", label: t("typeFilter"), value: state.mediaKind === "img" ? t("typeImages") : t("typeVideos") });
   for (const key of FACET_KEYS) {
@@ -1944,19 +1944,60 @@ function setLanguage(value) {
   showToast(t("languageChanged"), "success");
 }
 
+function isSidebarNavigationActive(type, value = "") {
+  const hasSourceSelection = Boolean(state.facets.source);
+  const hasGroupSelection = Boolean(state.facets.group);
+  if (type === "source") {
+    return state.scope === "all" && !hasGroupSelection && state.facets.source === value;
+  }
+  if (type === "group") {
+    return state.scope === "all" && !hasSourceSelection && state.facets.group === value;
+  }
+  return SCOPES.includes(type) && !hasSourceSelection && !hasGroupSelection && state.scope === type;
+}
+
 /**
- * One entry point for every filter control. Scopes replace each other; facets
- * toggle, so picking a style no longer silently discards an active source.
+ * The sidebar is navigation, not a facet-builder. Its three visual zones
+ * (primary scopes, smart source groups, manual groups) share one selection.
+ * Other refinements such as media type/style may still refine that selection.
  */
+function setSidebarNavigationState(type, value = "") {
+  const mappedSource = type in SOURCE_FACETS ? SOURCE_FACETS[type] : "";
+  const navType = mappedSource ? "source" : type;
+  const navValue = mappedSource || value;
+
+  if (navType === "all") {
+    state.scope = "all";
+    clearFacets();
+    return true;
+  }
+
+  if (SCOPES.includes(navType)) {
+    state.scope = navType;
+    state.facets.source = "";
+    state.facets.group = "";
+    return true;
+  }
+
+  if (navType === "source" || navType === "group") {
+    const wasActive = isSidebarNavigationActive(navType, navValue);
+    state.scope = "all";
+    state.facets.source = "";
+    state.facets.group = "";
+    if (!wasActive) state.facets[navType] = navValue;
+    return true;
+  }
+
+  return false;
+}
+
+/** One entry point for sidebar navigation and legacy facet callers. */
 async function setFilter(type, value = "") {
   const valid = type === "all" || SCOPES.includes(type) || type in SOURCE_FACETS || FACET_KEYS.includes(type);
   if (!valid) return;
   if (!await confirmDetailNavigation(null)) return;
   discardDetailDraft();
-  if (type === "all") { state.scope = "all"; clearFacets(); }
-  else if (SCOPES.includes(type)) state.scope = type;
-  else if (type in SOURCE_FACETS) toggleFacet("source", SOURCE_FACETS[type]);
-  else if (FACET_KEYS.includes(type)) toggleFacet(type, value);
+  if (!setSidebarNavigationState(type, value) && FACET_KEYS.includes(type)) toggleFacet(type, value);
   applyFilterChange();
 }
 
@@ -2120,8 +2161,8 @@ function clearImportForm() {
 
 function renderQuickFilters() {
   if (!els.quickFilters) return;
-  const counts = { all: state.groups.total, favorite: state.groups.favorites, recent: state.groups.recent, trash: state.groups.trash };
-  els.quickFilters.querySelectorAll("[data-filter]").forEach((button) => { const active = button.dataset.filter === state.scope; button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active)); button.querySelector(".nav-count").textContent = counts[button.dataset.filter] ?? "—"; });
+  const counts = { all: state.groups.total, favorite: state.groups.favorites, unorganized: state.groups.unorganized, trash: state.groups.trash };
+  els.quickFilters.querySelectorAll("[data-filter]").forEach((button) => { const active = isSidebarNavigationActive(button.dataset.filter); button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active)); button.querySelector(".nav-count").textContent = counts[button.dataset.filter] ?? "—"; });
   renderSidebarGroups();
 }
 
@@ -2142,7 +2183,7 @@ function renderSidebarGroups() {
     .map((sourceType) => [sourceType, Number(counts.get(sourceType) || 0)])
     .filter(([, count]) => count > 0);
   const items = shown.map(([sourceType, count]) => {
-    const active = state.facets.source === sourceType;
+    const active = isSidebarNavigationActive("source", sourceType);
     const label = sourceTypeLabel(sourceType);
     const color = deterministicGroupColor(sourceType);
     return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="source" data-value="${escapeHtml(sourceType)}" type="button" aria-pressed="${active}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(label)}">${escapeHtml(label)}</span><span class="nav-count">${count}</span></button></li>`;
@@ -2154,7 +2195,7 @@ function renderSidebarGroups() {
     if (sidebarGroupEdit?.mode === "rename" && sidebarGroupEdit.originalName === groupName) {
       return sidebarGroupEditorMarkup(groupName, sidebarGroupEdit.value, colorForGroup(groupName));
     }
-    const active = state.facets.group === groupName;
+    const active = isSidebarNavigationActive("group", groupName);
     const color = colorForGroup(groupName);
     return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="group" data-value="${escapeHtml(groupName)}" type="button" aria-pressed="${active}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(groupName)}">${escapeHtml(groupName)}</span><span class="nav-count">${Number(count || 0)}</span></button></li>`;
   }).join("");

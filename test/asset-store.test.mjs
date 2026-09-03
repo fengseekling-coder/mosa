@@ -91,6 +91,16 @@ test("JSON group stats expose automatic source buckets for sidebar navigation", 
     (await store.listAssets({ projectId: "default", source: "web-chatgpt" })).map((asset) => asset.id).sort(),
     ["chatgpt-1", "chatgpt-2", "chatgpt-legacy"],
   );
+
+  assert.equal(stats.unorganized, 4, "assets without a manual group are counted as unorganized");
+  await store.createGroup({ projectId: "default", name: "Reviewed" });
+  await store.updateMetadata("default", "gemini-1", { group: "Reviewed" });
+  const afterGrouping = await store.listGroups("default");
+  assert.equal(afterGrouping.unorganized, 3, "assigning a manual group removes the asset from Unorganized");
+  assert.deepEqual(
+    (await store.listAssets({ projectId: "default", unorganized: true })).map((asset) => asset.id).sort(),
+    ["chatgpt-1", "chatgpt-2", "chatgpt-legacy"],
+  );
 });
 
 test("JSON favorite toggle is serialized and does not create a recipe revision", async (t) => {
