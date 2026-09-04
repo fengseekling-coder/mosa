@@ -1,7 +1,7 @@
 // API client + data loading（提取自 app.js，REFACTORING-PLAN R1 批次 3，附录 A #14）：
 // apiFetch 与全部数据加载函数移入本模块；state、els 与渲染回调经 createApiClient 工厂注入。
 // 请求语义/游标/顺序守卫与原先完全一致；请求序号等模块级状态随闭包迁移。
-import { FACET_KEYS } from "./config.mjs";
+import { FACET_KEYS, GALLERY_INITIAL_PAGE_SIZE, GALLERY_PAGE_SIZE } from "./config.mjs";
 
 export function createApiClient(deps) {
   const {
@@ -17,10 +17,16 @@ export function createApiClient(deps) {
     updateAssetViewNav,
     selectedAsset,
     isDetailEditorActive,
+    prewarmAssetMedia,
   } = deps;
 
   async function apiFetch(path, options = {}) {
-    const response = await fetch(path, { method: options.method || "GET", headers: options.body ? { "content-type": "application/json" } : undefined, body: options.body ? JSON.stringify(options.body) : undefined });
+    const response = await fetch(path, {
+      method: options.method || "GET",
+      headers: options.body ? { "content-type": "application/json" } : undefined,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
+    });
     const raw = await response.text();
     let payload = {};
     try { payload = raw ? JSON.parse(raw) : {}; }
@@ -79,6 +85,9 @@ export function createApiClient(deps) {
   }
 
   let assetRequestSequence = 0;
+  let assetPrefetchGeneration = 0;
+  const assetPrefetchTasks = new Map();
+  const prefetchedAssetPages = new Map();
   // Tracks the last result-set semantics that successfully committed to the
   // gallery. Refreshes of the same query/scope/sort must keep the user's
   // viewport; genuine result-set changes (search/filter/sort/project) start at
@@ -91,7 +100,8 @@ export function createApiClient(deps) {
   // 只读查询快照上取页，绝不读取运行中已变化的筛选状态；游标必须与发出时的排序同行。
   function buildAssetPageParams(request, options = {}) {
     const params = new URLSearchParams({ project: request.project, q: request.query });
-    params.set("limit", "100");
+    params.set("limit", String(Math.min(250, Math.max(1, Number(options.limit) || GALLERY_PAGE_SIZE))));
+    if (options.includeTotal === false) params.set("includeTotal", "0");
     // The sort is resolved by the store across the whole query, so the cursor must
     // travel with the same order it was issued under.
     params.set("sort", request.sort);
@@ -109,12 +119,13 @@ export function createApiClient(deps) {
 
   function requestAssetPage(request, options = {}) {
     const params = buildAssetPageParams(request, options);
-    if (request.stackId) return apiFetch(`/api/asset-stacks/${encodeURIComponent(request.stackId)}/assets?${params}`);
+    const fetchOptions = options.signal ? { signal: options.signal } : undefined;
+    if (request.stackId) return apiFetch(`/api/asset-stacks/${encodeURIComponent(request.stackId)}/assets?${params}`, fetchOptions);
     // `/api/assets` remains the raw asset collection for exports and other
     // data-oriented callers. The gallery opts into Stack collapsing explicitly
     // so visual organisation never changes the meaning of the underlying API.
     params.set("view", "gallery");
-    return apiFetch(`/api/assets?${params}`);
+    return apiFetch(`/api/assets?${params}`, fetchOptions);
   }
 
   function requestAssetTotal(request) {
@@ -123,6 +134,80 @@ export function createApiClient(deps) {
     if (request.stackId) return apiFetch(`/api/asset-stacks/${encodeURIComponent(request.stackId)}/assets?${params}`);
     params.set("view", "gallery");
     return apiFetch(`/api/assets?${params}`);
+  }
+
+  function resetAssetPrefetch() {
+    assetPrefetchGeneration += 1;
+    assetPrefetchTasks.forEach((task) => task.controller.abort());
+    assetPrefetchTasks.clear();
+    prefetchedAssetPages.clear();
+  }
+
+  function takePrefetchedAssetPage(request, cursor) {
+    const requestKey = assetRequestKey(request);
+    const entry = prefetchedAssetPages.get(cursor);
+    if (!entry || entry.requestKey !== requestKey) return null;
+    prefetchedAssetPages.delete(cursor);
+    const result = entry.result;
+    return result;
+  }
+
+  async function waitForPrefetchedAssetPage(request, cursor) {
+    const requestKey = assetRequestKey(request);
+    let result = takePrefetchedAssetPage(request, cursor);
+    if (result) return result;
+    const task = assetPrefetchTasks.get(cursor);
+    if (!task || task.requestKey !== requestKey) return null;
+    await task.promise;
+    result = takePrefetchedAssetPage(request, cursor);
+    return result;
+  }
+
+  /**
+   * Keep two complete gallery pages ready ahead of the viewport. The first
+   * buffer eliminates ordinary boundary waits; the second absorbs a very fast
+   * trackpad/scrollbar run without forcing the user onto the SQLite/HTTP path.
+   * The cache is cursor-keyed and reset transactionally whenever result-set
+   * semantics or the library revision changes.
+   */
+  async function prefetchAssetPageChain(request, cursor, depth, generation) {
+    if (!cursor || depth <= 0 || generation !== assetPrefetchGeneration) return false;
+    const requestKey = assetRequestKey(request);
+    let result = prefetchedAssetPages.get(cursor)?.requestKey === requestKey
+      ? prefetchedAssetPages.get(cursor).result
+      : null;
+    if (!result) {
+      let task = assetPrefetchTasks.get(cursor);
+      if (!task || task.requestKey !== requestKey) {
+        const controller = new AbortController();
+        task = { requestKey, cursor, controller, promise: null };
+        task.promise = requestAssetPage(request, { cursor, includeTotal: false, signal: controller.signal })
+          .then((page) => {
+            if (controller.signal.aborted || generation !== assetPrefetchGeneration) return null;
+            if (requestKey !== assetRequestKey(currentAssetRequest())) return null;
+            prefetchedAssetPages.set(cursor, { requestKey, result: page });
+            prewarmAssetMedia?.(page.assets || []);
+            return page;
+          })
+          .catch(() => null)
+          .finally(() => {
+            if (assetPrefetchTasks.get(cursor) === task) assetPrefetchTasks.delete(cursor);
+          });
+        assetPrefetchTasks.set(cursor, task);
+      }
+      result = await task.promise;
+    }
+    if (!result || generation !== assetPrefetchGeneration) return false;
+    const nextCursor = result.page?.nextCursor || null;
+    if (nextCursor && depth > 1) await prefetchAssetPageChain(request, nextCursor, depth - 1, generation);
+    return true;
+  }
+
+  function prefetchNextAssetPage() {
+    const cursor = state.nextCursor;
+    if (!cursor || document.hidden) return Promise.resolve(false);
+    const request = currentAssetRequest();
+    return prefetchAssetPageChain(request, cursor, 2, assetPrefetchGeneration);
   }
 
   // Gallery busy is owned by the single results container. A completion may clear
@@ -144,12 +229,23 @@ export function createApiClient(deps) {
     const requestId = ++assetRequestSequence;
     const request = currentAssetRequest();
     const requestKey = assetRequestKey(request);
+    const appendCursor = options.append ? state.nextCursor : null;
+    if (!options.append) resetAssetPrefetch();
     const preserveScroll = options.preserveScroll
       ?? (options.append || lastCommittedAssetRequestKey === requestKey);
     setGalleryBusy(true, requestId, request);
     let result;
     try {
-      result = await requestAssetPage(request, { cursor: options.append ? state.nextCursor : null });
+      result = options.append && appendCursor
+        ? await waitForPrefetchedAssetPage(request, appendCursor)
+        : null;
+      if (!result) {
+        result = await requestAssetPage(request, {
+          cursor: appendCursor,
+          includeTotal: !options.append,
+          limit: options.append ? GALLERY_PAGE_SIZE : GALLERY_INITIAL_PAGE_SIZE,
+        });
+      }
     } catch (error) {
       if (!isCurrentAssetRequest(requestId, request)) return false;
       if (request.stackId && error?.code === "STACK_NOT_FOUND") {
@@ -209,7 +305,12 @@ export function createApiClient(deps) {
     // The request answered, so an empty result is now genuinely an empty library.
     state.galleryStatus = "ready";
     state.galleryError = null;
-    state.pageTotal = Number(result.page?.total || nextAssets.length);
+    const reportedTotal = result.page?.total;
+    if (reportedTotal !== null && reportedTotal !== undefined && Number.isFinite(Number(reportedTotal))) {
+      state.pageTotal = Number(reportedTotal);
+    } else if (!options.append) {
+      state.pageTotal = nextAssets.length;
+    }
     state.nextCursor = result.page?.nextCursor || null;
     state.loadedPageCount = options.append ? state.loadedPageCount + 1 : 1;
     if (preserveDirtySelection) state.detailAsset = previousSelected;
@@ -218,9 +319,10 @@ export function createApiClient(deps) {
     if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)
       && !(state.detailAsset?.id === state.selectedId && state.detailAsset.project_id === request.project)) state.selectedId = null;
     if (!options.background || assetsChanged) {
-      // F-24：入场动画只用于首次加载或追加页（新卡片），搜索/筛选/排序/后台刷新
-      // 的普通重渲染不重复播放整页动画。
-      renderGrid({ animate: options.append || previousAssets.length === 0,
+      // Entry motion is a first-paint affordance only. Infinite-scroll pages
+      // join the existing masonry without a reveal animation so pagination
+      // never announces itself visually.
+      renderGrid({ animate: !options.append && previousAssets.length === 0,
         animateFrom: options.append ? previousAssets.length : 0,
         preserveScroll,
       });
@@ -238,6 +340,7 @@ export function createApiClient(deps) {
     if (state.viewMode === "asset") updateAssetViewNav();
     if (!options.append && state.loadedPageCount <= 1) noteLibraryRevision(result.revision);
     setGalleryBusy(false, requestId, request);
+    if (state.nextCursor) void prefetchNextAssetPage();
     return true;
   }
 
@@ -385,6 +488,7 @@ export function createApiClient(deps) {
     if (revision == null) return false;
     const nextRevision = String(revision);
     if (nextRevision === lastLibraryRevision) return false;
+    resetAssetPrefetch();
     const refreshed = await refreshLibraryInBackground();
     if (refreshed) lastLibraryRevision = nextRevision;
     return refreshed;
@@ -447,6 +551,6 @@ export function createApiClient(deps) {
     apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged,
     refreshAssetPageTotalInBackground, refreshLoadedAssetsInBackground, reloadLoadedAssetPages,
     buildAssetPageParams, requestAssetPage, requestAssetTotal, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion,
-    noteLibraryRevision, reconcileLibraryRevision,
+    noteLibraryRevision, reconcileLibraryRevision, prefetchNextAssetPage, resetAssetPrefetch,
   };
 }

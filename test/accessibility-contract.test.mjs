@@ -311,7 +311,7 @@ test("commits Inspector discards transactionally and keeps result-set mutations 
     "import discards the old Inspector draft only after asset creation succeeds");
   assert.match(app, /async function saveGroup\(\)[\s\S]*?await apiFetch\("\/api\/groups"[\s\S]*?discardDetailDraft\(\);[\s\S]*?clearDetailSelection\(\);/,
     "group creation keeps the old draft dirty until the group mutation succeeds");
-  assert.match(contextBindings, /Promise\.allSettled\(\[loadStats\(\), loadAssets\(\)\]\)/,
+  assert.match(contextBindings, /const assetRefresh =[\s\S]*?Promise\.allSettled\(\[loadStats\(\{ background: true \}\), assetRefresh\]\)/,
     "context-menu refresh failures are observed instead of becoming unhandled rejections");
   assert.match(app, /event\.key === "\/"[\s\S]*?els\.imagePreviewModal\?\.hidden[\s\S]*?els\.settingsMenu\?\.hidden/,
     "the global search shortcut cannot pierce the image preview or Settings modal");

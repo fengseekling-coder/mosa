@@ -193,7 +193,8 @@ test("10. Main app reduced-motion coverage complete", async () => {
   }
 });
 
-// 11. Card entrance animation only fires for first load / append pages.
+// 11. Card entrance animation is a first-paint affordance only. Infinite-scroll
+// pages must join the masonry without announcing the pagination boundary.
 test("11. Card animation is conditional and not replayed on ordinary renders", async () => {
   const css = await readCss();
   const baseRule = css.match(/\.asset-card \{[^}]*\}/)?.[0] || "";
@@ -205,7 +206,7 @@ test("11. Card animation is conditional and not replayed on ordinary renders", a
   assert.match(grid, /function renderGrid\(\) \{/, "renderGrid signature stays contract-locked");
   assert.match(grid, /animate = false/, "renderGrid accepts animation options via arguments");
   assert.match(grid, /card-enter/, "renderGrid emits card-enter");
-  assert.match(functionSlice(apiClient, "loadAssets"), /renderGrid\(\{ animate: options\.append \|\| previousAssets\.length === 0,/, "loadAssets gates animation to first load or append");
+  assert.match(functionSlice(apiClient, "loadAssets"), /renderGrid\(\{ animate: !options\.append && previousAssets\.length === 0,/, "loadAssets limits entrance motion to the first populated paint");
 });
 
 // 12. Icon-only buttons keep consistent accessible names (native title tooltip).

@@ -285,6 +285,245 @@ test("deduplicated ChatGPT output advances generation status from partial to com
   assert.equal(events[0].provider_generation_call_id, "gen-status");
 });
 
+test("completed ChatGPT bytes replace an earlier provisional asset with the same provider asset id", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-provisional-replace-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  t.after(() => store.close?.());
+  await store.ensureProject("default");
+  const tempRoot = join(libraryDir, ".web-capture-tmp");
+  const providerAssetId = "file-progressive-output";
+  const provisionalBytes = await noiseImage(221);
+  const finalBytes = await noiseImage(222);
+
+  const provisional = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: {
+      provider: "chatgpt",
+      imageBase64: provisionalBytes.toString("base64"),
+      mimeType: "image/png",
+      conversationId: "progressive-conversation",
+      messageId: "progressive-message",
+      generationContextId: "chatgpt:progressive-conversation:call-progressive",
+      providerGenerationCallId: "gen-progressive",
+      providerAssetId,
+      generationStatus: "in_progress",
+      capturedAt: "2026-09-03T20:00:00.000Z",
+    },
+  });
+  assert.equal(provisional.status, "imported");
+
+  const completed = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: {
+      provider: "chatgpt",
+      imageBase64: finalBytes.toString("base64"),
+      mimeType: "image/png",
+      conversationId: "progressive-conversation",
+      messageId: "progressive-message",
+      generationContextId: "chatgpt:progressive-conversation:call-progressive",
+      providerGenerationCallId: "gen-progressive",
+      providerAssetId,
+      generationStatus: "completed",
+      capturedAt: "2026-09-03T20:00:05.000Z",
+    },
+  });
+  assert.equal(completed.status, "imported");
+  assert.equal(completed.replacedAssetId, provisional.asset.id);
+  assert.equal(completed.asset.id, provisional.asset.id, "terminal media upgrades preserve the logical asset id");
+  const assets = await store.listAssets({ projectId: "default" });
+  const logical = assets.filter((asset) => asset.source?.provider_asset_id === providerAssetId);
+  assert.equal(logical.length, 1);
+  assert.equal(logical[0].id, completed.asset.id);
+  assert.equal(logical[0].source?.generation_status, "completed");
+  assert.notEqual(logical[0].source?.content_sha256, provisional.asset.source?.content_sha256);
+});
+
+for (const terminalStatus of ["failed", "cancelled"]) {
+  test(`${terminalStatus} ChatGPT output keeps the final visible bytes on the same logical asset`, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), `mosa-web-${terminalStatus}-replace-`));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const libraryDir = join(root, "library");
+    await mkdir(libraryDir, { recursive: true });
+    const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+    t.after(() => store.close?.());
+    await store.ensureProject("default");
+    const tempRoot = join(libraryDir, ".web-capture-tmp");
+    const providerAssetId = `file-${terminalStatus}-visible-output`;
+    const provisional = await ingestWebCapture({
+      store,
+      tempRoot,
+      input: {
+        provider: "chatgpt",
+        imageBase64: (await noiseImage(231)).toString("base64"),
+        mimeType: "image/png",
+        providerAssetId,
+        generationStatus: "in_progress",
+      },
+    });
+    const terminal = await ingestWebCapture({
+      store,
+      tempRoot,
+      input: {
+        provider: "chatgpt",
+        imageBase64: (await noiseImage(232)).toString("base64"),
+        mimeType: "image/png",
+        providerAssetId,
+        generationStatus: terminalStatus,
+      },
+    });
+    assert.equal(terminal.status, "imported");
+    assert.equal(terminal.asset.id, provisional.asset.id);
+    assert.equal(terminal.asset.source?.generation_status, terminalStatus);
+    assert.notEqual(terminal.asset.source?.content_sha256, provisional.asset.source?.content_sha256);
+    assert.equal((await store.listAssets({ projectId: "default" })).length, 1);
+  });
+}
+
+test("output-scoped URL fallback upgrades one ChatGPT output without collapsing siblings", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-output-url-fallback-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  t.after(() => store.close?.());
+  await store.ensureProject("default");
+  const tempRoot = join(libraryDir, ".web-capture-tmp");
+  const common = {
+    provider: "chatgpt",
+    mimeType: "image/png",
+    conversationId: "multi-output-conversation",
+    messageId: "multi-output-message",
+    generationContextId: "chatgpt:multi-output-conversation:call-multi",
+    providerGenerationCallId: "gen-multi",
+  };
+  const firstUrl = "https://images.openai.com/output-a.png?id=output-a";
+  const secondUrl = "https://images.openai.com/output-b.png?id=output-b";
+  const first = await ingestWebCapture({
+    store,
+    tempRoot,
+    input: {
+      ...common,
+      imageBase64: (await noiseImage(241)).toString("base64"),
+      sourceMediaUrl: firstUrl,
+      generationStatus: "in_progress",
+    },
+  });
+  const sibling = await ingestWebCapture({
+    store,
+    tempRoot,
+    input: {
+      ...common,
+      imageBase64: (await noiseImage(242)).toString("base64"),
+      sourceMediaUrl: secondUrl,
+      generationStatus: "completed",
+    },
+  });
+  const terminal = await ingestWebCapture({
+    store,
+    tempRoot,
+    input: {
+      ...common,
+      imageBase64: (await noiseImage(243)).toString("base64"),
+      sourceMediaUrl: firstUrl,
+      generationStatus: "completed",
+    },
+  });
+  assert.equal(terminal.asset.id, first.asset.id);
+  assert.notEqual(sibling.asset.id, first.asset.id);
+  assert.equal((await store.listAssets({ projectId: "default" })).length, 2);
+});
+
+test("concurrent provisional and terminal captures serialize one logical provider asset", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-logical-concurrency-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  t.after(() => store.close?.());
+  await store.ensureProject("default");
+  const tempRoot = join(libraryDir, ".web-capture-tmp");
+  const providerAssetId = "file-concurrent-logical-output";
+  const provisionalPromise = ingestWebCapture({
+    store,
+    tempRoot,
+    input: {
+      provider: "chatgpt",
+      imageBase64: (await noiseImage(244)).toString("base64"),
+      mimeType: "image/png",
+      providerAssetId,
+      generationStatus: "in_progress",
+    },
+  });
+  const terminalPromise = ingestWebCapture({
+    store,
+    tempRoot,
+    input: {
+      provider: "chatgpt",
+      imageBase64: (await noiseImage(245)).toString("base64"),
+      mimeType: "image/png",
+      providerAssetId,
+      generationStatus: "completed",
+    },
+  });
+  const [provisional, terminal] = await Promise.all([provisionalPromise, terminalPromise]);
+  assert.equal(terminal.asset.id, provisional.asset.id);
+  const assets = await store.listAssets({ projectId: "default" });
+  assert.equal(assets.length, 1);
+  assert.equal(assets[0].source?.generation_status, "completed");
+  assert.equal(assets[0].source?.provider_asset_id, providerAssetId);
+});
+
+test("metadata-only provider Prompt upgrade preserves media identity and asset count", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-metadata-upgrade-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  t.after(() => store.close?.());
+  await store.ensureProject("default");
+  const bridge = createWebCaptureIngest({
+    store,
+    libraryDir,
+    projectId: "default",
+    token: "metadata-secret",
+    allowedOrigins: ["chrome-extension://example-extension"],
+  });
+  const sourceMediaUrl = "https://flow-content.google/output.png?media_id=metadata-output";
+  const initial = await bridge.ingest({
+    provider: "flow",
+    imageBase64: (await noiseImage(246)).toString("base64"),
+    mimeType: "image/png",
+    sourceMediaUrl,
+    promptStatus: "not-available",
+    generationStatus: "completed",
+  }, "metadata-secret");
+  const originalPath = initial.asset.image_path;
+  const originalHash = initial.asset.source?.content_sha256;
+  const upgraded = await bridge.upgradeMetadata({
+    provider: "flow",
+    mediaKind: "image",
+    sourceMediaUrl,
+    prompt: "A precise Flow prompt recovered after the media was already archived.",
+    promptStatus: "provider-visible-prompt",
+    promptSource: "flow-visible-prompt",
+    promptPriority: 50,
+    generationStatus: "completed",
+  }, "metadata-secret");
+  assert.equal(upgraded.upgraded, true);
+  assert.equal(upgraded.asset.id, initial.asset.id);
+  assert.equal(upgraded.asset.image_path, originalPath);
+  assert.equal(upgraded.asset.source?.content_sha256, originalHash);
+  assert.match(upgraded.asset.prompt, /precise Flow prompt/);
+  assert.equal((await store.listAssets({ projectId: "default" })).length, 1);
+});
+
 test("records a reliable capture session without inventing a generation batch", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-session-only-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -574,7 +813,7 @@ test("archives one asset when the same picture arrives in two encodings", async 
   }
 });
 
-test("serializes concurrent web captures so identical content is imported once", async () => {
+test("concurrent web captures still import identical content only once", async () => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-concurrent-dedupe-"));
   const libraryDir = join(root, "library");
   await mkdir(libraryDir, { recursive: true });
@@ -596,6 +835,48 @@ test("serializes concurrent web captures so identical content is imported once",
     assert.deepEqual(results.map((result) => result.status).sort(), ["imported", "skipped"]);
     assert.equal(results.find((result) => result.status === "skipped")?.reason, "already-archived-same-content");
     assert.equal((await store.listAssets({ projectId: "default" })).length, 1);
+  } finally {
+    store.close?.();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("web capture uses bounded parallel ingest slots instead of one global queue", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-parallel-ingest-"));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  try {
+    await store.ensureProject("default");
+    const originalCreateAsset = store.createAsset.bind(store);
+    let activeCreates = 0;
+    let peakCreates = 0;
+    store.createAsset = async (...args) => {
+      activeCreates += 1;
+      peakCreates = Math.max(peakCreates, activeCreates);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 60));
+      try {
+        return await originalCreateAsset(...args);
+      } finally {
+        activeCreates -= 1;
+      }
+    };
+    const capture = createWebCaptureIngest({
+      store,
+      libraryDir,
+      projectId: "default",
+      token: "test-token",
+      allowedOrigins: ["chrome-extension://test"],
+    });
+    const inputs = await Promise.all(Array.from({ length: 6 }, async (_, index) => ({
+      provider: "chatgpt",
+      imageBase64: (await noiseImage(80 + index)).toString("base64"),
+      mimeType: "image/png",
+    })));
+    const results = await Promise.all(inputs.map((input) => capture.ingest(input, "test-token")));
+    assert.equal(results.every((result) => result.status === "imported"), true);
+    assert.ok(peakCreates > 1, `expected parallel creates, saw peak ${peakCreates}`);
+    assert.ok(peakCreates <= 4, `ingest pool exceeded its concurrency cap: ${peakCreates}`);
   } finally {
     store.close?.();
     await rm(root, { recursive: true, force: true });
@@ -1279,6 +1560,127 @@ test("HTTP ingest endpoint accepts chrome-extension origin with token", async (t
   assert.equal(binaryBody.status, "imported");
   assert.equal(binaryBody.asset?.source?.capture_occurrences?.[0]?.source_media_url, "https://images.openai.com/binary-test.png?id=asset-1");
   assert.equal(binaryBody.asset?.source?.capture_occurrences?.[0]?.final_media_url, "https://cdn.example.invalid/binary-test.png?mediaId=media-2");
+
+  const streamedVideo = sampleMp4Bytes();
+  const streamedChunks = [
+    streamedVideo.subarray(0, 32 * 1024),
+    streamedVideo.subarray(32 * 1024, 64 * 1024),
+    streamedVideo.subarray(64 * 1024),
+  ];
+  const uploadBegin = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture-upload/begin`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "chrome-extension://abc123",
+      authorization: "Bearer test-token",
+    },
+    body: JSON.stringify({
+      totalBytes: streamedVideo.length,
+      totalChunks: streamedChunks.length,
+      metadata: {
+        provider: "flow",
+        mediaKind: "video",
+        mimeType: "video/mp4",
+        prompt: "A streamed Flow video",
+        prompt_status: "provider-visible-prompt",
+        prompt_source: "flow-visible-prompt",
+      },
+    }),
+  });
+  assert.equal(uploadBegin.status, 201);
+  const { uploadId } = await uploadBegin.json();
+  assert.ok(uploadId);
+
+  const outOfOrderChunk = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture-upload/chunk`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/octet-stream",
+      origin: "chrome-extension://abc123",
+      authorization: "Bearer test-token",
+      "x-mosa-upload-id": uploadId,
+      "x-mosa-chunk-index": "1",
+    },
+    body: streamedChunks[1],
+  });
+  assert.equal(outOfOrderChunk.status, 409, "stream upload rejects out-of-order chunks without advancing state");
+  await outOfOrderChunk.arrayBuffer();
+
+  for (const [index, chunk] of streamedChunks.entries()) {
+    const chunkResponse = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture-upload/chunk`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        origin: "chrome-extension://abc123",
+        authorization: "Bearer test-token",
+        "x-mosa-upload-id": uploadId,
+        "x-mosa-chunk-index": String(index),
+      },
+      body: chunk,
+    });
+    assert.equal(chunkResponse.status, 200);
+    await chunkResponse.arrayBuffer();
+  }
+  const uploadCommit = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture-upload/commit`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "chrome-extension://abc123",
+      authorization: "Bearer test-token",
+    },
+    body: JSON.stringify({ uploadId }),
+  });
+  const uploadCommitText = await uploadCommit.text();
+  assert.equal(uploadCommit.status, 201, uploadCommitText);
+  const uploadBody = JSON.parse(uploadCommitText);
+  assert.equal(uploadBody.status, "imported");
+  assert.equal(uploadBody.asset?.source?.provider, "flow");
+  assert.equal(uploadBody.asset?.business_fields?.file_bytes, streamedVideo.length);
+  const uploadTempFiles = await readdir(join(libraryDir, ".web-capture-tmp")).catch(() => []);
+  assert.equal(uploadTempFiles.some((name) => name.startsWith(`upload-${uploadId}`)), false, "committed upload temp file is removed");
+
+  const unknownLengthVideo = Buffer.from(streamedVideo);
+  unknownLengthVideo[100] = 1;
+  const unknownBegin = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture-upload/begin`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "chrome-extension://abc123",
+      authorization: "Bearer test-token",
+    },
+    body: JSON.stringify({
+      totalBytes: 0,
+      totalChunks: 0,
+      metadata: { provider: "flow", mediaKind: "video", mimeType: "video/mp4" },
+    }),
+  });
+  assert.equal(unknownBegin.status, 201, "remote streams may begin before content length/chunk count is known");
+  const unknownUploadId = (await unknownBegin.json()).uploadId;
+  for (const [index, chunk] of [unknownLengthVideo.subarray(0, 48 * 1024), unknownLengthVideo.subarray(48 * 1024)].entries()) {
+    const response = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture-upload/chunk`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        origin: "chrome-extension://abc123",
+        authorization: "Bearer test-token",
+        "x-mosa-upload-id": unknownUploadId,
+        "x-mosa-chunk-index": String(index),
+      },
+      body: chunk,
+    });
+    assert.equal(response.status, 200);
+    await response.arrayBuffer();
+  }
+  const unknownCommit = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture-upload/commit`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "chrome-extension://abc123",
+      authorization: "Bearer test-token",
+    },
+    body: JSON.stringify({ uploadId: unknownUploadId }),
+  });
+  assert.equal(unknownCommit.status, 201);
+  await unknownCommit.arrayBuffer();
 
   const referenceResponse = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture`, {
     method: "POST",

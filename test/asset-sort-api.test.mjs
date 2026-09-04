@@ -114,6 +114,18 @@ test("GET /api/assets exposes session and batch navigation as composable filters
   assert.equal(batch.total, 2);
 });
 
+test("GET /api/assets can skip exact totals on prefetched cursor pages", async (t) => {
+  const runtime = await startSeededRuntime(t, "mosa-prefetch-api-");
+  const first = await (await fetch(`${runtime.url}/api/assets?sort=newest&limit=2`)).json();
+  assert.equal(first.page.total, 5);
+  assert.ok(first.page.nextCursor);
+
+  const prefetched = await (await fetch(`${runtime.url}/api/assets?sort=newest&limit=2&includeTotal=0&cursor=${encodeURIComponent(first.page.nextCursor)}`)).json();
+  assert.equal(prefetched.page.total, null);
+  assert.deepEqual(prefetched.assets.map((asset) => asset.id), ["asset-b", "asset-c"]);
+  assert.ok(prefetched.page.nextCursor, "skipping COUNT must not change cursor pagination");
+});
+
 test("GET /api/groups reports the true style total behind a capped facet list", async (t) => {
   const runtime = await startSeededRuntime(t, "mosa-sort-api-groups-");
   const groups = await (await fetch(`${runtime.url}/api/groups`)).json();

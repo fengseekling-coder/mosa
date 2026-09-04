@@ -204,6 +204,55 @@ test("Trash HTTP lifecycle hides, restores, and permanently deletes an asset", a
   assert.equal(trashAfterPermanentDelete.assets.some((item) => item.id === asset.id), false);
 });
 
+test("batch Trash removes a selected version chain child-first in one request", async (t) => {
+  const { dir, generated, imagePath } = await makeWorkspace(t, "mosa-trash-batch-api-");
+  const runtime = await startMosaRuntime({
+    port: 0,
+    projectRoot: dir,
+    libraryDir: join(dir, "library"),
+    assetsRoot: join(dir, "assets"),
+    generatedImagesDir: generated,
+    codexImagesDir: join(dir, "codex-images"),
+    codexSessionsDir: join(dir, "sessions"),
+    grokSessionsDir: join(dir, "grok-sessions"),
+    cowartCanvasDir: join(dir, "cowart-data"),
+    cowartRegistryPath: join(dir, "state", "cowart-projects.json"),
+  });
+  t.after(() => runtime.stop());
+
+  const createdResponse = await fetch(`${runtime.url}/api/assets/create`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: "default", imagePath, assetId: "trash-parent" }),
+  });
+  assert.equal(createdResponse.status, 200);
+  const parent = (await createdResponse.json()).asset;
+  const childResponse = await fetch(`${runtime.url}/api/assets/default/${encodeURIComponent(parent.id)}/versions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ assetId: "trash-child", imagePath, version_change: "Batch Trash child" }),
+  });
+  assert.equal(childResponse.status, 201);
+  const child = (await childResponse.json()).asset;
+
+  // Deliberately submit parent first. The batch route must still trash the
+  // child first so the parent's version-dependency guard remains intact.
+  const batchResponse = await fetch(`${runtime.url}/api/assets/batch`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "trash", projectId: "default", assetIds: [parent.id, child.id] }),
+  });
+  assert.equal(batchResponse.status, 200);
+  const batch = await batchResponse.json();
+  assert.equal(batch.partial, false);
+  assert.deepEqual(batch.results.map((item) => [item.id, item.trashed]), [[parent.id, true], [child.id, true]]);
+
+  const active = await (await fetch(`${runtime.url}/api/assets?project=default&limit=100`)).json();
+  assert.equal(active.assets.some((item) => item.id === parent.id || item.id === child.id), false);
+  const trash = await (await fetch(`${runtime.url}/api/assets?project=default&trash=1&limit=100`)).json();
+  assert.deepEqual(trash.assets.filter((item) => item.id === parent.id || item.id === child.id).map((item) => item.id).sort(), [parent.id, child.id].sort());
+});
+
 test("shows only the four everyday fields and hides the rest behind advanced settings", async () => {
   const html = await readFile(resolve(root, "app/index.html"), "utf8");
   const body = html.slice(html.indexOf('<div class="modal-body import-modal-body">'), html.indexOf('<div class="modal-footer">'));

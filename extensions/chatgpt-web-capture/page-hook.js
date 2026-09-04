@@ -908,7 +908,8 @@
 
   function harvest(text, via) {
     if (!text || text.length < 20) return;
-    if (text.length > 12_000_000) {
+    const maxHarvestBytes = via === "conversation-refresh" ? 32_000_000 : 12_000_000;
+    if (text.length > maxHarvestBytes) {
       post("harvest-skipped", { reason: "payload-too-large", size: text.length, via });
       return;
     }
@@ -981,7 +982,16 @@
           lastStatus = Number(response?.status) || 0;
           continue;
         }
-        harvest(await response.text(), "conversation-refresh");
+        const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
+        if (/json/.test(contentType)) {
+          // The explicit recovery endpoint is already structured conversation
+          // JSON. Parse it directly instead of materializing a second giant
+          // text copy and rejecting long chats by byte count. This keeps late
+          // Prompt recovery working for very large creative conversations.
+          walkObject(await response.json(), { conversationId });
+        } else {
+          harvest(await response.text(), "conversation-refresh");
+        }
         return;
       } catch {
         // Try the alternate first-party conversation endpoint.
@@ -999,6 +1009,7 @@
     if (data.channel !== bridgeChannel) return;
     if (data.type === "set-capture-enabled") {
       captureEnabled = data.payload?.enabled === true;
+      post("capture-state", { enabled: captureEnabled });
       return;
     }
     if (data.type === "refresh-current-conversation") refreshCurrentConversation().catch(() => {});
@@ -1029,7 +1040,13 @@
           || /backend-api|conversation/i.test(String(url));
         if (textLike && !/^image\//.test(contentType)) {
           const clone = response.clone();
-          clone.text().then((text) => harvest(text, "fetch")).catch(() => {});
+          if (/json/.test(contentType) && /\/backend-api\/(?:f\/)?conversation\//i.test(String(url))) {
+            clone.json()
+              .then((payload) => walkObject(payload, { conversationId: conversationIdFromLocation() }))
+              .catch(() => {});
+          } else {
+            clone.text().then((text) => harvest(text, "fetch")).catch(() => {});
+          }
         }
       }
     } catch {
@@ -1052,7 +1069,15 @@
         if (isInterestingResponseUrl(url)) {
           // Mirror the fetch interceptor: never harvest raw image bytes.
           const contentType = String(this.getResponseHeader?.("content-type") || "").toLowerCase();
-          if (!/^image\//.test(contentType)) harvest(this.responseText || "", "xhr");
+          if (!/^image\//.test(contentType)) {
+            const responseType = String(this.responseType || "").toLowerCase();
+            const text = responseType === "" || responseType === "text"
+              ? (this.responseText || "")
+              : responseType === "json" && this.response
+                ? JSON.stringify(this.response)
+                : "";
+            if (text) harvest(text, "xhr");
+          }
         }
       } catch {
         // ignore

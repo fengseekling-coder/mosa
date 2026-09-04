@@ -128,6 +128,31 @@ function updateAssetViewNav() {
   assetViewer.updateAssetViewNav();
 }
 
+// Data prefetch happens before the next page enters the DOM. Warm only real
+// derivatives, never originals, so predictive browsing cannot turn into a
+// burst of full-resolution decodes. Keeping a small rolling set gives the next
+// viewport immediate pixels while leaving the remaining page to normal lazy
+// loading and card virtualization.
+const galleryPrewarmImages = new Set();
+function prewarmAssetMedia(assets = []) {
+  const urls = [];
+  for (const asset of assets) {
+    if (urls.length >= 24) break;
+    if (!asset?.thumbnail_ready || !asset.thumbnail_url || asset.thumbnail_url === asset.image_url) continue;
+    urls.push(asset.thumbnail_url);
+  }
+  urls.forEach((url) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.fetchPriority = "low";
+    const release = () => galleryPrewarmImages.delete(image);
+    image.addEventListener("load", release, { once: true });
+    image.addEventListener("error", release, { once: true });
+    galleryPrewarmImages.add(image);
+    image.src = url;
+  });
+}
+
 // ===== API client + data loading（apiFetch 与数据加载已提取至 api-client.mjs，R1 批次 3）=====
 const apiClient = createApiClient({
   state,
@@ -142,6 +167,7 @@ const apiClient = createApiClient({
   updateAssetViewNav,
   selectedAsset,
   isDetailEditorActive,
+  prewarmAssetMedia,
 });
 const { apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged, reconcileLibraryRevision, noteLibraryRevision, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
 
@@ -1815,6 +1841,9 @@ function bindEvents() {
     contextMenuActions,
     loadAssets,
     loadStats,
+    reloadLoadedAssetPages: apiClient.reloadLoadedAssetPages,
+    renderGrid,
+    updateViewTitle,
     selectAsset,
     openAssetView,
     showToast,
@@ -2312,7 +2341,7 @@ const galleryCardVirtualHydratedIds = new Set();
 const galleryCardVirtualSpanCache = new Map();
 let galleryCardVirtualGeometryColumns = [];
 const galleryCardVirtualGeometryById = new Map();
-const GALLERY_CARD_VIRTUAL_THRESHOLD = 96;
+const GALLERY_CARD_VIRTUAL_THRESHOLD = 40;
 const GALLERY_CARD_INITIAL_HYDRATE = 40;
 
 function galleryVirtualSpanKey(assetId) {
@@ -2368,7 +2397,7 @@ function shouldHydrateGalleryCard(entry, ordinal) {
   return false;
 }
 
-function replaceVirtualGalleryCards(observerEntries, { deferHydratedLayout = false } = {}) {
+function replaceVirtualGalleryCards(observerEntries) {
   const grid = els.assetGrid;
   const bottomOffset = grid ? Math.max(0, grid.scrollHeight - grid.scrollTop - grid.clientHeight) : null;
   const preserveBottomOffset = bottomOffset !== null && bottomOffset <= 1200;
@@ -2417,11 +2446,11 @@ function replaceVirtualGalleryCards(observerEntries, { deferHydratedLayout = fal
     changed = true;
   });
 
-  if (hydratedCards.length) {
-    if (deferHydratedLayout) hydratedCards.forEach((card) => scheduleMasonryLayout(card));
-    else layoutMasonry(hydratedCards);
-    setupGalleryMediaVirtualization(hydratedCards);
-  }
+  // A virtual card already owns a stable estimated masonry span. Hydration
+  // copies that geometry onto the real card, so measuring it synchronously
+  // while the user scrolls only creates forced-layout work. Unknown media
+  // dimensions still reconcile later through their existing load handler.
+  if (hydratedCards.length) setupGalleryMediaVirtualization(hydratedCards);
   if (changed) {
     invalidateCardGeometryCache();
     gallerySelection.syncRenderedSelection({ prune: false, changedIds });
@@ -2438,18 +2467,24 @@ function flushGalleryCardVirtualPendingChanges() {
   if (!grid || (!galleryCardVirtualVisiblePendingChanges.size && !galleryCardVirtualBackgroundPendingChanges.size)) return;
   const batch = [];
   const takeChanges = (pending, limit) => {
+    let taken = 0;
     for (const [id, change] of pending) {
+      if (taken >= limit) break;
       pending.delete(id);
       if (!change.target?.isConnected) continue;
       batch.push(change);
-      if (batch.length >= limit) break;
+      taken += 1;
     }
   };
-  // Visible placeholders are a correctness failure, not background work. Drain
-  // the currently visible set in one frame; only the 1200px warm zone remains
-  // capped so preloading can never steal the frame budget from the viewport.
-  if (galleryCardVirtualVisiblePendingChanges.size) takeChanges(galleryCardVirtualVisiblePendingChanges, galleryCardVirtualVisiblePendingChanges.size);
-  else takeChanges(galleryCardVirtualBackgroundPendingChanges, 4);
+  // Normal scrolling should hydrate from the 1200px warm zone before a card is
+  // visible. If a fast fling outruns that runway, resolve a bounded visible
+  // batch per frame rather than freezing the compositor to hydrate the whole
+  // viewport synchronously.
+  if (galleryCardVirtualVisiblePendingChanges.size) takeChanges(galleryCardVirtualVisiblePendingChanges, 6);
+  // Eviction must make progress in the same frame as visible hydration. If
+  // the background queue waited for the visible queue to empty, a fast scroll
+  // would retain every card it ever visited and defeat DOM virtualization.
+  takeChanges(galleryCardVirtualBackgroundPendingChanges, 6);
   if (batch.length) replaceVirtualGalleryCards(batch);
   if (galleryCardVirtualVisiblePendingChanges.size || galleryCardVirtualBackgroundPendingChanges.size) {
     galleryCardVirtualBatchFrame = requestAnimationFrame(flushGalleryCardVirtualPendingChanges);
@@ -2459,16 +2494,6 @@ function flushGalleryCardVirtualPendingChanges() {
 function scheduleGalleryCardVirtualPendingChanges() {
   if (galleryCardVirtualBatchFrame !== null || (!galleryCardVirtualVisiblePendingChanges.size && !galleryCardVirtualBackgroundPendingChanges.size)) return;
   galleryCardVirtualBatchFrame = requestAnimationFrame(flushGalleryCardVirtualPendingChanges);
-}
-
-function flushVisibleGalleryCardVirtualChanges() {
-  if (!galleryCardVirtualVisiblePendingChanges.size) return;
-  const changes = [];
-  for (const [id, change] of galleryCardVirtualVisiblePendingChanges) {
-    galleryCardVirtualVisiblePendingChanges.delete(id);
-    if (change.target?.isConnected) changes.push(change);
-  }
-  if (changes.length) replaceVirtualGalleryCards(changes, { deferHydratedLayout: true });
 }
 
 function queueGalleryCardVirtualChange(change, visible = false) {
@@ -2547,11 +2572,9 @@ function syncGalleryCardVirtualWindow() {
   desiredBackground.forEach((change, id) => {
     if (!galleryCardVirtualVisiblePendingChanges.has(id)) galleryCardVirtualBackgroundPendingChanges.set(id, change);
   });
-  // Viewport correctness must not depend on requestAnimationFrame. Electron can
-  // throttle rAF for an occluded/background window, which previously left real
-  // visible placeholders on large programmatic jumps. The visible set is
-  // viewport-bounded; only warm-zone work remains deferred and rate-limited.
-  flushVisibleGalleryCardVirtualChanges();
+  // The scroll callback only updates intent. DOM replacement is frame-budgeted
+  // by the scheduler below, keeping the scroll path read-mostly and compositor
+  // friendly even during very large jumps.
   scheduleGalleryCardVirtualPendingChanges();
 }
 
@@ -2574,7 +2597,7 @@ function handleGalleryCardVirtualScroll() {
   syncGalleryCardVirtualWindow();
 }
 
-function setupGalleryCardVirtualization() {
+function setupGalleryCardVirtualization(roots = null) {
   const grid = els.assetGrid;
   if (!grid || state.assets.length < GALLERY_CARD_VIRTUAL_THRESHOLD) {
     galleryCardVirtualObserver?.disconnect();
@@ -2613,7 +2636,12 @@ function setupGalleryCardVirtualization() {
         scheduleGalleryCardVirtualPendingChanges();
       }, { root: grid, rootMargin: "1200px 0px" });
     }
-    grid.querySelectorAll(":scope > .asset-card").forEach((card) => galleryCardVirtualObserver.observe(card));
+    const observationRoots = Array.isArray(roots) && roots.length ? roots : [grid];
+    observationRoots.forEach((root) => {
+      if (!(root instanceof Element)) return;
+      const cards = root.matches?.(".asset-card") ? [root] : [...root.querySelectorAll(":scope > .asset-card")];
+      cards.forEach((card) => galleryCardVirtualObserver.observe(card));
+    });
     // IntersectionObserver is the primary driver, while the indexed scroll
     // lookup is a deterministic correctness guard for large programmatic jumps
     // and compositor timing. It is viewport-bounded, so this does not restore
@@ -2825,7 +2853,16 @@ function layoutMasonry(cards = null) {
     if (state.assets.length >= GALLERY_CARD_VIRTUAL_THRESHOLD) scheduleGalleryCardVirtualWindowSync();
     return;
   }
+  placeMasonryCards(grid, gridStyles);
+}
+
+// Recompute only card placement, not card height. Structural mutations such as
+// Trash/removal and sort changes keep the surviving cards' measured spans, so
+// re-reading every card's DOM height would add layout work without adding any
+// information. A linear placement pass closes holes immediately.
+function placeMasonryCards(grid, gridStyles) {
   const allCards = [...grid.querySelectorAll(":scope > .asset-card")];
+  const columnCount = Math.max(1, gridStyles.gridTemplateColumns.split(/\s+/).filter(Boolean).length);
   const columnEnds = Array(columnCount).fill(1);
   const nextGeometryColumns = Array.from({ length: columnCount }, () => []);
   galleryCardVirtualGeometryById.clear();
@@ -2857,6 +2894,13 @@ function layoutMasonry(cards = null) {
   invalidateCardGeometryCache();
   if (state.assets.length >= GALLERY_CARD_VIRTUAL_THRESHOLD) scheduleGalleryCardVirtualWindowSync();
 }
+
+function reflowMasonryPlacement() {
+  const grid = els.assetGrid;
+  if (!grid) return;
+  placeMasonryCards(grid, getComputedStyle(grid));
+}
+
 function scheduleMasonryLayout(card = null) {
   if (card) masonryPendingCards.add(card);
   else masonryFullLayoutPending = true;
@@ -2925,7 +2969,7 @@ function setupMasonryLayout(options = {}) {
     masonryResizeObserver.observe(grid);
   }
   setupGalleryMediaVirtualization(layoutTargets || null);
-  setupGalleryCardVirtualization();
+  setupGalleryCardVirtualization(layoutTargets || null);
   setupInfiniteScroll();
 }
 
@@ -2933,16 +2977,29 @@ let infiniteScrollObserver = null;
 let isLoadingMore = false;
 function setupInfiniteScroll() {
   infiniteScrollObserver?.disconnect();
-  const sentinel = els.assetGrid?.querySelector('[data-sentinel="true"]');
-  if (!sentinel || !state.nextCursor) return;
+  const grid = els.assetGrid;
+  const sentinel = grid?.querySelector('[data-sentinel="true"]');
+  if (!grid || !sentinel || !state.nextCursor) return;
+  const fallbackButton = grid.querySelector('[data-action="load-more"]')?.closest(".asset-load-more");
+  if (!("IntersectionObserver" in window)) {
+    if (fallbackButton) fallbackButton.hidden = false;
+    return;
+  }
+  // Data is already prefetched by api-client. The sentinel therefore controls
+  // only when cached rows enter the DOM, not when I/O starts. Mount roughly one
+  // viewport ahead: early enough to hide a 40-card placeholder commit, but late
+  // enough that the first page never auto-appends during launch.
+  const preloadDistance = Math.max(600, Math.ceil(grid.clientHeight * 0.85));
   infiniteScrollObserver = new IntersectionObserver((entries) => {
     entries.forEach((entry) => {
       if (entry.isIntersecting && state.nextCursor && !isLoadingMore) {
         isLoadingMore = true;
-        loadAssets({ append: true }).finally(() => { isLoadingMore = false; });
+        loadAssets({ append: true }).then((applied) => {
+          if (!applied && fallbackButton?.isConnected) fallbackButton.hidden = false;
+        }).finally(() => { isLoadingMore = false; });
       }
     });
-  }, { rootMargin: "400px" });
+  }, { root: grid, rootMargin: `${preloadDistance}px 0px` });
   infiniteScrollObserver.observe(sentinel);
 }
 
@@ -3005,15 +3062,25 @@ function createAssetCardElements(entries) {
   return created;
 }
 
+function galleryPaginationMarkup() {
+  if (!state.nextCursor) return "";
+  return `<div class="asset-load-more" hidden><button type="button" data-action="load-more">${escapeHtml(t("loadMore"))}</button></div><div class="infinite-scroll-sentinel" data-sentinel="true"></div>`;
+}
+
 function reconcileAssetCards(entries) {
   const grid = els.assetGrid;
-  if (!grid) return { changedCards: [], replacedFocusedCard: false };
+  if (!grid) return { changedCards: [], replacedFocusedCard: false, structureChanged: false };
   const galleryChild = (element) => element.classList.contains("asset-card")
     || element.classList.contains("asset-load-more")
     || element.classList.contains("infinite-scroll-sentinel");
   if ([...grid.children].some((element) => !galleryChild(element))) grid.replaceChildren();
 
-  const existingCards = new Map([...grid.querySelectorAll(":scope > .asset-card")].map((card) => [card.dataset.id, card]));
+  const existingCardList = [...grid.querySelectorAll(":scope > .asset-card")];
+  const existingOrder = existingCardList.map((card) => card.dataset.id || "");
+  const desiredOrder = entries.map((entry) => entry.id);
+  const structureChanged = existingOrder.length !== desiredOrder.length
+    || existingOrder.some((id, index) => id !== desiredOrder[index]);
+  const existingCards = new Map(existingCardList.map((card) => [card.dataset.id, card]));
   const keptCards = new Set();
   const desiredCards = [];
   const changedCards = [];
@@ -3054,11 +3121,9 @@ function reconcileAssetCards(entries) {
     cursor = card.nextElementSibling;
   });
   grid.querySelectorAll(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel").forEach((element) => element.remove());
-  if (state.nextCursor) {
-    grid.insertAdjacentHTML("beforeend", `<div class="asset-load-more"><button type="button" data-action="load-more">${escapeHtml(t("loadMore"))}</button></div><div class="infinite-scroll-sentinel" data-sentinel="true"></div>`);
-  }
+  if (state.nextCursor) grid.insertAdjacentHTML("beforeend", galleryPaginationMarkup());
   if (changedCards.length || existingCards.size !== desiredCards.length) invalidateCardGeometryCache();
-  return { changedCards, replacedFocusedCard };
+  return { changedCards, replacedFocusedCard, structureChanged };
 }
 
 function appendAssetCards(entries) {
@@ -3068,9 +3133,7 @@ function appendAssetCards(entries) {
   const createdCards = createAssetCardElements(entries);
   const changedCards = entries.map((entry) => createdCards.get(entry.id)).filter(Boolean);
   if (changedCards.length) grid.append(...changedCards);
-  if (state.nextCursor) {
-    grid.insertAdjacentHTML("beforeend", `<div class="asset-load-more"><button type="button" data-action="load-more">${escapeHtml(t("loadMore"))}</button></div><div class="infinite-scroll-sentinel" data-sentinel="true"></div>`);
-  }
+  if (state.nextCursor) grid.insertAdjacentHTML("beforeend", galleryPaginationMarkup());
   if (changedCards.length) invalidateCardGeometryCache();
   return changedCards;
 }
@@ -3120,7 +3183,7 @@ function renderGrid() {
     restoreGridFallbackFocus();
     return;
   }
-  const isAppendMode = animate && animateFrom > 0;
+  const isAppendMode = animateFrom > 0;
   const existingCardCount = els.assetGrid.querySelectorAll(":scope > .asset-card").length;
   const canAppendFast = isAppendMode
     && existingCardCount === animateFrom
@@ -3194,12 +3257,13 @@ function renderGrid() {
   const previousDensity = els.assetGrid.dataset.renderedDensity || "";
   const appendChangedCards = canAppendFast ? appendAssetCards(cards) : null;
   const reconciliation = canAppendFast
-    ? { changedCards: appendChangedCards, replacedFocusedCard: false }
+    ? { changedCards: appendChangedCards, replacedFocusedCard: false, structureChanged: false }
     : reconcileAssetCards(cards);
-  const { changedCards, replacedFocusedCard } = reconciliation;
+  const { changedCards, replacedFocusedCard, structureChanged } = reconciliation;
   els.assetGrid.dataset.renderedDensity = state.galleryDensity;
   const requiresFullMasonry = !canAppendFast && (previousDensity !== state.galleryDensity || changedCards.length >= state.assets.length);
   setupMasonryLayout(requiresFullMasonry ? {} : { cards: changedCards, full: false });
+  if (!requiresFullMasonry && structureChanged) reflowMasonryPlacement();
   // Keyed incremental reconciliation keeps unchanged card nodes mounted, so
   // Chromium's native scroll anchoring can preserve the actual viewed card
   // when new assets are inserted above it. Writing the old numeric scrollTop
@@ -3228,7 +3292,14 @@ function renderGrid() {
       else els.assetGrid?.focus({ preventScroll: true });
     });
   }
-  gallerySelection.syncRenderedSelection();
+  if (canAppendFast) {
+    gallerySelection.syncRenderedSelection({
+      prune: false,
+      changedIds: new Set(changedCards.map((card) => card.dataset.id).filter(Boolean)),
+    });
+  } else {
+    gallerySelection.syncRenderedSelection();
+  }
 }
 
 /** Routed through the state machine so a later re-render cannot resurrect the skeleton. */

@@ -52,7 +52,7 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
   assert.match(app, /state\.activeStackId[\s\S]*?stackItemCount/);
 
   assert.match(apiClient, /request\.stackId[\s\S]*?\/api\/asset-stacks\//);
-  assert.match(apiClient, /params\.set\("limit", "100"\)/);
+  assert.match(apiClient, /Number\(options\.limit\) \|\| GALLERY_PAGE_SIZE/);
   assert.match(apiClient, /sort: state\.activeStackId \? "manual" : state\.sort/);
   assert.match(apiClient, /mosa:active-stack-missing/);
   assert.match(apiClient, /params\.set\("view", "gallery"\)/);

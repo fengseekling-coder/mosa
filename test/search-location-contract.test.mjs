@@ -126,7 +126,7 @@ test("9. search algorithm, API and i18n behaviour stay locked", async () => {
     "the 180ms committed query → loadAssets pipeline must remain intact");
   assert.match(apiClient, /const params = new URLSearchParams\(\{ project: request\.project, q: request\.query \}\)/,
     "the /api/assets query construction must stay unchanged");
-  assert.match(apiClient, /params\.set\("limit", "100"\)/, "the page-size contract must stay unchanged");
+  assert.match(apiClient, /Number\(options\.limit\) \|\| GALLERY_PAGE_SIZE/, "gallery paging must default to the shared performance-tuned page size");
   const i18n = await readFile(resolve(root, "app/i18n.mjs"), "utf8");
   assert.match(i18n, /searchPlaceholder: "搜索所有素材\.\.\."/, "zh search placeholder must match V2");
   assert.match(i18n, /searchPlaceholder: "Search all assets\.\.\."/, "en search placeholder must match V2");

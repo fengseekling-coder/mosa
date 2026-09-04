@@ -47,7 +47,7 @@
   const MAX_LOCAL_IMAGE_BYTES = 15 * 1024 * 1024;
   const MAX_LOCAL_VIDEO_BYTES = 96 * 1024 * 1024;
   const VIDEO_TRANSFER_CHUNK_BYTES = 3 * 1024 * 1024;
-  const PROMPT_RETRY_DELAYS = [900, 2_700, 7_200];
+  const PROMPT_RETRY_DELAYS = [900, 2_700, 7_200, 15_000, 30_000];
   const PROMPT_RETRY_PROVIDERS = new Set(["gemini", "flow", "google-ai-studio"]);
   const SEEN_MAX = 2048;
   const seen = new Set();
@@ -56,10 +56,12 @@
   let lastProviderUrl = location.href;
   let autoCapture = false;
   let scanTimer = null;
+  let scanInterval = null;
   let observer = null;
   let captureInFlight = 0;
   const captureWaiters = [];
   let toastTimer = null;
+  let providerContextLost = false;
 
   function rememberSeen(key) {
     if (!key) return;
@@ -68,7 +70,7 @@
     while (seen.size > SEEN_MAX) seen.delete(seen.values().next().value);
   }
 
-  function showToast(message, isError = false) {
+  function showToast(message, isError = false, durationMs = 3600) {
     let toast = document.getElementById("mosa-provider-capture-toast");
     if (!toast) {
       toast = document.createElement("div");
@@ -92,7 +94,7 @@
     toast.setAttribute("role", isError ? "alert" : "status");
     toast.hidden = false;
     if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { toast.hidden = true; }, 3600);
+    toastTimer = durationMs > 0 ? setTimeout(() => { toast.hidden = true; }, durationMs) : null;
   }
 
   async function withCaptureSlot(task) {
@@ -118,6 +120,18 @@
     } catch {
       return false;
     }
+  }
+
+  function markProviderContextLost() {
+    if (providerContextLost) return;
+    providerContextLost = true;
+    observer?.disconnect();
+    if (scanTimer) clearTimeout(scanTimer);
+    scanTimer = null;
+    if (scanInterval) clearInterval(scanInterval);
+    scanInterval = null;
+    clearAllPromptRetries();
+    showToast("MOSA 扩展已更新，请刷新此网页恢复自动收录。", true, 0);
   }
 
   function isAllowedImageHost(hostname) {
@@ -578,27 +592,55 @@
       clearPromptRetry(state.key);
       return;
     }
-    const media = state.mediaKind === "video" ? videoForSource(state.sourceUrl) : imageForSource(state.sourceUrl);
-    const visible = state.mediaKind === "video" ? isVisibleGeneratedVideo(media) : isVisibleGeneratedImage(media);
+    const media = state.lookupMediaKind === "video"
+      ? videoForSource(state.lookupSourceUrl)
+      : imageForSource(state.lookupSourceUrl);
+    const visible = state.lookupMediaKind === "video" ? isVisibleGeneratedVideo(media) : isVisibleGeneratedImage(media);
     if (!media || !visible) {
       scheduleNextPromptRetry(state);
       return;
     }
-    if (!visiblePromptForProvider(state.provider, media)) {
+    const providerPrompt = visiblePromptForProvider(state.provider, media);
+    if (!providerPrompt) {
       scheduleNextPromptRetry(state);
       return;
     }
 
     state.inFlight = true;
     clearPromptRetry(state.key);
-    sendCapture(state.provider, state.source, media, { mediaKind: state.mediaKind })
+    if (state.source?.kind === "remote" && /^https:/i.test(state.source.url || "")) {
+      chrome.runtime.sendMessage({
+        type: "mosa.upgradeMetadata",
+        payload: {
+          provider: state.provider,
+          mediaKind: state.mediaKind,
+          mimeType: state.source.mimeType || mimeTypeForUrl(state.source.url, state.mediaKind),
+          sourceMediaUrl: state.source.url,
+          pageUrl: location.href,
+          ...providerPrompt,
+        },
+      })
+        .then((response) => {
+          if (!response?.ok) seen.delete(state.sourceUrl);
+        })
+        .catch(() => seen.delete(state.sourceUrl));
+      return;
+    }
+    sendCapture(state.provider, state.source, media, {
+      mediaKind: state.mediaKind,
+      trustMediaMetrics: state.trustMediaMetrics,
+    })
       .then(({ response }) => {
         if (!response?.ok) seen.delete(state.sourceUrl);
       })
       .catch(() => seen.delete(state.sourceUrl));
   }
 
-  function schedulePromptRetry(provider, source, mediaKind = "image") {
+  function schedulePromptRetry(provider, source, mediaKind = "image", {
+    lookupSource = source,
+    lookupMediaKind = mediaKind,
+    trustMediaMetrics = true,
+  } = {}) {
     if (!PROMPT_RETRY_PROVIDERS.has(provider) || !source?.url) return;
     const key = promptRetryKey(provider, source.url, mediaKind);
     if (promptRetryStates.has(key)) return;
@@ -607,7 +649,10 @@
       provider,
       source,
       sourceUrl: source.url,
+      lookupSourceUrl: lookupSource?.url || source.url,
+      lookupMediaKind,
       mediaKind,
+      trustMediaMetrics,
       attempt: 0,
       inFlight: false,
       timerPending: false,
@@ -748,27 +793,35 @@
   async function sendChunkedVideo(payload, blob) {
     const transferId = `video-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     const totalChunks = Math.ceil(blob.size / VIDEO_TRANSFER_CHUNK_BYTES);
-    const begin = await chrome.runtime.sendMessage({
-      type: "mosa.beginVideoTransfer",
-      transferId,
-      totalBytes: blob.size,
-      totalChunks,
-      payload,
-    });
-    if (!begin?.ok) return begin;
-    for (let index = 0; index < totalChunks; index += 1) {
-      const start = index * VIDEO_TRANSFER_CHUNK_BYTES;
-      const end = Math.min(blob.size, start + VIDEO_TRANSFER_CHUNK_BYTES);
-      const chunkBase64 = arrayBufferToBase64(await blob.slice(start, end).arrayBuffer());
-      const response = await chrome.runtime.sendMessage({
-        type: "mosa.videoTransferChunk",
+    let begun = false;
+    try {
+      const begin = await chrome.runtime.sendMessage({
+        type: "mosa.beginVideoTransfer",
         transferId,
-        index,
-        chunkBase64,
+        totalBytes: blob.size,
+        totalChunks,
+        payload,
       });
-      if (!response?.ok) return response;
+      if (!begin?.ok) return begin;
+      begun = true;
+      for (let index = 0; index < totalChunks; index += 1) {
+        const start = index * VIDEO_TRANSFER_CHUNK_BYTES;
+        const end = Math.min(blob.size, start + VIDEO_TRANSFER_CHUNK_BYTES);
+        const chunkBase64 = arrayBufferToBase64(await blob.slice(start, end).arrayBuffer());
+        const response = await chrome.runtime.sendMessage({
+          type: "mosa.videoTransferChunk",
+          transferId,
+          index,
+          chunkBase64,
+        });
+        if (!response?.ok) return response;
+      }
+      return chrome.runtime.sendMessage({ type: "mosa.commitVideoTransfer", transferId });
+    } finally {
+      if (begun) {
+        chrome.runtime.sendMessage({ type: "mosa.abortVideoTransfer", transferId }).catch(() => {});
+      }
     }
-    return chrome.runtime.sendMessage({ type: "mosa.commitVideoTransfer", transferId });
   }
 
   async function sendCapture(provider, source, media, { captureMode = "automatic", mediaKind = "image", trustMediaMetrics = true } = {}) {
@@ -786,6 +839,7 @@
         promptSource: video ? "provider-visible-video" : "provider-visible-image",
         captureMode,
         capturedAt: new Date().toISOString(),
+        localMediaIdentity: source.kind === "local" ? source.url : "",
         width: trustMediaMetrics ? (video ? Number(media?.videoWidth || media?.naturalWidth || media?.width || 0) : Number(media?.naturalWidth || media?.width || 0)) : 0,
         height: trustMediaMetrics ? (video ? Number(media?.videoHeight || media?.naturalHeight || media?.height || 0) : Number(media?.naturalHeight || media?.height || 0)) : 0,
         durationSeconds: trustMediaMetrics && video && Number.isFinite(Number(media?.duration)) ? Number(media.duration) : null,
@@ -850,13 +904,18 @@
       const probe = probeResponse.result;
       if (probe.mediaKind === "video" && probe.mediaUrl) {
         rememberSeen(key);
-        const result = await sendCapture("flow", {
+        const videoSource = {
           kind: "remote",
           url: probe.mediaUrl,
           mimeType: probe.mimeType || "video/mp4",
-        }, img, { mediaKind: "video", trustMediaMetrics: false });
+        };
+        const result = await sendCapture("flow", videoSource, img, { mediaKind: "video", trustMediaMetrics: false });
         if (!result?.response?.ok) seen.delete(key);
-        else if (!result.hasPrompt) schedulePromptRetry("flow", source, "video");
+        else if (!result.hasPrompt) schedulePromptRetry("flow", videoSource, "video", {
+          lookupSource: source,
+          lookupMediaKind: "image",
+          trustMediaMetrics: false,
+        });
         return true;
       }
       if (probe.mediaKind === "image") {
@@ -942,12 +1001,44 @@
     });
   }
 
-  (chrome.runtime?.sendMessage?.({ type: "mosa.getSettings" }) || Promise.resolve()).then((response) => {
-    if (response?.ok && response.settings) autoCapture = response.settings.autoCapture !== false;
+  async function loadProviderSettings() {
+    try {
+      const response = await chrome.runtime?.sendMessage?.({ type: "mosa.getSettings" });
+      if (response?.ok && response.settings) {
+        autoCapture = response.settings.autoCapture !== false;
+        return;
+      }
+    } catch {
+      // MV3 may be waking the service worker. Fall back to the same persistent
+      // local preference instead of silently disabling capture for this page.
+    }
+    try {
+      const stored = await chrome.storage?.local?.get?.({ autoCapture });
+      if (stored) autoCapture = stored.autoCapture !== false;
+    } catch {
+      // Keep the in-memory default when both settings paths are unavailable.
+    }
+  }
+
+  function updateProviderWatchdog() {
+    if (scanInterval) clearInterval(scanInterval);
+    scanInterval = null;
+    if (!autoCapture) return;
+    scanInterval = setInterval(() => {
+      if (!extensionAlive()) {
+        markProviderContextLost();
+        return;
+      }
+      scheduleScan();
+    }, 5_000);
+  }
+
+  loadProviderSettings().then(() => {
     if (autoCapture) {
       startProviderObserver();
       scheduleScan();
     }
+    updateProviderWatchdog();
   }).catch(() => {});
 
   chrome.storage?.onChanged?.addListener?.((changes, area) => {
@@ -961,6 +1052,7 @@
         scanTimer = null;
         clearAllPromptRetries();
       }
+      updateProviderWatchdog();
     }
     if (!changes.autoCapture && !changes.mosaBaseUrl && !changes.mosaToken) return;
     // A corrected address or Token should immediately retry images that were

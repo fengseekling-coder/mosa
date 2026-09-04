@@ -65,6 +65,7 @@ export interface AssetListFilters {
   sort?: string;
   mediaKind?: string;
   collapseStacks?: boolean;
+  includeTotal?: boolean;
   [key: string]: unknown;
 }
 
@@ -74,7 +75,7 @@ export interface AssetPage {
     nextCursor: string | null;
     limit: number;
     sort: string;
-    total: number;
+    total: number | null;
   };
 }
 
@@ -99,7 +100,7 @@ export interface SqliteAssetStore {
   listAssets(filters: AssetListFilters): Promise<StoredAsset[]>;
   listAssetPage(filters: AssetListFilters): Promise<AssetPage>;
   getAssetStack(projectId: string, stackId: string): Promise<AssetStackSummary>;
-  listAssetStackAssets(projectId: string, stackId: string, filters?: AssetListFilters): Promise<{ stack: AssetStackSummary; assets: StoredAsset[]; page: { total: number; nextCursor: string | null; limit: number; sort: string } }>;
+  listAssetStackAssets(projectId: string, stackId: string, filters?: AssetListFilters): Promise<{ stack: AssetStackSummary; assets: StoredAsset[]; page: { total: number | null; nextCursor: string | null; limit: number; sort: string } }>;
   createAssetStack(projectId: string, assetIds: string[], options?: { coverAssetId?: string }): Promise<AssetStackSummary>;
   addAssetsToStack(projectId: string, stackId: string, assetIds: string[]): Promise<AssetStackSummary>;
   reorderAssetStack(projectId: string, stackId: string, assetIds: string[]): Promise<AssetStackSummary>;
@@ -108,6 +109,7 @@ export interface SqliteAssetStore {
   getAsset(projectId: string, assetId: string): Promise<StoredAsset | null>;
   createAsset(params: Record<string, unknown>, options?: Record<string, unknown>): Promise<StoredAsset>;
   updateMetadata(projectId: string, assetId: string, metadata: Record<string, unknown>): Promise<StoredAsset>;
+  replaceAssetMedia(projectId: string, assetId: string, input: Record<string, unknown>, options?: Record<string, unknown>): Promise<StoredAsset>;
   toggleFavorite(projectId: string, assetId: string): Promise<StoredAsset>;
   assetFileInfo(projectId: string, fileName: string): Promise<{ size: number }>;
   assetReadStream(projectId: string, fileName: string, options?: { start?: number; end?: number }): Promise<NodeJS.ReadableStream>;

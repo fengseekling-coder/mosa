@@ -145,7 +145,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.14.8");
+  assert.equal(manifest.version, "0.15.4");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://aistudio.google.com/*"],
@@ -233,8 +233,12 @@ test("Google adapters capture visible images and supported Flow / AI Studio vide
   assert.match(providerSource, /"textarea"/);
   assert.match(providerSource, /"mosa\.capture\.saveVideoWithPrompt"/);
   assert.match(providerSource, /function supportedImageUrl\(value\)/);
-  assert.match(providerSource, /const PROMPT_RETRY_DELAYS = \[900, 2_700, 7_200\]/);
-  assert.match(providerSource, /function schedulePromptRetry\(provider, source, mediaKind = "image"\)/);
+  assert.match(providerSource, /const PROMPT_RETRY_DELAYS = \[900, 2_700, 7_200, 15_000, 30_000\]/);
+  assert.match(providerSource, /function schedulePromptRetry\(provider, source, mediaKind = "image", \{/);
+  assert.match(providerSource, /lookupSourceUrl: lookupSource\?\.url \|\| source\.url/);
+  assert.match(providerSource, /lookupMediaKind: "image"/);
+  assert.match(providerSource, /type: "mosa\.upgradeMetadata"/);
+  assert.match(providerSource, /sourceMediaUrl: state\.source\.url/);
   assert.match(providerSource, /function attemptPendingPromptUpgrades\(\)/);
   assert.match(providerSource, /characterData: false/);
   assert.match(providerSource, /attributeFilter: \["src", "srcset", "class", "aria-hidden", "hidden"\]/);
@@ -387,6 +391,7 @@ test("ChatGPT DOM hook reacts to both src and srcset changes", () => {
 });
 
 test("oversized ChatGPT metadata fails visibly while DOM fallback remains available", () => {
+  assert.match(hookSource, /via === "conversation-refresh" \? 32_000_000 : 12_000_000/);
   assert.match(hookSource, /post\("harvest-skipped", \{ reason: "payload-too-large", size: text\.length, via \}\)/);
   assert.match(contentSource, /data\.type === "harvest-skipped"/);
   assert.match(contentSource, /会话元数据过大，已启用图片兜底/);
@@ -900,10 +905,11 @@ test("content capture uses stable generation context instead of time-window prom
 
 test("content capture waits for generation stability and upgrades every output independently", () => {
   assert.match(contentSource, /const AUTO_STABILITY_DELAY_MS = 900/);
+  assert.match(contentSource, /const AUTO_IN_PROGRESS_STALE_MS = 6_000/);
   assert.match(contentSource, /const AUTO_PARTIAL_FALLBACK_MS = 15_000/);
   assert.match(contentSource, /function autoCandidateReadiness\(candidate, evidence, reason\)/);
-  assert.match(contentSource, /if \(status === "in_progress"\)/);
-  assert.match(contentSource, /if \(status === "partial" && age < AUTO_PARTIAL_FALLBACK_MS\)/);
+  assert.match(contentSource, /if \(status === "in_progress"\)[\s\S]*age < AUTO_IN_PROGRESS_STALE_MS[\s\S]*return \{ ready: true, forceTerminalRefresh: false \};/);
+  assert.match(contentSource, /if \(status === "partial"\)[\s\S]*!pixelSignature[\s\S]*age < AUTO_PARTIAL_FALLBACK_MS/);
   assert.match(contentSource, /readiness\.forceTerminalRefresh/);
   assert.match(contentSource, /resolvedOutputsForEntry\?\.\(meta\)/);
   assert.match(contentSource, /for \(const resolvedMeta of targets\)/);
@@ -964,8 +970,15 @@ test("background limits generated video capture to Flow and Google AI Studio", (
   assert.match(backgroundSource, /message\.type === "mosa\.beginVideoTransfer"/);
   assert.match(backgroundSource, /message\.type === "mosa\.videoTransferChunk"/);
   assert.match(backgroundSource, /message\.type === "mosa\.commitVideoTransfer"/);
-  assert.match(backgroundSource, /transfer\.chunks\[index\] = chunkBytes/,
-    "chunked video transfer should retain decoded bytes instead of a full Base64 copy");
+  assert.match(backgroundSource, /await captureMediaPut\(\{/,
+    "page-local videos should spool decoded chunks durably before the tab can disappear");
+  assert.match(backgroundSource, /videoChunkKey\(transferId, index\)/);
+  assert.match(backgroundSource, /async function ingestQueuedVideoSpool\(item\)/);
+  assert.doesNotMatch(backgroundSource, /chunks:\s*new Array\(totalChunks\)/,
+    "the extension background must not retain the full video in memory");
+  assert.match(backgroundSource, /async function streamRemoteVideoToMosa\(payload, mediaUrl, connection\)/);
+  assert.match(backgroundSource, /if \(mediaKind === "video"\) \{\s*return streamRemoteVideoToMosa\(payload, mediaUrl, \{ baseUrl, token \}\);/,
+    "remote videos should stream into the upload session instead of being buffered first");
   assert.match(backgroundSource, /CAPTURE_QUEUE_MAX_ATTEMPTS = 3/);
   assert.match(backgroundSource, /await pruneStoredCaptureQueue\(\)/);
   assert.match(backgroundSource, /error\?\.code === "MOSA_UNAVAILABLE"/);
@@ -985,6 +998,14 @@ test("ChatGPT page bridge rejects messages outside the current document channel"
   assert.match(hookSource, /data\.channel !== bridgeChannel/);
   assert.match(contentSource, /function pageHookChannel\(\)/);
   assert.match(contentSource, /data\.channel !== channel/);
+  assert.match(contentSource, /function syncPageHookCaptureEnabled\(attempt = 0\)/);
+  assert.match(contentSource, /function desiredPageHookCaptureEnabled\(\)/);
+  assert.match(contentSource, /return autoCapture \|\| Date\.now\(\) < manualHookLeaseUntil/);
+  assert.match(contentSource, /pageHookCaptureAck === desired/);
+  assert.match(contentSource, /const retryDelays = \[25, 100, 300, 750, 1_500, 2_500\]/);
+  assert.match(contentSource, /data\.type === "capture-state"/);
+  assert.match(hookSource, /post\("capture-state", \{ enabled: captureEnabled \}\)/);
+  assert.match(contentSource, /DOMContentLoaded", \(\) => syncPageHookCaptureEnabled\(\)/);
 });
 
 test("clears the legacy development Token and verifies the real ingest authorization path", () => {
@@ -1208,7 +1229,9 @@ test("url and asset events of one generation share a single reference scope", as
 
 test("the XHR interceptor skips binary image responses like the fetch interceptor", () => {
   assert.ok(hookSource.includes('this.getResponseHeader?.("content-type")'));
-  assert.ok(hookSource.includes('if (!/^image\\//.test(contentType)) harvest(this.responseText || "", "xhr");'));
+  assert.ok(hookSource.includes('const responseType = String(this.responseType || "").toLowerCase();'));
+  assert.ok(hookSource.includes('responseType === "json" && this.response'));
+  assert.ok(hookSource.includes('if (text) harvest(text, "xhr");'));
 });
 
 test("does not flatten multiple image tool calls into one prompt binding", async () => {
@@ -1494,7 +1517,7 @@ test("binds prompt and asset when one image call splits them across nested reque
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.14.8");
+  assert.equal(manifest.version, "0.15.4");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
@@ -1506,7 +1529,7 @@ test("keeps a same-message user instruction separate and retries for a late capt
   assert.doesNotMatch(contentSource, /promptSource: "bound-user-message"/);
   assert.match(contentSource, /function domCandidateForImage\(imageUrl(?:, \{ manual = false \} = \{\})?\)/);
   assert.match(contentSource, /function enqueueDomCandidateForImage\(imageUrl, reason\)/);
-  assert.match(contentSource, /function schedulePromptRecovery\(candidate\)/);
+  assert.match(contentSource, /function schedulePromptRecovery\(candidate, \{ needPrompt = true, needTerminal = false \} = \{\}\)/);
   assert.match(contentSource, /function currentViewportCandidate\(candidates\)/);
   assert.match(contentSource, /const delays = \[2_800, 7_200, 15_000\]/);
 });
@@ -1557,10 +1580,11 @@ function loadSettingsHarness({ response, responseError, localValue = true } = {}
       if (responseError) throw responseError;
       return response;
     },
-    setPageHookCaptureEnabled: () => {},
+    syncPageHookCaptureEnabled: () => {},
   };
   vm.runInNewContext(`
     let autoCapture = false;
+    let pageHookCaptureAck = null;
     ${loadSettings}
     globalThis.runLoadSettings = async () => {
       await loadSettings();
@@ -1615,6 +1639,7 @@ test("startup context loss disconnects an initialized observer without a TDZ err
     autoStabilityStates: new Map(),
     autoStabilityTimers: new Map(),
     generationEvidenceRecoveryTimers: new Map(),
+    manualHookDisableTimer: null,
     promptRecoveryTimers: new Map(),
     scanTimer: null,
     setStatus: () => {},
@@ -1649,10 +1674,14 @@ test("an open page follows auto-capture changes from local storage only", () => 
   };
   vm.runInNewContext(`
     let autoCapture = true;
+    let manualHookLeaseUntil = 0;
+    let manualHookDisableTimer = null;
+    let pageHookCaptureAck = null;
     let scheduled = 0;
     let status = "";
     function scheduleScan() { scheduled += 1; }
     function setStatus(value) { status = value; }
+    function syncPageHookCaptureEnabled() {}
     ${listener}
     globalThis.readState = () => ({ autoCapture, scheduled, status });
   `, context, { filename: "content-storage-listener.js" });

@@ -3,6 +3,7 @@
 
   const MAX_ATTEMPTS = 512;
   const MAX_MESSAGE_PROMPTS = 12;
+  const MAX_MESSAGE_KEYS = 512;
 
   function createGenerationRegistry({ imageLookupKeys, promptQuality }) {
     if (typeof imageLookupKeys !== "function") throw new TypeError("imageLookupKeys is required");
@@ -303,11 +304,13 @@
       let prompts = messagePrompts.get(key);
       if (!prompts) {
         prompts = [];
-        messagePrompts.set(key, prompts);
       }
+      messagePrompts.delete(key);
+      messagePrompts.set(key, prompts);
       prompts.push({ ...entry, promptScope: "message" });
       prompts.sort((a, b) => promptScore(b) - promptScore(a));
       if (prompts.length > MAX_MESSAGE_PROMPTS) prompts.length = MAX_MESSAGE_PROMPTS;
+      while (messagePrompts.size > MAX_MESSAGE_KEYS) messagePrompts.delete(messagePrompts.keys().next().value);
     }
 
     function applyEntry(attempt, entry) {
@@ -471,14 +474,22 @@
     }
 
     function prune() {
-      if (attempts.size <= MAX_ATTEMPTS) return;
-      const ordered = [...attempts].sort((a, b) => a.updatedAt - b.updatedAt);
-      for (const attempt of ordered.slice(0, attempts.size - MAX_ATTEMPTS)) {
-        attempts.delete(attempt);
-        for (const key of attempt.attemptKeys) removeIndexValue(attemptKeyIndex, key, attempt);
-        for (const key of attempt.messageKeys) removeIndexValue(messageIndex, key, attempt);
-        for (const output of attempt.outputs) {
-          for (const key of output.imageKeys) removeIndexValue(outputKeyIndex, key, output);
+      let prunedAttempts = false;
+      if (attempts.size > MAX_ATTEMPTS) {
+        prunedAttempts = true;
+        const ordered = [...attempts].sort((a, b) => a.updatedAt - b.updatedAt);
+        for (const attempt of ordered.slice(0, attempts.size - MAX_ATTEMPTS)) {
+          attempts.delete(attempt);
+          for (const key of attempt.attemptKeys) removeIndexValue(attemptKeyIndex, key, attempt);
+          for (const key of attempt.messageKeys) removeIndexValue(messageIndex, key, attempt);
+          for (const output of attempt.outputs) {
+            for (const key of output.imageKeys) removeIndexValue(outputKeyIndex, key, output);
+          }
+        }
+      }
+      if (prunedAttempts) {
+        for (const key of [...messagePrompts.keys()]) {
+          if (!liveMessageAttempts(key).length) messagePrompts.delete(key);
         }
       }
     }

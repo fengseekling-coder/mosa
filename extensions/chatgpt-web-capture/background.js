@@ -12,6 +12,8 @@ const CAPTURE_QUEUE_ALARM = "mosa-capture-queue";
 const CAPTURE_QUEUE_MAX_ITEMS = 256;
 const CAPTURE_QUEUE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const CAPTURE_QUEUE_MAX_ATTEMPTS = 3;
+const CAPTURE_MEDIA_DB = "mosa-web-capture-media-v1";
+const CAPTURE_MEDIA_STORE = "media";
 const LEGACY_DEV_TOKEN = "mosa-web-capture-dev";
 const WEB_IMAGE_PROVIDERS = new Set(["chatgpt", "gemini", "flow", "google-ai-studio"]);
 const WEB_VIDEO_PROVIDERS = new Set(["flow", "google-ai-studio"]);
@@ -33,6 +35,71 @@ let queueDrainPromise;
 let queueMutationPromise = Promise.resolve();
 const chunkedVideoTransfers = new Map();
 const VIDEO_TRANSFER_TTL_MS = 10 * 60 * 1000;
+
+function openCaptureMediaDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(CAPTURE_MEDIA_DB, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(CAPTURE_MEDIA_STORE)) db.createObjectStore(CAPTURE_MEDIA_STORE, { keyPath: "key" });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Capture media database unavailable."));
+  });
+}
+
+async function captureMediaPut(record) {
+  const db = await openCaptureMediaDb();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(CAPTURE_MEDIA_STORE, "readwrite");
+      tx.objectStore(CAPTURE_MEDIA_STORE).put(record);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error("Capture media write failed."));
+      tx.onabort = () => reject(tx.error || new Error("Capture media write aborted."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function captureMediaGet(key) {
+  const db = await openCaptureMediaDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(CAPTURE_MEDIA_STORE, "readonly");
+      const request = tx.objectStore(CAPTURE_MEDIA_STORE).get(key);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error || new Error("Capture media read failed."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function captureMediaDelete(key) {
+  const db = await openCaptureMediaDb();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(CAPTURE_MEDIA_STORE, "readwrite");
+      tx.objectStore(CAPTURE_MEDIA_STORE).delete(key);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error("Capture media delete failed."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function videoChunkKey(transferId, index) {
+  return `video:${transferId}:${index}`;
+}
+
+async function deleteVideoSpool(transferId, totalChunks) {
+  await Promise.all(Array.from({ length: Number(totalChunks) || 0 }, (_, index) => (
+    captureMediaDelete(videoChunkKey(transferId, index)).catch(() => {})
+  )));
+}
 
 function providerForPageUrl(value) {
   return globalThis.MosaProviderPolicy?.providerForPageUrl(value) || "";
@@ -67,11 +134,11 @@ function senderAllowedForMessage(message, sender) {
   if (!context) return false;
   if (message.type === "mosa.fetchImage") return context.provider === "chatgpt";
   if (message.type === "mosa.probeFlowMedia") return context.provider === "flow";
-  if (["mosa.beginVideoTransfer", "mosa.videoTransferChunk", "mosa.commitVideoTransfer"].includes(message.type)) {
+  if (["mosa.beginVideoTransfer", "mosa.videoTransferChunk", "mosa.commitVideoTransfer", "mosa.abortVideoTransfer"].includes(message.type)) {
     return context.provider === "flow" || context.provider === "google-ai-studio";
   }
   if (message.type === "mosa.openOptions") return true;
-  if (message.type !== "mosa.ingest") return true;
+  if (!["mosa.ingest", "mosa.upgradeMetadata"].includes(message.type)) return true;
   const declaredProvider = String(message.payload?.provider || (context.provider === "chatgpt" ? "chatgpt" : "")).trim().toLowerCase();
   return declaredProvider === context.provider;
 }
@@ -79,7 +146,11 @@ function senderAllowedForMessage(message, sender) {
 function pruneChunkedVideoTransfers() {
   const cutoff = Date.now() - VIDEO_TRANSFER_TTL_MS;
   for (const [id, transfer] of chunkedVideoTransfers) {
-    if (Number(transfer?.createdAt || 0) < cutoff) chunkedVideoTransfers.delete(id);
+    if (Number(transfer?.createdAt || 0) < cutoff) {
+      chunkedVideoTransfers.delete(id);
+      void deleteVideoSpool(id, transfer.totalChunks).catch(() => {});
+      void abortVideoUpload(transfer).catch(() => {});
+    }
   }
 }
 
@@ -92,6 +163,7 @@ function stableCaptureKey(payload = {}) {
     String(payload.providerAssetId || ""),
     String(payload.providerGenerationCallId || ""),
     String(payload.generationContextId || ""),
+    String(payload.localMediaIdentity || ""),
     String(payload.pageUrl || ""),
   ].join("\u001f");
   let hash = 2166136261;
@@ -102,10 +174,65 @@ function stableCaptureKey(payload = {}) {
   return `capture-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
-function isPersistableCapture(payload = {}) {
+function queueReplayPayload(payload = {}, id = "") {
   const mediaUrl = payload.mediaKind === "video" ? payload.mediaUrl : payload.imageUrl;
-  return typeof mediaUrl === "string" && mediaUrl.startsWith("https:")
-    && !payload.mediaBase64 && !payload.imageBase64;
+  const replay = { ...payload };
+  if (typeof mediaUrl === "string" && mediaUrl.startsWith("https:")) {
+    delete replay.mediaBase64;
+    delete replay.imageBase64;
+    delete replay.localMediaIdentity;
+    return replay;
+  }
+  const base64 = payload.mediaKind === "video" ? payload.mediaBase64 : payload.imageBase64;
+  if (!id || typeof base64 !== "string" || !base64) return null;
+  delete replay.mediaBase64;
+  delete replay.imageBase64;
+  replay.queuedMediaId = id;
+  delete replay.localMediaIdentity;
+  return replay;
+}
+
+function promptPayloadRank(payload = {}) {
+  const explicit = Number(payload.promptPriority || payload.prompt_priority) || 0;
+  const status = String(payload.promptStatus || payload.prompt_status || "");
+  const rank = {
+    "not-available": 0,
+    "user-message": 1,
+    "provider-visible-prompt": 2,
+    "visible-caption": 3,
+    "generation-tool-prompt": 4,
+  }[status] ?? 0;
+  return explicit * 100 + rank;
+}
+
+function generationStatusRank(value) {
+  return {
+    unknown: 0,
+    in_progress: 1,
+    partial: 2,
+    failed: 3,
+    cancelled: 3,
+    completed: 4,
+  }[String(value || "").trim().toLowerCase()] ?? 0;
+}
+
+function mergeReplayPayload(previous = {}, incoming = {}) {
+  const merged = { ...previous, ...incoming };
+  if (promptPayloadRank(previous) > promptPayloadRank(incoming)) {
+    for (const key of ["prompt", "promptStatus", "promptSource", "promptPriority", "promptScope"]) {
+      if (previous[key] !== undefined) merged[key] = previous[key];
+    }
+  }
+  if (generationStatusRank(previous.generationStatus) > generationStatusRank(incoming.generationStatus)) {
+    merged.generationStatus = previous.generationStatus;
+  }
+  return merged;
+}
+
+function mutateCaptureQueue(operation) {
+  const run = queueMutationPromise.catch(() => undefined).then(operation);
+  queueMutationPromise = run.catch(() => undefined);
+  return run;
 }
 
 async function readCaptureQueue() {
@@ -117,16 +244,22 @@ async function readCaptureQueue() {
 }
 
 async function pruneStoredCaptureQueue() {
-  queueMutationPromise = queueMutationPromise.then(async () => {
+  let removed = [];
+  await mutateCaptureQueue(async () => {
     const stored = await chrome.storage.local.get({ [CAPTURE_QUEUE_KEY]: [] });
     const raw = Array.isArray(stored[CAPTURE_QUEUE_KEY]) ? stored[CAPTURE_QUEUE_KEY] : [];
     const now = Date.now();
     const next = raw
       .filter((item) => item && item.payload && now - Number(item.createdAt || 0) <= CAPTURE_QUEUE_MAX_AGE_MS)
       .slice(-CAPTURE_QUEUE_MAX_ITEMS);
+    const retainedIds = new Set(next.map((item) => item.id));
+    removed = raw.filter((item) => item?.id && !retainedIds.has(item.id));
     if (next.length !== raw.length) await writeCaptureQueue(next);
   });
-  await queueMutationPromise;
+  for (const item of removed) {
+    if (item?.payload?.queuedMediaId) await captureMediaDelete(`capture:${item.payload.queuedMediaId}`).catch(() => {});
+    if (item?.videoSpool?.transferId) await deleteVideoSpool(item.videoSpool.transferId, item.videoSpool.totalChunks);
+  }
 }
 
 async function writeCaptureQueue(queue) {
@@ -134,33 +267,86 @@ async function writeCaptureQueue(queue) {
 }
 
 async function enqueueCapture(payload) {
-  if (!isPersistableCapture(payload)) return null;
   const id = stableCaptureKey(payload);
-  queueMutationPromise = queueMutationPromise.then(async () => {
+  const replayPayload = queueReplayPayload(payload, id);
+  if (!replayPayload) return null;
+  if (replayPayload.queuedMediaId) {
+    const base64 = payload.mediaKind === "video" ? payload.mediaBase64 : payload.imageBase64;
+    const bytes = base64ToBytes(base64);
+    await captureMediaPut({
+      key: `capture:${id}`,
+      blob: new Blob([bytes], { type: payload.mimeType || (payload.mediaKind === "video" ? "video/mp4" : "image/png") }),
+      updatedAt: Date.now(),
+    });
+  }
+  await mutateCaptureQueue(async () => {
     const queue = await readCaptureQueue();
-    const existing = queue.find((item) => item.id === id);
-    if (!existing) {
-      queue.push({ id, payload, createdAt: Date.now(), attempts: 0, lastError: "" });
-      await writeCaptureQueue(queue);
+    const index = queue.findIndex((item) => item.id === id);
+    if (index < 0) {
+      // Persist a small replay ticket rather than the potentially multi-MiB
+      // Base64 body. If MOSA is temporarily unavailable and the page closes,
+      // the service worker can re-download the same provider URL later.
+      queue.push({ id, payload: replayPayload, createdAt: Date.now(), attempts: 0, lastError: "" });
+    } else {
+      queue[index] = {
+        ...queue[index],
+        payload: mergeReplayPayload(queue[index].payload, replayPayload),
+        lastUpdatedAt: Date.now(),
+      };
     }
+    await writeCaptureQueue(queue);
   });
-  await queueMutationPromise;
   return id;
+}
+
+async function enqueueVideoSpool(payload, transferId, totalBytes, totalChunks) {
+  const id = stableCaptureKey(payload);
+  const replayPayload = { ...payload };
+  delete replayPayload.mediaBase64;
+  delete replayPayload.imageBase64;
+  delete replayPayload.localMediaIdentity;
+  let queuedItem = null;
+  let replacedSpool = null;
+  await mutateCaptureQueue(async () => {
+    const queue = await readCaptureQueue();
+    const index = queue.findIndex((item) => item.id === id);
+    const previous = index >= 0 ? queue[index] : null;
+    replacedSpool = previous?.videoSpool || null;
+    queuedItem = {
+      id,
+      payload: previous ? mergeReplayPayload(previous.payload, replayPayload) : replayPayload,
+      createdAt: previous?.createdAt || Date.now(),
+      attempts: previous?.attempts || 0,
+      lastError: "",
+      lastUpdatedAt: Date.now(),
+      videoSpool: { transferId, totalBytes, totalChunks },
+    };
+    if (index >= 0) queue[index] = queuedItem;
+    else queue.push(queuedItem);
+    await writeCaptureQueue(queue);
+  });
+  if (replacedSpool?.transferId && replacedSpool.transferId !== transferId) {
+    await deleteVideoSpool(replacedSpool.transferId, replacedSpool.totalChunks);
+  }
+  return queuedItem;
 }
 
 async function removeQueuedCapture(id) {
   if (!id) return;
-  queueMutationPromise = queueMutationPromise.then(async () => {
+  let removed = null;
+  await mutateCaptureQueue(async () => {
     const queue = await readCaptureQueue();
+    removed = queue.find((item) => item.id === id) || null;
     const next = queue.filter((item) => item.id !== id);
     if (next.length !== queue.length) await writeCaptureQueue(next);
   });
-  await queueMutationPromise;
+  if (removed?.payload?.queuedMediaId) await captureMediaDelete(`capture:${removed.payload.queuedMediaId}`).catch(() => {});
+  if (removed?.videoSpool?.transferId) await deleteVideoSpool(removed.videoSpool.transferId, removed.videoSpool.totalChunks);
 }
 
 async function markQueuedCaptureFailure(id, error) {
   if (!id) return;
-  queueMutationPromise = queueMutationPromise.then(async () => {
+  await mutateCaptureQueue(async () => {
     const queue = await readCaptureQueue();
     const index = queue.findIndex((item) => item.id === id);
     if (index < 0) return;
@@ -171,22 +357,79 @@ async function markQueuedCaptureFailure(id, error) {
     };
     await writeCaptureQueue(queue);
   });
-  await queueMutationPromise;
 }
 
 function mosaUnavailableError(message) {
   const error = new Error(message);
   error.code = "MOSA_UNAVAILABLE";
+  error.retryable = true;
+  return error;
+}
+
+function ingestResponseError(message, status) {
+  const error = new Error(message);
+  error.status = Number(status) || 0;
+  error.retryable = error.status === 0 || error.status === 408 || error.status === 425 || error.status === 429 || error.status >= 500;
   return error;
 }
 
 async function ingestWithQueue(payload = {}) {
-  const queueId = await enqueueCapture(payload);
+  let queueId = null;
+  try {
+    queueId = await enqueueCapture(payload);
+  } catch {
+    // Durability is a safety net, not a prerequisite for a live capture. If
+    // browser storage is temporarily unavailable, still let an online MOSA
+    // receive the media instead of turning the backup path into a new outage.
+  }
   try {
     const result = await ingestToMosa(payload);
-    await removeQueuedCapture(queueId);
+    await removeQueuedCapture(queueId).catch(() => {});
     return result;
   } catch (error) {
+    throw error;
+  }
+}
+
+async function ingestQueuedCapture(item) {
+  if (item?.payload?.queuedMediaId) {
+    const record = await captureMediaGet(`capture:${item.payload.queuedMediaId}`);
+    if (!record?.blob) {
+      const error = new Error("Queued local media bytes are missing.");
+      error.retryable = false;
+      throw error;
+    }
+    const mediaKind = item.payload.mediaKind === "video" ? "video" : "image";
+    const payload = { ...item.payload };
+    delete payload.queuedMediaId;
+    const base64 = bufferToBase64(await record.blob.arrayBuffer());
+    if (mediaKind === "video") payload.mediaBase64 = base64;
+    else payload.imageBase64 = base64;
+    return ingestToMosa(payload);
+  }
+  if (item?.videoSpool?.transferId) return ingestQueuedVideoSpool(item);
+  return ingestToMosa(item.payload);
+}
+
+async function ingestQueuedVideoSpool(item) {
+  const spool = item.videoSpool;
+  const payload = { ...(item.payload || {}), mediaKind: "video" };
+  const connection = await uploadConnection();
+  const upload = await beginVideoUpload(payload, spool.totalBytes, spool.totalChunks, connection);
+  try {
+    for (let index = 0; index < spool.totalChunks; index += 1) {
+      const record = await captureMediaGet(videoChunkKey(spool.transferId, index));
+      if (!record?.blob) {
+        const error = new Error(`Queued video chunk ${index} is missing.`);
+        error.retryable = false;
+        throw error;
+      }
+      const bytes = new Uint8Array(await record.blob.arrayBuffer());
+      await appendVideoUploadChunk(upload, index, bytes);
+    }
+    return await commitVideoUpload(upload);
+  } catch (error) {
+    await abortVideoUpload(upload).catch(() => {});
     throw error;
   }
 }
@@ -199,12 +442,12 @@ function drainCaptureQueue() {
     if (!queue.length) return;
     for (const item of queue) {
       try {
-        await ingestToMosa(item.payload);
+        await ingestQueuedCapture(item);
         await removeQueuedCapture(item.id);
       } catch (error) {
         await markQueuedCaptureFailure(item.id, error);
         if (error?.code === "MOSA_UNAVAILABLE") break;
-        if (Number(item.attempts || 0) + 1 >= CAPTURE_QUEUE_MAX_ATTEMPTS) {
+        if (error?.retryable === false && Number(item.attempts || 0) + 1 >= CAPTURE_QUEUE_MAX_ATTEMPTS) {
           await removeQueuedCapture(item.id);
         }
       }
@@ -241,8 +484,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "mosa.upgradeMetadata") {
+    upgradeMetadataToMosa(message.payload)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    return true;
+  }
+
   if (message.type === "mosa.beginVideoTransfer") {
-    try {
+    (async () => {
       pruneChunkedVideoTransfers();
       const transferId = String(message.transferId || "").trim();
       const totalBytes = Number(message.totalBytes || 0);
@@ -256,56 +509,88 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         senderKey: senderKey(sender),
         totalBytes,
         totalChunks,
-        chunks: new Array(totalChunks),
+        nextIndex: 0,
         receivedBytes: 0,
         createdAt: Date.now(),
       });
       sendResponse({ ok: true });
-    } catch (error) {
+    })().catch((error) => {
       sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
-    }
-    return false;
+    });
+    return true;
   }
 
   if (message.type === "mosa.videoTransferChunk") {
-    try {
+    (async () => {
       const transferId = String(message.transferId || "").trim();
       const transfer = chunkedVideoTransfers.get(transferId);
       const index = Number(message.index);
       const chunkBase64 = String(message.chunkBase64 || "");
       if (!transfer || transfer.senderKey !== senderKey(sender)
-        || !Number.isInteger(index) || index < 0 || index >= transfer.totalChunks || !chunkBase64) {
+        || !Number.isInteger(index) || index !== transfer.nextIndex || index >= transfer.totalChunks || !chunkBase64) {
         throw new Error("Unknown or invalid video transfer chunk.");
       }
-      if (!transfer.chunks[index]) {
-        const chunkBytes = base64ToBytes(chunkBase64);
-        transfer.receivedBytes += chunkBytes.byteLength;
-        if (transfer.receivedBytes > transfer.totalBytes || transfer.receivedBytes > MAX_VIDEO_BYTES) {
-          chunkedVideoTransfers.delete(transferId);
-          throw new Error("Chunked video exceeds declared size.");
-        }
-        // Decode each chunk immediately so the service worker never retains a
-        // full-video Base64 copy alongside the binary payload.
-        transfer.chunks[index] = chunkBytes;
+      const chunkBytes = base64ToBytes(chunkBase64);
+      if (transfer.receivedBytes + chunkBytes.byteLength > transfer.totalBytes) {
+        chunkedVideoTransfers.delete(transferId);
+        await deleteVideoSpool(transferId, transfer.totalChunks).catch(() => {});
+        throw new Error("Chunked video exceeds declared size.");
       }
+      await captureMediaPut({
+        key: videoChunkKey(transferId, index),
+        blob: new Blob([chunkBytes], { type: "application/octet-stream" }),
+        updatedAt: Date.now(),
+      });
+      transfer.receivedBytes += chunkBytes.byteLength;
+      transfer.nextIndex += 1;
+      transfer.createdAt = Date.now();
       sendResponse({ ok: true });
-    } catch (error) {
+    })().catch((error) => {
       sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
-    }
-    return false;
+    });
+    return true;
   }
 
   if (message.type === "mosa.commitVideoTransfer") {
     const transferId = String(message.transferId || "").trim();
     const transfer = chunkedVideoTransfers.get(transferId);
     if (!transfer || transfer.senderKey !== senderKey(sender)
-      || transfer.chunks.some((chunk) => !chunk) || transfer.receivedBytes !== transfer.totalBytes) {
+      || transfer.nextIndex !== transfer.totalChunks || transfer.receivedBytes !== transfer.totalBytes) {
       sendResponse({ ok: false, error: "Chunked video transfer is incomplete." });
       return false;
     }
     chunkedVideoTransfers.delete(transferId);
-    ingestToMosa(transfer.payload, { binaryParts: transfer.chunks })
-      .then((result) => sendResponse({ ok: true, result }))
+    (async () => {
+      const queued = await enqueueVideoSpool(transfer.payload, transferId, transfer.totalBytes, transfer.totalChunks);
+      try {
+        const result = await ingestQueuedCapture(queued);
+        await removeQueuedCapture(queued.id);
+        sendResponse({ ok: true, result });
+      } catch (error) {
+        await markQueuedCaptureFailure(queued.id, error).catch(() => {});
+        if (error?.retryable === false) {
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+          return;
+        }
+        sendResponse({ ok: true, result: { status: "queued", reason: "mosa-temporarily-unavailable" } });
+      }
+    })().catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+    return true;
+  }
+
+  if (message.type === "mosa.abortVideoTransfer") {
+    const transferId = String(message.transferId || "").trim();
+    const transfer = chunkedVideoTransfers.get(transferId);
+    if (!transfer || transfer.senderKey !== senderKey(sender)) {
+      sendResponse({ ok: true, aborted: false });
+      return false;
+    }
+    chunkedVideoTransfers.delete(transferId);
+    Promise.all([
+      deleteVideoSpool(transferId, transfer.totalChunks),
+      abortVideoUpload(transfer),
+    ])
+      .then(() => sendResponse({ ok: true, aborted: true }))
       .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
     return true;
   }
@@ -502,11 +787,22 @@ function normalizeStoredToken(value) {
 }
 
 async function fetchImageAsBase64(url, { publicImage = false } = {}) {
-  const result = await fetchMediaAsBase64(url, { publicMedia: publicImage, mediaKind: "image" });
+  const result = await fetchMediaAsBase64(url, {
+    publicMedia: publicImage,
+    mediaKind: "image",
+    attemptLimit: 1,
+    timeoutMs: 1_800,
+  });
   return { mimeType: result.mimeType, imageBase64: result.mediaBase64 };
 }
 
-async function fetchMediaAsBase64(url, { publicMedia = false, mediaKind = "image", binary = false } = {}) {
+async function fetchMediaAsBase64(url, {
+  publicMedia = false,
+  mediaKind = "image",
+  binary = false,
+  attemptLimit = 0,
+  timeoutMs = 0,
+} = {}) {
   const label = mediaKind === "video" ? "video" : "image";
   if (!url || typeof url !== "string") throw new Error(`${label === "video" ? "Video" : "Image"} URL is required.`);
   if (url.startsWith("data:")) {
@@ -518,15 +814,17 @@ async function fetchMediaAsBase64(url, { publicMedia = false, mediaKind = "image
   assertAllowedRemoteMediaUrl(url);
   const maxBytes = mediaKind === "video" ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
 
-  const attempts = [
+  const allAttempts = [
     ...(publicMedia ? [] : [{ credentials: "include", cache: "no-cache" }]),
     { credentials: "omit", cache: "no-cache" },
     ...(publicMedia ? [] : [{ credentials: "include", cache: "force-cache" }]),
   ];
+  const attempts = attemptLimit > 0 ? allAttempts.slice(0, attemptLimit) : allAttempts;
+  const requestTimeoutMs = timeoutMs > 0 ? timeoutMs : mediaKind === "video" ? 45_000 : 15_000;
   let lastError = null;
   for (const init of attempts) {
     try {
-      const response = await fetchWithTimeout(url, init, mediaKind === "video" ? 45_000 : 15_000);
+      const response = await fetchWithTimeout(url, init, requestTimeoutMs);
       if (!response.ok) {
         lastError = new Error(`Failed to download ${label} (${response.status})`);
         continue;
@@ -610,38 +908,8 @@ function base64ToBytes(value) {
   return bytes;
 }
 
-async function ingestToMosa(payload = {}, { binaryParts = null } = {}) {
-  const settings = await getSettings();
-  let baseUrl = normalizeBaseUrl(settings.mosaBaseUrl || DEFAULTS.mosaBaseUrl);
-  let token = String(settings.mosaToken || "").trim();
-  if (!token) throw new Error("Web Capture Token 未配置。请在扩展选项中填写与 MOSA 服务相同的随机 Token。");
-
-  const mediaKind = payload.mediaKind === "video" ? "video" : "image";
-  let mediaBase64 = mediaKind === "video" ? payload.mediaBase64 : payload.imageBase64;
-  let mediaBinaryParts = Array.isArray(binaryParts) && binaryParts.length ? binaryParts : null;
-  let mimeType = payload.mimeType || (mediaKind === "video" ? "video/mp4" : "image/png");
-  const provider = String(payload.provider || "chatgpt").trim().toLowerCase();
-  if (!WEB_IMAGE_PROVIDERS.has(provider)) throw new Error("Unsupported web image provider.");
-  if (mediaKind === "video" && !WEB_VIDEO_PROVIDERS.has(provider)) throw new Error("Unsupported web video provider.");
-
-  // Prefer server-side (extension background) download for remote URLs.
-  const mediaUrl = mediaKind === "video" ? payload.mediaUrl : payload.imageUrl;
-  let finalMediaUrl = mediaUrl || "";
-  if (!mediaBase64 && !mediaBinaryParts && mediaUrl) {
-    if (!await ensureMosaAvailable(baseUrl)) {
-      const repaired = await repairPairing().catch(() => null);
-      if (!repaired) throw mosaUnavailableError(`无法连接 MOSA (${baseUrl})。请确认 MOSA App 正在运行。`);
-      baseUrl = repaired.baseUrl;
-      token = repaired.token;
-    }
-    const fetched = await fetchMediaAsBase64(mediaUrl, { publicMedia: false, mediaKind, binary: mediaKind === "video" });
-    if (mediaKind === "video" && fetched.mediaBytes) mediaBinaryParts = [fetched.mediaBytes];
-    else mediaBase64 = fetched.mediaBase64;
-    mimeType = fetched.mimeType || mimeType;
-    finalMediaUrl = fetched.finalUrl || mediaUrl;
-  }
-  if (!mediaBase64 && !mediaBinaryParts) throw new Error(`No ${mediaKind} bytes to ingest.`);
-  const requestPayload = {
+function captureRequestPayload(payload, { mediaKind, mimeType, mediaUrl = "", finalMediaUrl = "", provider } = {}) {
+  return {
     provider,
     prompt: payload.prompt || "",
     prompt_status: payload.promptStatus || (payload.prompt ? "user-message" : "not-available"),
@@ -671,6 +939,207 @@ async function ingestToMosa(payload = {}, { binaryParts = null } = {}) {
     capturedAt: payload.capturedAt || new Date().toISOString(),
     extensionVersion: chrome.runtime.getManifest().version,
   };
+}
+
+async function upgradeMetadataToMosa(payload = {}) {
+  const provider = String(payload.provider || "").trim().toLowerCase();
+  if (!WEB_IMAGE_PROVIDERS.has(provider)) throw new Error("Unsupported web image provider.");
+  const mediaKind = payload.mediaKind === "video" ? "video" : "image";
+  if (mediaKind === "video" && !WEB_VIDEO_PROVIDERS.has(provider)) throw new Error("Unsupported web video provider.");
+  const { baseUrl, token } = await uploadConnection();
+  const requestPayload = captureRequestPayload(payload, {
+    mediaKind,
+    mimeType: payload.mimeType || (mediaKind === "video" ? "video/mp4" : "image/png"),
+    mediaUrl: payload.sourceMediaUrl || payload.mediaUrl || payload.imageUrl || "",
+    finalMediaUrl: payload.finalMediaUrl || "",
+    provider,
+  });
+  const response = await fetchWithTimeout(`${baseUrl}/api/ingest/web-capture-metadata`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(requestPayload),
+  }, 15_000);
+  const text = await response.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw ingestResponseError(`MOSA returned non-JSON (${response.status}): ${text.slice(0, 180)}`, response.status);
+  }
+  if (!response.ok) throw ingestResponseError(data.error || `MOSA metadata upgrade failed (${response.status})`, response.status);
+  return data;
+}
+
+async function uploadConnection() {
+  const settings = await getSettings();
+  let baseUrl = normalizeBaseUrl(settings.mosaBaseUrl || DEFAULTS.mosaBaseUrl);
+  let token = String(settings.mosaToken || "").trim();
+  if (!token) throw new Error("Web Capture Token 未配置。");
+  if (!await ensureMosaAvailable(baseUrl)) {
+    const repaired = await repairPairing().catch(() => null);
+    if (!repaired) throw mosaUnavailableError(`无法连接 MOSA (${baseUrl})。请确认 MOSA App 正在运行。`);
+    baseUrl = repaired.baseUrl;
+    token = repaired.token;
+  }
+  return { baseUrl, token };
+}
+
+async function beginVideoUpload(payload, totalBytes, totalChunks, connection = null, provenance = {}) {
+  const { baseUrl, token } = connection || await uploadConnection();
+  const provider = String(payload.provider || "").trim().toLowerCase();
+  if (!WEB_VIDEO_PROVIDERS.has(provider)) throw new Error("Unsupported web video provider.");
+  const mimeType = payload.mimeType || "video/mp4";
+  const metadata = captureRequestPayload(payload, {
+    mediaKind: "video",
+    mimeType,
+    mediaUrl: provenance.mediaUrl || "",
+    finalMediaUrl: provenance.finalMediaUrl || "",
+    provider,
+  });
+  const response = await fetchWithTimeout(`${baseUrl}/api/ingest/web-capture-upload/begin`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ metadata, totalBytes, totalChunks }),
+  }, 30_000);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.uploadId) throw new Error(data.error || `MOSA upload begin failed (${response.status})`);
+  return { baseUrl, token, uploadId: data.uploadId };
+}
+
+async function streamRemoteVideoToMosa(payload, mediaUrl, connection) {
+  assertAllowedRemoteMediaUrl(mediaUrl);
+  const attempts = [
+    { credentials: "include", cache: "no-cache" },
+    { credentials: "omit", cache: "no-cache" },
+    { credentials: "include", cache: "force-cache" },
+  ];
+  let lastError = null;
+  for (const init of attempts) {
+    let upload = null;
+    try {
+      const response = await fetchWithTimeout(mediaUrl, init, 45_000);
+      if (!response.ok) {
+        lastError = new Error(`Failed to download video (${response.status})`);
+        continue;
+      }
+      const finalUrl = response.url || mediaUrl;
+      assertAllowedRemoteMediaUrl(finalUrl);
+      const declaredLength = Number(response.headers.get("content-length") || 0);
+      if (Number.isFinite(declaredLength) && declaredLength > MAX_VIDEO_BYTES) {
+        response.body?.cancel?.().catch?.(() => {});
+        throw new Error("Video exceeds MOSA capture size limit.");
+      }
+      if (!response.body?.getReader) throw new Error("Remote video response is not streamable.");
+      const mimeType = String(response.headers.get("content-type") || "").split(";", 1)[0].trim()
+        || guessMime(finalUrl, "video") || "video/mp4";
+      upload = await beginVideoUpload(
+        { ...payload, mimeType },
+        0,
+        0,
+        connection,
+        { mediaUrl, finalMediaUrl: finalUrl },
+      );
+      const transfer = { ...upload, receivedBytes: 0, nextIndex: 0 };
+      const reader = response.body.getReader();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (!value?.byteLength) continue;
+        for (let offset = 0; offset < value.byteLength; offset += 3 * 1024 * 1024) {
+          const chunk = value.subarray(offset, Math.min(value.byteLength, offset + 3 * 1024 * 1024));
+          if (transfer.receivedBytes + chunk.byteLength > MAX_VIDEO_BYTES) {
+            throw new Error("Video exceeds MOSA capture size limit.");
+          }
+          await appendVideoUploadChunk(transfer, transfer.nextIndex, chunk);
+          transfer.receivedBytes += chunk.byteLength;
+          transfer.nextIndex += 1;
+        }
+      }
+      if (transfer.receivedBytes < 64 * 1024) throw new Error("Downloaded video empty/too small");
+      return await commitVideoUpload(transfer);
+    } catch (error) {
+      if (upload) await abortVideoUpload(upload).catch(() => {});
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  throw lastError || new Error("Failed to download video");
+}
+
+async function appendVideoUploadChunk(transfer, index, chunkBytes) {
+  const response = await fetchWithTimeout(`${transfer.baseUrl}/api/ingest/web-capture-upload/chunk`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/octet-stream",
+      authorization: `Bearer ${transfer.token}`,
+      "x-mosa-upload-id": transfer.uploadId,
+      "x-mosa-chunk-index": String(index),
+    },
+    body: chunkBytes,
+  }, 30_000);
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || `MOSA upload chunk failed (${response.status})`);
+  }
+}
+
+async function commitVideoUpload(transfer) {
+  const response = await fetchWithTimeout(`${transfer.baseUrl}/api/ingest/web-capture-upload/commit`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${transfer.token}` },
+    body: JSON.stringify({ uploadId: transfer.uploadId }),
+  }, 90_000);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `MOSA upload commit failed (${response.status})`);
+  return data;
+}
+
+async function abortVideoUpload(transfer) {
+  if (!transfer?.uploadId || !transfer?.baseUrl || !transfer?.token) return;
+  await fetchWithTimeout(`${transfer.baseUrl}/api/ingest/web-capture-upload/abort`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${transfer.token}` },
+    body: JSON.stringify({ uploadId: transfer.uploadId }),
+  }, 10_000).catch(() => null);
+}
+
+async function ingestToMosa(payload = {}, { binaryParts = null } = {}) {
+  const settings = await getSettings();
+  let baseUrl = normalizeBaseUrl(settings.mosaBaseUrl || DEFAULTS.mosaBaseUrl);
+  let token = String(settings.mosaToken || "").trim();
+  if (!token) throw new Error("Web Capture Token 未配置。请在扩展选项中填写与 MOSA 服务相同的随机 Token。");
+
+  const mediaKind = payload.mediaKind === "video" ? "video" : "image";
+  let mediaBase64 = mediaKind === "video" ? payload.mediaBase64 : payload.imageBase64;
+  let mediaBinaryParts = Array.isArray(binaryParts) && binaryParts.length ? binaryParts : null;
+  let mimeType = payload.mimeType || (mediaKind === "video" ? "video/mp4" : "image/png");
+  const provider = String(payload.provider || "chatgpt").trim().toLowerCase();
+  if (!WEB_IMAGE_PROVIDERS.has(provider)) throw new Error("Unsupported web image provider.");
+  if (mediaKind === "video" && !WEB_VIDEO_PROVIDERS.has(provider)) throw new Error("Unsupported web video provider.");
+
+  // Prefer server-side (extension background) download for remote URLs.
+  const mediaUrl = mediaKind === "video" ? payload.mediaUrl : payload.imageUrl;
+  let finalMediaUrl = mediaUrl || "";
+  if (!mediaBase64 && !mediaBinaryParts && mediaUrl) {
+    if (!await ensureMosaAvailable(baseUrl)) {
+      const repaired = await repairPairing().catch(() => null);
+      if (!repaired) throw mosaUnavailableError(`无法连接 MOSA (${baseUrl})。请确认 MOSA App 正在运行。`);
+      baseUrl = repaired.baseUrl;
+      token = repaired.token;
+    }
+    if (mediaKind === "video") {
+      return streamRemoteVideoToMosa(payload, mediaUrl, { baseUrl, token });
+    }
+    const fetched = await fetchMediaAsBase64(mediaUrl, { publicMedia: false, mediaKind, binary: mediaKind === "video" });
+    if (mediaKind === "video" && fetched.mediaBytes) mediaBinaryParts = [fetched.mediaBytes];
+    else mediaBase64 = fetched.mediaBase64;
+    mimeType = fetched.mimeType || mimeType;
+    finalMediaUrl = fetched.finalUrl || mediaUrl;
+  }
+  if (!mediaBase64 && !mediaBinaryParts) throw new Error(`No ${mediaKind} bytes to ingest.`);
+  const requestPayload = captureRequestPayload(payload, { mediaKind, mimeType, mediaUrl, finalMediaUrl, provider });
   const requestIngest = () => mediaBinaryParts
     ? fetchWithTimeout(`${baseUrl}/api/ingest/web-capture-binary`, {
       method: "POST",
@@ -740,10 +1209,10 @@ async function ingestToMosa(payload = {}, { binaryParts = null } = {}) {
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
-    throw new Error(`MOSA returned non-JSON (${response.status}): ${text.slice(0, 180)}`);
+    throw ingestResponseError(`MOSA returned non-JSON (${response.status}): ${text.slice(0, 180)}`, response.status);
   }
   if (!response.ok) {
-    throw new Error(data.error || `MOSA ingest failed (${response.status})`);
+    throw ingestResponseError(data.error || `MOSA ingest failed (${response.status})`, response.status);
   }
   return data;
 }

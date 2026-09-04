@@ -20,6 +20,15 @@ export const SIDEBAR_GROUP_LIMIT = 5;
 export const GALLERY_DENSITIES = ["image", "info"];
 export const CARD_TITLE_MAX = 52;
 export const SKELETON_TILE_COUNT = 12;
+// Gallery pages are deliberately smaller than the API ceiling. The data layer
+// prefetches the next page immediately, so 40 items preserve roughly two
+// desktop viewports of runway while keeping each DOM/masonry commit well below
+// the old 100-card burst on desktop Chromium.
+export const GALLERY_PAGE_SIZE = 40;
+// Give the first paint one extra viewport of runway. Only the first 40 cards
+// hydrate eagerly; the remainder are geometry-only virtual cards, so this buys
+// prefetch time without restoring the old 100-card DOM/decode burst.
+export const GALLERY_INITIAL_PAGE_SIZE = 60;
 export const STATUS_ANNOUNCEMENT_DURATION = 3000;
 export const LIVE_REGION_WRITE_DELAY = 32;
 // Poll only a tiny revision token. The heavier groups/assets refresh runs only
