@@ -76,6 +76,9 @@ interface Store {
   recordGenerationEvent?(input: Metadata): Promise<Metadata>;
   findAssetByContentHash?(projectId: string, contentHash: string): Promise<StoredAsset | null>;
   findAssetByPixelHash?(projectId: string, pixelHash: string): Promise<StoredAsset | null>;
+  findAssetsByPixelHash?(projectId: string, pixelHash: string): Promise<StoredAsset[]>;
+  findAssetByProviderIdentity?(projectId: string, provider: string, providerAssetId?: string, logicalOutputId?: string): Promise<StoredAsset | null>;
+  listAssetsByConversation?(projectId: string, conversationId: string): Promise<StoredAsset[]>;
   libraryDir?: string;
   assetsRoot?: string;
   [key: string]: unknown;
@@ -192,13 +195,28 @@ async function upgradeWebCaptureMetadata({ store, projectId, input }: { store: S
   const providerAssetId = String(input.providerAssetId || input.provider_asset_id || "").trim();
   const logicalOutputId = logicalCaptureKey(projectId, provider, input);
   const sourceMediaUrl = sanitizeStoredMediaUrl(input.sourceMediaUrl || input.source_media_url);
-  const assets = await Promise.all([
-    store.listAssets({ projectId }),
-    store.listAssets({ projectId, archived: true }).catch(() => []),
-  ]).then(([active, archived]) => [...active, ...archived]);
-  let asset = findLogicalProviderAsset(assets, provider, providerAssetId, logicalOutputId);
+  let assets: StoredAsset[] | null = null;
+  let asset = typeof store.findAssetByProviderIdentity === "function"
+    ? await store.findAssetByProviderIdentity(projectId, provider, providerAssetId, logicalOutputId)
+    : null;
+  if (!asset && typeof store.findAssetByProviderIdentity !== "function") {
+    const listedAssets = await Promise.all([
+      store.listAssets({ projectId }),
+      store.listAssets({ projectId, archived: true }).catch(() => []),
+    ]).then(([active, archived]) => [...active, ...archived]);
+    assets = listedAssets;
+    asset = findLogicalProviderAsset(listedAssets, provider, providerAssetId, logicalOutputId);
+  }
   if (!asset && sourceMediaUrl) {
-    asset = assets.find((candidate) => {
+    let listedAssets = assets;
+    if (!listedAssets) {
+      listedAssets = await Promise.all([
+        store.listAssets({ projectId }),
+        store.listAssets({ projectId, archived: true }).catch(() => []),
+      ]).then(([active, archived]) => [...active, ...archived]);
+      assets = listedAssets;
+    }
+    asset = (listedAssets || []).find((candidate) => {
       if (String(candidate.source?.provider || "").trim().toLowerCase() !== provider) return false;
       const occurrences = Array.isArray(candidate.source?.capture_occurrences) ? candidate.source.capture_occurrences : [];
       return occurrences.some((entry) => sanitizeStoredMediaUrl((entry as Metadata)?.source_media_url) === sourceMediaUrl);
@@ -419,7 +437,9 @@ async function ingestWebCaptureUnlocked(options: { store: Store; referenceStore?
   };
   let logicalExistingForReplacement: StoredAsset | null = null;
   if (providerAssetId || logicalOutputId) {
-    const logicalExisting = findLogicalProviderAsset(await projectAssets(), provider, providerAssetId, logicalOutputId);
+    const logicalExisting = typeof store.findAssetByProviderIdentity === "function"
+      ? await store.findAssetByProviderIdentity(projectId, provider, providerAssetId, logicalOutputId)
+      : findLogicalProviderAsset(await projectAssets(), provider, providerAssetId, logicalOutputId);
     if (logicalExisting) {
       const existingHash = String(logicalExisting.source?.content_sha256 || "").trim();
       if (existingHash === contentHash) return finalizeDuplicate(logicalExisting);
@@ -441,7 +461,7 @@ async function ingestWebCaptureUnlocked(options: { store: Store; referenceStore?
   try {
     const explicitAssetId = String(input.assetId || "").trim();
     let assetId = sanitizeAssetId(explicitAssetId || `${providerConfig.assetIdPrefix}-${contentHash.slice(0, 12)}`, providerConfig.assetIdPrefix);
-    const references = await turnReferences(projectAssets, referenceStore, projectId, { conversationId, generationContextId, capturedAt, selfAssetId: assetId });
+    const references = await turnReferences(store, projectAssets, referenceStore, projectId, { conversationId, generationContextId, capturedAt, selfAssetId: assetId });
     const assetInput = {
       projectId,
       imagePath: tempPath,
@@ -751,7 +771,7 @@ async function ingestWebVideoCapture(options: {
   try {
     const explicitAssetId = String(input.assetId || "").trim();
     let assetId = sanitizeAssetId(explicitAssetId || `${providerConfig.assetIdPrefix}-video-${contentHash.slice(0, 12)}`, providerConfig.assetIdPrefix);
-    const references = await turnReferences(projectAssets, referenceStore, projectId, { conversationId, generationContextId, capturedAt, selfAssetId: assetId });
+    const references = await turnReferences(store, projectAssets, referenceStore, projectId, { conversationId, generationContextId, capturedAt, selfAssetId: assetId });
     const assetInput = {
       projectId,
       imagePath: tempPath,
@@ -1120,7 +1140,10 @@ async function findArchivedDuplicate(store: Store, projectId: string, contentHas
     ? await store.findAssetByPixelHash(projectId, pixelHash)
     : (await projectAssets()).find((a) => a.source?.pixel_sha256 === pixelHash) || null;
   if (indexedMatch && await isTrustedPixelMatch(store, indexedMatch, pixelHash)) return indexedMatch;
-  const candidates = (await projectAssets()).filter((asset) => asset.source?.pixel_sha256 === pixelHash && asset.id !== indexedMatch?.id);
+  const candidates = (typeof store.findAssetsByPixelHash === "function"
+    ? await store.findAssetsByPixelHash(projectId, pixelHash)
+    : (await projectAssets()).filter((asset) => asset.source?.pixel_sha256 === pixelHash))
+    .filter((asset) => asset.id !== indexedMatch?.id);
   for (const candidate of candidates) if (await isTrustedPixelMatch(store, candidate, pixelHash)) return candidate;
   return null;
 }
@@ -1140,7 +1163,7 @@ async function isTrustedPixelMatch(store: Store, asset: StoredAsset, pixelHash: 
 
 const MAX_TURN_REFERENCES = 8;
 
-async function turnReferences(projectAssets: () => Promise<StoredAsset[]>, referenceStore: ReturnType<typeof createReferenceAttachmentStore>, projectId: string, { conversationId, generationContextId, capturedAt, selfAssetId }: { conversationId: string; generationContextId: string; capturedAt: string; selfAssetId: string }): Promise<Metadata[]> {
+async function turnReferences(store: Store, projectAssets: () => Promise<StoredAsset[]>, referenceStore: ReturnType<typeof createReferenceAttachmentStore>, projectId: string, { conversationId, generationContextId, capturedAt, selfAssetId }: { conversationId: string; generationContextId: string; capturedAt: string; selfAssetId: string }): Promise<Metadata[]> {
   if (!conversationId && !generationContextId) return [];
   const now = createdAtTimestamp(capturedAt);
   if (now === null) return [];
@@ -1157,7 +1180,9 @@ async function turnReferences(projectAssets: () => Promise<StoredAsset[]>, refer
       .map(({ attachment, usage }) => referenceMetadata(attachment, usage));
   }
 
-  const members = (await projectAssets()).filter((asset) =>
+  const members = (typeof store.listAssetsByConversation === "function"
+    ? await store.listAssetsByConversation(projectId, conversationId)
+    : await projectAssets()).filter((asset) =>
     asset.id !== selfAssetId && asset.source?.conversation_id === conversationId);
   const timeOf = (asset: StoredAsset) => createdAtTimestamp(asset.source?.captured_at || asset.created_at);
 
@@ -1232,7 +1257,7 @@ async function mergeDuplicateGenerationRecipe(
   },
 ): Promise<{ asset: StoredAsset; merged: boolean }> {
   if (typeof store.updateMetadata !== "function") return { asset: existing, merged: false };
-  const references = await turnReferences(input.projectAssets, input.referenceStore, input.projectId, {
+  const references = await turnReferences(store, input.projectAssets, input.referenceStore, input.projectId, {
     conversationId: input.conversationId,
     generationContextId: input.generationContextId,
     capturedAt: input.capturedAt,

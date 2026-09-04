@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain, clipboard, nativeImage, session, shell, Notification } from "electron";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { cp, mkdir, readdir, rm } from "node:fs/promises";
-import { homedir } from "node:os";
+import { userInfo } from "node:os";
 import { dirname, join, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_MOSA_DESKTOP_PORT, MOSA_RESERVED_PRODUCTION_PORTS } from "../lib/runtime-defaults.mjs";
@@ -41,7 +41,11 @@ const productionDefaultUserData = join(app.getPath("appData"), app.name);
 const importStagingRoot = importStagingDir(desktopDataDir);
 const desktopPort = process.env.MOSA_DESKTOP_PORT || DEFAULT_MOSA_DESKTOP_PORT;
 const LIBRARY_LOCATION_PATH = join(desktopDataDir, "library-location.json");
-const defaultLibraryDir = join(homedir(), "MOSA Library");
+// `homedir()` follows HOME on macOS, and tool sandboxes may intentionally
+// rewrite HOME to a temporary directory. userInfo().homedir comes from the OS
+// account record instead, so source desktop launches still resolve the signed-
+// in user's real MOSA Library instead of forking a sandbox-only empty library.
+const defaultLibraryDir = join(userInfo().homedir, "MOSA Library");
 
 function loadSavedLibraryDir() {
   try {
@@ -88,7 +92,7 @@ const guard = validateRuntimeIsolation({
   defaultUserData: isolationContext.productionDefaultUserData,
   argv: isolationContext.argv,
   runtimeKind: isolationContext.runtimeKind,
-  productionLibraryDir: join(homedir(), "MOSA Library"),
+  productionLibraryDir: defaultLibraryDir,
   productionPorts: MOSA_RESERVED_PRODUCTION_PORTS,
 });
 if (!guard.ok) {
@@ -573,6 +577,11 @@ async function createMainWindow() {
       port: desktopPort,
       libraryDir,
       allowPortFallback: !process.env.MOSA_DESKTOP_PORT,
+      // If the primary MOSA port is already owned by a verified MOSA runtime
+      // for another library, fail closed instead of silently spawning a second
+      // desktop library on 43518+. This turns future path-resolution regressions
+      // into an explicit startup error rather than an apparently empty library.
+      failOnPrimaryLibraryMismatch: true,
       // Normal packaged launches may replace a strictly older MOSA runtime
       // that owns this exact library. QA, source development, and explicit
       // port launches stay fail-closed so test tooling never terminates an

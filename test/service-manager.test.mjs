@@ -9,6 +9,7 @@ import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
 import {
   MosaServiceBuildMismatchError,
   MosaServiceConflictError,
+  MosaServiceLibraryMismatchError,
   compareMosaVersions,
   retireOlderMosaService,
   shouldAllowSameVersionServiceReplacement,
@@ -196,14 +197,13 @@ test("source desktop hands off a verified same-version stale runtime to the curr
     runtimeFingerprint: "new-runtime",
   };
   const replacement = {
-    state: "attached",
     url: "http://127.0.0.1:43517",
     port: 43517,
     libraryDir,
     storage: "sqlite",
-    ...expectedIdentity,
   };
   let handoffCalls = 0;
+  let startCalls = 0;
 
   const attached = await startMosaService({
     port: 43517,
@@ -217,12 +217,18 @@ test("source desktop hands off a verified same-version stale runtime to the curr
       assert.equal(options.allowSameVersionReplacement, true);
       return true;
     },
-    upgradeProbeImpl: async () => replacement,
+    startRuntime: async (options) => {
+      startCalls += 1;
+      assert.equal(options.port, 43517);
+      assert.equal(options.libraryDir, libraryDir);
+      return { ...replacement, stop: async () => {} };
+    },
   });
 
   assert.equal(handoffCalls, 1);
+  assert.equal(startCalls, 1);
   assert.equal(attached.url, replacement.url);
-  assert.equal(attached.productVersion, expectedIdentity.productVersion);
+  assert.equal(attached.mode, "owned");
 });
 
 test("automatic retirement does not target same-version, newer, unknown, or different-library services", async (t) => {
@@ -708,6 +714,45 @@ test("falls back to another discovery port when the preferred port is occupied",
   assert.equal(service.port, fallbackPort);
   assert.equal(foreign.listening, true);
   assert.equal((await fetch(`${service.url}/api/health`)).status, 200);
+});
+
+test("desktop fail-closed mode does not fork to a fallback port when primary MOSA serves another library", async (t) => {
+  const root = await temporaryRoot(t, "mosa-service-library-mismatch-");
+  const libraryDir = join(root, "library");
+  const otherLibraryDir = join(root, "other-library");
+  const preferredPort = await availablePort();
+  const fallbackPort = await availablePort();
+  const primaryMosa = createServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ product: "mosa", libraryDir: otherLibraryDir, storage: "sqlite" }));
+  });
+  await listen(primaryMosa, preferredPort);
+  t.after(() => close(primaryMosa));
+  let startCalls = 0;
+
+  await assert.rejects(
+    startMosaService({
+      port: preferredPort,
+      libraryDir,
+      allowPortFallback: true,
+      failOnPrimaryLibraryMismatch: true,
+      discoveryPorts: [preferredPort, fallbackPort],
+      startRuntime: async () => {
+        startCalls += 1;
+        throw new Error("must not start fallback runtime");
+      },
+    }),
+    (error) => {
+      assert.ok(error instanceof MosaServiceLibraryMismatchError);
+      assert.equal(error.code, "MOSA_SERVICE_LIBRARY_MISMATCH");
+      assert.equal(error.port, preferredPort);
+      assert.equal(error.expectedLibraryDir, resolve(libraryDir));
+      assert.equal(error.actualLibraryDir, resolve(otherLibraryDir));
+      return true;
+    },
+  );
+  assert.equal(startCalls, 0, "a second library runtime must not be spawned on a fallback port");
+  assert.equal(primaryMosa.listening, true);
 });
 
 test("discovers an already-running matching MOSA on a fallback port before acquiring the library lock", async (t) => {

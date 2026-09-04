@@ -2355,21 +2355,23 @@ const galleryCardVirtualBackgroundPendingChanges = new Map();
 let galleryCardVirtualBatchFrame = null;
 let galleryCardVirtualWindowFrame = null;
 const galleryCardVirtualEntries = new Map();
+const galleryCardVirtualNodes = new Map();
 const galleryCardVirtualHydratedIds = new Set();
 const galleryCardVirtualSpanCache = new Map();
+let galleryCardVirtualColumnWidth = 180;
 let galleryCardVirtualGeometryColumns = [];
 const galleryCardVirtualGeometryById = new Map();
 const GALLERY_CARD_VIRTUAL_THRESHOLD = 40;
 const GALLERY_CARD_INITIAL_HYDRATE = 40;
 
-function galleryVirtualSpanKey(assetId) {
-  return `${state.galleryDensity}\u001f${Math.round(galleryCardColumnWidth())}\u001f${assetId}`;
+function galleryVirtualSpanKey(assetId, columnWidth = galleryCardVirtualColumnWidth) {
+  return `${state.galleryDensity}\u001f${Math.round(columnWidth)}\u001f${assetId}`;
 }
 
-function galleryCardColumnWidth() {
+function galleryCardColumnWidth(styles = null) {
   const grid = els.assetGrid;
   if (!grid) return 180;
-  const tracks = getComputedStyle(grid).gridTemplateColumns.split(/\s+/).map(Number.parseFloat).filter((value) => Number.isFinite(value) && value > 0);
+  const tracks = (styles || getComputedStyle(grid)).gridTemplateColumns.split(/\s+/).map(Number.parseFloat).filter((value) => Number.isFinite(value) && value > 0);
   if (tracks.length) return tracks[0];
   return Math.max(120, grid.clientWidth / 5);
 }
@@ -2459,6 +2461,7 @@ function replaceVirtualGalleryCards(observerEntries) {
       releaseObservedGalleryMedia(card);
     }
     card.replaceWith(replacement);
+    galleryCardVirtualNodes.set(entry.id, replacement);
     galleryCardVirtualObserver?.observe(replacement);
     changedIds.add(entry.id);
     changed = true;
@@ -2542,7 +2545,12 @@ function galleryCardVirtualLowerBound(column, minRow) {
 }
 
 function galleryCardVirtualNode(grid, id) {
-  return grid.querySelector(`:scope > .asset-card[data-id="${CSS.escape(id)}"]`);
+  const cached = galleryCardVirtualNodes.get(id);
+  if (cached?.isConnected && cached.parentElement === grid && cached.dataset.id === id) return cached;
+  if (cached) galleryCardVirtualNodes.delete(id);
+  const card = grid.querySelector(`:scope > .asset-card[data-id="${CSS.escape(id)}"]`);
+  if (card) galleryCardVirtualNodes.set(id, card);
+  return card;
 }
 
 function syncGalleryCardVirtualWindow() {
@@ -2768,6 +2776,8 @@ function setupGalleryMediaVirtualization(roots = null) {
           if (media.dataset.galleryUnloaded === "true" && source) {
             media.dataset.galleryUnloaded = "false";
             media.classList.remove("gallery-media-unloaded");
+            if (media.dataset.gallerySrcset) media.setAttribute("srcset", media.dataset.gallerySrcset);
+            if (media.dataset.gallerySizes) media.setAttribute("sizes", media.dataset.gallerySizes);
             media.src = source;
           }
           return;
@@ -2775,6 +2785,10 @@ function setupGalleryMediaVirtualization(roots = null) {
         if (!source || media.dataset.galleryUnloaded === "true" || !media.complete || media.naturalWidth <= 0) return;
         media.dataset.galleryUnloaded = "true";
         media.classList.add("gallery-media-unloaded");
+        if (media.hasAttribute("srcset")) media.dataset.gallerySrcset = media.getAttribute("srcset") || "";
+        if (media.hasAttribute("sizes")) media.dataset.gallerySizes = media.getAttribute("sizes") || "";
+        media.removeAttribute("srcset");
+        media.removeAttribute("sizes");
         media.removeAttribute("src");
       });
     }, { root: grid, rootMargin: "1200px 0px" });
@@ -2800,6 +2814,8 @@ function layoutMasonry(cards = null) {
   if (!grid) return;
   const gridStyles = getComputedStyle(grid);
   const galleryGap = Number.parseFloat(gridStyles.getPropertyValue("--gallery-gap")) || Number.parseFloat(gridStyles.columnGap) || 0;
+  const virtualColumnWidth = galleryCardColumnWidth(gridStyles);
+  galleryCardVirtualColumnWidth = virtualColumnWidth;
   const targets = cards ? [...cards] : [...grid.querySelectorAll(".asset-card")];
   const measureTargets = [];
   const measurements = [];
@@ -2830,7 +2846,7 @@ function layoutMasonry(cards = null) {
   measurements.forEach(([card, span, previousSpan]) => {
     if (!Number.isFinite(previousSpan) || previousSpan !== span) needsPlacement = true;
     card.style.gridRowEnd = `span ${span}`;
-    if (card.dataset.id) galleryCardVirtualSpanCache.set(galleryVirtualSpanKey(card.dataset.id), span);
+    if (card.dataset.id) galleryCardVirtualSpanCache.set(galleryVirtualSpanKey(card.dataset.id, virtualColumnWidth), span);
     card.classList.add("masonry-content-virtualized");
   });
   if (!needsPlacement) {
@@ -3120,8 +3136,10 @@ function reconcileAssetCards(entries) {
         card.replaceWith(replacement);
       }
       card = replacement;
+      galleryCardVirtualNodes.set(entry.id, card);
       changedCards.push(card);
     }
+    if (card) galleryCardVirtualNodes.set(entry.id, card);
     keptCards.add(card);
     desiredCards.push(card);
   }
@@ -3130,6 +3148,7 @@ function reconcileAssetCards(entries) {
     if (!keptCards.has(card)) {
       if (card.contains(document.activeElement)) replacedFocusedCard = true;
       releaseObservedGalleryMedia(card);
+      if (card.dataset.id) galleryCardVirtualNodes.delete(card.dataset.id);
       card.remove();
     }
   });
@@ -3150,7 +3169,12 @@ function appendAssetCards(entries) {
   grid.querySelectorAll(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel").forEach((element) => element.remove());
   const createdCards = createAssetCardElements(entries);
   const changedCards = entries.map((entry) => createdCards.get(entry.id)).filter(Boolean);
-  if (changedCards.length) grid.append(...changedCards);
+  if (changedCards.length) {
+    grid.append(...changedCards);
+    changedCards.forEach((card) => {
+      if (card.dataset.id) galleryCardVirtualNodes.set(card.dataset.id, card);
+    });
+  }
   if (state.nextCursor) grid.insertAdjacentHTML("beforeend", galleryPaginationMarkup());
   if (changedCards.length) invalidateCardGeometryCache();
   return changedCards;
@@ -3184,6 +3208,7 @@ function renderGrid() {
   };
   // Loading, failed, empty and populated are four distinct renders; the empty
   // state is only reachable once a request has actually answered with nothing.
+  if (state.galleryStatus === "loading" || state.galleryStatus === "error" || !state.assets.length) galleryCardVirtualNodes.clear();
   if (state.galleryStatus === "loading") { els.assetGrid.innerHTML = gallerySkeletonMarkup(); restoreGridFallbackFocus(); return; }
   if (state.galleryStatus === "error") {
     const message = state.galleryError?.message || "";
@@ -3207,6 +3232,7 @@ function renderGrid() {
     && existingCardCount === animateFrom
     && els.assetGrid.dataset.renderedDensity === state.galleryDensity;
   const renderAssets = canAppendFast ? state.assets.slice(animateFrom) : state.assets;
+  galleryCardVirtualColumnWidth = galleryCardColumnWidth();
   if (!canAppendFast) {
     galleryCardVirtualEntries.clear();
     const currentIds = new Set(state.assets.map((asset) => asset.id));
