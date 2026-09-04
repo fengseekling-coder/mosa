@@ -136,6 +136,15 @@ test("import rejections reach the client as 400 with a code, and the format list
   assert.equal(unfavorite.status, 200);
   assert.deepEqual((await unfavorite.json()).results, [{ id: asset.id, favorite: false }]);
 
+  const grouped = await batch({ action: "group", projectId: "default", assetIds: [asset.id], group: "Selected" });
+  assert.equal(grouped.status, 200);
+  assert.deepEqual((await grouped.json()).results, [{ id: asset.id, group: "Selected" }]);
+  const groupedAsset = await (await fetch(`${runtime.url}/api/assets/default/${encodeURIComponent(asset.id)}`)).json();
+  assert.equal(groupedAsset.asset.group, "Selected");
+  const invalidGroup = await batch({ action: "group", projectId: "default", assetIds: [asset.id], group: { invalid: true } });
+  assert.equal(invalidGroup.status, 400);
+  assert.match((await invalidGroup.json()).error, /group must be a string/);
+
   const invalidBatch = await batch({ action: "delete", projectId: "default", assetIds: [asset.id] });
   assert.equal(invalidBatch.status, 400);
   const archive = await batch({ action: "archive", projectId: "default", assetIds: [asset.id] });

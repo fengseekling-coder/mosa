@@ -377,12 +377,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 /* ===== 瀑布流图库（CSS grid 1px 行高 + JS span 计算，行优先、分页友好） ===== */
 .grid { display: grid; flex: 1; min-width: 0; grid-auto-flow: row; grid-auto-rows: 1px; grid-template-columns: repeat(4, minmax(0, 1fr)); align-content: start; column-gap: var(--gallery-gap); row-gap: 0; overflow: auto; padding: var(--space-2) 20px var(--space-3); background: var(--app-bg); }
-/* Phase 2C / Batch bar 底部补偿（任务十二）：批量条（--statusbar-height + 1px 边框）
-   出现时末行卡片让位，关闭后仅保留 --space-3 常规呼吸位，不残留多余底部空白；
-   补偿全部消费 Token，无魔法值。batch-active 挂在 .grid 上（app.js 既有行为，不改 JS），
-   详情面板经 :has 关联同步让位，其底部操作不被批量条遮挡。 */
-.grid.batch-active { padding-bottom: calc(var(--statusbar-height) + var(--space-2)); }
-.shell:has(.grid.batch-active) .detail { padding-bottom: var(--statusbar-height); }
+/* Batch bar compensation follows the single live selection state. */
+.shell:has(.grid.selection-active) .detail { padding-bottom: var(--statusbar-height); }
 @media (max-width: 1400px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
@@ -426,7 +422,6 @@ body.asset-stack-dragging { cursor: grabbing; user-select: none; }
 .card-check svg { width: 10px; height: 10px; }
 .asset-card.selected .card-check { display: grid; }
 .asset-card.multi-selected .card-check { display: grid; }
-.batch-active .card-check { display: none; }
 .thumb { display: block; width: 100%; height: auto; background: var(--app-hover); }
 .thumb.gallery-media-unloaded { visibility: hidden; }
 .thumb.image-thumb-pending { min-height: 96px; background: linear-gradient(110deg, var(--app-hover) 8%, var(--app-sidebar) 18%, var(--app-hover) 33%); background-size: 200% 100%; animation: asset-thumb-pending 1.4s linear infinite; }
@@ -455,14 +450,6 @@ body.asset-stack-dragging { cursor: grabbing; user-select: none; }
 .card-action-btn:hover { background: rgb(12 10 9 / 0.92); }
 .card-action-btn svg { width: 15px; height: 15px; }
 .card-favorite.is-fav svg { fill: currentColor; }
-
-/* 批量模式复选框 */
-.asset-card .card-checkbox { position: absolute; z-index: 3; top: 8px; left: 8px; display: flex; width: 20px; height: 20px; align-items: center; justify-content: center; margin: 0; padding: 0; border: 2px solid color-mix(in srgb, var(--color-media-text) 80%, transparent); border-radius: var(--radius-control); background: color-mix(in srgb, var(--color-media-backdrop) 25%, transparent); cursor: pointer; opacity: 0; appearance: none; transition: opacity .15s ease; }
-.asset-card:hover .card-checkbox, .asset-card .card-checkbox:checked { opacity: 1; }
-.asset-card .card-checkbox:checked { border-color: var(--color-accent); background: var(--color-accent); }
-.asset-card .card-checkbox:checked::after { content: "✓"; color: var(--color-accent-contrast); font-size: 11px; font-weight: 700; }
-.batch-active .asset-card .card-checkbox { opacity: 1; }
-.card-checkbox:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 1px; opacity: 1; }
 
 /* 信息密度：隐藏而非移除，切换密度不会改变卡片顺序。V2：去卡片边框后信息区
    不再需要 border-top 分隔线；标题字号提升、元数据改 mono 字体并降级为三级文字，
@@ -1118,7 +1105,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
    子按钮级抑制覆盖 hover / focus-within / selected / 收藏常显与触摸常显回退，
    操作区保持隐藏；批量复选框与批量工具栏为唯一操作路径。特异性：(0,4,0) 显式变体
    赢过所有显现规则（最高 (0,3,0)），基础 (0,3,0) 规则同源后写赢过触摸回退 (0,1,0)。 */
-.batch-active .asset-card .card-action-btn, .batch-active .asset-card:hover .card-action-btn, .batch-active .asset-card:focus-within .card-action-btn, .batch-active .asset-card.selected .card-action-btn { opacity: 0; pointer-events: none; }
+.selection-active .asset-card .card-action-btn, .selection-active .asset-card:hover .card-action-btn, .selection-active .asset-card:focus-within .card-action-btn, .selection-active .asset-card.selected .card-action-btn { opacity: 0; pointer-events: none; }
 
 /* ===== 响应式 ===== */
 /* Phase 2B / F-18：≤1399px 档（验证视口 1179×740 与 960×640 同属此收敛路径）——
@@ -1215,7 +1202,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   .toast { transition: none; transform: none; }
   .asset-view-control, .asset-view-fit, .asset-view-nav-btn { transition: none; }
   .segmented-btn, .segmented-thumb, .toolbar-icon, .toolbar-filter, .create-button, .icon-button,
-  .card-checkbox, .action-btn, .mini-btn, .prompt-text, input, textarea, select,
+  .action-btn, .mini-btn, .prompt-text, input, textarea, select,
   .btn-primary, .btn-secondary, .btn-danger { transition: none; }
 }
 
@@ -1310,7 +1297,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .card-favorite:not(.is-fav):hover { color: rgb(255 255 255 / .88); background: transparent; opacity: 1; }
   .mosa-v2 .card-favorite.is-fav:hover { color: var(--color-danger); background: transparent; opacity: .82; }
 }
-.mosa-v2 .card-quick-copy { display: none; }.mosa-v2 .card-checkbox { border-radius: 50%; }
+.mosa-v2 .card-quick-copy { display: none; }
 .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--gallery-gap); padding: 0; }.mosa-v2 .asset-skeleton { border-radius: 8px; background: linear-gradient(100deg, var(--app-search) 30%, var(--app-search-focus) 45%, var(--app-search) 60%); }.mosa-v2 .gallery-empty-state, .mosa-v2 .error-state { color: var(--color-text-tertiary); }.mosa-v2 .empty-state-actions .btn-primary { background: #2424ff; }
 
 .mosa-v2 .filter-panel, .mosa-v2 .settings-menu { border: 1px solid rgb(255 255 255 / .68); border-radius: 16px; background: rgb(from var(--app-menu) r g b / .92); box-shadow: 0 18px 42px -10px rgb(0 0 0 / .16); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); }
@@ -2477,7 +2464,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .segmented-btn,
   .toolbar-icon,
   .create-button,
-  .card-checkbox,
   .action-btn,
   .mini-btn,
   .prompt-text,

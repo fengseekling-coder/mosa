@@ -42,8 +42,12 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
     "collapsed Stack single-click must not navigate");
   assert.match(singleClick, /state\.selectedId = id;[\s\S]*?updateSelectedCard\(\)/,
     "collapsed Stack single-click keeps a lightweight logical selection");
+  assert.match(doubleClick, /if \(!state\.activeStackId && \(card\?\.dataset\.stackId \|\| asset\?\.stack\?\.id\)\)/,
+    "only the collapsed Stack node intercepts double-click; active Stack members remain openable");
   assert.match(doubleClick, /assetStacks\.enterStack\(asset\.stack\.id, asset\.stack\)/,
     "collapsed Stack double-click opens the Stack");
+  assert.match(doubleClick, /void openAssetView\(id, selectButton\)/,
+    "a member double-click inside the active Stack opens the dedicated Viewer");
   assert.match(app, /asset-stack-count/);
   assert.match(app, /stackMatchAccessibleName/);
   assert.match(css, /\.asset-card\.is-stack \.card-actions \{ opacity: 0; pointer-events: none; \}/);
@@ -81,13 +85,16 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
   assert.match(selection, /includesExistingStack/);
   assert.match(selection, /state\.storageKind !== "sqlite"/);
 
-  assert.match(contextActions, /if \(options\.stackNode && asset\?\.stack\?\.id\)/);
+  assert.match(contextActions, /if \(options\.stackNode && asset\?\.stack\?\.id && logicalSelectionCount\(selectedAssets, options\) === 1\)/);
   assert.match(contextActions, /mosa:open-stack/);
   assert.match(contextActions, /dissolveStack/);
   assert.match(contextActions, /method: "DELETE"/);
+  assert.match(contextActions, /gallerySelection\?\.resolveSelectedAssetIds/,
+    "mixed Stack selections resolve to real member asset IDs at mutation time");
   assert.match(contextBindings, /stackNode: !state\.activeStackId && Boolean\(asset\.stack\?\.id\)/);
-  assert.match(contextBindings, /selectionContainsStack/);
-  assert.match(contextBindings, /const actionAssets = selectionContainsStack && !asset\.stack\?\.id \? \[asset\] : selectedAssets/);
+  assert.match(contextBindings, /if \(!selectedIds\.has\(asset\.id\)\) \{[\s\S]*?gallerySelection\?\.replaceWith\?\.\(asset\.id\)/,
+    "right-clicking outside the current selection first makes that card the selection");
+  assert.match(contextBindings, /selectionCount: selectedIds\.size/);
 
   assert.match(html, /id="stackBack"/);
   assert.match(html, /id="selectionStack"/);

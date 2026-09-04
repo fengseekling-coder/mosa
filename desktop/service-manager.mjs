@@ -37,12 +37,22 @@ export class MosaServiceBuildMismatchError extends MosaServiceConflictError {
     this.service = Object.freeze({ ...details });
     this.expectedIdentity = Object.freeze({ ...expectedIdentity });
     this.mismatches = Object.freeze(mismatches.map((item) => Object.freeze({ ...item })));
-    this.upgradeEligible = compareMosaVersions(expectedVersion, runningVersion) === 1;
+    const versionComparison = compareMosaVersions(expectedVersion, runningVersion);
+    this.upgradeEligible = versionComparison === 1;
+    // Source development commonly keeps one package version across several
+    // commits. A verified same-version runtime with a different build identity
+    // is stale for an explicit source desktop launch even though semver cannot
+    // order those two builds.
+    this.sameVersionReplacementEligible = versionComparison === 0;
   }
 }
 
 export function shouldAllowStaleServiceUpgrade({ isPackaged, qaRun, explicitPort } = {}) {
   return isPackaged === true && !qaRun && !explicitPort;
+}
+
+export function shouldAllowSameVersionServiceReplacement({ isPackaged, qaRun, explicitPort } = {}) {
+  return isPackaged !== true && !qaRun && !explicitPort;
 }
 
 /**
@@ -120,16 +130,18 @@ export async function startMosaService(options = {}) {
   // fail-closed unless they explicitly opt in, and same/newer builds are never
   // terminated automatically.
   if (identityMismatch) {
-    if (
-      options.allowStaleServiceUpgrade === true
-      && identityMismatch.upgradeEligible === true
-      && hasCompleteServiceIdentity(identityMismatch.expectedIdentity)
-    ) {
+    const olderUpgradeAllowed = options.allowStaleServiceUpgrade === true
+      && identityMismatch.upgradeEligible === true;
+    const sameVersionReplacementAllowed = options.allowSameVersionServiceReplacement === true
+      && identityMismatch.sameVersionReplacementEligible === true;
+    if ((olderUpgradeAllowed || sameVersionReplacementAllowed)
+      && hasCompleteServiceIdentity(identityMismatch.expectedIdentity)) {
       const upgradeService = options.upgradeService || retireOlderMosaService;
       const retired = await upgradeService(identityMismatch, {
         host,
         fetchImpl: options.fetchImpl,
         probeTimeoutMs: options.probeTimeoutMs,
+        allowSameVersionReplacement: sameVersionReplacementAllowed,
       });
       if (retired) {
         const replacement = await waitForUpgradedMosaService(identityMismatch, {
@@ -221,6 +233,7 @@ export async function probeMosaService(options = {}) {
       port,
       libraryDir,
       storage: typeof health.storage === "string" ? health.storage : "unknown",
+      serviceProtocolVersion: typeof health.serviceProtocolVersion === "string" ? health.serviceProtocolVersion : "unknown",
       productVersion: typeof health.productVersion === "string" ? health.productVersion : "unknown",
       gitSha: typeof health.gitSha === "string" ? health.gitSha : "unknown",
       uiFingerprint: typeof health.uiFingerprint === "string" ? health.uiFingerprint : "unknown",
@@ -244,7 +257,7 @@ export async function probeMosaService(options = {}) {
  * before SIGTERM is sent, and we never escalate to SIGKILL.
  */
 export async function retireOlderMosaService(conflict, options = {}) {
-  if (!(conflict instanceof MosaServiceBuildMismatchError) || conflict.upgradeEligible !== true) return false;
+  if (!isRetirableServiceMismatch(conflict, options)) return false;
   const service = conflict.service;
   if (!service || !Number.isInteger(service.port) || typeof service.libraryDir !== "string") return false;
 
@@ -264,7 +277,7 @@ export async function retireOlderMosaService(conflict, options = {}) {
   const current = await probeImpl(probeOptions);
   if (current.state !== "attached" || !sameReportedServiceIdentity(current, service)) return false;
   const currentConflict = serviceIdentityConflict(current, conflict.expectedIdentity);
-  if (!(currentConflict instanceof MosaServiceBuildMismatchError) || currentConflict.upgradeEligible !== true) return false;
+  if (!isRetirableServiceMismatch(currentConflict, options)) return false;
 
   const isProcessAlive = options.isProcessAlive || defaultIsProcessAlive;
   if (!isProcessAlive(owner.pid)) return false;
@@ -404,7 +417,7 @@ function conflict(message, cause, { retryable = false } = {}) {
 
 function serviceIdentityConflict(details, expectedIdentity) {
   if (!expectedIdentity || typeof expectedIdentity !== "object") return null;
-  const fields = ["productVersion", "gitSha", "uiFingerprint", "runtimeFingerprint"];
+  const fields = ["serviceProtocolVersion", "productVersion", "gitSha", "uiFingerprint", "runtimeFingerprint"];
   const mismatches = [];
   for (const field of fields) {
     const expected = normalizedIdentityValue(expectedIdentity[field]);
@@ -471,8 +484,15 @@ function hasCompleteServiceIdentity(identity) {
 }
 
 function sameReportedServiceIdentity(left, right) {
-  return ["productVersion", "gitSha", "uiFingerprint", "runtimeFingerprint"]
+  return ["serviceProtocolVersion", "productVersion", "gitSha", "uiFingerprint", "runtimeFingerprint"]
     .every((field) => normalizedIdentityValue(left?.[field]) === normalizedIdentityValue(right?.[field]));
+}
+
+function isRetirableServiceMismatch(conflict, options = {}) {
+  if (!(conflict instanceof MosaServiceBuildMismatchError)) return false;
+  if (conflict.upgradeEligible === true) return true;
+  return options.allowSameVersionReplacement === true
+    && conflict.sameVersionReplacementEligible === true;
 }
 
 async function readRuntimeLockOwner(lockPath, readFileImpl) {

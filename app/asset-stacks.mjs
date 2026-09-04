@@ -147,6 +147,7 @@ export function createAssetStackController({
       scrollTop: els.assetGrid?.scrollTop || 0,
       selectedId: state.selectedId || "",
       selectedIds: [...(state.selectedIds instanceof Set ? state.selectedIds : new Set())],
+      selectedStackNodes: [...(state.selectedStackNodes instanceof Map ? state.selectedStackNodes : new Map())],
       stackId,
     };
     state.activeStackId = stackId;
@@ -199,6 +200,7 @@ export function createAssetStackController({
         if (returnCard?.dataset.id) state.selectedId = returnCard.dataset.id;
         const visibleIds = new Set((state.assets || []).map((asset) => asset.id));
         state.selectedIds = new Set((snapshot.selectedIds || []).filter((id) => visibleIds.has(id)));
+        state.selectedStackNodes = new Map((snapshot.selectedStackNodes || []).filter(([id]) => visibleIds.has(id)));
         els.assetGrid.querySelectorAll(":scope > .asset-card").forEach((card) => {
           card.classList.toggle("selected", Boolean(state.selectedId && card.dataset.id === state.selectedId));
         });
@@ -213,6 +215,7 @@ export function createAssetStackController({
 
   async function createStackFromSelection(coverAssetId = "") {
     if (state.activeStackId || state.scope === "trash" || state.storageKind !== "sqlite") return false;
+    if (gallerySelection.hasSelectedStacks?.()) return false;
     const selectedIds = [...(state.selectedIds instanceof Set ? state.selectedIds : new Set())];
     if (selectedIds.length < 2) return false;
     const coverId = coverAssetId && selectedIds.includes(coverAssetId)

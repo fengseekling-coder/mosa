@@ -204,7 +204,7 @@ test("15. reduced-motion contract covers the quick actions", async () => {
 // 16. Event isolation: delegated favorite/copy handlers keep stopPropagation.
 test("16. favorite and copy listeners keep event isolation", async () => {
   const app = await readApp();
-  const delegatedGridHandler = /els\.assetGrid\?\.addEventListener\("click", \(event\) => \{[\s\S]*?const favoriteButton = event\.target\.closest\("\.card-favorite"\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?const copyButton = event\.target\.closest\("\.card-quick-copy"\);[\s\S]*?event\.stopPropagation\(\);/;
+  const delegatedGridHandler = /els\.assetGrid\?\.addEventListener\("click", (?:async )?\(event\) => \{[\s\S]*?const favoriteButton = event\.target\.closest\("\.card-favorite"\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?const copyButton = event\.target\.closest\("\.card-quick-copy"\);[\s\S]*?event\.stopPropagation\(\);/;
   assert.match(app, delegatedGridHandler, "delegated quick actions must keep stopPropagation (no detail opening)");
   assert.doesNotMatch(app, /querySelectorAll\("\.card-(?:quick-copy|favorite)"\)\.forEach\([^\n]*addEventListener/,
     "renderGrid must not recreate per-card quick-action listeners");
@@ -331,19 +331,17 @@ test("23-25. hover, focus-within and selected each reveal both quick actions", a
 // this test used to guard was removed alongside the batch mode entry
 // points. Card quick-actions now stay reactive at all times.
 
-// 28. In batch mode :focus-within must NOT restore the single-card actions.
-test("28. batch mode: focus-within does not restore quick actions", async () => {
+// 28. The live selection state owns batch affordances. Hover/focus on a
+// selected gallery must never leak the single-card quick actions back in.
+test("28. selection mode: focus-within does not restore quick actions", async () => {
   const css = await readCss();
   const section = disclosureSection(css);
-  for (const variant of [".batch-active .asset-card .card-action-btn", ".batch-active .asset-card:hover .card-action-btn", ".batch-active .asset-card:focus-within .card-action-btn", ".batch-active .asset-card.selected .card-action-btn"]) {
+  for (const variant of [".selection-active .asset-card .card-action-btn", ".selection-active .asset-card:hover .card-action-btn", ".selection-active .asset-card:focus-within .card-action-btn", ".selection-active .asset-card.selected .card-action-btn"]) {
     assert.match(section, new RegExp(variant.replace(/[.:]/g, "\\$&") + "[^{]*\\{ opacity: 0; pointer-events: none; \\}"),
-      `batch suppression must cover ${variant} (hidden even on hover/focus-within/selected)`);
+      `selection suppression must cover ${variant} (hidden even on hover/focus-within/selected)`);
   }
-  assert.ok(!section.includes(".batch-active .asset-card .card-actions {"), "the old container-level batch rule must be gone");
-  assert.ok(!section.includes(".batch-active .asset-card:focus-within .card-actions {"), "the old batch focus-within restore must be gone");
-  // The batch affordance itself stays visible and clear.
-  assert.match(css, /\.batch-active \.asset-card \.card-checkbox \{ opacity: 1; \}/,
-    "batch checkboxes must stay visible in batch mode");
+  assert.ok(!section.includes(".batch-active"), "the retired batch-active state must stay gone");
+  assert.ok(!css.includes(".card-checkbox"), "the retired checkbox affordance must stay gone");
 });
 
 // 29. (Retired) Leaving batch mode restores the quick actions.

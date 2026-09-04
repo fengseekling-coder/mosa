@@ -32,8 +32,10 @@ test("Move to Trash uses one batch mutation and reconciles removed cards before 
     readFile(resolve(root, "app/context-menu-bindings.mjs"), "utf8"),
   ]);
 
-  assert.match(actions, /apiFetch\("\/api\/assets\/batch"[\s\S]*?action: "trash"[\s\S]*?assetIds: assets\.map/,
+  assert.match(actions, /apiFetch\("\/api\/assets\/batch"[\s\S]*?action: "trash"[\s\S]*?assetIds: ids/,
     "Trash selection must not issue one HTTP DELETE per card");
+  assert.match(actions, /selectedMutationIds\(asset, selectedAssets, options\)/,
+    "Trash must operate on the complete logical selection, including unloaded pages and Stack members");
   assert.match(actions, /removedAssetIds: outcome\.succeeded\.map/,
     "partial batches must remove only server-confirmed successes from the visible gallery");
   assert.match(bindings, /function applyImmediateAssetRemoval\(assetIds = \[\]\)/);

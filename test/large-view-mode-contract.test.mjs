@@ -141,26 +141,34 @@ test("9. compact 960–1120 keeps three columns (no detail drop)", async () => {
   assert.doesNotMatch(rail, /\.detail \{[^}]*position: static/, "detail must not re-enter the document flow in the rail band");
 });
 
-// 10. Ordinary assets keep the V2 inspector as their single-click destination.
-// A collapsed Stack is a logical node: single-click selects it without
-// navigating or leaking its cover into the Inspector, while double-click opens
-// the Stack member view.
-test("10. single click selects a logical Stack and double click enters it", async () => {
+// 10. Ordinary assets keep the V2 inspector as their single-click destination,
+// while double-click uses the dedicated Asset Viewer. A collapsed Stack is a
+// logical node: single-click selects it without navigating or leaking its cover
+// into the Inspector, while double-click opens the Stack member view.
+test("10. single click inspects, double click views, and Stack double click enters it", async () => {
   const app = await readApp();
   const cards = sliceBetween(app, 'const selectButton = event.target.closest(".asset-card-select")', 'const loadMoreButton = event.target.closest');
   assert.match(cards, /const id = selectButton\.closest\("\.asset-card"\)\?\.dataset\.id;/,
     "card click resolves the asset id");
+  assert.match(cards, /if \(event\.detail > 1\) return;/,
+    "the second click in a double-click does not repeat Inspector selection work");
   assert.match(cards, /if \(id\) \{\s+gallerySelection\.clear\(\);[\s\S]*?void selectAsset\(id\);\s+\}/,
     "ordinary asset click clears batch selection before opening the V2 detail inspector");
   assert.match(cards, /if \(!state\.activeStackId && asset\?\.stack\?\.id\) \{[\s\S]*?state\.selectedId = id;[\s\S]*?updateSelectedCard\(\);[\s\S]*?return;/,
     "collapsed Stack click only selects the logical Stack card");
   assert.doesNotMatch(cards, /assetStacks\.enterStack/,
     "single-click must not enter a collapsed Stack");
-  assert.doesNotMatch(cards, /openAssetView/, "card click does not enter the retired canvas viewer");
+  assert.doesNotMatch(cards, /openAssetView/, "single-click must not enter the dedicated Viewer");
 
   const doubleClick = sliceBetween(app, 'els.assetGrid?.addEventListener("dblclick"', 'els.newAssetTopBtn?.addEventListener');
+  assert.match(doubleClick, /if \(!state\.activeStackId && \(card\?\.dataset\.stackId \|\| asset\?\.stack\?\.id\)\)/,
+    "only a collapsed Stack intercepts double-click; members inside an active Stack fall through to Viewer");
   assert.match(doubleClick, /assetStacks\.enterStack\(asset\.stack\.id, asset\.stack\)/,
     "double-click enters a collapsed Stack");
+  assert.match(doubleClick, /void openAssetView\(id, selectButton\)/,
+    "ordinary asset double-click enters the dedicated Asset Viewer");
+  assert.doesNotMatch(doubleClick, /openImagePreview/,
+    "gallery double-click no longer routes through the legacy quick preview");
 });
 
 // 11. The card favourite quick action does not bubble.
@@ -497,14 +505,10 @@ test("41. detail-drawer Escape listener bails on defaultPrevented", async () => 
     "detail-drawer Escape listener must bail before its overlay guards when a trap consumed the event");
 });
 
-// 42. Runtime-verified fix: entering via double-click means the first click opens
-//     the view and synchronously focuses the back button, then the second
-//     mousedown lands on the stage/main image now occupying those coordinates —
-//     the browser default action moves focus to <body> and the open-focus is lost
-//     (found in the double-click entry re-verification, flow 31/36). The stage
-//     mousedown guard prevents the default focus theft on stage/image only;
-//     the video element is excluded so native controls keep working.
-test("42. asset-view stage mousedown guard prevents double-click focus theft", async () => {
+// 42. Viewer entry synchronously focuses the back button. Ordinary pointer
+//     interaction on the quiet stage/main image must not clear that focus to
+//     <body>; video is excluded so native controls keep their normal behavior.
+test("42. asset-view stage mousedown guard preserves viewer focus", async () => {
   const app = await readApp();
   const bind = functionBody(app, "bindEvents");
   const guard = sliceBetween(bind, 'els.assetViewStage?.addEventListener("mousedown"', "});");

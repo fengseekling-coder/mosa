@@ -8,7 +8,7 @@ import { DEFAULT_MOSA_DESKTOP_PORT, MOSA_RESERVED_PRODUCTION_PORTS } from "../li
 import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
 import { parseDisabledBridges } from "../lib/runtime-bridges.mjs";
 import { cleanupOrphanStagedFiles, importStagingDir, writeStagedPng } from "../lib/import-staging.mjs";
-import { shouldAllowStaleServiceUpgrade, startMosaService } from "./service-manager.mjs";
+import { shouldAllowSameVersionServiceReplacement, shouldAllowStaleServiceUpgrade, startMosaService } from "./service-manager.mjs";
 import { getDesktopText, getNotificationTextForAssetsImported, getUpdateNotificationText } from "./notification-i18n.mjs";
 import { loadOrCreateWebCaptureToken, MOSA_WEB_CAPTURE_DEFAULT_ORIGINS } from "./web-capture-pairing.mjs";
 import { desktopPlatformAdapter } from "./platform/index.mjs";
@@ -17,6 +17,7 @@ import { prepareAnonymousUsage } from "./anonymous-usage.mjs";
 import { resolveAllowedFolderPath } from "../lib/server-security.js";
 import { isPathInsideOrEqual, isUrlLikePath, pathsEqual } from "../lib/path-safety.mjs";
 import { getBuildIdentity } from "../lib/build-identity.mjs";
+import { MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
 
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
 const desktopPlatform = desktopPlatformAdapter();
@@ -25,7 +26,10 @@ const desktopPlatform = desktopPlatformAdapter();
 // when packaged. Deriving it from the module location keeps both modes on a
 // single source of truth instead of the app path API.
 const appRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const expectedServiceIdentity = getBuildIdentity(join(appRoot, "app"));
+const expectedServiceIdentity = Object.freeze({
+  ...getBuildIdentity(join(appRoot, "app")),
+  serviceProtocolVersion: MOSA_SERVICE_PROTOCOL_VERSION,
+});
 // `desktopDataDir` is the *actual* userData after Chromium applied the QA
 // --user-data-dir override (if any). It is deliberately NOT the production
 // default: Electron rewrites userData before any JS runs, so the un-overridden
@@ -574,6 +578,14 @@ async function createMainWindow() {
       // port launches stay fail-closed so test tooling never terminates an
       // unrelated local process.
       allowStaleServiceUpgrade: shouldAllowStaleServiceUpgrade({
+        isPackaged: app.isPackaged,
+        qaRun: isolationContext.qaRun,
+        explicitPort: Boolean(process.env.MOSA_DESKTOP_PORT),
+      }),
+      // Source development may safely replace a verified same-version MOSA
+      // owner for the same library. Packaged builds keep the stricter semver
+      // upgrade rule; QA and explicit-port launches remain fail-closed.
+      allowSameVersionServiceReplacement: shouldAllowSameVersionServiceReplacement({
         isPackaged: app.isPackaged,
         qaRun: isolationContext.qaRun,
         explicitPort: Boolean(process.env.MOSA_DESKTOP_PORT),

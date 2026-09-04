@@ -6,7 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { getBuildIdentity, resetBuildIdentityCache, computeRuntimeFingerprint, computeUiFingerprint } from "../lib/build-identity.mjs";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
-import { MCP_SERVER_VERSION } from "../lib/version-identities.mjs";
+import { MCP_SERVER_VERSION, MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
 import { removeTestPath as rm } from "./test-cleanup.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -155,7 +155,7 @@ test("runtimeFingerprint in build-identity.json matches the actual local runtime
   resetBuildIdentityCache();
 });
 
-test("/api/health returns product, MCP, Git, UI, and runtime build identities", async (t) => {
+test("/api/health returns product, protocol, MCP, Git, UI, and runtime build identities", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-health-build-id-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const service = await startMosaRuntime(runtimeOptions(root));
@@ -165,6 +165,7 @@ test("/api/health returns product, MCP, Git, UI, and runtime build identities", 
   assert.equal(response.status, 200);
   const health = await response.json();
   assert.equal(health.product, "mosa");
+  assert.equal(health.serviceProtocolVersion, MOSA_SERVICE_PROTOCOL_VERSION);
   assert.equal(typeof health.productVersion, "string");
   assert.equal(health.mcpServerVersion, MCP_SERVER_VERSION);
   assert.equal(typeof health.gitSha, "string");
@@ -179,6 +180,41 @@ test("/api/health returns product, MCP, Git, UI, and runtime build identities", 
   assert.equal(health.uiFingerprint, identity.uiFingerprint);
   assert.equal(health.runtimeFingerprint, identity.runtimeFingerprint);
   resetBuildIdentityCache();
+});
+
+test("runtime health keeps the identity snapshot captured at process start", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-health-snapshot-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const tempAppDir = join(root, "app");
+  await mkdir(tempAppDir, { recursive: true });
+  const initialIdentity = {
+    productVersion: "1.0.0",
+    gitSha: "started-sha",
+    uiFingerprint: "started-ui",
+    runtimeFingerprint: "started-runtime",
+  };
+  await writeFile(join(tempAppDir, "build-identity.json"), JSON.stringify(initialIdentity));
+  resetBuildIdentityCache();
+  const service = await startMosaRuntime(runtimeOptions(root, { appDir: tempAppDir }));
+  t.after(async () => {
+    await service.stop();
+    resetBuildIdentityCache();
+  });
+
+  await writeFile(join(tempAppDir, "build-identity.json"), JSON.stringify({
+    productVersion: "1.0.0",
+    gitSha: "newer-disk-sha",
+    uiFingerprint: "newer-disk-ui",
+    runtimeFingerprint: "newer-disk-runtime",
+  }));
+  resetBuildIdentityCache();
+
+  const response = await fetch(`${service.url}/api/health`);
+  assert.equal(response.status, 200);
+  const health = await response.json();
+  assert.equal(health.gitSha, initialIdentity.gitSha);
+  assert.equal(health.uiFingerprint, initialIdentity.uiFingerprint);
+  assert.equal(health.runtimeFingerprint, initialIdentity.runtimeFingerprint);
 });
 
 test("static resources served by the runtime match the source files in app/", async (t) => {
