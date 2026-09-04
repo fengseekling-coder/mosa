@@ -394,6 +394,14 @@ export function createAssetStackController({
 
   function endPointer(event, { canceled = false } = {}) {
     if (!pointer || pointer.id !== event.pointerId) return;
+    // A synthetic/test gesture (and a very fast real gesture) can deliver
+    // pointerup before the coalesced animation frame runs. Resolve the latest
+    // pointer position synchronously so the drop target is never lost.
+    if (pointerMoveFrame !== null) {
+      cancelAnimationFrame(pointerMoveFrame);
+      pointerMoveFrame = null;
+      flushPointerMove();
+    }
     const drag = pointer;
     const completed = drag.dragging;
     const targetId = dropTarget?.dataset.id || "";
