@@ -160,18 +160,12 @@ test("15-18. overlay levels and batch-bar compensation", async () => {
   assert.match(inspectorScroll, /overflow-y: auto/);
 
   assert.match(css, /--statusbar-height: 48px;/);
-  assert.match(blockAfter(css, ".grid.batch-active {"), /padding-bottom: calc\(var\(--statusbar-height\) \+ var\(--space-2\)\)/);
-  assert.match(blockAfter(css, ".shell:has(.grid.batch-active) .detail {"), /padding-bottom: var\(--statusbar-height\)/);
+  assert.match(blockAfter(css, ".grid.selection-active {"), /padding-bottom: calc\(var\(--statusbar-height\) \+ var\(--space-2\)\)/);
+  assert.match(blockAfter(css, ".shell:has(.grid.selection-active) .detail {"), /padding-bottom: var\(--statusbar-height\)/);
   // Off-state keeps only the regular breathing room — no residual batch padding.
   assert.match(blockAfter(css, ".grid {"), /padding: var\(--space-2\) 20px var\(--space-3\)/);
-  // 2026-08-18: V2-only token consolidation. The V2 design removed the
-  // bottom statusbar / batch-bar chrome and the JS hook that toggled
-  // `.batch-active` on the grid. The CSS compensation rule below stays
-  // in place (token-driven, harmless when no element sets the class),
-  // and the contract now documents that V2 choice rather than asserting
-  // a JS hook that has been retired.
-  assert.match(css, /\.grid\.batch-active \{ padding-bottom: calc\(var\(--statusbar-height\) \+ var\(--space-2\)\); \}/,
-    "CSS compensation rule for the retired batch-bar stays in place");
+  assert.doesNotMatch(css, /\.grid\.batch-active\b/,
+    "the retired batch-active state must not survive beside selection-active");
 });
 
 // 22. The public CSS keeps the O2 compact-desktop decision executable after

@@ -79,7 +79,10 @@ const checks = [
     assert.match(app, /event\.stopPropagation\(\);.*buttons\[next\]\.click\(\)/s);
   }],
   ["17 gallery card has native button entry", async () => assert.match(await read("app/app.mjs"), /<button class="asset-card-select" type="button"/)],
-  ["18 keyboard card activation opens the V2 detail inspector", async () => assert.match(await read("app/app.mjs"), /void selectAsset\(id\)/)],
+  ["18 Enter on a gallery asset opens the dedicated Viewer", async () => {
+    const app = await read("app/app.mjs");
+    assert.match(app, /if \(event\.key === "Enter"[\s\S]*?else void openAssetView\(asset\.id, els\.assetGrid\?\.querySelector/);
+  }],
   ["19 viewer entry focuses Return", async () => assert.match(await read("app/asset-view.mjs"), /els\.assetViewBack\?\.focus\(\);/)],
   ["20 hidden library is inert in viewer", async () => assert.match(await read("app/asset-view.mjs"), /els\.libraryView\.toggleAttribute\("inert", assetMode\)/)],
   ["21 viewer navigation buttons stay native", async () => {

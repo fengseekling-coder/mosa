@@ -345,7 +345,8 @@ test("context-menu bulk Trash action passes the selected count into its title", 
 
   assert.match(translations.zh.moveAssetsToTrashTitle, /\{count\}/);
   assert.match(translations.en.moveAssetsToTrashTitle, /\{count\}/);
-  assert.match(source, /t\("moveAssetsToTrashTitle", \{ count: assets\.length \}\)/);
+  assert.match(source, /t\("moveAssetsToTrashTitle", \{ count: ids\.length \}\)/,
+    "Trash confirmation reports the real expanded mutation count, including Stack members and unloaded selections");
   assert.doesNotMatch(source, /t\("moveAssetsToTrashTitle"\)/);
   assert.doesNotMatch(source, /t\("archiveAsset"\)/, "archive is no longer exposed from the asset context menu");
 });

@@ -63,7 +63,7 @@ function sourceTypeLabel(type) {
 
 const preference = safeStorageGet("mosa.ui-language") || "system";
 const state = {
-  project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, selectedIds: new Set(), selectionProject: "default", detailAsset: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
+  project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, selectedIds: new Set(), selectedStackNodes: new Map(), selectionProject: "default", selectionRequestKey: "", detailAsset: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
   groups: { total: 0, favorites: 0, recent: 0, unorganized: 0, trash: 0, codex: 0, cowart: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0 },
@@ -209,7 +209,16 @@ Object.assign(els, {
   confirmDialogConfirm: document.querySelector("#confirmDialogConfirm"),
 });
 
-const gallerySelection = createGallerySelection({ els, state, t, announceGalleryStatus });
+const gallerySelection = createGallerySelection({
+  els,
+  state,
+  t,
+  announceGalleryStatus,
+  currentAssetRequest,
+  requestAssetPage,
+  apiFetch,
+  showToast,
+});
 const assetStacks = createAssetStackController({
   els,
   state,
@@ -577,9 +586,14 @@ function setupKeyboardShortcuts() {
     // and paste handlers that MOSA does not own.
     if ((event.metaKey || event.ctrlKey) && (event.key === "a" || event.key === "A" || event.key === "v" || event.key === "V")) {
       if (event.target.matches?.("input, textarea, select, [contenteditable]")) return;
+      if (confirmDialogState.pending
+        || els.importModal?.classList.contains("open")
+        || els.groupModal?.classList.contains("open")
+        || !els.imagePreviewModal?.hidden
+        || !els.settingsMenu?.hidden) return;
       if ((event.key === "a" || event.key === "A") && state.viewMode === "library" && state.assets.length) {
         event.preventDefault();
-        gallerySelection.selectAll({ announce: true });
+        void gallerySelection.selectAll({ announce: true });
         return;
       }
       // In Electron, the paste event handler in bindDesktopIntegration imports
@@ -692,7 +706,7 @@ function setupKeyboardShortcuts() {
       if (asset) {
         event.preventDefault();
         if (!state.activeStackId && asset.stack?.id) void assetStacks.enterStack(asset.stack.id, asset.stack);
-        else openImagePreview(asset.id, els.assetGrid?.querySelector(`.asset-card[data-id="${CSS.escape(asset.id)}"] .asset-card-select`));
+        else void openAssetView(asset.id, els.assetGrid?.querySelector(`.asset-card[data-id="${CSS.escape(asset.id)}"] .asset-card-select`));
         return;
       }
     }
@@ -1170,6 +1184,7 @@ const contextMenuActions = createContextMenuActions({
   copyOriginalImage: writeClipboardImage,
   isVideoAsset,
   pasteClipboardImage: window.electronAPI?.pasteImage ? pasteClipboardImage : null,
+  gallerySelection,
 });
 
 async function releaseAssetMediaForDeletion(assets = []) {
@@ -1489,7 +1504,7 @@ function bindEvents() {
   });
   els.activeFilters?.addEventListener("click", (event) => { const chip = event.target.closest("[data-chip]"); if (chip) void removeFilterChip(chip.dataset.chip); });
   els.detailPanel?.addEventListener("click", handleReferenceRightsOpen);
-  els.assetGrid?.addEventListener("click", (event) => {
+  els.assetGrid?.addEventListener("click", async (event) => {
     if (gallerySelection.handleGridClick(event)) return;
     const favoriteButton = event.target.closest(".card-favorite");
     if (favoriteButton) {
@@ -1510,6 +1525,10 @@ function bindEvents() {
     }
     const selectButton = event.target.closest(".asset-card-select");
     if (selectButton) {
+      // A browser emits the second click before dblclick. Let the dedicated
+      // dblclick handler own that second activation so one double-click never
+      // repeats Inspector selection work immediately before entering Viewer.
+      if (event.detail > 1) return;
       const id = selectButton.closest(".asset-card")?.dataset.id;
       if (id && gallerySelection.handleCardClick(event, id)) return;
       if (id) {
@@ -1519,11 +1538,11 @@ function bindEvents() {
           // A collapsed Stack is a logical gallery node. Single-click only
           // selects it; navigation is reserved for double-click (or Enter),
           // which prevents accidental entry while browsing or marqueeing.
-          if (!state.detailOpen && state.viewMode === "library") {
-            clearDetailSelection();
-            state.selectedId = id;
-            updateSelectedCard();
-          }
+          if (state.viewMode !== "library") return;
+          if (state.detailOpen && !await closeDetailSurface()) return;
+          clearDetailSelection();
+          state.selectedId = id;
+          updateSelectedCard();
           return;
         }
         void selectAsset(id);
@@ -1558,11 +1577,11 @@ function bindEvents() {
     const id = card?.dataset.id;
     if (!id) return;
     const asset = state.assets.find((item) => item.id === id);
-    if (card?.dataset.stackId || asset?.stack?.id) {
-      if (!state.activeStackId && asset?.stack?.id) void assetStacks.enterStack(asset.stack.id, asset.stack);
+    if (!state.activeStackId && (card?.dataset.stackId || asset?.stack?.id)) {
+      if (asset?.stack?.id) void assetStacks.enterStack(asset.stack.id, asset.stack);
       return;
     }
-    openImagePreview(id, selectButton);
+    void openAssetView(id, selectButton);
   });
   els.emptyTrashBtn?.addEventListener("click", async () => {
     if (state.scope !== "trash" || !Number(state.groups?.trash || 0)) return;
@@ -1811,10 +1830,8 @@ function bindEvents() {
     if (!els.imagePreviewModal?.hidden && els.imagePreviewImage?.getAttribute("src")) showToast(t("imageLoadFailed"), "error");
   });
   els.assetViewBack?.addEventListener("click", () => { void closeDetailSurface(); });
-  // Phase 3A 运行时修复（双击进入路径）：第一次 click 已打开查看模式并同步聚焦返回按钮，
-  // 紧随的第二次 mousedown 落在同坐标的舞台/主图上——浏览器默认动作会把焦点清到 BODY，
-  // 使打开焦点丢失。阻止舞台与主图 mousedown 的默认焦点转移（不改布局/不新增状态）；
-  // 视频元素排除在外，保留原生 controls 交互；缩放/平移接入（Phase 3B）时在同一监听器扩展。
+  // Phase 3A：Viewer 打开后返回按钮拥有进入焦点。舞台/主图上的普通 mousedown
+  // 不应把焦点无意义地清到 BODY；视频元素排除在外，保留原生 controls 交互。
   els.assetViewStage?.addEventListener("mousedown", (event) => {
     if (event.target === els.assetViewStage || event.target === els.assetViewImage) event.preventDefault();
   });
@@ -1848,6 +1865,7 @@ function bindEvents() {
     openAssetView,
     showToast,
     t,
+    gallerySelection,
   });
   // Phase 5B：ConfirmDialog 陷阱先于其余陷阱注册——Escape 优先级链最前（preventDefault +
   // stopPropagation，不穿透 Viewer/既有 Modal）；ConfirmDialog 未打开时后续陷阱照常工作。
@@ -2410,7 +2428,7 @@ function replaceVirtualGalleryCards(observerEntries) {
     const hydrate = item.isIntersecting;
     if (hydrate && !card.classList.contains("asset-card-virtual-placeholder")) continue;
     if (!hydrate && card.classList.contains("asset-card-virtual-placeholder")) continue;
-    if (!hydrate && (card.contains(document.activeElement) || card.classList.contains("selected") || card.classList.contains("multi-selected") || card.matches(".stack-drop-target, .stack-reorder-target"))) continue;
+    if (!hydrate && (card.contains(document.activeElement) || card.classList.contains("selected") || card.matches(".stack-drop-target, .stack-reorder-target"))) continue;
 
     if (!hydrate) {
       const span = Number.parseInt(String(card.style.gridRowEnd || "").replace(/\D+/g, ""), 10);

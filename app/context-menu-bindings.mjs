@@ -19,6 +19,7 @@ export function bindContextMenuEvents(options = {}) {
     openAssetView,
     showToast,
     t,
+    gallerySelection,
   } = options;
 
   const bindGroupContextMenu = (list) => list?.addEventListener("contextmenu", (event) => {
@@ -64,17 +65,16 @@ export function bindContextMenuEvents(options = {}) {
 
     const asset = state.assets.find((entry) => entry.id === card.dataset.id);
     if (!asset) return;
-    const selectedIds = state.selectedIds instanceof Set ? state.selectedIds : new Set();
-    const selectedAssets = selectedIds.has(asset.id)
-      ? state.assets.filter((entry) => selectedIds.has(entry.id))
-      : [asset];
-    const selectionContainsStack = !state.activeStackId && selectedAssets.some((entry) => entry.stack?.id);
-    // A mixed root selection may contain logical Stack nodes. A normal asset
-    // menu must never turn those cover IDs into batch mutations.
-    const actionAssets = selectionContainsStack && !asset.stack?.id ? [asset] : selectedAssets;
+    let selectedIds = state.selectedIds instanceof Set ? state.selectedIds : new Set();
+    if (!selectedIds.has(asset.id)) {
+      gallerySelection?.replaceWith?.(asset.id);
+      selectedIds = state.selectedIds instanceof Set ? state.selectedIds : new Set([asset.id]);
+    }
+    const selectedAssets = state.assets.filter((entry) => selectedIds.has(entry.id));
     contextMenu.show({
-      items: contextMenuActions.getAssetMenu(asset, actionAssets, {
+      items: contextMenuActions.getAssetMenu(asset, selectedAssets, {
         stackNode: !state.activeStackId && Boolean(asset.stack?.id),
+        selectionCount: selectedIds.size,
       }),
       x: event.clientX,
       y: event.clientY,
@@ -91,6 +91,9 @@ export function bindContextMenuEvents(options = {}) {
     if (!removedVisibleCount) return 0;
     if (state.selectedIds instanceof Set) {
       for (const id of removedIds) state.selectedIds.delete(id);
+    }
+    if (state.selectedStackNodes instanceof Map) {
+      for (const id of removedIds) state.selectedStackNodes.delete(id);
     }
     if (Number.isFinite(Number(state.pageTotal))) {
       state.pageTotal = Math.max(state.assets.length, Number(state.pageTotal) - removedVisibleCount);

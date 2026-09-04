@@ -3,7 +3,7 @@
  * Defines all context menu items and their actions
  */
 
-export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, getGroupColor, saveGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage }) {
+export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, getGroupColor, saveGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, gallerySelection }) {
   const { apiFetch } = apiClient;
   // getGroupColor falls back to the deterministic palette so call sites can rely
   // on a single source of truth for group colors (mirrors app.mjs colorForGroup).
@@ -59,6 +59,32 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
       else failed.push(asset);
     }
     return { succeeded, failed };
+  }
+
+  function logicalSelectionCount(selectedAssets = [], options = {}) {
+    const count = Number(options.selectionCount);
+    return Number.isFinite(count) && count > 0 ? count : Math.max(1, selectedAssets.length);
+  }
+
+  async function selectedMutationIds(asset, selectedAssets = [], options = {}) {
+    const count = logicalSelectionCount(selectedAssets, options);
+    if (count > 1 && typeof gallerySelection?.resolveSelectedAssetIds === "function") {
+      const ids = await gallerySelection.resolveSelectedAssetIds();
+      if (ids.length) return ids;
+    }
+    return [asset.id];
+  }
+
+  function mutationAssetsForIds(ids = []) {
+    const loaded = new Map((state.assets || []).map((entry) => [entry.id, entry]));
+    return ids.map((id) => loaded.get(id) || { id, project_id: state.project });
+  }
+
+  async function applyGroupMutation(ids, group) {
+    return apiFetch("/api/assets/batch", {
+      method: "POST",
+      body: { action: "group", projectId: state.project, assetIds: ids, group },
+    });
   }
 
   // Full manifest of one group via the existing paged asset query. Never cap a
@@ -203,13 +229,15 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
    */
   function getAssetMenu(asset, selectedAssets = [], options = {}) {
     if (state.scope === "trash") {
-      const assets = selectedAssets.length > 1 ? selectedAssets : [asset];
+      const selectionCount = logicalSelectionCount(selectedAssets, options);
       return [
         {
-          label: assets.length > 1 ? t("restoreAssets", { count: assets.length }) : t("restoreAsset"),
+          label: selectionCount > 1 ? t("restoreAssets", { count: selectionCount }) : t("restoreAsset"),
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8v5h5"/><path d="M5.5 13a7 7 0 1 0 2-7"/></svg>',
           action: async () => {
             await runAction(async () => {
+              const ids = await selectedMutationIds(asset, selectedAssets, options);
+              const assets = mutationAssetsForIds(ids);
               for (const item of assets) {
                 await apiFetch(`/api/assets/${encodeURIComponent(item.project_id)}/${encodeURIComponent(item.id)}/restore`, { method: "POST" });
               }
@@ -225,6 +253,8 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4h8v2m2 0-1 15H7L6 6"/><path d="M10 10v7M14 10v7"/></svg>',
           danger: true,
           action: async () => {
+            const ids = await selectedMutationIds(asset, selectedAssets, options);
+            const assets = mutationAssetsForIds(ids);
             const confirmed = await requestConfirmation({
               title: assets.length > 1 ? t("permanentDeleteAssetsTitle", { count: assets.length }) : t("permanentDeleteTitle"),
               description: t("permanentDeleteDescription"),
@@ -251,7 +281,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         },
       ];
     }
-    if (options.stackNode && asset?.stack?.id) {
+    if (options.stackNode && asset?.stack?.id && logicalSelectionCount(selectedAssets, options) === 1) {
       return [
         {
           label: t("openStack"),
@@ -284,7 +314,8 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         },
       ];
     }
-    const isMultiple = selectedAssets.length > 1;
+    const selectionCount = logicalSelectionCount(selectedAssets, options);
+    const isMultiple = selectionCount > 1;
     const items = [];
 
     if (!isMultiple) {
@@ -354,7 +385,8 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>'
         : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>',
       action: async () => {
-        const assets = isMultiple ? selectedAssets : [asset];
+        const ids = await selectedMutationIds(asset, selectedAssets, options);
+        const assets = mutationAssetsForIds(ids);
         await runAction(async () => {
           if (isMultiple) {
             const response = await apiFetch("/api/assets/batch", {
@@ -362,7 +394,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               body: {
                 action: "favorite",
                 projectId: state.project,
-                assetIds: assets.map((entry) => entry.id),
+                assetIds: ids,
                 favorite: !asset.favorite,
               },
             });
@@ -398,17 +430,15 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         {
           label: t("noGroup"),
           action: async () => {
-            const assets = isMultiple ? selectedAssets : [asset];
+            const ids = await selectedMutationIds(asset, selectedAssets, options);
+            const assets = mutationAssetsForIds(ids);
             if (!await confirmSelectedAssetMutation(assets)) return;
             await runAction(async () => {
-              for (const a of assets) {
-                await apiFetch(`/api/assets/${encodeURIComponent(a.project_id)}/${encodeURIComponent(a.id)}`, {
-                  method: "PATCH",
-                  body: { group: "" },
-                });
-              }
+              const response = await applyGroupMutation(ids, "");
+              const outcome = reconcileBatchMutation(assets, response);
               commitSelectedAssetMutation(assets);
-              showToast(t("movedToGroup"), "success");
+              if (outcome.failed.length) showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
+              else showToast(t("movedToGroup"), "success");
               window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
             });
           },
@@ -422,17 +452,15 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             label: groupName,
             icon: `<svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="${savedColor}"/></svg>`,
             action: async () => {
-              const assets = isMultiple ? selectedAssets : [asset];
+              const ids = await selectedMutationIds(asset, selectedAssets, options);
+              const assets = mutationAssetsForIds(ids);
               if (!await confirmSelectedAssetMutation(assets)) return;
               await runAction(async () => {
-                for (const a of assets) {
-                  await apiFetch(`/api/assets/${encodeURIComponent(a.project_id)}/${encodeURIComponent(a.id)}`, {
-                    method: "PATCH",
-                    body: { group: groupName },
-                  });
-                }
+                const response = await applyGroupMutation(ids, groupName);
+                const outcome = reconcileBatchMutation(assets, response);
                 commitSelectedAssetMutation(assets);
-                showToast(t("movedToGroup"), "success");
+                if (outcome.failed.length) showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
+                else showToast(t("movedToGroup"), "success");
                 window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
               });
             },
@@ -475,6 +503,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     items.push({
       label: t("exportAsset"),
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5-5 5 5"/><path d="M12 5v12"/></svg>',
+      disabled: isMultiple && (selectedAssets.length !== selectionCount || Boolean(gallerySelection?.hasSelectedStacks?.())),
       action: async () => {
         const assets = isMultiple ? selectedAssets : [asset];
         await runAction(async () => {
@@ -495,9 +524,10 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/></svg>',
         danger: true,
         action: async () => {
-          const assets = isMultiple ? selectedAssets : [asset];
+          const ids = await selectedMutationIds(asset, selectedAssets, options);
+          const assets = mutationAssetsForIds(ids);
           const confirmed = await requestConfirmation({
-            title: isMultiple ? t("moveAssetsToTrashTitle", { count: assets.length }) : t("moveToTrashTitle"),
+            title: ids.length > 1 ? t("moveAssetsToTrashTitle", { count: ids.length }) : t("moveToTrashTitle"),
             description: t("moveToTrashDescription"),
             confirmLabel: t("moveToTrash"),
             tone: "danger",
@@ -511,7 +541,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               body: {
                 action: "trash",
                 projectId: state.project,
-                assetIds: assets.map((entry) => entry.id),
+                assetIds: ids,
               },
             });
             const outcome = reconcileBatchMutation(assets, response);

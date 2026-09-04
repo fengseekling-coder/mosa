@@ -11,6 +11,7 @@ import {
   MosaServiceConflictError,
   compareMosaVersions,
   retireOlderMosaService,
+  shouldAllowSameVersionServiceReplacement,
   shouldAllowStaleServiceUpgrade,
   startMosaService,
 } from "../desktop/service-manager.mjs";
@@ -165,6 +166,63 @@ test("automatic stale-service retirement is enabled only for normal packaged lau
   assert.equal(shouldAllowStaleServiceUpgrade({ isPackaged: false, qaRun: false, explicitPort: false }), false, "development launches stay fail-closed");
   assert.equal(shouldAllowStaleServiceUpgrade({ isPackaged: true, qaRun: "1", explicitPort: false }), false, "QA launches stay fail-closed");
   assert.equal(shouldAllowStaleServiceUpgrade({ isPackaged: true, qaRun: false, explicitPort: true }), false, "explicit port launches stay fail-closed");
+});
+
+test("same-version service replacement is enabled only for normal source desktop launches", () => {
+  assert.equal(shouldAllowSameVersionServiceReplacement({ isPackaged: false, qaRun: false, explicitPort: false }), true);
+  assert.equal(shouldAllowSameVersionServiceReplacement({ isPackaged: true, qaRun: false, explicitPort: false }), false, "packaged launches do not replace an unordered same-version build");
+  assert.equal(shouldAllowSameVersionServiceReplacement({ isPackaged: false, qaRun: "1", explicitPort: false }), false, "QA launches stay fail-closed");
+  assert.equal(shouldAllowSameVersionServiceReplacement({ isPackaged: false, qaRun: false, explicitPort: true }), false, "explicit port launches stay fail-closed");
+});
+
+test("source desktop hands off a verified same-version stale runtime to the current build", async (t) => {
+  const root = await temporaryRoot(t, "mosa-service-same-version-handoff-");
+  const libraryDir = join(root, "library");
+  const staleHealth = {
+    product: "mosa",
+    libraryDir,
+    storage: "sqlite",
+    serviceProtocolVersion: "unknown",
+    productVersion: "0.2.1-rc.4",
+    gitSha: "old-sha",
+    uiFingerprint: "old-ui",
+    runtimeFingerprint: "old-runtime",
+  };
+  const expectedIdentity = {
+    serviceProtocolVersion: "1",
+    productVersion: "0.2.1-rc.4",
+    gitSha: "new-sha",
+    uiFingerprint: "new-ui",
+    runtimeFingerprint: "new-runtime",
+  };
+  const replacement = {
+    state: "attached",
+    url: "http://127.0.0.1:43517",
+    port: 43517,
+    libraryDir,
+    storage: "sqlite",
+    ...expectedIdentity,
+  };
+  let handoffCalls = 0;
+
+  const attached = await startMosaService({
+    port: 43517,
+    libraryDir,
+    expectedIdentity,
+    allowSameVersionServiceReplacement: true,
+    fetchImpl: async () => ({ ok: true, json: async () => staleHealth }),
+    upgradeService: async (conflict, options) => {
+      handoffCalls += 1;
+      assert.equal(conflict.sameVersionReplacementEligible, true);
+      assert.equal(options.allowSameVersionReplacement, true);
+      return true;
+    },
+    upgradeProbeImpl: async () => replacement,
+  });
+
+  assert.equal(handoffCalls, 1);
+  assert.equal(attached.url, replacement.url);
+  assert.equal(attached.productVersion, expectedIdentity.productVersion);
 });
 
 test("automatic retirement does not target same-version, newer, unknown, or different-library services", async (t) => {

@@ -25,6 +25,8 @@ import { tmpdir, homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, execFileSync } from "node:child_process";
+import { getBuildIdentity } from "../lib/build-identity.mjs";
+import { MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
 
 const __dirname = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const REPO_ROOT = resolve(__dirname, "..");
@@ -47,6 +49,16 @@ const ELECTRON_BIN = process.platform === "darwin"
 const DESKTOP_SCRIPT = "desktop/main.mjs";
 const HEALTH_URL = "http://127.0.0.1:43517/api/health";
 const HEALTH_TIMEOUT_MS = 30_000;
+const EXPECTED_SERVICE_IDENTITY = Object.freeze({
+  ...getBuildIdentity(join(REPO_ROOT, "app")),
+  serviceProtocolVersion: MOSA_SERVICE_PROTOCOL_VERSION,
+});
+
+function healthMatchesCurrentBuild(health) {
+  if (health?.product !== "mosa") return false;
+  return ["serviceProtocolVersion", "productVersion", "gitSha", "uiFingerprint", "runtimeFingerprint"]
+    .every((field) => typeof health?.[field] === "string" && health[field] === EXPECTED_SERVICE_IDENTITY[field]);
+}
 
 function shellQuote(value) {
   return `'${String(value).replaceAll("'", `'"'"'`)}'`;
@@ -163,9 +175,12 @@ async function main() {
     const res = await fetch(HEALTH_URL);
     if (res.ok) {
       const health = await res.json();
-      console.log(`MOSA is already running (pid unknown, libraryDir=${health.libraryDir}).`);
-      console.log(`Health: ${JSON.stringify(health)}`);
-      return;
+      if (healthMatchesCurrentBuild(health)) {
+        console.log(`MOSA is already running (pid unknown, libraryDir=${health.libraryDir}).`);
+        console.log(`Health: ${JSON.stringify(health)}`);
+        return;
+      }
+      console.log("A stale MOSA local service is running; launching the current desktop build so it can perform a verified handoff.");
     }
   } catch {
     // not running, proceed to launch

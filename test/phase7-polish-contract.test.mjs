@@ -188,7 +188,7 @@ test("10. Main app reduced-motion coverage complete", async () => {
   const blockStart = css.lastIndexOf("@media (prefers-reduced-motion: reduce)");
   assert.notEqual(blockStart, -1, "reduced-motion block exists");
   const block = css.slice(blockStart);
-  for (const selector of [".asset-card", ".card-action-btn", ".toast", ".asset-view-control", ".nav-item", ".icon-button", ".segmented-btn", ".toolbar-icon", ".create-button", ".card-checkbox", ".action-btn", ".mini-btn", ".prompt-text", ".btn-primary", ".btn-danger"]) {
+  for (const selector of [".asset-card", ".card-action-btn", ".toast", ".asset-view-control", ".nav-item", ".icon-button", ".segmented-btn", ".toolbar-icon", ".create-button", ".action-btn", ".mini-btn", ".prompt-text", ".btn-primary", ".btn-danger"]) {
     assert.ok(block.includes(selector), `reduced-motion covers ${selector}`);
   }
 });

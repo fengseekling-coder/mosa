@@ -2,6 +2,7 @@ export const MARQUEE_DRAG_THRESHOLD_PX = 3;
 export const MARQUEE_CARD_DRAG_THRESHOLD_PX = 6;
 const AUTO_SCROLL_EDGE_PX = 36;
 const AUTO_SCROLL_MAX_PX = 18;
+const MARQUEE_GEOMETRY_BAND_PX = 512;
 
 export function rectFromPoints(x1, y1, x2, y2) {
   const left = Math.min(x1, x2);
@@ -15,6 +16,17 @@ export function rectsIntersect(a, b) {
   return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
 }
 
+export function selectionRangeIds(assets = [], anchorId = "", targetId = "") {
+  const ids = (assets || []).map((asset) => String(asset?.id || "")).filter(Boolean);
+  const targetIndex = ids.indexOf(String(targetId || ""));
+  if (targetIndex < 0) return targetId ? [String(targetId)] : [];
+  const anchorIndex = ids.indexOf(String(anchorId || ""));
+  if (anchorIndex < 0) return [ids[targetIndex]];
+  const start = Math.min(anchorIndex, targetIndex);
+  const end = Math.max(anchorIndex, targetIndex);
+  return ids.slice(start, end + 1);
+}
+
 function sameIds(a, b) {
   if (a.size !== b.size) return false;
   for (const id of a) if (!b.has(id)) return false;
@@ -25,35 +37,82 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-export function createGallerySelection({ els, state, t, announceGalleryStatus }) {
+export function createGallerySelection({
+  els,
+  state,
+  t,
+  announceGalleryStatus,
+  currentAssetRequest,
+  requestAssetPage,
+  apiFetch,
+  showToast,
+}) {
   let pointer = null;
   let selectionBox = null;
   let suppressNextGridClick = false;
   let autoScrollFrame = 0;
   let selectionUpdateFrame = 0;
   let pendingSelectionPoint = null;
-  let stackedAssetSetSource = null;
-  let stackedAssetIds = new Set();
+  let selectionAnchorId = "";
+  let selectAllInFlight = false;
+  let selectionRevision = 0;
+
+  function currentSelectionRequestKey() {
+    if (typeof currentAssetRequest !== "function") return "";
+    try {
+      const request = currentAssetRequest();
+      return JSON.stringify([
+        request.project,
+        request.stackId || "",
+        request.query || "",
+        request.scope || "all",
+        request.mediaKind || "all",
+        ...Object.keys(request.facets || {}).sort().map((key) => `${key}:${request.facets[key] || ""}`),
+      ]);
+    } catch {
+      return "";
+    }
+  }
+
+  function ensureStackSelectionMap() {
+    if (!(state.selectedStackNodes instanceof Map)) state.selectedStackNodes = new Map();
+    return state.selectedStackNodes;
+  }
+
+  function resetSelectionState({ requestKey = currentSelectionRequestKey(), resetAnchor = true } = {}) {
+    state.selectedIds = new Set();
+    state.selectedStackNodes = new Map();
+    state.selectionProject = state.project;
+    state.selectionRequestKey = requestKey;
+    if (resetAnchor) selectionAnchorId = "";
+    selectionRevision += 1;
+  }
 
   function ensureSelectionSet() {
     if (!(state.selectedIds instanceof Set)) state.selectedIds = new Set(state.selectedIds || []);
-    if (state.selectionProject !== state.project) {
-      state.selectedIds.clear();
-      state.selectionProject = state.project;
-    }
+    ensureStackSelectionMap();
+    const requestKey = currentSelectionRequestKey();
+    if (state.selectionProject !== state.project
+      || (state.selectionRequestKey && requestKey && state.selectionRequestKey !== requestKey)) {
+      resetSelectionState({ requestKey });
+    } else if (!state.selectionRequestKey && requestKey) state.selectionRequestKey = requestKey;
     return state.selectedIds;
   }
 
-  function loadedIds() {
-    return new Set((state.assets || []).map((asset) => asset.id));
+  function isStackNode(asset) {
+    return !state.activeStackId && Boolean(asset?.stack?.id);
   }
 
-  function currentStackedAssetIds() {
-    if (stackedAssetSetSource !== state.assets) {
-      stackedAssetSetSource = state.assets;
-      stackedAssetIds = new Set((state.assets || []).filter((asset) => asset.stack?.id).map((asset) => asset.id));
+  function reconcileStackSelection(nextSelection, explicitStackNodes = null) {
+    const nextStacks = explicitStackNodes instanceof Map
+      ? new Map([...explicitStackNodes].filter(([id]) => nextSelection.has(id)))
+      : new Map([...ensureStackSelectionMap()].filter(([id]) => nextSelection.has(id)));
+    for (const asset of state.assets || []) {
+      if (!nextSelection.has(asset.id)) continue;
+      if (isStackNode(asset)) nextStacks.set(asset.id, asset.stack.id);
+      else nextStacks.delete(asset.id);
     }
-    return stackedAssetIds;
+    return nextStacks;
   }
 
   function applyCardSelectionState(card, selectedIds) {
@@ -74,9 +133,15 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
 
   function syncRenderedSelection({ prune = true, changedIds = null } = {}) {
     const selectedIds = ensureSelectionSet();
-    if (prune) {
-      const validIds = loadedIds();
-      for (const id of selectedIds) if (!validIds.has(id)) selectedIds.delete(id);
+    // Selection may span unloaded cursor pages. Query/project changes clear it
+    // via ensureSelectionSet(), so never prune valid off-DOM IDs merely because
+    // the gallery currently renders only a window of the result set.
+    void prune;
+    const stackNodes = ensureStackSelectionMap();
+    for (const asset of state.assets || []) {
+      if (!selectedIds.has(asset.id)) continue;
+      if (isStackNode(asset)) stackNodes.set(asset.id, asset.stack.id);
+      else stackNodes.delete(asset.id);
     }
 
     if (changedIds instanceof Set) {
@@ -91,11 +156,10 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     if (els.selectionBar) els.selectionBar.hidden = count === 0;
     els.assetGrid?.classList.toggle("selection-active", count > 0);
     if (els.selectionCount) els.selectionCount.textContent = t("batchSelected", { count });
-    if (els.selectionSelectAll) els.selectionSelectAll.disabled = !state.assets.length || count >= state.assets.length;
+    if (els.selectionSelectAll) els.selectionSelectAll.disabled = selectAllInFlight || !state.pageTotal || count >= state.pageTotal;
     if (els.selectionClear) els.selectionClear.disabled = count === 0;
     if (els.selectionStack) {
-      const stackedIds = currentStackedAssetIds();
-      const includesExistingStack = [...selectedIds].some((id) => stackedIds.has(id));
+      const includesExistingStack = ensureStackSelectionMap().size > 0;
       els.selectionStack.disabled = state.scope === "trash" || state.storageKind !== "sqlite" || count < 2 || includesExistingStack;
     }
     if (els.selectionRemoveFromStack) els.selectionRemoveFromStack.disabled = count === 0;
@@ -107,19 +171,22 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     announceGalleryStatus?.(count ? t("batchSelected", { count }) : t("batchCancel"));
   }
 
-  function commitSelection(nextSelection, { announce = false } = {}) {
+  function commitSelection(nextSelection, { announce = false, stackNodes = null, anchorId = null } = {}) {
     const current = ensureSelectionSet();
     const changedIds = new Set();
     for (const id of current) if (!nextSelection.has(id)) changedIds.add(id);
     for (const id of nextSelection) if (!current.has(id)) changedIds.add(id);
     if (!sameIds(current, nextSelection)) state.selectedIds = new Set(nextSelection);
+    state.selectedStackNodes = reconcileStackSelection(nextSelection, stackNodes);
+    if (anchorId !== null) selectionAnchorId = anchorId;
+    selectionRevision += 1;
     syncRenderedSelection({ prune: false, changedIds });
     if (announce) announceSelection();
   }
 
   function clear({ announce = false } = {}) {
     if (!ensureSelectionSet().size) return false;
-    state.selectedIds = new Set();
+    resetSelectionState();
     syncRenderedSelection({ prune: false });
     if (announce) announceSelection();
     return true;
@@ -130,14 +197,88 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     const next = new Set(ensureSelectionSet());
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    commitSelection(next, { announce });
+    commitSelection(next, { announce, anchorId: id });
     return true;
   }
 
-  function selectAll({ announce = true } = {}) {
-    const next = new Set((state.assets || []).map((asset) => asset.id));
-    if (!next.size) return false;
-    commitSelection(next, { announce });
+  function selectRange(id, { additive = false, announce = true } = {}) {
+    if (!id) return false;
+    const range = selectionRangeIds(state.assets, selectionAnchorId || state.selectedId || id, id);
+    const next = additive ? new Set(ensureSelectionSet()) : new Set();
+    range.forEach((assetId) => next.add(assetId));
+    commitSelection(next, { announce, anchorId: id });
+    return true;
+  }
+
+  async function selectAll({ announce = true } = {}) {
+    if (selectAllInFlight || typeof currentAssetRequest !== "function" || typeof requestAssetPage !== "function") return false;
+    ensureSelectionSet();
+    const request = currentAssetRequest();
+    const requestKey = currentSelectionRequestKey();
+    const startRevision = selectionRevision;
+    const next = new Set();
+    const stackNodes = new Map();
+    const seenCursors = new Set();
+    let cursor = "";
+    selectAllInFlight = true;
+    syncRenderedSelection({ prune: false });
+    try {
+      while (true) {
+        if (cursor) {
+          if (seenCursors.has(cursor)) throw new Error("Selection pagination stalled.");
+          seenCursors.add(cursor);
+        }
+        const page = await requestAssetPage(request, { cursor, limit: 250, includeTotal: cursor ? false : true });
+        for (const asset of page.assets || []) {
+          if (!asset?.id) continue;
+          next.add(asset.id);
+          if (!request.stackId && asset.stack?.id) stackNodes.set(asset.id, asset.stack.id);
+        }
+        cursor = page.page?.nextCursor || "";
+        if (!cursor) break;
+      }
+      if (selectionRevision !== startRevision || (requestKey && currentSelectionRequestKey() !== requestKey)) return false;
+      if (!next.size) return false;
+      state.selectionRequestKey = requestKey;
+      commitSelection(next, { announce, stackNodes, anchorId: "" });
+      return true;
+    } catch (error) {
+      showToast?.(error?.message || String(error), "error");
+      return false;
+    } finally {
+      selectAllInFlight = false;
+      syncRenderedSelection({ prune: false });
+    }
+  }
+
+  async function resolveSelectedAssetIds() {
+    const selected = new Set(ensureSelectionSet());
+    const stackNodes = new Map(ensureStackSelectionMap());
+    if (!stackNodes.size) return [...selected];
+    if (typeof apiFetch !== "function") return [...selected].filter((id) => !stackNodes.has(id));
+    for (const [coverId, stackId] of stackNodes) {
+      selected.delete(coverId);
+      const seenCursors = new Set();
+      let cursor = "";
+      while (true) {
+        if (cursor) {
+          if (seenCursors.has(cursor)) throw new Error("Stack selection pagination stalled.");
+          seenCursors.add(cursor);
+        }
+        const params = new URLSearchParams({ project: state.project, limit: "250", includeTotal: "0" });
+        if (cursor) params.set("cursor", cursor);
+        const page = await apiFetch(`/api/asset-stacks/${encodeURIComponent(stackId)}/assets?${params}`);
+        for (const asset of page.assets || []) if (asset?.id) selected.add(asset.id);
+        cursor = page.page?.nextCursor || "";
+        if (!cursor) break;
+      }
+    }
+    return [...selected];
+  }
+
+  function replaceWith(id, { announce = false } = {}) {
+    if (!id) return false;
+    commitSelection(new Set([id]), { announce, anchorId: id });
     return true;
   }
 
@@ -203,6 +344,15 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
         },
       };
     }).filter((entry) => entry.id);
+    pointer.cardRectBands = new Map();
+    for (const entry of pointer.cardRects) {
+      const firstBand = Math.floor(entry.rect.top / MARQUEE_GEOMETRY_BAND_PX);
+      const lastBand = Math.floor(entry.rect.bottom / MARQUEE_GEOMETRY_BAND_PX);
+      for (let band = firstBand; band <= lastBand; band += 1) {
+        if (!pointer.cardRectBands.has(band)) pointer.cardRectBands.set(band, []);
+        pointer.cardRectBands.get(band).push(entry);
+      }
+    }
   }
 
   function updateDragSelection(clientX, clientY) {
@@ -233,7 +383,13 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     // Keeping it explicitly also avoids a one-pixel boundary miss at the exact
     // pointer origin and keeps the first card selected during auto-scroll.
     if (pointer.startCardId) next.add(pointer.startCardId);
-    for (const entry of pointer.cardRects || []) if (rectsIntersect(rect, entry.rect)) next.add(entry.id);
+    const candidateById = new Map();
+    const firstBand = Math.floor(rect.top / MARQUEE_GEOMETRY_BAND_PX);
+    const lastBand = Math.floor(rect.bottom / MARQUEE_GEOMETRY_BAND_PX);
+    for (let band = firstBand; band <= lastBand; band += 1) {
+      for (const entry of pointer.cardRectBands?.get(band) || []) candidateById.set(entry.id, entry);
+    }
+    for (const entry of candidateById.values()) if (rectsIntersect(rect, entry.rect)) next.add(entry.id);
     commitSelection(next);
   }
 
@@ -283,6 +439,7 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
       lastY: event.clientY,
       additive: event.shiftKey,
       baseSelection: new Set(ensureSelectionSet()),
+      baseStackNodes: new Map(ensureStackSelectionMap()),
       startCardId: startCard?.dataset.id || "",
       dragging: false,
     };
@@ -314,6 +471,7 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     if (!pointer || pointer.id !== event.pointerId) return;
     const completedDrag = pointer.dragging;
     const baseSelection = pointer.baseSelection;
+    const baseStackNodes = pointer.baseStackNodes;
     if (completedDrag && !canceled && pendingSelectionPoint) {
       updateDragSelection(pendingSelectionPoint.x, pendingSelectionPoint.y);
     }
@@ -321,11 +479,19 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     stopAutoScroll();
     removeSelectionBox();
     try { els.assetGrid?.releasePointerCapture(event.pointerId); } catch { /* already released */ }
-    if (canceled && completedDrag) commitSelection(baseSelection);
+    if (canceled && completedDrag) {
+      suppressNextGridClick = false;
+      commitSelection(baseSelection, { stackNodes: baseStackNodes });
+    }
     else if (completedDrag) {
       announceSelection();
       window.setTimeout(() => { suppressNextGridClick = false; }, 0);
     }
+  }
+
+  function cancelPointerGesture() {
+    if (!pointer) return;
+    endPointer({ pointerId: pointer.id }, { canceled: true });
   }
 
   function handleGridClick(event) {
@@ -339,10 +505,15 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
   }
 
   function handleCardClick(event, id) {
-    if (!(event.metaKey || event.ctrlKey)) return false;
-    event.preventDefault();
-    toggle(id, { announce: true });
-    return true;
+    if (event.shiftKey) {
+      event.preventDefault();
+      return selectRange(id, { additive: Boolean(event.metaKey || event.ctrlKey), announce: true });
+    }
+    if (event.metaKey || event.ctrlKey) {
+      event.preventDefault();
+      return toggle(id, { announce: true });
+    }
+    return false;
   }
 
   function bind() {
@@ -354,13 +525,17 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     window.addEventListener("pointermove", movePointer, { capture: true });
     window.addEventListener("pointerup", (event) => endPointer(event), { capture: true });
     window.addEventListener("pointercancel", (event) => endPointer(event, { canceled: true }), { capture: true });
+    els.assetGrid.addEventListener("lostpointercapture", () => {
+      if (pointer?.dragging) cancelPointerGesture();
+    });
     // Browser-native image dragging competes with marquee pointer events when
     // the gesture begins directly on a thumbnail. MOSA has no internal card
     // drag operation, so suppress only drags originating from an asset card.
     els.assetGrid.addEventListener("dragstart", (event) => {
       if (event.target.closest?.(".asset-card")) event.preventDefault();
     });
-    els.selectionSelectAll?.addEventListener("click", () => selectAll({ announce: true }));
+    window.addEventListener("blur", cancelPointerGesture);
+    els.selectionSelectAll?.addEventListener("click", () => { void selectAll({ announce: true }); });
     els.selectionClear?.addEventListener("click", () => clear({ announce: true }));
   }
 
@@ -368,7 +543,11 @@ export function createGallerySelection({ els, state, t, announceGalleryStatus })
     bind,
     clear,
     toggle,
+    replaceWith,
     selectAll,
+    selectRange,
+    resolveSelectedAssetIds,
+    hasSelectedStacks: () => ensureStackSelectionMap().size > 0,
     syncRenderedSelection,
     handleGridClick,
     handleCardClick,
