@@ -53,6 +53,7 @@ export function createAssetStackController({
   let dropPlacement = "";
   let mutationInFlight = false;
   let suppressClickAfterDrag = false;
+  let pointerMoveFrame = null;
 
   function clearDropTarget() {
     dropTarget?.classList.remove("stack-drop-target", "stack-reorder-target", "stack-reorder-before", "stack-reorder-after");
@@ -80,6 +81,8 @@ export function createAssetStackController({
     const hadPointer = Boolean(pointer);
     const pointerId = pointer?.id;
     pointer = null;
+    if (pointerMoveFrame !== null) cancelAnimationFrame(pointerMoveFrame);
+    pointerMoveFrame = null;
     state.assetStackDragCandidate = false;
     state.assetStackDragging = false;
     if (releaseCapture && pointerId != null) releasePointerCapture(pointerId);
@@ -302,6 +305,33 @@ export function createAssetStackController({
     return element?.closest?.(".asset-card") || null;
   }
 
+  function flushPointerMove() {
+    pointerMoveFrame = null;
+    if (!pointer?.dragging) return;
+    const clientX = pointer.lastX;
+    const clientY = pointer.lastY;
+    const marker = createGhost(pointer.assetIds.length);
+    marker.style.transform = `translate3d(${clientX + 12}px, ${clientY + 12}px, 0)`;
+    const target = targetCardAt(clientX, clientY);
+    if (target !== dropTarget) clearDropTarget();
+    if (!target) return;
+    const targetId = target.dataset.id;
+    if (!targetId) return;
+    if (state.activeStackId) {
+      if (pointer.assetIds.includes(targetId)) return;
+      dropTarget = target;
+      target.classList.add("stack-reorder-target");
+      const rect = target.getBoundingClientRect();
+      dropPlacement = clientX < rect.left + rect.width / 2 ? "before" : "after";
+      target.classList.add(dropPlacement === "after" ? "stack-reorder-after" : "stack-reorder-before");
+      return;
+    }
+    const targetAsset = state.assets.find((asset) => asset.id === targetId);
+    if (!targetAsset) return;
+    dropTarget = target;
+    target.classList.add("stack-drop-target");
+  }
+
   function movePointer(event) {
     if (!pointer || pointer.id !== event.pointerId) return;
     pointer.lastX = event.clientX;
@@ -314,26 +344,7 @@ export function createAssetStackController({
       document.body.classList.add("asset-stack-dragging");
     }
     event.preventDefault();
-    const marker = createGhost(pointer.assetIds.length);
-    marker.style.transform = `translate3d(${event.clientX + 12}px, ${event.clientY + 12}px, 0)`;
-    const target = targetCardAt(event.clientX, event.clientY);
-    if (target !== dropTarget) clearDropTarget();
-    if (!target) return;
-    const targetId = target.dataset.id;
-    if (!targetId) return;
-    if (state.activeStackId) {
-      if (pointer.assetIds.includes(targetId)) return;
-      dropTarget = target;
-      target.classList.add("stack-reorder-target");
-      const rect = target.getBoundingClientRect();
-      dropPlacement = event.clientX < rect.left + rect.width / 2 ? "before" : "after";
-      target.classList.add(dropPlacement === "after" ? "stack-reorder-after" : "stack-reorder-before");
-      return;
-    }
-    const targetAsset = state.assets.find((asset) => asset.id === targetId);
-    if (!targetAsset) return;
-    dropTarget = target;
-    target.classList.add("stack-drop-target");
+    if (pointerMoveFrame === null) pointerMoveFrame = requestAnimationFrame(flushPointerMove);
   }
 
   async function finishRootDrop(targetId, drag) {
@@ -383,6 +394,14 @@ export function createAssetStackController({
 
   function endPointer(event, { canceled = false } = {}) {
     if (!pointer || pointer.id !== event.pointerId) return;
+    // A synthetic/test gesture (and a very fast real gesture) can deliver
+    // pointerup before the coalesced animation frame runs. Resolve the latest
+    // pointer position synchronously so the drop target is never lost.
+    if (pointerMoveFrame !== null) {
+      cancelAnimationFrame(pointerMoveFrame);
+      pointerMoveFrame = null;
+      flushPointerMove();
+    }
     const drag = pointer;
     const completed = drag.dragging;
     const targetId = dropTarget?.dataset.id || "";

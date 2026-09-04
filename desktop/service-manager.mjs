@@ -47,6 +47,17 @@ export class MosaServiceBuildMismatchError extends MosaServiceConflictError {
   }
 }
 
+export class MosaServiceLibraryMismatchError extends MosaServiceConflictError {
+  constructor({ port, expectedLibraryDir, actualLibraryDir }) {
+    super(`Port ${port} is already serving a different MOSA library. Quit the other MOSA instance before opening this library.`);
+    this.name = "MosaServiceLibraryMismatchError";
+    this.code = "MOSA_SERVICE_LIBRARY_MISMATCH";
+    this.port = port;
+    this.expectedLibraryDir = resolve(expectedLibraryDir);
+    this.actualLibraryDir = resolve(actualLibraryDir);
+  }
+}
+
 export function shouldAllowStaleServiceUpgrade({ isPackaged, qaRun, explicitPort } = {}) {
   return isPackaged === true && !qaRun && !explicitPort;
 }
@@ -119,6 +130,11 @@ export async function startMosaService(options = {}) {
     }
     if (initial.state === "conflict") {
       lastConflict = initial.error;
+      if (candidatePort === port
+        && options.failOnPrimaryLibraryMismatch === true
+        && initial.error instanceof MosaServiceLibraryMismatchError) {
+        throw initial.error;
+      }
       continue;
     }
     availablePorts.push(candidatePort);
@@ -144,6 +160,33 @@ export async function startMosaService(options = {}) {
         allowSameVersionReplacement: sameVersionReplacementAllowed,
       });
       if (retired) {
+        if (sameVersionReplacementAllowed) {
+          try {
+            const runtime = await (options.startRuntime || startMosaRuntime)({
+              ...(options.runtimeOptions || {}),
+              port: identityMismatch.service.port,
+              libraryDir,
+              isolationContext: options.isolationContext,
+              importStagingRoot: options.importStagingRoot ?? null,
+            });
+            return ownedService(runtime);
+          } catch (error) {
+            const retry = await probeMosaService({
+              host,
+              port: identityMismatch.service.port,
+              libraryDir,
+              fetchImpl: options.fetchImpl,
+              timeoutMs: options.probeTimeoutMs,
+            });
+            if (retry.state === "attached") {
+              const retryConflict = serviceIdentityConflict(retry, options.expectedIdentity);
+              if (!retryConflict) return attachedService(retry);
+              throw retryConflict;
+            }
+            if (retry.state === "conflict") throw retry.error;
+            throw error;
+          }
+        }
         const replacement = await waitForUpgradedMosaService(identityMismatch, {
           host,
           fetchImpl: options.fetchImpl,
@@ -225,7 +268,15 @@ export async function probeMosaService(options = {}) {
       return conflict(`Port ${port} is occupied by a service that is not MOSA.`);
     }
     if (resolve(health.libraryDir) !== libraryDir) {
-      return conflict(`Port ${port} is serving a different MOSA library.`);
+      return {
+        state: "conflict",
+        error: new MosaServiceLibraryMismatchError({
+          port,
+          expectedLibraryDir: libraryDir,
+          actualLibraryDir: health.libraryDir,
+        }),
+        retryable: false,
+      };
     }
     return {
       state: "attached",
