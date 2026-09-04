@@ -477,6 +477,7 @@ body.asset-stack-dragging { cursor: grabbing; user-select: none; }
 
 /* 加载更多 */
 .asset-load-more { grid-column: 1 / -1; display: flex; justify-content: center; padding: 18px 0 28px; }
+.asset-load-more[hidden] { display: none; }
 .asset-load-more button { min-height: 30px; padding: 0 14px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); color: var(--color-text-secondary); background: var(--app-card); cursor: pointer; font: inherit; font-size: 12px; font-weight: 500; }
 
 /* 无限滚动哨兵 */

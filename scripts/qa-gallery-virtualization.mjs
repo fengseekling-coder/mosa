@@ -4,6 +4,8 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import Database from "better-sqlite3";
+import { GALLERY_PAGE_SIZE } from "../app/config.mjs";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 
 const root = resolve(import.meta.dirname, "..");
@@ -122,6 +124,19 @@ async function main() {
     } finally {
       store.close();
     }
+    // This QA isolates renderer/gallery work. Seeding through createAsset is
+    // useful because it exercises the real metadata shape, but it also queues
+    // thousands of Sharp derivative jobs. Letting those jobs run during the
+    // measurement turns host CPU contention into noisy renderer Long Tasks and
+    // makes the test judge thumbnail generation rather than browsing. Keep the
+    // assets in their legitimate thumbnail-pending state and remove only the
+    // synthetic fixture jobs before Electron starts.
+    const database = new Database(join(libraryDir, "mosa.db"));
+    try {
+      database.prepare("DELETE FROM derivative_jobs").run();
+    } finally {
+      database.close();
+    }
 
     const [cdpPort, desktopPort] = await Promise.all([reserveFreePort(), reserveFreePort()]);
     child = spawn(electronExecutable(), [`--remote-debugging-port=${cdpPort}`, `--user-data-dir=${userDataDir}`, root], {
@@ -154,20 +169,36 @@ async function main() {
       if (Number(await evaluate(client, "document.querySelectorAll('#assetGrid > .asset-card').length")) > 0) break;
       await wait(100);
     }
-    await evaluate(client, `window.__mosaLongTasks=[]; window.__mosaLongTaskObserver=new PerformanceObserver((list)=>window.__mosaLongTasks.push(...list.getEntries().map((entry)=>entry.duration))); window.__mosaLongTaskObserver.observe({entryTypes:['longtask']}); true`);
+    await evaluate(client, `window.__mosaLongTasks=[]; window.__mosaAppendMarks=[]; window.__mosaBoundaryStalls=[]; window.__mosaBoundaryStall=null; window.__mosaLongTaskObserver=new PerformanceObserver((list)=>window.__mosaLongTasks.push(...list.getEntries().map((entry)=>({startTime:entry.startTime,duration:entry.duration})))); window.__mosaLongTaskObserver.observe({entryTypes:['longtask']}); true`);
 
     const startedAt = Date.now();
-    for (let page = 0; page < Math.ceil(ASSET_COUNT / 100) + 5; page += 1) {
-      const state = JSON.parse(await evaluate(client, `JSON.stringify({cards:document.querySelectorAll('#assetGrid > .asset-card').length,more:Boolean(document.querySelector('[data-action="load-more"]'))})`));
-      if (state.cards >= ASSET_COUNT || !state.more) break;
-      await evaluate(client, `document.querySelector('[data-action="load-more"]')?.click(); true`);
-      const previousCount = state.cards;
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        const count = Number(await evaluate(client, "document.querySelectorAll('#assetGrid > .asset-card').length"));
-        if (count > previousCount) break;
-        await wait(50);
-      }
+    // Exercise the real product path: a fast continuous scroll, not synthetic
+    // clicks on the hidden fallback button. The browser records how long each
+    // pagination boundary stays pending from entering the sentinel warm zone to
+    // the new cards being present. This directly measures the wait a user could
+    // perceive while flinging through the library.
+    const maxScrollSteps = Math.ceil(ASSET_COUNT / GALLERY_PAGE_SIZE) * 20 + 200;
+    for (let step = 0; step < maxScrollSteps; step += 1) {
+      const scrollState = JSON.parse(await evaluate(client, `JSON.stringify((()=>{
+        const grid=document.querySelector('#assetGrid');
+        const cards=document.querySelectorAll('#assetGrid > .asset-card').length;
+        const more=Boolean(document.querySelector('[data-action="load-more"]'));
+        const now=performance.now();
+        const pending=window.__mosaBoundaryPending;
+        if(pending && cards>pending.cards){window.__mosaAppendMarks.push({at:pending.at,committedAt:now,cards:pending.cards,phase:'auto-append',latency:now-pending.at});window.__mosaBoundaryPending=null;}
+        if(window.__mosaBoundaryStall && cards>window.__mosaBoundaryStall.cards){window.__mosaBoundaryStalls.push({at:window.__mosaBoundaryStall.at,endedAt:now,cards:window.__mosaBoundaryStall.cards,duration:now-window.__mosaBoundaryStall.at});window.__mosaBoundaryStall=null;}
+        const remaining=Math.max(0,grid.scrollHeight-grid.scrollTop-grid.clientHeight);
+        const triggerDistance=Math.max(600,grid.clientHeight*0.85)+32;
+        if(!window.__mosaBoundaryPending && more && remaining<=triggerDistance){window.__mosaBoundaryPending={at:now,cards};}
+        const maxScrollTop=Math.max(0,grid.scrollHeight-grid.clientHeight);
+        grid.scrollTop=Math.min(maxScrollTop,grid.scrollTop+Math.max(160,grid.clientHeight*0.7));
+        if(more && grid.scrollTop>=maxScrollTop-0.5 && !window.__mosaBoundaryStall){window.__mosaBoundaryStall={at:now,cards};}
+        return {cards,more,scrollTop:grid.scrollTop,scrollHeight:grid.scrollHeight,clientHeight:grid.clientHeight};
+      })())`));
+      if (scrollState.cards >= ASSET_COUNT || !scrollState.more) break;
+      await wait(16);
     }
+    await evaluate(client, `(()=>{const pending=window.__mosaBoundaryPending;const cards=document.querySelectorAll('#assetGrid > .asset-card').length;if(pending&&cards>pending.cards){const now=performance.now();window.__mosaAppendMarks.push({at:pending.at,committedAt:now,cards:pending.cards,phase:'auto-append',latency:now-pending.at});window.__mosaBoundaryPending=null;}return true;})()`);
     await wait(1200);
     const topMetrics = JSON.parse(await evaluate(client, `JSON.stringify({
       scrollHeight:document.querySelector('#assetGrid').scrollHeight,
@@ -179,6 +210,7 @@ async function main() {
     })`));
     let bottomMetrics = null;
     if (!SKIP_BOTTOM_CHECK) {
+      await evaluate(client, `window.__mosaAppendMarks.push({at:performance.now(),cards:document.querySelectorAll('#assetGrid > .asset-card').length,phase:'bottom-jump'}); true`);
       await evaluate(client, `(()=>{const grid=document.querySelector('#assetGrid');grid.scrollTop=grid.scrollHeight;grid.dispatchEvent(new Event('scroll'));return grid.scrollTop})()`);
       await wait(1200);
       await evaluate(client, `window.__mosaLongTaskObserver?.disconnect(); true`);
@@ -203,8 +235,13 @@ async function main() {
       gridText:(document.querySelector('#assetGrid')?.textContent||'').slice(0,500),
       gridHtml:(document.querySelector('#assetGrid')?.innerHTML||'').slice(0,1000),
       longTasks:window.__mosaLongTasks.length,
-      longTaskTotal:Math.round(window.__mosaLongTasks.reduce((sum,duration)=>sum+duration,0)),
-      longTaskMax:Math.round(Math.max(0,...window.__mosaLongTasks)),
+      longTaskTotal:Math.round(window.__mosaLongTasks.reduce((sum,entry)=>sum+entry.duration,0)),
+      longTaskMax:Math.round(Math.max(0,...window.__mosaLongTasks.map((entry)=>entry.duration))),
+      longTaskEntries:window.__mosaLongTasks,
+      appendMarks:window.__mosaAppendMarks,
+      appendLatencyMax:Math.round(Math.max(0,...window.__mosaAppendMarks.filter((entry)=>Number.isFinite(entry.latency)).map((entry)=>entry.latency))),
+      boundaryStalls:window.__mosaBoundaryStalls,
+      boundaryStallMax:Math.round(Math.max(0,...window.__mosaBoundaryStalls.map((entry)=>entry.duration))),
       scrollHeight:document.querySelector('#assetGrid').scrollHeight
     })`));
     metrics.apiSnapshot = apiSnapshot;

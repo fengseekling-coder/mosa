@@ -1,4 +1,4 @@
-# MOSA Web Capture（0.14.8）
+# MOSA Web Capture（0.15.4）
 
 把 **ChatGPT、Gemini、Flow 和 Google AI Studio 网页**中用户可见的生成媒体归档到本机 MOSA。ChatGPT 支持图片提示词关联；Flow 与 Google AI Studio 同时支持已识别的视频，Gemini、Flow 与 Google AI Studio 的页面可见 Prompt 均明确标为未验证。
 
@@ -67,7 +67,7 @@ ChatGPT 中能够明确识别为本轮上传输入的参考图，会作为该轮
 
 打开 Gemini（`gemini.google.com`）、Flow（`labs.google`）或 Google AI Studio（`aistudio.google.com`）出图后，扩展只对视口中已加载且达到最小尺寸的用户可见图片自动入库。Gemini 只读取生成图所属 `model-response` 前、同一局部消息结构中的最近可见 `user-query`；Flow 优先使用图片组内唯一、相邻且带「Reuse Prompt」语义的 Prompt 卡片，在本地化界面没有该英文标签时，仅当局部生成结构中仍然只有一个可用 Prompt 卡片才接受，存在歧义则留空；AI Studio 只读取图片所在 `ms-chat-session` 内、图片 Model 回合之前最近的页面可见用户 Prompt 回合。三者均标记为「未验证为实际生图提示词」，不会读取输入框、编辑器、隐藏内容、模型思考、其他会话或登录信息；若图片先于 Prompt 完成渲染，只会对同一图片的局部关联信息进行有界重试。
 
-远程生成媒体在提交前会进入扩展本地待处理队列，MOSA 暂时未运行或扩展 Service Worker 被浏览器回收时会保留任务并在后续重新尝试。队列任务最长保留 7 天，过期记录会从本地存储清除；单个失效素材不会阻塞其后的正常任务。Flow / AI Studio 的大体积页面本地视频使用分块扩展消息，并通过 MOSA 的二进制入库端点发送，不再把整段视频作为单条 Base64 JSON 消息传输。原始媒体 URL 与实际重定向后的最终媒体 URL 会作为来源证据保存，但会移除签名、令牌和无关查询参数，仅保留必要的稳定媒体标识；最终重定向目标仍需通过媒体域名白名单。
+远程生成媒体在提交前会进入扩展本地待处理队列，MOSA 暂时未运行或扩展 Service Worker 被浏览器回收时会保留任务并在后续重新尝试。队列任务最长保留 7 天，过期记录会从本地存储清除；同一媒体后来拿到更完整的终态或 Prompt 时会更新原队列票据，而不是继续重放旧的 `in_progress / not-available` 元数据。纯页面本地 `blob:` 图片和视频字节会先写入扩展自己的 IndexedDB spool，标签页关闭后仍可由 Service Worker 继续投递；单个存储故障也不会反过来阻断 MOSA 当前在线时的实时入库。Flow / AI Studio 的大体积页面本地视频使用分块扩展消息并逐块写入 IndexedDB，远程 HTTPS 视频则直接读取响应流；投递到 MOSA 时两者都通过临时上传会话逐块写入本地临时文件。扩展后台不再在内存中保留整段视频，MOSA commit 时也使用文件流计算内容哈希后直接导入。上传会话按顺序校验 chunk、限制总大小，并在 commit、abort 或超时清理临时文件；远程响应即使没有 `Content-Length` 也会在接收过程中持续执行 96 MiB 上限。原始媒体 URL 与实际重定向后的最终媒体 URL 会作为来源证据保存，但会移除签名、令牌和无关查询参数，仅保留必要的稳定媒体标识；最终重定向目标仍需通过媒体域名白名单。
 
 后台消息现在会校验扩展自身 sender、顶层 frame、当前 Provider URL 和消息类型，视频分块传输也绑定到创建它的 tab / Provider，避免其他页面或错误 frame 复用入库消息。ChatGPT MAIN-world bridge 同时使用每个 document 独立的 channel 标识过滤陈旧或无关消息；这属于纵深防御，不把同一网页 MAIN world 中已经执行的站点脚本错误描述为密码学不可信边界。Gemini / Flow / AI Studio / ChatGPT 的 URL 归属判定统一收口到 `provider-policy.js`，后台安全门和页面适配器共用同一套规则。
 

@@ -403,7 +403,8 @@ test("populated gallery renders reconcile cards by id instead of replacing the w
   const reconcile = sliceBetween(app, "function reconcileAssetCards(entries)", "// F-24：入场动画范围");
   const render = sliceBetween(app, "function renderGrid()", "/** Routed through the state machine");
 
-  assert.match(reconcile, /new Map\(\[\.\.\.grid\.querySelectorAll\(":scope > \.asset-card"\)\]/);
+  assert.match(reconcile, /const existingCardList = \[\.\.\.grid\.querySelectorAll\(":scope > \.asset-card"\)\]/);
+  assert.match(reconcile, /new Map\(existingCardList\.map\(\(card\) => \[card\.dataset\.id, card\]\)\)/);
   assert.match(reconcile, /card\.dataset\.renderKey !== entry\.renderKey/);
   assert.match(reconcile, /card\.replaceWith\(replacement\)/);
   assert.match(reconcile, /desiredCards\.forEach\(\(card\) => \{/);
@@ -413,14 +414,25 @@ test("populated gallery renders reconcile cards by id instead of replacing the w
 
 test("infinite-scroll append uses a tail-only render path and virtualizes decoded thumbnails", async () => {
   const app = await readApp();
+  const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
   const render = sliceBetween(app, "function renderGrid()", "/** Routed through the state machine");
   const virtualization = sliceBetween(app, "function setupGalleryMediaVirtualization", "function layoutMasonry");
+  const infiniteScroll = sliceBetween(app, "function setupInfiniteScroll()", "/**\n * Placeholders sized like real cards");
 
   assert.match(render, /state\.assets\.slice\(animateFrom\)/, "append maps only the incoming tail");
   assert.match(render, /appendAssetCards\(cards\)/, "append avoids a full card reconciliation");
+  assert.match(app, /class=\"asset-load-more\" hidden/, "normal infinite scrolling keeps the pagination boundary invisible");
+  assert.match(render, /syncRenderedSelection\(\{[\s\S]*?prune: false,[\s\S]*?changedIds:/,
+    "append selection sync touches only the newly mounted tail");
   assert.match(virtualization, /rootMargin: "1200px 0px"/, "nearby thumbnails stay warm around the viewport");
   assert.match(virtualization, /media\.removeAttribute\("src"\)/, "decoded offscreen thumbnails are released");
   assert.match(virtualization, /media\.src = source/, "virtualized thumbnails restore when they approach the viewport");
+  assert.match(infiniteScroll, /root: grid/, "the infinite-scroll observer is rooted in the actual scrolling gallery");
+  assert.match(infiniteScroll, /grid\.clientHeight \* 0\.85/, "cached pages mount before the user reaches the boundary without auto-appending at launch");
+  assert.match(infiniteScroll, /fallbackButton\.hidden = false/, "manual pagination appears only as a real fallback after observer/load failure");
+  assert.match(apiClient, /prefetchAssetPageChain\(request, cursor, 2, assetPrefetchGeneration\)/,
+    "the data pipeline keeps two cursor pages ahead of the viewport");
+  assert.match(apiClient, /includeTotal: false/, "prefetch pages skip redundant exact-count work");
 });
 
 test("large galleries use explicit masonry placement and bounded card hydration", async () => {
@@ -429,8 +441,8 @@ test("large galleries use explicit masonry placement and bounded card hydration"
   const virtualization = sliceBetween(app, "function galleryVirtualSpanKey", "function bindGalleryVideoFrame");
   const masonry = sliceBetween(app, "function layoutMasonry", "function scheduleMasonryLayout");
 
-  assert.match(app, /const GALLERY_CARD_VIRTUAL_THRESHOLD = 96;/,
-    "virtualization starts within the first page instead of crossing a late full-DOM cliff");
+  assert.match(app, /const GALLERY_CARD_VIRTUAL_THRESHOLD = 40;/,
+    "virtualization starts exactly at the first gallery page so later appends never cross a full-DOM cliff");
   assert.match(virtualization, /data-virtual-span="\$\{span\}"/,
     "virtual placeholders preserve an explicit masonry span before hydration");
   assert.match(virtualization, /galleryCardVirtualVisiblePendingChanges/,
@@ -439,12 +451,14 @@ test("large galleries use explicit masonry placement and bounded card hydration"
     "native intersection observation drives card hydration in supported browsers");
   assert.match(virtualization, /galleryCardVirtualLowerBound/,
     "the non-IntersectionObserver fallback binary-searches per-column masonry geometry instead of scanning every card");
-  assert.match(virtualization, /takeChanges\(galleryCardVirtualVisiblePendingChanges, galleryCardVirtualVisiblePendingChanges\.size\)/,
-    "visible hydration drains the viewport before bounded background preloading");
-  assert.match(virtualization, /flushVisibleGalleryCardVirtualChanges\(\);[\s\S]*?scheduleGalleryCardVirtualPendingChanges\(\);/,
-    "viewport hydration is synchronous and does not depend on a throttled animation frame");
-  assert.match(virtualization, /replaceVirtualGalleryCards\(changes, \{ deferHydratedLayout: true \}\)/,
-    "visible cards replace placeholders immediately while exact height measurement is deferred");
+  assert.match(virtualization, /takeChanges\(galleryCardVirtualVisiblePendingChanges, 6\)/,
+    "fast-scroll visible hydration is bounded per frame instead of blocking the compositor");
+  assert.doesNotMatch(virtualization, /flushVisibleGalleryCardVirtualChanges/,
+    "the scroll path never synchronously hydrates the whole visible virtual set");
+  assert.match(virtualization, /if \(hydratedCards\.length\) setupGalleryMediaVirtualization\(hydratedCards\);/,
+    "hydration preserves placeholder geometry and avoids immediate masonry measurement");
+  assert.doesNotMatch(virtualization, /layoutMasonry\(hydratedCards\)/,
+    "virtual-card hydration does not force a synchronous masonry read/write cycle");
   assert.match(virtualization, /galleryCardVirtualScrollGrid\.addEventListener\("scroll", handleGalleryCardVirtualScroll/,
     "indexed scroll synchronization guards large compositor jumps without an O(N) card scan");
   assert.match(masonry, /const columnEnds = Array\(columnCount\)\.fill\(1\)/,

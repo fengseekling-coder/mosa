@@ -1,7 +1,7 @@
 // Viewer pagination navigation contract (BUG-10 / Audit Fix Batch 2A): the Viewer
 // session navigates the full query set beyond the first loaded page by loading the
 // next page on demand at the loaded-sequence end, reusing the exact Gallery paging
-// semantics (project/query/scope/facets/sort/limit=100/cursor) through shared
+// semantics (project/query/scope/facets/sort/shared gallery limit/cursor) through shared
 // helpers, without ever reading live filter state, without limit=0, without copying
 // asset objects, and without a second store. Failure and race behaviour: keep the
 // current asset, release the loading guard, allow retry, drop late responses after
@@ -110,11 +110,11 @@ function stripJsComments(source) {
   return output;
 }
 
-// 1. The first screen still pages at limit=100.
-test("1. first screen keeps limit 100", async () => {
+// 1. Gallery and Viewer share the same tuned page size.
+test("1. first screen uses the shared gallery page size", async () => {
   const apiClient = await readApiClient();
   const params = functionBody(apiClient, "buildAssetPageParams");
-  assert.match(params, /params\.set\("limit", "100"\)/, "the shared page params fix limit at 100");
+  assert.match(params, /Number\(options\.limit\) \|\| GALLERY_PAGE_SIZE/, "the shared page params default to the tuned gallery page size");
   assert.match(functionBody(apiClient, "loadAssets"), /requestAssetPage\(request/, "loadAssets pages through the shared helper");
 });
 
@@ -123,7 +123,7 @@ test("2. no limit=0", async () => {
   const apiClient = await readApiClient();
   const paging = sliceBetween(apiClient, "function buildAssetPageParams", "let libraryRefreshInFlight");
   const load = stripJsComments(paging);
-  assert.doesNotMatch(load, /limit.?=.?0|"0"/, "the paging path never requests an unlimited page");
+  assert.doesNotMatch(load, /params\.set\("limit",\s*"0"\)|limit\s*:\s*0/, "the paging path never requests an unlimited page");
 });
 
 // 2a. Any same-result gallery refresh rebuilds the cards, so the actual

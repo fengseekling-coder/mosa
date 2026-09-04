@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { lstat, mkdir, readdir, rm, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { createReadStream } from "node:fs";
+import { lstat, mkdir, open, readdir, rm, writeFile } from "node:fs/promises";
+import { dirname, join, resolve, sep } from "node:path";
 import sharp from "./sharp-runtime.js";
 import { createdAtTimestamp } from "./recent-window.js";
 import { createReferenceAttachmentStore, type ReferenceAttachment } from "./reference-attachment-store.js";
@@ -69,6 +70,9 @@ interface Store {
   createAsset(params: Metadata, options?: Metadata): Promise<StoredAsset>;
   listAssets(filters: Metadata): Promise<StoredAsset[]>;
   updateMetadata?(projectId: string, assetId: string, metadata: Metadata): Promise<StoredAsset>;
+  replaceAssetMedia?(projectId: string, assetId: string, input: Metadata, options?: Metadata): Promise<StoredAsset>;
+  deleteAsset?(projectId: string, assetId: string): Promise<unknown>;
+  permanentlyDeleteAsset?(projectId: string, assetId: string): Promise<unknown>;
   recordGenerationEvent?(input: Metadata): Promise<Metadata>;
   findAssetByContentHash?(projectId: string, contentHash: string): Promise<StoredAsset | null>;
   findAssetByPixelHash?(projectId: string, pixelHash: string): Promise<StoredAsset | null>;
@@ -77,8 +81,10 @@ interface Store {
   [key: string]: unknown;
 }
 interface WebCaptureInput { provider?: string; mediaKind?: string; media_kind?: string; mimeType?: string; mime_type?: string; imageBase64?: string; image_base64?: string; imageBytes?: Buffer | Uint8Array; mediaBase64?: string; media_base64?: string; mediaBytes?: Buffer | Uint8Array; width?: number; height?: number; durationSeconds?: number; duration_seconds?: number; prompt?: string; prompt_status?: string; promptStatus?: string; prompt_source?: string; promptSource?: string; prompt_priority?: number; promptPriority?: number; prompt_scope?: string; promptScope?: string; generation_status?: string; generationStatus?: string; user_message?: string; userMessage?: string; pageUrl?: string; page_url?: string; sourceMediaUrl?: string; source_media_url?: string; finalMediaUrl?: string; final_media_url?: string; conversationId?: string; conversation_id?: string; messageId?: string; message_id?: string; generationContextId?: string; generation_context_id?: string; providerToolCallId?: string; provider_tool_call_id?: string; providerGenerationCallId?: string; provider_generation_call_id?: string; providerResponseId?: string; provider_response_id?: string; providerAssetId?: string; provider_asset_id?: string; model?: string; capturedAt?: string; captured_at?: string; captureMode?: string; capture_mode?: string; assetId?: string; is_reference?: boolean; isReference?: boolean; extensionVersion?: string; extension_version?: string; }
-interface IngestResult { status: string; reason?: string; asset?: StoredAsset; attachment?: ReferenceAttachment; contentHash: string; upgraded?: boolean; recipeMerged?: boolean; }
-interface WebCaptureIngest { ingest(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; status(): Record<string, unknown>; assertToken(provided: string): void; readReference(projectId: string, fileName: string): Promise<{ stream: NodeJS.ReadableStream; fileName: string }>; pruneReferences(projectId: string, referencedIds: Iterable<string>): Promise<{ removed: number; retained: number; failed: number }>; tempRoot: string; token: string; }
+interface IngestResult { status: string; reason?: string; asset?: StoredAsset; attachment?: ReferenceAttachment; contentHash: string; upgraded?: boolean; recipeMerged?: boolean; replacedAssetId?: string; }
+interface WebCaptureIngest { ingest(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; ingestFile(input: WebCaptureInput, mediaFilePath: string, authToken?: string): Promise<IngestResult>; upgradeMetadata(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; status(): Record<string, unknown>; assertToken(provided: string): void; readReference(projectId: string, fileName: string): Promise<{ stream: NodeJS.ReadableStream; fileName: string }>; pruneReferences(projectId: string, referencedIds: Iterable<string>): Promise<{ removed: number; retained: number; failed: number }>; tempRoot: string; token: string; }
+
+const logicalCaptureLocks = new Map<string, Promise<unknown>>();
 
 export async function cleanupWebCaptureTemp(tempRoot: string, { ttlMs = DEFAULT_TEMP_ORPHAN_TTL_MS, now = Date.now } = {}): Promise<number> {
   const root = resolve(tempRoot);
@@ -115,19 +121,30 @@ export function createWebCaptureIngest(options: { store?: Store; libraryDir?: st
   const tokenSource = Object.hasOwn(options, "token") ? options.token : process.env.MOSA_WEB_CAPTURE_TOKEN;
   const token = String(tokenSource || "").trim();
   const allowedOriginCount = Array.isArray(options.allowedOrigins) ? options.allowedOrigins.length : 0;
-  let ingestQueue: Promise<void> = Promise.resolve();
+  const maxConcurrentIngests = 4;
+  let activeIngests = 0;
+  const ingestWaiters: Array<() => void> = [];
+  async function acquireIngestSlot(): Promise<void> {
+    if (activeIngests >= maxConcurrentIngests) {
+      await new Promise<void>((resolveSlot) => ingestWaiters.push(resolveSlot));
+    }
+    activeIngests += 1;
+  }
+  function releaseIngestSlot(): void {
+    activeIngests = Math.max(0, activeIngests - 1);
+    ingestWaiters.shift()?.();
+  }
   const state: { enabled: boolean; providers: string[]; lastIngestAt: string | null; lastImportCount: number; totalImported: number; totalSkipped: number; lastError: string | null; lastSkippedReason: string | null } = { enabled: Boolean(token) && allowedOriginCount > 0, providers: Object.keys(PROVIDER_CONFIG), lastIngestAt: null, lastImportCount: 0, totalImported: 0, totalSkipped: 0, lastError: null, lastSkippedReason: null };
   function status(): Record<string, unknown> { return { ...state, tokenConfigured: Boolean(token), originConfigured: allowedOriginCount > 0, allowedOriginCount }; }
   function assertToken(provided: string): void {
     if (!token) { const e = new Error("Web capture is disabled until MOSA_WEB_CAPTURE_TOKEN is configured.") as Error & { statusCode: number; code: string; expose: boolean }; e.statusCode = 503; e.code = "WEB_CAPTURE_DISABLED"; e.expose = true; throw e; }
     if (!safeTokenEqual(String(provided || "").trim(), token)) { const e = new Error("Unauthorized web capture token.") as Error & { statusCode: number; code: string }; e.statusCode = 401; e.code = "WEB_CAPTURE_UNAUTHORIZED"; throw e; }
   }
-  async function ingest(input: WebCaptureInput = {}, authToken = ""): Promise<IngestResult> {
+  async function performIngest(input: WebCaptureInput, authToken: string, mediaFilePath = ""): Promise<IngestResult> {
     assertToken(authToken);
-    const run = ingestQueue.then(() => ingestWebCapture({ store, referenceStore, tempRoot, projectId, input }));
-    ingestQueue = run.then(() => undefined, () => undefined);
+    await acquireIngestSlot();
     try {
-      const result = await run;
+      const result = await ingestWebCapture({ store, referenceStore, tempRoot, projectId, input, mediaFilePath });
       state.lastIngestAt = new Date().toISOString();
       state.lastError = null;
       if (result.status === "imported") {
@@ -143,12 +160,107 @@ export function createWebCaptureIngest(options: { store?: Store; libraryDir?: st
         await options.onLibraryChange?.(projectId, result);
       }
       return result;
-    } catch (error) { state.lastError = error instanceof Error ? error.message : String(error); throw error; }
+    } catch (error) {
+      state.lastError = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      releaseIngestSlot();
+    }
   }
-  return { ingest, status, assertToken, readReference: referenceStore.read, pruneReferences: referenceStore.pruneUnused, tempRoot, token };
+  async function ingest(input: WebCaptureInput = {}, authToken = ""): Promise<IngestResult> {
+    return performIngest(input, authToken);
+  }
+  async function ingestFile(input: WebCaptureInput = {}, mediaFilePath = "", authToken = ""): Promise<IngestResult> {
+    try {
+      return await performIngest(input, authToken, mediaFilePath);
+    } finally {
+      if (mediaFilePath) await rm(mediaFilePath, { force: true }).catch(() => {});
+    }
+  }
+  async function upgradeMetadata(input: WebCaptureInput = {}, authToken = ""): Promise<IngestResult> {
+    assertToken(authToken);
+    const result = await upgradeWebCaptureMetadata({ store, projectId, input });
+    if (result.upgraded || result.recipeMerged) await options.onLibraryChange?.(projectId, result);
+    return result;
+  }
+  return { ingest, ingestFile, upgradeMetadata, status, assertToken, readReference: referenceStore.read, pruneReferences: referenceStore.pruneUnused, tempRoot, token };
 }
 
-export async function ingestWebCapture(options: { store: Store; referenceStore?: ReturnType<typeof createReferenceAttachmentStore>; tempRoot: string; projectId?: string; input?: WebCaptureInput; }): Promise<IngestResult> {
+async function upgradeWebCaptureMetadata({ store, projectId, input }: { store: Store; projectId: string; input: WebCaptureInput }): Promise<IngestResult> {
+  const provider = String(input.provider || "").trim().toLowerCase();
+  if (!ALLOWED_PROVIDERS.has(provider)) throw webCaptureError(`Unsupported provider: ${provider || "(empty)"}.`, 400, "WEB_CAPTURE_BAD_PROVIDER");
+  const providerAssetId = String(input.providerAssetId || input.provider_asset_id || "").trim();
+  const logicalOutputId = logicalCaptureKey(projectId, provider, input);
+  const sourceMediaUrl = sanitizeStoredMediaUrl(input.sourceMediaUrl || input.source_media_url);
+  const assets = await Promise.all([
+    store.listAssets({ projectId }),
+    store.listAssets({ projectId, archived: true }).catch(() => []),
+  ]).then(([active, archived]) => [...active, ...archived]);
+  let asset = findLogicalProviderAsset(assets, provider, providerAssetId, logicalOutputId);
+  if (!asset && sourceMediaUrl) {
+    asset = assets.find((candidate) => {
+      if (String(candidate.source?.provider || "").trim().toLowerCase() !== provider) return false;
+      const occurrences = Array.isArray(candidate.source?.capture_occurrences) ? candidate.source.capture_occurrences : [];
+      return occurrences.some((entry) => sanitizeStoredMediaUrl((entry as Metadata)?.source_media_url) === sourceMediaUrl);
+    }) || null;
+  }
+  if (!asset) throw webCaptureError("Archived capture not found for metadata upgrade.", 404, "WEB_CAPTURE_ASSET_NOT_FOUND");
+
+  const suppliedPromptStatus = String(input.prompt_status || input.promptStatus || "").trim();
+  const trustedPrompt = ["generation-tool-prompt", "visible-caption"].includes(suppliedPromptStatus)
+    || (["gemini", "flow", "google-ai-studio"].includes(provider) && suppliedPromptStatus === "provider-visible-prompt");
+  const prompt = trustedPrompt ? String(input.prompt || "").trim() : "";
+  const promptSource = String(input.prompt_source || input.promptSource || "").trim();
+  const promptPriority = Math.max(0, Math.min(1000, Number(input.prompt_priority ?? input.promptPriority) || 0));
+  const promptScope = normalizePromptScope(input.prompt_scope || input.promptScope);
+  const model = String(input.model || "").trim();
+  const userMessage = String(input.user_message || input.userMessage || "").trim();
+  const upgraded = await maybeUpgradePrompt(store, asset, {
+    prompt,
+    promptStatus: prompt ? suppliedPromptStatus : "not-available",
+    userMessage,
+    promptSource,
+    promptPriority,
+    promptScope,
+    model,
+    provider,
+  });
+  if (upgraded) asset = upgraded;
+
+  const generationStatus = normalizeGenerationStatus(input.generation_status || input.generationStatus);
+  if (generationStatus !== "unknown" && generationStatus !== String(asset.source?.generation_status || "unknown") && typeof store.updateMetadata === "function") {
+    asset = await store.updateMetadata(projectId, asset.id, {
+      business_fields: { ...(asset.business_fields || {}), generation_status: generationStatus },
+      source: { ...(asset.source || {}), generation_status: generationStatus },
+      recipe_change_summary: "Capture metadata upgraded",
+    });
+  }
+  return {
+    status: "skipped",
+    reason: upgraded ? "already-archived-prompt-upgraded" : "already-archived-metadata-checked",
+    asset,
+    contentHash: String(asset.source?.content_sha256 || ""),
+    upgraded: Boolean(upgraded),
+  };
+}
+
+export async function ingestWebCapture(options: { store: Store; referenceStore?: ReturnType<typeof createReferenceAttachmentStore>; tempRoot: string; projectId?: string; input?: WebCaptureInput; mediaFilePath?: string; }): Promise<IngestResult> {
+  const input = options.input || {};
+  const projectId = options.projectId || DEFAULT_PROJECT_ID;
+  const provider = String(input.provider || "").trim().toLowerCase();
+  const logicalKey = logicalCaptureKey(projectId, provider, input);
+  if (!logicalKey) return ingestWebCaptureUnlocked(options);
+  const previous = logicalCaptureLocks.get(logicalKey) || Promise.resolve();
+  const operation = previous.catch(() => undefined).then(() => ingestWebCaptureUnlocked(options));
+  logicalCaptureLocks.set(logicalKey, operation);
+  try {
+    return await operation;
+  } finally {
+    if (logicalCaptureLocks.get(logicalKey) === operation) logicalCaptureLocks.delete(logicalKey);
+  }
+}
+
+async function ingestWebCaptureUnlocked(options: { store: Store; referenceStore?: ReturnType<typeof createReferenceAttachmentStore>; tempRoot: string; projectId?: string; input?: WebCaptureInput; mediaFilePath?: string; }): Promise<IngestResult> {
   const { store, tempRoot, projectId = DEFAULT_PROJECT_ID, input = {} } = options;
   const provider = String(input.provider || "").trim().toLowerCase();
   if (!ALLOWED_PROVIDERS.has(provider)) { const e = new Error(`Unsupported provider: ${provider || "(empty)"}.`) as Error & { statusCode: number; code: string }; e.statusCode = 400; e.code = "WEB_CAPTURE_BAD_PROVIDER"; throw e; }
@@ -195,6 +307,7 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
   const providerGenerationCallId = String(input.providerGenerationCallId || input.provider_generation_call_id || "").trim();
   const providerResponseId = String(input.providerResponseId || input.provider_response_id || "").trim();
   const providerAssetId = String(input.providerAssetId || input.provider_asset_id || "").trim();
+  const logicalOutputId = logicalCaptureKey(projectId, provider, input);
   const captureSessionId = conversationId ? `${provider}:${conversationId}` : "";
   const generationBatchId = captureSessionId && messageId ? `${captureSessionId}:${messageId}` : "";
   const capturedAt = String(input.capturedAt || input.captured_at || new Date().toISOString());
@@ -304,8 +417,24 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
       recipeMerged: mergedRecipe.merged,
     };
   };
-  const existing = await findArchivedDuplicate(store, projectId, contentHash, pixelHash, projectAssets);
-  if (existing) return finalizeDuplicate(existing);
+  let logicalExistingForReplacement: StoredAsset | null = null;
+  if (providerAssetId || logicalOutputId) {
+    const logicalExisting = findLogicalProviderAsset(await projectAssets(), provider, providerAssetId, logicalOutputId);
+    if (logicalExisting) {
+      const existingHash = String(logicalExisting.source?.content_sha256 || "").trim();
+      if (existingHash === contentHash) return finalizeDuplicate(logicalExisting);
+      if (["completed", "failed", "cancelled"].includes(generationStatus)
+        && typeof store.replaceAssetMedia === "function") {
+        logicalExistingForReplacement = logicalExisting;
+      } else {
+        return finalizeDuplicate(logicalExisting);
+      }
+    }
+  }
+  if (!logicalExistingForReplacement) {
+    const existing = await findArchivedDuplicate(store, projectId, contentHash, pixelHash, projectAssets);
+    if (existing) return finalizeDuplicate(existing);
+  }
   await mkdir(tempRoot, { recursive: true });
   const tempName = `${providerConfig.tempPrefix}-${Date.now()}-${randomBytes(4).toString("hex")}${ext}`; const tempPath = join(tempRoot, tempName);
   await writeFile(tempPath, imageBytes);
@@ -357,6 +486,7 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
         provider_generation_call_id: providerGenerationCallId || null,
         provider_response_id: providerResponseId || null,
         provider_asset_id: providerAssetId || null,
+        logical_output_id: logicalOutputId || null,
         verification_level: "observed",
         capture_occurrences: [captureOccurrence],
         model: model || null,
@@ -377,6 +507,27 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
         pixel_hash_version: pixelHash ? PIXEL_HASH_VERSION : null,
       },
     };
+    if (logicalExistingForReplacement && typeof store.replaceAssetMedia === "function") {
+      const replaced = await store.replaceAssetMedia(projectId, logicalExistingForReplacement.id, {
+        imagePath: tempPath,
+        fileName: tempName,
+        contentHash,
+        pixelHash,
+        pixelHashVersion: pixelHash ? PIXEL_HASH_VERSION : "",
+        prompt,
+        business_fields: assetInput.business_fields,
+        source: assetInput.source,
+      }, { trustedSourceRoots: [tempRoot], ingestMode: captureMode });
+      const merged = await finalizeDuplicate(replaced);
+      return {
+        ...merged,
+        status: "imported",
+        reason: "logical-output-media-upgraded",
+        asset: merged.asset || replaced,
+        contentHash,
+        replacedAssetId: logicalExistingForReplacement.id,
+      };
+    }
     let asset: StoredAsset;
     try {
       asset = await store.createAsset(assetInput, { trustedSourceRoots: [tempRoot], ingestMode: captureMode === "manual" ? "manual" : "automatic" });
@@ -410,7 +561,11 @@ export async function ingestWebCapture(options: { store: Store; referenceStore?:
       references: asset.references,
       capturedAt,
     });
-    return { status: "imported", asset, contentHash };
+    return {
+      status: "imported",
+      asset,
+      contentHash,
+    };
   } catch (error) {
     if (isAutomaticImportSuppressed(error)) return { status: "skipped", reason: "suppressed-after-delete", contentHash };
     if (isAutomaticIngestDuplicate(error)) {
@@ -434,6 +589,7 @@ async function ingestWebVideoCapture(options: {
   projectId: string;
   input: WebCaptureInput;
   provider: string;
+  mediaFilePath?: string;
 }): Promise<IngestResult> {
   const { store, tempRoot, projectId, input, provider } = options;
   if (!VIDEO_PROVIDERS.has(provider)) throw webCaptureError(`Provider does not support web video capture: ${provider}.`, 400, "WEB_CAPTURE_BAD_VIDEO_PROVIDER");
@@ -442,14 +598,28 @@ async function ingestWebVideoCapture(options: {
   const mimeType = normalizeMime(input.mimeType || input.mime_type || "video/mp4");
   const ext = VIDEO_MIME_TO_EXT[mimeType];
   if (!ext) throw webCaptureError(`Unsupported video mime type: ${mimeType}`, 400, "WEB_CAPTURE_BAD_MIME");
-  const videoBytes = decodeMediaBytes(input);
-  if (!videoBytes.length) throw webCaptureError("mediaBase64 is required for video capture.", 400, "WEB_CAPTURE_BAD_VIDEO");
   const MIN_VIDEO_BYTES = 64 * 1024;
-  if (videoBytes.length < MIN_VIDEO_BYTES) throw webCaptureError(`Video too small (${videoBytes.length} < ${MIN_VIDEO_BYTES}).`, 400, "WEB_CAPTURE_VIDEO_TOO_SMALL");
-  if (videoBytes.length > WEB_CAPTURE_MAX_VIDEO_BYTES) throw webCaptureError("Video exceeds 96 MiB limit.", 413, "WEB_CAPTURE_VIDEO_TOO_LARGE");
-  assertVideoContainer(videoBytes, mimeType);
-
-  const contentHash = createHash("sha256").update(videoBytes).digest("hex");
+  let videoBytes: Buffer | null = null;
+  let videoSize = 0;
+  let uploadedVideoPath = "";
+  let containerHeader: Buffer;
+  let contentHash: string;
+  if (options.mediaFilePath) {
+    const uploaded = await inspectTrustedCaptureTempFile(tempRoot, options.mediaFilePath);
+    uploadedVideoPath = uploaded.path;
+    videoSize = uploaded.size;
+    containerHeader = uploaded.header;
+    contentHash = await sha256File(uploaded.path);
+  } else {
+    videoBytes = decodeMediaBytes(input);
+    videoSize = videoBytes.length;
+    containerHeader = videoBytes;
+    contentHash = createHash("sha256").update(videoBytes).digest("hex");
+  }
+  if (!videoSize) throw webCaptureError("Video media bytes are required.", 400, "WEB_CAPTURE_BAD_VIDEO");
+  if (videoSize < MIN_VIDEO_BYTES) throw webCaptureError(`Video too small (${videoSize} < ${MIN_VIDEO_BYTES}).`, 400, "WEB_CAPTURE_VIDEO_TOO_SMALL");
+  if (videoSize > WEB_CAPTURE_MAX_VIDEO_BYTES) throw webCaptureError("Video exceeds 96 MiB limit.", 413, "WEB_CAPTURE_VIDEO_TOO_LARGE");
+  assertVideoContainer(containerHeader, mimeType);
   let prompt = String(input.prompt || "").trim();
   const userMessage = String(input.user_message || input.userMessage || "").trim();
   const suppliedPromptStatus = String(input.prompt_status || input.promptStatus || "").trim();
@@ -570,11 +740,14 @@ async function ingestWebVideoCapture(options: {
   };
 
   const existing = await findArchivedDuplicate(store, projectId, contentHash, "", projectAssets);
-  if (existing) return finalizeDuplicate(existing);
+  if (existing) {
+    if (uploadedVideoPath) await rm(uploadedVideoPath, { force: true }).catch(() => {});
+    return finalizeDuplicate(existing);
+  }
   await mkdir(tempRoot, { recursive: true });
   const tempName = `${providerConfig.tempPrefix}-video-${Date.now()}-${randomBytes(4).toString("hex")}${ext}`;
-  const tempPath = join(tempRoot, tempName);
-  await writeFile(tempPath, videoBytes);
+  const tempPath = uploadedVideoPath || join(tempRoot, tempName);
+  if (!uploadedVideoPath) await writeFile(tempPath, videoBytes!);
   try {
     const explicitAssetId = String(input.assetId || "").trim();
     let assetId = sanitizeAssetId(explicitAssetId || `${providerConfig.assetIdPrefix}-video-${contentHash.slice(0, 12)}`, providerConfig.assetIdPrefix);
@@ -607,7 +780,7 @@ async function ingestWebVideoCapture(options: {
         prompt_scope: promptScope || null,
         generation_status: generationStatus,
         user_message: userMessage || null,
-        file_bytes: videoBytes.length,
+        file_bytes: videoSize,
         mime_type: mimeType,
         width: width || null,
         height: height || null,
@@ -850,6 +1023,32 @@ function normalizeMediaMetric(value: unknown, max: number, allowFraction = false
   return allowFraction ? number : Math.round(number);
 }
 
+async function inspectTrustedCaptureTempFile(tempRoot: string, mediaFilePath: string): Promise<{ path: string; size: number; header: Buffer }> {
+  const root = resolve(tempRoot);
+  const path = resolve(mediaFilePath);
+  if (path === root || !path.startsWith(`${root}${sep}`)) {
+    throw webCaptureError("Uploaded media path is outside the Web Capture temp directory.", 400, "WEB_CAPTURE_UPLOAD_PATH_INVALID");
+  }
+  const info = await lstat(path).catch(() => null);
+  if (!info || !info.isFile() || info.isSymbolicLink()) {
+    throw webCaptureError("Uploaded media file is unavailable.", 400, "WEB_CAPTURE_UPLOAD_FILE_INVALID");
+  }
+  const handle = await open(path, "r");
+  try {
+    const header = Buffer.alloc(16);
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    return { path, size: info.size, header: header.subarray(0, bytesRead) };
+  } finally {
+    await handle.close();
+  }
+}
+
+async function sha256File(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
+  return hash.digest("hex");
+}
+
 function sanitizeStoredMediaUrl(value: unknown): string {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -886,7 +1085,33 @@ function normalizeGenerationStatus(value: unknown): string {
   const normalized = aliases[raw] || raw || "unknown";
   return GENERATION_STATUSES.has(normalized) ? normalized : "unknown";
 }
+function logicalCaptureKey(projectId: string, provider: string, input: WebCaptureInput): string {
+  const providerAssetId = String(input.providerAssetId || input.provider_asset_id || "").trim();
+  if (providerAssetId) return `${projectId}\u001f${provider}\u001fasset:${providerAssetId}`;
+  const generationCallId = String(input.providerGenerationCallId || input.provider_generation_call_id || "").trim();
+  const generationContextId = String(input.generationContextId || input.generation_context_id || "").trim();
+  const messageId = String(input.messageId || input.message_id || "").trim();
+  const mediaUrl = sanitizeStoredMediaUrl(input.finalMediaUrl || input.final_media_url || input.sourceMediaUrl || input.source_media_url);
+  // A call/context can legitimately emit multiple images. Never collapse the
+  // whole generation when the provider did not give us an output-scoped asset
+  // id or a distinct media URL for this one output.
+  if ((!generationCallId && !generationContextId) || !mediaUrl) return "";
+  return `${projectId}\u001f${provider}\u001foutput:${generationCallId}\u001f${generationContextId}\u001f${messageId}\u001f${mediaUrl}`;
+}
 function onceProjectListing(store: Store, projectId: string): () => Promise<StoredAsset[]> { let pending: Promise<StoredAsset[]> | null = null; return () => { if (!pending) pending = Promise.all([store.listAssets({ projectId }), store.listAssets({ projectId, archived: true }).catch(() => [])]).then(([a, b]) => [...a, ...b]); return pending; }; }
+function findLogicalProviderAsset(assets: StoredAsset[], provider: string, providerAssetId: string, logicalOutputId = ""): StoredAsset | null {
+  const wantedProvider = String(provider || "").trim().toLowerCase();
+  const wantedAssetId = String(providerAssetId || "").trim();
+  const wantedLogicalOutputId = String(logicalOutputId || "").trim();
+  if (!wantedProvider || (!wantedAssetId && !wantedLogicalOutputId)) return null;
+  return assets.find((asset) => (
+    String(asset.source?.provider || "").trim().toLowerCase() === wantedProvider
+    && (
+      (wantedAssetId && String(asset.source?.provider_asset_id || "").trim() === wantedAssetId)
+      || (wantedLogicalOutputId && String(asset.source?.logical_output_id || "").trim() === wantedLogicalOutputId)
+    )
+  )) || null;
+}
 async function findArchivedDuplicate(store: Store, projectId: string, contentHash: string, pixelHash: string, projectAssets: () => Promise<StoredAsset[]>): Promise<StoredAsset | null> {
   const byBytes = typeof store.findAssetByContentHash === "function" ? await store.findAssetByContentHash(projectId, contentHash) : (await projectAssets()).find((a) => a.source?.content_sha256 === contentHash) || null;
   if (byBytes) return byBytes;

@@ -26,7 +26,10 @@
   const SIZE_FAILURE_LIMIT = 3;
   const SIZE_FAILURE_BACKOFF_MS = 60_000;
   const AUTO_STABILITY_DELAY_MS = 900;
+  const AUTO_IN_PROGRESS_STALE_MS = 6_000;
   const AUTO_PARTIAL_FALLBACK_MS = 15_000;
+  const DOM_MEDIA_GRACE_MS = 600;
+  const MANUAL_HOOK_LEASE_MS = 20_000;
   const STYLE_HINTS = [
     "poster", "illustration", "typography", "vector", "style", "lighting",
     "camera", "composition", "palette", "cinematic", "editorial", "scene",
@@ -38,6 +41,7 @@
   /** Stable image identity -> latest bound prompt for that exact generated asset */
   const imagePromptMap = new Map();
   const inFlight = new Set();
+  const queuedAutoKeys = new Set();
   const savedKeys = new Set();
   /**
    * Stable image identities already archived in this page session. One uploaded
@@ -90,6 +94,9 @@
   let controlPanel = null;
   let panelDragState = null;
   let manualHookDisableTimer = null;
+  let manualHookLeaseUntil = 0;
+  let pageHookSyncTimer = null;
+  let pageHookCaptureAck = null;
 
   function pageHookChannel() {
     return String(document.documentElement?.dataset?.mosaPageHookChannel || "").trim();
@@ -111,24 +118,48 @@
 
   function setPageHookCaptureEnabled(enabled) {
     const channel = pageHookChannel();
-    if (!channel) return;
+    if (!channel) return false;
     window.postMessage({
       source: "mosa-chatgpt-capture",
       channel,
       type: "set-capture-enabled",
       payload: { enabled: enabled === true },
     }, "*");
+    return true;
+  }
+
+  function desiredPageHookCaptureEnabled() {
+    return autoCapture || Date.now() < manualHookLeaseUntil;
+  }
+
+  function syncPageHookCaptureEnabled(attempt = 0) {
+    const desired = desiredPageHookCaptureEnabled();
+    if (pageHookCaptureAck === desired) {
+      if (pageHookSyncTimer) clearTimeout(pageHookSyncTimer);
+      pageHookSyncTimer = null;
+      return;
+    }
+    setPageHookCaptureEnabled(desired);
+    const retryDelays = [25, 100, 300, 750, 1_500, 2_500];
+    if (attempt >= retryDelays.length || contextLost) return;
+    if (pageHookSyncTimer) clearTimeout(pageHookSyncTimer);
+    pageHookSyncTimer = setTimeout(() => {
+      pageHookSyncTimer = null;
+      syncPageHookCaptureEnabled(attempt + 1);
+    }, retryDelays[attempt]);
   }
 
   function enablePageHookForManualCapture() {
-    setPageHookCaptureEnabled(true);
+    manualHookLeaseUntil = Date.now() + MANUAL_HOOK_LEASE_MS;
+    pageHookCaptureAck = null;
+    syncPageHookCaptureEnabled();
     if (manualHookDisableTimer) clearTimeout(manualHookDisableTimer);
-    if (!autoCapture) {
-      manualHookDisableTimer = setTimeout(() => {
-        manualHookDisableTimer = null;
-        if (!autoCapture) setPageHookCaptureEnabled(false);
-      }, 10_000);
-    }
+    manualHookDisableTimer = setTimeout(() => {
+      manualHookDisableTimer = null;
+      manualHookLeaseUntil = 0;
+      pageHookCaptureAck = null;
+      syncPageHookCaptureEnabled();
+    }, MANUAL_HOOK_LEASE_MS);
   }
 
   function resetConversationTransientState() {
@@ -151,6 +182,7 @@
     autoStabilityStates.clear();
     savedGenerationStatuses.clear();
     promptUpgradeInFlight.clear();
+    queuedAutoKeys.clear();
     referenceSyncKeys.clear();
     failedNetworkIdentityKeys.clear();
     failedAt.clear();
@@ -525,6 +557,7 @@
     contextLost = true;
     if (autoScanInterval) clearInterval(autoScanInterval);
     if (scanTimer) clearTimeout(scanTimer);
+    if (manualHookDisableTimer) clearTimeout(manualHookDisableTimer);
     observer?.disconnect();
     for (const timers of promptRecoveryTimers.values()) {
       for (const timer of timers) clearTimeout(timer);
@@ -755,15 +788,22 @@
     const evidence = findGenerationEvidenceForCandidate(candidate);
     if (!evidence) return { generationContextId: "", stagedReferences: 0 };
     const generationContextId = evidence.generationContextId || "";
+    const references = referenceCandidatesForGeneration(candidate);
     let stagedReferences = 0;
-    for (const reference of referenceCandidatesForGeneration(candidate)) {
-      try {
-        const result = await ingestCandidate(reference, { silentSkip: true, reason: "auto-reference", generationContextId });
-        if (result) stagedReferences += 1;
-      } catch {
-        // A failed optional reference must not block the generated output.
+    let nextReference = 0;
+    const workerCount = Math.min(3, references.length);
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+      while (nextReference < references.length) {
+        const index = nextReference;
+        nextReference += 1;
+        try {
+          const result = await ingestCandidate(references[index], { silentSkip: true, reason: "auto-reference", generationContextId });
+          if (result) stagedReferences += 1;
+        } catch {
+          // A failed optional reference must not block the generated output.
+        }
       }
-    }
+    }));
     return { generationContextId, stagedReferences };
   }
 
@@ -813,6 +853,36 @@
     return `${width}x${height}`;
   }
 
+  function renderedPixelSignature(candidate) {
+    const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
+    if (!image?.complete || !image.naturalWidth || !image.naturalHeight) return "";
+    try {
+      const sample = document.createElement("canvas");
+      sample.width = 24;
+      sample.height = 24;
+      const context = sample.getContext("2d", { willReadFrequently: true });
+      if (!context) return "";
+      context.drawImage(image, 0, 0, sample.width, sample.height);
+      const pixels = context.getImageData(0, 0, sample.width, sample.height).data;
+      let hash = 2166136261;
+      for (let index = 0; index < pixels.length; index += 4) {
+        hash ^= pixels[index];
+        hash = Math.imul(hash, 16777619);
+        hash ^= pixels[index + 1];
+        hash = Math.imul(hash, 16777619);
+        hash ^= pixels[index + 2];
+        hash = Math.imul(hash, 16777619);
+        hash ^= pixels[index + 3];
+        hash = Math.imul(hash, 16777619);
+      }
+      return (hash >>> 0).toString(16).padStart(8, "0");
+    } catch {
+      // Cross-origin images can taint canvas. In that case do not pretend the
+      // pixels are stable; terminal provider metadata remains the safe gate.
+      return "";
+    }
+  }
+
   function markSizeFailure(candidate) {
     const key = candidateOperationKey(candidate);
     if (!key) return;
@@ -840,7 +910,7 @@
   }
 
   function rememberCandidate(candidate) {
-    for (const key of candidateLookupKeys(candidate)) capturedCandidates.set(key, candidate);
+    for (const key of candidateLookupKeys(candidate)) rememberMap(capturedCandidates, key, candidate);
   }
 
   /** One archived picture, whichever URL variant or DOM node surfaced it. */
@@ -899,7 +969,8 @@
     }
 
     const now = Date.now();
-    const signature = `${candidateSizeSignature(candidate)}|${candidate?.imageUrl || candidate?.key || ""}`;
+    const pixelSignature = renderedPixelSignature(candidate);
+    const signature = `${candidateSizeSignature(candidate)}|${candidate?.imageUrl || candidate?.key || ""}|${pixelSignature}`;
     const previous = autoStabilityStates.get(candidateKey);
     const state = previous?.signature === signature
       ? previous
@@ -910,20 +981,32 @@
     const age = now - state.firstSeenAt;
     if (status === "in_progress") {
       requestCurrentConversationRefresh(candidate);
-      if (age < AUTO_PARTIAL_FALLBACK_MS) {
-        scheduleAutoStabilityRetry(candidate, reason, Math.min(1_500, AUTO_PARTIAL_FALLBACK_MS - age));
+      if (!pixelSignature) {
+        scheduleAutoStabilityRetry(candidate, reason, 1_200);
+        return { ready: false, forceTerminalRefresh: false };
       }
-      // An explicit in-progress marker is stronger evidence than elapsed time.
-      // Do not archive a provider-declared intermediate image just because a
-      // watchdog timer expired; the 5s scan and metadata refresh will pick it
-      // up as soon as ChatGPT reports a terminal state.
-      return { ready: false, forceTerminalRefresh: false };
+      if (age < AUTO_IN_PROGRESS_STALE_MS) {
+        scheduleAutoStabilityRetry(candidate, reason, Math.min(1_200, AUTO_IN_PROGRESS_STALE_MS - age));
+        return { ready: false, forceTerminalRefresh: false };
+      }
+      // ChatGPT occasionally leaves the final visible output carrying a stale
+      // in_progress marker forever. Once the same rendered candidate has been
+      // stable for a bounded interval, archive it provisionally and let the
+      // duplicate-ingest path merge a later terminal status/prompt.
+      clearAutoStability(candidateKey);
+      return { ready: true, forceTerminalRefresh: false };
     }
 
-    if (status === "partial" && age < AUTO_PARTIAL_FALLBACK_MS) {
+    if (status === "partial") {
       requestCurrentConversationRefresh(candidate);
-      scheduleAutoStabilityRetry(candidate, reason, Math.min(1_500, AUTO_PARTIAL_FALLBACK_MS - age));
-      return { ready: false, forceTerminalRefresh: false };
+      if (!pixelSignature) {
+        scheduleAutoStabilityRetry(candidate, reason, 1_500);
+        return { ready: false, forceTerminalRefresh: false };
+      }
+      if (age < AUTO_PARTIAL_FALLBACK_MS) {
+        scheduleAutoStabilityRetry(candidate, reason, Math.min(1_500, AUTO_PARTIAL_FALLBACK_MS - age));
+        return { ready: false, forceTerminalRefresh: false };
+      }
     }
 
     if (age < AUTO_STABILITY_DELAY_MS) {
@@ -1014,7 +1097,7 @@
     }
   }
 
-  function schedulePromptRecovery(candidate) {
+  function schedulePromptRecovery(candidate, { needPrompt = true, needTerminal = false } = {}) {
     const candidateKey = candidate?.key || candidate?.imageUrl;
     const imageRef = candidate?.imageUrl || candidateKey || "";
     if (!candidateKey || !imageRef || promptRecoveryTimers.has(candidateKey)) return;
@@ -1025,7 +1108,10 @@
     // prompt even after the image was already archived.
     const delays = [2_800, 7_200, 15_000];
     const timers = delays.map((delay, index) => setTimeout(() => {
-      if (findBoundPromptForImage(imageRef)) {
+      const bound = findBoundPromptForImage(imageRef);
+      const promptReady = !needPrompt || Boolean(bound?.prompt);
+      const terminalReady = !needTerminal || isTerminalGenerationStatus(bound?.generationStatus);
+      if (promptReady && terminalReady) {
         clearPromptRecovery(candidateKey);
         return;
       }
@@ -1148,17 +1234,17 @@
     const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
     if (!image) return "";
     const scope = messageScopeForCandidate(candidate);
-    const sources = [
-      image.getAttribute("alt"),
-      image.getAttribute("aria-label"),
-      scope?.innerText,
-    ];
-    for (const source of sources) {
+    const directSources = [image.getAttribute("alt"), image.getAttribute("aria-label")];
+    for (const source of directSources) {
       const text = String(source || "").replace(/\s+/g, " ").trim();
       const match = /model caption\s*:\s*(.+)$/i.exec(text);
-      const caption = cleanPromptText(match?.[0] || "");
+      const caption = cleanPromptText(match?.[0] || text);
       if (looksLikeGenerationCaption(caption)) return caption;
     }
+    const scopeText = String(scope?.innerText || "").replace(/\s+/g, " ").trim();
+    const scopedMatch = /model caption\s*:\s*(.+)$/i.exec(scopeText);
+    const scopedCaption = cleanPromptText(scopedMatch?.[0] || "");
+    if (looksLikeGenerationCaption(scopedCaption)) return scopedCaption;
     return "";
   }
 
@@ -1335,23 +1421,64 @@
     return response.result;
   }
 
-  function canvasBytesFromImage(el) {
+  async function canvasBytesFromImage(el) {
     if (!(el instanceof HTMLImageElement) || !el.complete || !el.naturalWidth) {
       throw new Error("未能读取图片字节（下载失败或跨域）");
     }
     const canvas = document.createElement("canvas");
     canvas.width = el.naturalWidth;
     canvas.height = el.naturalHeight;
-    canvas.getContext("2d").drawImage(el, 0, 0);
-    const dataUrl = canvas.toDataURL("image/png");
-    const match = /^data:([^;]+);base64,(.+)$/i.exec(dataUrl);
-    if (!match) throw new Error("未能读取图片字节（下载失败或跨域）");
-    return { mimeType: match[1], imageBase64: match[2] };
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("未能读取图片字节（下载失败或跨域）");
+    context.drawImage(el, 0, 0);
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Canvas encoding failed")), "image/png");
+    });
+    const buffer = await blob.arrayBuffer();
+    return { mimeType: blob.type || "image/png", imageBase64: arrayBufferToBase64(buffer) };
   }
 
-  /** Prefer the provider-served original bytes. Pixel-hash dedupe on the MOSA
-   * side prevents a prior canvas-encoded copy from becoming a second asset.
-   * Canvas remains the fallback for blob/CORS/transient URL failures. */
+  function renderedCandidateFor(candidate) {
+    const keys = candidateLookupKeys(candidate);
+    if (!keys.length) return null;
+    for (const image of document.querySelectorAll("img")) {
+      if (!(image instanceof HTMLImageElement) || !image.complete || !image.naturalWidth) continue;
+      const src = image.currentSrc || image.src || "";
+      if (!src) continue;
+      const imageKeys = imageLookupKeys(src);
+      if (!imageKeys.some((key) => keys.includes(key))) continue;
+      return {
+        ...candidate,
+        key: src,
+        imageUrl: src,
+        el: image,
+        width: image.naturalWidth || image.width || candidate?.width || 0,
+        height: image.naturalHeight || image.height || candidate?.height || 0,
+      };
+    }
+    return null;
+  }
+
+  async function waitForRenderedCandidate(candidate, timeoutMs = DOM_MEDIA_GRACE_MS) {
+    const immediate = candidate?.el instanceof HTMLImageElement && candidate.el.complete && candidate.el.naturalWidth
+      ? candidate
+      : renderedCandidateFor(candidate);
+    if (immediate) return immediate;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+      const rendered = renderedCandidateFor(candidate);
+      if (rendered) return rendered;
+    }
+    return null;
+  }
+
+  /**
+   * Give the original provider bytes a very short head start so JPEG/WebP
+   * generations keep their original encoding and do not balloon into a large
+   * synchronous PNG data URL. A rendered DOM image remains the low-latency
+   * fallback, and a tainted canvas can still wait for the bounded network read.
+   */
   async function bytesFromUrlOrImg(candidate) {
     if (candidate.dataUrl) {
       const match = /^data:([^;]+);base64,(.+)$/i.exec(candidate.dataUrl);
@@ -1360,14 +1487,31 @@
     }
 
     const originalUrl = candidate.imageUrl || candidate.key || "";
-    if (originalUrl) {
+    const originalPromise = /^https:/i.test(originalUrl)
+      ? originalBytesFromUrl(originalUrl).then((value) => ({ value }), () => null)
+      : null;
+    const renderedPromise = waitForRenderedCandidate(candidate);
+    if (originalPromise) {
+      const fastOriginal = await Promise.race([
+        originalPromise,
+        renderedPromise.then(() => null),
+        new Promise((resolve) => setTimeout(() => resolve(null), 220)),
+      ]);
+      if (fastOriginal?.value) return fastOriginal.value;
+    }
+    const rendered = await renderedPromise;
+    if (rendered?.el) {
       try {
-        return await originalBytesFromUrl(originalUrl);
+        return await canvasBytesFromImage(rendered.el);
       } catch {
-        // Fall through to a rendered-pixel snapshot only when the original
-        // provider bytes cannot be read.
+        // Some provider images taint canvas. Fall back to provider bytes.
       }
     }
+    if (originalPromise) {
+      const original = await originalPromise;
+      if (original?.value) return original.value;
+    }
+    if (originalUrl) return originalBytesFromUrl(originalUrl);
     return canvasBytesFromImage(candidate.el);
   }
 
@@ -1432,9 +1576,10 @@
       const imageRef = candidate.imageUrl || key;
       const refreshRequested = !findBoundPromptForImage(imageRef)
         && requestCurrentConversationRefresh(candidate);
-      const waits = refreshRequested ? 6 : (manual ? 2 : 5);
-      for (let i = 0; i < waits && !findBoundPromptForImage(imageRef); i += 1) {
-        await new Promise((r) => setTimeout(r, 350));
+      const promptWaitMs = manual ? 700 : refreshRequested ? 450 : 0;
+      const promptWaitDeadline = Date.now() + promptWaitMs;
+      while (Date.now() < promptWaitDeadline && !findBoundPromptForImage(imageRef)) {
+        await new Promise((r) => setTimeout(r, 150));
       }
       if (taskConversationEpoch !== conversationEpoch) return null;
       const resolved = resolvePrompt(imageRef, candidate);
@@ -1470,6 +1615,7 @@
           isReference: isReferenceCandidate(candidate),
           mimeType,
           imageBase64,
+          imageUrl: imageRef,
           pageUrl: location.href,
           conversationId: resolved.conversationId || conversationIdFromUrl(),
           messageId: resolved.messageId,
@@ -1495,8 +1641,15 @@
       // downloading, after resolvePrompt had already returned no prompt.
       const lateBound = findBoundPromptForImage(imageRef);
       if (lateBound?.prompt) schedulePromptUpgrade(lateBound);
-      else if (!["visible-caption", "generation-tool-prompt"].includes(resolved.promptStatus)) {
-        schedulePromptRecovery(candidate);
+      const needsPromptRecovery = !lateBound?.prompt
+        && !["visible-caption", "generation-tool-prompt"].includes(resolved.promptStatus);
+      const latestStatus = normalizeGenerationStatus(lateBound?.generationStatus || resolved.generationStatus);
+      const needsTerminalRecovery = !isTerminalGenerationStatus(latestStatus);
+      if (needsPromptRecovery || needsTerminalRecovery) {
+        schedulePromptRecovery(candidate, {
+          needPrompt: needsPromptRecovery,
+          needTerminal: needsTerminalRecovery,
+        });
       }
 
       if (result.status === "imported") {
@@ -1551,6 +1704,9 @@
     rememberCandidate(candidate);
     const readiness = autoCandidateReadiness(candidate, evidence, reason);
     if (!readiness.ready) return;
+    const queueKey = candidateOperationKey(candidate);
+    if (!queueKey || queuedAutoKeys.has(queueKey)) return;
+    queuedAutoKeys.add(queueKey);
     withAutoCaptureSlot(async () => {
         try {
           const { generationContextId, stagedReferences } = await stageGenerationReferences(candidate);
@@ -1570,6 +1726,8 @@
           if (needsReferenceRepair && result) rememberSet(referenceSyncKeys, syncKey);
         } catch {
           // keep queue alive
+        } finally {
+          queuedAutoKeys.delete(queueKey);
         }
       }).catch(() => {});
   }
@@ -1960,7 +2118,8 @@
       const response = await runtimeSend({ type: "mosa.getSettings" });
       if (response?.ok && response.settings) {
         autoCapture = response.settings.autoCapture !== false;
-        setPageHookCaptureEnabled(autoCapture);
+        pageHookCaptureAck = null;
+        syncPageHookCaptureEnabled();
         return;
       }
     } catch {
@@ -1975,7 +2134,8 @@
     } catch {
       // Keep the in-memory value when both settings paths are unavailable.
     }
-    setPageHookCaptureEnabled(autoCapture);
+    pageHookCaptureAck = null;
+    syncPageHookCaptureEnabled();
   }
 
   window.addEventListener("message", (event) => {
@@ -1988,6 +2148,8 @@
     if (data.type === "generation-meta" && data.payload) {
       if (data.payload.hookReady) {
         hookReady = true;
+        pageHookCaptureAck = null;
+        syncPageHookCaptureEnabled();
         setStatus(`${autoCapture ? "自动开" : "自动关"} · hook✓`);
         return;
       }
@@ -2008,6 +2170,22 @@
           }
         }
       }
+    }
+
+    if (data.type === "capture-state") {
+      pageHookCaptureAck = data.payload?.enabled === true;
+      const desired = desiredPageHookCaptureEnabled();
+      if (pageHookCaptureAck === desired) {
+        if (pageHookSyncTimer) clearTimeout(pageHookSyncTimer);
+        pageHookSyncTimer = null;
+        if (desired) {
+          requestCurrentConversationRefresh(null);
+          if (autoCapture) scheduleScan(true);
+        }
+      } else {
+        syncPageHookCaptureEnabled();
+      }
+      return;
     }
 
     // A failed recovery used to be invisible, so captures kept landing without
@@ -2072,6 +2250,7 @@
 
   // Boot. page-hook.js is a document_start MAIN-world content script.
   loadSettings().then(() => {
+    syncPageHookCaptureEnabled();
     if (autoCapture) {
       if (document.documentElement) startObs();
       else document.addEventListener("DOMContentLoaded", startObs, { once: true });
@@ -2079,6 +2258,7 @@
       scheduleScan(true);
     }
   });
+  document.addEventListener("DOMContentLoaded", () => syncPageHookCaptureEnabled(), { once: true });
 
   // Aggressive periodic auto scan — user explicitly wants hands-free save.
   // Doubles as the orphan watchdog: an extension reload flips the dock to the
@@ -2094,7 +2274,13 @@
   chrome.storage?.onChanged?.addListener((changes, area) => {
     if (area !== "local" || !changes.autoCapture) return;
     autoCapture = changes.autoCapture.newValue !== false;
-    setPageHookCaptureEnabled(autoCapture);
+    if (autoCapture) {
+      manualHookLeaseUntil = 0;
+      if (manualHookDisableTimer) clearTimeout(manualHookDisableTimer);
+      manualHookDisableTimer = null;
+    }
+    pageHookCaptureAck = null;
+    syncPageHookCaptureEnabled();
     setStatus(autoCapture ? "自动开" : "自动关");
     if (autoCapture) {
       startObs();

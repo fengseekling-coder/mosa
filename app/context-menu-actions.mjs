@@ -506,14 +506,24 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           if (!await confirmSelectedAssetMutation(assets)) return;
 
           await runAction(async () => {
-            for (const a of assets) {
-              await apiFetch(`/api/assets/${encodeURIComponent(a.project_id)}/${encodeURIComponent(a.id)}`, {
-                method: "DELETE",
-              });
+            const response = await apiFetch("/api/assets/batch", {
+              method: "POST",
+              body: {
+                action: "trash",
+                projectId: state.project,
+                assetIds: assets.map((entry) => entry.id),
+              },
+            });
+            const outcome = reconcileBatchMutation(assets, response);
+            commitSelectedAssetMutation(outcome.succeeded);
+            if (outcome.failed.length) {
+              showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
+            } else {
+              showToast(isMultiple ? t("assetsMovedToTrash", { count: assets.length }) : t("assetMovedToTrash"), "success");
             }
-            commitSelectedAssetMutation(assets);
-            showToast(isMultiple ? t("assetsMovedToTrash", { count: assets.length }) : t("assetMovedToTrash"), "success");
-            window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
+            window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+              detail: { removedAssetIds: outcome.succeeded.map((entry) => entry.id) },
+            }));
           });
         },
       }

@@ -12,6 +12,9 @@ export function bindContextMenuEvents(options = {}) {
     contextMenuActions,
     loadAssets,
     loadStats,
+    reloadLoadedAssetPages,
+    renderGrid,
+    updateViewTitle,
     selectAsset,
     openAssetView,
     showToast,
@@ -79,11 +82,33 @@ export function bindContextMenuEvents(options = {}) {
     });
   });
 
-  window.addEventListener("mosa:refresh-assets", () => {
+  function applyImmediateAssetRemoval(assetIds = []) {
+    const removedIds = new Set((assetIds || []).map((id) => String(id || "")).filter(Boolean));
+    if (!removedIds.size) return 0;
+    const beforeCount = state.assets.length;
+    state.assets = state.assets.filter((asset) => !removedIds.has(String(asset?.id || "")));
+    const removedVisibleCount = beforeCount - state.assets.length;
+    if (!removedVisibleCount) return 0;
+    if (state.selectedIds instanceof Set) {
+      for (const id of removedIds) state.selectedIds.delete(id);
+    }
+    if (Number.isFinite(Number(state.pageTotal))) {
+      state.pageTotal = Math.max(state.assets.length, Number(state.pageTotal) - removedVisibleCount);
+    }
+    renderGrid?.({ preserveScroll: true });
+    updateViewTitle?.();
+    return removedVisibleCount;
+  }
+
+  window.addEventListener("mosa:refresh-assets", (event) => {
+    applyImmediateAssetRemoval(event.detail?.removedAssetIds);
     // Same-result refreshes preserve gallery scroll centrally in loadAssets /
-    // renderGrid. Mutations can also change sidebar counts (favorites, group
-    // membership, archive/delete), so refresh stats in the same transaction.
-    void Promise.allSettled([loadStats(), loadAssets()]).then((results) => {
+    // renderGrid. If the user already loaded multiple pages, refresh the same
+    // loaded window instead of collapsing back to page one after a mutation.
+    const assetRefresh = typeof reloadLoadedAssetPages === "function" && state.loadedPageCount > 1
+      ? reloadLoadedAssetPages({ background: true })
+      : loadAssets({ background: true });
+    void Promise.allSettled([loadStats({ background: true }), assetRefresh]).then((results) => {
       const failure = results.find((result) => result.status === "rejected");
       if (failure) console.warn("Context-menu refresh failed:", failure.reason);
     });
