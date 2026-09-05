@@ -356,17 +356,41 @@ test("gallery card creation parses each changed batch once instead of one templa
     "reconciliation does not parse markup inside the per-card loop");
 });
 
-test("loaded-page refresh fetches off-DOM and commits the gallery once", async () => {
+test("full gallery reconciliation is a bounded last-resort path, not the revision flow", async () => {
   const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
-  const reload = sliceBetween(apiClient, "async function reloadLoadedAssetPages(options = {})", "async function refreshLoadedAssetsInBackground()");
+  const reload = sliceBetween(apiClient, "async function performFullGalleryReconciliation(options = {})", "async function refreshLoadedAssetsInBackground()");
   const refresh = sliceBetween(apiClient, "async function refreshLoadedAssetsInBackground()", "async function refreshLibraryInBackground()");
 
   assert.doesNotMatch(reload, /loadAssets\(/, "loaded pages are not committed one at a time");
   assert.match(reload, /const pages = \[\];[\s\S]*?for \(let page = 0; page < pageCount; page \+= 1\)/,
     "all currently loaded pages are assembled in a private snapshot first");
   assert.equal((reload.match(/renderGrid\(/g) || []).length, 1, "the refreshed snapshot has one gallery commit point");
-  assert.match(refresh, /return reloadLoadedAssetPages\(\{ background: true \}\)/,
-    "a revision change reloads the complete loaded window so changes beyond page one cannot be hidden");
+  assert.match(refresh, /return performFullGalleryReconciliation\(\{ background: true \}\)/,
+    "the legacy background refresh keeps the loaded-window reload as an internal recovery path");
+});
+
+test("revision changes reconcile incrementally and never reload the loaded window", async () => {
+  const app = await readApp();
+  const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
+  const reconcile = sliceBetween(apiClient, "async function reconcileLibraryRevision(revision)", "function currentAssetRequest()");
+
+  assert.match(app, /new EventSource\(`\/api\/library-events\?project=\$\{encodeURIComponent\(project\)\}`\)/);
+  assert.match(app, /source\.addEventListener\("library-changed"/);
+  assert.match(app, /void reconcileLibraryRevision\(payload\.revision\)/, "SSE ready reconciles the revision instead of blindly advancing the displayed baseline");
+  assert.match(app, /void reconcileLibraryRevision\(revision\)/, "library-changed reconciles only after the visible library catches up");
+  assert.match(app, /librarySync\.handleLibraryEventPayload\(payload\)/,
+    "SSE deltas that are contiguous with the local baseline apply without another round trip");
+  assert.match(app, /stopLibraryEventStream\(\);/, "hidden or torn-down pages release their SSE connection");
+  assert.match(apiClient, /function noteLibraryRevision\(revision\)/);
+  assert.match(apiClient, /async function reconcileLibraryRevision\(revision\)/);
+  assert.match(apiClient, /setLibraryDeltaApplier/, "the reconciler owns the normal revision-change flow");
+  assert.match(apiClient, /\/api\/library-changes\?/, "revision recovery replays the journaled delta");
+  assert.match(apiClient, /return statsRefreshed !== false && assetsRefreshed !== false;/,
+    "a failed or stale background loader must not consume the advertised library revision");
+  assert.match(apiClient, /\/api\/library-revision\?project=/, "periodic revision polling remains as a reconnect/failure fallback");
+  // 关键负向契约：正常 revision 变化路径不得触发全量已加载窗口重拉。
+  assert.doesNotMatch(reconcile, /refreshLibraryInBackground|performFullGalleryReconciliation/,
+    "ordinary revision changes must go through the incremental delta applier, never the full reload");
 });
 
 test("bridge status exposes active reconciliation instead of reporting ready", async () => {
@@ -494,24 +518,6 @@ test("background library polling yields while an infinite-scroll append is in fl
   assert.match(init, /LIBRARY_REFRESH_INTERVAL/);
   assert.match(apiClient, /\/api\/library-revision\?project=/, "timer polls only a lightweight revision token");
   assert.match(apiClient, /if \(nextRevision === lastLibraryRevision\) return false;/, "unchanged libraries do not reload groups or assets");
-});
-
-test("library updates use a realtime event stream with revision polling as fallback", async () => {
-  const app = await readApp();
-  const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
-
-  assert.match(app, /new EventSource\(`\/api\/library-events\?project=\$\{encodeURIComponent\(project\)\}`\)/);
-  assert.match(app, /source\.addEventListener\("library-changed"/);
-  assert.match(app, /void reconcileLibraryRevision\(payload\.revision\)/, "SSE ready reconciles the revision instead of blindly advancing the displayed baseline");
-  assert.match(app, /void reconcileLibraryRevision\(revision\)/, "library-changed reconciles only after the visible library catches up");
-  assert.match(app, /if \(!isLoadingMore\) void refreshLibraryIfChanged\(\);/, "visibility recovery keeps a direct lightweight fallback check");
-  assert.match(app, /stopLibraryEventStream\(\);/, "hidden or torn-down pages release their SSE connection");
-  assert.match(apiClient, /function noteLibraryRevision\(revision\)/);
-  assert.match(apiClient, /async function reconcileLibraryRevision\(revision\)/);
-  assert.match(apiClient, /return reloadLoadedAssetPages\(\{ background: true \}\)/, "revision-triggered refreshes reconcile the complete loaded window");
-  assert.match(apiClient, /return statsRefreshed !== false && assetsRefreshed !== false;/,
-    "a failed or stale background loader must not consume the advertised library revision");
-  assert.match(apiClient, /\/api\/library-revision\?project=/, "periodic revision polling remains as a reconnect/failure fallback");
 });
 
 test("background stats refresh skips the effectively static library-path request", async () => {

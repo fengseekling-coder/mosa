@@ -118,6 +118,8 @@ let ipcRegistered = false;
 let currentLocale = "zh"; // safe default matching original Chinese-only notifications
 let updateCheckPromise = null;
 let usageReportPromise = null;
+let usageReportTimer = null;
+const USAGE_REPORT_RECHECK_MS = 15 * 60 * 1000;
 const rendererConsoleErrors = new Set();
 const MAX_RENDERER_CONSOLE_ERRORS = 32;
 
@@ -137,7 +139,7 @@ if (!app.requestSingleInstanceLock()) {
     // Usage telemetry belongs to the packaged desktop lifecycle, not to the
     // website download flow or renderer initialization. Start it as soon as
     // Electron is ready so GitHub/directly shared packages are counted too.
-    void runAnonymousUsageReport();
+    startAnonymousUsageLifecycle();
     return openMainWindow();
   }).catch(reportStartupFailure);
 
@@ -156,6 +158,7 @@ if (!app.requestSingleInstanceLock()) {
     event.preventDefault();
     shuttingDown = true;
     stopBridgeNotificationPoll();
+    stopAnonymousUsageLifecycle();
     void stopOwnedRuntime().catch(console.error).finally(() => app.exit(0));
   });
 
@@ -502,6 +505,21 @@ function runAnonymousUsageReport() {
       usageReportPromise = null;
     });
   return usageReportPromise;
+}
+
+function startAnonymousUsageLifecycle() {
+  if (usageReportTimer || isolationContext.qaRun || !app.isPackaged) return;
+  void runAnonymousUsageReport();
+  usageReportTimer = setInterval(() => {
+    void runAnonymousUsageReport();
+  }, USAGE_REPORT_RECHECK_MS);
+  usageReportTimer.unref?.();
+}
+
+function stopAnonymousUsageLifecycle() {
+  if (!usageReportTimer) return;
+  clearInterval(usageReportTimer);
+  usageReportTimer = null;
 }
 
 function runUpdateCheck({ notify = false } = {}) {

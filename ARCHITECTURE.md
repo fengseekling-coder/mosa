@@ -271,6 +271,8 @@ mosa thumbnails <rebuild|repair> [--library <path>]
 | --- | --- |
 | `/api/health` | 产品/构建身份、库目录和存储信息 |
 | `/api/navigation`、`/api/library-revision`、`/api/library-events` | 侧栏统计、库修订号与 SSE 变更通知 |
+| `/api/library-changes` | Library Change Journal 增量查询：按 `since` 游标回放两个 revision 之间的变更记录，journal 被剪枝时返回显式 gap |
+| `/api/gallery-rows` | 增量 reconciliation 取数：按受影响素材 id 集合返回当前画廊请求语义下的视图行与 asset→row 映射 |
 | `/api/assets` | 分页列表、搜索和筛选；创建、读取、元数据更新、收藏、归档、批量操作、复制 |
 | `/api/asset-stacks` | 创建、读取、解散 Stack，管理成员与手动顺序 |
 | `/api/assets/:project/:asset/versions` | 读取版本树或创建子版本 |

@@ -38,11 +38,12 @@ test("Move to Trash uses one batch mutation and reconciles removed cards before 
     "Trash must operate on the complete logical selection, including unloaded pages and Stack members");
   assert.match(actions, /removedAssetIds: outcome\.succeeded\.map/,
     "partial batches must remove only server-confirmed successes from the visible gallery");
-  assert.match(bindings, /function applyImmediateAssetRemoval\(assetIds = \[\]\)/);
-  assert.match(bindings, /renderGrid\?\.\(\{ preserveScroll: true \}\)/,
-    "confirmed removals must repaint/reflow before network refresh latency is visible");
-  assert.match(bindings, /state\.loadedPageCount > 1[\s\S]*?reloadLoadedAssetPages\(\{ background: true \}\)/,
-    "mutations in a deep gallery must preserve the currently loaded page window");
+  assert.match(bindings, /kind: "asset-deleted", entityType: "asset", entityId: String\(id\)/,
+    "trash events reconcile incrementally through the library change pipeline");
+  assert.match(bindings, /librarySync\.applyLocalChanges\(changes\)/,
+    "context-menu mutations must not reload the loaded gallery window; they reconcile the affected entities only");
+  assert.doesNotMatch(bindings, /loadAssets\(|reloadLoadedAssetPages\(|performFullGalleryReconciliation\(/,
+    "the mutation refresh handler must never fall back to a full gallery reload");
   assert.match(bindings, /loadStats\(\{ background: true \}\)/,
     "mutation refreshes should not re-fetch the static library-path payload");
 });

@@ -10,9 +10,9 @@ export function bindContextMenuEvents(options = {}) {
     els,
     contextMenu,
     contextMenuActions,
-    loadAssets,
+    apiFetch,
     loadStats,
-    reloadLoadedAssetPages,
+    librarySync,
     renderGrid,
     updateViewTitle,
     selectAsset,
@@ -82,39 +82,41 @@ export function bindContextMenuEvents(options = {}) {
     });
   });
 
-  function applyImmediateAssetRemoval(assetIds = []) {
-    const removedIds = new Set((assetIds || []).map((id) => String(id || "")).filter(Boolean));
-    if (!removedIds.size) return 0;
-    const beforeCount = state.assets.length;
-    state.assets = state.assets.filter((asset) => !removedIds.has(String(asset?.id || "")));
-    const removedVisibleCount = beforeCount - state.assets.length;
-    if (!removedVisibleCount) return 0;
-    if (state.selectedIds instanceof Set) {
-      for (const id of removedIds) state.selectedIds.delete(id);
-    }
-    if (state.selectedStackNodes instanceof Map) {
-      for (const id of removedIds) state.selectedStackNodes.delete(id);
-    }
-    if (Number.isFinite(Number(state.pageTotal))) {
-      state.pageTotal = Math.max(state.assets.length, Number(state.pageTotal) - removedVisibleCount);
-    }
-    renderGrid?.({ preserveScroll: true });
-    updateViewTitle?.();
-    return removedVisibleCount;
-  }
-
   window.addEventListener("mosa:refresh-assets", (event) => {
-    applyImmediateAssetRemoval(event.detail?.removedAssetIds);
-    // Same-result refreshes preserve gallery scroll centrally in loadAssets /
-    // renderGrid. If the user already loaded multiple pages, refresh the same
-    // loaded window instead of collapsing back to page one after a mutation.
-    const assetRefresh = typeof reloadLoadedAssetPages === "function" && state.loadedPageCount > 1
-      ? reloadLoadedAssetPages({ background: true })
-      : loadAssets({ background: true });
-    void Promise.allSettled([loadStats({ background: true }), assetRefresh]).then((results) => {
-      const failure = results.find((result) => result.status === "rejected");
-      if (failure) console.warn("Context-menu refresh failed:", failure.reason);
-    });
+    const detail = event.detail || {};
+    // 增量同步：事件携带受影响实体时只 reconcile 这些实体（O(affected)），
+    // 普通库变更永远不再触发已加载窗口的全量重拉。
+    const changes = [];
+    for (const id of detail.removedAssetIds || []) {
+      changes.push({ kind: "asset-deleted", entityType: "asset", entityId: String(id) });
+    }
+    for (const id of detail.restoredAssetIds || []) {
+      changes.push({ kind: "asset-restored", entityType: "asset", entityId: String(id) });
+    }
+    for (const id of detail.permanentlyDeletedAssetIds || []) {
+      changes.push({ kind: "asset-permanently-deleted", entityType: "asset", entityId: String(id) });
+    }
+    for (const id of detail.updatedAssetIds || []) {
+      changes.push({ kind: "asset-updated", entityType: "asset", entityId: String(id) });
+    }
+    if (detail.stackDissolved?.id) {
+      changes.push({ kind: "stack-dissolved", entityType: "stack", entityId: String(detail.stackDissolved.id) });
+    }
+    const statsRefresh = loadStats({ background: true }).catch((error) => console.warn("Context-menu refresh failed:", error));
+    if (changes.length && typeof librarySync?.applyLocalChanges === "function") {
+      void librarySync.applyLocalChanges(changes).catch((error) => console.warn("Incremental refresh failed:", error));
+      void statsRefresh;
+      return;
+    }
+    // 未指明受影响实体（如手动“刷新库”）：走权威 revision 对账，由 delta
+    // 决定增量应用或 fallback。
+    void (async () => {
+      const result = await apiFetch(`/api/library-revision?project=${encodeURIComponent(state.project)}`).catch(() => null);
+      if (result?.revision != null && typeof librarySync?.reconcileToRevision === "function") {
+        await librarySync.reconcileToRevision(result.revision);
+      }
+    })().catch((error) => console.warn("Context-menu refresh failed:", error));
+    void statsRefresh;
   });
   window.addEventListener("mosa:refresh-groups", () => {
     void loadStats().catch((error) => console.warn("Group refresh failed:", error));

@@ -18,6 +18,7 @@ import { createContextMenuActions } from "./context-menu-actions.mjs";
 import { bindContextMenuEvents } from "./context-menu-bindings.mjs";
 import { createGallerySelection } from "./gallery-selection.mjs";
 import { createAssetStackController } from "./asset-stacks.mjs";
+import { createLibraryReconciler } from "./library-reconciliation.mjs";
 let statusAnnouncementTimer = null;
 let statusTextWriteTimer = null;
 let statusAnnouncementSequence = 0;
@@ -69,7 +70,7 @@ function isInspectorDocked() {
 }
 
 const state = {
-  project: "default", projects: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, selectedIds: new Set(), selectedStackNodes: new Map(), selectionProject: "default", selectionRequestKey: "", detailAsset: null, detailStack: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
+  project: "default", projects: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, loadedAssetCount: 0, selectedId: null, selectedIds: new Set(), selectedStackNodes: new Map(), selectionProject: "default", selectionRequestKey: "", detailAsset: null, detailStack: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
   groups: { total: 0, favorites: 0, unorganized: 0, trash: 0, sourceTypes: [], groups: [] },
@@ -176,7 +177,7 @@ const apiClient = createApiClient({
   prewarmAssetMedia,
   refreshSelectedStackInspector,
 });
-const { apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged, reloadLoadedAssetPages, reconcileLibraryRevision, noteLibraryRevision, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
+const { apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged, refreshAssetPageTotalInBackground, performFullGalleryReconciliation, reconcileLibraryRevision, noteLibraryRevision, getLibraryRevisionBaseline, setLibraryDeltaApplier, fetchLibraryChanges, resetAssetPrefetch, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
 
 // ===== New element references =====
 Object.assign(els, {
@@ -226,12 +227,42 @@ const gallerySelection = createGallerySelection({
   apiFetch,
   showToast,
 });
+
+// ===== Library Change 增量 reconciliation =====
+// 数据层（library-reconciliation.mjs）负责 classify → fetch affected → reconcile
+// → advance revision；本模块注入定向 DOM 提交与渲染回调。普通库变更走这条
+// O(affected) 路径；全量重载（performFullGalleryReconciliation）只作为 journal
+// gap / 未分类变更 / 显式恢复的 fallback。
+const librarySync = createLibraryReconciler({
+  state,
+  apiFetch,
+  currentAssetRequest,
+  assetRequestKey,
+  getBaselineRevision: getLibraryRevisionBaseline,
+  setBaselineRevision: noteLibraryRevision,
+  fetchLibraryChanges,
+  loadStats,
+  performFullReconciliation: performFullGalleryReconciliation,
+  commitGalleryChanges: commitIncrementalGalleryChanges,
+  gallerySelection,
+  renderDetail,
+  isDetailEditorActive,
+  refreshSelectedStackInspector,
+  syncViewerAfterGalleryChanges: handleGalleryChangesInViewer,
+  refreshPageTotal: refreshAssetPageTotalInBackground,
+  resetAssetPrefetch,
+});
+setLibraryDeltaApplier(({ targetRevision }) => librarySync.reconcileToRevision(targetRevision));
+
 const assetStacks = createAssetStackController({
   els,
   state,
   apiFetch,
   loadAssets,
-  reloadLoadedAssetPages,
+  performFullGalleryReconciliation,
+  librarySync,
+  currentAssetRequest,
+  renderGrid,
   gallerySelection,
   renderQuickFilters,
   updateViewTitle,
@@ -517,10 +548,13 @@ async function toggleFavorite(id, event) {
       if (detailButton instanceof HTMLElement && detailButton !== trigger) applyFavoriteButtonState(detailButton, favorite);
     }
     showToast(updated?.favorite ? t("addedToFavorites") : t("removedFromFavorites"), "success");
-    const refreshes = await Promise.allSettled([loadStats(), apiClient.reloadLoadedAssetPages({ background: true })]);
-    refreshes.forEach((refresh) => {
-      if (refresh.status === "rejected") console.warn("Favorite refresh failed:", refresh.reason);
-    });
+    // 收藏只影响标记与统计：卡片/Inspector 已就地更新，这里只做统计刷新与
+    // 一次 O(1) 的本地 reconcile（favorites 视图下的取消收藏会即时移除卡片），
+    // 不再重拉整个已加载窗口；随后到达的 SSE delta 幂等。
+    const localReconcile = librarySync.applyLocalChanges([{
+      kind: "asset-updated", entityType: "asset", entityId: id, flags: ["favorite"],
+    }]).catch((error) => console.warn("Favorite reconcile failed:", error));
+    await Promise.allSettled([loadStats(), localReconcile]);
     if (shouldRestoreFocus && projectId === state.project) {
       const replacement = triggerWasDetail
         ? els.detailPanel?.querySelector('[data-action="toggle-favorite"]')
@@ -871,6 +905,17 @@ async function init() {
         if (!isLoadingMore) void refreshLibraryIfChanged();
       }, LIBRARY_REFRESH_INTERVAL);
       if (shouldAutoCheckForUpdates()) void checkForUpdates({ notify: true, silent: true });
+      // QA/诊断钩子：性能脚本用它模拟页面恢复/SSE 重连（revision 对账）并读取
+      // 增量同步 baseline；生产页面不依赖此对象。
+      window.__mosa = window.__mosa || {};
+      window.__mosa.librarySync = {
+        baseline: () => getLibraryRevisionBaseline(),
+        syncNow: async () => {
+          const result = await apiFetch(`/api/library-revision?project=${encodeURIComponent(state.project)}`).catch(() => null);
+          if (result?.revision == null) return false;
+          return librarySync.reconcileToRevision(result.revision);
+        },
+      };
     } catch (error) {
       renderErrorState(error);
       setStatus(t("statusUnavailable"), "error");
@@ -1319,13 +1364,19 @@ function startLibraryEventStream() {
   });
   source.addEventListener("library-changed", (event) => {
     if (source !== libraryEventSource || project !== state.project || isLoadingMore) return;
-    let revision = null;
+    let payload = {};
     try {
-      const payload = JSON.parse(event.data || "{}");
-      revision = payload.revision;
+      payload = JSON.parse(event.data || "{}");
     } catch {
       // Refresh still proceeds even if an optional event payload is malformed.
     }
+    if (payload.fromRevision != null && Array.isArray(payload.changes)) {
+      // 事件携带 delta：与本地 baseline 连续时直接增量应用，否则由
+      // reconcileToRevision 经权威 delta API 补齐缺口。
+      void librarySync.handleLibraryEventPayload(payload);
+      return;
+    }
+    const revision = payload.revision;
     void reconcileLibraryRevision(revision);
   });
 }
@@ -1806,9 +1857,9 @@ function bindEvents() {
     els,
     contextMenu,
     contextMenuActions,
-    loadAssets,
+    apiFetch,
     loadStats,
-    reloadLoadedAssetPages: apiClient.reloadLoadedAssetPages,
+    librarySync,
     renderGrid,
     updateViewTitle,
     selectAsset,
@@ -3325,52 +3376,7 @@ function renderGrid() {
     const ordinal = cardOrdinal;
     const animateCard = animate && cardOrdinal >= animateFrom;
     cardOrdinal += 1;
-    const title = cardShortTitle(asset);
-    const sourceLabel = assetSourceLabel(asset);
-    const date = formatDate(asset.created_at, state.locale);
-    const selected = asset.id === state.selectedId;
-    const isStack = Boolean(!state.activeStackId && asset.stack?.id && Number(asset.stack?.count) > 1);
-    const media = assetMediaPreviewMarkup(asset, "thumb");
-    // Short, structured label instead of the full prompt.
-    const label = t("cardAccessibleName", { title: title || asset.id, source: sourceLabel, date });
-    const stackMatchCount = Math.max(0, Number(asset.stack?.match_count || 0));
-    const stackHasPartialMatch = isStack && stackMatchCount > 0 && stackMatchCount < Number(asset.stack.count);
-    const stackDescription = isStack
-      ? ` aria-description="${escapeHtml(stackHasPartialMatch
-        ? t("stackMatchAccessibleName", { label, count: asset.stack.count, matched: stackMatchCount })
-        : t("stackAccessibleName", { label, count: asset.stack.count }))}"`
-      : "";
-    const versionIndex = Number(asset.version_index) || 0;
-    const badge = versionIndex > 1 ? t("versionLabelShort", { number: versionIndex }) : (asset.group || "");
-    const info = `<div class="asset-card-info"><p class="asset-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</p><p class="asset-card-meta"><span>${escapeHtml(sourceLabel)}</span><span>${escapeHtml(date)}</span>${badge ? `<span class="asset-card-badge" title="${escapeHtml(badge)}">${escapeHtml(badge)}</span>` : ""}</p></div>`;
-    const isFav = asset.favorite;
-    const favoriteLabel = isFav ? t("removeFavorite") : t("addFavorite");
-    // Phase 1C/1C.1 契约：.card-actions > button.card-action-btn.card-favorite / .card-quick-copy，
-    // 业务 class 与 data 属性全部保留（现有事件绑定依赖）；aria-pressed 表达收藏态。
-    const favBtn = `<button class="card-action-btn card-favorite${isFav ? " is-fav" : ""}" type="button" data-fav-id="${escapeHtml(asset.id)}" aria-pressed="${Boolean(isFav)}" aria-label="${escapeHtml(favoriteLabel)}" title="${escapeHtml(favoriteLabel)}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.95 5.97 6.59.96-4.77 4.65 1.13 6.57L12 17.57l-5.9 3.08 1.13-6.57-4.77-4.65 6.59-.96L12 2.5z"/></svg></button>`;
-    const copyBtn = `<button class="card-action-btn card-quick-copy" type="button" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button>`;
-    // Trash cards expose restore/permanent-delete through the Trash actions,
-    // so do not render favorite/copy controls there at all. Removing the
-    // focusable controls from the markup is safer than hiding them with CSS.
-    const cardActions = state.scope === "trash" ? "" : `<div class="card-actions">${favBtn}${copyBtn}</div>`;
-    const stackBadge = isStack
-      ? `<span class="asset-stack-count" aria-hidden="true">${stackHasPartialMatch ? `${stackMatchCount}/${Number(asset.stack.count)}` : Number(asset.stack.count)}</span>`
-      : "";
-    const trashBadge = state.scope === "trash" && asset.deleted_at
-      ? `<span class="trash-countdown">${escapeHtml(t("trashDaysRemaining", { count: trashRemainingDays(asset.deleted_at) }))}</span>`
-      : "";
-    const entry = {
-      id: asset.id,
-      asset,
-      renderKey: assetCardRenderKey(asset, selected),
-      animateCard,
-      markup: `<article class="asset-card${selected ? " selected" : ""}${isStack ? " is-stack" : ""}${state.scope === "trash" ? " is-trash" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}"${isStack ? ` data-stack-id="${escapeHtml(asset.stack.id)}"` : ""} title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}"${stackDescription}>${media}${stackBadge}${trashBadge}<span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`,
-    };
-    galleryCardVirtualEntries.set(entry.id, entry);
-    const hydrateCard = shouldHydrateGalleryCard(entry, ordinal);
-    if (hydrateCard) galleryCardVirtualHydratedIds.add(entry.id);
-    else galleryCardVirtualHydratedIds.delete(entry.id);
-    return hydrateCard ? entry : virtualGalleryCardEntry(entry);
+    return buildRenderedGalleryCard(asset, ordinal, animateCard);
   });
   const domCards = canAppendFast || state.assets.length < GALLERY_CARD_DOM_WINDOW_THRESHOLD
     ? cards
@@ -3433,6 +3439,179 @@ function renderGrid() {
     });
   } else {
     gallerySelection.syncRenderedSelection();
+  }
+}
+
+// ===== Gallery 卡片构建（renderGrid 与增量提交共用）=====
+function buildGalleryCardEntry(asset, ordinal, animateCard) {
+  const title = cardShortTitle(asset);
+  const sourceLabel = assetSourceLabel(asset);
+  const date = formatDate(asset.created_at, state.locale);
+  const selected = asset.id === state.selectedId;
+  const isStack = Boolean(!state.activeStackId && asset.stack?.id && Number(asset.stack?.count) > 1);
+  const media = assetMediaPreviewMarkup(asset, "thumb");
+  // Short, structured label instead of the full prompt.
+  const label = t("cardAccessibleName", { title: title || asset.id, source: sourceLabel, date });
+  const stackMatchCount = Math.max(0, Number(asset.stack?.match_count || 0));
+  const stackHasPartialMatch = isStack && stackMatchCount > 0 && stackMatchCount < Number(asset.stack.count);
+  const stackDescription = isStack
+    ? ` aria-description="${escapeHtml(stackHasPartialMatch
+      ? t("stackMatchAccessibleName", { label, count: asset.stack.count, matched: stackMatchCount })
+      : t("stackAccessibleName", { label, count: asset.stack.count }))}"`
+    : "";
+  const versionIndex = Number(asset.version_index) || 0;
+  const badge = versionIndex > 1 ? t("versionLabelShort", { number: versionIndex }) : (asset.group || "");
+  const info = `<div class="asset-card-info"><p class="asset-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</p><p class="asset-card-meta"><span>${escapeHtml(sourceLabel)}</span><span>${escapeHtml(date)}</span>${badge ? `<span class="asset-card-badge" title="${escapeHtml(badge)}">${escapeHtml(badge)}</span>` : ""}</p></div>`;
+  const isFav = asset.favorite;
+  const favoriteLabel = isFav ? t("removeFavorite") : t("addFavorite");
+  // Phase 1C/1C.1 契约：.card-actions > button.card-action-btn.card-favorite / .card-quick-copy，
+  // 业务 class 与 data 属性全部保留（现有事件绑定依赖）；aria-pressed 表达收藏态。
+  const favBtn = `<button class="card-action-btn card-favorite${isFav ? " is-fav" : ""}" type="button" data-fav-id="${escapeHtml(asset.id)}" aria-pressed="${Boolean(isFav)}" aria-label="${escapeHtml(favoriteLabel)}" title="${escapeHtml(favoriteLabel)}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.95 5.97 6.59.96-4.77 4.65 1.13 6.57L12 17.57l-5.9 3.08 1.13-6.57-4.77-4.65 6.59-.96L12 2.5z"/></svg></button>`;
+  const copyBtn = `<button class="card-action-btn card-quick-copy" type="button" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button>`;
+  // Trash cards expose restore/permanent-delete through the Trash actions,
+  // so do not render favorite/copy controls there at all. Removing the
+  // focusable controls from the markup is safer than hiding them with CSS.
+  const cardActions = state.scope === "trash" ? "" : `<div class="card-actions">${favBtn}${copyBtn}</div>`;
+  const stackBadge = isStack
+    ? `<span class="asset-stack-count" aria-hidden="true">${stackHasPartialMatch ? `${stackMatchCount}/${Number(asset.stack.count)}` : Number(asset.stack.count)}</span>`
+    : "";
+  const trashBadge = state.scope === "trash" && asset.deleted_at
+    ? `<span class="trash-countdown">${escapeHtml(t("trashDaysRemaining", { count: trashRemainingDays(asset.deleted_at) }))}</span>`
+    : "";
+  const entry = {
+    id: asset.id,
+    asset,
+    renderKey: assetCardRenderKey(asset, selected),
+    animateCard,
+    markup: `<article class="asset-card${selected ? " selected" : ""}${isStack ? " is-stack" : ""}${state.scope === "trash" ? " is-trash" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}"${isStack ? ` data-stack-id="${escapeHtml(asset.stack.id)}"` : ""} title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}"${stackDescription}>${media}${stackBadge}${trashBadge}<span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`,
+  };
+  galleryCardVirtualEntries.set(entry.id, entry);
+  return entry;
+}
+
+function buildRenderedGalleryCard(asset, ordinal, animateCard) {
+  const entry = buildGalleryCardEntry(asset, ordinal, animateCard);
+  const hydrateCard = shouldHydrateGalleryCard(entry, ordinal);
+  if (hydrateCard) galleryCardVirtualHydratedIds.add(entry.id);
+  else galleryCardVirtualHydratedIds.delete(entry.id);
+  return hydrateCard ? entry : virtualGalleryCardEntry(entry);
+}
+
+// ===== Library Change 增量 DOM 提交 =====
+// 只处理受影响卡片：更新=原位替换节点（保留 masonry 放置与虚拟化记账）；
+// 插入/重定位=确保节点存在并按 state.assets 的最终顺序移动；删除=摘节点清
+// 记账。最后 scheduleMasonryLayout() 全量重放置并级联 extent 同步、窗口剪枝
+// 与挂载同步（rAF 合并，O(DOM 窗口) 而非 O(50k markup)）。
+function commitIncrementalGalleryChanges(outcome, classified = null) {
+  const grid = els.assetGrid;
+  const { updatedIds = [], removedIds = [], insertedIds = [], repositionIds = [] } = outcome || {};
+  if (!grid || (!updatedIds.length && !removedIds.length && !insertedIds.length && !repositionIds.length)) return;
+  const assetsById = new Map(state.assets.map((asset) => [asset.id, asset]));
+  const changedIds = new Set();
+
+  for (const id of updatedIds) {
+    const asset = assetsById.get(id);
+    const existingNode = asset ? galleryCardVirtualNode(grid, id) : null;
+    if (!asset || !existingNode) continue;
+    const ordinal = state.assets.indexOf(asset);
+    const entry = buildGalleryCardEntry(asset, ordinal, false);
+    const hydrate = galleryCardVirtualHydratedIds.has(id);
+    const replacement = createAssetCardElements([hydrate ? entry : virtualGalleryCardEntry(entry)]).get(id);
+    if (!replacement) continue;
+    galleryCardVirtualObserver?.unobserve(existingNode);
+    for (const property of ["gridColumnStart", "gridRowStart", "gridRowEnd"]) {
+      if (existingNode.style[property]) replacement.style[property] = existingNode.style[property];
+    }
+    if (hydrate) {
+      galleryCardVirtualHydratedIds.add(id);
+    } else {
+      releaseObservedGalleryMedia(existingNode);
+      galleryCardVirtualHydratedIds.delete(id);
+    }
+    existingNode.replaceWith(replacement);
+    galleryCardVirtualNodes.set(id, replacement);
+    if (hydrate) {
+      setupGalleryMediaVirtualization([replacement]);
+      galleryCardVirtualObserver?.observe(replacement);
+      scheduleMasonryLayout(replacement);
+    }
+    changedIds.add(id);
+  }
+
+  for (const id of removedIds) {
+    const node = galleryCardVirtualNode(grid, id);
+    if (node) {
+      releaseObservedGalleryMedia(node);
+      galleryCardVirtualObserver?.unobserve(node);
+      node.remove();
+    }
+    galleryCardVirtualNodes.delete(id);
+    galleryCardVirtualHydratedIds.delete(id);
+    galleryCardVirtualEntries.delete(id);
+    galleryCardVirtualSpanCache.delete(galleryVirtualSpanKey(id));
+  }
+
+  // 插入/重定位：确保 entry 与节点存在，随后立刻按最终顺序移动 DOM。
+  // 参照物 = state.assets 中它之后第一张已在 DOM 的卡片；插入/移动后
+  // 「grid 子元素相对顺序 = state.assets 相对顺序」的不变量保持成立。
+  // 注意：新创建的节点尚未连接 DOM，绝不能经 galleryCardVirtualNode 二次
+  // 解析（该 helper 会把未连接的缓存当陈旧条目删掉），必须直接使用本循环
+  // 持有的引用。
+  for (const id of [...insertedIds, ...repositionIds]) {
+    const asset = assetsById.get(id);
+    if (!asset) continue;
+    const ordinal = state.assets.indexOf(asset);
+    const entry = buildGalleryCardEntry(asset, ordinal, false);
+    let node = galleryCardVirtualNode(grid, id);
+    if (!node) {
+      const hydrate = shouldHydrateGalleryCard(entry, ordinal);
+      node = createAssetCardElements([hydrate ? entry : virtualGalleryCardEntry(entry)]).get(id);
+      if (!node) continue;
+      if (hydrate) {
+        galleryCardVirtualHydratedIds.add(id);
+        setupGalleryMediaVirtualization([node]);
+        galleryCardVirtualObserver?.observe(node);
+      } else {
+        galleryCardVirtualHydratedIds.delete(id);
+      }
+      galleryCardVirtualNodes.set(id, node);
+    }
+    let reference = null;
+    for (let index = ordinal + 1; index < state.assets.length; index += 1) {
+      const sibling = galleryCardVirtualNode(grid, state.assets[index].id);
+      if (sibling) { reference = sibling; break; }
+    }
+    if (!reference) {
+      reference = grid.querySelector(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel, :scope > .gallery-virtual-extent");
+    }
+    grid.insertBefore(node, reference || null);
+    changedIds.add(id);
+  }
+
+  grid.dataset.loadedAssets = String(state.assets.length);
+  invalidateCardGeometryCache();
+  // 全量 placement 重建 geometry 两张表，并级联 extent 同步、窗口剪枝与挂载
+  // 同步——插入卡片是否值得真实 DOM 由既有的视口窗口逻辑决定。
+  scheduleMasonryLayout();
+  updateViewTitle();
+  gallerySelection.syncRenderedSelection({ prune: false, changedIds });
+  if (state.viewMode === "asset") {
+    // Viewer 打开期间画廊隐藏：仅记账，返回 Library 时补一次渲染。
+    assetViewer.markGalleryDirty();
+    updateAssetViewNav();
+  }
+}
+
+// Viewer（大图查看模式）下的库变更语义（四十四）：session 序列保持稳定，
+// 不插入/移除成员；当前查看的素材内容更新时刷新舞台；被删除的素材保留
+// 展示（与全量刷新行为一致），导航时按失效 id 跳过。
+function handleGalleryChangesInViewer(outcome, classified = null) {
+  if (state.viewMode !== "asset") return;
+  if (state.selectedId && classified?.assetEvents?.get(state.selectedId)?.kinds.has("updated")) {
+    assetViewer.renderAssetView();
+  }
+  if (outcome && (outcome.insertedIds.length || outcome.removedIds.length || outcome.repositionIds.length)) {
+    assetViewer.markGalleryDirty();
   }
 }
 
@@ -3650,7 +3829,11 @@ async function persistInspectorDraft(panel, asset, renderId) {
       setInspectorAutosaveStatus(panel, "saved");
       if (flightEdits) scheduleInspectorSave();
       await loadStats();
-      await apiClient.reloadLoadedAssetPages({ background: true });
+      // 保存的素材就地 reconcile：卡片内容、排序位置（如改名）与视图归属
+      // （如改分组后不再匹配当前 facet）由增量层处理，不重拉已加载窗口。
+      await librarySync.applyLocalChanges([{
+        kind: "asset-updated", entityType: "asset", entityId: originAssetId, flags: ["metadata"],
+      }]).catch((error) => console.warn("Inspector reconcile failed:", error));
       return true;
     } catch (error) {
       showToast(error.message, "error");

@@ -1022,5 +1022,7 @@ export function createAssetViewer({
     setViewMode, renderAssetView, openAssetView, returnToLibrary, resetAssetViewTransform,
     handleAssetViewImageLoad, handleAssetViewImageError, canNavigateAssetView, navigateAssetView,
     zoomAssetViewBy, fitAssetView, resetAssetViewToHundred, updateAssetViewNav, ASSET_VIEW_ZOOM_STEP,
+    // 库同步在 Viewer 打开期间改动了画廊数据时标记；返回 Library 时补一次渲染。
+    markGalleryDirty() { assetViewGalleryDirty = true; },
   };
 }

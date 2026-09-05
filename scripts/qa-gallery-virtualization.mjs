@@ -16,6 +16,34 @@ const MAX_DOM_NODES = Number.parseInt(process.env.MOSA_GALLERY_QA_MAX_DOM_NODES 
 const MAX_LONG_TASK_MS = Number.parseInt(process.env.MOSA_GALLERY_QA_MAX_LONG_TASK_MS || "500", 10);
 const MAX_LONG_TASK_TOTAL_MS = Number.parseInt(process.env.MOSA_GALLERY_QA_MAX_LONG_TASK_TOTAL_MS || "4000", 10);
 const SKIP_BOTTOM_CHECK = process.env.MOSA_GALLERY_QA_SKIP_BOTTOM === "1";
+// Optional structured diagnostics sink. Unset => script behavior is unchanged.
+// Set => a JSON verdict (pass/fail + key metrics) is written even when the
+// caller loses the process handle on a long run, so the exit status can be
+// recovered from the file. QA diagnostics only; never read by product code.
+const RESULT_FILE = process.env.MOSA_GALLERY_QA_RESULT_FILE || "";
+const qaResult = {
+  status: "unknown",
+  assetCount: ASSET_COUNT,
+  loaded: null,
+  cards: null,
+  hydrated: null,
+  placeholders: null,
+  domNodes: null,
+  longTaskCount: null,
+  longTaskMax: null,
+  longTaskTotal: null,
+  appendLatencyMax: null,
+  boundaryStallMax: null,
+  elapsedMs: null,
+  fullReloadCount: null,
+  incrementalScenarios: [],
+  error: null,
+};
+
+async function writeResultFile() {
+  if (!RESULT_FILE) return;
+  await writeFile(RESULT_FILE, `${JSON.stringify(qaResult, null, 2)}\n`);
+}
 
 function wait(milliseconds) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
@@ -92,8 +120,7 @@ async function evaluate(client, expression) {
 }
 
 async function main() {
-  const libraryDir = await mkdtemp(join(tmpdir(), "mosa-gallery-qa-library-"));
-  const userDataDir = await mkdtemp(join(tmpdir(), "mosa-gallery-qa-user-"));
+  const libraryDir = await mkdtemp(join(tmpdir(), "mosa-gallery-qa-library-"));  const userDataDir = await mkdtemp(join(tmpdir(), "mosa-gallery-qa-user-"));
   const projectRoot = await mkdtemp(join(tmpdir(), "mosa-gallery-qa-project-"));
   let child = null;
   let client = null;
@@ -109,32 +136,57 @@ async function main() {
       initializeFreshLibrary: true,
     });
     try {
-      for (let start = 0; start < ASSET_COUNT; start += 50) {
-        await Promise.all(Array.from({ length: Math.min(50, ASSET_COUNT - start) }, (_, offset) => {
-          const index = start + offset;
-          return store.createAsset({
-            assetId: `perf-${String(index).padStart(5, "0")}`,
-            imagePath: sourcePath,
-            prompt: `gallery virtualization fixture ${index}`,
-            businessFields: { width: 1024, height: 1024 },
-          });
-        }));
-      }
+      await store.ensureProject("default");
     } finally {
       store.close();
     }
-    // This QA isolates renderer/gallery work. Seeding through createAsset is
-    // useful because it exercises the real metadata shape, but it also queues
-    // thousands of Sharp derivative jobs. Letting those jobs run during the
-    // measurement turns host CPU contention into noisy renderer Long Tasks and
-    // makes the test judge thumbnail generation rather than browsing. Keep the
-    // assets in their legitimate thumbnail-pending state and remove only the
-    // synthetic fixture jobs before Electron starts.
+    // Seed the scale fixture in one SQLite transaction, matching the same
+    // canonical row shape used by test:performance. The GUI QA is measuring
+    // renderer/runtime pagination and incremental reconciliation, not 50k file
+    // copies or 50k Sharp jobs; real mutations below still go through the public
+    // Runtime APIs. This keeps the 50k gate deterministic and fast enough to
+    // return a trustworthy exit status in CI/tool environments.
     const database = new Database(join(libraryDir, "mosa.db"));
     try {
+      const timestamp = new Date().toISOString();
+      const timestampEpoch = Date.parse(timestamp);
+      const insertAsset = database.prepare(`
+        INSERT INTO assets (
+          project_id, id, asset, original_path, content_sha256, prompt, skill, style, ratio,
+          business_fields_json, theme, favorite, archived, group_name, category, rating,
+          version_change, source_type, source_json, metadata_json, search_text, tags_text,
+          business_search_text, source_search_text, media_kind, source_group, conversation_id,
+          generation_batch, created_at, created_at_epoch, updated_at, sort_name
+        ) VALUES (
+          'default', @id, @asset, @original_path, @content_sha256, @prompt, '', '', '',
+          '{"width":1024,"height":1024}', '', 0, 0, '', '', 0,
+          '', 'qa-gallery', '{"type":"qa-gallery"}', '{}', @prompt, '',
+          '1024 1024', 'qa-gallery', 'image', 'qa-gallery', '', '',
+          @created_at, @created_at_epoch, @updated_at, @sort_name
+        )
+      `);
+      const insertFts = database.prepare("INSERT INTO asset_fts (project_id, asset_id, content) VALUES ('default', ?, ?)");
+      database.transaction(() => {
+        for (let index = 0; index < ASSET_COUNT; index += 1) {
+          const id = `perf-${String(index).padStart(5, "0")}`;
+          const prompt = `gallery virtualization fixture ${index}`;
+          insertAsset.run({
+            id,
+            asset: `${id}.png`,
+            original_path: sourcePath,
+            content_sha256: `qa-${index}`,
+            prompt,
+            created_at: timestamp,
+            created_at_epoch: timestampEpoch,
+            updated_at: timestamp,
+            sort_name: id,
+          });
+          insertFts.run(id, prompt);
+        }
+      })();
       const seededCount = Number(database.prepare("SELECT COUNT(*) AS count FROM assets WHERE project_id = 'default'").get().count || 0);
       assert.equal(seededCount, ASSET_COUNT, `QA seed wrote ${seededCount} of ${ASSET_COUNT} assets`);
-      database.prepare("DELETE FROM derivative_jobs").run();
+      console.log(`[gallery-qa] seeded ${seededCount}/${ASSET_COUNT} in one isolated fixture transaction`);
     } finally {
       database.close();
     }
@@ -257,6 +309,17 @@ async function main() {
     metrics.bottomMetrics = bottomMetrics;
     console.log(JSON.stringify(metrics, null, 2));
     metrics.elapsedMs = Date.now() - startedAt;
+    qaResult.loaded = metrics.loaded;
+    qaResult.cards = metrics.cards;
+    qaResult.hydrated = metrics.hydrated;
+    qaResult.placeholders = metrics.placeholders;
+    qaResult.domNodes = metrics.nodes;
+    qaResult.longTaskCount = metrics.longTasks;
+    qaResult.longTaskMax = metrics.longTaskMax;
+    qaResult.longTaskTotal = metrics.longTaskTotal;
+    qaResult.appendLatencyMax = metrics.appendLatencyMax;
+    qaResult.boundaryStallMax = metrics.boundaryStallMax;
+    qaResult.elapsedMs = metrics.elapsedMs;
 
     assert.equal(metrics.loaded, ASSET_COUNT, `expected ${ASSET_COUNT} loaded assets: ${JSON.stringify(metrics)}`);
     assert.ok(metrics.cards <= MAX_MOUNTED_CARDS, `mounted cards ${metrics.cards} exceeds ${MAX_MOUNTED_CARDS}`);
@@ -271,6 +334,207 @@ async function main() {
       assert.ok(bottomMetrics.visibleHydrated > 0, "the far end of the gallery must render hydrated cards in the viewport");
       assert.equal(bottomMetrics.visiblePlaceholders, 0, "virtual placeholders must never be exposed inside the visible viewport");
     }
+
+    // ------------------------------------------------------------------
+    // Library Change 增量同步专项场景：在 50k 全部加载的状态下逐个触发
+    // 单实体变化，度量「revision before/after、delta 数、页面请求数、
+    // 全量重载次数、UI 反馈耗时」。普通变更的 Full Gallery Reload 必须
+    // 恒为 0（limit=250 的已加载窗口重取是唯一全量信号）。
+    // ------------------------------------------------------------------
+    const runtimeHealth = await fetch(`http://127.0.0.1:${desktopPort}/api/health`).then((response) => response.json());
+    assert.ok(runtimeHealth?.productVersion, "desktop runtime must be reachable for the incremental scenarios");
+
+    await evaluate(client, `(()=>{
+      window.__mosaReqLog=[];
+      if(!window.__mosaFetchPatched){
+        window.__mosaFetchPatched=true;
+        const original=window.fetch;
+        window.fetch=(...args)=>{
+          const url=String(args[0] instanceof Request?args[0].url:args[0]);
+          window.__mosaReqLog.push({url,at:performance.now()});
+          return original(...args);
+        };
+      }
+      return true;
+    })()`);
+    // 回到画廊顶部：新增素材（newest 排序）的卡片要出现在可见 DOM 里。
+    await evaluate(client, `(()=>{const grid=document.querySelector('#assetGrid');grid.scrollTop=0;grid.dispatchEvent(new Event('scroll'));return true})()`);
+    await wait(1200);
+
+    const runtimeFetch = async (path, options) => {
+      const response = await fetch(`http://127.0.0.1:${desktopPort}${path}`, options);
+      const body = await response.json();
+      assert.ok(response.ok, `runtime mutation ${path} failed: ${response.status} ${JSON.stringify(body)}`);
+      return body;
+    };
+    const revisionNow = async () => Number.parseInt((await runtimeFetch(`/api/library-revision?project=default`)).revision, 10);
+    const deltaCount = async (since) => (await runtimeFetch(`/api/library-changes?project=default&since=${since}`)).changes.length;
+    const isFullReloadRequest = (url) => url.includes("limit=250") && (url.includes("/api/assets?") || url.includes("/assets?"));
+    const drainRequests = () => evaluate(client, "(()=>{const log=window.__mosaReqLog;window.__mosaReqLog=[];return JSON.stringify(log)})()").then(JSON.parse);
+    const waitForPage = async (expression, description, timeoutMs = 8000) => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        if (await evaluate(client, expression)) return;
+        await wait(80);
+      }
+      throw new Error(`Timed out waiting for ${description}`);
+    };
+
+    const scenarios = [];
+    qaResult.incrementalScenarios = scenarios;
+    const runScenario = async (name, mutate, waitExpression, waitDescription) => {
+      const requestsBefore = await drainRequests();
+      const revisionBefore = await revisionNow();
+      const startedAt = Date.now();
+      const result = await mutate();
+      if (waitExpression) await waitForPage(waitExpression, waitDescription);
+      // 权威完成信号：UI 的 sync baseline 吸收了 mutation 之后的 revision
+      // （即 delta 已成功应用并推进），弱条件（如 loadedAssets 不变）只作辅助。
+      const revisionAfterMutation = await revisionNow();
+      await waitForPage(`(window.__mosa.librarySync?.baseline()||'').startsWith('${revisionAfterMutation}:')`, "the sync baseline to absorb the change");
+      const elapsedMs = Date.now() - startedAt;
+      await wait(250);
+      const requests = await drainRequests();
+      const revisionAfter = await revisionNow();
+      const deltas = revisionAfter > revisionBefore ? await deltaCount(revisionBefore) : 0;
+      const fullReloads = requests.filter((entry) => isFullReloadRequest(entry.url)).length;
+      const galleryRowsRequests = requests.filter((entry) => entry.url.includes("/api/gallery-rows")).length;
+      const pageRequests = requests.filter((entry) => entry.url.includes("/api/assets?") || entry.url.includes("asset-stacks")).length;
+      scenarios.push({ name, revisionBefore, revisionAfter, deltaCount: deltas, requestCount: requests.length, galleryRowsRequests, pageRequests, fullReloads, elapsedMs, ...result });
+      void requestsBefore;
+    };
+
+    const liveId = `perf-live-${Date.now()}`;
+    const firstRootCardId = async () => evaluate(client, "document.querySelector('#assetGrid > .asset-card')?.dataset.id || ''");
+
+    // 外部 ingest 走正规 staging 流程（desktop runtime 只信任自己的 staging 根）。
+    const liveAssetBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+    const stageLiveAsset = async () => {
+      const staged = await fetch(`http://127.0.0.1:${desktopPort}/api/import/stage`, {
+        method: "POST",
+        headers: { "x-mosa-file-name": encodeURIComponent(`${liveId}.png`), "content-type": "application/octet-stream" },
+        body: liveAssetBytes,
+      });
+      const stagedBody = await staged.json();
+      assert.ok(staged.ok, `staging failed: ${staged.status} ${JSON.stringify(stagedBody)}`);
+      return stagedBody.path;
+    };
+
+    await runScenario(
+      "external-ingest-add",
+      async () => {
+        const stagedPath = await stageLiveAsset();
+        const created = await runtimeFetch("/api/assets/create", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ assetId: liveId, imagePath: stagedPath, prompt: "live incremental ingest" }),
+        });
+        return { id: created.asset?.id };
+      },
+      `document.querySelector('#assetGrid > .asset-card')?.dataset.id === '${liveId}'`,
+      "the ingested card to appear at the gallery top",
+    ).then(() => assert.equal((scenarios.at(-1)).fullReloads, 0, "single ingest must not reload the loaded window"));
+
+    await runScenario(
+      "favorite",
+      async () => {
+        const toggled = await runtimeFetch(`/api/assets/default/${liveId}/favorite`, { method: "POST" });
+        return { favorite: toggled.asset?.favorite };
+      },
+      `document.querySelector('#assetGrid > .asset-card[data-id="${liveId}"] .card-favorite')?.getAttribute('aria-pressed') === 'true'`,
+      "the card star to flip to favorited",
+    ).then(() => assert.equal((scenarios.at(-1)).fullReloads, 0, "favorite must not reload the loaded window"));
+
+    await runScenario(
+      "trash-delete",
+      () => runtimeFetch("/api/assets/batch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "trash", projectId: "default", assetIds: [liveId] }),
+      }),
+      `document.querySelector('#assetGrid > .asset-card')?.dataset.id !== '${liveId}'`,
+      "the deleted card to leave the gallery top",
+    ).then(() => assert.equal((scenarios.at(-1)).fullReloads, 0, "delete must not reload the loaded window"));
+
+    await runScenario(
+      "restore",
+      async () => {
+        const restored = await runtimeFetch(`/api/assets/default/${liveId}/restore`, { method: "POST" });
+        return { id: restored.asset?.id };
+      },
+      `document.querySelector('#assetGrid > .asset-card')?.dataset.id === '${liveId}'`,
+      "the restored card to re-enter the gallery top",
+    ).then(() => assert.equal((scenarios.at(-1)).fullReloads, 0, "restore must not reload the loaded window"));
+
+    // 深处 Stack 场景：成员都在 50k 窗口内但不在视口 DOM 中，度量纯数据增量。
+    const stackMembers = (await runtimeFetch("/api/assets?project=default&sort=oldest&limit=2")).assets.map((asset) => asset.id);
+    assert.equal(stackMembers.length, 2);
+    const loadedBeforeStack = Number(await evaluate(client, "Number(document.querySelector('#assetGrid')?.dataset.loadedAssets||0)"));
+    let createdStackId = "";
+    await runScenario(
+      "stack-create",
+      async () => {
+        const created = await runtimeFetch("/api/asset-stacks", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ projectId: "default", assetIds: stackMembers, coverAssetId: stackMembers[0] }),
+        });
+        createdStackId = created.stack?.id || "";
+        return { stackId: createdStackId };
+      },
+      `Number(document.querySelector('#assetGrid')?.dataset.loadedAssets||0) === ${loadedBeforeStack - 1}`,
+      "two member nodes to collapse into one stack node",
+    ).then(() => assert.equal((scenarios.at(-1)).fullReloads, 0, "stack creation must not reload the loaded window"));
+    assert.ok(createdStackId, "stack id returned by creation");
+
+    await runScenario(
+      "stack-cover-change",
+      () => runtimeFetch(`/api/asset-stacks/${encodeURIComponent(createdStackId)}/order`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: "default", assetIds: [stackMembers[1], stackMembers[0]] }),
+      }),
+      `Number(document.querySelector('#assetGrid')?.dataset.loadedAssets||0) === ${loadedBeforeStack - 1}`,
+      "the stack node to re-anchor on the new cover",
+    ).then(async () => {
+      assert.equal((scenarios.at(-1)).fullReloads, 0, "cover change must not reload the loaded window");
+      const summary = await runtimeFetch(`/api/asset-stacks/${encodeURIComponent(createdStackId)}?project=default`);
+      assert.equal(summary.stack?.cover_asset_id, stackMembers[1], "server anchor follows the reorder");
+    });
+
+    await runScenario(
+      "stack-member-delete",
+      () => runtimeFetch("/api/assets/batch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "trash", projectId: "default", assetIds: [stackMembers[1]] }),
+      }),
+      `Number(document.querySelector('#assetGrid')?.dataset.loadedAssets||0) === ${loadedBeforeStack - 1}`,
+      "the stack to dissolve into its remaining member",
+    ).then(() => assert.equal((scenarios.at(-1)).fullReloads, 0, "member deletion must not reload the loaded window"));
+
+    // 隐藏/恢复与 SSE 重连共享同一条 resume 代码路径（revision 对账 → delta 回放）。
+    const resumeBaseline = await evaluate(client, "window.__mosa.librarySync?.baseline()");
+    const favoriteFlip = await runtimeFetch(`/api/assets/default/${liveId}/favorite`, { method: "POST" });
+    assert.equal(typeof favoriteFlip.asset?.favorite, "boolean");
+    const resumeRevision = await revisionNow();
+    await drainRequests();
+    const resumeStartedAt = Date.now();
+    const resumed = await evaluate(client, "window.__mosa.librarySync ? window.__mosa.librarySync.syncNow() : false");
+    await waitForPage(`window.__mosa.librarySync?.baseline() === '${resumeRevision}:0' || window.__mosa.librarySync?.baseline()?.startsWith('${resumeRevision}:')`, "the baseline to catch up after resume", 8000);
+    const resumeElapsedMs = Date.now() - resumeStartedAt;
+    const resumeRequests = await drainRequests();
+    const resumeFullReloads = resumeRequests.filter((entry) => isFullReloadRequest(entry.url)).length;
+    assert.equal(resumed, true, "resume reconciliation ran");
+    assert.equal(resumeFullReloads, 0, "resume after missed events must not reload the loaded window");
+    assert.ok(resumeElapsedMs < 5000, `resume reconciliation took ${resumeElapsedMs}ms`);
+    scenarios.push({ name: "hidden-resume-sync", revisionBefore: Number.parseInt(String(resumeBaseline), 10), revisionAfter: resumeRevision, deltaCount: resumeRevision - Number.parseInt(String(resumeBaseline), 10), requestCount: resumeRequests.length, fullReloads: resumeFullReloads, elapsedMs: resumeElapsedMs });
+
+    const totalFullReloads = scenarios.reduce((sum, scenario) => sum + scenario.fullReloads, 0);
+    qaResult.fullReloadCount = totalFullReloads;
+    assert.equal(totalFullReloads, 0, `ordinary library changes must never reload the loaded window (saw ${totalFullReloads})`);
+    console.log("INCREMENTAL_SCENARIOS");
+    console.log(JSON.stringify(scenarios, null, 2));
   } finally {
     client?.close();
     if (child?.exitCode === null) {
@@ -291,4 +555,21 @@ async function main() {
   }
 }
 
-await main();
+let exitCode = 0;
+try {
+  await main();
+  qaResult.status = "pass";
+} catch (error) {
+  qaResult.status = "fail";
+  qaResult.error = { message: error?.message || String(error), stack: error?.stack || null };
+  console.error(error);
+  exitCode = 1;
+}
+try {
+  await writeResultFile();
+} catch (error) {
+  console.error(`[gallery-qa] failed to write result file ${RESULT_FILE}: ${error?.message || error}`);
+  exitCode = 1;
+}
+console.log(`[gallery-qa] result: ${qaResult.status} (exit ${exitCode})${RESULT_FILE ? `, verdict file: ${RESULT_FILE}` : ""}`);
+process.exitCode = exitCode;

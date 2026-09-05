@@ -9,7 +9,7 @@ import { createDerivativeWorker, processDerivativeJob } from "../lib/derivative-
 import { createAssetStore } from "../lib/asset-store.mjs";
 import { PIXEL_HASH_VERSION, safePixelDigest } from "../lib/image-pixel-hash.js";
 import { normalizeCreatedAt } from "../lib/recent-window.js";
-import { createSqliteAssetStore, sqliteDatabasePath } from "../lib/sqlite-asset-store.mjs";
+import { CURRENT_SCHEMA_VERSION, createSqliteAssetStore, sqliteDatabasePath } from "../lib/sqlite-asset-store.mjs";
 import { removeTestPath as rm } from "./test-cleanup.mjs";
 
 test("SQLite managed-file cleanup removes only stale unreferenced files", async (t) => {
@@ -728,7 +728,7 @@ test("SQLite schema v1 upgrades once without changing completed migration state"
   const pixelIndex = upgraded.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'assets_project_pixel_hash_idx'").get();
   upgraded.close();
 
-  assert.equal(schemaAfterUpgrade.value, "13");
+  assert.equal(schemaAfterUpgrade.value, String(CURRENT_SCHEMA_VERSION));
   assert.notEqual(schemaAfterUpgrade.updated_at, originalTimestamp);
   assert.deepEqual(migrationState, { value: "completed", updated_at: originalTimestamp });
   assert.deepEqual(migrationDetails, { value: '{"verified":true}', updated_at: originalTimestamp });
@@ -803,7 +803,7 @@ test("SQLite schema v5 upgrades suppression identity to include pixel hash versi
     pixel_hash_version: "opaque-static-v1",
     deleted_at: "2026-08-20T00:00:00.000Z",
   });
-  assert.equal(schemaVersion, "13");
+  assert.equal(schemaVersion, String(CURRENT_SCHEMA_VERSION));
 });
 
 test("SQLite schema v7 backfills conversation and generation-batch scalars", async (t) => {
@@ -845,7 +845,7 @@ test("SQLite schema v7 backfills conversation and generation-batch scalars", asy
   const migrations = inspected.prepare("SELECT version FROM schema_migrations ORDER BY version").all().map((row) => row.version);
   inspected.close();
   assert.deepEqual(scalars, { conversation_id: "legacy-conversation", generation_batch: "legacy-batch" });
-  assert.equal(schemaVersion, "13");
+  assert.equal(schemaVersion, String(CURRENT_SCHEMA_VERSION));
   assert.ok(migrations.includes(8));
   assert.ok(migrations.includes(9));
   assert.ok(migrations.includes(10));
@@ -939,16 +939,17 @@ test("SQLite refuses to downgrade a newer schema", async (t) => {
   future.exec(`
     CREATE TABLE library_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
-    INSERT INTO library_meta (key, value, updated_at) VALUES ('schema_version', '14', 'future');
   `);
+  future.prepare("INSERT INTO library_meta (key, value, updated_at) VALUES ('schema_version', ?, 'future')")
+    .run(String(CURRENT_SCHEMA_VERSION + 1));
   future.close();
 
   assert.throws(
     () => createSqliteAssetStore({ projectRoot: root, managerDir: join(root, "mosa"), libraryDir }),
-    /schema version 14 is newer than supported version 13/,
+    new RegExp(`schema version ${CURRENT_SCHEMA_VERSION + 1} is newer than supported version ${CURRENT_SCHEMA_VERSION}`),
   );
   const inspected = new Database(databasePath, { readonly: true });
-  assert.deepEqual(inspected.prepare("SELECT value, updated_at FROM library_meta WHERE key = 'schema_version'").get(), { value: "14", updated_at: "future" });
+  assert.deepEqual(inspected.prepare("SELECT value, updated_at FROM library_meta WHERE key = 'schema_version'").get(), { value: String(CURRENT_SCHEMA_VERSION + 1), updated_at: "future" });
   inspected.close();
 });
 
