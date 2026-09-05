@@ -177,8 +177,10 @@ npm run build             编译 TypeScript 并写入构建身份
 5. 创建 Node HTTP 服务并监听 loopback，返回 `url`、端口、库目录、存储类型和
    `stop()`。
 
-停止时，运行时先关闭 HTTP 服务，再停止 worker 和所有桥接，最后关闭存储并
-释放运行时锁。服务不会为释放端口而终止未验证的其他进程。
+停止时，运行时先停止接受新的长期连接并主动结束 Library SSE 响应，再关闭
+HTTP listener；随后等待 derivative worker 与所有桥接排空正在执行的任务，
+最后关闭存储并释放运行时锁。这个顺序避免 `server.close()` 与 SSE/后台任务
+互相等待。服务不会为释放端口而终止未验证的其他进程。
 
 ### 4.2 Electron 服务归属
 
@@ -188,8 +190,15 @@ Electron 启动时由 `desktop/service-manager.mjs` 探测
 - 已有服务且产品身份和库目录相同：桌面壳附着到该服务，不拥有它。
 - 没有可附着的服务：桌面壳启动并拥有一个本地运行时，退出时停止自己拥有
   的运行时。
+- 正常桌面升级遇到同库的已验证旧版本时：先受控退出旧 owner，再由当前桌面
+  进程接管同一端口和 Library；如果另一个进程抢先成为 owner，只接受完整构建
+  身份与当前版本完全一致的服务，否则 fail-closed。
 - 端口被其他服务占用，或 MOSA 服务使用了不同库：报告冲突，不替换或终止
   原服务。
+
+Web UI 启动时同时读取 `/api/health` 与静态 `build-identity.json`，在加载图库
+数据前校验 product/UI/runtime fingerprint。长生命周期旧 Runtime 即使从磁盘
+读到了新版静态文件，也不能继续以旧 API 契约驱动新版界面。
 
 桌面默认使用 `127.0.0.1:43517` 和 `$HOME/MOSA Library`；如需独立运行时，
 使用 `MOSA_DESKTOP_PORT` 和 `MOSA_LIBRARY_DIR` 明确指定。
@@ -207,7 +216,7 @@ SQLite 迁移：
 
 SQLite 数据库路径为 `$HOME/MOSA Library/mosa.db`（也可由
 `MOSA_LIBRARY_DIR` 指定）。当前 SQLite 实现的 `CURRENT_SCHEMA_VERSION` 为
-`12`，启用 WAL、外键和 busy timeout。主要表和索引包括：
+`13`，启用 WAL、外键和 busy timeout。主要表和索引包括：
 
 - `projects`、`groups`、`assets`：项目、分组、素材原数据、哈希、来源和状态。
 - `tags`、`asset_tags`：标签关联。
@@ -261,13 +270,15 @@ mosa thumbnails <rebuild|repair> [--library <path>]
 | 范围 | 当前能力 |
 | --- | --- |
 | `/api/health` | 产品/构建身份、库目录和存储信息 |
+| `/api/navigation`、`/api/library-revision`、`/api/library-events` | 侧栏统计、库修订号与 SSE 变更通知 |
 | `/api/assets` | 分页列表、搜索和筛选；创建、读取、元数据更新、收藏、归档、批量操作、复制 |
+| `/api/asset-stacks` | 创建、读取、解散 Stack，管理成员与手动顺序 |
 | `/api/assets/:project/:asset/versions` | 读取版本树或创建子版本 |
 | `/api/assets/:project/:asset/recipes` | 读取生成配方快照历史 |
 | `/api/projects`、`/api/groups` | 列出项目、列出或创建分组 |
 | `/api/library-path`、`/api/open-folder` | 返回库边界信息；只允许打开受信任的库/来源目录 |
 | `/api/bridges`、`/api/web-capture` | Codex、Grok、Cowart、Web Capture 和 discovery 状态 |
-| `/api/ingest/web-capture` | 通过 Token 和 origin 校验接收网页捕获 |
+| `/api/ingest/web-capture`、`/api/ingest/web-capture-metadata`、`/api/ingest/web-capture-binary`、`/api/ingest/web-capture-upload/*` | 通过统一 Token/origin 策略接收网页捕获、元数据补全、二进制和分块上传 |
 | `/api/cowart-canvases` | 列出、注册和移除受信任的 Cowart 画布 |
 
 所有普通 API 请求保持同源/loopback 边界。Web Capture 的预检和跨 origin 请求

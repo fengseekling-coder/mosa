@@ -119,6 +119,26 @@ test("starts, identifies itself, stops idempotently, and restarts", async (t) =>
   }
 });
 
+test("runtime shutdown closes active library event streams before waiting for HTTP drain", async (t) => {
+  const root = await makeTemporaryRoot(t, "mosa-runtime-sse-shutdown-");
+  const runtime = await startMosaRuntime(runtimeOptions(root));
+  t.after(() => runtime.stop());
+
+  const response = await fetch(`${runtime.url}/api/library-events?project=default`);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") || "", /text\/event-stream/);
+  const reader = response.body.getReader();
+  const first = await reader.read();
+  assert.equal(first.done, false);
+
+  await Promise.race([
+    runtime.stop(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("runtime stop was blocked by the active SSE response")), 2000)),
+  ]);
+  const final = await reader.read();
+  assert.equal(final.done, true);
+});
+
 test("an explicit runtime libraryDir keeps detected legacy JSON assets in place", async (t) => {
   const root = await makeTemporaryRoot(t, "mosa-runtime-explicit-library-");
   const options = runtimeOptions(root);

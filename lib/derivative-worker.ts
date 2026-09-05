@@ -24,7 +24,7 @@ interface DerivativeStore {
 
 interface DerivativeWorker {
   start(): void;
-  stop(): void;
+  stop(): Promise<void>;
   wake(): void;
   readonly active: number;
 }
@@ -45,6 +45,14 @@ export function createDerivativeWorker(options: {
   let stopped = true;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let active = 0;
+  let stopWaiters: Array<() => void> = [];
+
+  function settleStopWaiters(): void {
+    if (!stopped || active !== 0 || stopWaiters.length === 0) return;
+    const waiters = stopWaiters;
+    stopWaiters = [];
+    for (const resolveStop of waiters) resolveStop();
+  }
 
   async function schedule(): Promise<void> {
     if (stopped || !store) return;
@@ -56,6 +64,7 @@ export function createDerivativeWorker(options: {
         .catch(() => {})
         .finally(() => {
           active -= 1;
+          settleStopWaiters();
           void schedule();
         });
     }
@@ -71,10 +80,12 @@ export function createDerivativeWorker(options: {
       stopped = false;
       void schedule();
     },
-    stop() {
+    async stop() {
       stopped = true;
       if (timer) clearTimeout(timer);
       timer = null;
+      if (active === 0) return;
+      await new Promise<void>((resolveStop) => stopWaiters.push(resolveStop));
     },
     wake() {
       if (!stopped) void schedule();
