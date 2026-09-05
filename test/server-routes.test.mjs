@@ -82,6 +82,19 @@ test("returns 404 for a missing library image without stopping the server", asyn
   assert.equal(unknownApi.status, 404);
   assert.deepEqual(await unknownApi.json(), { error: "Not found" });
 
+  for (const retiredPath of [
+    "/api/diagnostics",
+    "/api/codex-bridge",
+    "/api/grok-bridge",
+    "/api/cowart-bridge",
+    "/api/ingest-suppressions",
+  ]) {
+    const retired = await fetch(`http://127.0.0.1:${port}${retiredPath}`);
+    assert.equal(retired.status, 404, `${retiredPath} must stay retired`);
+  }
+  const retiredSuppressionDelete = await fetch(`http://127.0.0.1:${port}/api/ingest-suppressions`, { method: "DELETE" });
+  assert.equal(retiredSuppressionDelete.status, 404, "suppression management must not be exposed over HTTP");
+
   const traversal = await rawGet(port, "/%2e%2e/server.mjs");
   assert.equal(traversal.statusCode, 200);
   assert.equal(traversal.headers["content-type"], "text/html; charset=utf-8");
@@ -103,6 +116,10 @@ test("returns 404 for a missing library image without stopping the server", asyn
   assert.equal(bridges.webCapture?.originConfigured, false);
   assert.ok(Array.isArray(bridges.webCapture?.providers));
   assert.equal(server.exitCode, null);
+
+  const webCaptureStatus = await fetch(`http://127.0.0.1:${port}/api/web-capture`);
+  assert.equal(webCaptureStatus.status, 200);
+  assert.equal((await webCaptureStatus.json()).bridge?.enabled, false);
 
   const disabledWebCapture = await fetch(`http://127.0.0.1:${port}/api/ingest/web-capture`, {
     method: "POST",

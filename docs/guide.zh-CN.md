@@ -109,7 +109,7 @@ Desktop 模式下扩展选项会自动得到实际 MOSA 地址和 Token，通常
 
 服务运行时，MOSA 只监听 `~/.grok/sessions/`（可用 `GROK_SESSIONS_DIR` 覆盖）。它只发现各会话目录下 `images/` 与 `videos/` 中的媒体，并读取同会话的 `chat_history.jsonl` 提取工具参数中的 Prompt、模型与工具名。
 
-Prompt 优先级：仅在工具调用与 tool_result 能匹配到该媒体路径时使用工具参数 Prompt；匹配成功但工具未带 prompt 时，才对该条结果回退会话用户指令；孤儿媒体或无法匹配时标记为不可用。视频按原始文件归档与提供服务，不经 sharp/ffmpeg 转码；界面使用原生视频播放，并提供“打开原媒体”操作。
+Prompt 优先级：仅在工具调用与 tool_result 能匹配到该媒体路径时使用工具参数 Prompt；匹配成功但工具未带 prompt 时，才对该条结果回退会话用户指令；孤儿媒体或无法匹配时标记为不可用。视频按原始文件归档与提供服务，不经 sharp/ffmpeg 转码；界面使用原生视频播放，文件定位等操作统一通过素材右键菜单完成。
 
 ### Cowart 画布
 

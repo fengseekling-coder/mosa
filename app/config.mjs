@@ -1,7 +1,6 @@
 // 常量与纯配置：app.js 只保留 import 与调用（REFACTORING-PLAN R1 批次 2）。
 // 骨架渲染常量在模块作用域 export，天然先于任何调用绑定，不存在 temporal dead zone。
 export const SORT_ORDERS = ["newest", "oldest", "name"];
-export const SOURCE_FACETS = { codex: "codex-generated", cowart: "cowart-generated", grok: "grok-generated" };
 // Sidebar source groups are deterministic provenance buckets, not user-created
 // collections. Keep this list limited to automatic AI capture / bridge sources so
 // historical local imports do not leak back into the primary navigation.

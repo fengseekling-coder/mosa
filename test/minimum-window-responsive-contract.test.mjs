@@ -64,19 +64,11 @@ test("7-9. preload 路径与安全 WebPreferences 不变", async () => {
   assert.match(main, /sandbox: true/);
 });
 
-test("10-11. Finder IPC 收紧边界且其余 Desktop IPC 不变", async () => {
+test("10-11. 退役 Finder IPC 保持移除且其余 Desktop IPC 不变", async () => {
   const main = await source("desktop/main.mjs");
   const preload = await source("desktop/preload.cjs");
-  // Finder 能力契约（与 desktop-packaging 契约一致，不放宽）。
-  assert.match(main, /ipcMain\.handle\("show-item-in-folder",/);
-  const handlerStart = main.indexOf('ipcMain.handle("show-item-in-folder"');
-  const handler = main.slice(handlerStart, main.indexOf("\n}", handlerStart));
-  assert.match(handler, /event\.sender !== mainWindow\.webContents/);
-  assert.match(handler, /!isAbsolute\(target\)/);
-  assert.match(handler, /!existsSync\(target\)/);
-  assert.match(handler, /resolveAllowedFolderPath\(target, \[libraryDir\]\)/);
-  assert.match(handler, /shell\.showItemInFolder\(allowedTarget\)/);
-  assert.doesNotMatch(handler, /openExternal/);
+  assert.doesNotMatch(main, /ipcMain\.handle\("show-item-in-folder",/);
+  assert.doesNotMatch(preload, /showItemInFolder|show-item-in-folder/);
   // 手动导入已统一走 renderer 文件选择 + 本地 staging；其余既有 IPC 通道保持不变。
   assert.doesNotMatch(main, /ipcMain\.handle\("open-file-dialog"/);
   assert.doesNotMatch(preload, /ipcRenderer\.invoke\("open-file-dialog"\)/);
@@ -84,7 +76,7 @@ test("10-11. Finder IPC 收紧边界且其余 Desktop IPC 不变", async () => {
     assert.match(main, new RegExp(`ipcMain\\.handle\\("${channel}"`));
   }
   // 更新检查保留两个无任意 URL 参数的窄通道；其余能力仍保持封闭。
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 8, "no invoke channel beyond the eight currently approved narrow requests");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 7, "no invoke channel beyond the seven currently approved narrow requests");
 });
 
 test("12-14. 960 下 Sidebar 批准收敛规则与搜索可达", async () => {
@@ -112,8 +104,8 @@ test("15-16. 960 下 Viewer shell 与舞台契约", async () => {
 test("17-18. Inspector 独立滚动且宽度不超批准范围", async () => {
   const styles = await source("app/styles.css");
   assert.match(styles, /\.detail-inspector-scroll \{ position: relative; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; \}/);
-  // 批准宽度：宽屏 360px / 紧凑 340px，均来自 Token 且未出现更大值。
-  assert.match(styles, /--inspector-width: 360px;/);
+  // 批准宽度：宽屏 320px / 紧凑 340px，均来自 Token 且未出现更大值。
+  assert.match(styles, /--inspector-width: 320px;/);
   assert.match(styles, /--inspector-width-compact: 340px;/);
   assert.match(styles, /\.shell\.details-open \{[^}]*var\(--inspector-width\)/s);
   assert.doesNotMatch(styles, /--inspector-width[^:]*:\s*3[7-9]\dpx|--inspector-width[^:]*:\s*[4-9]\d\dpx/);
@@ -136,7 +128,7 @@ test("19-21. Return / Prev / Next / Zoom 控件可见契约", async () => {
 test("22-24. Inspector V2 八项顺序：File/Tags 直接进入滚动列，More 收尾", async () => {
   const appJs = await source("app/app.mjs");
   const inspector = await source("app/inspector-markup.mjs");
-  const scrollStart = appJs.indexOf('detail-inspector-scroll">');
+  const scrollStart = appJs.lastIndexOf('detail-inspector-scroll">');
   const template = appJs.slice(
     scrollStart,
     appJs.indexOf("</div></div>`", scrollStart),
@@ -203,9 +195,8 @@ test("27. 959 Web fallback 保持（Electron 钳制 960 之外 Web 仍回退）"
 
 test("28-30. Surface max-height / ConfirmDialog viewport-safe / Toast fixed 栈保持", async () => {
   const styles = await source("app/styles.css");
-  // Legacy filter/settings fallback geometry remains viewport-safe even though
-  // the old anchored-overlay runtime has been retired from V2.
-  assert.match(styles, /\.filter-panel \{[^}]*max-height: min\(580px, calc\(100vh - 76px\)\)/);
+  // The retired filter popover is gone; the surviving settings surface remains viewport-safe.
+  assert.doesNotMatch(styles, /\.filter-panel\b/);
   assert.match(styles, /\.settings-menu \{[^}]*max-height: calc\(100vh - 56px\)/);
   assert.doesNotMatch(styles, /\.anchored-overlay/);
   // ConfirmDialog：modal-overlay padding 20px + modal-card max-width/max-height 保证视口安全。
@@ -263,12 +254,11 @@ test("38. Inspector IA V2 七项 section 标记全在且唯一", async () => {
   assert.doesNotMatch(inspector, /data-inspector-section="new-version"|data-action="save-version"/);
 });
 
-test("39. App/Web 原图能力差异保持（Finder vs 打开原图）", async () => {
+// 39. 2026-09-04：App/Web 原图能力入口已从检视器移除（右键菜单保留 Finder 与复制路径）。
+test("39. App/Web 原图能力入口保持移除", async () => {
   const inspector = await source("app/inspector-markup.mjs");
-  assert.match(inspector, /typeof window\.electronAPI\?\.showItemInFolder === "function" && imagePath\) return "desktop-finder"/);
-  assert.match(inspector, /return "web-open"|capability === "web-open"/);
-  assert.match(inspector, /original-media-link/);
-  assert.match(inspector, /rel="noopener noreferrer"/);
+  assert.doesNotMatch(inspector, /typeof window\.electronAPI\?\.showItemInFolder === "function" && imagePath\) return "desktop-finder"/);
+  assert.doesNotMatch(inspector, /original-media-link/);
 });
 
 test("40-41. package 与 lockfile 不变、无新依赖", async () => {

@@ -4,19 +4,16 @@
 
 export function createConfirmDialog({ els, state, t, closePanel }) {
   // ===== Confirm Dialog（Phase 5B / F-15） =====
-  // 全应用唯一 ConfirmDialog：批量归档/单素材归档/放弃未保存修改/受限参考图再生四条路径
-  // 均经 requestConfirmation；不持久化到 state/localStorage/素材数据，不建确认队列，
-  // 不建第二套 Modal Manager。
-  const confirmDialogState = { pending: false, resolve: null, returnFocus: null, triggerElement: null, contextKey: null };
+  // 全应用唯一 ConfirmDialog。业务只传文案、tone 与可选的显式焦点返回目标；
+  // 不持久化到 state/localStorage/素材数据，不建确认队列或第二套 Modal Manager。
+  const confirmDialogState = { pending: false, resolve: null, returnFocus: null, triggerElement: null };
 
   // 单 pending 策略：已有确认显示时，新请求直接返回 false——不排队、第二个请求不覆盖
   // 第一个 resolver，两个不同业务绝不共享同一确认结果（重复快速点击不叠加第二个 Modal）。
-  function requestConfirmation({ title = "", description = "", confirmLabel = "", cancelLabel = "", tone = "danger", returnFocus = null, contextKey = null } = {}) {
+  function requestConfirmation({ title = "", description = "", confirmLabel = "", cancelLabel = "", tone = "danger", returnFocus = null } = {}) {
     if (confirmDialogState.pending || !els.confirmDialog) return Promise.resolve(false);
-    // 打开前：1）保存当前焦点元素；2）经 Phase 5A manager 的公开关闭能力关闭 Filter/Settings
-    // （不直接修改 manager 私有状态；reason 不触发浮层 return focus）。
+    // 打开前保存当前焦点元素，并关闭 Settings，避免两个 modal surface 叠加。
     confirmDialogState.triggerElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    closePanel(els.filterPanel, els.filterToggle, "confirm-dialog");
     closePanel(els.settingsMenu, els.settingsToggle, "confirm-dialog");
     // 3）填充标题/说明/按钮文案与 tone；4）打开 overlay。
     if (els.confirmDialogTitle) els.confirmDialogTitle.textContent = title;
@@ -31,7 +28,6 @@ export function createConfirmDialog({ els, state, t, closePanel }) {
     if (els.confirmDialogCard) els.confirmDialogCard.dataset.tone = tone === "danger" ? "danger" : "warning";
     confirmDialogState.pending = true;
     confirmDialogState.returnFocus = returnFocus instanceof HTMLElement ? returnFocus : null;
-    confirmDialogState.contextKey = contextKey;
     // The dialog sits outside #appShell; inert keeps the complete application
     // background out of assistive-technology and keyboard navigation while it is open.
     els.appShell?.setAttribute("inert", "");
@@ -61,10 +57,9 @@ export function createConfirmDialog({ els, state, t, closePanel }) {
     confirmDialogState.pending = false;
     confirmDialogState.resolve = null;
     // 焦点恢复经 rAF 延后，先取走引用再清理状态。
-    restoreConfirmDialogFocus(confirmDialogState.returnFocus, confirmDialogState.triggerElement, confirmDialogState.contextKey);
+    restoreConfirmDialogFocus(confirmDialogState.returnFocus, confirmDialogState.triggerElement);
     confirmDialogState.returnFocus = null;
     confirmDialogState.triggerElement = null;
-    confirmDialogState.contextKey = null;
     els.confirmDialog?.classList.remove("open");
     els.confirmDialog?.setAttribute("aria-hidden", "true");
     els.appShell?.removeAttribute("inert");
@@ -85,20 +80,13 @@ export function createConfirmDialog({ els, state, t, closePanel }) {
     return element instanceof HTMLElement && element.isConnected && !element.disabled && !element.hidden && element.offsetParent !== null;
   }
 
-  function restoreConfirmDialogFocus(returnFocus, triggerElement, contextKey) {
+  function restoreConfirmDialogFocus(returnFocus, triggerElement) {
     requestAnimationFrame(() => {
       // 优先级 1）业务显式 returnFocus；2）打开前的 activeElement。
       for (const candidate of [returnFocus, triggerElement]) {
         if (isConfirmFocusTarget(candidate)) { candidate.focus(); return; }
       }
-      // 3）对应业务入口的稳定重新查询（确认期间 Detail 可能重渲染，trigger 被新 DOM 替换）。
-      const requery = contextKey?.endsWith(":archive-asset") ? els.detailPanel?.querySelector('[data-action="archive-asset"]')
-        : contextKey?.endsWith(":restricted-regenerate") ? els.detailPanel?.querySelector('[data-action="regenerate"]')
-        : contextKey?.endsWith(":discard-version") ? els.detailPanel?.querySelector("[data-version-select]")
-        : contextKey?.endsWith(":batch-archive") ? els.batchArchive
-        : null;
-      if (isConfirmFocusTarget(requery)) { requery.focus(); return; }
-      // 4）安全区：查看模式的返回按钮或侧栏搜索框，绝不落回 body。
+      // 3）安全区：查看模式的返回按钮或搜索框，绝不落回 body。
       const fallback = state.viewMode === "asset" ? els.assetViewBack : els.searchInput;
       if (isConfirmFocusTarget(fallback)) fallback.focus();
     });

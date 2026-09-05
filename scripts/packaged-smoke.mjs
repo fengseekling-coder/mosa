@@ -185,7 +185,7 @@ async function waitForRenderer(expectedOrigin, cdpPort, childProcess) {
         href: location.href,
         readyState: document.readyState,
         appShell: Boolean(document.querySelector('#appShell')),
-        preload: Boolean(window.electronAPI && typeof window.electronAPI.showItemInFolder === 'function')
+        preload: Boolean(window.electronAPI && typeof window.electronAPI.writeClipboardText === 'function')
       })`);
       if (result?.appShell && result?.preload && result.readyState !== "loading") return result;
     } catch {

@@ -68,7 +68,7 @@ test("1-7. shell regions and panel token consumption", async () => {
   assert.match(css, /--sidebar-width: 220px;/);
   assert.match(css, /--sidebar-width-narrow: 208px;/);
   assert.match(css, /--sidebar-width-compact: 56px;/);
-  assert.match(css, /--inspector-width: 360px;/);
+  assert.match(css, /--inspector-width: 320px;/);
   assert.match(css, /--inspector-width-compact: 340px;/);
   const mq1120 = blockAfter(css, "@media (max-width: 1120px)");
   assert.match(mq1120, /\.shell \{ grid-template-columns: var\(--sidebar-width-narrow\) minmax\(0, 1fr\); \}/);
@@ -140,16 +140,16 @@ test("11-14. shrink chain and honest overflow", async () => {
   assert.doesNotMatch(css, /(?:^|\})\s*(?:html|html, body|body)\s*\{[^}]*overflow-x:\s*hidden/);
 });
 
-// 15. Filter panel uses the popover overlay level.
-// 16. Compact search expansion uses the popover level.
+// 15. The retired filter popover leaves no hidden layout surface.
+// 16. Search focus stays scoped to the topbar.
 // 17. Detail scrolls vertically on its own — Phase 4A moved the independent
 //     y-scroller to .detail-inspector-scroll; the panel itself stays overflow:hidden.
-// 18. Batch-bar compensation consumes tokens and leaves no residue when off.
-test("15-18. overlay levels and batch-bar compensation", async () => {
+// 18. Selection-bar compensation consumes tokens and leaves no residue when off.
+test("15-18. overlay levels and selection-bar compensation", async () => {
   const css = await readCss();
 
   assert.match(css, /--z-popover: 30;/);
-  assert.match(blockAfter(css, ".filter-panel {"), /z-index: var\(--z-popover\)/);
+  assert.doesNotMatch(css, /\.filter-panel\b|\.active-filters\b|\.filter-chip\b/);
   // V2 FilterBar: the single search lives in the topbar; its focus state stays scoped.
   assert.match(css, /\.topbar-search:focus-within \{[^}]*border-color: var\(--color-border-subtle\)/);
 
@@ -162,10 +162,10 @@ test("15-18. overlay levels and batch-bar compensation", async () => {
   assert.match(css, /--statusbar-height: 48px;/);
   assert.match(blockAfter(css, ".grid.selection-active {"), /padding-bottom: calc\(var\(--statusbar-height\) \+ var\(--space-2\)\)/);
   assert.match(blockAfter(css, ".shell:has(.grid.selection-active) .detail {"), /padding-bottom: var\(--statusbar-height\)/);
-  // Off-state keeps only the regular breathing room — no residual batch padding.
+  // Off-state keeps only the regular breathing room — no residual selection padding.
   assert.match(blockAfter(css, ".grid {"), /padding: var\(--space-2\) 20px var\(--space-3\)/);
-  assert.doesNotMatch(css, /\.grid\.batch-active\b/,
-    "the retired batch-active state must not survive beside selection-active");
+  assert.doesNotMatch(css, /\.grid\.batch-active\b|\.batch-bar\b/,
+    "retired batch-bar states must not survive beside selection-active");
 });
 
 // 22. The public CSS keeps the O2 compact-desktop decision executable after

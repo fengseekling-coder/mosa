@@ -153,10 +153,7 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     const openSourceButton = String(sourceRef.conversation_id || "").trim()
       ? `<button class="section-head-copy detail-overview-open" type="button" data-action="view-generation-session" title="${escapeHtml(t("openOriginalConversation"))}" aria-label="${escapeHtml(t("openOriginalConversation"))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button>`
       : "";
-    const originalMediaButton = overviewOriginalMediaActionMarkup(asset);
-    const overviewActions = openSourceButton || originalMediaButton
-      ? `<span class="detail-overview-actions" role="group" aria-label="${escapeHtml(t("originalAndMore"))}">${openSourceButton}${originalMediaButton}</span>`
-      : "";
+    const overviewActions = openSourceButton;
     const facts = [
       ["fileFormat", fileFormatText(asset)],
       ["fileDimensions", fileDimensionsText(asset)],
@@ -336,48 +333,15 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return `<section class="inspector-section detail-group-section" data-inspector-section="group"><div class="detail-prompt-head"><h3>${t("group")}</h3></div><p class="inspector-readout">${group ? escapeHtml(group) : `<span class="empty-copy">${t("notGrouped")}</span>`}</p></section>`;
   }
 
-  // Phase 4C：App/Web 原图能力集中判定——desktop-finder（Electron 注入 showItemInFolder 且
-  // image_path 为有效非空路径）/ web-open（无桌面能力且 image_url 非空，真实 <a> 新标签页）/
-  // unavailable（不渲染死按钮）。同一素材绝不同时表达两套入口；Web 不伪装 Finder 能力。
-  function originalMediaCapability(asset) {
-    const imagePath = String(asset?.image_path || "").trim();
-    if (typeof window.electronAPI?.showItemInFolder === "function" && imagePath) return "desktop-finder";
-    const imageUrl = String(asset?.image_url || "").trim();
-    if (imageUrl) return "web-open";
-    return "unavailable";
-  }
-
-  function originalMediaActionMarkup(asset) {
-    const capability = originalMediaCapability(asset);
-    if (capability === "desktop-finder") return `<button class="action-btn secondary" type="button" data-action="show-in-finder">${t("showInFinder")}</button>`;
-    if (capability === "web-open") return `<a class="action-btn secondary original-media-link" href="${escapeHtml(asset.image_url)}" target="_blank" rel="noopener noreferrer">${t("openOriginal")}</a>`;
-    return `<p class="empty-copy original-media-unavailable">${t("originalUnavailable")}</p>`;
-  }
-
-  function overviewOriginalMediaActionMarkup(asset) {
-    const capability = originalMediaCapability(asset);
-    const icon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 5h6l2 2h8v12H4z"/><path d="M8 12h8M12 8v8"/></svg>`;
-    if (capability === "desktop-finder") {
-      return `<button class="section-head-copy detail-overview-original" type="button" data-action="show-in-finder" title="${escapeHtml(t("showInFinder"))}" aria-label="${escapeHtml(t("showInFinder"))}">${icon}</button>`;
-    }
-    if (capability === "web-open") {
-      return `<a class="section-head-copy detail-overview-original" href="${escapeHtml(asset.image_url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(t("openOriginal"))}" aria-label="${escapeHtml(t("openOriginal"))}">${icon}</a>`;
-    }
-    return "";
-  }
-
-  // Phase 4C More 终态：显式原图入口默认可见（App「在 Finder 中显示」/ Web「打开原图」/
-  // 「原图不可用」，三选一）+ 原生 details「更多操作」（regenerate / copy-path / 图片位置）+
-  // 独立 danger 区（归档）。无省略号菜单、无 popover、无三点图标；copy-path 无路径不渲染。
+  // 2026-09-04 终态：图片路径直接常显（App「在 Finder 中显示」/ Web「打开原图」/
+  // 「原图不可用」入口与「原图与更多」标题一并移除；App/Web 原图能力经右键菜单仍可用）。
+  // copy-path 仍可从右键菜单使用。
   function detailMoreSectionMarkup(asset) {
     const imagePath = String(asset.image_path || "").trim();
-    const copyPathAction = imagePath
-      ? `<button class="action-btn secondary" type="button" data-action="copy-path">${t("copyPath")}</button>`
-      : "";
     const locationValue = imagePath
       ? escapeHtml(asset.image_path)
       : `<span class="empty-copy">${t("notRecorded")}</span>`;
-    return `<section class="inspector-section" data-inspector-section="more"><div class="section-head"><h4>${t("originalAndMore")}</h4></div><div class="original-media-action">${originalMediaActionMarkup(asset)}</div><details class="detail-disclosure" data-more-actions><summary>${t("moreActions")}</summary><div class="disclosure-content"><div class="detail-utility-actions"><button class="action-btn secondary" type="button" data-action="regenerate">${t("regenerate")}</button>${copyPathAction}</div><div class="more-location"><span class="meta-key">${t("imageLocation")}</span><div class="path-box detail-path-box">${locationValue}</div></div></div></details><div class="detail-danger-actions"><button class="action-btn danger" type="button" data-action="archive-asset">${t("batchArchive")}</button></div></section>`;
+    return `<section class="inspector-section" data-inspector-section="more"><div class="more-location"><span class="meta-key">${t("imageLocation")}</span><div class="path-box detail-path-box"${imagePath ? ` title="${escapeHtml(asset.image_path)}"` : ""}>${locationValue}</div></div></section>`;
   }
 
   function versionHistoryMarkup(history, selectedId) {
@@ -692,5 +656,61 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return `<img class="thumb" src="${escapeHtml(url)}"${thumbSrcset ? ` srcset="${thumbSrcset}" sizes="(max-width: 720px) calc(50vw - 24px), 240px"` : ""} data-gallery-src="${escapeHtml(url)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async"${mediaDimensionAttributes(asset)} />`;
   }
 
-  return { fileDimensionsText, fileFormatText, fileSizeText, fileAspectRatioText, formatFileSize, fileFactRowMarkup, fileFactTagMarkup, detailFavoriteButtonMarkup, detailFileSectionMarkup, detailPromptSectionMarkup, promptReferencesMarkup, editRecipeFieldsMarkup, detailSourceSectionMarkup, detailVersionSectionMarkup, versionPickerMarkup, versionOptionLabel, detailVersionSummaryMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, originalMediaCapability, originalMediaActionMarkup, detailMoreSectionMarkup, versionHistoryMarkup, generationHistoryMarkup, recipeHistoryDisclosureMarkup, referenceRightsSummary, recipeHistoryMarkup, categoryOptions, buildSourceRows, sourceName, sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup };
+  function readyDerivativeUrl(asset, urlKey, readyKey) {
+    const url = String(asset?.[urlKey] || "").trim();
+    return url && asset?.[readyKey] !== false ? url : "";
+  }
+
+  function stackInspectorMediaMarkup(asset = {}) {
+    const title = displayAssetTitle(asset);
+    const originalUrl = String(asset.image_url || "").trim();
+    const thumbnailUrl = readyDerivativeUrl(asset, "thumbnail_url", "thumbnail_ready");
+    const mediumUrl = readyDerivativeUrl(asset, "medium_url", "medium_ready");
+    const previewUrl = readyDerivativeUrl(asset, "preview_url", "preview_ready");
+
+    if (isVideoAsset(asset)) {
+      const posterUrl = thumbnailUrl || mediumUrl || previewUrl;
+      if (posterUrl) {
+        return `<img class="thumb-video-poster" src="${escapeHtml(posterUrl)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" />`;
+      }
+      if (originalUrl) {
+        return `<video class="thumb-video-poster stack-inspector-video" src="${escapeHtml(originalUrl)}" preload="metadata" muted playsinline tabindex="-1" aria-label="${escapeHtml(title)}"${mediaDimensionAttributes(asset)}></video>`;
+      }
+      return `<span class="thumb-video-placeholder" aria-hidden="true"></span>`;
+    }
+
+    const url = thumbnailUrl || mediumUrl || previewUrl || originalUrl;
+    if (!url) return `<span class="thumb image-thumb-pending" aria-hidden="true"></span>`;
+    const srcset = [
+      thumbnailUrl ? `${escapeHtml(thumbnailUrl)} 400w` : "",
+      mediumUrl ? `${escapeHtml(mediumUrl)} 960w` : "",
+      previewUrl ? `${escapeHtml(previewUrl)} 1600w` : "",
+    ].filter(Boolean).join(", ");
+    const fallback = originalUrl && originalUrl !== url
+      ? ` data-stack-fallback-src="${escapeHtml(originalUrl)}"`
+      : "";
+    return `<img class="thumb stack-inspector-image" src="${escapeHtml(url)}"${srcset ? ` srcset="${srcset}" sizes="144px"` : ""}${fallback} alt="${escapeHtml(title)}" loading="lazy" decoding="async"${mediaDimensionAttributes(asset)} />`;
+  }
+
+  function stackInspectorMarkup(detailStack = {}) {
+    const members = Array.isArray(detailStack.members) ? detailStack.members : [];
+    const status = detailStack.loading
+      ? `<div class="stack-inspector-status" role="status">${escapeHtml(t("stackInspectorLoading"))}</div>`
+      : detailStack.error
+        ? `<div class="stack-inspector-status is-error" role="alert">${escapeHtml(t("stackInspectorLoadFailed"))}</div>`
+        : "";
+    const memberMarkup = members.map((asset, index) => `
+      <div class="stack-inspector-member" data-stack-member-id="${escapeHtml(asset.id)}" title="${escapeHtml(displayAssetTitle(asset))}">
+        <div class="stack-inspector-thumb">${stackInspectorMediaMarkup(asset)}</div>
+        <span>${index + 1}</span>
+      </div>`).join("");
+    const empty = !detailStack.loading && !detailStack.error && members.length === 0
+      ? `<div class="stack-inspector-status">${escapeHtml(t("stackInspectorEmpty"))}</div>`
+      : "";
+    return `<section class="stack-inspector" data-stack-inspector data-stack-id="${escapeHtml(detailStack.id || "")}">
+      ${status}${empty}${memberMarkup ? `<div class="stack-inspector-grid">${memberMarkup}</div>` : ""}
+    </section>`;
+  }
+
+  return { fileDimensionsText, fileFormatText, fileSizeText, fileAspectRatioText, formatFileSize, fileFactRowMarkup, fileFactTagMarkup, detailFavoriteButtonMarkup, detailFileSectionMarkup, detailPromptSectionMarkup, promptReferencesMarkup, editRecipeFieldsMarkup, detailSourceSectionMarkup, detailVersionSectionMarkup, versionPickerMarkup, versionOptionLabel, detailVersionSummaryMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, detailMoreSectionMarkup, versionHistoryMarkup, generationHistoryMarkup, recipeHistoryDisclosureMarkup, referenceRightsSummary, recipeHistoryMarkup, categoryOptions, buildSourceRows, sourceName, sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup, stackInspectorMarkup };
 }

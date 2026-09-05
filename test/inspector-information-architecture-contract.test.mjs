@@ -73,7 +73,8 @@ test("1-6. single-column architecture, tab roles removed, V2 sections in approve
   assert.ok(renderDetail.includes('<div class="detail-inspector"><div class="detail-inspector-header">'), "inspector shell with fixed header");
   assert.ok(renderDetail.includes('<div class="detail-inspector-scroll">'), "single scroll container in markup");
   assert.ok(renderDetail.includes('${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}'), "file facts and tags stay adjacent without an extra overview wrapper");
-  assert.equal(count(app, 'class="detail-inspector-scroll"'), 1, "exactly one scroll container is rendered");
+  assert.equal(count(renderDetail, 'class="detail-inspector-scroll"'), 3,
+    "renderDetail has empty, Stack, and asset branches, each with the same single scroll container");
   const scroller = blockAfter(css, ".detail-inspector-scroll {");
   assert.match(scroller, /overflow-y: auto/);
   assert.match(scroller, /overflow-x: hidden/);
@@ -372,16 +373,19 @@ test("34-35. more section last, archive kept as a separated danger action", asyn
 
   const moreSection = functionSlice(inspector, "detailMoreSectionMarkup");
   assert.ok(moreSection.includes('data-inspector-section="more"'));
-  // Phase 4C: the original-media entry renders through the centralized capability
-  // helper (desktop-finder / web-open / unavailable) instead of a fixed button.
-  assert.match(moreSection, /\$\{originalMediaActionMarkup\(asset\)\}/);
-  assert.match(inspector, /function originalMediaCapability\(asset\)/);
+  // 2026-09-04: the original-media entry and its capability helper retired.
+  assert.doesNotMatch(moreSection, /originalMediaActionMarkup/);
+  assert.doesNotMatch(inspector, /function originalMediaCapability\(/);
   // Utility actions migrated as secondary buttons inside the native disclosure.
-  assert.match(moreSection, /<details class="detail-disclosure" data-more-actions>/);
-  assert.match(moreSection, /<button class="action-btn secondary" type="button" data-action="regenerate">/);
-  assert.match(moreSection, /<button class="action-btn secondary" type="button" data-action="copy-path">/);
-  // 35. Archive stays danger, visually separated from the utility cluster.
-  assert.match(moreSection, /<div class="detail-danger-actions"><button class="action-btn danger" type="button" data-action="archive-asset">/);
+  // 2026-09-04: the More disclosure retired; the location row renders directly.
+  assert.doesNotMatch(moreSection, /data-more-actions/);
+  assert.match(moreSection, /<div class="more-location"><span class="meta-key">\$\{t\("imageLocation"\)\}<\/span>/);
+  // Utility actions retired (2026-09-04); the disclosure keeps only the location row.
+  assert.doesNotMatch(moreSection, /data-action="regenerate"/);
+  assert.doesNotMatch(moreSection, /data-action="copy-path"/);
+  // 35. 2026-09-04: the danger-separated archive action retired from the section.
+  assert.doesNotMatch(moreSection, /data-action="archive-asset"/);
+  assert.doesNotMatch(moreSection, /detail-danger-actions/);
   // No ellipsis overflow menu is introduced.
   assert.doesNotMatch(moreSection, /ellipsis|overflow-menu|⋯|…/);
 });

@@ -253,13 +253,12 @@ test("preload surface and Electron security boundaries are unchanged", async () 
     "openDownloadPage",
     "pasteImage",
     "setLocale",
-    "showItemInFolder",
     "writeClipboardImage",
     "writeClipboardText",
   ], "electronAPI surface must match the approved narrow desktop capabilities");
 
   const main = await readFile(join(root, "desktop", "main.mjs"), "utf8");
-  assert.match(main, /ipcMain\.handle\("show-item-in-folder"/, "Finder IPC handler must remain");
+  assert.doesNotMatch(main, /ipcMain\.handle\("show-item-in-folder"/, "retired Finder IPC must stay removed");
   assert.match(main, /contextIsolation: true/, "contextIsolation must remain");
   assert.match(main, /nodeIntegration: false/, "nodeIntegration must remain disabled");
   assert.match(main, /sandbox: true/, "sandbox must remain enabled");

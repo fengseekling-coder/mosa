@@ -151,7 +151,7 @@ test("sidebar smart and manual groups collapse independently and keep compact na
 
 test("sidebar primary, smart-source, and manual-group navigation stay mutually exclusive", async () => {
   const app = await readApp();
-  const navigation = sliceBetween(app, "function isSidebarNavigationActive", "function toggleFacet");
+  const navigation = sliceBetween(app, "function isSidebarNavigationActive", "function clearFacets");
   const rendering = sliceBetween(app, "function renderQuickFilters()", "function syncSidebarSectionVisibility()");
 
   assert.match(navigation, /function setSidebarNavigationState\(type, value = ""\)/);
@@ -203,7 +203,7 @@ test("Unorganized replaces Recent in primary navigation and Trash remains a firs
   assert.match(config, /SCOPES = \["all", "favorite", "unorganized", "trash"\]/);
   assert.match(html, /data-filter="unorganized"[\s\S]*?data-filter="trash"/, "Trash sits directly after Unorganized in the primary navigation");
   assert.doesNotMatch(html, /data-filter="recent"/, "Recent is no longer a primary navigation destination");
-  assert.equal(translations.zh.unorganized, "未整理");
+  assert.equal(translations.zh.unorganized, "待整理");
   assert.equal(translations.en.unorganized, "Unorganized");
   assert.match(client, /request\.scope === "unorganized"[\s\S]*?params\.set\("unorganized", "1"\)/);
   assert.match(routes, /unorganized: url\.searchParams\.get\("unorganized"\) === "1"/);
@@ -273,13 +273,16 @@ test("a consumed Escape cannot also close mobile navigation", async () => {
   assert.ok(consumed >= 0 && mobile > consumed, "defaultPrevented guard precedes the mobile Escape branch");
 });
 
-test("V2 sidebar source selection does not create a redundant active-filter row", async () => {
-  const css = await readStyles();
+test("V2 sidebar source selection has no redundant active-filter implementation", async () => {
+  const [app, html, css] = await Promise.all([
+    readApp(),
+    readFile(resolve(root, "app/index.html"), "utf8"),
+    readStyles(),
+  ]);
 
-  assert.match(css, /\.mosa-v2 \.active-filters \{ display: none; \}/,
-    "sidebar/source selection stays represented by the active navigation item only");
-  assert.doesNotMatch(css, /\.mosa-v2 \.active-filters:not\(\[hidden\]\) \{ display: flex; \}/,
-    "active source facets must not reopen the legacy chip/clear-all toolbar");
+  assert.doesNotMatch(html, /activeFilters|filterPanel|filterToggle/);
+  assert.doesNotMatch(app, /renderActiveFilters|removeFilterChip|activeFilterChips/);
+  assert.doesNotMatch(css, /\.active-filters|\.filter-chip|\.filter-panel/);
 });
 
 test("overlay motion is discrete-safe, token-driven, and disabled for reduced motion", async () => {
@@ -408,7 +411,7 @@ test("populated gallery renders reconcile cards by id instead of replacing the w
   assert.match(reconcile, /card\.dataset\.renderKey !== entry\.renderKey/);
   assert.match(reconcile, /card\.replaceWith\(replacement\)/);
   assert.match(reconcile, /desiredCards\.forEach\(\(card\) => \{/);
-  assert.match(render, /reconcileAssetCards\(cards\)/);
+  assert.match(render, /reconcileAssetCards\(domCards\)/);
   assert.doesNotMatch(render, /els\.assetGrid\.innerHTML = `\$\{cards\}/);
 });
 
@@ -420,7 +423,7 @@ test("infinite-scroll append uses a tail-only render path and virtualizes decode
   const infiniteScroll = sliceBetween(app, "function setupInfiniteScroll()", "/**\n * Placeholders sized like real cards");
 
   assert.match(render, /state\.assets\.slice\(animateFrom\)/, "append maps only the incoming tail");
-  assert.match(render, /appendAssetCards\(cards\)/, "append avoids a full card reconciliation");
+  assert.match(render, /appendAssetCards\(domCards\)/, "append avoids a full card reconciliation");
   assert.match(app, /class=\"asset-load-more\" hidden/, "normal infinite scrolling keeps the pagination boundary invisible");
   assert.match(render, /syncRenderedSelection\(\{[\s\S]*?prune: false,[\s\S]*?changedIds:/,
     "append selection sync touches only the newly mounted tail");
@@ -455,10 +458,14 @@ test("large galleries use explicit masonry placement and bounded card hydration"
     "fast-scroll visible hydration is bounded per frame instead of blocking the compositor");
   assert.doesNotMatch(virtualization, /flushVisibleGalleryCardVirtualChanges/,
     "the scroll path never synchronously hydrates the whole visible virtual set");
-  assert.match(virtualization, /if \(hydratedCards\.length\) setupGalleryMediaVirtualization\(hydratedCards\);/,
-    "hydration preserves placeholder geometry and avoids immediate masonry measurement");
+  assert.match(virtualization, /if \(hydratedCards\.length\) \{[\s\S]*?setupGalleryMediaVirtualization\(hydratedCards\);[\s\S]*?hydratedCards\.forEach\(\(card\) => scheduleMasonryLayout\(card\)\);[\s\S]*?\}/,
+    "hydration defers a real-height verification so estimated spans cannot leave overlapping cards");
   assert.doesNotMatch(virtualization, /layoutMasonry\(hydratedCards\)/,
     "virtual-card hydration does not force a synchronous masonry read/write cycle");
+  assert.doesNotMatch(virtualization, /Math\.min\(16 \/ 9, Math\.max\(0\.35, galleryAssetAspect\(asset\)\)\)/,
+    "tall assets must not have their virtual placeholder height capped below their real aspect ratio");
+  assert.match(virtualization, /const mediaHeight = galleryCardColumnWidth\(\) \* Math\.max\(0\.35, galleryAssetAspect\(asset\)\);/,
+    "virtual placeholder height follows the known media aspect ratio");
   assert.match(virtualization, /galleryCardVirtualScrollGrid\.addEventListener\("scroll", handleGalleryCardVirtualScroll/,
     "indexed scroll synchronization guards large compositor jumps without an O(N) card scan");
   assert.match(masonry, /const columnEnds = Array\(columnCount\)\.fill\(1\)/,
@@ -512,5 +519,28 @@ test("background stats refresh skips the effectively static library-path request
   const stats = sliceBetween(apiClient, "async function loadStats(options = {})", "let assetRequestSequence = 0;");
 
   assert.match(stats, /options\.background\s*\? Promise\.resolve\(null\)\s*:\s*apiFetch\(`\/api\/library-path/);
-  assert.match(stats, /apiFetch\(`\/api\/groups\?project=/);
+  assert.match(stats, /apiFetch\(`\/api\/navigation\?project=/);
+  assert.match(stats, /const rawGroups = result\.navigation \|\| \{\}/);
+});
+
+test("infinite scroll rearms deterministically after an appended page replaces the sentinel", async () => {
+  const app = await readApp();
+  const scrolling = sliceBetween(app, "let infiniteScrollObserver = null;", "/**\n * Placeholders sized like real cards");
+  assert.match(scrolling, /function requestInfiniteScrollAppend\(requestKey, preloadDistance\)/);
+  assert.match(scrolling, /finally\(\(\) => \{[\s\S]*?isLoadingMore = false;[\s\S]*?requestAnimationFrame/);
+  assert.match(scrolling, /sentinelInInfiniteScrollWarmZone\(nextGrid, nextSentinel, preloadDistance\)/);
+  assert.match(scrolling, /requestKey !== assetRequestKey\(currentAssetRequest\(\)\)/,
+    "a stale result-set observer cannot continue pagination after filters or project change");
+});
+
+test("large gallery virtualization removes far card nodes instead of retaining one placeholder per asset", async () => {
+  const app = await readApp();
+  const virtualization = sliceBetween(app, "let galleryMediaObserver = null;", "function bindGalleryVideoFrame");
+  assert.match(virtualization, /const GALLERY_CARD_DOM_WINDOW_THRESHOLD = 240/);
+  assert.match(virtualization, /function pruneGalleryCardDomWindow\(\)/);
+  assert.match(virtualization, /galleryCardVirtualNodes\.delete\(id\);\s*card\.remove\(\);/);
+  assert.match(virtualization, /function mountGalleryVirtualCard\(grid, id, hydrate = false\)/,
+    "a pruned card can be remounted when its geometry enters the warm window");
+  assert.match(virtualization, /function syncGalleryVirtualExtent\(\)/,
+    "a single virtual extent preserves the full masonry scroll range without thousands of placeholder nodes");
 });

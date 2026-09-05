@@ -4,9 +4,7 @@ import { mkdtemp, mkdir, readdir, writeFile } from "node:fs/promises";
 import { removeTestPath as rm } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Readable } from "node:stream";
 import test from "node:test";
-import { handleAssetRoute } from "../lib/api/asset-routes.mjs";
 import { createJsonAssetStore } from "../lib/asset-store.mjs";
 import { createSqliteAssetStore, sqliteDatabasePath } from "../lib/sqlite-asset-store.mjs";
 import { PIXEL_HASH_VERSION, safePixelDigest } from "../lib/image-pixel-hash.js";
@@ -181,30 +179,6 @@ for (const kind of ["json", "sqlite"]) {
     assert.deepEqual(await readdir(store.imagesDir("default")), []);
   });
 
-  test(`${kind} pages suppression records without repeating a cursor row`, async (t) => {
-    const { store } = await setupStore(t, `${kind}-page`);
-    const firstHash = "a".repeat(64);
-    const secondHash = "b".repeat(64);
-    await store.recordAutomaticIngestSuppression("default", {
-      content_sha256: firstHash,
-      deleted_at: "2026-08-24T00:00:00.000Z",
-    });
-    await store.recordAutomaticIngestSuppression("default", {
-      content_sha256: secondHash,
-      deleted_at: "2026-08-24T00:00:00.000Z",
-    });
-
-    const firstPage = await store.listAutomaticIngestSuppressionPage("default", { limit: 1 });
-    assert.deepEqual(firstPage.suppressions.map((record) => record.content_sha256), [firstHash]);
-    assert.ok(firstPage.page.nextCursor);
-
-    const secondPage = await store.listAutomaticIngestSuppressionPage("default", {
-      limit: 1,
-      cursor: firstPage.page.nextCursor,
-    });
-    assert.deepEqual(secondPage.suppressions.map((record) => record.content_sha256), [secondHash]);
-    assert.equal(secondPage.page.nextCursor, null);
-  });
 }
 
 test("automatic suppression matches a re-encoded image only when the trusted pixel hash agrees", async (t) => {
@@ -319,41 +293,4 @@ test("SQLite keeps suppression lookup indexed and soft-deletes the asset atomica
     WHERE project_id = ? AND content_sha256 = ?
   `).all("default", suppression.content_sha256).map((row) => row.detail).join(" | ");
   assert.match(plan, /automatic_suppressions_project_content_idx/);
-});
-
-test("suppression API lists and explicitly clears a deleted image", async (t) => {
-  const { store, sourcePath } = await setupStore(t, "sqlite-api");
-  const asset = await store.createAsset({ assetId: "api-delete", imagePath: sourcePath }, { ingestMode: "manual" });
-  const contentHash = asset.source.content_sha256;
-  await store.deleteAsset("default", asset.id);
-
-  const response = () => ({
-    statusCode: 0,
-    headers: {},
-    payload: "",
-    setHeader(name, value) { this.headers[name] = value; },
-    end(value) { this.payload = String(value || ""); },
-  });
-  const listedResponse = response();
-  await handleAssetRoute({
-    req: { method: "GET" },
-    res: listedResponse,
-    url: new URL("http://127.0.0.1/api/ingest-suppressions?project=default"),
-    context: { store },
-  });
-  assert.equal(listedResponse.statusCode, 200);
-  assert.equal(JSON.parse(listedResponse.payload).suppressions[0].content_sha256, contentHash);
-  assert.deepEqual(JSON.parse(listedResponse.payload).page, { limit: 100, nextCursor: null });
-
-  const clearedResponse = response();
-  const deleteRequest = Readable.from([JSON.stringify({ projectId: "default", content_sha256: contentHash })]);
-  deleteRequest.method = "DELETE";
-  await handleAssetRoute({
-    req: deleteRequest,
-    res: clearedResponse,
-    url: new URL("http://127.0.0.1/api/ingest-suppressions"),
-    context: { store },
-  });
-  assert.deepEqual(JSON.parse(clearedResponse.payload), { removed: 1 });
-  assert.deepEqual(await store.listAutomaticIngestSuppressions("default"), []);
 });

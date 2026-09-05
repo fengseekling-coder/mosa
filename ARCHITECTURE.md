@@ -260,13 +260,13 @@ mosa thumbnails <rebuild|repair> [--library <path>]
 
 | 范围 | 当前能力 |
 | --- | --- |
-| `/api/health`、`/api/diagnostics` | 产品/构建身份、库目录、存储和诊断信息 |
+| `/api/health` | 产品/构建身份、库目录和存储信息 |
 | `/api/assets` | 分页列表、搜索和筛选；创建、读取、元数据更新、收藏、归档、批量操作、复制 |
 | `/api/assets/:project/:asset/versions` | 读取版本树或创建子版本 |
 | `/api/assets/:project/:asset/recipes` | 读取生成配方快照历史 |
 | `/api/projects`、`/api/groups` | 列出项目、列出或创建分组 |
 | `/api/library-path`、`/api/open-folder` | 返回库边界信息；只允许打开受信任的库/来源目录 |
-| `/api/bridges` 及单个 bridge 路由 | Codex、Grok、Cowart、Web Capture 和 discovery 状态 |
+| `/api/bridges`、`/api/web-capture` | Codex、Grok、Cowart、Web Capture 和 discovery 状态 |
 | `/api/ingest/web-capture` | 通过 Token 和 origin 校验接收网页捕获 |
 | `/api/cowart-canvases` | 列出、注册和移除受信任的 Cowart 画布 |
 

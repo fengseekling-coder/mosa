@@ -154,8 +154,8 @@ test("10. single click inspects, double click views, and Stack double click ente
     "the second click in a double-click does not repeat Inspector selection work");
   assert.match(cards, /if \(id\) \{\s+gallerySelection\.clear\(\);[\s\S]*?void selectAsset\(id\);\s+\}/,
     "ordinary asset click clears batch selection before opening the V2 detail inspector");
-  assert.match(cards, /if \(!state\.activeStackId && asset\?\.stack\?\.id\) \{[\s\S]*?state\.selectedId = id;[\s\S]*?updateSelectedCard\(\);[\s\S]*?return;/,
-    "collapsed Stack click only selects the logical Stack card");
+  assert.match(cards, /if \(!state\.activeStackId && asset\?\.stack\?\.id\) \{[\s\S]*?void selectStackNode\(asset\);[\s\S]*?return;/,
+    "collapsed Stack click inspects the logical Stack without treating its cover as the selected asset detail");
   assert.doesNotMatch(cards, /assetStacks\.enterStack/,
     "single-click must not enter a collapsed Stack");
   assert.doesNotMatch(cards, /openAssetView/, "single-click must not enter the dedicated Viewer");

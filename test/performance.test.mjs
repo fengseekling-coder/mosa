@@ -125,6 +125,10 @@ test("50k SQLite library uses indexed filters, starts under 3s, and keeps search
   }
   filterSamples.sort((a, b) => a - b);
   const filterP95 = filterSamples[Math.ceil(filterSamples.length * 0.95) - 1];
+  const stack = await reopened.createAssetStack("default", ["asset-0", "asset-1"], { coverAssetId: "asset-0" });
+  const fullList = await reopened.listAssets({ projectId: "default" });
+  assert.equal(fullList.length, 50_000, "full 50k listings must not exceed SQLite's bound-variable limit");
+  assert.deepEqual(fullList.find((asset) => asset.id === "asset-0")?.stack, { id: stack.id, count: 2 });
   assert.ok(startupMs < 3000, `startup ${startupMs.toFixed(1)}ms exceeded 3000ms`);
   assert.ok(p95 < 100, `search P95 ${p95.toFixed(1)}ms exceeded 100ms`);
   assert.ok(filterP95 < 50, `indexed-filter P95 ${filterP95.toFixed(1)}ms exceeded 50ms`);

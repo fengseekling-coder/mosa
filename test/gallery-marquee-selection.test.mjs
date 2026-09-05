@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { MARQUEE_CARD_DRAG_THRESHOLD_PX, MARQUEE_DRAG_THRESHOLD_PX, rectFromPoints, rectsIntersect, selectionRangeIds } from "../app/gallery-selection.mjs";
+import { MARQUEE_DRAG_THRESHOLD_PX, rectFromPoints, rectsIntersect, selectionRangeIds } from "../app/gallery-selection.mjs";
 
 test("marquee geometry normalizes drag direction and detects overlap", () => {
   assert.deepEqual(rectFromPoints(40, 50, 10, 20), {
@@ -16,7 +16,6 @@ test("marquee geometry normalizes drag direction and detects overlap", () => {
   assert.equal(rectsIntersect({ left: 0, top: 0, right: 20, bottom: 20 }, { left: 20, top: 20, right: 30, bottom: 30 }), true);
   assert.equal(rectsIntersect({ left: 0, top: 0, right: 19, bottom: 19 }, { left: 20, top: 20, right: 30, bottom: 30 }), false);
   assert.equal(MARQUEE_DRAG_THRESHOLD_PX, 3);
-  assert.equal(MARQUEE_CARD_DRAG_THRESHOLD_PX, 6);
   const assets = ["a", "b", "c", "d"].map((id) => ({ id }));
   assert.deepEqual(selectionRangeIds(assets, "b", "d"), ["b", "c", "d"]);
   assert.deepEqual(selectionRangeIds(assets, "d", "b"), ["b", "c", "d"]);
@@ -44,21 +43,39 @@ test("gallery marquee selection is wired into shared web/app renderer", async ()
   assert.match(css, /\.marquee-selection-box \{/);
   assert.match(css, /\.asset-card\.multi-selected \.asset-card-select/);
   assert.match(css, /\.asset-card\.multi-selected \.card-check/);
+  assert.doesNotMatch(css, /\.asset-card\.selected \.asset-card-select \{ box-shadow:/,
+    "selected cards must not keep the retired outer shadow ring");
+  assert.doesNotMatch(css, /\.asset-card\.multi-selected \.asset-card-select \{ box-shadow:/,
+    "multi-selected cards must not keep the retired outer shadow ring");
+  assert.match(css, /\.mosa-v2 \.asset-card\.selected \.asset-card-select::after, \.mosa-v2 \.asset-card\.multi-selected \.asset-card-select::after \{ box-shadow: none; \}/,
+    "selected cards suppress the thumbnail hairline so the selection state never reads as a double ring");
+  assert.match(css, /\.mosa-v2 \.asset-card\.selected::after, \.mosa-v2 \.asset-card\.multi-selected::after \{ content: ""; position: absolute; z-index: 4; inset: -1px; box-sizing: border-box; border: var\(--border-width\) solid var\(--color-accent\); border-radius: 13px; pointer-events: none; \}/,
+    "V2 selection uses one 1px ring outside the thumbnail edge");
+  assert.match(css, /\.mosa-v2 \.grid \{[^}]*padding: 1px 24px 24px;/,
+    "the gallery reserves one top pixel so the first-row external selection ring is not clipped by the scroll viewport");
+  assert.match(css, /\.asset-card\.masonry-content-virtualized\.selected,\s*\.asset-card\.masonry-content-virtualized\.multi-selected \{[\s\S]*?content-visibility: visible;/,
+    "selected virtualized cards must not paint-contain the external selection ring");
+  assert.doesNotMatch(css, /--border-width-selected/,
+    "the retired 2px selection-width token must not remain as dead CSS");
+  assert.doesNotMatch(app, /card-scrim/,
+    "gallery card markup must not keep the retired gradient scrim node");
+  assert.doesNotMatch(css, /\.card-scrim/,
+    "retired gradient scrim CSS must be deleted instead of disabled by overrides");
   assert.match(css, /\.selection-bar \{/);
 
-  // A marquee may start directly on a card. Pointer capture is deliberately
-  // delayed until drag intent is established so a normal click still reaches
-  // the card button. Window-level tracking keeps fast edge starts reliable.
+  // Plain card drags belong to asset movement, not marquee selection. Shift is
+  // the explicit escape hatch for starting a marquee on top of a card.
   assert.match(selection, /const startCard = event\.target\.closest\?\.\("\.asset-card"\)/);
+  assert.match(selection, /if \(startCard && !event\.shiftKey\) return/);
   assert.match(selection, /startCardId: startCard\?\.dataset\.id \|\| ""/);
-  assert.match(selection, /pointer\.startCardId \? MARQUEE_CARD_DRAG_THRESHOLD_PX : MARQUEE_DRAG_THRESHOLD_PX/);
   assert.match(selection, /if \(pointer\.startCardId\) next\.add\(pointer\.startCardId\)/);
   assert.match(selection, /pointer\.dragging = true;\s+captureDragGeometry\(\);\s+try \{ els\.assetGrid\?\.setPointerCapture/);
   assert.match(selection, /pointer\.startContentX/);
   assert.match(selection, /pointer\.cardRects/);
   assert.match(selection, /scheduleDragSelectionUpdate\(event\.clientX, event\.clientY\)/);
   const beginPointerSection = selection.slice(selection.indexOf("function beginPointer"), selection.indexOf("function movePointer"));
-  assert.doesNotMatch(beginPointerSection, /event\.target\.closest\?\.\("\.asset-card, button/);
+  assert.match(beginPointerSection, /if \(startCard && !event\.shiftKey\) return/,
+    "plain card drags must never fall through into marquee selection");
   assert.match(selection, /window\.addEventListener\("pointermove", movePointer, \{ capture: true \}\)/);
   assert.match(selection, /window\.addEventListener\("blur", cancelPointerGesture\)/,
     "window blur must cancel an in-flight marquee instead of leaving capture/crosshair state behind");

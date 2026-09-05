@@ -314,7 +314,8 @@ test("keeps desktop bridge minimal while manual files use unified server staging
   assert.doesNotMatch(app, /file\.path|electronAPI\.getPathForFile/);
   assert.doesNotMatch(preload, /getPathForFile|webUtils\.getPathForFile|stage-dropped-file/);
   // Phase 5B：单素材归档迁移到全应用唯一 ConfirmDialog（window.confirm 清零）。
-  assert.match(app, /title: t\("archiveOneTitle"\)/);
+  // 2026-09-04：单素材归档入口整体移除，确认文案不再被引用。
+  assert.doesNotMatch(app, /title: t\("archiveOneTitle"\)/);
   assert.doesNotMatch(app, /window\.confirm\(/);
   // Theme toggle is now in settings-menu segmented control, not a standalone button.
   assert.ok(app.includes('data-appearance-opt'));

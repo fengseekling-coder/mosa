@@ -58,17 +58,18 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
     readFile(resolve(root, "app/inspector-markup.mjs"), "utf8"),
   ]);
 
-  // Source filtering now runs through the shared facet map instead of a chain of
-  // literal params.set calls, but the same three source values stay reachable.
-  // SOURCE_FACETS moved to app/config.mjs (R1 batch 2).
-  assert.match(config, /export const SOURCE_FACETS = \{[^}]*cowart: "cowart-generated"/);
-  assert.match(config, /export const SOURCE_FACETS = \{[^}]*grok: "grok-generated"/);
+  // Sidebar source filtering uses the actual source values directly; the
+  // legacy codex/cowart/grok alias map must not return.
+  assert.doesNotMatch(config, /SOURCE_FACETS/);
+  assert.match(config, /export const SIDEBAR_SOURCE_TYPES = \[/);
   // V2: SOURCE_LABEL_KEYS maps source types to i18n keys
   assert.match(config, /export const SOURCE_LABEL_KEYS = \{/);
   assert.match(config, /"cowart-generated": "sourceCowart"/);
   assert.match(config, /"grok-generated": "sourceGrok"/);
   assert.match(app, /function setDetailOpen\(open\)/);
   assert.match(app, /state\.detailOpen = Boolean\(open\)/);
+  assert.match(app, /if \(!state\.detailOpen && isInspectorDocked\(\)\) state\.detailOpen = true;/,
+    "desktop inspector remains docked even when legacy close paths request false");
   assert.match(app, /function updateSelectedCard\(\)/);
   assert.match(app, /updateSelectedCard\(\);/);
   assert.match(inspector, /function isVideoAsset\(/);
@@ -123,8 +124,8 @@ test("uses a single language chosen from system, Chinese, or English", async () 
   assert.match(app, /data-project-select/);
   assert.match(app, /data-open-library/);
   assert.match(i18nRuntime, /document\.documentElement\.lang/);
-  assert.match(i18n, /自动发现的 Cowart 画布/);
-  assert.match(app, /function cowartCanvasListSignature\(canvases\)/);
+  assert.doesNotMatch(i18n, /自动发现的 Cowart 画布|Detected Cowart canvases/, "retired canvas-list copy does not stay in the language bundle");
+  assert.doesNotMatch(app, /cowartCanvasListSignature|cowartCanvases|cowartCanvasLabel/);
   assert.doesNotMatch(app, /data-cowart-canvas-form/);
   assert.doesNotMatch(app, /data-remove-cowart-canvas/);
   assert.doesNotMatch(apiClient, /\/api\/cowart-canvases/, "startup must not duplicate the bridge status sources request");
@@ -203,8 +204,9 @@ test("keeps recipe version history navigable without replacing active edits", as
   // editor, or a rights annotation would become a different recipe.
   assert.match(app, /asset_id: reference\.asset_id,\s+sha256: reference\.sha256,\s+role: reference\.role,\s+scope: reference\.scope,\s+applied: reference\.applied,/);
   assert.match(app, /const USE_PERMISSION_CYCLE = \{ undeclared: "allowed", allowed: "forbidden", forbidden: "undeclared" \}/);
-  assert.match(app, /restrictedRegenerateTitle/);
-  assert.match(app, /referenceRightsTone\(reference\) === "restricted"/);
+  // 2026-09-04: the restricted-regenerate flow retired with the inspector button.
+  assert.doesNotMatch(app, /restrictedRegenerateTitle/);
+  assert.doesNotMatch(app, /referenceRightsTone\(reference\) === "restricted"/, "no gated regenerate path survives; restricted rights still render through the rights section");
   // The strict CSP forbids an inline onerror attribute.
   assert.doesNotMatch(app, /onerror=/);
   assert.match(css, /\.use-chip\.forbidden \{/);
@@ -233,6 +235,8 @@ test("provides an accessible single-column detail panel", async () => {
   assert.match(i18n, /assetInspector: "Asset inspector"/);
   assert.match(app, /<div class="detail-inspector"><div class="detail-inspector-header">/);
   assert.match(app, /<div class="detail-inspector-scroll">/);
+  assert.match(css, /@media \(min-width: 701px\) \{[\s\S]*?\.mosa-v2 \.detail-close \{ display: none; \}/,
+    "desktop docked inspector must not expose a non-functional close control");
   assert.match(inspector, /<h3 id="detailTitle" tabindex="-1"/);
   assert.match(app, /data-action="close-detail" aria-label="\$\{t\("close"\)\}"/);
   assert.match(inspector, /data-action="toggle-favorite" aria-pressed="\$\{favorite\}"/);

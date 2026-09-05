@@ -102,6 +102,32 @@ test("reordering changes the cover, adding appends, and one remaining member dis
   assert.deepEqual((await store.listAssetPage({ projectId: "default", limit: 0, sort: "oldest", collapseStacks: true })).assets.map((asset) => asset.id), ["a", "b", "c", "d"]);
 });
 
+test("reordering visible Stack members ignores trashed members and preserves their restore slot", async (t) => {
+  const store = await createFixtureStore(t);
+  const stack = await store.createAssetStack("default", ["a", "b", "c", "d"], { coverAssetId: "a" });
+
+  await store.deleteAsset("default", "b");
+  assert.deepEqual(
+    (await store.listAssetStackAssets("default", stack.id)).assets.map((asset) => asset.id),
+    ["a", "c", "d"],
+    "Trash hides the member from the reorderable Stack view while retaining membership for restore",
+  );
+
+  const reordered = await store.reorderAssetStack("default", stack.id, ["d", "a", "c"]);
+  assert.equal(reordered.cover_asset_id, "d");
+  assert.deepEqual(
+    (await store.listAssetStackAssets("default", stack.id)).assets.map((asset) => asset.id),
+    ["d", "a", "c"],
+  );
+
+  await store.restoreAsset("default", "b");
+  assert.deepEqual(
+    (await store.listAssetStackAssets("default", stack.id)).assets.map((asset) => asset.id),
+    ["d", "b", "a", "c"],
+    "restored members return to their retained hidden slot instead of invalidating active-member ordering",
+  );
+});
+
 test("archiving a stack member compacts the stack and promotes a new cover", async (t) => {
   const store = await createFixtureStore(t);
   const stack = await store.createAssetStack("default", ["a", "b", "c"], { coverAssetId: "b" });

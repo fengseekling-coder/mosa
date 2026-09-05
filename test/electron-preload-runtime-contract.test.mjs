@@ -23,7 +23,6 @@ const EXPECTED_API_KEYS = [
   "openDownloadPage",
   "pasteImage",
   "setLocale",
-  "showItemInFolder",
   "writeClipboardImage",
   "writeClipboardText",
 ];
@@ -70,11 +69,10 @@ test("preload path, module format, security settings, and API surface are stable
   assert.doesNotMatch(preload, /openExternal|sendSync|\.send\(/, "generic IPC is not exposed");
   // The preload exposes only narrow, named request channels. Update actions
   // accept no URL from the renderer; the main process owns the fixed website.
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 8, "only the eight approved invoke channels remain");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 7, "only the seven approved invoke channels remain");
   assert.deepEqual(sortedApiKeys(preload), EXPECTED_API_KEYS);
   assert.match(preload, /writeClipboardImage: \(path\) => ipcRenderer\.invoke\("write-clipboard-image", path\)/);
   assert.match(preload, /writeClipboardText: \(text\) => ipcRenderer\.invoke\("write-clipboard-text", text\)/);
-  assert.match(preload, /showItemInFolder: \(path\) => ipcRenderer\.invoke\("show-item-in-folder", path\)/);
   assert.match(preload, /checkForUpdates: \(notify = false\) =>[\s\S]*?ipcRenderer\.invoke\("check-for-updates", notify === true\)/);
   assert.match(preload, /openDownloadPage: \(\) => ipcRenderer\.invoke\("open-download-page"\)/);
   assert.match(preload, /changeLibraryLocation: \(\) => ipcRenderer\.invoke\("change-library-location"\)/);
@@ -103,14 +101,8 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(main, /if \(isolationContext\.qaRun\) return Promise\.resolve\(\{ status: "disabled", currentVersion \}\)/,
     "QA/E2E update checks must stay offline and deterministic");
 
-  const finderHandler = main.slice(main.indexOf('ipcMain.handle("show-item-in-folder"'), main.indexOf("\n  });", main.indexOf('ipcMain.handle("show-item-in-folder"')));
-  assert.match(finderHandler, /event\.sender !== mainWindow\.webContents/);
-  assert.match(finderHandler, /!isAbsolute\(target\)/);
-  assert.match(finderHandler, /!existsSync\(target\)/);
-  assert.match(finderHandler, /resolveAllowedFolderPath\(target, \[libraryDir\]\)/);
-  assert.match(finderHandler, /shell\.showItemInFolder\(allowedTarget\)/);
-  assert.match(finderHandler, /reason: "not-allowed"/);
-  assert.doesNotMatch(finderHandler, /openExternal/);
+  assert.doesNotMatch(preload, /showItemInFolder|show-item-in-folder/);
+  assert.doesNotMatch(main, /ipcMain\.handle\("show-item-in-folder"/);
 
   const clipboardHandler = main.slice(main.indexOf('ipcMain.handle("write-clipboard-text"'), main.indexOf("\n  });", main.indexOf('ipcMain.handle("write-clipboard-text"')));
   assert.match(clipboardHandler, /event\.sender !== mainWindow\.webContents/);
@@ -342,15 +334,16 @@ test("real Electron preload smoke (opt-in)", { skip: process.env.MOSA_ELECTRON_P
   const actionState = JSON.parse(await waitForRendererValue(client, `JSON.stringify({
     finderButtons: document.querySelectorAll('[data-action="show-in-finder"]').length,
     webLinks: document.querySelectorAll('a.original-media-link').length,
+    pathBoxes: document.querySelectorAll('.detail-path-box').length,
   })`, (value) => {
-    try { return JSON.parse(value).finderButtons > 0; } catch { return false; }
+    try { return JSON.parse(value).pathBoxes > 0; } catch { return false; }
   }));
-  // The fixture is on the library's trusted temporary root; the real page must
-  // choose the desktop branch once the real bridge has initialized.
+  // 2026-09-04: the original-media entries retired from the inspector; the path
+  // box rendering proves the inspector mounted. The contract test above
+  // validates every narrow IPC handler and sender/path guard. This real smoke
+  // intentionally stops at preload injection + inspector rendering so CI never
+  // invokes Finder or mutates the host clipboard as a side effect of a test run.
+  assert.equal(actionState.finderButtons, 0);
   assert.equal(actionState.webLinks, 0);
-  assert.equal(actionState.finderButtons > 0, true);
-  // The contract test above validates every narrow IPC handler and sender/path
-  // guard. This real smoke intentionally stops at preload injection + renderer
-  // capability selection so CI never invokes Finder or mutates the host
-  // clipboard as a side effect of a test run.
+  assert.equal(actionState.pathBoxes > 0, true);
 });

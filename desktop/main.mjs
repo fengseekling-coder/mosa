@@ -465,24 +465,6 @@ function registerIPC() {
     return { ok: true, restarting: true };
   });
 
-  // Phase 4C：「在 Finder 中显示」最小能力适配。只接受当前主窗口渲染进程发来的
-  // 真实存在的本地绝对路径；拒绝 URL、相对路径与不存在文件；不用 shell.openExternal
-  // 处理本地路径，不创建/修改/移动/下载任何文件；失败返回结构化结果而不抛异常。
-  ipcMain.handle("show-item-in-folder", async (event, path) => {
-    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false, reason: "unavailable" };
-    if (typeof path !== "string" || !path.trim()) return { ok: false, reason: "invalid" };
-    const target = path.trim();
-    if (!isAbsolute(target) || (isUrlLikePath(target) && /^[a-z][a-z0-9+.-]*:/i.test(target))) return { ok: false, reason: "invalid" };
-    if (!existsSync(target)) return { ok: false, reason: "missing" };
-    try {
-      const allowedTarget = resolveAllowedFolderPath(target, [libraryDir]);
-      if (!allowedTarget) return { ok: false, reason: "not-allowed" };
-      shell.showItemInFolder(allowedTarget);
-      return { ok: true };
-    } catch {
-      return { ok: false, reason: "unavailable" };
-    }
-  });
 }
 
 function runAnonymousUsageReport() {
