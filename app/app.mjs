@@ -1,10 +1,10 @@
 import { createLanguageApplier, createT, resolveLocale } from "./i18n-runtime.mjs";
 import { createBridgeStatusPoller } from "./bridge-status-poller.mjs";
 import {
-  FACET_KEYS, LIBRARY_REFRESH_INTERVAL, LIVE_REGION_WRITE_DELAY, SCOPES, SIDEBAR_SOURCE_TYPES, SKELETON_TILE_COUNT, SOURCE_FACETS, SOURCE_LABEL_KEYS, STATUS_ANNOUNCEMENT_DURATION,
+  FACET_KEYS, LIBRARY_REFRESH_INTERVAL, LIVE_REGION_WRITE_DELAY, SCOPES, SIDEBAR_SOURCE_TYPES, SKELETON_TILE_COUNT, SOURCE_LABEL_KEYS, STATUS_ANNOUNCEMENT_DURATION,
 } from "./config.mjs";
 import {
-  cardShortTitle, debounce, displayAssetTitle, escapeHtml, formatDate, humanizeFacetValue, normalizeDensity, normalizeSort, safeStorageGet, safeStorageSet,
+  cardShortTitle, debounce, displayAssetTitle, escapeHtml, formatDate, normalizeDensity, normalizeSort, safeStorageGet, safeStorageSet,
 } from "./utils.mjs";
 import { createToastManager } from "./toast-manager.mjs";
 import { createApiClient } from "./api-client.mjs";
@@ -62,11 +62,17 @@ function sourceTypeLabel(type) {
 }
 
 const preference = safeStorageGet("mosa.ui-language") || "system";
+const INSPECTOR_DOCKED_MEDIA = "(min-width: 701px)";
+
+function isInspectorDocked() {
+  return typeof window.matchMedia === "function" && window.matchMedia(INSPECTOR_DOCKED_MEDIA).matches;
+}
+
 const state = {
-  project: "default", projects: [], cowartCanvases: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, selectedIds: new Set(), selectedStackNodes: new Map(), selectionProject: "default", selectionRequestKey: "", detailAsset: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
+  project: "default", projects: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, selectedId: null, selectedIds: new Set(), selectedStackNodes: new Map(), selectionProject: "default", selectionRequestKey: "", detailAsset: null, detailStack: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
-  groups: { total: 0, favorites: 0, recent: 0, unorganized: 0, trash: 0, codex: 0, cowart: 0, sourceTypes: [], groups: [], categories: [], styles: [], styleTotal: 0 },
+  groups: { total: 0, favorites: 0, unorganized: 0, trash: 0, sourceTypes: [], groups: [] },
   galleryStatus: "loading", galleryError: null, galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")), storageKind: "unknown",
   libraryPath: "", libraryRoot: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, groupSaving: false, libraryMoveInProgress: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
   dragCounter: 0,
@@ -117,7 +123,7 @@ const els = {
   searchInput: document.querySelector("#searchInput"), quickFilters: document.querySelector("#quickFilters"),
   typeFilters: document.querySelector(".topbar-type-filters"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
-  activeFilters: document.querySelector("#activeFilters"), filterPanel: document.querySelector("#filterPanel"), filterToggle: document.querySelector("#filterToggle"), sortSelect: document.querySelector("#sortSelect"),
+  sortSelect: document.querySelector("#sortSelect"),
   settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
   viewTitle: document.querySelector("#viewTitle"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
@@ -621,7 +627,7 @@ function setupKeyboardShortcuts() {
     // dismiss reflex. Clearing still honors the dirty-draft guard.
     if (event.key === "Escape" && event.target === els.searchInput) {
       event.preventDefault();
-      if (els.searchInput.value) void removeFilterChip("query");
+      if (els.searchInput.value) void clearSearchQuery();
       else els.assetGrid?.focus({ preventScroll: true });
       return;
     }
@@ -642,6 +648,10 @@ function setupKeyboardShortcuts() {
       if (state.viewMode === "library" && state.selectedIds?.size) {
         gallerySelection.clear({ announce: true });
         event.preventDefault();
+        return;
+      }
+      if (state.viewMode === "library" && state.detailOpen && isInspectorDocked()) {
+        if (state.activeStackId) { event.preventDefault(); void assetStacks.exitStack(); }
         return;
       }
       if (state.viewMode === "asset" || state.detailOpen) { event.preventDefault(); void closeDetailSurface(); return; }
@@ -726,8 +736,8 @@ const { detailFileSectionMarkup, detailPromptSectionMarkup, detailSourceSectionM
   detailMoreSectionMarkup, versionPickerMarkup, versionHistoryMarkup,
   generationHistoryMarkup, recipeHistoryMarkup, recipeHistoryDisclosureMarkup, categoryOptions, buildSourceRows, sourceName,
   sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup, formatFileSize, fileDimensionsText, fileFormatText,
-  fileSizeText, fileFactRowMarkup, editRecipeFieldsMarkup, versionOptionLabel, detailVersionSummaryMarkup,
-  originalMediaCapability, originalMediaActionMarkup, referenceRightsSummary, promptReferencesMarkup } = inspectorMarkup;
+  fileSizeText, fileFactRowMarkup, editRecipeFieldsMarkup, versionOptionLabel, detailVersionSummaryMarkup, stackInspectorMarkup,
+  referenceRightsSummary, promptReferencesMarkup } = inspectorMarkup;
 
 // ===== Asset view（大图查看器，已提取至 asset-view.mjs，R1 批次 4）=====
 const assetViewer = createAssetViewer({ els, state, t, announceGalleryStatus, selectedAsset, isVideoAsset,
@@ -817,7 +827,7 @@ async function resetLibraryRefinements() {
   state.nextCursor = null;
   if (state.viewMode === "asset") returnToLibrary();
   clearDetailSelection();
-  renderQuickFilters(); renderTypeFilters(); renderActiveFilters();
+  renderQuickFilters(); renderTypeFilters();
   announceGalleryStatus(t("statusRefinementsCleared"));
   void loadAssets().then((applied) => {
     if (!applied) return;
@@ -839,10 +849,14 @@ async function init() {
     setupKeyboardShortcuts();
     setupImageZoomPan();
     renderGrid();
+    // Desktop V2 keeps the Inspector as a permanent third column. Calling the
+    // existing state transition before data loading also prevents a visible
+    // two-column -> three-column jump during startup; mobile still resolves to
+    // the closed state because isInspectorDocked() is false there.
+    setDetailOpen(false);
     try {
       await Promise.all([loadProjects(), loadProductVersion()]);
       await Promise.all([loadStats(), loadAssets()]);
-      setDetailOpen(false);
       void refreshBridgeStatus();
       bridgeStatusPoller.start();
       startLibraryEventStream();
@@ -1009,13 +1023,6 @@ function renderSettingsMenu({ force = false } = {}) {
   els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" tabindex="-1"><header class="settings-modal-header"><h2 id="settingsModalTitle">${t("settings")}</h2><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${section(t("appearance"), appearanceRows)}${section(t("storageDataSection"), storageRows)}${section(t("aboutSection"), aboutRow, "settings-about-block")}</div></div>`;
   syncSettingsMenuView();
   if (refreshingVisibleDialog) requestAnimationFrame(() => els.settingsMenu?.removeAttribute("data-refreshing"));
-}
-
-function cowartCanvasLabel(canvas = {}) {
-  if (canvas.managed) return t("mosaCanvas");
-  const path = String(canvas.projectDir || "").replace(/[\\/]+$/, "");
-  const name = path.split(/[\\/]/).pop() || path || t("cowartCanvases");
-  return t("projectCanvas", { name });
 }
 
 const ARROW_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
@@ -1312,13 +1319,6 @@ function startLibraryEventStream() {
 }
 
 function applyBridgeStatus({ codex, grok, cowart } = {}) {
-    const nextCanvases = Array.isArray(cowart?.sources) ? cowart.sources : [];
-    const canvasesChanged = cowartCanvasListSignature(nextCanvases) !== cowartCanvasListSignature(state.cowartCanvases);
-    if (canvasesChanged) {
-      state.cowartCanvases = nextCanvases;
-      renderSettingsMenu();
-      if (state.detailOpen && !isDetailEditorActive()) renderDetail();
-    }
     // Required bridges only: a Grok-only failure must not force global error status.
     const hasError = codex?.lastError || cowart?.lastError;
     const codexOn = Boolean(codex?.enabled);
@@ -1350,10 +1350,6 @@ function applyBridgeStatus({ codex, grok, cowart } = {}) {
 function applyBridgeStatusFailure() {
     if (els.bridgeStatusMeta) els.bridgeStatusMeta.textContent = "";
     setStatus(t("statusUnavailable"), "error");
-}
-
-function cowartCanvasListSignature(canvases) {
-  return (canvases || []).map((canvas) => `${canvas.id}:${canvas.canvasDir}:${canvas.enabled}:${canvas.lastError || ""}`).join("|");
 }
 
 /**
@@ -1402,61 +1398,16 @@ function updateViewTitle() {
   }
   if (els.emptyTrashBtn) els.emptyTrashBtn.hidden = state.scope !== "trash" || Number(state.groups?.trash || 0) === 0;
   if (els.newAssetTopBtn) els.newAssetTopBtn.hidden = state.scope === "trash";
-  renderActiveFilters();
 }
 
-/** The chips are the only place the full active query is spelled out. */
-function compactGenerationIdentifier(value) {
-  const identifier = String(value || "");
-  return identifier.length > 26 ? `${identifier.slice(0, 12)}…${identifier.slice(-8)}` : identifier;
-}
-
-function activeFilterChips() {
-  const chips = [];
-  if (state.query) chips.push({ kind: "query", label: t("chipSearch"), value: `“${state.query}”` });
-  if (state.scope !== "all") chips.push({
-    kind: "scope",
-    label: t("chipScope"),
-    value: state.scope === "favorite" ? t("favorites") : state.scope === "unorganized" ? t("unorganized") : t("trash"),
-  });
-  if (state.mediaKind && state.mediaKind !== "all") chips.push({ kind: "type", label: t("typeFilter"), value: state.mediaKind === "img" ? t("typeImages") : t("typeVideos") });
-  for (const key of FACET_KEYS) {
-    const value = state.facets[key];
-    if (!value) continue;
-    const label = t(`chip${key.charAt(0).toUpperCase()}${key.slice(1)}`);
-    const readableValue = key === "source"
-      ? sourceTypeLabel(value)
-      : (["conversation", "generationBatch"].includes(key) ? compactGenerationIdentifier(value) : humanizeFacetValue(value));
-    chips.push({ kind: key, label, value: readableValue });
-  }
-  return chips;
-}
-
-function renderActiveFilters() {
-  if (!els.activeFilters) return;
-  const chips = activeFilterChips();
-  els.activeFilters.hidden = chips.length === 0;
-  if (!chips.length) { els.activeFilters.innerHTML = ""; return; }
-  const chipMarkup = chips.map((chip) => {
-    const readable = `${chip.label}${t("chipSeparator")}${chip.value}`;
-    return `<button class="filter-chip" type="button" data-chip="${escapeHtml(chip.kind)}" aria-label="${escapeHtml(t("removeFilter", { label: readable }))}"><span class="filter-chip-key">${escapeHtml(chip.label)}</span><span class="filter-chip-value">${escapeHtml(chip.value)}</span><span class="filter-chip-x" aria-hidden="true">×</span></button>`;
-  }).join("");
-  // The chips scroll on one line rather than wrapping: at the 960px minimum window
-  // a wrapped row grew the workspace bar to a quarter of the viewport. Clear-all
-  // sits outside the scroller so it stays reachable however many chips there are.
-  els.activeFilters.innerHTML = `<span class="visually-hidden">${escapeHtml(t("activeFilters"))}</span><div class="filter-chip-strip">${chipMarkup}</div><button class="filter-chip-clear" type="button" data-chip="__all">${escapeHtml(t("clearAll"))}</button>`;
-}
-
-async function removeFilterChip(kind) {
-  if (kind === "__all") { await clearAllFilters(); return; }
+async function clearSearchQuery() {
+  if (!state.query && !els.searchInput?.value) return false;
   if (!await confirmDetailNavigation(null)) return;
   discardDetailDraft();
-  if (kind === "query") { state.query = ""; if (els.searchInput) els.searchInput.value = ""; }
-  else if (kind === "scope") state.scope = "all";
-  else if (kind === "type") { state.mediaKind = "all"; renderTypeFilters(); }
-  else if (FACET_KEYS.includes(kind)) state.facets[kind] = "";
-  else return;
+  state.query = "";
+  if (els.searchInput) els.searchInput.value = "";
   applyFilterChange();
+  return true;
 }
 
 function bindEvents() {
@@ -1482,7 +1433,6 @@ function bindEvents() {
     // Phase 3A：结果集语义已变化，退出查看模式（快照 requestKey 随之失效，恢复自动降级）。
     if (state.viewMode === "asset") returnToLibrary();
     clearDetailSelection();
-    renderActiveFilters();
     await loadAssets();
   }, 180));
   els.sortSelect?.addEventListener("change", async () => {
@@ -1502,7 +1452,6 @@ function bindEvents() {
     clearDetailSelection();
     void loadAssets();
   });
-  els.activeFilters?.addEventListener("click", (event) => { const chip = event.target.closest("[data-chip]"); if (chip) void removeFilterChip(chip.dataset.chip); });
   els.detailPanel?.addEventListener("click", handleReferenceRightsOpen);
   els.assetGrid?.addEventListener("click", async (event) => {
     if (gallerySelection.handleGridClick(event)) return;
@@ -1536,13 +1485,10 @@ function bindEvents() {
         const asset = state.assets.find((item) => item.id === id);
         if (!state.activeStackId && asset?.stack?.id) {
           // A collapsed Stack is a logical gallery node. Single-click only
-          // selects it; navigation is reserved for double-click (or Enter),
-          // which prevents accidental entry while browsing or marqueeing.
+          // inspects the logical Stack; navigation is reserved for double-click
+          // (or Enter), which prevents accidental entry while browsing.
           if (state.viewMode !== "library") return;
-          if (state.detailOpen && !await closeDetailSurface()) return;
-          clearDetailSelection();
-          state.selectedId = id;
-          updateSelectedCard();
+          void selectStackNode(asset);
           return;
         }
         void selectAsset(id);
@@ -1722,7 +1668,6 @@ function bindEvents() {
     state.project = select.value; clearDetailSelection(); state.scope = "all"; clearFacets(); state.query = ""; els.searchInput.value = ""; state.nextCursor = null;
     // Phase 3A：项目切换改变结果集语义，退出查看模式（设置菜单在侧栏，查看模式下仍可达）。
     if (state.viewMode === "asset") returnToLibrary();
-    renderActiveFilters();
     await loadStats(); await loadAssets();
     startLibraryEventStream();
   });
@@ -1884,6 +1829,7 @@ function bindEvents() {
     if (state.viewMode === "asset") return;
     if (els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open") || !els.imagePreviewModal?.hidden) return;
     if (!els.settingsMenu?.hidden) return;
+    if (isInspectorDocked()) return;
     event.preventDefault();
     void closeDetailSurface();
   });
@@ -1991,9 +1937,8 @@ function isSidebarNavigationActive(type, value = "") {
  * Other refinements such as media type/style may still refine that selection.
  */
 function setSidebarNavigationState(type, value = "") {
-  const mappedSource = type in SOURCE_FACETS ? SOURCE_FACETS[type] : "";
-  const navType = mappedSource ? "source" : type;
-  const navValue = mappedSource || value;
+  const navType = type;
+  const navValue = value;
 
   if (navType === "all") {
     state.scope = "all";
@@ -2020,28 +1965,18 @@ function setSidebarNavigationState(type, value = "") {
   return false;
 }
 
-/** One entry point for sidebar navigation and legacy facet callers. */
+/** One entry point for the three sidebar navigation zones. */
 async function setFilter(type, value = "") {
-  const valid = type === "all" || SCOPES.includes(type) || type in SOURCE_FACETS || FACET_KEYS.includes(type);
+  const valid = type === "all" || SCOPES.includes(type) || type === "source" || type === "group";
   if (!valid) return;
   if (!await confirmDetailNavigation(null)) return;
   discardDetailDraft();
-  if (!setSidebarNavigationState(type, value) && FACET_KEYS.includes(type)) toggleFacet(type, value);
+  if (!setSidebarNavigationState(type, value)) return;
   applyFilterChange();
-}
-
-function toggleFacet(key, value) {
-  state.facets[key] = state.facets[key] === value ? "" : value;
 }
 
 function clearFacets() {
   for (const key of FACET_KEYS) state.facets[key] = "";
-}
-
-async function clearAllFilters() {
-  // F-08：清除一律收敛到单一 reset helper（query/输入框/facets/scope/分组，
-  // 一次刷新）；sort、density、theme、language、project 不受影响。
-  await resetLibraryRefinements();
 }
 
 function applyFilterChange() {
@@ -2050,7 +1985,7 @@ function applyFilterChange() {
   // Phase 3A：结果集语义已变化，退出查看模式。
   if (state.viewMode === "asset") returnToLibrary();
   clearDetailSelection();
-  renderQuickFilters(); renderTypeFilters(); renderActiveFilters(); loadAssets();
+  renderQuickFilters(); renderTypeFilters(); loadAssets();
 }
 
 async function showRelatedGenerations(asset, mode) {
@@ -2363,6 +2298,8 @@ let galleryCardVirtualGeometryColumns = [];
 const galleryCardVirtualGeometryById = new Map();
 const GALLERY_CARD_VIRTUAL_THRESHOLD = 40;
 const GALLERY_CARD_INITIAL_HYDRATE = 40;
+const GALLERY_CARD_DOM_WINDOW_THRESHOLD = 240;
+const GALLERY_CARD_DOM_PRELOAD = 1800;
 
 function galleryVirtualSpanKey(assetId, columnWidth = galleryCardVirtualColumnWidth) {
   return `${state.galleryDensity}\u001f${Math.round(columnWidth)}\u001f${assetId}`;
@@ -2392,7 +2329,12 @@ function galleryAssetAspect(asset = {}) {
 function estimatedGalleryCardSpan(asset) {
   const cached = galleryCardVirtualSpanCache.get(galleryVirtualSpanKey(asset.id));
   if (cached) return cached;
-  const mediaHeight = galleryCardColumnWidth() * Math.min(16 / 9, Math.max(0.35, galleryAssetAspect(asset)));
+  // Placeholder geometry must follow the same intrinsic aspect ratio as the
+  // real media element. Capping tall assets here makes the placeholder shorter
+  // than the hydrated card, so the real card can overflow into the next
+  // masonry slot. Estimates are allowed to be approximate, but never
+  // deliberately shorter than the media ratio we already know.
+  const mediaHeight = galleryCardColumnWidth() * Math.max(0.35, galleryAssetAspect(asset));
   const infoHeight = state.galleryDensity === "info" ? 44 : 0;
   const grid = els.assetGrid;
   const styles = grid ? getComputedStyle(grid) : null;
@@ -2467,11 +2409,15 @@ function replaceVirtualGalleryCards(observerEntries) {
     changed = true;
   });
 
-  // A virtual card already owns a stable estimated masonry span. Hydration
-  // copies that geometry onto the real card, so measuring it synchronously
-  // while the user scrolls only creates forced-layout work. Unknown media
-  // dimensions still reconcile later through their existing load handler.
-  if (hydratedCards.length) setupGalleryMediaVirtualization(hydratedCards);
+  // Placeholder geometry is only a scroll-stability estimate. Once a real card
+  // is mounted, validate that estimate on the next animation frame. The
+  // masonry scheduler batches all hydrated cards and reflows placement only if
+  // a measured span actually changed, so correctness no longer depends on
+  // metadata being perfect without reintroducing synchronous scroll jank.
+  if (hydratedCards.length) {
+    setupGalleryMediaVirtualization(hydratedCards);
+    hydratedCards.forEach((card) => scheduleMasonryLayout(card));
+  }
   if (changed) {
     invalidateCardGeometryCache();
     gallerySelection.syncRenderedSelection({ prune: false, changedIds });
@@ -2553,6 +2499,83 @@ function galleryCardVirtualNode(grid, id) {
   return card;
 }
 
+function mountGalleryVirtualCard(grid, id, hydrate = false) {
+  const entry = galleryCardVirtualEntries.get(id);
+  const geometry = galleryCardVirtualGeometryById.get(id);
+  if (!entry || !geometry) return null;
+  const created = createAssetCardElements([hydrate ? entry : virtualGalleryCardEntry(entry)]).get(id) || null;
+  if (!created) return null;
+  created.style.gridColumnStart = String(geometry.columnIndex + 1);
+  created.style.gridRowStart = String(geometry.rowStart);
+  created.style.gridRowEnd = `span ${Math.max(1, geometry.rowEnd - geometry.rowStart)}`;
+  const pagination = grid.querySelector(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel, :scope > .gallery-virtual-extent");
+  grid.insertBefore(created, pagination || null);
+  galleryCardVirtualNodes.set(id, created);
+  if (hydrate) {
+    galleryCardVirtualHydratedIds.add(id);
+    setupGalleryMediaVirtualization([created]);
+    scheduleMasonryLayout(created);
+  } else {
+    galleryCardVirtualHydratedIds.delete(id);
+  }
+  galleryCardVirtualObserver?.observe(created);
+  return created;
+}
+
+function galleryVirtualExtentRow() {
+  let rowEnd = 1;
+  for (const column of galleryCardVirtualGeometryColumns) {
+    const last = column.at(-1);
+    if (last?.rowEnd > rowEnd) rowEnd = last.rowEnd;
+  }
+  return rowEnd;
+}
+
+function syncGalleryVirtualExtent() {
+  const grid = els.assetGrid;
+  if (!grid) return;
+  let extent = grid.querySelector(":scope > .gallery-virtual-extent");
+  if (state.assets.length < GALLERY_CARD_DOM_WINDOW_THRESHOLD) {
+    extent?.remove();
+    return;
+  }
+  if (!extent) {
+    extent = document.createElement("div");
+    extent.className = "gallery-virtual-extent";
+    extent.setAttribute("aria-hidden", "true");
+    grid.append(extent);
+  }
+  const row = galleryVirtualExtentRow();
+  extent.style.gridRowStart = String(row);
+  extent.style.gridColumn = "1 / -1";
+  grid.querySelectorAll(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel").forEach((element) => {
+    element.style.gridRowStart = String(row + 1);
+    element.style.gridColumn = "1 / -1";
+  });
+}
+
+function pruneGalleryCardDomWindow() {
+  const grid = els.assetGrid;
+  if (!grid || state.assets.length < GALLERY_CARD_DOM_WINDOW_THRESHOLD) {
+    syncGalleryVirtualExtent();
+    return;
+  }
+  const minRow = Math.max(0, grid.scrollTop - GALLERY_CARD_DOM_PRELOAD);
+  const maxRow = grid.scrollTop + grid.clientHeight + GALLERY_CARD_DOM_PRELOAD;
+  grid.querySelectorAll(":scope > .asset-card").forEach((card) => {
+    const id = card.dataset.id || "";
+    const geometry = galleryCardVirtualGeometryById.get(id);
+    if (!geometry || (geometry.rowEnd >= minRow && geometry.rowStart <= maxRow)) return;
+    if (id === state.selectedId || card.contains(document.activeElement) || card.matches(".selected, .stack-drop-target, .stack-reorder-target")) return;
+    releaseObservedGalleryMedia(card);
+    galleryCardVirtualObserver?.unobserve(card);
+    galleryCardVirtualHydratedIds.delete(id);
+    galleryCardVirtualNodes.delete(id);
+    card.remove();
+  });
+  syncGalleryVirtualExtent();
+}
+
 function syncGalleryCardVirtualWindow() {
   const grid = els.assetGrid;
   if (!grid || state.assets.length < GALLERY_CARD_VIRTUAL_THRESHOLD) return;
@@ -2570,10 +2593,12 @@ function syncGalleryCardVirtualWindow() {
     for (let index = galleryCardVirtualLowerBound(column, minRow); index < column.length; index += 1) {
       const geometry = column[index];
       if (geometry.rowStart > maxRow) break;
-      const card = galleryCardVirtualNode(grid, geometry.id);
+      const visible = geometry.rowEnd >= visibleMinRow && geometry.rowStart <= visibleMaxRow;
+      const card = galleryCardVirtualNode(grid, geometry.id) || mountGalleryVirtualCard(grid, geometry.id, visible);
+      if (visible && card && !card.classList.contains("asset-card-virtual-placeholder")) continue;
       if (!card?.classList.contains("asset-card-virtual-placeholder")) continue;
       const change = { target: card, isIntersecting: true };
-      if (geometry.rowEnd >= visibleMinRow && geometry.rowStart <= visibleMaxRow) desiredVisible.set(geometry.id, change);
+      if (visible) desiredVisible.set(geometry.id, change);
       else desiredBackground.set(geometry.id, change);
     }
   }
@@ -2602,6 +2627,7 @@ function syncGalleryCardVirtualWindow() {
   // by the scheduler below, keeping the scroll path read-mostly and compositor
   // friendly even during very large jumps.
   scheduleGalleryCardVirtualPendingChanges();
+  pruneGalleryCardDomWindow();
 }
 
 function scheduleGalleryCardVirtualWindowSync() {
@@ -2884,7 +2910,11 @@ function layoutMasonry(cards = null) {
       columnEnds[columnIndex] += span;
     });
     invalidateCardGeometryCache();
-    if (state.assets.length >= GALLERY_CARD_VIRTUAL_THRESHOLD) scheduleGalleryCardVirtualWindowSync();
+    syncGalleryVirtualExtent();
+    if (state.assets.length >= GALLERY_CARD_VIRTUAL_THRESHOLD) {
+      pruneGalleryCardDomWindow();
+      scheduleGalleryCardVirtualWindowSync();
+    }
     return;
   }
   placeMasonryCards(grid, gridStyles);
@@ -2895,38 +2925,42 @@ function layoutMasonry(cards = null) {
 // re-reading every card's DOM height would add layout work without adding any
 // information. A linear placement pass closes holes immediately.
 function placeMasonryCards(grid, gridStyles) {
-  const allCards = [...grid.querySelectorAll(":scope > .asset-card")];
   const columnCount = Math.max(1, gridStyles.gridTemplateColumns.split(/\s+/).filter(Boolean).length);
   const columnEnds = Array(columnCount).fill(1);
   const nextGeometryColumns = Array.from({ length: columnCount }, () => []);
   galleryCardVirtualGeometryById.clear();
-  allCards.forEach((card) => {
-    let span = Number.parseInt(String(card.style.gridRowEnd || "").replace(/\D+/g, ""), 10);
-    if (!Number.isFinite(span) || span <= 0) {
-      const entry = galleryCardVirtualEntries.get(card.dataset.id || "");
-      if (!entry) return;
-      span = estimatedGalleryCardSpan(entry.asset);
-      card.style.gridRowEnd = `span ${span}`;
-    }
+  state.assets.forEach((asset) => {
+    const id = asset.id;
+    const entry = galleryCardVirtualEntries.get(id);
+    if (!entry) return;
+    const card = galleryCardVirtualNode(grid, id);
+    let span = card
+      ? Number.parseInt(String(card.style.gridRowEnd || "").replace(/\D+/g, ""), 10)
+      : galleryCardVirtualSpanCache.get(galleryVirtualSpanKey(id));
+    if (!Number.isFinite(span) || span <= 0) span = estimatedGalleryCardSpan(entry.asset);
     let columnIndex = 0;
     for (let index = 1; index < columnEnds.length; index += 1) {
       if (columnEnds[index] < columnEnds[columnIndex]) columnIndex = index;
     }
     const rowStart = columnEnds[columnIndex];
     const columnStart = columnIndex + 1;
-    if (card.style.gridColumnStart !== String(columnStart)) card.style.gridColumnStart = String(columnStart);
-    if (card.style.gridRowStart !== String(rowStart)) card.style.gridRowStart = String(rowStart);
-    const id = card.dataset.id || "";
-    if (id) {
-      const geometry = { id, rowStart, rowEnd: rowStart + span, columnIndex };
-      nextGeometryColumns[columnIndex].push(geometry);
-      galleryCardVirtualGeometryById.set(id, geometry);
+    if (card) {
+      if (card.style.gridColumnStart !== String(columnStart)) card.style.gridColumnStart = String(columnStart);
+      if (card.style.gridRowStart !== String(rowStart)) card.style.gridRowStart = String(rowStart);
+      card.style.gridRowEnd = `span ${span}`;
     }
+    const geometry = { id, rowStart, rowEnd: rowStart + span, columnIndex };
+    nextGeometryColumns[columnIndex].push(geometry);
+    galleryCardVirtualGeometryById.set(id, geometry);
     columnEnds[columnIndex] += span;
   });
   galleryCardVirtualGeometryColumns = nextGeometryColumns;
   invalidateCardGeometryCache();
-  if (state.assets.length >= GALLERY_CARD_VIRTUAL_THRESHOLD) scheduleGalleryCardVirtualWindowSync();
+  syncGalleryVirtualExtent();
+  if (state.assets.length >= GALLERY_CARD_VIRTUAL_THRESHOLD) {
+    pruneGalleryCardDomWindow();
+    scheduleGalleryCardVirtualWindowSync();
+  }
 }
 
 function reflowMasonryPlacement() {
@@ -3009,8 +3043,45 @@ function setupMasonryLayout(options = {}) {
 
 let infiniteScrollObserver = null;
 let isLoadingMore = false;
+let infiniteScrollRearmFrame = null;
+
+function sentinelInInfiniteScrollWarmZone(grid, sentinel, preloadDistance) {
+  if (!(grid instanceof HTMLElement) || !(sentinel instanceof HTMLElement) || !sentinel.isConnected) return false;
+  const gridBounds = grid.getBoundingClientRect();
+  const sentinelBounds = sentinel.getBoundingClientRect();
+  return sentinelBounds.bottom >= gridBounds.top - preloadDistance
+    && sentinelBounds.top <= gridBounds.bottom + preloadDistance;
+}
+
+function requestInfiniteScrollAppend(requestKey, preloadDistance) {
+  const grid = els.assetGrid;
+  const sentinel = grid?.querySelector('[data-sentinel="true"]');
+  if (!grid || !sentinel || !state.nextCursor || isLoadingMore
+    || requestKey !== assetRequestKey(currentAssetRequest())) return;
+  isLoadingMore = true;
+  const fallbackButton = grid.querySelector('[data-action="load-more"]')?.closest(".asset-load-more");
+  loadAssets({ append: true }).then((applied) => {
+    if (!applied && fallbackButton?.isConnected) fallbackButton.hidden = false;
+  }).finally(() => {
+    isLoadingMore = false;
+    if (requestKey !== assetRequestKey(currentAssetRequest()) || infiniteScrollRearmFrame !== null) return;
+    infiniteScrollRearmFrame = requestAnimationFrame(() => {
+      infiniteScrollRearmFrame = null;
+      const nextGrid = els.assetGrid;
+      const nextSentinel = nextGrid?.querySelector('[data-sentinel="true"]');
+      if (nextGrid && nextSentinel && state.nextCursor
+        && sentinelInInfiniteScrollWarmZone(nextGrid, nextSentinel, preloadDistance)) {
+        requestInfiniteScrollAppend(requestKey, preloadDistance);
+      }
+    });
+  });
+}
+
 function setupInfiniteScroll() {
+  const requestKey = assetRequestKey(currentAssetRequest());
   infiniteScrollObserver?.disconnect();
+  if (infiniteScrollRearmFrame !== null) cancelAnimationFrame(infiniteScrollRearmFrame);
+  infiniteScrollRearmFrame = null;
   const grid = els.assetGrid;
   const sentinel = grid?.querySelector('[data-sentinel="true"]');
   if (!grid || !sentinel || !state.nextCursor) return;
@@ -3026,12 +3097,7 @@ function setupInfiniteScroll() {
   const preloadDistance = Math.max(600, Math.ceil(grid.clientHeight * 0.85));
   infiniteScrollObserver = new IntersectionObserver((entries) => {
     entries.forEach((entry) => {
-      if (entry.isIntersecting && state.nextCursor && !isLoadingMore) {
-        isLoadingMore = true;
-        loadAssets({ append: true }).then((applied) => {
-          if (!applied && fallbackButton?.isConnected) fallbackButton.hidden = false;
-        }).finally(() => { isLoadingMore = false; });
-      }
+      if (entry.isIntersecting) requestInfiniteScrollAppend(requestKey, preloadDistance);
     });
   }, { root: grid, rootMargin: `${preloadDistance}px 0px` });
   infiniteScrollObserver.observe(sentinel);
@@ -3106,7 +3172,8 @@ function reconcileAssetCards(entries) {
   if (!grid) return { changedCards: [], replacedFocusedCard: false, structureChanged: false };
   const galleryChild = (element) => element.classList.contains("asset-card")
     || element.classList.contains("asset-load-more")
-    || element.classList.contains("infinite-scroll-sentinel");
+    || element.classList.contains("infinite-scroll-sentinel")
+    || element.classList.contains("gallery-virtual-extent");
   if ([...grid.children].some((element) => !galleryChild(element))) grid.replaceChildren();
 
   const existingCardList = [...grid.querySelectorAll(":scope > .asset-card")];
@@ -3157,7 +3224,7 @@ function reconcileAssetCards(entries) {
     if (card !== cursor) grid.insertBefore(card, cursor);
     cursor = card.nextElementSibling;
   });
-  grid.querySelectorAll(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel").forEach((element) => element.remove());
+  grid.querySelectorAll(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel, :scope > .gallery-virtual-extent").forEach((element) => element.remove());
   if (state.nextCursor) grid.insertAdjacentHTML("beforeend", galleryPaginationMarkup());
   if (changedCards.length || existingCards.size !== desiredCards.length) invalidateCardGeometryCache();
   return { changedCards, replacedFocusedCard, structureChanged };
@@ -3166,7 +3233,7 @@ function reconcileAssetCards(entries) {
 function appendAssetCards(entries) {
   const grid = els.assetGrid;
   if (!grid) return [];
-  grid.querySelectorAll(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel").forEach((element) => element.remove());
+  grid.querySelectorAll(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel, :scope > .gallery-virtual-extent").forEach((element) => element.remove());
   const createdCards = createAssetCardElements(entries);
   const changedCards = entries.map((entry) => createdCards.get(entry.id)).filter(Boolean);
   if (changedCards.length) {
@@ -3202,6 +3269,8 @@ function renderGrid() {
         ? "select"
         : null;
   els.assetGrid.dataset.density = state.galleryDensity;
+  els.assetGrid.dataset.loadedAssets = String(state.assets.length);
+  els.assetGrid.dataset.query = state.query;
   const restoreGridFallbackFocus = () => {
     if (!focusedElement) return;
     requestAnimationFrame(() => els.assetGrid?.focus({ preventScroll: true }));
@@ -3227,9 +3296,8 @@ function renderGrid() {
     return;
   }
   const isAppendMode = animateFrom > 0;
-  const existingCardCount = els.assetGrid.querySelectorAll(":scope > .asset-card").length;
   const canAppendFast = isAppendMode
-    && existingCardCount === animateFrom
+    && galleryCardVirtualEntries.size === animateFrom
     && els.assetGrid.dataset.renderedDensity === state.galleryDensity;
   const renderAssets = canAppendFast ? state.assets.slice(animateFrom) : state.assets;
   galleryCardVirtualColumnWidth = galleryCardColumnWidth();
@@ -3285,7 +3353,7 @@ function renderGrid() {
       asset,
       renderKey: assetCardRenderKey(asset, selected),
       animateCard,
-      markup: `<article class="asset-card${selected ? " selected" : ""}${isStack ? " is-stack" : ""}${state.scope === "trash" ? " is-trash" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}"${isStack ? ` data-stack-id="${escapeHtml(asset.stack.id)}"` : ""} title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}"${stackDescription}>${media}<span class="card-scrim" aria-hidden="true"></span>${stackBadge}${trashBadge}<span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`,
+      markup: `<article class="asset-card${selected ? " selected" : ""}${isStack ? " is-stack" : ""}${state.scope === "trash" ? " is-trash" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}"${isStack ? ` data-stack-id="${escapeHtml(asset.stack.id)}"` : ""} title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}"${stackDescription}>${media}${stackBadge}${trashBadge}<span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`,
     };
     galleryCardVirtualEntries.set(entry.id, entry);
     const hydrateCard = shouldHydrateGalleryCard(entry, ordinal);
@@ -3293,16 +3361,27 @@ function renderGrid() {
     else galleryCardVirtualHydratedIds.delete(entry.id);
     return hydrateCard ? entry : virtualGalleryCardEntry(entry);
   });
+  const domCards = canAppendFast || state.assets.length < GALLERY_CARD_DOM_WINDOW_THRESHOLD
+    ? cards
+    : cards.filter((entry, index) => {
+      const ordinal = index;
+      if (ordinal < GALLERY_CARD_INITIAL_HYDRATE || entry.id === state.selectedId) return true;
+      const geometry = galleryCardVirtualGeometryById.get(entry.id);
+      if (!geometry) return false;
+      const minRow = Math.max(0, els.assetGrid.scrollTop - GALLERY_CARD_DOM_PRELOAD);
+      const maxRow = els.assetGrid.scrollTop + els.assetGrid.clientHeight + GALLERY_CARD_DOM_PRELOAD;
+      return geometry.rowEnd >= minRow && geometry.rowStart <= maxRow;
+    });
   // Populated renders are reconciled by asset id. Unchanged cards keep their
   // decoded media and DOM nodes; only changed/new cards are recreated.
   const scrollContainer = els.assetGrid;
   const savedScrollTop = (isAppendMode || preserveScroll) ? scrollContainer.scrollTop : null;
   if (!preserveScroll && !isAppendMode) scrollContainer.scrollTop = 0;
   const previousDensity = els.assetGrid.dataset.renderedDensity || "";
-  const appendChangedCards = canAppendFast ? appendAssetCards(cards) : null;
+  const appendChangedCards = canAppendFast ? appendAssetCards(domCards) : null;
   const reconciliation = canAppendFast
     ? { changedCards: appendChangedCards, replacedFocusedCard: false, structureChanged: false }
-    : reconcileAssetCards(cards);
+    : reconcileAssetCards(domCards);
   const { changedCards, replacedFocusedCard, structureChanged } = reconciliation;
   els.assetGrid.dataset.renderedDensity = state.galleryDensity;
   const requiresFullMasonry = !canAppendFast && (previousDensity !== state.galleryDensity || changedCards.length >= state.assets.length);
@@ -3368,13 +3447,73 @@ async function selectAsset(id, shouldScroll = false) {
   // Phase 5B context guard：确认期间 Detail 选择已变化时安全取消，旧确认结果不操作新素材。
   if (originAssetId !== null && !isCurrentDetailSelection(originProjectId, originAssetId)) return;
   discardDetailDraft();
-  state.selectedId = id; state.detailAsset = null; state.versionHistory = null; state.recipeHistory = null; state.generationHistory = null; setDetailOpen(true); updateSelectedCard();
+  state.selectedId = id; state.detailAsset = null; state.detailStack = null; state.versionHistory = null; state.recipeHistory = null; state.generationHistory = null; setDetailOpen(true); updateSelectedCard();
   if (shouldScroll) els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
+let stackInspectorRequestSequence = 0;
+async function selectStackNode(asset) {
+  const stackId = String(asset?.stack?.id || "");
+  const coverAssetId = String(asset?.id || "");
+  if (!stackId || !coverAssetId || state.activeStackId) return false;
+  const originProjectId = state.project;
+  const originAssetId = state.selectedId;
+  if (!await confirmDetailNavigation(coverAssetId)) return false;
+  if (originAssetId !== null && !isCurrentDetailSelection(originProjectId, originAssetId)) return false;
+  discardDetailDraft();
+  const requestId = ++stackInspectorRequestSequence;
+  state.selectedId = coverAssetId;
+  state.detailAsset = null;
+  state.detailStack = {
+    id: stackId,
+    coverAssetId,
+    count: Math.max(0, Number(asset.stack?.count || 0)),
+    members: [],
+    loading: true,
+    error: false,
+  };
+  state.versionHistory = null;
+  state.recipeHistory = null;
+  state.generationHistory = null;
+  setDetailOpen(true);
+  updateSelectedCard();
+  renderDetail();
+  try {
+    const members = [];
+    const seenCursors = new Set();
+    let cursor = "";
+    let total = state.detailStack.count;
+    while (true) {
+      if (cursor) {
+        if (seenCursors.has(cursor)) throw new Error("Stack inspector pagination stalled.");
+        seenCursors.add(cursor);
+      }
+      const params = new URLSearchParams({ project: state.project, limit: "250" });
+      if (cursor) params.set("cursor", cursor);
+      if (members.length) params.set("includeTotal", "0");
+      const page = await apiFetch(`/api/asset-stacks/${encodeURIComponent(stackId)}/assets?${params}`);
+      if (requestId !== stackInspectorRequestSequence || state.selectedId !== coverAssetId || state.detailStack?.id !== stackId) return false;
+      members.push(...(page.assets || []));
+      if (page.page?.total != null) total = Number(page.page.total) || total;
+      cursor = page.page?.nextCursor || "";
+      if (!cursor) break;
+    }
+    state.detailStack = { ...state.detailStack, count: total || members.length, members, loading: false, error: false };
+    renderDetail();
+    return true;
+  } catch (error) {
+    if (requestId !== stackInspectorRequestSequence || state.selectedId !== coverAssetId || state.detailStack?.id !== stackId) return false;
+    state.detailStack = { ...state.detailStack, loading: false, error: true };
+    renderDetail();
+    return false;
+  }
+}
+
 function clearDetailSelection() {
+  stackInspectorRequestSequence += 1;
   state.selectedId = null;
   state.detailAsset = null;
+  state.detailStack = null;
   state.versionHistory = null;
   state.recipeHistory = null;
   state.generationHistory = null;
@@ -3556,7 +3695,9 @@ function updateSelectedCard() {
 }
 function setDetailOpen(open) {
   const wasOpen = state.detailOpen;
-  state.detailOpen = Boolean(open); els.appShell?.classList.toggle("details-open", state.detailOpen); document.body.classList.toggle("detail-open", state.detailOpen); els.detailPanel?.setAttribute("aria-hidden", String(!state.detailOpen));
+  state.detailOpen = Boolean(open);
+  if (!state.detailOpen && isInspectorDocked()) state.detailOpen = true;
+  els.appShell?.classList.toggle("details-open", state.detailOpen); document.body.classList.toggle("detail-open", state.detailOpen); els.detailPanel?.setAttribute("aria-hidden", String(!state.detailOpen));
   if (state.detailOpen) setMobileNavOpen(false);
   if (state.detailOpen) {
     if (!wasOpen) {
@@ -3909,16 +4050,25 @@ function renderDetail({ syncAssetView = true } = {}) {
   // cannot fire against the fresh DOM. An in-flight PATCH is left to resolve
   // and bail via the stale renderId guard inside persistInspectorDraft.
   cancelInspectorSave();
+  activeInspector = null;
   const renderId = ++detailRenderSequence;
+  const stackDetail = state.detailStack?.coverAssetId === state.selectedId ? state.detailStack : null;
   const asset = selectedAsset();
   // Re-rendering replaces the whole panel, so a focus that lived inside it
   // would fall back to <body>. Arrow-key gallery browsing re-renders on every
   // step; keep the keyboard anchored on the detail title instead.
   const hadPanelFocus = document.activeElement instanceof HTMLElement && els.detailPanel.contains(document.activeElement);
+  if (stackDetail) {
+    detailRenderedAssetId = `stack:${stackDetail.id}`;
+    els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span data-detail-header-label>${t("stackInspectorTitle")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${stackInspectorMarkup(stackDetail)}</div></div>`;
+    bindStackInspectorMediaFallbacks(els.detailPanel);
+    els.detailPanel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => { void closeDetailSurface(); });
+    return;
+  }
   const keepScrollTop = !hadPanelFocus && asset && detailRenderedAssetId === asset.id
     ? els.detailPanel.querySelector(".detail-inspector-scroll")?.scrollTop ?? null
     : null;
-  if (!asset) { detailRenderedAssetId = null; els.detailPanel.innerHTML = `<div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t(state.assets.length ? "noSelection" : "noAssets")}</p><span>${t(state.assets.length ? "noSelectionHint" : "noAssetsHint")}</span></div>`; return; }
+  if (!asset) { detailRenderedAssetId = null; els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span data-detail-header-label>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll"><div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t(state.assets.length ? "noSelection" : "noAssets")}</p><span>${t(state.assets.length ? "noSelectionHint" : "noAssetsHint")}</span></div></div></div>`; return; }
   const cachedHistory = versionHistoryForAsset(asset);
   const cachedRecipeHistory = recipeHistoryForAsset(asset) || recipeHistoryFromAsset(asset);
   const cachedGenerationHistory = generationHistoryForAsset(asset);
@@ -4237,7 +4387,6 @@ function bindGenerationHistoryEvents(history, selectedAssetId) {
           confirmLabel: t("generationRelationDeleteAction"),
           tone: "warning",
           returnFocus: button,
-          contextKey: `${originProjectId}:${activeSelectedAssetId}:${childGenerationId}:${parentGenerationId}:${relationType}`,
         });
         if (!confirmed || !isCurrentDetailSelection(originProjectId, activeSelectedAssetId)) return;
         button.disabled = true;
@@ -4398,6 +4547,19 @@ function bindReferenceThumbnailFallbacks(root) {
     }, { once: true });
   });
 }
+function bindStackInspectorMediaFallbacks(root) {
+  root?.querySelectorAll?.("img[data-stack-fallback-src]").forEach((image) => {
+    if (image.dataset.stackFallbackBound === "1") return;
+    image.dataset.stackFallbackBound = "1";
+    image.addEventListener("error", () => {
+      const fallback = String(image.dataset.stackFallbackSrc || "").trim();
+      if (!fallback || image.dataset.stackFallbackUsed === "1") return;
+      image.dataset.stackFallbackUsed = "1";
+      image.removeAttribute("srcset");
+      image.src = fallback;
+    });
+  });
+}
 function renderReferenceRightsRegion(asset) {
   const region = els.detailPanel?.querySelector("[data-reference-rights]");
   if (!region || !isCurrentDetailSelection(asset.project_id, asset.id)) return;
@@ -4446,74 +4608,8 @@ function bindDetailEvents(asset, renderId) {
   if (!isVideoAsset(asset)) {
     panel.querySelector(".detail-image")?.addEventListener("dblclick", (event) => openImagePreview(asset.id, event.currentTarget));
   }
-  // Phase 4C：App 能力——「在 Finder 中显示」走 preload 注入的最小 IPC；成功提示不含
-  // 本地绝对路径；失败为结构化错误提示。不重绘 Detail、不改变滚动与焦点。
-  panel.querySelector('[data-action="show-in-finder"]')?.addEventListener("click", () => runAction(async () => {
-    const result = await window.electronAPI.showItemInFolder(asset.image_path);
-    if (result?.ok) { showToast(t("shownInFinder"), "success"); return; }
-    throw new Error(t("showInFinderFailed"));
-  }));
   panel.querySelector('[data-action="copy-prompt"]')?.addEventListener("click", () => runAction(async () => { await writeClipboardText(asset.prompt || ""); showToast(t("copySuccess"), "success"); }));
   panel.querySelector('[data-action="copy-instruction"]')?.addEventListener("click", () => runAction(async () => { const instruction = String(asset.source?.user_message || asset.business_fields?.user_message || "").trim(); await writeClipboardText(instruction); showToast(t("copySuccess"), "success"); }));
-  panel.querySelector('[data-action="copy-path"]')?.addEventListener("click", () => runAction(async () => { await writeClipboardText(asset.image_path); showToast(t("pathCopied"), "success"); }));
-  panel.querySelector('[data-action="regenerate"]')?.addEventListener("click", (event) => {
-    const trigger = event.currentTarget;
-    runAction(async () => {
-      const snapshot = activeRecipeSnapshot(asset);
-      const blocked = (snapshot?.references || []).filter((reference) => referenceRightsTone(reference) === "restricted");
-      if (blocked.length) {
-        // Phase 5B：blocked>0 才打开确认（warning tone，不用红色）；blocked=0 直接执行既有复制。
-        const confirmed = await requestConfirmation({
-          title: t("restrictedRegenerateTitle"),
-          description: t("restrictedRegenerateDescription", { count: blocked.length }),
-          confirmLabel: t("restrictedRegenerateAction"),
-          tone: "warning",
-          returnFocus: trigger,
-          contextKey: `${asset.project_id}:${asset.id}:restricted-regenerate`,
-        });
-        // Cancel：不写剪贴板；context guard：旧确认结果不操作新素材。
-        if (!confirmed || !isCurrentDetailSelection(asset.project_id, asset.id)) return;
-      }
-      await writeClipboardText(regenerationInstruction(asset, snapshot));
-      showToast(t("instructionCopied"), "success");
-    });
-  });
-  panel.querySelector('[data-action="archive-asset"]')?.addEventListener("click", (event) => {
-    const trigger = event.currentTarget;
-    runAction(async () => {
-      // Phase 5B：单素材归档确认（danger tone）——确认阶段不关闭 Detail、不清 selectedId。
-      const confirmed = await requestConfirmation({
-        title: t("archiveOneTitle"),
-        description: t("archiveOneDescription"),
-        confirmLabel: t("archiveAction"),
-        tone: "danger",
-        returnFocus: trigger,
-        contextKey: `${asset.project_id}:${asset.id}:archive-asset`,
-      });
-      if (!confirmed) return; // Cancel：保持当前素材、Viewer、位置和 Inspector
-      // Context guard：确认后重新检查操作入口对应素材仍是当前 Detail 选择。
-      if (!isCurrentDetailSelection(asset.project_id, asset.id)) return;
-      // Only after the archive itself is confirmed do we ask whether an
-      // in-progress local draft may be discarded. Cancelling Archive therefore
-      // never throws away edits as a side effect.
-      if (!await confirmDetailNavigation(null)) return;
-      if (!isCurrentDetailSelection(asset.project_id, asset.id)) return;
-      // POST 在途防重：确认框本身有单 pending 守卫，但在确认通过到请求完成之间
-      // 按钮仍是活的；禁用它避免二次归档提交。
-      trigger.disabled = true;
-      try {
-        await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/archive`, { method: "POST" });
-        discardDetailDraft();
-        showToast(t("archived"), "success");
-        setDetailOpen(false);
-        state.selectedId = null;
-        await loadStats();
-        await loadAssets();
-      } finally {
-        trigger.disabled = false;
-      }
-    });
-  });
   panel.querySelectorAll('[data-edit="rating"] button').forEach((button) => button.addEventListener("click", () => {
     state.detailDirty = true;
     const rating = button.closest('[data-edit="rating"]');

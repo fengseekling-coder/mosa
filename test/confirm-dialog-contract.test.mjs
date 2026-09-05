@@ -16,6 +16,7 @@ const root = resolve(import.meta.dirname, "..");
 const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
 const readAssetView = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
 const readConfirmDialog = () => readFile(resolve(root, "app/confirm-dialog.mjs"), "utf8");
+const readInspectorMarkup = () => readFile(resolve(root, "app/inspector-markup.mjs"), "utf8");
 const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
@@ -123,26 +124,28 @@ test("22-23. focus restoration with safe fallbacks", async () => {
   const target = functionSlice(confirmDialog, "isConfirmFocusTarget");
   assert.match(restore, /requestAnimationFrame\(/, "restoration is deferred through rAF");
   assert.match(restore, /for \(const candidate of \[returnFocus, triggerElement\]\)/, "priority 1 returnFocus, priority 2 pre-open activeElement");
-  assert.match(restore, /data-action="archive-asset"/, "priority 3 stable requery for the archive entry");
-  assert.match(restore, /data-action="regenerate"/, "priority 3 stable requery for the regenerate entry");
-  assert.match(restore, /\[data-version-select\]/, "priority 3 stable requery for the version picker");
-  assert.match(restore, /els\.batchArchive/, "priority 3 stable requery for the batch entry");
-  assert.match(restore, /state\.viewMode === "asset" \? els\.assetViewBack : els\.searchInput/, "priority 4 safe zone, never body");
+  // 2026-09-04: the single-asset archive entry retired, so its requery branch went with it.
+  assert.doesNotMatch(restore, /data-action="archive-asset"/, "no requery entry for the retired archive action");
+  // 2026-09-04: the restricted-regenerate entry retired with the inspector regenerate button.
+  assert.doesNotMatch(restore, /data-action="regenerate"/, "no requery entry for the retired regenerate action");
+  assert.doesNotMatch(restore, /data-version-select|batchArchive|contextKey/, "retired action-specific requery branches do not survive");
+  assert.match(restore, /state\.viewMode === "asset" \? els\.assetViewBack : els\.searchInput/, "priority 3 safe zone, never body");
   assert.match(target, /element\.isConnected && !element\.disabled && !element\.hidden && element\.offsetParent !== null/,
     "never restores into disconnected, disabled, hidden, or invisible nodes");
   assert.doesNotMatch(restore, /document\.body\.focus/, "focus never lands on body");
 });
 
-// 24-25. Existing surfaces close through the shared wrapper before the dialog opens.
-test("24-25. filter/settings surfaces close before opening", async () => {
+// 24-25. The surviving Settings surface closes before the dialog opens; the
+// retired filter surface must not be preserved as a hidden compatibility path.
+test("24-25. settings closes before opening and filter surface stays retired", async () => {
   const app = await readApp();
   const confirmDialog = await readConfirmDialog();
   const request = functionSlice(confirmDialog, "requestConfirmation");
-  const closeFilter = request.indexOf('closePanel(els.filterPanel, els.filterToggle, "confirm-dialog")');
   const closeSettings = request.indexOf('closePanel(els.settingsMenu, els.settingsToggle, "confirm-dialog")');
   const open = request.indexOf('els.confirmDialog.classList.add("open")');
-  assert.ok(closeFilter > -1 && closeSettings > -1, "Filter and Settings close via the shared closePanel wrapper");
-  assert.ok(closeFilter < open && closeSettings < open, "surfaces close before the dialog opens");
+  assert.ok(closeSettings > -1 && closeSettings < open, "Settings closes via the shared closePanel wrapper before the dialog opens");
+  assert.doesNotMatch(request, /filterPanel|filterToggle/);
+  assert.doesNotMatch(app, /filterPanel|filterToggle/);
   assert.match(app, /function closePanel\(panel, trigger, reason = "escape"\)[\s\S]*?panel\.hidden = true;[\s\S]*?trigger\?\.setAttribute\("aria-expanded", "false"\)/,
     "closePanel no longer depends on the retired anchored-overlay manager");
 });
@@ -150,42 +153,31 @@ test("24-25. filter/settings surfaces close before opening", async () => {
 // 26-29. window.confirm is gone; batch archive confirms on a selection snapshot.
 // 2026-08-18: V2-only token consolidation. The V2 design retired the
 // batch-management affordance entirely; `batchArchive()` was removed from
-// `app.mjs` along with `state.selectedIds`. Single-asset archive still
-// goes through the dialog and is asserted in test 30-31 below.
+// `app.mjs` along with `state.selectedIds`.
+// 2026-09-04: the single-asset archive entry (inspector danger action) was
+// retired with its listener, confirm copy, and contextKey.
 
-// 30-31. Single-asset archive confirms before the API and keeps everything on Cancel.
-test("30-31. single archive confirms before touching the API", async () => {
+// 30-31. The single-asset archive action stays retired end to end.
+test("30-31. single-asset archive action is fully retired", async () => {
   const app = await readApp();
-  const start = app.indexOf('panel.querySelector(\'[data-action="archive-asset"]\')?.addEventListener');
-  assert.notEqual(start, -1, "archive-asset listener exists");
-  const section = app.slice(start, start + 2500);
-  assert.match(section, /title: t\("archiveOneTitle"\)/, "uses the single-archive copy");
-  assert.match(section, /tone: "danger"/, "single archive keeps danger tone");
-  assert.match(section, /returnFocus: trigger/, "Cancel returns focus to the archive button");
-  const confirm = section.indexOf("await requestConfirmation");
-  const cancel = section.indexOf("if (!confirmed) return;");
-  const apiCall = section.indexOf("/archive");
-  assert.ok(confirm < cancel && cancel < apiCall, "Cancel keeps the viewer, position, and inspector — no API call");
-  assert.match(section, /isCurrentDetailSelection\(asset\.project_id, asset\.id\)/, "context recheck after confirm");
+  const inspector = await readInspectorMarkup();
+  assert.doesNotMatch(inspector, /data-action="archive-asset"/, "the inspector renders no archive entry");
+  assert.doesNotMatch(app, /data-action="archive-asset"/, "no archive-asset listener survives in app.mjs");
+  assert.doesNotMatch(app, /:archive-asset`/, "no archive-asset contextKey survives");
+  assert.doesNotMatch(app, /title: t\("archiveOneTitle"\)/, "the single-archive confirm copy is unreferenced");
 });
 
-// 32-35. Restricted regenerate only confirms when blocked > 0, in warning tone.
-test("32-35. restricted regenerate keeps warning semantics", async () => {
+// 32-35. The inspector regenerate button retired on 2026-09-04; the
+// restricted-regenerate warning flow retired with it. `regenerationInstruction`
+// survives for the recipe-history copy entry, and the i18n copy stays (45-50).
+test("32-35. restricted regenerate flow is fully retired", async () => {
   const app = await readApp();
-  const start = app.indexOf('panel.querySelector(\'[data-action="regenerate"]\')?.addEventListener');
-  assert.notEqual(start, -1, "regenerate listener exists");
-  const next = app.indexOf('panel.querySelector(\'[data-action="archive-asset"]\')?.addEventListener', start + 1);
-  assert.notEqual(next, -1, "archive-asset listener follows the regenerate listener");
-  const section = app.slice(start, next);
-  assert.match(section, /if \(blocked\.length\) \{/, "blocked=0 never opens the dialog");
-  assert.match(section, /title: t\("restrictedRegenerateTitle"\)/, "uses the restricted-regenerate copy");
-  assert.match(section, /t\("restrictedRegenerateDescription", \{ count: blocked\.length \}\)/, "count interpolates");
-  assert.match(section, /tone: "warning"/, "warning tone, never the destructive red");
-  assert.doesNotMatch(section, /tone: "danger"/, "restricted regenerate never uses danger");
-  const confirm = section.indexOf("await requestConfirmation");
-  const cancel = section.indexOf("if (!confirmed || !isCurrentDetailSelection(asset.project_id, asset.id)) return;");
-  const clipboard = section.indexOf("writeClipboardText(regenerationInstruction(asset, snapshot))");
-  assert.ok(confirm < cancel && cancel < clipboard, "Cancel never writes the clipboard; Confirm reuses regenerationInstruction");
+  const inspector = await readInspectorMarkup();
+  assert.doesNotMatch(inspector, /data-action="regenerate"/, "the inspector renders no regenerate entry");
+  assert.doesNotMatch(app, /data-action="regenerate"/, "no regenerate listener survives in app.mjs");
+  assert.doesNotMatch(app, /:restricted-regenerate`/, "no restricted-regenerate contextKey survives");
+  assert.doesNotMatch(app, /title: t\("restrictedRegenerateTitle"\)/, "the restricted-regenerate confirm copy is unreferenced");
+  assert.match(app, /function regenerationInstruction\(/, "recipe-history copy keeps regenerationInstruction");
 });
 
 // 36-42. confirmDetailNavigation is async, awaited everywhere, and flushes the pending auto-save before navigation.
@@ -214,10 +206,10 @@ test("43-44. contextKey guards keep stale results from acting", async () => {
   const viewer = await readAssetView();
   // 2026-08-26: auto-save retired the discard-confirmation prompt, so the
   // `:discard-version` contextKey retired with it (navigation now flushes the
-  // pending draft instead of asking permission to discard). The single-asset
-  // archive and restricted-regenerate context keys still guard their paths.
-  assert.match(app, /contextKey: `\$\{asset\.project_id\}:\$\{asset\.id\}:archive-asset`/, "single archive contextKey");
-  assert.match(app, /contextKey: `\$\{asset\.project_id\}:\$\{asset\.id\}:restricted-regenerate`/, "restricted regenerate contextKey");
+  // pending draft instead of asking permission to discard). 2026-09-04: the
+  // single-asset archive and restricted-regenerate contextKeys retired too.
+  assert.doesNotMatch(app, /:archive-asset`/, "the retired archive contextKey is gone");
+  assert.doesNotMatch(app, /:restricted-regenerate`/, "the retired regenerate contextKey is gone");
   const selectAsset = functionSlice(app, "selectAsset");
   const openView = functionSlice(viewer, "openAssetView");
   const helper = functionSlice(app, "selectDetailVersion");
@@ -227,30 +219,20 @@ test("43-44. contextKey guards keep stale results from acting", async () => {
   }
 });
 
-// 45-50. Four distinct copy sets, symmetric i18n, correct tone assignment.
-test("45-50. distinct copy per path with symmetric i18n", async () => {
+// 45-50. Only copy for active confirmation flows remains in the bundle.
+test("45-50. active confirm copy stays symmetric and retired copy is removed", async () => {
   const { default: translations } = await import(pathToFileURL(resolve(root, "app/i18n.mjs")).href);
-  const keys = ["archiveManyTitle", "archiveManyDescription", "archiveOneTitle", "archiveOneDescription", "archiveAction",
-    "discardChangesTitle", "discardChangesDescription", "discardChangesAction",
-    "restrictedRegenerateTitle", "restrictedRegenerateDescription", "restrictedRegenerateAction"];
+  const keys = ["discardChangesTitle", "discardChangesDescription", "discardChangesAction"];
   for (const locale of ["zh", "en"]) {
     for (const key of keys) {
       assert.ok(typeof translations[locale][key] === "string" && translations[locale][key].length, `${locale}.${key} exists`);
     }
   }
-  const zhTitles = [translations.zh.archiveManyTitle, translations.zh.archiveOneTitle, translations.zh.discardChangesTitle, translations.zh.restrictedRegenerateTitle];
-  assert.equal(new Set(zhTitles).size, 4, "four distinct zh titles");
-  const zhDescriptions = [translations.zh.archiveManyDescription, translations.zh.archiveOneDescription, translations.zh.discardChangesDescription, translations.zh.restrictedRegenerateDescription];
-  assert.equal(new Set(zhDescriptions).size, 4, "four distinct zh descriptions");
-  const enTitles = [translations.en.archiveManyTitle, translations.en.archiveOneTitle, translations.en.discardChangesTitle, translations.en.restrictedRegenerateTitle];
-  assert.equal(new Set(enTitles).size, 4, "four distinct en titles");
-  const actions = [translations.zh.archiveAction, translations.zh.discardChangesAction, translations.zh.restrictedRegenerateAction];
-  assert.equal(new Set(actions).size, 3, "confirm buttons never rely on the title alone");
-  for (const key of ["archiveManyTitle", "archiveManyDescription", "restrictedRegenerateDescription"]) {
-    assert.match(translations.zh[key], /\{count\}/, `zh.${key} interpolates count`);
-    assert.match(translations.en[key], /\{count\}/, `en.${key} interpolates count`);
-  }
-  for (const removed of ["confirmBatchArchive", "discardVersionChanges", "regenerateRestrictedConfirm"]) {
+  for (const removed of [
+    "archiveManyTitle", "archiveManyDescription", "archiveOneTitle", "archiveOneDescription", "archiveAction",
+    "restrictedRegenerateTitle", "restrictedRegenerateDescription", "restrictedRegenerateAction",
+    "confirmBatchArchive", "discardVersionChanges", "regenerateRestrictedConfirm",
+  ]) {
     assert.equal(translations.zh[removed], undefined, `legacy key ${removed} removed (zh)`);
     assert.equal(translations.en[removed], undefined, `legacy key ${removed} removed (en)`);
   }
@@ -335,7 +317,7 @@ test("58. dialog styles without !important", async () => {
   assert.match(css, /\.btn-danger \{ border: 1px solid var\(--color-danger\); color: var\(--color-danger\); background: var\(--app-card\); \}/,
     "the danger confirm button consumes the approved DestructiveButton recipe");
   assert.doesNotMatch(css, /\.btn-danger-solid\b/, "ConfirmDialog does not carry a third destructive-button recipe");
-  assert.match(css, /:where\(\.action-btn\.danger, \.batch-bar-btn\.danger, \.btn-danger\):not\(:disabled\):not\(\[aria-disabled="true"\]\):hover/,
+  assert.match(css, /:where\(\.action-btn\.danger, \.btn-danger\):not\(:disabled\):not\(\[aria-disabled="true"\]\):hover/,
     "danger hover stays inside the precise-pointer media guard");
 });
 

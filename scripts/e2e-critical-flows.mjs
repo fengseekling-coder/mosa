@@ -284,7 +284,7 @@ async function waitForRendererReady(cdp, timeoutMs = 30000) {
       const state = await cdp.evaluate(`({
         readyState: document.readyState,
         appShell: Boolean(document.querySelector('#appShell')),
-        preload: Boolean(window.electronAPI && typeof window.electronAPI.showItemInFolder === 'function'),
+        preload: Boolean(window.electronAPI && typeof window.electronAPI.writeClipboardText === 'function'),
       })`);
       if (state?.readyState === 'complete' && state.appShell && state.preload) return;
     } catch (error) {

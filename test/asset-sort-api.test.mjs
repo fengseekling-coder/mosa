@@ -132,3 +132,14 @@ test("GET /api/groups reports the true style total behind a capped facet list", 
   assert.equal(groups.groups.styleTotal, 2);
   assert.deepEqual(groups.groups.styles.map(([name]) => name).sort(), ["collage", "poster"]);
 });
+
+test("GET /api/navigation exposes only the sidebar counts without changing the full groups contract", async (t) => {
+  const runtime = await startSeededRuntime(t, "mosa-navigation-api-");
+  const response = await fetch(`${runtime.url}/api/navigation`);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(Object.keys(body.navigation).sort(), ["favorites", "groups", "sourceTypes", "total", "trash", "unorganized"]);
+  assert.equal(body.navigation.total, 5);
+  assert.equal(body.navigation.unorganized, 5);
+  assert.equal(body.navigation.trash, 0);
+});

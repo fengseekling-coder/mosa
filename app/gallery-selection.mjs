@@ -1,5 +1,4 @@
 export const MARQUEE_DRAG_THRESHOLD_PX = 3;
-export const MARQUEE_CARD_DRAG_THRESHOLD_PX = 6;
 const AUTO_SCROLL_EDGE_PX = 36;
 const AUTO_SCROLL_MAX_PX = 18;
 const MARQUEE_GEOMETRY_BAND_PX = 512;
@@ -423,14 +422,15 @@ export function createGallerySelection({
     if (!els.assetGrid || state.viewMode !== "library" || !state.assets?.length) return;
     if (event.button !== 0 || event.isPrimary === false || event.pointerType === "touch") return;
     if (state.assetStackDragCandidate) return;
-    // Card surfaces are valid marquee origins. Only controls whose primary job
-    // is an immediate action stay out of the gesture so favorite/copy/load-more
-    // clicks remain crisp. A plain card click is still untouched because we do
-    // not capture or prevent anything until the pointer moves past the threshold.
+    // Gesture ownership is intentionally desktop-like: a plain press on an
+    // asset card belongs to asset dragging, while marquee selection begins in
+    // gallery whitespace. Shift-drag is the explicit exception that allows a
+    // marquee to originate on a card for additive/range selection workflows.
     if (event.target.closest?.(".card-action-btn, .asset-load-more button, input, textarea, select, [contenteditable], a[href]")) return;
     const bounds = els.assetGrid.getBoundingClientRect();
     if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) return;
     const startCard = event.target.closest?.(".asset-card");
+    if (startCard && !event.shiftKey) return;
     pointer = {
       id: event.pointerId,
       startX: event.clientX,
@@ -451,11 +451,7 @@ export function createGallerySelection({
     pointer.lastY = event.clientY;
     if (!pointer.dragging) {
       const distance = Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY);
-      // Blank-area marquee stays very responsive. A card-origin gesture gets a
-      // little more hysteresis so normal click jitter still resolves to the
-      // card's single-select action instead of accidentally entering batch mode.
-      const threshold = pointer.startCardId ? MARQUEE_CARD_DRAG_THRESHOLD_PX : MARQUEE_DRAG_THRESHOLD_PX;
-      if (distance < threshold) return;
+      if (distance < MARQUEE_DRAG_THRESHOLD_PX) return;
       pointer.dragging = true;
       captureDragGeometry();
       try { els.assetGrid?.setPointerCapture(event.pointerId); } catch { /* global listeners still keep the gesture alive */ }

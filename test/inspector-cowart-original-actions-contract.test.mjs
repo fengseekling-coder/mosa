@@ -43,88 +43,48 @@ function sliceBetween(source, startMarker, endMarker) {
 const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "more"];
 const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailMoreSectionMarkup(asset)}";
 
-// 29-35. Desktop capability: preload exposes only showItemInFolder; main validates sender,
-// absolute path, existence, and the shared library boundary before using shell.showItemInFolder.
-test("29-35. show-item-in-folder IPC is minimal, validated, and shell-correct", async () => {
+// 29-35. The inspector no longer needs a dedicated Finder IPC. The renderer
+// keeps the narrower shared HTTP open-folder path and the preload surface stays small.
+test("29-35. retired show-item-in-folder IPC stays removed", async () => {
   const [preload, main] = await Promise.all([readPreload(), readMain()]);
 
-  assert.match(preload, /showItemInFolder: \(path\) =>\s*\n?\s*ipcRenderer\.invoke\("show-item-in-folder", path\)/, "preload exposes showItemInFolder");
-  // Renderer keeps only the eight currently approved fixed-purpose invokes; no generic shell or URL capability is exposed.
-  assert.equal(count(preload, "ipcRenderer.invoke"), 8, "preload exposes only the eight approved narrow invoke channels");
+  assert.doesNotMatch(preload, /showItemInFolder|show-item-in-folder/);
+  assert.doesNotMatch(main, /ipcMain\.handle\("show-item-in-folder"/);
+  assert.equal(count(preload, "ipcRenderer.invoke"), 7, "preload exposes only the seven approved narrow invoke channels");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "the renderer never receives a shell object");
-
-  const handler = sliceBetween(main, 'ipcMain.handle("show-item-in-folder"', "\n}");
-  assert.match(main, /import \{[^}]*\bshell\b[^}]*\} from "electron"/, "main imports shell");
-  assert.match(handler, /event\.sender !== mainWindow\.webContents/, "the sender must be the current main window");
-  assert.match(handler, /typeof path !== "string" \|\| !path\.trim\(\)/, "empty paths are rejected");
-  assert.match(handler, /!isAbsolute\(target\)/, "relative paths are rejected");
-  assert.match(handler, /\^\[a-z\]\[a-z0-9\+\.\-\]\*:\/i\.test\(target\)/, "URL-like input is rejected");
-  assert.match(handler, /!existsSync\(target\)/, "missing files are rejected");
-  assert.match(handler, /resolveAllowedFolderPath\(target, \[libraryDir\]\)/, "Finder uses the shared filesystem boundary");
-  assert.match(handler, /shell\.showItemInFolder\(allowedTarget\)/, "the native API receives the canonical allowed path");
-  assert.doesNotMatch(handler, /openExternal/, "local paths never go through shell.openExternal");
-  assert.match(handler, /return \{ ok: true \}/, "success returns a structured ok result");
-  assert.match(handler, /reason: "missing"/, "missing files return a structured reason");
-  assert.match(handler, /reason: "invalid"/, "invalid input returns a structured reason");
-  assert.match(handler, /reason: "not-allowed"/, "out-of-library paths return a structured reason");
-  assert.match(handler, /reason: "unavailable"/, "unavailable capability returns a structured reason");
-  assert.doesNotMatch(handler, /writeFile|mkdir|rename|unlink|fetch\(/, "the handler never creates, modifies, moves, or downloads files");
 });
 
-// 36-43. Original-media capability: App shows Finder copy, Web shows a safe link, both
-// image and video get an explicit entry, and unavailable never renders a dead control.
-test("36-43. original media capability adapts between App and Web without dead controls", async () => {
+// 36-43. 2026-09-04: the App/Web original-media capability (Finder button /
+// web open-original link / unavailable copy) retired from the inspector along
+// with its helpers. Finder and copy-path stay reachable via the context menu.
+test("36-43. original media capability is fully retired from the inspector", async () => {
   const app = await readApp();
   const inspector = await readInspectorMarkup();
-  const capability = functionSlice(inspector, "originalMediaCapability");
-  const markup = functionSlice(inspector, "originalMediaActionMarkup");
-  const more = functionSlice(inspector, "detailMoreSectionMarkup");
 
-  assert.match(capability, /typeof window\.electronAPI\?\.showItemInFolder === "function" && imagePath/, "desktop-finder requires the injected API and a real path");
-  assert.match(capability, /if \(imageUrl\) return "web-open";/, "web-open requires a non-empty image_url");
-  assert.match(capability, /return "unavailable";/, "both missing means unavailable");
-
-  assert.match(markup, /data-action="show-in-finder">\$\{t\("showInFinder"\)\}/, "App uses the Finder copy");
-  assert.match(markup, /<a class="action-btn secondary original-media-link" href="\$\{escapeHtml\(asset\.image_url\)\}" target="_blank" rel="noopener noreferrer">\$\{t\("openOriginal"\)\}/, "Web uses a safe new-tab link with the open-original copy");
-  assert.match(markup, /<p class="empty-copy original-media-unavailable">\$\{t\("originalUnavailable"\)\}<\/p>/, "unavailable renders honest copy, not a dead button");
-  assert.doesNotMatch(markup, /disabled/, "unavailable renders no disabled dead control");
-
-  // The entry is unconditional for images and videos alike — no isVideoAsset gate.
-  assert.match(more, /<div class="original-media-action">\$\{originalMediaActionMarkup\(asset\)\}<\/div>/, "the entry renders for every asset");
-  assert.doesNotMatch(more, /isVideoAsset/, "the entry is no longer video-only");
-  assert.doesNotMatch(inspector, /isVideoAsset\(asset\)\s*\?\s*[^\n]*open-original-media/, "the old video-only gate is gone");
-
-  // One capability per asset — never both entries at once.
-  assert.match(markup, /if \(capability === "desktop-finder"\) return/, "finder returns early");
-  assert.match(markup, /if \(capability === "web-open"\) return/, "web returns early");
-
-  // The Finder handler never leaks the absolute path into a toast.
-  const finderHandler = sliceBetween(app, '[data-action="show-in-finder"]', '[data-action="copy-prompt"]');
-  assert.match(finderHandler, /window\.electronAPI\.showItemInFolder\(asset\.image_path\)/, "the handler invokes the IPC with the asset path");
-  assert.match(finderHandler, /showToast\(t\("shownInFinder"\), "success"\)/, "the success toast is a fixed string");
-  assert.doesNotMatch(finderHandler, /showToast\([^)]*image_path/, "no absolute path in any toast");
+  assert.doesNotMatch(inspector, /function originalMediaCapability\(/, "the capability helper is gone");
+  assert.doesNotMatch(inspector, /function originalMediaActionMarkup\(/, "the action markup helper is gone");
+  assert.doesNotMatch(inspector, /original-media-link|original-media-unavailable|data-action="show-in-finder"/, "no original-media entry renders");
+  assert.doesNotMatch(app, /data-action="show-in-finder"/, "no Finder listener survives in app.mjs");
   assert.doesNotMatch(app, /file:\/\//, "no file:// URL is ever produced");
 });
 
-// 44-52. More section final form: visible original entry, native details disclosure for
-// utility actions, separated danger archive, and no custom popover or ellipsis menu.
+// 44-52. More section final form: the image path shown directly (no disclosure,
+// no original-media entry, no heading), and no custom popover or ellipsis menu.
+// 2026-09-04: the More disclosure (utility buttons / archive entry) and the
+// "original & more" heading + open-original button all retired.
 test("44-52. more section final form keeps the approved hierarchy", async () => {
   const inspector = await readInspectorMarkup();
   const more = functionSlice(inspector, "detailMoreSectionMarkup");
 
   assert.ok(COMPOSITION.endsWith("${detailMoreSectionMarkup(asset)}"), "more stays the last section");
-  const originalIndex = more.indexOf('original-media-action');
-  const detailsIndex = more.indexOf("data-more-actions");
-  assert.ok(originalIndex > -1 && originalIndex < detailsIndex, "the original entry is visible by default, before the disclosure");
-  assert.match(more, /<details class="detail-disclosure" data-more-actions><summary>\$\{t\("moreActions"\)\}<\/summary>/, "more actions use a native details/summary disclosure");
-  assert.match(more, /<div class="detail-utility-actions"><button class="action-btn secondary" type="button" data-action="regenerate">/, "regenerate lives inside the disclosure");
-  assert.match(more, /\? `<button class="action-btn secondary" type="button" data-action="copy-path">\$\{t\("copyPath"\)\}<\/button>`\n\s+: "";/, "copy-path renders only when a path exists");
-  assert.match(more, /<div class="more-location"><span class="meta-key">\$\{t\("imageLocation"\)\}<\/span>/, "the image location row lives inside the disclosure");
-  assert.match(more, /<div class="detail-danger-actions"><button class="action-btn danger" type="button" data-action="archive-asset">/, "archive stays a separated danger action");
+  assert.doesNotMatch(more, /data-more-actions/, "no More disclosure survives");
+  assert.doesNotMatch(more, /<details /, "no details element renders in the more section");
+  assert.doesNotMatch(more, /original-media|originalAndMore|show-in-finder/, "no original-media entry or heading renders in the section");
+  assert.doesNotMatch(more, /data-action="regenerate"|data-action="copy-path"/, "no utility buttons render in the section");
+  assert.doesNotMatch(more, /detail-utility-actions/, "no utility action cluster in the section");
+  assert.match(more, /<div class="more-location"><span class="meta-key">\$\{t\("imageLocation"\)\}<\/span>/, "the image location row renders directly in the section");
+  assert.doesNotMatch(more, /data-action="archive-asset"/, "no archive entry renders in the more section");
   assert.doesNotMatch(more, /role="menu|popover|ellipsis|overflow-menu|⋯|…/, "no custom popover, menu role, or ellipsis trigger");
-
-  // The disclosure is closed by default (no open attribute).
-  assert.doesNotMatch(more, /<details class="detail-disclosure" data-more-actions open/, "the disclosure starts closed");
 });
 
 // 54-58. Neighbouring contracts keep passing and their app.js anchors are intact.
@@ -183,8 +143,12 @@ test("i18n. new original-media keys are symmetric across zh and en", async () =>
 test("styles. Phase 4C additions reuse tokens and stay within the boundary", async () => {
   const css = await readCss();
 
-  assert.match(css, /\.original-media-action \{ display: grid; margin-bottom: 10px; \}/, "the original entry keeps the 8px rhythm");
-  assert.match(css, /\.more-location \{ display: grid; gap: 6px; margin-top: 8px; \}/, "the location row keeps the 8px rhythm");
+  // 2026-09-04: the original-media entry retired; its styles went with it.
+  assert.doesNotMatch(css, /\.original-media-action|\.original-media-link|\.original-media-unavailable/, "no original-media styles survive");
+  // 2026-09-04: the location row lays the path box inline after the label,
+  // single line, overflow hidden (ellipsis) instead of the stacked grid.
+  assert.match(css, /\.more-location \{ display: flex; align-items: center; gap: 6px; margin-top: 8px; \}/, "the location row keeps the 8px rhythm");
+  assert.match(css, /\.more-location \.path-box \{ flex: 1 1 auto; min-width: 0; overflow: hidden;/, "the path box fills the row, single line, clipped");
   const cssDeclarations = css.replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(cssDeclarations, /!important/, "no !important in any CSS declaration");
   const phase4cStyles = sliceBetween(css, "/* Phase 4C More 终态", ".action-btn {");

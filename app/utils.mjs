@@ -36,18 +36,6 @@ export function cardShortTitle(asset = {}) {
   return `${(lastSpace > CARD_TITLE_MAX * 0.6 ? clipped.slice(0, lastSpace) : clipped).trimEnd()}…`;
 }
 
-/**
- * Machine-generated facet values such as `black-white-minimal-concept` are hard
- * to scan in a long list. Only lowercase ASCII slugs are reworded; anything else
- * (hand-written collection names, CJK, mixed case) is shown exactly as stored,
- * and the stored value is always what gets sent back to the API.
- */
-export function humanizeFacetValue(value) {
-  const raw = String(value ?? "");
-  if (!/^[a-z0-9]+(?:[-_][a-z0-9]+)+$/.test(raw)) return raw;
-  return raw.split(/[-_]/).map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
-}
-
 // Locale is passed in explicitly: these helpers stay free of the gallery's state.
 export function formatDate(value, locale) {
   if (!value) return "";

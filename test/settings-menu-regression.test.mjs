@@ -20,7 +20,7 @@ const root = resolve(import.meta.dirname, "..");
 test("renderSettingsMenu does not attach any event listeners", async () => {
   const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
-  const match = /function renderSettingsMenu\(\{ force = false \} = \{\}\) \{([\s\S]*?)\n\}\n\nfunction cowartCanvasLabel/.exec(app);
+  const match = /function renderSettingsMenu\(\{ force = false \} = \{\}\) \{([\s\S]*?)\n\}\n\nconst ARROW_KEYS/.exec(app);
   assert.ok(match, "expected to find renderSettingsMenu function body");
   const body = match[1];
 
@@ -74,7 +74,7 @@ test("legacy densityToggle references have been removed from app.js", async () =
 test("renderSettingsMenu uses real state for segmented control active status", async () => {
   const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
 
-  const match = /function renderSettingsMenu\(\{ force = false \} = \{\}\) \{([\s\S]*?)\n\}\n\nfunction cowartCanvasLabel/.exec(app);
+  const match = /function renderSettingsMenu\(\{ force = false \} = \{\}\) \{([\s\S]*?)\n\}\n\nconst ARROW_KEYS/.exec(app);
   assert.ok(match, "expected to find renderSettingsMenu function body");
   const body = match[1];
 

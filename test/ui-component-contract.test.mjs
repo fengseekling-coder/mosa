@@ -59,10 +59,10 @@ function contractSection(css) {
   return css.slice(start, end);
 }
 
-// The thirteen legacy button families inventoried in Phase 1B.
+// The current button families covered by the shared Phase 1B state contract.
 const FAMILIES = [
   "icon-button", "toolbar-icon", "toolbar-filter", "create-button", "action-btn",
-  "recipe-save-btn", "btn-primary", "btn-secondary", "batch-bar-btn", "mini-btn",
+  "recipe-save-btn", "btn-primary", "btn-secondary", "mini-btn",
   "settings-trigger", "add-group-button", "browse-btn",
 ];
 
@@ -78,9 +78,9 @@ test("the six button primitives are declared in the contract section", async () 
     ".icon-button:not(.quiet)", // IconButton
     ".icon-button.quiet", // IconButton quiet
     ".toolbar-icon, .toolbar-filter", // ToolbarButton
-    ".action-btn.danger, .batch-bar-btn.danger", // DestructiveButton
+    ".action-btn.danger / .btn-danger", // DestructiveButton comment mapping
     ".nav-item:not(.active), .settings-trigger", // MenuItem
-    ".filter-chip-clear", // InlineAction
+    ".mini-btn / .section-head-copy", // InlineAction comment mapping
   ]) {
     assert.ok(section.includes(selector), `contract selector missing: ${selector}`);
   }
@@ -92,7 +92,7 @@ test("every legacy button family is mapped into the contract", async () => {
     assert.ok(section.includes(`.${family}`), `legacy family .${family} is not mapped in the contract section`);
   }
   // Companion classes that share the families' contract.
-  for (const companion of ["section-head-copy", "detail-close", "detail-fav-btn", "filter-chip-clear", "asset-load-more", "recipe-snapshot-footer", "error-state"]) {
+  for (const companion of ["section-head-copy", "detail-close", "detail-fav-btn", "asset-load-more", "recipe-snapshot-footer", "error-state"]) {
     assert.ok(section.includes(companion), `companion class ${companion} is not covered`);
   }
 });
@@ -127,7 +127,7 @@ test("button family hover rules only exist inside the precise-pointer media quer
     rest = extracted.rest;
   }
   assert.ok(hoverBlocks.length > 0, "at least one precise-pointer hover block must exist");
-  for (const family of FAMILIES.concat(["section-head-copy", "detail-close", "detail-fav-btn", "filter-chip-clear"])) {
+  for (const family of FAMILIES.concat(["section-head-copy", "detail-close", "detail-fav-btn"])) {
     const hoverUse = new RegExp(`\\.${family}[^,{]*:hover`);
     assert.doesNotMatch(rest, hoverUse, `.${family}:hover must live inside @media (hover: hover) and (pointer: fine)`);
     assert.ok(hoverBlocks.some((block) => new RegExp(`\\.${family.replace("-", "\\-")}`).test(block)), `.${family} must be covered by the wrapped hover rules`);

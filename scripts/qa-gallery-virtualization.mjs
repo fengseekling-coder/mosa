@@ -11,6 +11,7 @@ import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 const root = resolve(import.meta.dirname, "..");
 const ASSET_COUNT = Number.parseInt(process.env.MOSA_GALLERY_QA_ASSET_COUNT || "2000", 10);
 const MAX_HYDRATED_CARDS = Number.parseInt(process.env.MOSA_GALLERY_QA_MAX_HYDRATED || "320", 10);
+const MAX_MOUNTED_CARDS = Number.parseInt(process.env.MOSA_GALLERY_QA_MAX_MOUNTED || "400", 10);
 const MAX_DOM_NODES = Number.parseInt(process.env.MOSA_GALLERY_QA_MAX_DOM_NODES || "9000", 10);
 const MAX_LONG_TASK_MS = Number.parseInt(process.env.MOSA_GALLERY_QA_MAX_LONG_TASK_MS || "500", 10);
 const MAX_LONG_TASK_TOTAL_MS = Number.parseInt(process.env.MOSA_GALLERY_QA_MAX_LONG_TASK_TOTAL_MS || "4000", 10);
@@ -119,8 +120,6 @@ async function main() {
           });
         }));
       }
-      const seeded = await store.listAssets({ projectId: "default" });
-      assert.equal(seeded.length, ASSET_COUNT, `QA seed wrote ${seeded.length} of ${ASSET_COUNT} assets`);
     } finally {
       store.close();
     }
@@ -133,6 +132,8 @@ async function main() {
     // synthetic fixture jobs before Electron starts.
     const database = new Database(join(libraryDir, "mosa.db"));
     try {
+      const seededCount = Number(database.prepare("SELECT COUNT(*) AS count FROM assets WHERE project_id = 'default'").get().count || 0);
+      assert.equal(seededCount, ASSET_COUNT, `QA seed wrote ${seededCount} of ${ASSET_COUNT} assets`);
       database.prepare("DELETE FROM derivative_jobs").run();
     } finally {
       database.close();
@@ -177,28 +178,32 @@ async function main() {
     // pagination boundary stays pending from entering the sentinel warm zone to
     // the new cards being present. This directly measures the wait a user could
     // perceive while flinging through the library.
-    const maxScrollSteps = Math.ceil(ASSET_COUNT / GALLERY_PAGE_SIZE) * 20 + 200;
+    // Windowed DOM means mounted card count no longer grows with loaded pages.
+    // Give each expected page enough animation frames to cross the preload
+    // boundary, commit, remount the new warm window, and re-arm pagination.
+    const maxScrollSteps = Math.ceil(ASSET_COUNT / GALLERY_PAGE_SIZE) * 30 + 400;
     for (let step = 0; step < maxScrollSteps; step += 1) {
       const scrollState = JSON.parse(await evaluate(client, `JSON.stringify((()=>{
         const grid=document.querySelector('#assetGrid');
         const cards=document.querySelectorAll('#assetGrid > .asset-card').length;
+        const loaded=Number(grid.dataset.loadedAssets||0);
         const more=Boolean(document.querySelector('[data-action="load-more"]'));
         const now=performance.now();
         const pending=window.__mosaBoundaryPending;
-        if(pending && cards>pending.cards){window.__mosaAppendMarks.push({at:pending.at,committedAt:now,cards:pending.cards,phase:'auto-append',latency:now-pending.at});window.__mosaBoundaryPending=null;}
-        if(window.__mosaBoundaryStall && cards>window.__mosaBoundaryStall.cards){window.__mosaBoundaryStalls.push({at:window.__mosaBoundaryStall.at,endedAt:now,cards:window.__mosaBoundaryStall.cards,duration:now-window.__mosaBoundaryStall.at});window.__mosaBoundaryStall=null;}
+        if(pending && loaded>pending.loaded){window.__mosaAppendMarks.push({at:pending.at,committedAt:now,loaded:pending.loaded,phase:'auto-append',latency:now-pending.at});window.__mosaBoundaryPending=null;}
+        if(window.__mosaBoundaryStall && loaded>window.__mosaBoundaryStall.loaded){window.__mosaBoundaryStalls.push({at:window.__mosaBoundaryStall.at,endedAt:now,loaded:window.__mosaBoundaryStall.loaded,duration:now-window.__mosaBoundaryStall.at});window.__mosaBoundaryStall=null;}
         const remaining=Math.max(0,grid.scrollHeight-grid.scrollTop-grid.clientHeight);
         const triggerDistance=Math.max(600,grid.clientHeight*0.85)+32;
-        if(!window.__mosaBoundaryPending && more && remaining<=triggerDistance){window.__mosaBoundaryPending={at:now,cards};}
+        if(!window.__mosaBoundaryPending && more && remaining<=triggerDistance){window.__mosaBoundaryPending={at:now,loaded};}
         const maxScrollTop=Math.max(0,grid.scrollHeight-grid.clientHeight);
         grid.scrollTop=Math.min(maxScrollTop,grid.scrollTop+Math.max(160,grid.clientHeight*0.7));
-        if(more && grid.scrollTop>=maxScrollTop-0.5 && !window.__mosaBoundaryStall){window.__mosaBoundaryStall={at:now,cards};}
-        return {cards,more,scrollTop:grid.scrollTop,scrollHeight:grid.scrollHeight,clientHeight:grid.clientHeight};
+        if(more && grid.scrollTop>=maxScrollTop-0.5 && !window.__mosaBoundaryStall){window.__mosaBoundaryStall={at:now,loaded};}
+        return {cards,loaded,more,scrollTop:grid.scrollTop,scrollHeight:grid.scrollHeight,clientHeight:grid.clientHeight};
       })())`));
-      if (scrollState.cards >= ASSET_COUNT || !scrollState.more) break;
+      if (scrollState.loaded >= ASSET_COUNT || !scrollState.more) break;
       await wait(16);
     }
-    await evaluate(client, `(()=>{const pending=window.__mosaBoundaryPending;const cards=document.querySelectorAll('#assetGrid > .asset-card').length;if(pending&&cards>pending.cards){const now=performance.now();window.__mosaAppendMarks.push({at:pending.at,committedAt:now,cards:pending.cards,phase:'auto-append',latency:now-pending.at});window.__mosaBoundaryPending=null;}return true;})()`);
+    await evaluate(client, `(()=>{const pending=window.__mosaBoundaryPending;const loaded=Number(document.querySelector('#assetGrid')?.dataset.loadedAssets||0);if(pending&&loaded>pending.loaded){const now=performance.now();window.__mosaAppendMarks.push({at:pending.at,committedAt:now,loaded:pending.loaded,phase:'auto-append',latency:now-pending.at});window.__mosaBoundaryPending=null;}return true;})()`);
     await wait(1200);
     const topMetrics = JSON.parse(await evaluate(client, `JSON.stringify({
       scrollHeight:document.querySelector('#assetGrid').scrollHeight,
@@ -228,6 +233,7 @@ async function main() {
     const apiSnapshot = JSON.parse(await evaluate(client, `(async()=>{const response=await fetch('/api/assets?project=default&limit=2');return JSON.stringify(await response.json())})()`));
     const metrics = JSON.parse(await evaluate(client, `JSON.stringify({
       href:location.href,
+      loaded:Number(document.querySelector('#assetGrid')?.dataset.loadedAssets||0),
       cards:document.querySelectorAll('#assetGrid > .asset-card').length,
       hydrated:document.querySelectorAll('#assetGrid > .asset-card:not(.asset-card-virtual-placeholder)').length,
       placeholders:document.querySelectorAll('#assetGrid > .asset-card-virtual-placeholder').length,
@@ -252,7 +258,8 @@ async function main() {
     console.log(JSON.stringify(metrics, null, 2));
     metrics.elapsedMs = Date.now() - startedAt;
 
-    assert.equal(metrics.cards, ASSET_COUNT, `expected ${ASSET_COUNT} loaded cards: ${JSON.stringify(metrics)}`);
+    assert.equal(metrics.loaded, ASSET_COUNT, `expected ${ASSET_COUNT} loaded assets: ${JSON.stringify(metrics)}`);
+    assert.ok(metrics.cards <= MAX_MOUNTED_CARDS, `mounted cards ${metrics.cards} exceeds ${MAX_MOUNTED_CARDS}`);
     assert.ok(metrics.hydrated <= MAX_HYDRATED_CARDS, `hydrated cards ${metrics.hydrated} exceeds ${MAX_HYDRATED_CARDS}`);
     assert.ok(metrics.nodes <= MAX_DOM_NODES, `DOM nodes ${metrics.nodes} exceeds ${MAX_DOM_NODES}`);
     assert.ok(metrics.longTaskMax <= MAX_LONG_TASK_MS, `long task max ${metrics.longTaskMax}ms exceeds ${MAX_LONG_TASK_MS}ms`);

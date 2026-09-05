@@ -582,7 +582,7 @@ export function createAssetViewer({
     // （不 preventDefault），不拦截应用其他区域滚动。
     if (state.viewMode !== "asset" || !assetViewImageReady()) return;
     if (!els.imagePreviewModal?.hidden || els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open")) return;
-    if (!els.filterPanel?.hidden || !els.settingsMenu?.hidden) return;
+    if (!els.settingsMenu?.hidden) return;
     event.preventDefault();
     // 乘法步进与按钮一致（每 100 deltaY 一个 ×1.2 档）；普通滚轮与浏览器映射的 pinch
     // wheel（小 delta 连续事件）共用同一指针中心公式，滚轮方向沿用旧 Lightbox（上滚放大）。

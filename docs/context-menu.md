@@ -72,7 +72,7 @@ MOSA 现已支持完整的右键菜单功能，为导航栏和素材库提供快
 
 ### 状态反馈
 - 禁用项显示为灰色
-- 危险操作（删除/归档）显示为红色
+- 永久删除等不可逆操作使用危险样式；普通删除先进入回收站
 - 操作完成后显示 Toast 通知
 - 危险操作需要确认；普通删除先进入回收站，只有永久删除不可撤销
 
@@ -107,7 +107,7 @@ app/
 - `/api/assets/:projectId/:assetId` - 更新素材
 - `/api/assets/:projectId/:assetId/restore` - 从回收站还原素材
 - `/api/assets/:projectId/:assetId/permanent` - 永久删除回收站素材
-- `/api/trash/:projectId` - 清空指定项目的回收站
+- `DELETE /api/trash` - 通过请求体中的 `projectId` 清空指定项目的回收站
 - `/api/groups` - 管理分组
 - `/api/open-folder` - 打开文件夹
 
@@ -146,7 +146,6 @@ app/
 ## 未来计划
 
 ### 第二阶段功能
-- [ ] 多选素材批量操作
 - [ ] 创建副本
 - [ ] 对比查看（并排对比 2-4 个素材）
 - [ ] 生成联系表（缩略图网格）

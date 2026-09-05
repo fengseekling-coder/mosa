@@ -136,10 +136,10 @@
 
         <nav class="primary-nav" data-i18n-aria-label="library" aria-label="素材库">
           <ul class="nav-list" id="quickFilters">
-            <li><button class="nav-item active" data-filter="all" type="button" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span class="nav-item-text" data-i18n="allAssets">全部素材</span><span class="nav-count" id="countAll">—</span></button></li>
-            <li><button class="nav-item" data-filter="favorite" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg><span class="nav-item-text" data-i18n="favorites">收藏</span><span class="nav-count" id="countFav">—</span></button></li>
-            <li><button class="nav-item" data-filter="unorganized" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16l-2 14H6L4 5Z"/><path d="M7 12h3l2 2 2-2h3"/></svg><span class="nav-item-text" data-i18n="unorganized">未整理</span><span class="nav-count" id="countUnorganized">—</span></button></li>
-            <li><button class="nav-item" data-filter="trash" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg><span class="nav-item-text" data-i18n="trash">回收站</span><span class="nav-count" id="countTrash">—</span></button></li>
+            <li><button class="nav-item active" data-filter="all" type="button" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span class="nav-item-text" data-i18n="allAssets">全部素材</span><span class="nav-count">—</span></button></li>
+            <li><button class="nav-item" data-filter="favorite" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg><span class="nav-item-text" data-i18n="favorites">收藏</span><span class="nav-count">—</span></button></li>
+            <li><button class="nav-item" data-filter="unorganized" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16l-2 14H6L4 5Z"/><path d="M7 12h3l2 2 2-2h3"/></svg><span class="nav-item-text" data-i18n="unorganized">待整理</span><span class="nav-count">—</span></button></li>
+            <li><button class="nav-item" data-filter="trash" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg><span class="nav-item-text" data-i18n="trash">回收站</span><span class="nav-count">—</span></button></li>
           </ul>
           <div class="sidebar-group-heading">
             <button class="sidebar-section-toggle" id="smartGroupsToggle" type="button" aria-expanded="true" aria-controls="sidebarGroupList">
@@ -196,9 +196,6 @@
             </div>
           </div>
         </header>
-        <div class="active-filters" id="activeFilters" data-i18n-aria-label="activeFilters" aria-label="当前筛选" hidden></div>
-        <button class="toolbar-icon" id="filterToggle" type="button" aria-expanded="false" aria-controls="filterPanel" hidden data-i18n-aria-label="toggleFilters" aria-label="切换筛选面板" data-i18n-title="toggleFilters" title="切换筛选面板"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4"/></svg></button>
-        <section class="filter-panel" id="filterPanel" aria-label="筛选" hidden></section>
         <section class="grid" id="assetGrid" data-i18n-aria-label="assetList" aria-label="素材列表" aria-busy="true" tabindex="-1"></section>
         <div class="selection-bar" id="selectionBar" role="toolbar" data-i18n-aria-label="batchMode" aria-label="批量管理" hidden>
           <span class="selection-bar-count" id="selectionCount">已选 0 项</span>

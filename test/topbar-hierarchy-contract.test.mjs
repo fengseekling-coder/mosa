@@ -213,19 +213,10 @@ test("15. import keeps accessible name and visible text", async () => {
   assert.match(app, /els\.newAssetTopBtn\?\.addEventListener\("click", openImportModal\);/, "import still opens the existing modal");
 });
 
-// 16. The 1179px compact tier exists.
-// 2026-08-18: V2-only token consolidation. The V2 HTML removed the
-// legacy `.toolbar-filter` buttons, but the corresponding ≤1399px
-// label-clip CSS rules stay in place — they're harmless no-ops on the
-// new topbar and document the original Phase 2B intent. The contract
-// here verifies the rules remain in place; the new topbar's compact
-// behaviour (search placeholder visible, create-button label kept) is
-// asserted by other suites.
-test("16. the 1179px compact tier exists", async () => {
-  const { block } = extractBlock(await readCss(), "@media (max-width: 1399px) {");
-  assert.match(block, /\.topbar-work-group \.toolbar-filter > span:not\(\.filter-dot\) \{[^}]*clip: rect\(0,0,0,0\)/, "legacy batch/filter labels clip-hidden at ≤1399px (kept as a no-op on V2)");
-  assert.match(block, /\.topbar-work-group \.toolbar-filter \{[^}]*padding: 0 8px/, "legacy compact padding at ≤1399px (kept as a no-op on V2)");
-  assert.doesNotMatch(block, /display:\s*none/, "the 1179 tier must not use display:none for control labels");
+// 16. The retired 1179px filter-only tier leaves no no-op CSS behind.
+test("16. retired filter-only compact tier is removed", async () => {
+  const css = await readCss();
+  assert.doesNotMatch(css, /\.filter-dot|\.topbar-work-group \.toolbar-filter > span/);
 });
 
 // 17. The 960px compact tier exists (≤1120px bridge-label clip rule; 960 falls inside).
@@ -309,7 +300,6 @@ test("24. topbar rules consume only defined tokens", async () => {
   for (const marker of [".topbar {", ".topbar-context {", ".topbar-actions {", ".topbar-utility-group, .topbar-work-group {", ".topbar-primary-group {", "#bridgeStatusLabel {"]) {
     ruleBodies.push(extractBlock(css, marker).block);
   }
-  ruleBodies.push(extractBlock(css, "@media (max-width: 1399px) {").block);
   const consumed = new Set();
   for (const body of ruleBodies) {
     for (const v of body.matchAll(/var\((--[a-z0-9-]+)/gi)) consumed.add(v[1]);

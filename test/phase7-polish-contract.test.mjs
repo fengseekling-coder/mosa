@@ -270,7 +270,7 @@ test("15. Protected surfaces structurally unchanged", async () => {
   const main = await read("desktop/main.mjs");
   assert.match(main, /webPreferences:/, "desktop main keeps webPreferences");
   assert.doesNotMatch(main, /ipcMain\.handle\("open-file-dialog"/, "retired native file-dialog IPC stays removed");
-  assert.match(main, /ipcMain\.handle\("show-item-in-folder"/, "Finder IPC show-item-in-folder intact");
+  assert.doesNotMatch(main, /ipcMain\.handle\("show-item-in-folder"/, "retired Finder IPC stays removed");
   const preload = await read("desktop/preload.cjs");
   assert.doesNotMatch(preload, /ipcRenderer\.invoke\("open-file-dialog"\)/, "preload keeps retired file-dialog IPC removed");
   assert.match(preload, /ipcRenderer\.invoke\("paste-image"\)/, "preload paste-image intact");

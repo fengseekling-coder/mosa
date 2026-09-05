@@ -55,14 +55,15 @@ test("1. the page contains exactly one #searchInput", async () => {
   assert.equal(app.includes('id="searchInput"'), false, "app.js must not render a second search input");
 });
 
-// 2. The search input lives inside the topbar work group, after the filter toggle.
-test("2. #searchInput lives in the topbar work group after the filter toggle", async () => {
+// 2. The search input lives inside the topbar work group; the retired filter
+// toggle is not kept as a hidden compatibility node.
+test("2. #searchInput lives in the topbar work group without a dead filter toggle", async () => {
   const topbar = topbarBlock(await readHtml());
   assert.ok(topbar.includes('id="searchInput"'), "#searchInput must be inside the topbar");
   const searchDiv = /<div class="topbar-search">([\s\S]*?)<\/div>/.exec(topbar);
   assert.ok(searchDiv, "topbar-search container must exist");
   assert.ok(searchDiv[1].includes('id="searchInput"'), "the search input must be inside .topbar-search");
-  assert.ok(topbar.indexOf('id="filterToggle"') < topbar.indexOf('id="searchInput"'), "search sits after the filter toggle (V2 FilterBar order)");
+  assert.equal(topbar.includes('id="filterToggle"'), false, "the retired filter toggle must not survive hidden in the topbar");
 });
 
 // 3. The sidebar no longer contains any search control.
@@ -113,8 +114,8 @@ test("8. the search state field is unchanged", async () => {
   const app = await readApp();
   assert.match(app, /state\.query = nextQuery/, "state.query remains the committed search state field");
   assert.doesNotMatch(app, /state\.search[A-Z]/, "no new search state fields may be introduced");
-  assert.match(app, /if \(kind === "query"\) \{ state\.query = ""; if \(els\.searchInput\) els\.searchInput\.value = ""; \}/,
-    "the query filter-chip clear path must stay intact");
+  assert.match(app, /async function clearSearchQuery\(\)[\s\S]*?state\.query = "";[\s\S]*?els\.searchInput\.value = "";[\s\S]*?applyFilterChange\(\);/,
+    "Escape clears only the committed search query through the dedicated helper");
 });
 
 // 9. The search algorithm, API and i18n behaviour stay locked.
@@ -122,7 +123,7 @@ test("9. search algorithm, API and i18n behaviour stay locked", async () => {
   const [app, apiClient] = await Promise.all([readApp(), readApiClient()]);
   assert.match(app, /if \(!await confirmDetailNavigation\(null\)\) \{\s+els\.searchInput\.value = state\.query;\s+return;\s+\}/,
     "search must not discard an unsaved Inspector draft");
-  assert.match(app, /state\.query = nextQuery;\s+state\.nextCursor = null;[\s\S]*?renderActiveFilters\(\);\s+await loadAssets\(\);\s+\}, 180\)/,
+  assert.match(app, /state\.query = nextQuery;\s+state\.nextCursor = null;[\s\S]*?clearDetailSelection\(\);\s+await loadAssets\(\);\s+\}, 180\)/,
     "the 180ms committed query → loadAssets pipeline must remain intact");
   assert.match(apiClient, /const params = new URLSearchParams\(\{ project: request\.project, q: request\.query \}\)/,
     "the /api/assets query construction must stay unchanged");
@@ -155,6 +156,7 @@ test("11. no duplicate or hidden synced search control exists", async () => {
   // The search behaviour is pure CSS + the existing debounced listener: no JS class toggling.
   const app = await readApp();
   assert.doesNotMatch(app, /topbar-search/, "app.js must not toggle search classes");
+  assert.doesNotMatch(html, /activeFilters|filterPanel|filterToggle/, "retired filter surfaces must not survive as hidden DOM");
 });
 
 // 12. No new dependencies were introduced.

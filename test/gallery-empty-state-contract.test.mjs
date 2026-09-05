@@ -149,16 +149,16 @@ test("20-32. resetLibraryRefinements is the single clear path with focus recover
   // 28. Exactly one refresh: one loadAssets, no second path through applyFilterChange.
   assert.equal(count(reset, "loadAssets("), 1, "the reset triggers exactly one refresh");
   assert.doesNotMatch(reset, /applyFilterChange\(\)/, "no duplicate refresh path");
-  // Every clear entry point funnels into this single helper.
-  assert.equal(count(app, "resetLibraryRefinements();"), 2, "empty-state actions and the filter-panel clear share one call site");
-  const clearAll = sliceBetween(app, "function clearAllFilters()", "\n\nfunction applyFilterChange");
-  assert.match(clearAll, /resetLibraryRefinements\(\);/, "clearAllFilters delegates to the single helper");
+  // The empty-state action is the only full-reset entry point. The retired
+  // filter-chip toolbar no longer keeps a second clear-all wrapper alive.
+  assert.equal(count(app, "resetLibraryRefinements();"), 1, "only the empty-state reset entry remains");
+  assert.doesNotMatch(app, /function clearAllFilters\(|renderActiveFilters|removeFilterChip/);
   const delegation = sliceBetween(app, 'els.assetGrid?.addEventListener("click"', 'els.newAssetTopBtn?.addEventListener("click", openImportModal);');
   assert.match(delegation, /resetLibraryRefinements\(\); return;/, "the empty-state clear/view-all actions share the same helper");
   // 29. The search input DOM stays in sync.
   assert.match(reset, /els\.searchInput\) els\.searchInput\.value = "";/, "the search input is cleared");
-  // 30-31. Quick filters and type filters re-render (filter-panel merge retired).
-  assert.match(reset, /renderQuickFilters\(\); renderTypeFilters\(\); renderActiveFilters\(\);/, "chips, type filters and quick filters sync in the same pass");
+  // 30-31. Quick filters and type filters re-render in the same pass.
+  assert.match(reset, /renderQuickFilters\(\); renderTypeFilters\(\);/, "type filters and quick filters sync in the same pass");
   // 32. Focus never lands on body: first card, else the grid container.
   assert.match(reset, /els\.assetGrid\?\.querySelector\("\.asset-card-select"\)/, "focus prefers the first asset card");
   assert.match(reset, /else els\.assetGrid\?\.focus\(\{ preventScroll: true \}\);/, "the grid container is the focus fallback");
@@ -205,10 +205,9 @@ test("40. V2 i18n keys for the no-results recovery shell are symmetric across zh
   // legacy per-scope empty states; the surviving recovery shell consumes
   // `noResultsTitle` / `noResultsDescription` for every zero-result
   // variant. The legacy scoped-copy keys (`favoritesEmptyTitle`,
-  // `recentEmptyTitle`, `groupEmptyTitle`, etc.) are kept in the i18n
-  // bundle as documentation of the retired states — they're not consumed
-  // by the active markup, so we don't pin their count here.
-  const ACTIVE_KEYS = ["noResultsTitle", "noResultsDescription", "resetFilters", "onboardImport", "statusRefinementsCleared", "clearAll"];
+  // `recentEmptyTitle`, `groupEmptyTitle`, etc.) are outside this active
+  // recovery contract and are not required by the renderer.
+  const ACTIVE_KEYS = ["noResultsTitle", "noResultsDescription", "resetFilters", "onboardImport", "statusRefinementsCleared"];
   for (const key of ACTIVE_KEYS) {
     assert.equal(count(i18n, `${key}:`), 2, `${key} exists exactly once per locale`);
   }
@@ -260,7 +259,7 @@ test("44. Phase 1–4C neighbouring contracts and anchors stay intact", async ()
     access(resolve(root, "test/inspector-cowart-original-actions-contract.test.mjs")),
   ]);
   // Anchors those contracts rely on.
-  assert.match(app, /if \(kind === "__all"\) \{ await clearAllFilters\(\); return; \}/, "the chip clear-all entry survives with dirty-safe async reset");
+  assert.doesNotMatch(app, /clearAllFilters|removeFilterChip|renderActiveFilters/, "the retired chip toolbar leaves no renderer hooks");
   assert.match(app, /if \(state\.galleryStatus === "loading"\) \{ els\.assetGrid\.innerHTML = gallerySkeletonMarkup\(\); restoreGridFallbackFocus\(\); return; \}/, "the skeleton branch survives and does not drop focus to body");
   assert.match(viewer, /state\.libraryReturnSnapshot = \{/);
   assert.match(inspector, /function detailMoreSectionMarkup\(asset\)/);

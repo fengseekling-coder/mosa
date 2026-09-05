@@ -232,8 +232,6 @@ test("keeps meaningful labels above the WCAG AA body-text floor", async () => {
   for (const rule of [
     /\.nav-count \{[^}]*color: var\(--color-text-secondary\)/,
     /\.title-row p \{[^}]*color: var\(--color-text-secondary\)/,
-    /\.filter-list-item > span:last-child \{[^}]*color: var\(--color-text-secondary\)/,
-    /\.filter-pill span \{[^}]*color: var\(--color-text-secondary\)/,
     /\.detail-head p \{[^}]*color: var\(--color-text-secondary\)/,
     /\.meta-key \{[^}]*color: var\(--color-text-secondary\)/,
     /\.asset-card-meta \{[^}]*color: var\(--color-text-secondary\)/,
@@ -253,7 +251,7 @@ test("drops the card lift when the reader asks for less motion", async () => {
 test("translates every new gallery string in both locales", async () => {
   const i18n = await readI18n();
   const keys = [
-    "galleryLoading", "galleryDensity", "densityImageOnly", "densityWithInfo",
+    "galleryLoading", "cardDensity", "densityImageControl", "densityInfoControl",
     "cardAccessibleName", "versionLabelShort", "sourceWebChatgpt", "sourceUnknown", "loadFailed",
   ];
   const zh = i18n;

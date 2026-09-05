@@ -134,6 +134,7 @@ export interface SqliteAssetStore {
   getGenerationLineage(projectId: string, generationId: string): Promise<Record<string, unknown>>;
   getAssetGenerationHistory(projectId: string, assetId: string): Promise<Record<string, unknown>>;
   listGroups(projectId: string): Promise<GroupInfo[]>;
+  listNavigationStats(projectId: string): Promise<Record<string, unknown>>;
   createGroup(projectId: string, name: string): Promise<void>;
   renameGroup(projectId: string, groupName: string, nextGroupName: string): Promise<Record<string, unknown>>;
   deleteGroup(projectId: string, groupName: string, options?: { deleteAssets?: boolean }): Promise<Record<string, unknown>>;
@@ -143,7 +144,6 @@ export interface SqliteAssetStore {
   libraryRevision(projectId?: string): Promise<string>;
   findAutomaticIngestSuppression(projectId: string, hashes: Record<string, unknown>): Promise<Record<string, unknown> | null>;
   listAutomaticIngestSuppressions(projectId: string): Promise<Array<Record<string, unknown>>>;
-  listAutomaticIngestSuppressionPage(projectId: string, options?: Record<string, unknown>): Promise<{ suppressions: Array<Record<string, unknown>>; page: { limit: number; nextCursor: string | null } }>;
   clearAutomaticIngestSuppression(projectId: string, hashes: Record<string, unknown>): Promise<number>;
   recordAutomaticIngestSuppression(projectId: string, record: Record<string, unknown>): Promise<Record<string, unknown> | null>;
   recentAssets(options: { projectId: string; hoursAgo: number; limit: number }): Promise<StoredAsset[]>;

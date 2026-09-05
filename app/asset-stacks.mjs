@@ -270,18 +270,15 @@ export function createAssetStackController({
     if (!card) return;
     const assetId = card.dataset.id;
     if (!assetId) return;
-    const selected = state.selectedIds instanceof Set ? state.selectedIds : new Set();
-    // Desktop-style arbitration: once a card is already selected, the next
-    // press-drag belongs to moving that asset (or the explicit batch selection),
-    // not to starting a marquee over it. An unselected card still remains a
-    // valid marquee origin, so selection can begin from anywhere in the grid.
-    const isSelectedForDrag = selected.has(assetId) || state.selectedId === assetId;
+    // A card press owns the drag gesture immediately, even before that card has
+    // been single-click selected. This removes the extra "click once, then
+    // drag" step and, more importantly, prevents an unselected card drag from
+    // falling through to gallery marquee selection. dragIdsForCard() still
+    // preserves an existing multi-selection when the pressed card belongs to it.
     const candidateIds = dragIdsForCard(state, assetId);
     if (state.activeStackId) {
       if (!stackViewIsUnfiltered(state)) return;
-      if (!isSelectedForDrag) return;
     } else {
-      if (!isSelectedForDrag) return;
       // A collapsed Stack is a logical node, not a draggable member asset.
       // Let users drag ordinary assets *into* a Stack, but never drag a Stack
       // itself into another Stack or accidentally mutate only its cover.
@@ -384,10 +381,21 @@ export function createAssetStackController({
     const currentIds = state.assets.map((asset) => asset.id);
     const nextIds = moveBlockRelative(currentIds, drag.assetIds, targetId, placement);
     if (nextIds.join("\u001f") === currentIds.join("\u001f")) return false;
-    await apiFetch(`/api/asset-stacks/${encodeURIComponent(state.activeStackId)}/order`, {
-      method: "PATCH",
-      body: { projectId: state.project, assetIds: nextIds },
-    });
+    try {
+      await apiFetch(`/api/asset-stacks/${encodeURIComponent(state.activeStackId)}/order`, {
+        method: "PATCH",
+        body: { projectId: state.project, assetIds: nextIds },
+      });
+    } catch (error) {
+      if (error?.code !== "STACK_ORDER_MISMATCH") throw error;
+      // A concurrent membership change can legitimately make the drag snapshot
+      // stale between pointerdown and PATCH. Refresh from the server and surface
+      // a recovery message instead of leaking the store's validation prose.
+      await loadAssets({ preserveScroll: true });
+      const staleOrderError = new Error(t("stackOrderChanged"));
+      staleOrderError.code = error.code;
+      throw staleOrderError;
+    }
     await loadAssets({ preserveScroll: true });
     return true;
   }

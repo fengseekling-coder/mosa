@@ -193,7 +193,8 @@ test("7. request keeps captured query semantics", async () => {
   assert.match(params, /project: request\.project, q: request\.query/, "project and query travel");
   assert.match(params, /params\.set\("sort", request\.sort\)/, "sort travels");
   assert.match(params, /request\.scope === "favorite"\) params\.set\("favorite", "1"/, "favorite scope travels");
-  assert.match(params, /request\.scope === "recent"\) params\.set\("recent", "1"/, "recent scope travels");
+  assert.doesNotMatch(params, /request\.scope === "recent"|params\.set\("recent"/,
+    "the retired Recent navigation scope does not survive in viewer paging");
   assert.match(params, /for \(const key of FACET_KEYS\)/, "group/category/style facets travel");
   assert.match(functionBody(app, "openAssetView"), /assetViewSequence\.snapshot = currentAssetRequest\(\);/, "snapshot is captured at open");
 });

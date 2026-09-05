@@ -171,7 +171,7 @@
   --sidebar-width: 220px;
   --sidebar-width-narrow: 208px;
   --sidebar-width-compact: 56px;
-  --inspector-width: 360px;
+  --inspector-width: 320px;
   --inspector-width-compact: 340px;
   --topbar-height: 56px;
   --statusbar-height: 48px;
@@ -183,7 +183,6 @@
   --radius-modal: 16px;
   --radius-pill: 999px;
   --border-width: 1px;
-  --border-width-selected: 2px;
 
   /* --- 运行时注入 token 的兜底值 ---
      V2 中部分 token（如 --group-color）由 attribute selector 按需设置。
@@ -353,8 +352,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .toolbar-filter[hidden] { display: none; }
 .toolbar-filter[aria-expanded="true"] { color: var(--color-text-primary); background: var(--app-hover); }
 .toolbar-filter[aria-pressed="true"] { color: var(--color-accent-active); background: var(--color-accent-subtle); }
-.filter-dot { display: inline-grid; min-width: 16px; height: 16px; margin-left: 2px; padding: 0 4px; place-items: center; border-radius: 999px; color: var(--color-accent-contrast); background: var(--color-accent); font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.filter-dot[hidden] { display: none; }
 .sort-control { display: inline-flex; flex: 0 0 auto; align-items: center; }
 .sort-control select { width: auto; height: 28px; padding: 0 8px; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 12px; font-weight: 500; }
 .sort-control select:hover { color: var(--color-text-primary); background: var(--app-hover); }
@@ -362,31 +359,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .icon-button { display: inline-grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); color: var(--color-text-secondary); background: var(--app-card); cursor: pointer; transition: background-color .12s ease, color .12s ease, border-color .12s ease; }
 .icon-button.quiet { border-color: transparent; background: transparent; }
 
-/* ===== 当前筛选条件条 ===== */
-.active-filters { display: flex; min-width: 0; flex: 0 0 auto; align-items: center; gap: 6px; padding: var(--space-1) 20px; border-bottom: 1px solid var(--color-border-subtle); background: var(--app-bg); }
-.active-filters[hidden] { display: none; }
-.filter-chip-strip { display: flex; min-width: 0; flex: 1 1 auto; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
-.filter-chip-strip::-webkit-scrollbar { height: 0; }
-.filter-chip { display: inline-flex; min-height: 26px; max-width: 260px; flex: 0 0 auto; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid var(--color-border-subtle); border-radius: 999px; color: var(--color-text-secondary); background: var(--app-card); cursor: pointer; font-size: 11px; }
-.filter-chip:hover { color: var(--color-text-primary); border-color: var(--color-border-default); background: var(--app-hover); }
-.filter-chip-key { flex: 0 0 auto; color: var(--color-text-tertiary); }
-.filter-chip-value { overflow: hidden; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
-.filter-chip-x { flex: 0 0 auto; color: var(--color-text-tertiary); font-size: 13px; line-height: 1; }
-.filter-chip:hover .filter-chip-x { color: var(--color-danger); }
-.filter-chip-clear { min-height: 26px; flex: 0 0 auto; padding: 0 8px; border: 0; border-radius: 999px; color: var(--color-accent-active); background: transparent; cursor: pointer; font-size: 11px; font-weight: 550; white-space: nowrap; }
-
 /* ===== 瀑布流图库（CSS grid 1px 行高 + JS span 计算，行优先、分页友好） ===== */
 .grid { display: grid; flex: 1; min-width: 0; grid-auto-flow: row; grid-auto-rows: 1px; grid-template-columns: repeat(4, minmax(0, 1fr)); align-content: start; column-gap: var(--gallery-gap); row-gap: 0; overflow: auto; padding: var(--space-2) 20px var(--space-3); background: var(--app-bg); }
-/* Batch bar compensation follows the single live selection state. */
+/* Selection-bar compensation follows the single live selection state. */
 .shell:has(.grid.selection-active) .detail { padding-bottom: var(--statusbar-height); }
 @media (max-width: 1400px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* 素材卡片：纯图片，无底部文字。F-24：入场动画仅由 .card-enter 条件触发
    （首次加载/追加页），搜索、筛选、排序的普通重渲染不重复播放。
-   V2（2026-08-07）：去卡片容器铬件——不再有卡片级边框/背景/阴影，图片直接
-   落于画布；选中态改由 .asset-card-select 承担 2px 环，.card-check 承担
-   16px 角标勾，不再靠卡片描边表达。 */
+   V2：普通卡片不保留容器铬件；选中态由卡片外侧 1px 圆角描边表达。 */
 .asset-card { position: relative; width: 100%; align-self: start; }
 .asset-card-virtual-placeholder { align-self: stretch; contain: layout paint style; pointer-events: none; }
 .asset-card-virtual-surface { display: block; width: 100%; height: 100%; min-height: 48px; border-radius: var(--radius-card); background: var(--app-hover); opacity: .28; }
@@ -396,14 +378,20 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   content-visibility: auto;
   contain-intrinsic-size: auto 320px;
 }
+.asset-card.masonry-content-virtualized.selected,
+.asset-card.masonry-content-virtualized.multi-selected {
+  /* content-visibility:auto applies paint containment, which clips the V2
+     selection ring because that ring intentionally sits 1px outside the card.
+     Selected cards are already a tiny, user-visible subset, so keep their
+     contents visible instead of sacrificing the selection affordance. */
+  content-visibility: visible;
+}
 .asset-card.card-enter { animation: card-in .25s ease backwards; }
 @keyframes card-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .asset-card-select { position: relative; display: block; width: 100%; padding: 0; border: 0; overflow: hidden; border-radius: var(--radius-card); background: var(--app-sidebar); cursor: pointer; text-align: left; }
 .asset-card-select, .asset-card-select .thumb { user-select: none; -webkit-user-drag: none; }
 .asset-card-select::after { content: ""; position: absolute; inset: 0; border-radius: var(--radius-card); box-shadow: inset 0 0 0 1px rgb(28 25 23 / 0.06); pointer-events: none; }
 .asset-card-select:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: -2px; }
-.asset-card.selected .asset-card-select { box-shadow: 0 0 0 var(--border-width-selected) var(--color-accent); }
-.asset-card.multi-selected .asset-card-select { box-shadow: 0 0 0 var(--border-width-selected) var(--color-accent); }
 .asset-card.is-stack { isolation: isolate; }
 .asset-card.is-stack .card-actions { opacity: 0; pointer-events: none; }
 .asset-card.is-stack::before { content: ""; position: absolute; z-index: -1; inset: 4px -4px -4px 4px; border-radius: var(--radius-card); background: color-mix(in srgb, var(--color-text-primary) 10%, var(--app-card)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-text-primary) 7%, transparent); pointer-events: none; }
@@ -416,8 +404,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .asset-card.stack-reorder-target.stack-reorder-after .asset-card-select::after { box-shadow: inset -3px 0 0 var(--color-accent), inset 0 0 0 1px rgb(28 25 23 / 0.06); }
 .asset-stack-drag-ghost { position: fixed; z-index: var(--z-modal); top: 0; left: 0; display: grid; min-width: 30px; height: 30px; place-items: center; padding: 0 8px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); color: var(--color-text-primary); background: var(--color-surface-raised); box-shadow: var(--shadow-popover); pointer-events: none; font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; }
 body.asset-stack-dragging { cursor: grabbing; user-select: none; }
-.card-scrim { position: absolute; z-index: 1; inset: 0; background: linear-gradient(to bottom, var(--color-scrim), transparent 32%, transparent 68%, var(--color-scrim)); opacity: 0; transition: opacity .15s ease; pointer-events: none; }
-.asset-card:hover .card-scrim, .asset-card:focus-within .card-scrim { opacity: 1; }
 .card-check { position: absolute; z-index: 2; top: var(--space-1); left: var(--space-1); display: none; width: 16px; height: 16px; place-items: center; border-radius: 50%; color: var(--color-accent-contrast); background: var(--color-accent); pointer-events: none; }
 .card-check svg { width: 10px; height: 10px; }
 .asset-card.selected .card-check { display: grid; }
@@ -469,6 +455,7 @@ body.asset-stack-dragging { cursor: grabbing; user-select: none; }
 
 /* 无限滚动哨兵 */
 .infinite-scroll-sentinel { grid-column: 1 / -1; height: 1px; pointer-events: none; }
+.gallery-virtual-extent { height: 1px; min-height: 1px; pointer-events: none; visibility: hidden; }
 
 /* ===== 左键框选 / 多选 ===== */
 .grid.selection-active { padding-bottom: calc(var(--statusbar-height) + var(--space-2)); }
@@ -497,9 +484,8 @@ body.marquee-selecting .grid { cursor: crosshair; }
 @keyframes skeleton-sheen { from { background-position: 150% 0; } to { background-position: -150% 0; } }
 
 /* 空态与错误态 */
-/* F-08：单一空状态壳。五类空态（library/results/favorites/recent/group）只靠
-   data-empty-kind、文案与操作区分，不为每种状态复制 DOM；在可用内容区内
-   居中（不覆盖左侧导航）；长分组名换行不撑破布局。 */
+/* F-08：单一空状态壳。素材库为空与筛选无结果共用同一结构，只靠
+   data-empty-kind、文案与操作区分；在可用内容区内居中。 */
 .gallery-empty-state { display: flex; grid-column: 1 / -1; grid-row: span 480; align-items: center; justify-content: center; padding: 60px 24px; flex-direction: column; text-align: center; }
 .gallery-empty-state .empty-state-copy { max-width: 360px; }
 .gallery-empty-state h2 { color: var(--color-text-primary); font-size: 16px; font-weight: 600; letter-spacing: -0.02em; overflow-wrap: anywhere; }
@@ -510,29 +496,6 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .error-state p { color: var(--color-text-secondary); font-weight: 550; }
 .error-state span { max-width: 360px; margin-top: 5px; font-size: 12px; }
 .error-state button { height: 30px; margin-top: 16px; padding: 0 12px; border: 1px solid var(--color-accent); border-radius: var(--radius-control); color: var(--color-accent-contrast); background: var(--color-accent); cursor: pointer; font-size: 12px; font-weight: 550; }
-
-/* ===== 筛选面板（旧顶栏弹层 fallback） ===== */
-.filter-panel { position: fixed; z-index: var(--z-popover); top: 60px; left: auto; right: 20px; display: flex; width: min(286px, calc(100vw - 24px)); max-height: min(580px, calc(100vh - 76px)); flex-direction: column; overflow: hidden; padding: 14px; }
-.filter-panel[hidden] { display: none; }
-.filter-panel-head { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--color-border-subtle); }
-.filter-panel-head h3 { margin-top: 2px; font-size: 14px; font-weight: 600; letter-spacing: -0.02em; }
-.filter-panel-search { flex: 0 0 auto; padding-top: 10px; }
-.filter-panel-search input { min-height: 36px; }
-.filter-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
-.filter-section { padding-top: 13px; }
-.filter-section > p { margin-bottom: 6px; padding: 0 2px; color: var(--color-text-tertiary); font-size: 11px; font-weight: 500; }
-.filter-pills { display: flex; flex-wrap: wrap; gap: 5px; }
-.filter-pill { height: 26px; padding: 0 9px; border: 1px solid var(--color-border-subtle); border-radius: 999px; color: var(--color-text-secondary); background: var(--app-card); cursor: pointer; font-size: 11px; }
-.filter-pill:hover { color: var(--color-text-primary); border-color: var(--color-border-default); }
-.filter-pill.active { border-color: var(--color-accent); color: var(--color-accent-active); background: var(--color-accent-subtle); font-weight: 550; }
-.filter-pill span { margin-left: 3px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
-.filter-list { display: grid; gap: 1px; }
-.filter-list-item { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; padding: 4px 8px; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 12px; text-align: left; }
-.filter-list-item > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.filter-list-item > span:last-child { color: var(--color-text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
-.filter-list-item.active { color: var(--color-accent-active); background: var(--color-accent-subtle); font-weight: 550; }
-.filter-empty { padding: 4px 8px; color: var(--color-text-tertiary); font-size: 12px; font-style: italic; }
-.filter-truncated { padding: 6px 8px 0; color: var(--color-text-tertiary); font-size: 10px; }
 
 /* ===== 专用大图查看模式（Phase 3A / D4 / F-01） =====
    主区内两个互斥 UI 状态：.library-view（画廊）与 .asset-view（专用大图），均由 app.js
@@ -604,11 +567,9 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .detail-utility-actions { display: flex; gap: 6px; }
 .detail-utility-actions .action-btn { flex: 1; }
 /* Phase 4C More 终态：原图入口默认可见（次级层级），更多操作收进原生 disclosure。 */
-.original-media-action { display: grid; margin-bottom: 10px; }
-.original-media-link { text-decoration: none; }
-.original-media-unavailable { margin: 0; }
-.more-location { display: grid; gap: 6px; margin-top: 8px; }
-.more-location .meta-key { color: var(--color-text-tertiary); font-size: 11px; font-weight: 500; }
+.more-location { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.more-location .meta-key { flex: 0 0 auto; color: var(--color-text-tertiary); font-size: 11px; font-weight: 500; }
+.more-location .path-box { flex: 1 1 auto; min-width: 0; overflow: hidden; padding-top: 5px; padding-bottom: 5px; line-height: 1.4; white-space: nowrap; word-break: normal; text-overflow: ellipsis; }
 .action-btn { display: flex; min-width: 0; min-height: 36px; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); color: var(--color-text-secondary); background: var(--app-card); cursor: pointer; font-size: 12px; font-weight: 500; white-space: nowrap; transition: background-color .12s ease, color .12s ease, border-color .12s ease; }
 .action-btn.primary { border-color: var(--color-accent); color: var(--color-accent-contrast); background: var(--color-accent); }
 .detail-fav-btn { display: inline-flex; height: 30px; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); color: var(--color-text-secondary); background: var(--app-card); cursor: pointer; font-size: 12px; font-weight: 500; }
@@ -641,8 +602,6 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .version-summary-label { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
 .version-summary-label strong { color: var(--color-text-primary); font-size: 12px; }
 .new-version-actions { display: grid; margin-top: 10px; }
-.detail-danger-actions { display: flex; margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--color-border-subtle); }
-.detail-danger-actions .action-btn { flex: 1; }
 
 /* 区块与就近复制按钮（mini-btn 22px） */
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
@@ -657,7 +616,6 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .prompt-box, .path-box { overflow: auto; padding: 9px 10px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); background: var(--app-card); font-family: var(--font-family-mono); font-size: 11px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
 .prompt-box { max-height: 154px; }
 .path-box { color: var(--color-text-secondary); font-size: 10px; }
-.detail-path-box { margin-top: 8px; }
 .empty-copy { color: var(--color-text-tertiary); font-style: italic; }
 
 /* 元信息表 */
@@ -943,14 +901,6 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   .drag-overlay:not([hidden]) .drag-overlay-content { opacity: 0; transform: scale(.98); }
 }
 
-/* ===== 批量管理操作条 ===== */
-.batch-bar { position: fixed; z-index: var(--z-bottom-bar); right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; border-top: 1px solid var(--color-border-subtle); background: var(--app-bg); box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08); }
-.batch-bar[hidden] { display: none; }
-.batch-bar-left, .batch-bar-right { display: flex; align-items: center; gap: 8px; }
-.batch-bar-count { color: var(--color-text-secondary); font-size: 12px; font-weight: 550; }
-.batch-bar-btn { height: 28px; padding: 0 12px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); color: var(--color-text-secondary); background: var(--app-card); cursor: pointer; font-size: 12px; font-weight: 500; }
-.batch-bar-btn.quiet { border-color: transparent; background: transparent; }
-
 /* ===== Toast (Phase 5C / F-16：双通道可排队反馈) ===== */
 /* 两条固定定位栈共享右下角：error 栈占底，polite 栈经 --toast-error-stack-height
    上浮避让（偏移由 Toast Manager 实测写入）；容器 pointer-events:none 不拦截
@@ -969,28 +919,26 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 .toast-dismiss:hover { opacity: 1; background: color-mix(in srgb, var(--app-bg) 14%, transparent); }
 
 /* ===== 按钮原语契约（Phase 1B） =====
-   六个原语与现有类的兼容映射（compatibility mapping）：旧类名全部保留，
-   DOM/JS 行为不变；旧类经下方共享规则消费同一状态契约，后续阶段逐项
-   迁移类名，不产生双重覆盖。
+   六个原语与当前控件类共享同一状态契约：
    - Button            → .btn-primary / .create-button / .action-btn.primary /
                          .recipe-save-btn.primary / .error-state button（primary）；
                          .btn-secondary / .action-btn / .recipe-save-btn.secondary /
                          .asset-load-more button / .recipe-snapshot-footer button /
-                         .detail-close / .batch-bar-btn（secondary）；
-                         .icon-button.quiet / .batch-bar-btn.quiet / .section-head-copy（quiet）
+                         .detail-close（secondary）；
+                         .icon-button.quiet / .section-head-copy（quiet）
    - IconButton        → .icon-button / .toolbar-icon / .browse-btn / .section-head-copy：
                          正方形点击区域（28/32px），图标视觉尺寸由 SVG 自身控制，
                          与点击面积分离；均带 aria-label，不依赖 title 命名
    - ToolbarButton     → .toolbar-icon / .toolbar-filter / .create-button：顶栏
                          28px 高密度档，视觉权重低于标准 primary，顶栏结构与排序不变
-   - DestructiveButton → .action-btn.danger / .batch-bar-btn.danger / .btn-danger
+   - DestructiveButton → .action-btn.danger / .btn-danger
                          （Phase 5B 起含 ConfirmDialog 确认按钮）：仅危险操作，
                          danger 语义；普通「取消/关闭」不使用（.action-btn.danger 此前
                          无样式、以 secondary 外观渲染，本阶段补齐契约）
    - MenuItem          → .nav-item / .add-group-button / .settings-trigger /
-                         .settings-menu button / .filter-list-item /
+                         .settings-menu button /
                          .version-timeline-item > button（仅定义基础状态，DOM 不重构）
-   - InlineAction      → .mini-btn / .filter-chip-clear / .section-head-copy：辅助
+   - InlineAction      → .mini-btn / .section-head-copy：辅助
                          文字操作，不与 primary 竞争
    尺寸说明：compact 28px / standard 32–36px 沿用现有运行值，向 32/40/48
    标准档（--control-sm/md/lg）的最终迁移留待 Phase 2，避免顶栏高度、批量条
@@ -999,7 +947,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 /* --- Hover：仅在支持 hover 的精确指针设备启用，避免触摸设备粘住 hover --- */
 @media (hover: hover) and (pointer: fine) {
   /* Button secondary / IconButton / ToolbarButton（surface 变体；.card-action-btn 为 Phase 1C 加入的 IconButton 消费方） */
-  :where(.toolbar-icon, .toolbar-filter:not([aria-pressed="true"]), .icon-button:not(.quiet), .browse-btn, .action-btn:not(.primary):not(.danger), .detail-fav-btn, .mini-btn, .asset-load-more button, .recipe-snapshot-footer button, .btn-secondary, .detail-close, .recipe-save-btn.secondary, .batch-bar-btn:not(.danger), .card-action-btn):not(:disabled):not([aria-disabled="true"]):hover {
+  :where(.toolbar-icon, .toolbar-filter:not([aria-pressed="true"]), .icon-button:not(.quiet), .browse-btn, .action-btn:not(.primary):not(.danger), .detail-fav-btn, .mini-btn, .asset-load-more button, .recipe-snapshot-footer button, .btn-secondary, .detail-close, .recipe-save-btn.secondary, .card-action-btn):not(:disabled):not([aria-disabled="true"]):hover {
     color: var(--color-text-primary); border-color: var(--color-border-default); background: var(--app-hover);
   }
   /* Button quiet 变体：仅加底色 */
@@ -1011,19 +959,17 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
     color: var(--color-text-primary); background: var(--app-chip);
   }
   /* MenuItem：bg-3 填充（选中态由 .active/.selected 守卫排除） */
-  :where(.nav-item:not(.active), .settings-trigger, .settings-menu button, .filter-list-item:not(.active), .version-timeline-item:not(.selected) > button):not(:disabled):not([aria-disabled="true"]):hover {
+  :where(.nav-item:not(.active), .settings-trigger, .settings-menu button, .version-timeline-item:not(.selected) > button):not(:disabled):not([aria-disabled="true"]):hover {
     color: var(--color-text-primary); background: var(--app-hover);
   }
   /* MenuItem 强调文字项：仅加底色，保持 accent 文字 */
   .add-group-button:not(:disabled):not([aria-disabled="true"]):hover { background: var(--app-hover); }
-  /* InlineAction（accent 文字项） */
-  .filter-chip-clear:not(:disabled):not([aria-disabled="true"]):hover { background: var(--color-accent-subtle); }
   /* Button primary 变体 */
   :where(.btn-primary, .create-button, .action-btn.primary, .recipe-save-btn.primary, .error-state button):not(:disabled):not([aria-disabled="true"]):hover {
     border-color: var(--color-accent-hover); background: var(--color-accent-hover);
   }
   /* DestructiveButton：保持 danger 语义；error-ink 保证 subtle 底上文字 ≥4.5:1 */
-  :where(.action-btn.danger, .batch-bar-btn.danger, .btn-danger):not(:disabled):not([aria-disabled="true"]):hover {
+  :where(.action-btn.danger, .btn-danger):not(:disabled):not([aria-disabled="true"]):hover {
     border-color: var(--color-danger); color: var(--color-danger-ink); background: var(--color-danger-subtle);
   }
   /* 媒体黑场 IconButton：必须显式 color，防止 surface 组文字色串扰 */
@@ -1035,22 +981,21 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 }
 
 /* --- Active：明确按压反馈；只改颜色，不改尺寸、不产生位移、不加动画 --- */
-:where(.toolbar-icon, .toolbar-filter:not([aria-pressed="true"]), .icon-button:not(.quiet), .browse-btn, .action-btn:not(.primary):not(.danger), .detail-fav-btn, .mini-btn, .asset-load-more button, .recipe-snapshot-footer button, .btn-secondary, .detail-close, .recipe-save-btn.secondary, .batch-bar-btn:not(.danger), .card-action-btn):not(:disabled):not([aria-disabled="true"]):active {
+:where(.toolbar-icon, .toolbar-filter:not([aria-pressed="true"]), .icon-button:not(.quiet), .browse-btn, .action-btn:not(.primary):not(.danger), .detail-fav-btn, .mini-btn, .asset-load-more button, .recipe-snapshot-footer button, .btn-secondary, .detail-close, .recipe-save-btn.secondary, .card-action-btn):not(:disabled):not([aria-disabled="true"]):active {
   color: var(--color-text-primary); border-color: var(--color-border-default); background: var(--color-border-default);
 }
 :where(.icon-button.quiet, .section-head-copy):not(:disabled):not([aria-disabled="true"]):active {
   color: var(--color-text-primary); background: var(--color-border-default);
 }
 .asset-view-nav-btn:not(:disabled):not([aria-disabled="true"]):active { color: var(--color-text-primary); background: var(--color-surface-subtle); }
-:where(.nav-item:not(.active), .settings-trigger, .settings-menu button, .filter-list-item:not(.active), .version-timeline-item:not(.selected) > button, .add-group-button):not(:disabled):not([aria-disabled="true"]):active {
+:where(.nav-item:not(.active), .settings-trigger, .settings-menu button, .version-timeline-item:not(.selected) > button, .add-group-button):not(:disabled):not([aria-disabled="true"]):active {
   background: var(--color-border-subtle);
 }
-.filter-chip-clear:not(:disabled):not([aria-disabled="true"]):active { background: var(--color-accent-subtle); }
 :where(.btn-primary, .create-button, .action-btn.primary, .recipe-save-btn.primary, .error-state button):not(:disabled):not([aria-disabled="true"]):active {
   border-color: color-mix(in srgb, var(--color-accent) 88%, black);
   background: color-mix(in srgb, var(--color-accent) 88%, black);
 }
-:where(.action-btn.danger, .batch-bar-btn.danger, .btn-danger):not(:disabled):not([aria-disabled="true"]):active {
+:where(.action-btn.danger, .btn-danger):not(:disabled):not([aria-disabled="true"]):active {
   color: var(--color-accent-contrast);
   border-color: color-mix(in srgb, var(--color-danger) 55%, black);
   background: color-mix(in srgb, var(--color-danger) 55%, black);
@@ -1060,15 +1005,15 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 }
 
 /* --- DestructiveButton 基础：仅危险操作使用 danger 语义 --- */
-.action-btn.danger, .batch-bar-btn.danger { border-color: var(--color-danger); color: var(--color-danger); }
+.action-btn.danger { border-color: var(--color-danger); color: var(--color-danger); }
 
 /* --- 媒体黑场焦点环：浅色主题蓝环于 #0b0b0d 上仅 2.60:1，媒体区统一白色环 --- */
 .image-preview-modal button:focus-visible { outline-color: var(--color-focus-ring-on-media); }
 
 /* --- Disabled / aria-disabled：不仅降低透明度，hover/active 经上方 :not()
      守卫被抑制；原生 disabled 与 aria-disabled 表现一致 --- */
-:where(.btn-primary, .btn-secondary, .btn-danger, .create-button, .action-btn, .recipe-save-btn, .batch-bar-btn, .icon-button, .toolbar-icon, .toolbar-filter, .browse-btn, .mini-btn, .detail-fav-btn, .section-head-copy, .detail-close, .asset-load-more button, .error-state button, .recipe-snapshot-footer button):disabled,
-:where(.btn-primary, .btn-secondary, .btn-danger, .create-button, .action-btn, .recipe-save-btn, .batch-bar-btn, .icon-button, .toolbar-icon, .toolbar-filter, .browse-btn, .mini-btn, .detail-fav-btn, .section-head-copy, .detail-close, .asset-load-more button, .error-state button, .recipe-snapshot-footer button)[aria-disabled="true"] {
+:where(.btn-primary, .btn-secondary, .btn-danger, .create-button, .action-btn, .recipe-save-btn, .icon-button, .toolbar-icon, .toolbar-filter, .browse-btn, .mini-btn, .detail-fav-btn, .section-head-copy, .detail-close, .asset-load-more button, .error-state button, .recipe-snapshot-footer button):disabled,
+:where(.btn-primary, .btn-secondary, .btn-danger, .create-button, .action-btn, .recipe-save-btn, .icon-button, .toolbar-icon, .toolbar-filter, .browse-btn, .mini-btn, .detail-fav-btn, .section-head-copy, .detail-close, .asset-load-more button, .error-state button, .recipe-snapshot-footer button)[aria-disabled="true"] {
   cursor: not-allowed;
   opacity: .48;
 }
@@ -1076,7 +1021,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 /* --- Busy/loading：仅视觉契约（aria-busy），不改动宽度、内边距与内容，
      加载中按钮宽度保持稳定；busy 期间保持 wait 光标（承接原
      .recipe-save-btn:disabled 的 cursor: wait 行为），不新增业务逻辑 --- */
-:where(.btn-primary, .btn-secondary, .btn-danger, .create-button, .action-btn, .recipe-save-btn, .batch-bar-btn, .icon-button, .toolbar-icon, .toolbar-filter, .browse-btn, .mini-btn, .detail-fav-btn, .section-head-copy, .detail-close, .asset-load-more button, .error-state button, .recipe-snapshot-footer button)[aria-busy="true"] {
+:where(.btn-primary, .btn-secondary, .btn-danger, .create-button, .action-btn, .recipe-save-btn, .icon-button, .toolbar-icon, .toolbar-filter, .browse-btn, .mini-btn, .detail-fav-btn, .section-head-copy, .detail-close, .asset-load-more button, .error-state button, .recipe-snapshot-footer button)[aria-busy="true"] {
   cursor: wait;
 }
 
@@ -1108,22 +1053,12 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 .selection-active .asset-card .card-action-btn, .selection-active .asset-card:hover .card-action-btn, .selection-active .asset-card:focus-within .card-action-btn, .selection-active .asset-card.selected .card-action-btn { opacity: 0; pointer-events: none; }
 
 /* ===== 响应式 ===== */
-/* Phase 2B / F-18：≤1399px 档（验证视口 1179×740 与 960×640 同属此收敛路径）——
-   Batch/Filter 可见文本以 clip 模式视觉隐藏（icon-only），DOM 文本与 aria-label 完整保留，
-   不使用 display:none、不对按钮整体使用 aria-hidden；Filter 激活计数 .filter-dot 保持可见；
-   Sort 保持原生 select；Import 文字保持。 */
-@media (max-width: 1399px) {
-  .topbar-work-group .toolbar-filter > span:not(.filter-dot) { position: absolute; overflow: hidden; width: 1px; height: 1px; padding: 0; margin: -1px; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-  .topbar-work-group .toolbar-filter { padding: 0 8px; }
-}
-
 @media (max-width: 1120px) {
   .shell { grid-template-columns: var(--sidebar-width-narrow) minmax(0, 1fr); }
   .shell.details-open { grid-template-columns: var(--sidebar-width-compact) minmax(0, 1fr) var(--inspector-width-compact); }
   .topbar { gap: var(--space-1); padding: 0 var(--space-1); }
   /* Phase 3A：查看模式头部与顶栏同档紧凑（960×640 验收线返回按钮保持可操作）。 */
   .asset-view-header { gap: var(--space-1); padding: 0 var(--space-1); }
-  .active-filters { padding: var(--space-1) 14px; }
   /* Phase 2B / O4(A)：紧凑档（验证视口 960×640）桥接状态收敛为圆点——文本以 clip 模式
      视觉隐藏，状态语义经 DOM 文本 + title tooltip + #statusText live 播报保留（非 display:none）；
      原 details-open 条件的 label/meta display:none 与 toolbar-filter 文本压缩规则由此统一接管。 */
@@ -1267,14 +1202,11 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .toolbar-filter { gap: 6px; padding: 0 10px; }.mosa-v2 .toolbar-filter[aria-pressed="true"] { color: var(--color-text-primary); background: var(--app-chip-active); }
 .mosa-v2 .sort-control select { padding: 0 26px 0 10px; }
 .mosa-v2 .create-button { height: 32px; gap: 6px; padding: 0 12px; border-radius: 8px; color: #fff; background: #2424ff; box-shadow: 0 4px 8px -3px rgb(36 36 255 / .28); font-size: 12px; }
-.mosa-v2 .filter-dot { min-width: 15px; height: 15px; color: #fff; background: #2424ff; }
-
-.mosa-v2 .active-filters { margin: -8px 24px 4px; }.mosa-v2 .filter-chip { min-height: 28px; border-color: var(--color-border-subtle); color: var(--color-text-secondary); background: var(--app-card); }
-.mosa-v2 .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); column-gap: var(--gallery-gap); row-gap: 0; padding: 0 24px 24px; background: transparent; }
+.mosa-v2 .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); column-gap: var(--gallery-gap); row-gap: 0; padding: 1px 24px 24px; background: transparent; }
 .mosa-v2 #assetGrid:focus-visible { outline: none; }
 .mosa-v2 .asset-card { margin-bottom: 0; transition: transform 200ms var(--ease-standard), box-shadow 200ms var(--ease-standard); }
-.mosa-v2 .asset-card-select { border-radius: 12px; background: var(--app-card); box-shadow: none; }.mosa-v2 .asset-card-select::after { border-radius: 12px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .04); }.mosa-v2 .asset-card.selected .asset-card-select { box-shadow: none; }
-.mosa-v2 .asset-card .thumb, .mosa-v2 .asset-card .thumb img, .mosa-v2 .asset-card .thumb-video-poster, .mosa-v2 .asset-card .thumb-video-placeholder { border-radius: 12px; }.mosa-v2 .asset-card-info, .mosa-v2 .grid[data-density="info"] .asset-card-info { display: none; }.mosa-v2 .card-scrim { opacity: 0; }.mosa-v2 .asset-card.selected .card-check { display: none; }
+.mosa-v2 .asset-card-select { border-radius: 12px; background: var(--app-card); box-shadow: none; }.mosa-v2 .asset-card-select::after { border-radius: 12px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .04); }.mosa-v2 .asset-card.selected .asset-card-select::after, .mosa-v2 .asset-card.multi-selected .asset-card-select::after { box-shadow: none; }.mosa-v2 .asset-card.selected::after, .mosa-v2 .asset-card.multi-selected::after { content: ""; position: absolute; z-index: 4; inset: -1px; box-sizing: border-box; border: var(--border-width) solid var(--color-accent); border-radius: 13px; pointer-events: none; }
+.mosa-v2 .asset-card .thumb, .mosa-v2 .asset-card .thumb img, .mosa-v2 .asset-card .thumb-video-poster, .mosa-v2 .asset-card .thumb-video-placeholder { border-radius: 12px; }.mosa-v2 .asset-card-info, .mosa-v2 .grid[data-density="info"] .asset-card-info { display: none; }.mosa-v2 .asset-card.selected .card-check { display: none; }
 .mosa-v2 .card-actions { top: 8px; right: 8px; gap: 0; opacity: 1; }
 .mosa-v2 .card-action-btn {
   position: relative;
@@ -1300,8 +1232,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .card-quick-copy { display: none; }
 .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--gallery-gap); padding: 0; }.mosa-v2 .asset-skeleton { border-radius: 8px; background: linear-gradient(100deg, var(--app-search) 30%, var(--app-search-focus) 45%, var(--app-search) 60%); }.mosa-v2 .gallery-empty-state, .mosa-v2 .error-state { color: var(--color-text-tertiary); }.mosa-v2 .empty-state-actions .btn-primary { background: #2424ff; }
 
-.mosa-v2 .filter-panel, .mosa-v2 .settings-menu { border: 1px solid rgb(255 255 255 / .68); border-radius: 16px; background: rgb(from var(--app-menu) r g b / .92); box-shadow: 0 18px 42px -10px rgb(0 0 0 / .16); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); }
-.mosa-v2 .filter-panel { top: 68px; right: 24px; width: min(300px, calc(100vw - 40px)); padding: 14px; }.mosa-v2 .filter-panel-head { border-bottom-color: var(--color-border-subtle); }.mosa-v2 .filter-panel-search input { min-height: 32px; border-radius: 8px; background: var(--app-search); }.mosa-v2 .filter-list-item.active, .mosa-v2 .filter-pill.active { color: #2424ff; border-color: transparent; background: rgb(36 36 255 / .10); }
+.mosa-v2 .settings-menu { border: 1px solid rgb(255 255 255 / .68); border-radius: 16px; background: rgb(from var(--app-menu) r g b / .92); box-shadow: 0 18px 42px -10px rgb(0 0 0 / .16); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); }
 
 .mosa-v2 .detail { display: none; min-width: 0; min-height: 0; overflow: auto; border-left: 1px solid var(--color-border-subtle); color: #1d1d1f; background: var(--app-bg); }
 .mosa-v2 .shell.details-open .detail { display: block; }
@@ -1325,6 +1256,9 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail-inspector-header { min-height: 56px; padding: 0 16px; border-bottom: 0; color: var(--color-text-primary); background: transparent; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
 .mosa-v2 .detail-inspector-header .detail-close { display: flex; width: 32px; height: 32px; min-height: 32px; flex: 0 0 32px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 10px; color: #6e6e73; background: rgb(242 242 247 / .92); cursor: pointer; transition: background 200ms var(--ease-standard), color 200ms var(--ease-standard); }
 .mosa-v2 .detail-inspector-header .detail-close svg { width: 16px; height: 16px; }
+@media (min-width: 701px) {
+  .mosa-v2 .detail-close { display: none; }
+}
 .mosa-v2 .detail .detail-overview { box-sizing: border-box; display: flex; min-height: 0; height: auto; flex-direction: column; gap: 12px; padding: 16px 16px 0; border-top: 0; overflow: visible; }
 .mosa-v2 .detail .detail-overview-heading { display: flex; height: 18px; min-width: 0; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; }
 .mosa-v2 .detail .detail-overview-heading h3 { flex: 0 0 auto; margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 600; line-height: 18px; }
@@ -1411,11 +1345,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .title-row:has(#stackBack:not([hidden])) { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; display: flex; }
 .mosa-v2 .title-row:has(#stackBack:not([hidden])) h2 { display: none; }
 
-/* V2 keeps selection in the sidebar and type filter only.  The retained
-   filter-chip node still drives existing query/reset behavior, but must not
-   introduce a second legacy toolbar row. */
-.mosa-v2 .active-filters { display: none; }
-
 /* V2 Gallery's neutral zero-result recovery state. */
 .mosa-v2 .grid:has(.gallery-empty-state) { display: flex; }
 .mosa-v2 .gallery-empty-state { min-height: 0; flex: 1; gap: 0; padding: 0 24px 24px; }
@@ -1493,7 +1422,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .brand-info, .mosa-v2 .sidebar-library-title, .mosa-v2 .nav-item-text, .mosa-v2 .nav-count, .mosa-v2 .nav-label, .mosa-v2 .add-group-button span, .mosa-v2 .settings-trigger span { display: none; }
   .mosa-v2 .primary-nav, .mosa-v2 .sidebar-footer { padding: 8px; }.mosa-v2 .nav-item, .mosa-v2 .add-group-button, .mosa-v2 .settings-trigger { justify-content: center; padding: 0; }
   .mosa-v2 .topbar { align-items: flex-start; flex-wrap: wrap; padding: 12px 16px; }.mosa-v2 .topbar-context { flex-basis: 100%; }.mosa-v2 .topbar-actions { width: 100%; flex-wrap: wrap; }.mosa-v2 .topbar-search { width: 100%; margin: 0; }
-  .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 16px 16px; }.mosa-v2 .detail { top: 8px; right: 8px; bottom: 8px; width: min(360px, calc(100vw - 80px)); border-radius: 20px; }
+  .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 1px 16px 16px; }.mosa-v2 .detail { top: 8px; right: 8px; bottom: 8px; width: min(360px, calc(100vw - 80px)); border-radius: 20px; }
 }
 
 /* V4 Preferences: one compact, stable settings surface. */
@@ -1820,7 +1749,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .topbar-actions { display: block; }
   .mosa-v2 .topbar-work-group { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
   .mosa-v2 .topbar-search { box-sizing: border-box; width: 100%; order: 4; }
-  .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 16px 16px; }
+  .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 1px 16px 16px; }
   .mosa-v2 .grid { column-gap: var(--gallery-gap); row-gap: 0; }
   .mosa-v2 .gallery-skeleton { gap: var(--gallery-gap); }
   .mosa-v2 .detail { top: 12px; right: 12px; bottom: 12px; width: min(360px, calc(100vw - 24px)); border-radius: 24px; }
@@ -2022,6 +1951,16 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   flex: 0 0 auto;
   border-top: 0;
 }
+.mosa-v2 .detail .stack-inspector { box-sizing: border-box; width: 100%; padding: 16px; }
+.mosa-v2 .detail .stack-inspector-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.mosa-v2 .detail .stack-inspector-member { position: relative; min-width: 0; overflow: hidden; border-radius: 10px; background: var(--app-search); }
+.mosa-v2 .detail .stack-inspector-thumb { display: flex; width: 100%; aspect-ratio: 1; align-items: center; justify-content: center; overflow: hidden; }
+.mosa-v2 .detail .stack-inspector-thumb > .thumb,
+.mosa-v2 .detail .stack-inspector-thumb > img,
+.mosa-v2 .detail .stack-inspector-thumb .thumb-video-poster { width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
+.mosa-v2 .detail .stack-inspector-member > span { position: absolute; right: 6px; bottom: 6px; display: inline-grid; min-width: 18px; height: 18px; place-items: center; padding: 0 5px; border-radius: 999px; color: var(--color-media-text); background: rgb(0 0 0 / .52); font-size: 10px; font-weight: 600; line-height: 18px; }
+.mosa-v2 .detail .stack-inspector-status { padding: 36px 12px; color: var(--color-text-secondary); font-size: 12px; text-align: center; }
+.mosa-v2 .detail .stack-inspector-status.is-error { color: var(--color-danger); }
 .mosa-v2 .detail .detail-overview {
   gap: var(--inspector-space-3);
   padding: var(--inspector-space-5) var(--inspector-space-4) var(--inspector-space-2);
@@ -2046,15 +1985,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   font-size: 11px;
   line-height: 20px;
 }
-.mosa-v2 .detail .detail-overview-actions {
-  display: inline-flex;
-  min-width: 0;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: var(--inspector-space-1);
-}
-.mosa-v2 .detail .detail-overview-heading .detail-overview-open,
-.mosa-v2 .detail .detail-overview-heading .detail-overview-original {
+.mosa-v2 .detail .detail-overview-heading .detail-overview-open {
   display: inline-grid;
   width: 28px;
   height: 28px;
@@ -2092,20 +2023,17 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-overview-title-row {
   min-height: 28px;
   height: auto;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--inspector-space-2);
   overflow: visible;
 }
 .mosa-v2 .detail .detail-overview-title-row h3 {
-  display: -webkit-box;
-  max-height: 40px;
+  overflow: hidden;
   font-size: 15px;
   font-weight: 650;
   line-height: 20px;
-  text-overflow: clip;
-  white-space: normal;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .mosa-v2 .detail .detail-fav-btn {
   height: 28px;
@@ -2116,15 +2044,17 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   align-self: flex-start;
 }
 .mosa-v2 .detail .detail-facts {
-  height: auto;
-  gap: var(--inspector-space-2);
-  flex-wrap: wrap;
-  overflow: visible;
+  height: 24px;
+  gap: var(--inspector-space-1);
+  flex-wrap: nowrap;
+  scrollbar-width: none;
 }
+.mosa-v2 .detail .detail-facts::-webkit-scrollbar { height: 0; }
+.mosa-v2 .detail .detail-fact-tag { flex: 0 0 auto; white-space: nowrap; }
 .mosa-v2 .detail .detail-fact-tag,
 .mosa-v2 .detail .detail-tag {
-  min-height: 28px;
-  padding: 0 var(--inspector-space-2);
+  min-height: 24px;
+  padding: 0 6px;
   border-color: var(--inspector-divider);
   border-radius: var(--radius-pill);
   font-size: 11px;
@@ -2136,16 +2066,16 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   background: transparent;
 }
 .mosa-v2 .detail .detail-tags-row {
-  gap: var(--inspector-space-2);
+  gap: var(--inspector-space-1);
   padding: 0;
 }
 .mosa-v2 .detail .detail-tag,
 .mosa-v2 .detail .detail-tags-add {
-  height: 28px;
-  min-height: 28px;
+  height: 24px;
+  min-height: 24px;
 }
 .mosa-v2 .detail .detail-tags-add {
-  padding-inline: var(--inspector-space-2);
+  padding-inline: 6px;
   border-style: solid;
 }
 .mosa-v2 .detail .detail-prompt-section {
@@ -2417,7 +2347,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .detail-inspector-header .detail-close:hover,
   .mosa-v2 .detail .detail-fav-btn:hover,
   .mosa-v2 .detail .detail-overview-heading .detail-overview-open:hover,
-  .mosa-v2 .detail .detail-overview-heading .detail-overview-original:hover,
   .mosa-v2 .detail .detail-prompt-head .section-head-copy:hover,
   .mosa-v2 .detail .detail-source-copy .section-head-copy:hover,
   .mosa-v2 .detail .detail-copy-sub:hover,
@@ -2429,7 +2358,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail-inspector-header .detail-close:active,
 .mosa-v2 .detail .detail-fav-btn:active,
 .mosa-v2 .detail .detail-overview-heading .detail-overview-open:active,
-.mosa-v2 .detail .detail-overview-heading .detail-overview-original:active,
 .mosa-v2 .detail .detail-source-copy .section-head-copy:active,
 .mosa-v2 .detail .section-head-copy:active,
 .mosa-v2 .detail .detail-tags-add:active {
@@ -2489,7 +2417,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .detail-inspector-header .detail-close:active,
   .mosa-v2 .detail .detail-fav-btn:active,
   .mosa-v2 .detail .detail-overview-heading .detail-overview-open:active,
-  .mosa-v2 .detail .detail-overview-heading .detail-overview-original:active,
   .mosa-v2 .detail .section-head-copy:active,
   .mosa-v2 .detail .detail-tags-add:active,
   .mosa-v2 .settings-section-tab:active,

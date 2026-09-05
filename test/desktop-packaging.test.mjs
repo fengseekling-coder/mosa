@@ -398,16 +398,14 @@ test("the packaged app includes build-identity.json in app/", () => {
   assert.equal(isIgnored("/desktop/preload.cjs"), false);
 });
 
-// Phase 4C：「在 Finder 中显示」桌面能力契约。自动测试不真正打开用户 Finder——以源码
-// 契约断言验证 preload 暴露面、IPC 名称一致性、main 的 sender/路径/存在性校验与
-// shell.showItemInFolder 调用；完整行为断言见 inspector-cowart-original-actions-contract。
-test("exposes only the minimal show-in-folder capability to the renderer", async () => {
+// The dedicated Finder IPC was retired after renderer actions converged on the
+// validated /api/open-folder route. Keep it retired without expanding preload authority.
+test("retired show-in-folder IPC stays removed without expanding renderer authority", async () => {
   const preload = await readFile(resolve(import.meta.dirname, "..", "desktop", "preload.cjs"), "utf8");
   const main = await readFile(resolve(import.meta.dirname, "..", "desktop", "main.mjs"), "utf8");
 
-  // preload 暴露 showItemInFolder，IPC 名称与 main 完全一致。
-  assert.match(preload, /showItemInFolder: \(path\) => ipcRenderer\.invoke\("show-item-in-folder", path\)/);
-  assert.match(main, /ipcMain\.handle\("show-item-in-folder",/);
+  assert.doesNotMatch(preload, /showItemInFolder|show-item-in-folder/);
+  assert.doesNotMatch(main, /ipcMain\.handle\("show-item-in-folder",/);
   // preload 其余 API 不变，不向 renderer 暴露 shell 对象或任意命令执行能力。
   for (const api of ["pasteImage", "setLocale", "onMenuImport", "onMenuSearch"]) {
     assert.match(preload, new RegExp(`${api}:`), `preload keeps exposing ${api}`);
@@ -417,24 +415,9 @@ test("exposes only the minimal show-in-folder capability to the renderer", async
   assert.doesNotMatch(preload, /stage-dropped-file/, "stage-dropped-file IPC was removed as dead code");
   assert.doesNotMatch(preload, /openFileDialog:/, "unused open-file dialog IPC was removed");
   assert.doesNotMatch(main, /ipcMain\.handle\("open-file-dialog"/, "unused open-file dialog handler was removed");
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 8, "no invoke channel beyond the eight currently approved narrow requests");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 7, "no invoke channel beyond the seven currently approved narrow requests");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "shell is never exposed to the renderer");
   assert.doesNotMatch(preload, /exec\(|spawn\(|execFile\(/, "no arbitrary command execution");
-
-  // main：sender 必须是当前 mainWindow.webContents；拒绝空字符串/相对路径/URL/不存在文件；
-  // 使用 shell.showItemInFolder 而非 openExternal；成功 ok:true，失败结构化 reason；不抛未处理异常。
-  const handlerStart = main.indexOf('ipcMain.handle("show-item-in-folder"');
-  assert.notEqual(handlerStart, -1);
-  const handler = main.slice(handlerStart, main.indexOf("\n}", handlerStart));
-  assert.match(handler, /event\.sender !== mainWindow\.webContents/, "rejects a non-main-window sender");
-  assert.match(handler, /typeof path !== "string" \|\| !path\.trim\(\)/, "rejects an empty path");
-  assert.match(handler, /!isAbsolute\(target\)/, "rejects a relative path");
-  assert.match(handler, /\^\[a-z\]\[a-z0-9\+\.\-\]\*:\/i\.test\(target\)/, "rejects URL input");
-  assert.match(handler, /!existsSync\(target\)/, "rejects a missing file");
-  assert.match(handler, /shell\.showItemInFolder\(allowedTarget\)/, "uses shell.showItemInFolder only after boundary validation");
-  assert.doesNotMatch(handler, /openExternal/, "never opens local paths through shell.openExternal");
-  assert.match(handler, /return \{ ok: true \}/, "success resolves ok");
-  assert.match(handler, /catch \{\n\s+return \{ ok: false, reason: "unavailable" \}/, "failures resolve a structured reason instead of throwing");
 
   // packaged app 的 sandbox preload 使用相对 main.mjs 解析出的绝对 CommonJS 路径。
   assert.match(main, /const preloadPath = fileURLToPath\(new URL\("\.\/preload\.cjs", import\.meta\.url\)\);/);

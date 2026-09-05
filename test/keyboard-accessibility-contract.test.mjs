@@ -101,14 +101,17 @@ const checks = [
   }],
   ["24 copy prompt action is native", async () => assert.match(await read("app/app.mjs"), /data-action="copy-prompt"/)],
   ["25 copy source action is native", async () => assert.match(await read("app/app.mjs"), /data-action="copy-source"/)],
-  ["26 copy path action is native", async () => assert.match(await read("app/app.mjs"), /data-action="copy-path"/)],
-  ["29 More disclosure is native", async () => assert.match(await read("app/inspector-markup.mjs"), /data-more-actions/)],
-  ["30 App/Web original media split remains", async () => {
+  // 2026-09-04: the inspector copy-path button retired (context menu keeps its own entry).
+  ["26 inspector copy-path button stays retired", async () => assert.doesNotMatch(await read("app/app.mjs"), /data-action="copy-path"/)],
+  // 2026-09-04: the More disclosure retired; the image path renders directly.
+  ["29 More disclosure stays retired", async () => assert.doesNotMatch(await read("app/inspector-markup.mjs"), /data-more-actions/)],
+  // 2026-09-04: the App/Web original-media split retired from the inspector
+  // (context menu keeps Finder and copy-path entries).
+  ["30 App/Web original media split stays retired", async () => {
     const app = await read("app/app.mjs");
     const inspector = await read("app/inspector-markup.mjs");
-    assert.match(app, /data-action="show-in-finder"/);
-    assert.match(inspector, /class="action-btn secondary original-media-link"/);
-    assert.match(inspector, /target="_blank" rel="noopener noreferrer"/);
+    assert.doesNotMatch(app, /data-action="show-in-finder"/);
+    assert.doesNotMatch(inspector, /original-media-link/);
   }],
   ["31 return snapshot shape remains", async () => {
     const app = await read("app/asset-view.mjs");
