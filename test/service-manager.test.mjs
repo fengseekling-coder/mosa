@@ -307,7 +307,7 @@ test("automatic retirement does not target same-version, newer, unknown, or diff
   assert.equal(upgradeCalls, 0, "protected services are never passed to the retirement path");
 });
 
-test("packaged upgrade path waits through KeepAlive unavailability and attaches to the target build", async (t) => {
+test("packaged upgrade takes ownership of the retired service port", async (t) => {
   const root = await temporaryRoot(t, "mosa-service-upgrade-retry-");
   const libraryDir = join(root, "library");
   const port = await availablePort();
@@ -328,20 +328,11 @@ test("packaged upgrade path waits through KeepAlive unavailability and attaches 
 
   let upgradeCalls = 0;
   let runtimeStarts = 0;
-  let replacementProbes = 0;
   const expectedIdentity = {
     productVersion: "0.2.1-rc.1",
     gitSha: "new-sha",
     uiFingerprint: "new-ui",
     runtimeFingerprint: "new-runtime",
-  };
-  const replacement = {
-    state: "attached",
-    url: `http://127.0.0.1:${port}`,
-    port,
-    libraryDir,
-    storage: "sqlite",
-    ...expectedIdentity,
   };
   const service = await startMosaService({
     port,
@@ -355,37 +346,29 @@ test("packaged upgrade path waits through KeepAlive unavailability and attaches 
       await close(oldServer);
       return true;
     },
-    upgradeProbeImpl: async () => {
-      replacementProbes += 1;
-      if (replacementProbes === 1) return { state: "unavailable" };
-      if (replacementProbes === 2) {
-        return {
-          state: "conflict",
-          retryable: true,
-          error: new MosaServiceConflictError("replacement is still starting"),
-        };
-      }
-      return replacement;
-    },
-    upgradeReadySleepImpl: async () => {},
-    upgradeReadyTimeoutMs: 1000,
     startRuntime: async () => {
       runtimeStarts += 1;
-      throw new Error("startRuntime must not run during a KeepAlive upgrade handoff");
+      return {
+        url: `http://127.0.0.1:${port}`,
+        port,
+        libraryDir,
+        storage: "sqlite",
+        ...expectedIdentity,
+        stop: async () => {},
+      };
     },
   });
 
   assert.equal(upgradeCalls, 1);
-  assert.equal(replacementProbes, 3);
-  assert.equal(runtimeStarts, 0);
-  assert.equal(service.mode, "attached");
+  assert.equal(runtimeStarts, 1);
+  assert.equal(service.mode, "owned");
   assert.equal(service.port, port);
   assert.equal(service.productVersion, expectedIdentity.productVersion);
   assert.equal(service.gitSha, expectedIdentity.gitSha);
   await service.stop();
 });
 
-test("packaged upgrade handoff fails closed when a different build appears after retirement", async (t) => {
+test("packaged upgrade fails closed when a different build wins the ownership race", async (t) => {
   const root = await temporaryRoot(t, "mosa-service-upgrade-stranger-");
   const libraryDir = join(root, "library");
   const port = await availablePort();
@@ -438,17 +421,17 @@ test("packaged upgrade handoff fails closed when a different build appears after
       upgradeProbeImpl: async () => stranger,
       startRuntime: async () => {
         runtimeStarts += 1;
-        throw new Error("startRuntime must not run after a verified retirement");
+        throw new Error("port was claimed by another runtime");
       },
     }),
     MosaServiceBuildMismatchError,
   );
 
   assert.equal(upgradeCalls, 1, "the verified old service is retired only once");
-  assert.equal(runtimeStarts, 0, "a stranger is never replaced by a second runtime");
+  assert.equal(runtimeStarts, 1, "the target runtime makes one ownership attempt after verified retirement");
 });
 
-test("packaged upgrade handoff times out without starting a second runtime", async (t) => {
+test("packaged upgrade surfaces a target runtime start failure when the port stays unavailable", async (t) => {
   const root = await temporaryRoot(t, "mosa-service-upgrade-timeout-");
   const libraryDir = join(root, "library");
   const port = await availablePort();
@@ -467,8 +450,8 @@ test("packaged upgrade handoff times out without starting a second runtime", asy
   await listen(oldServer, port);
   t.after(() => close(oldServer));
 
-  let now = 0;
   let runtimeStarts = 0;
+  const startError = new Error("target runtime failed to start");
   await assert.rejects(
     startMosaService({
       port,
@@ -485,22 +468,14 @@ test("packaged upgrade handoff times out without starting a second runtime", asy
         return true;
       },
       upgradeProbeImpl: async () => ({ state: "unavailable" }),
-      upgradeReadyNowImpl: () => now,
-      upgradeReadySleepImpl: async (delayMs) => { now += delayMs; },
-      upgradeReadyTimeoutMs: 300,
-      upgradeReadyPollMs: 100,
       startRuntime: async () => {
         runtimeStarts += 1;
-        throw new Error("startRuntime must not run after retirement");
+        throw startError;
       },
     }),
-    (error) => {
-      assert.ok(error instanceof MosaServiceConflictError);
-      assert.doesNotMatch(error.message, /sha|fingerprint/i);
-      return true;
-    },
+    startError,
   );
-  assert.equal(runtimeStarts, 0);
+  assert.equal(runtimeStarts, 1);
 });
 
 test("controlled retirement requires matching service identity and lock owner, then sends SIGTERM only", async () => {

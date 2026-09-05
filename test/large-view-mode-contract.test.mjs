@@ -152,10 +152,10 @@ test("10. single click inspects, double click views, and Stack double click ente
     "card click resolves the asset id");
   assert.match(cards, /if \(event\.detail > 1\) return;/,
     "the second click in a double-click does not repeat Inspector selection work");
-  assert.match(cards, /if \(id\) \{\s+gallerySelection\.clear\(\);[\s\S]*?void selectAsset\(id\);\s+\}/,
-    "ordinary asset click clears batch selection before opening the V2 detail inspector");
-  assert.match(cards, /if \(!state\.activeStackId && asset\?\.stack\?\.id\) \{[\s\S]*?void selectStackNode\(asset\);[\s\S]*?return;/,
-    "collapsed Stack click inspects the logical Stack without treating its cover as the selected asset detail");
+  assert.match(cards, /if \(id\) \{\s+gallerySelection\.clear\(\);[\s\S]*?void selectGalleryNode\(id\);\s+\}/,
+    "card click clears batch selection before entering the shared logical-node selection path");
+  assert.match(app, /async function selectGalleryNode\(id, shouldScroll = false\)[\s\S]*?if \(!state\.activeStackId && asset\?\.stack\?\.id\) return selectStackNode\(asset, shouldScroll\);[\s\S]*?return selectAsset\(id, shouldScroll\);/,
+    "the shared selector sends ordinary assets to the V2 inspector and collapsed Stacks to Stack Inspector");
   assert.doesNotMatch(cards, /assetStacks\.enterStack/,
     "single-click must not enter a collapsed Stack");
   assert.doesNotMatch(cards, /openAssetView/, "single-click must not enter the dedicated Viewer");

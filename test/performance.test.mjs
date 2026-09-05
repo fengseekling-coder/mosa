@@ -68,10 +68,10 @@ test("50k SQLite library uses indexed filters, starts under 3s, and keeps search
   const plans = [
     ["conversation", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND conversation_id = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "conversation-7"), "assets_project_conversation_idx"],
     ["batch", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND conversation_id = ? AND generation_batch = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "conversation-7", "batch-7"), "assets_project_conversation_batch_idx"],
-    ["source", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND source_group = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "web-chatgpt"), "assets_project_source_group_idx"],
-    ["media", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND media_kind = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "video"), "assets_project_media_kind_idx"],
+    ["source", planDetails("SELECT id FROM assets WHERE project_id = ? AND deleted_at IS NULL AND archived = 0 AND source_group = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "web-chatgpt"), "assets_project_source_group_live_idx"],
+    ["media", planDetails("SELECT id FROM assets WHERE project_id = ? AND deleted_at IS NULL AND archived = 0 AND media_kind = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "video"), "assets_project_media_kind_live_idx"],
     ["group", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND group_name = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "group-7"), "assets_project_group_created_idx"],
-    ["category", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND category = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "category-7"), "assets_project_category_created_idx"],
+    ["category", planDetails("SELECT id FROM assets WHERE project_id = ? AND deleted_at IS NULL AND archived = 0 AND category = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "category-7"), "assets_project_category_live_idx"],
     ["style", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND style = ? ORDER BY created_at DESC, id DESC LIMIT 101", "default", "style-7"), "assets_project_style_created_idx"],
     ["favorite", planDetails("SELECT id FROM assets WHERE project_id = ? AND archived = 0 AND (rating > 0 OR favorite = 1) ORDER BY created_at DESC, id DESC LIMIT 101", "default"), "assets_project_favorite_created_idx"],
   ];
@@ -102,34 +102,41 @@ test("50k SQLite library uses indexed filters, starts under 3s, and keeps search
   }
   samples.sort((a, b) => a - b);
   const p95 = samples[Math.ceil(samples.length * 0.95) - 1];
-  const filterSamples = [];
   const filterCases = [
-    { conversation: "conversation-7" },
-    { conversation: "conversation-7", generationBatch: "batch-7" },
-    { source: "web-chatgpt" },
-    { mediaKind: "video" },
-    { group: "group-7" },
-    { category: "category-7" },
-    { style: "style-7" },
-    { favorite: true },
+    ["conversation", { conversation: "conversation-7" }],
+    ["conversation+batch", { conversation: "conversation-7", generationBatch: "batch-7" }],
+    ["source", { source: "web-chatgpt" }],
+    ["media", { mediaKind: "video" }],
+    ["group", { group: "group-7" }],
+    ["category", { category: "category-7" }],
+    ["style", { style: "style-7" }],
+    ["favorite", { favorite: true }],
   ];
-  for (const filters of filterCases) {
+  for (const [, filters] of filterCases) {
     const result = await reopened.listAssetPage({ projectId: "default", ...filters, limit: 100 });
     assert.ok(result.assets.length > 0);
   }
-  for (const filters of filterCases) {
-    const started = performance.now();
-    const result = await reopened.listAssetPage({ projectId: "default", ...filters, limit: 100 });
-    filterSamples.push(performance.now() - started);
-    assert.ok(result.assets.length > 0);
+  const filterP95ByCase = new Map();
+  for (const [name, filters] of filterCases) {
+    const caseSamples = [];
+    for (let sample = 0; sample < 20; sample += 1) {
+      const started = performance.now();
+      const result = await reopened.listAssetPage({ projectId: "default", ...filters, limit: 100 });
+      caseSamples.push(performance.now() - started);
+      assert.ok(result.assets.length > 0);
+    }
+    caseSamples.sort((a, b) => a - b);
+    const caseP95 = caseSamples[Math.ceil(caseSamples.length * 0.95) - 1];
+    filterP95ByCase.set(name, caseP95);
+    t.diagnostic(`indexed filter ${name} P95=${caseP95.toFixed(1)}ms samples=${caseSamples.map((value) => value.toFixed(1)).join(",")}`);
   }
-  filterSamples.sort((a, b) => a - b);
-  const filterP95 = filterSamples[Math.ceil(filterSamples.length * 0.95) - 1];
+  const slowestFilter = [...filterP95ByCase.entries()].sort((left, right) => right[1] - left[1])[0];
   const stack = await reopened.createAssetStack("default", ["asset-0", "asset-1"], { coverAssetId: "asset-0" });
   const fullList = await reopened.listAssets({ projectId: "default" });
   assert.equal(fullList.length, 50_000, "full 50k listings must not exceed SQLite's bound-variable limit");
   assert.deepEqual(fullList.find((asset) => asset.id === "asset-0")?.stack, { id: stack.id, count: 2 });
   assert.ok(startupMs < 3000, `startup ${startupMs.toFixed(1)}ms exceeded 3000ms`);
   assert.ok(p95 < 100, `search P95 ${p95.toFixed(1)}ms exceeded 100ms`);
-  assert.ok(filterP95 < 50, `indexed-filter P95 ${filterP95.toFixed(1)}ms exceeded 50ms`);
+  assert.ok(slowestFilter[1] < 50,
+    `indexed-filter ${slowestFilter[0]} P95 ${slowestFilter[1].toFixed(1)}ms exceeded 50ms; ${[...filterP95ByCase.entries()].map(([name, value]) => `${name}=${value.toFixed(1)}ms`).join(", ")}`);
 });

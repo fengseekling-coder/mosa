@@ -40,6 +40,7 @@ export function createAssetStackController({
   state,
   apiFetch,
   loadAssets,
+  reloadLoadedAssetPages,
   gallerySelection,
   renderQuickFilters,
   updateViewTitle,
@@ -151,6 +152,7 @@ export function createAssetStackController({
       selectedId: state.selectedId || "",
       selectedIds: [...(state.selectedIds instanceof Set ? state.selectedIds : new Set())],
       selectedStackNodes: [...(state.selectedStackNodes instanceof Map ? state.selectedStackNodes : new Map())],
+      loadedPageCount: Math.max(1, Number(state.loadedPageCount) || 1),
       stackId,
     };
     state.activeStackId = stackId;
@@ -187,7 +189,10 @@ export function createAssetStackController({
     if (els.searchInput) els.searchInput.value = state.query;
     if (els.sortSelect) els.sortSelect.value = state.sort;
     syncChrome();
-    const loaded = await loadAssets({ preserveScroll: false });
+    state.loadedPageCount = Math.max(1, Number(snapshot.loadedPageCount) || 1);
+    const loaded = typeof reloadLoadedAssetPages === "function"
+      ? await reloadLoadedAssetPages({ background: false })
+      : await loadAssets({ preserveScroll: false });
     if (loaded) {
       requestAnimationFrame(() => {
         if (!els.assetGrid) return;

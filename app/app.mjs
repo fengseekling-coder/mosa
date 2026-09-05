@@ -73,7 +73,7 @@ const state = {
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
   groups: { total: 0, favorites: 0, unorganized: 0, trash: 0, sourceTypes: [], groups: [] },
-  galleryStatus: "loading", galleryError: null, galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")), storageKind: "unknown",
+  galleryStatus: "loading", galleryError: null, paginationStatus: "idle", galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")), storageKind: "unknown",
   libraryPath: "", libraryRoot: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, groupSaving: false, libraryMoveInProgress: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
   dragCounter: 0,
   stagedPath: "", // P1-2: Track current staged file for cleanup on cancel
@@ -174,8 +174,9 @@ const apiClient = createApiClient({
   selectedAsset,
   isDetailEditorActive,
   prewarmAssetMedia,
+  refreshSelectedStackInspector,
 });
-const { apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged, reconcileLibraryRevision, noteLibraryRevision, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
+const { apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged, reloadLoadedAssetPages, reconcileLibraryRevision, noteLibraryRevision, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
 
 // ===== New element references =====
 Object.assign(els, {
@@ -230,6 +231,7 @@ const assetStacks = createAssetStackController({
   state,
   apiFetch,
   loadAssets,
+  reloadLoadedAssetPages,
   gallerySelection,
   renderQuickFilters,
   updateViewTitle,
@@ -876,13 +878,23 @@ async function init() {
   }
 
 async function loadProductVersion() {
-  try {
-    const data = await apiFetch("/api/health");
-    state.productVersion = String(data?.productVersion || "").trim();
-    state.storageKind = String(data?.storage || "unknown");
-  } catch {
-    state.productVersion = "";
-    state.storageKind = "unknown";
+  const data = await apiFetch("/api/health");
+  state.productVersion = String(data?.productVersion || "").trim();
+  state.storageKind = String(data?.storage || "unknown");
+  const response = await fetch("/build-identity.json", { cache: "no-store" });
+  if (response.ok) {
+    const uiIdentity = await response.json();
+    const identityFields = ["productVersion", "uiFingerprint", "runtimeFingerprint"];
+    const mismatched = identityFields.filter((field) => {
+      const uiValue = String(uiIdentity?.[field] || "").trim();
+      const runtimeValue = String(data?.[field] || "").trim();
+      return uiValue && runtimeValue && uiValue !== "unknown" && runtimeValue !== "unknown" && uiValue !== runtimeValue;
+    });
+    if (mismatched.length) {
+      const error = new Error(t("runtimeBuildMismatch"));
+      error.code = "MOSA_RUNTIME_BUILD_MISMATCH";
+      throw error;
+    }
   }
   gallerySelection.syncRenderedSelection({ prune: false });
   renderSettingsMenu();
@@ -1101,7 +1113,7 @@ function bindKeyboardNav(event) {
   const nextId = neighbourAssetId(event.key);
   if (!nextId) return;
   event.preventDefault();
-  selectAsset(nextId, true);
+  void selectGalleryNode(nextId, true);
 }
 
 // ===== ConfirmDialog（已提取至 confirm-dialog.mjs，R1 批次 3）=====
@@ -1482,21 +1494,14 @@ function bindEvents() {
       if (id && gallerySelection.handleCardClick(event, id)) return;
       if (id) {
         gallerySelection.clear();
-        const asset = state.assets.find((item) => item.id === id);
-        if (!state.activeStackId && asset?.stack?.id) {
-          // A collapsed Stack is a logical gallery node. Single-click only
-          // inspects the logical Stack; navigation is reserved for double-click
-          // (or Enter), which prevents accidental entry while browsing.
-          if (state.viewMode !== "library") return;
-          void selectStackNode(asset);
-          return;
-        }
-        void selectAsset(id);
+        if (state.viewMode !== "library") return;
+        void selectGalleryNode(id);
       }
       return;
     }
     const loadMoreButton = event.target.closest('[data-action="load-more"]');
     if (loadMoreButton && state.nextCursor && !isLoadingMore) {
+      state.paginationStatus = "idle";
       isLoadingMore = true;
       loadMoreButton.disabled = true;
       void loadAssets({ append: true }).then((applied) => {
@@ -3056,15 +3061,17 @@ function sentinelInInfiniteScrollWarmZone(grid, sentinel, preloadDistance) {
 function requestInfiniteScrollAppend(requestKey, preloadDistance) {
   const grid = els.assetGrid;
   const sentinel = grid?.querySelector('[data-sentinel="true"]');
-  if (!grid || !sentinel || !state.nextCursor || isLoadingMore
+  if (!grid || !sentinel || !state.nextCursor || isLoadingMore || state.paginationStatus === "error"
     || requestKey !== assetRequestKey(currentAssetRequest())) return;
   isLoadingMore = true;
   const fallbackButton = grid.querySelector('[data-action="load-more"]')?.closest(".asset-load-more");
+  let appendApplied = false;
   loadAssets({ append: true }).then((applied) => {
+    appendApplied = Boolean(applied);
     if (!applied && fallbackButton?.isConnected) fallbackButton.hidden = false;
   }).finally(() => {
     isLoadingMore = false;
-    if (requestKey !== assetRequestKey(currentAssetRequest()) || infiniteScrollRearmFrame !== null) return;
+    if (!appendApplied || requestKey !== assetRequestKey(currentAssetRequest()) || infiniteScrollRearmFrame !== null) return;
     infiniteScrollRearmFrame = requestAnimationFrame(() => {
       infiniteScrollRearmFrame = null;
       const nextGrid = els.assetGrid;
@@ -3086,6 +3093,10 @@ function setupInfiniteScroll() {
   const sentinel = grid?.querySelector('[data-sentinel="true"]');
   if (!grid || !sentinel || !state.nextCursor) return;
   const fallbackButton = grid.querySelector('[data-action="load-more"]')?.closest(".asset-load-more");
+  if (state.paginationStatus === "error") {
+    if (fallbackButton) fallbackButton.hidden = false;
+    return;
+  }
   if (!("IntersectionObserver" in window)) {
     if (fallbackButton) fallbackButton.hidden = false;
     return;
@@ -3451,33 +3462,21 @@ async function selectAsset(id, shouldScroll = false) {
   if (shouldScroll) els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
+async function selectGalleryNode(id, shouldScroll = false) {
+  const asset = state.assets.find((item) => item.id === id);
+  if (!state.activeStackId && asset?.stack?.id) return selectStackNode(asset, shouldScroll);
+  return selectAsset(id, shouldScroll);
+}
+
 let stackInspectorRequestSequence = 0;
-async function selectStackNode(asset) {
-  const stackId = String(asset?.stack?.id || "");
-  const coverAssetId = String(asset?.id || "");
-  if (!stackId || !coverAssetId || state.activeStackId) return false;
-  const originProjectId = state.project;
-  const originAssetId = state.selectedId;
-  if (!await confirmDetailNavigation(coverAssetId)) return false;
-  if (originAssetId !== null && !isCurrentDetailSelection(originProjectId, originAssetId)) return false;
-  discardDetailDraft();
+async function loadStackInspectorMembers(stackId, coverAssetId, { showLoading = true } = {}) {
+  const current = state.detailStack;
+  if (!current || current.id !== stackId || state.selectedId !== coverAssetId) return false;
   const requestId = ++stackInspectorRequestSequence;
-  state.selectedId = coverAssetId;
-  state.detailAsset = null;
-  state.detailStack = {
-    id: stackId,
-    coverAssetId,
-    count: Math.max(0, Number(asset.stack?.count || 0)),
-    members: [],
-    loading: true,
-    error: false,
-  };
-  state.versionHistory = null;
-  state.recipeHistory = null;
-  state.generationHistory = null;
-  setDetailOpen(true);
-  updateSelectedCard();
-  renderDetail();
+  if (showLoading) {
+    state.detailStack = { ...current, loading: true, error: false };
+    renderDetail();
+  }
   try {
     const members = [];
     const seenCursors = new Set();
@@ -3501,12 +3500,60 @@ async function selectStackNode(asset) {
     state.detailStack = { ...state.detailStack, count: total || members.length, members, loading: false, error: false };
     renderDetail();
     return true;
-  } catch (error) {
+  } catch {
     if (requestId !== stackInspectorRequestSequence || state.selectedId !== coverAssetId || state.detailStack?.id !== stackId) return false;
     state.detailStack = { ...state.detailStack, loading: false, error: true };
     renderDetail();
     return false;
   }
+}
+
+async function refreshSelectedStackInspector() {
+  if (!state.detailStack || state.activeStackId) return false;
+  const current = state.detailStack;
+  const galleryNode = state.assets.find((asset) => asset.stack?.id === current.id);
+  if (!galleryNode) {
+    clearDetailSelection();
+    renderDetail();
+    return false;
+  }
+  state.selectedId = galleryNode.id;
+  state.detailStack = {
+    ...current,
+    coverAssetId: galleryNode.id,
+    count: Math.max(0, Number(galleryNode.stack?.count || current.count || 0)),
+  };
+  updateSelectedCard();
+  return loadStackInspectorMembers(current.id, galleryNode.id, { showLoading: false });
+}
+
+async function selectStackNode(asset, shouldScroll = false) {
+  const stackId = String(asset?.stack?.id || "");
+  const coverAssetId = String(asset?.id || "");
+  if (!stackId || !coverAssetId || state.activeStackId) return false;
+  const originProjectId = state.project;
+  const originAssetId = state.selectedId;
+  if (!await confirmDetailNavigation(coverAssetId)) return false;
+  if (originAssetId !== null && !isCurrentDetailSelection(originProjectId, originAssetId)) return false;
+  discardDetailDraft();
+  state.selectedId = coverAssetId;
+  state.detailAsset = null;
+  state.detailStack = {
+    id: stackId,
+    coverAssetId,
+    count: Math.max(0, Number(asset.stack?.count || 0)),
+    members: [],
+    loading: true,
+    error: false,
+  };
+  state.versionHistory = null;
+  state.recipeHistory = null;
+  state.generationHistory = null;
+  setDetailOpen(true);
+  updateSelectedCard();
+  if (shouldScroll) els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(coverAssetId)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  renderDetail();
+  return loadStackInspectorMembers(stackId, coverAssetId, { showLoading: false });
 }
 
 function clearDetailSelection() {

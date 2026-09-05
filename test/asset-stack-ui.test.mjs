@@ -73,10 +73,14 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
   );
   assert.doesNotMatch(singleClick, /assetStacks\.enterStack/,
     "collapsed Stack single-click must not navigate");
-  assert.match(singleClick, /void selectStackNode\(asset\)/,
-    "collapsed Stack single-click opens the Stack inspector instead of impersonating its cover asset");
-  assert.match(app, /async function selectStackNode\(asset\)[\s\S]*?state\.detailStack = \{[\s\S]*?loading: true[\s\S]*?\/api\/asset-stacks\/\$\{encodeURIComponent\(stackId\)\}\/assets/,
-    "Stack inspection owns an explicit detail state and loads the complete member list");
+  assert.match(singleClick, /void selectGalleryNode\(id\)/,
+    "collapsed Stack single-click goes through the shared logical-node selector");
+  assert.match(app, /async function selectGalleryNode\(id, shouldScroll = false\)[\s\S]*?return selectStackNode\(asset, shouldScroll\)/,
+    "mouse and keyboard selection share the same Stack-aware node semantics");
+  assert.match(app, /async function selectStackNode\(asset, shouldScroll = false\)[\s\S]*?state\.detailStack = \{[\s\S]*?loading: true/,
+    "Stack inspection owns an explicit detail state");
+  assert.match(app, /async function loadStackInspectorMembers\(stackId, coverAssetId[\s\S]*?\/api\/asset-stacks\/\$\{encodeURIComponent\(stackId\)\}\/assets/,
+    "Stack inspection loads the complete member list through one reusable refresh path");
   assert.match(app, /const stackDetail = state\.detailStack\?\.coverAssetId === state\.selectedId \? state\.detailStack : null/,
     "the inspector distinguishes a logical Stack from the cover asset that represents it in the gallery");
   assert.match(app, /stackInspectorMarkup\(stackDetail\)/,

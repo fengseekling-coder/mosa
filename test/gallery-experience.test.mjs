@@ -205,7 +205,7 @@ test("navigates the masonry grid in two dimensions from rendered geometry", asyn
   assert.match(app, /Math\.abs\(entry\.left - current\.left\) <= COLUMN_TOLERANCE_PX/);
   // Arrow keys must not fight the detail tablist.
   assert.match(app, /if \(event\.target\.closest\?\.\("\[role='tab'\]"\)\) return;/);
-  assert.match(app, /event\.preventDefault\(\);\s*\n\s*selectAsset\(nextId, true\);/);
+  assert.match(app, /event\.preventDefault\(\);\s*\n\s*void selectGalleryNode\(nextId, true\);/);
   // Index arithmetic over a staggered layout is exactly what this replaces.
   assert.doesNotMatch(app, /selectAsset\(state\.assets\[index [-+] 1\]\.id, true\)/);
 });

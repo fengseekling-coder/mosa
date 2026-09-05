@@ -18,6 +18,7 @@ export function createApiClient(deps) {
     selectedAsset,
     isDetailEditorActive,
     prewarmAssetMedia,
+    refreshSelectedStackInspector,
   } = deps;
 
   async function apiFetch(path, options = {}) {
@@ -237,7 +238,12 @@ export function createApiClient(deps) {
     const request = currentAssetRequest();
     const requestKey = assetRequestKey(request);
     const appendCursor = options.append ? state.nextCursor : null;
-    if (!options.append) resetAssetPrefetch();
+    if (!options.append) {
+      resetAssetPrefetch();
+      state.paginationStatus = "idle";
+    } else {
+      state.paginationStatus = "loading";
+    }
     const preserveScroll = options.preserveScroll
       ?? (options.append || lastCommittedAssetRequestKey === requestKey);
     setGalleryBusy(true, requestId, request);
@@ -264,6 +270,7 @@ export function createApiClient(deps) {
       // replace already-loaded cards or discard the user's browsing context.
       if (options.append && state.assets.length) {
         state.galleryError = error;
+        state.paginationStatus = "error";
         setGalleryBusy(false, requestId, request);
         return false;
       }
@@ -308,6 +315,7 @@ export function createApiClient(deps) {
       && previousSelected.project_id === request.project
       && !nextAssets.some((asset) => asset.id === previousSelected.id && asset.project_id === previousSelected.project_id));
     state.assets = nextAssets;
+    if (options.append) state.paginationStatus = "idle";
     if (request.stackId && result.stack) state.activeStackSummary = result.stack;
     // The request answered, so an empty result is now genuinely an empty library.
     state.galleryStatus = "ready";
@@ -324,7 +332,8 @@ export function createApiClient(deps) {
     if (state.detailAsset?.project_id !== request.project) state.detailAsset = null;
     if (state.detailAsset && state.assets.some((asset) => asset.id === state.detailAsset.id && asset.project_id === state.detailAsset.project_id)) state.detailAsset = null;
     if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)
-      && !(state.detailAsset?.id === state.selectedId && state.detailAsset.project_id === request.project)) state.selectedId = null;
+      && !(state.detailAsset?.id === state.selectedId && state.detailAsset.project_id === request.project)
+      && !(state.detailStack && state.assets.some((asset) => asset.stack?.id === state.detailStack.id))) state.selectedId = null;
     if (!options.background || assetsChanged) {
       // Entry motion is a first-paint affordance only. Infinite-scroll pages
       // join the existing masonry without a reveal animation so pagination
@@ -447,7 +456,8 @@ export function createApiClient(deps) {
     if (state.detailAsset?.project_id !== request.project) state.detailAsset = null;
     if (state.detailAsset && state.assets.some((asset) => asset.id === state.detailAsset.id && asset.project_id === state.detailAsset.project_id)) state.detailAsset = null;
     if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)
-      && !(state.detailAsset?.id === state.selectedId && state.detailAsset.project_id === request.project)) state.selectedId = null;
+      && !(state.detailAsset?.id === state.selectedId && state.detailAsset.project_id === request.project)
+      && !(state.detailStack && state.assets.some((asset) => asset.stack?.id === state.detailStack.id))) state.selectedId = null;
 
     if (!background || assetsChanged) {
       renderGrid({ animate: previousAssets.length === 0, preserveScroll: true });
@@ -497,7 +507,10 @@ export function createApiClient(deps) {
     if (nextRevision === lastLibraryRevision) return false;
     resetAssetPrefetch();
     const refreshed = await refreshLibraryInBackground();
-    if (refreshed) lastLibraryRevision = nextRevision;
+    if (refreshed) {
+      lastLibraryRevision = nextRevision;
+      await refreshSelectedStackInspector?.();
+    }
     return refreshed;
   }
   async function refreshLibraryIfChanged() {
