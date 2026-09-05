@@ -47,15 +47,11 @@ export function createCriticalUiFlowSource({ mode, fixturePath, searchTerm, reci
     // The search handler is debounced. A pre-existing card can satisfy the
     // result-count assertion before the query has actually committed, which
     // lets the delayed search clear an Inspector opened by the next step. The
-    // V2 shell intentionally has no active-filter chip, so observe the busy
-    // transition of the results container instead.
+    // V2 shell intentionally has no active-filter chip, so observe the query
+    // committed on the results container instead of a transient busy frame.
     await waitFor(
-      () => document.querySelector('#searchInput')?.value === config.searchTerm,
-      'search query input',
-    );
-    await waitFor(
-      () => document.querySelector('#assetGrid')?.getAttribute('aria-busy') === 'true',
-      'search request',
+      () => document.querySelector('#assetGrid')?.dataset.query === config.searchTerm,
+      'committed search query',
     );
     await waitFor(
       () => document.querySelector('#assetGrid')?.getAttribute('aria-busy') === 'false'

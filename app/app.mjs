@@ -3270,6 +3270,7 @@ function renderGrid() {
         : null;
   els.assetGrid.dataset.density = state.galleryDensity;
   els.assetGrid.dataset.loadedAssets = String(state.assets.length);
+  els.assetGrid.dataset.query = state.query;
   const restoreGridFallbackFocus = () => {
     if (!focusedElement) return;
     requestAnimationFrame(() => els.assetGrid?.focus({ preventScroll: true }));
