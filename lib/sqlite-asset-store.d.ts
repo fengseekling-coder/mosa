@@ -66,6 +66,7 @@ export interface AssetListFilters {
   mediaKind?: string;
   collapseStacks?: boolean;
   includeTotal?: boolean;
+  boundaryCursor?: string;
   [key: string]: unknown;
 }
 
@@ -142,6 +143,9 @@ export interface SqliteAssetStore {
   findAssetBySourcePath(projectId: string, sourcePath: string): Promise<StoredAsset | null>;
   findAssetByPixelHash(projectId: string, pixelHash: string): Promise<StoredAsset | null>;
   libraryRevision(projectId?: string): Promise<string>;
+  libraryChangeState(projectId?: string): Promise<{ revision: number; oldestRevision: number | null }>;
+  listLibraryChangesSince(projectId: string, sinceRevision: number, options?: { limit?: number }): Promise<{ sinceRevision: number | null; currentRevision: number; oldestRevision: number | null; complete: boolean; changes: Array<Record<string, unknown>> }>;
+  listGalleryRowsForAssets(filters: Record<string, unknown>, assetIds: string[]): Promise<{ rows: StoredAsset[]; rowByAssetId: Record<string, string>; afterCursorRowIds?: string[] }>;
   findAutomaticIngestSuppression(projectId: string, hashes: Record<string, unknown>): Promise<Record<string, unknown> | null>;
   listAutomaticIngestSuppressions(projectId: string): Promise<Array<Record<string, unknown>>>;
   clearAutomaticIngestSuppression(projectId: string, hashes: Record<string, unknown>): Promise<number>;

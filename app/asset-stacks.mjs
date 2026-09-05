@@ -40,7 +40,10 @@ export function createAssetStackController({
   state,
   apiFetch,
   loadAssets,
-  reloadLoadedAssetPages,
+  performFullGalleryReconciliation,
+  librarySync,
+  currentAssetRequest,
+  renderGrid,
   gallerySelection,
   renderQuickFilters,
   updateViewTitle,
@@ -142,6 +145,9 @@ export function createAssetStackController({
   async function enterStack(stackId, initialSummary = null) {
     if (!stackId || state.activeStackId) return false;
     if (typeof closeDetailSurface === "function" && !await closeDetailSurface()) return false;
+    // Root gallery 快照：请求语义之外的整个已加载数据窗口（含数组引用、
+    // 分页状态与 revision 时刻）原内存保留。逗留期间库同步把累计 delta 应用到
+    // 快照（数据）并在退出时回放，root 窗口不再重新下载（二十二）。
     state.stackReturnSnapshot = {
       query: state.query,
       scope: state.scope,
@@ -153,7 +159,20 @@ export function createAssetStackController({
       selectedIds: [...(state.selectedIds instanceof Set ? state.selectedIds : new Set())],
       selectedStackNodes: [...(state.selectedStackNodes instanceof Map ? state.selectedStackNodes : new Map())],
       loadedPageCount: Math.max(1, Number(state.loadedPageCount) || 1),
+      loadedAssetCount: Math.max(0, Number(state.loadedAssetCount) || 0),
       stackId,
+      rootView: {
+        request: currentAssetRequest
+          ? { ...currentAssetRequest(), stackId: "" }
+          : null,
+        assets: state.assets,
+        pageTotal: state.pageTotal,
+        nextCursor: state.nextCursor,
+        loadedPageCount: Math.max(1, Number(state.loadedPageCount) || 1),
+        loadedAssetCount: Math.max(0, Number(state.loadedAssetCount) || 0),
+        pending: [],
+        degraded: false,
+      },
     };
     state.activeStackId = stackId;
     state.activeStackSummary = initialSummary ? { ...initialSummary, id: stackId } : null;
@@ -169,6 +188,29 @@ export function createAssetStackController({
     if (!loaded) return false;
     syncChrome();
     els.assetGrid?.focus({ preventScroll: true });
+    return true;
+  }
+
+  async function restoreRootFromSnapshot(snapshot) {
+    const root = snapshot.rootView;
+    if (!root || root.degraded) return false;
+    state.assets = root.assets;
+    state.pageTotal = Number(root.pageTotal) || 0;
+    state.nextCursor = root.nextCursor || null;
+    state.loadedPageCount = Math.max(1, Number(root.loadedPageCount) || 1);
+    state.loadedAssetCount = Math.max(0, Number(root.loadedAssetCount) || 0);
+    state.galleryStatus = "ready";
+    state.galleryError = null;
+    // 回放逗留期间积压的 delta（幂等；此时 currentAssetRequest 已恢复为 root 请求）。
+    // 提交由下方的整体 renderGrid 完成，这里只做数据 reconcile。
+    if (typeof librarySync?.applyRootSnapshotPendingChanges === "function") {
+      const applied = await librarySync.applyRootSnapshotPendingChanges(root);
+      if (applied === false) return false;
+    }
+    // 与 loadAssets 相同的选中项/Inspector 快照清理语义。
+    if (state.detailAsset && state.assets.some((asset) => asset.id === state.detailAsset.id && asset.project_id === state.detailAsset.project_id)) state.detailAsset = null;
+    if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)
+      && !(state.detailAsset?.id === state.selectedId)) state.selectedId = null;
     return true;
   }
 
@@ -189,11 +231,16 @@ export function createAssetStackController({
     if (els.searchInput) els.searchInput.value = state.query;
     if (els.sortSelect) els.sortSelect.value = state.sort;
     syncChrome();
-    state.loadedPageCount = Math.max(1, Number(snapshot.loadedPageCount) || 1);
-    const loaded = typeof reloadLoadedAssetPages === "function"
-      ? await reloadLoadedAssetPages({ background: false })
-      : await loadAssets({ preserveScroll: false });
+    let loaded = await restoreRootFromSnapshot(snapshot);
+    if (!loaded) {
+      // 快照缺失或已 degraded（journal gap 等）：全量恢复是最后手段。
+      loaded = typeof performFullGalleryReconciliation === "function"
+        ? await performFullGalleryReconciliation({ background: false })
+        : await loadAssets({ preserveScroll: false });
+    }
     if (loaded) {
+      renderGrid({ preserveScroll: true });
+      updateViewTitle();
       requestAnimationFrame(() => {
         if (!els.assetGrid) return;
         const maxScrollTop = Math.max(0, els.assetGrid.scrollHeight - els.assetGrid.clientHeight);
@@ -230,12 +277,19 @@ export function createAssetStackController({
       ? coverAssetId
       : (state.assets.find((asset) => state.selectedIds.has(asset.id))?.id || selectedIds[0]);
     return runStackMutation(async () => {
-      await apiFetch("/api/asset-stacks", {
+      const result = await apiFetch("/api/asset-stacks", {
         method: "POST",
         body: { projectId: state.project, assetIds: selectedIds, coverAssetId: coverId },
       });
       gallerySelection.clear();
-      await loadAssets({ preserveScroll: true });
+      // 本地增量：N 张成员卡 → 1 张 Stack 节点卡；随后到达的 SSE delta 幂等。
+      await librarySync.applyLocalChanges([{
+        kind: "stack-created",
+        entityType: "stack",
+        entityId: result?.stack?.id || "",
+        assetIds: selectedIds,
+        detail: { coverAssetId: coverId },
+      }]);
       showToast?.(t("stackCreated", { count: selectedIds.length }), "success");
       return true;
     });
@@ -252,11 +306,24 @@ export function createAssetStackController({
       });
       gallerySelection.clear();
       if (result.dissolved) {
+        await librarySync.applyLocalChanges([{
+          kind: "stack-dissolved",
+          entityType: "stack",
+          entityId: state.activeStackId,
+          assetIds: [...(result.assetIds || ids)],
+        }]);
         showToast?.(t("stackDissolved"), "success");
         await exitStack();
         return true;
       }
-      await loadAssets({ preserveScroll: true });
+      // Stack 视图内：受影响成员行就地 reconcile（移除的成员从视图消失，
+      // Stack 计数同步），root 快照由增量层并行更新。
+      await librarySync.applyLocalChanges([{
+        kind: "stack-members-changed",
+        entityType: "stack",
+        entityId: state.activeStackId,
+        assetIds: ids,
+      }]);
       showToast?.(t("stackAssetsRemoved", { count: ids.length }), "success");
       return true;
     });
@@ -361,7 +428,12 @@ export function createAssetStackController({
         body: { projectId: state.project, assetIds: toAdd },
       });
       gallerySelection.clear();
-      await loadAssets({ preserveScroll: true });
+      await librarySync.applyLocalChanges([{
+        kind: "stack-members-changed",
+        entityType: "stack",
+        entityId: targetAsset.stack.id,
+        assetIds: toAdd,
+      }]);
       showToast?.(t("stackAssetsAdded", { count: toAdd.length }), "success");
       return true;
     }
@@ -371,12 +443,18 @@ export function createAssetStackController({
     if (movingIds.includes(targetId)) return false;
     const ids = [...movingIds, targetId];
     if (ids.length < 2) return false;
-    await apiFetch("/api/asset-stacks", {
+    const result = await apiFetch("/api/asset-stacks", {
       method: "POST",
       body: { projectId: state.project, assetIds: ids, coverAssetId: targetId },
     });
     gallerySelection.clear();
-    await loadAssets({ preserveScroll: true });
+    await librarySync.applyLocalChanges([{
+      kind: "stack-created",
+      entityType: "stack",
+      entityId: result?.stack?.id || "",
+      assetIds: ids,
+      detail: { coverAssetId: targetId },
+    }]);
     showToast?.(t("stackCreated", { count: ids.length }), "success");
     return true;
   }
@@ -401,7 +479,12 @@ export function createAssetStackController({
       staleOrderError.code = error.code;
       throw staleOrderError;
     }
-    await loadAssets({ preserveScroll: true });
+    await librarySync.applyLocalChanges([{
+      kind: "stack-order-changed",
+      entityType: "stack",
+      entityId: state.activeStackId,
+      assetIds: nextIds,
+    }]);
     return true;
   }
 

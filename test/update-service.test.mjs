@@ -37,6 +37,7 @@ test("update manifest keeps only bounded release metadata", () => {
 test("anonymous usage tagging keeps the update origin and path fixed", () => {
   const url = new URL(buildUpdateFeedUrl({
     event: "daily_active",
+    telemetryVersion: 2,
     installationId: "123e4567-e89b-42d3-a456-426614174000",
     platform: "macos",
     arch: "arm64",
@@ -44,6 +45,7 @@ test("anonymous usage tagging keeps the update origin and path fixed", () => {
   }));
   assert.equal(`${url.origin}${url.pathname}`, MOSA_UPDATE_FEED_URL);
   assert.equal(url.searchParams.get("event"), "daily_active");
+  assert.equal(url.searchParams.get("telemetry_version"), "2");
   assert.equal(url.searchParams.get("install_id"), "123e4567-e89b-42d3-a456-426614174000");
   assert.equal(url.searchParams.get("platform"), "macos");
   assert.equal(url.searchParams.get("arch"), "arm64");
@@ -55,6 +57,7 @@ test("anonymous usage reporting uses a bodyless first-party request and requires
   let request = null;
   const telemetry = {
     event: "first_launch",
+    telemetryVersion: 2,
     installationId: "123e4567-e89b-42d3-a456-426614174000",
     platform: "windows",
     arch: "x64",
@@ -93,6 +96,7 @@ test("update check compares the fixed HTTPS feed against the installed version",
     currentVersion: "0.2.0",
     anonymousUsage: {
       event: "first_launch",
+      telemetryVersion: 2,
       installationId: "123e4567-e89b-42d3-a456-426614174000",
       platform: "windows",
       arch: "x64",

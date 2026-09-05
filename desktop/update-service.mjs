@@ -6,6 +6,7 @@ const VERSION_PATTERN = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-
 const INSTALLATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const USAGE_EVENTS = new Set(["first_launch", "daily_active"]);
 const USAGE_PLATFORMS = new Set(["macos", "windows", "other"]);
+const USAGE_TELEMETRY_VERSION = 2;
 
 function parseVersion(value) {
   const match = VERSION_PATTERN.exec(String(value || "").trim());
@@ -75,11 +76,13 @@ export function parseUpdateManifest(input) {
 export function buildUpdateFeedUrl(anonymousUsage = null) {
   if (!anonymousUsage || typeof anonymousUsage !== "object" || Array.isArray(anonymousUsage)) return MOSA_UPDATE_FEED_URL;
   const event = String(anonymousUsage.event || "");
+  const telemetryVersion = Number(anonymousUsage.telemetryVersion);
   const installationId = String(anonymousUsage.installationId || "");
   const platform = String(anonymousUsage.platform || "");
   const arch = String(anonymousUsage.arch || "");
   const version = String(anonymousUsage.version || "");
   if (!USAGE_EVENTS.has(event)
+    || telemetryVersion !== USAGE_TELEMETRY_VERSION
     || !INSTALLATION_ID_PATTERN.test(installationId)
     || !USAGE_PLATFORMS.has(platform)
     || !/^[0-9A-Za-z._-]{1,24}$/.test(arch)
@@ -87,6 +90,7 @@ export function buildUpdateFeedUrl(anonymousUsage = null) {
 
   const url = new URL(MOSA_UPDATE_FEED_URL);
   url.searchParams.set("event", event);
+  url.searchParams.set("telemetry_version", String(USAGE_TELEMETRY_VERSION));
   url.searchParams.set("install_id", installationId);
   url.searchParams.set("platform", platform);
   url.searchParams.set("arch", arch);

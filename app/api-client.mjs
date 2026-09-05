@@ -315,6 +315,7 @@ export function createApiClient(deps) {
       && previousSelected.project_id === request.project
       && !nextAssets.some((asset) => asset.id === previousSelected.id && asset.project_id === previousSelected.project_id));
     state.assets = nextAssets;
+    state.loadedAssetCount = nextAssets.length;
     if (options.append) state.paginationStatus = "idle";
     if (request.stackId && result.stack) state.activeStackSummary = result.stack;
     // The request answered, so an empty result is now genuinely an empty library.
@@ -391,11 +392,24 @@ export function createApiClient(deps) {
     return true;
   }
 
-  async function reloadLoadedAssetPages(options = {}) {
+  async function performFullGalleryReconciliation(options = {}) {
     const requestId = ++assetRequestSequence;
     const request = currentAssetRequest();
     const requestKey = assetRequestKey(request);
-    const pageCount = Math.max(1, Number(state.loadedPageCount) || 1);
+    // Full reconciliation is the LAST-RESORT path, not the normal library
+    // change flow: it re-fetches the whole loaded window (journal gap, query
+    // contract change, unrecoverable state mismatch). Read the window in
+    // MAX-size keyset batches and count the total only on the first page, so a
+    // fully-loaded 50k gallery costs ~200 requests instead of ~1250. Incremental
+    // changes go through the library reconciliation layer instead.
+    const RELOAD_PAGE_LIMIT = 250;
+    // Track the loaded row count explicitly: state.assets holds the ACTIVE view
+    // (inside a Stack it lists members, not the root gallery), so it cannot
+    // size the root reload on Stack exit. loadedAssetCount is committed by every
+    // gallery load/append and snapshotted by the Stack navigation.
+    const loadedRowCount = Math.max(1, Number(state.loadedAssetCount)
+      || (Number(state.loadedPageCount) || 1) * GALLERY_PAGE_SIZE);
+    const pageCount = Math.max(1, Math.ceil(loadedRowCount / RELOAD_PAGE_LIMIT) + 1);
     const background = options.background !== false;
     setGalleryBusy(true, requestId, request);
 
@@ -409,7 +423,7 @@ export function createApiClient(deps) {
     let cursor = null;
     try {
       for (let page = 0; page < pageCount; page += 1) {
-        if (!result) result = await requestAssetPage(request, { cursor });
+        if (!result) result = await requestAssetPage(request, { cursor, limit: RELOAD_PAGE_LIMIT, includeTotal: page === 0 ? undefined : false });
         if (!isCurrentAssetRequest(requestId, request)) return false;
         pages.push(result);
         const nextCursor = result.page?.nextCursor || null;
@@ -446,6 +460,7 @@ export function createApiClient(deps) {
       && !nextAssets.some((asset) => asset.id === previousSelected.id && asset.project_id === previousSelected.project_id));
 
     state.assets = nextAssets;
+    state.loadedAssetCount = nextAssets.length;
     if (request.stackId && firstPage.stack) state.activeStackSummary = firstPage.stack;
     state.galleryStatus = "ready";
     state.galleryError = null;
@@ -472,7 +487,7 @@ export function createApiClient(deps) {
   }
 
   async function refreshLoadedAssetsInBackground() {
-    return reloadLoadedAssetPages({ background: true });
+    return performFullGalleryReconciliation({ background: true });
   }
 
   async function refreshLibraryInBackground() {
@@ -497,21 +512,44 @@ export function createApiClient(deps) {
 
   let lastLibraryRevision = null;
   let libraryRevisionInFlight = false;
+  // The incremental reconciliation layer (library-reconciliation.mjs) owns the
+  // normal "revision changed" path; api-client keeps the baseline and falls
+  // back to the full-window refresh only while no reconciler is wired.
+  let libraryDeltaApplier = null;
+  function setLibraryDeltaApplier(applier) {
+    libraryDeltaApplier = typeof applier === "function" ? applier : null;
+  }
   function noteLibraryRevision(revision) {
     if (revision == null) return;
     lastLibraryRevision = String(revision);
+  }
+  function getLibraryRevisionBaseline() {
+    return lastLibraryRevision;
+  }
+  async function fetchLibraryChanges(sinceRevision) {
+    const params = new URLSearchParams({ project: state.project });
+    const since = Number.parseInt(String(sinceRevision ?? ""), 10);
+    if (Number.isFinite(since)) params.set("since", String(since));
+    return apiFetch(`/api/library-changes?${params}`);
   }
   async function reconcileLibraryRevision(revision) {
     if (revision == null) return false;
     const nextRevision = String(revision);
     if (nextRevision === lastLibraryRevision) return false;
     resetAssetPrefetch();
-    const refreshed = await refreshLibraryInBackground();
-    if (refreshed) {
-      lastLibraryRevision = nextRevision;
-      await refreshSelectedStackInspector?.();
+    if (!libraryDeltaApplier) return false;
+    let applied = false;
+    try {
+      applied = await libraryDeltaApplier({ baselineRevision: lastLibraryRevision, targetRevision: nextRevision }) !== false;
+    } catch {
+      applied = false;
     }
-    return refreshed;
+    // The applier advances the baseline only after a successful apply; a
+    // failure keeps the old baseline so the next event/poll retries. The
+    // loaded-window reload is never part of this path — it lives behind the
+    // reconciler's explicit full-recovery fallback (journal gap only).
+    if (applied) await refreshSelectedStackInspector?.();
+    return applied;
   }
   async function refreshLibraryIfChanged() {
     if (document.hidden || libraryRevisionInFlight) return false;
@@ -569,8 +607,9 @@ export function createApiClient(deps) {
 
   return {
     apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged,
-    refreshAssetPageTotalInBackground, refreshLoadedAssetsInBackground, reloadLoadedAssetPages,
+    refreshAssetPageTotalInBackground, refreshLoadedAssetsInBackground, performFullGalleryReconciliation,
     buildAssetPageParams, requestAssetPage, requestAssetTotal, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion,
-    noteLibraryRevision, reconcileLibraryRevision, prefetchNextAssetPage, resetAssetPrefetch,
+    noteLibraryRevision, getLibraryRevisionBaseline, setLibraryDeltaApplier, fetchLibraryChanges,
+    reconcileLibraryRevision, prefetchNextAssetPage, resetAssetPrefetch,
   };
 }

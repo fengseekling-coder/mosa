@@ -243,7 +243,9 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               }
               showToast(assets.length > 1 ? t("assetsRestored", { count: assets.length }) : t("assetRestored"), "success");
               window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
-              window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
+              window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+                detail: { restoredAssetIds: assets.map((item) => item.id) },
+              }));
             });
           },
         },
@@ -269,13 +271,15 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
                 try {
                   await apiFetch(`/api/assets/${encodeURIComponent(item.project_id)}/${encodeURIComponent(item.id)}/permanent`, { method: "DELETE" });
                 } catch (error) {
-                  failed.push(error);
+                  failed.push({ assetId: item.id, error });
                 }
               }
               if (failed.length) showToast(t("trashPartialDelete", { count: failed.length }), "error");
               else showToast(assets.length > 1 ? t("assetsPermanentlyDeleted", { count: assets.length }) : t("assetPermanentlyDeleted"), "success");
               window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
-              window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
+              window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+                detail: { permanentlyDeletedAssetIds: assets.filter((item) => !failed.some((entry) => entry.assetId === item.id)).map((item) => item.id) },
+              }));
             });
           },
         },
@@ -308,7 +312,9 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
                 body: { projectId: state.project },
               });
               showToast(t("stackDissolvedManual"), "success");
-              window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
+              window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+                detail: { stackDissolved: { id: asset.stack.id } },
+              }));
             });
           },
         },
@@ -404,13 +410,15 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             } else {
               showToast(t("favoriteUpdatedMultiple"), "success");
             }
-          } else {
-            await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/favorite`, {
-              method: "POST",
-            });
-            showToast(asset.favorite ? t("removedFromFavorites") : t("addedToFavorites"), "success");
-          }
-          window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
+            } else {
+              await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/favorite`, {
+                method: "POST",
+              });
+              showToast(asset.favorite ? t("removedFromFavorites") : t("addedToFavorites"), "success");
+            }
+            window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+              detail: { updatedAssetIds: isMultiple ? ids : [asset.id] },
+            }));
         });
       },
     });
@@ -439,7 +447,9 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               commitSelectedAssetMutation(assets);
               if (outcome.failed.length) showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
               else showToast(t("movedToGroup"), "success");
-              window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
+              window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+                detail: { updatedAssetIds: outcome.succeeded.map((entry) => entry.id) },
+              }));
             });
           },
         },
@@ -461,7 +471,9 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
                 commitSelectedAssetMutation(assets);
                 if (outcome.failed.length) showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
                 else showToast(t("movedToGroup"), "success");
-                window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
+                window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+                  detail: { updatedAssetIds: outcome.succeeded.map((entry) => entry.id) },
+                }));
               });
             },
           };

@@ -203,9 +203,11 @@ test("11. Card animation is conditional and not replayed on ordinary renders", a
   const app = await readApp();
   const apiClient = await readApiClient();
   const grid = functionSlice(app, "renderGrid");
+  const cardBuilder = functionSlice(app, "buildGalleryCardEntry");
   assert.match(grid, /function renderGrid\(\) \{/, "renderGrid signature stays contract-locked");
   assert.match(grid, /animate = false/, "renderGrid accepts animation options via arguments");
-  assert.match(grid, /card-enter/, "renderGrid emits card-enter");
+  assert.match(grid, /buildRenderedGalleryCard\(asset, ordinal, animateCard\)/, "renderGrid delegates card building with the animation flag");
+  assert.match(cardBuilder, /card-enter/, "the shared gallery card builder emits card-enter (renderGrid + incremental commit)");
   assert.match(functionSlice(apiClient, "loadAssets"), /renderGrid\(\{ animate: !options\.append && previousAssets\.length === 0,/, "loadAssets limits entrance motion to the first populated paint");
 });
 
