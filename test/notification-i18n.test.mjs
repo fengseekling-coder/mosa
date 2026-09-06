@@ -25,9 +25,10 @@ test("main.mjs localizes bridge and update notifications", async () => {
   assert.match(source, /let currentLocale\s*=\s*"zh"/);
   // Bridge poll uses the i18n helper instead of a hardcoded string.
   assert.match(source, /getNotificationTextForAssetsImported\(delta,\s*currentLocale\)/);
-  // Update reminders are notification-only. MOSA still does not ship an
-  // auto-downloader/updater engine in this phase.
+  // Update reminders stay localized while the trusted main process owns the
+  // Windows download/apply path.
   assert.match(source, /getUpdateNotificationText\(result\.latestVersion,\s*currentLocale\)/);
+  assert.match(source, /downloadWindowsUpdate/);
   assert.doesNotMatch(source, /electron-updater|autoUpdater|updateDownloaded/);
   assert.doesNotMatch(source, /`?\$\{delta\} 个新素材已导入`?/);
 });

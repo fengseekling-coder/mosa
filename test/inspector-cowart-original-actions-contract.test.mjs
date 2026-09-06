@@ -50,7 +50,7 @@ test("29-35. retired show-item-in-folder IPC stays removed", async () => {
 
   assert.doesNotMatch(preload, /showItemInFolder|show-item-in-folder/);
   assert.doesNotMatch(main, /ipcMain\.handle\("show-item-in-folder"/);
-  assert.equal(count(preload, "ipcRenderer.invoke"), 7, "preload exposes only the seven approved narrow invoke channels");
+  assert.equal(count(preload, "ipcRenderer.invoke"), 8, "preload exposes only the eight approved narrow invoke channels");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "the renderer never receives a shell object");
 });
 

@@ -11,13 +11,13 @@ const translations = {
   zh: {
     assetsImported: "{count} 个新素材已导入",
     updateAvailableTitle: "MOSA {version} 可更新",
-    updateAvailableBody: "新版本已发布，点击前往官网下载。",
+    updateAvailableBody: "新版本已发布，点击打开 MOSA 查看更新。",
   },
   en: {
     assetsImported: "{count} new assets imported",
     assetsImportedSingular: "1 new asset imported",
     updateAvailableTitle: "MOSA {version} is available",
-    updateAvailableBody: "A new version is available. Click to download it from the MOSA website.",
+    updateAvailableBody: "A new version is available. Click to open MOSA and review the update.",
   },
 };
 

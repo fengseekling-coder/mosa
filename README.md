@@ -19,7 +19,7 @@ Download the current MOSA packages from the [official download page](https://mos
 | MOSA Desktop | Windows x64 | [Download latest package](https://mosa.azhuilab.com/#download) | Official page resolves the current package from the release manifest |
 | MOSA Web Capture | Chrome / Chromium | [Download latest package](https://mosa.azhuilab.com/#download) · [Install guide](https://mosa.azhuilab.com/guide/) | Official page maintains the current developer-mode ZIP; not a signed CRX |
 
-Desktop ZIPs are hosted outside Git history because of their size. The official page is the canonical download entry for all packages; versioned filenames and package metadata may change there without requiring a source repository commit.
+Desktop distributables are hosted outside Git history because of their size. macOS is distributed as a DMG with `MOSA.app` and an `Applications` shortcut; Windows remains a portable ZIP while its installer work is still in progress. The official page is the canonical download entry for all packages; versioned filenames and package metadata may change there without requiring a source repository commit.
 
 ## Why MOSA
 
@@ -76,7 +76,7 @@ The Electron desktop shell uses the same MOSA Web UI and local runtime on both s
 npm ci
 npm run desktop:start
 
-# macOS arm64
+# macOS arm64 DMG
 npm run desktop:make
 
 # Windows 10/11 x64 package directory
@@ -89,14 +89,14 @@ Current desktop status:
 
 | Target | Status | Verified in the current development cycle |
 | --- | --- | --- |
-| macOS arm64 | Development target | Electron shell, local runtime, packaged smoke path, native dependencies |
+| macOS arm64 | DMG distribution target | Electron shell, local runtime, packaged smoke path, native dependencies, drag-to-Applications distribution |
 | Windows 10/11 x64 | **Preview / testing** | `MOSA.exe` startup, SQLite, Sharp, library UI, Inspector, and automatic Codex collection on a real Windows machine |
 
 The Windows target keeps the shared renderer and runtime code, uses Windows-native `better-sqlite3` and Sharp binaries, and hides Electron's native application menu bar while retaining menu accelerators. Grok and Cowart source discovery on Windows, a signed installer, code signing, and automatic updates are still release work.
 
 When the configured port already serves the same MOSA library, the desktop app attaches to it and leaves it running on Quit. Otherwise, it starts and owns a local runtime, which stops cleanly when the app quits. MOSA never terminates an unverified listener or a service for a different library.
 
-> **Project status:** this repository does not yet publish a signed desktop installer. Windows testing currently uses an unsigned preview/portable build, and macOS release signing/notarization is separate release work. Do not treat a development checkout or a locally built app as a released app.
+> **Project status:** macOS now has a DMG distribution path. Local development DMGs are not release-notarized; `npm run desktop:release` requires the configured Developer ID and Apple notarization credentials and fails closed when they are missing. Windows testing still uses an unsigned preview/portable ZIP and does not yet have an installer.
 
 ## Local by design
 

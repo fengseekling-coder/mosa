@@ -53,6 +53,23 @@ function cleanNote(value) {
   return typeof value === "string" ? value.trim().slice(0, 1200) : "";
 }
 
+function parseWindowsArtifact(value, version) {
+  if (value == null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid Windows update artifact.");
+  const expectedFile = `MOSA-win32-x64-${version}.zip`;
+  const file = typeof value.file === "string" ? value.file.trim() : "";
+  const size = Number(value.size);
+  const sha256 = typeof value.sha256 === "string" ? value.sha256.trim().toLowerCase() : "";
+  if (value.platform !== "Windows" || value.arch !== "x64" || file !== expectedFile) {
+    throw new Error("Invalid Windows update artifact identity.");
+  }
+  if (!Number.isSafeInteger(size) || size <= 0 || size > 1_500_000_000) {
+    throw new Error("Invalid Windows update artifact size.");
+  }
+  if (!/^[0-9a-f]{64}$/.test(sha256)) throw new Error("Invalid Windows update artifact digest.");
+  return { platform: "Windows", arch: "x64", file, size, sha256 };
+}
+
 export function parseUpdateManifest(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid update manifest.");
   const parsedVersion = parseVersion(input.version);
@@ -70,6 +87,7 @@ export function parseUpdateManifest(input) {
     version: parsedVersion.version,
     publishedAt,
     notes,
+    windowsArtifact: parseWindowsArtifact(input.platforms?.windows, parsedVersion.version),
   };
 }
 
@@ -155,6 +173,7 @@ export async function checkForMosaUpdate({ currentVersion, anonymousUsage = null
       updateAvailable: compareVersions(release.version, current.version) > 0,
       publishedAt: release.publishedAt,
       notes: release.notes,
+      windowsArtifact: release.windowsArtifact,
     };
   } finally {
     clearTimeout(timeout);

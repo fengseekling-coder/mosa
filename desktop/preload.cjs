@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setLocale: (locale) => ipcRenderer.invoke("set-locale", locale),
   checkForUpdates: (notify = false) =>
     ipcRenderer.invoke("check-for-updates", notify === true),
+  downloadAndInstallUpdate: () => ipcRenderer.invoke("download-and-install-update"),
+  onUpdateDownloadProgress: (callback) =>
+    ipcRenderer.on("update-download-progress", (_event, progress) => callback(progress)),
   openDownloadPage: () => ipcRenderer.invoke("open-download-page"),
   changeLibraryLocation: () => ipcRenderer.invoke("change-library-location"),
   onMenuImport: (callback) => ipcRenderer.on("menu-import", (_event, ...args) => callback(...args)),

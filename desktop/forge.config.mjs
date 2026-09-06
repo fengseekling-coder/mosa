@@ -242,7 +242,10 @@ export function createForgeConfig({ target = activeTarget, env = process.env } =
     new AutoUnpackNativesPlugin(),
   ],
   makers: [
-    new MakerZIP({}, ["darwin", "win32"]),
+    // Windows remains a portable ZIP target. macOS distribution is built as a
+    // DMG by scripts/make-macos-dmg.mjs so users get the standard drag-to-
+    // Applications replacement flow instead of accumulating extracted apps.
+    new MakerZIP({}, ["win32"]),
   ],
   };
 }
