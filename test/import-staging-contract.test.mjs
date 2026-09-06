@@ -248,8 +248,10 @@ test("preload surface and Electron security boundaries are unchanged", async () 
   assert.deepEqual(exposed, [
     "changeLibraryLocation",
     "checkForUpdates",
+    "downloadAndInstallUpdate",
     "onMenuImport",
     "onMenuSearch",
+    "onUpdateDownloadProgress",
     "openDownloadPage",
     "pasteImage",
     "setLocale",

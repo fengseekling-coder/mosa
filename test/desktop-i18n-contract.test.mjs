@@ -59,11 +59,11 @@ test("desktop notifications keep localized import and update copy", () => {
   assert.equal(getNotificationTextForAssetsImported(3, "ja"), "3 个新素材已导入");
   assert.deepEqual(getUpdateNotificationText("0.3.0", "zh"), {
     title: "MOSA v0.3.0 可更新",
-    body: "新版本已发布，点击前往官网下载。",
+    body: "新版本已发布，点击打开 MOSA 查看更新。",
   });
   assert.deepEqual(getUpdateNotificationText("v0.3.0", "en"), {
     title: "MOSA v0.3.0 is available",
-    body: "A new version is available. Click to download it from the MOSA website.",
+    body: "A new version is available. Click to open MOSA and review the update.",
   });
   assert.equal("getNotificationText" in desktopI18n, false, "removed updater helper is not kept as dead API");
 });
@@ -139,15 +139,17 @@ test("package metadata stays frozen and the runtime preload preserves its approv
   assert.deepEqual(exposedKeys, [
     "changeLibraryLocation",
     "checkForUpdates",
+    "downloadAndInstallUpdate",
     "onMenuImport",
     "onMenuSearch",
+    "onUpdateDownloadProgress",
     "openDownloadPage",
     "pasteImage",
     "setLocale",
     "writeClipboardImage",
     "writeClipboardText",
   ]);
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 7, "preload keeps the seven approved invoke channels");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 8, "preload keeps the eight approved invoke channels");
   assert.match(preload, /checkForUpdates: \(notify = false\) =>[\s\S]*?ipcRenderer\.invoke\("check-for-updates", notify === true\)/);
   assert.doesNotMatch(preload, /shell\s*[:.]/, "renderer still receives no generic shell capability");
   // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/

@@ -85,6 +85,8 @@ const state = {
   latestVersion: "",
   updatePublishedAt: "",
   updateNotes: null,
+  updateCanInstallInApp: false,
+  updateDownloadPercent: 0,
   darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null,
   sidebarSmartCollapsed: safeStorageGet("mosa.sidebar-smart-collapsed") === "true",
   sidebarManualCollapsed: safeStorageGet("mosa.sidebar-manual-collapsed") === "true",
@@ -964,8 +966,13 @@ function updateVersionSummary() {
 
 function updateVersionControlMarkup() {
   if (!window.electronAPI?.checkForUpdates) return "";
+  if (state.updateStatus === "downloading") {
+    return `<button class="settings-text-action" type="button" disabled>${escapeHtml(t("downloadingUpdate", { percent: state.updateDownloadPercent }))}</button>`;
+  }
   if (state.updateStatus === "available") {
-    return `<button class="settings-text-action" type="button" data-download-latest>${escapeHtml(t("downloadLatest"))}</button>`;
+    const key = state.updateCanInstallInApp ? "downloadAndInstall" : "downloadLatest";
+    const attr = state.updateCanInstallInApp ? "data-install-update" : "data-download-latest";
+    return `<button class="settings-text-action" type="button" ${attr}>${escapeHtml(t(key))}</button>`;
   }
   const label = state.updateStatus === "checking" ? t("checkingForUpdates") : t("checkForUpdates");
   return `<button class="settings-text-action" type="button" data-check-updates${state.updateStatus === "checking" ? " disabled" : ""}>${escapeHtml(label)}</button>`;
@@ -984,6 +991,7 @@ async function checkForUpdates({ notify = false, silent = false } = {}) {
       state.latestVersion = String(result.latestVersion || "").replace(/^v/i, "");
       state.updatePublishedAt = String(result.publishedAt || "");
       state.updateNotes = result.notes && typeof result.notes === "object" ? result.notes : null;
+      state.updateCanInstallInApp = result.canInstallInApp === true;
       state.updateStatus = result.updateAvailable ? "available" : "current";
       if (!silent || (notify && result.updateAvailable)) {
         showToast(result.updateAvailable ? t("updateAvailableToast", { version: state.latestVersion }) : t("upToDate"), "success");
@@ -1793,6 +1801,30 @@ function bindEvents() {
     }
     const checkUpdatesButton = event.target.closest("[data-check-updates]");
     if (checkUpdatesButton) { void checkForUpdates(); return; }
+    const installUpdateButton = event.target.closest("[data-install-update]");
+    if (installUpdateButton && window.electronAPI?.downloadAndInstallUpdate && state.updateStatus !== "downloading") {
+      void (async () => {
+        state.updateStatus = "downloading";
+        state.updateDownloadPercent = 0;
+        syncSettingsMenuView();
+        try {
+          const result = await window.electronAPI.downloadAndInstallUpdate();
+          if (result?.status === "current") {
+            state.updateStatus = "current";
+            showToast(t("upToDate"), "success");
+          } else if (result?.status !== "installing") {
+            state.updateStatus = "available";
+            showToast(t("updateInstallFailed"), "error");
+          }
+        } catch {
+          state.updateStatus = "available";
+          showToast(t("updateInstallFailed"), "error");
+        } finally {
+          syncSettingsMenuView();
+        }
+      })();
+      return;
+    }
     const downloadLatestButton = event.target.closest("[data-download-latest]");
     if (downloadLatestButton) {
       void window.electronAPI?.openDownloadPage?.().then((result) => {
@@ -1921,6 +1953,12 @@ function bindDesktopIntegration() {
   });
   api.onMenuImport?.(() => openImportModal());
   api.onMenuSearch?.(() => { els.searchInput?.focus(); });
+  api.onUpdateDownloadProgress?.((progress) => {
+    const percent = Math.max(0, Math.min(100, Math.round(Number(progress?.percent) || 0)));
+    state.updateDownloadPercent = percent;
+    if (state.updateStatus !== "downloading") state.updateStatus = "downloading";
+    syncSettingsMenuView();
+  });
 }
 
 async function pasteClipboardImage() {

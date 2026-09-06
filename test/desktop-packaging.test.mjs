@@ -21,6 +21,13 @@ import {
   assertDesktopPackagingNode,
   desktopPackagingNodeError,
 } from "../scripts/check-desktop-package-node.mjs";
+import {
+  MOSA_MAC_BUNDLE_ID,
+  assertMacAppMetadata,
+  macDmgArtifactName,
+  macDmgOutputPath,
+  macDmgReleaseCredentials,
+} from "../scripts/make-macos-dmg.mjs";
 
 const isIgnored = (path) => packageIgnorePatterns.some((pattern) => pattern.test(path));
 
@@ -54,7 +61,45 @@ test("packages MOSA with ASAR and unpacked native dependencies", () => {
   assert.equal(typeof forgeConfig.hooks.generateAssets, "function");
   assert.deepEqual(forgeConfig.packagerConfig.ignore, packageIgnorePatterns);
   assert.equal(forgeConfig.plugins.some((plugin) => plugin.name === "auto-unpack-natives"), true);
-  assert.equal(forgeConfig.makers.some((maker) => maker.name === "zip"), true);
+  const zipMaker = forgeConfig.makers.find((maker) => maker.name === "zip");
+  assert.ok(zipMaker);
+  assert.deepEqual(zipMaker.platforms, ["win32"]);
+});
+
+test("macOS distribution keeps a stable app identity and deterministic DMG path", () => {
+  assert.equal(MOSA_MAC_BUNDLE_ID, "com.azhuilab.mosa");
+  assert.equal(macDmgArtifactName("0.2.1-rc.4"), "MOSA-darwin-arm64-0.2.1-rc.4.dmg");
+  assert.equal(
+    macDmgOutputPath({ rootDir: "/repo", version: "0.2.1-rc.4" }),
+    resolve("/repo", "out", "make", "dmg", "darwin", "arm64", "MOSA-darwin-arm64-0.2.1-rc.4.dmg"),
+  );
+  assert.equal(assertMacAppMetadata({
+    bundleId: "com.azhuilab.mosa",
+    bundleName: "MOSA",
+    executable: "MOSA",
+    version: "0.2.1-rc.4",
+  }, "0.2.1-rc.4"), true);
+  assert.throws(() => assertMacAppMetadata({
+    bundleId: "com.example.mosa-copy",
+    bundleName: "MOSA",
+    executable: "MOSA",
+    version: "0.2.1-rc.4",
+  }, "0.2.1-rc.4"), /Unexpected macOS bundle identifier/);
+});
+
+test("macOS release DMG credentials fail closed", () => {
+  assert.throws(() => macDmgReleaseCredentials({}), /MOSA DMG release requires/);
+  assert.deepEqual(macDmgReleaseCredentials({
+    MOSA_MACOS_SIGN_IDENTITY: "Developer ID Application: Example (TEAM123456)",
+    APPLE_ID: "release@example.com",
+    APPLE_APP_SPECIFIC_PASSWORD: "app-password",
+    APPLE_TEAM_ID: "TEAM123456",
+  }), {
+    identity: "Developer ID Application: Example (TEAM123456)",
+    appleId: "release@example.com",
+    appleIdPassword: "app-password",
+    teamId: "TEAM123456",
+  });
 });
 
 test("desktop packaging target resolution supports only the approved macOS and Windows targets", () => {
@@ -415,7 +460,7 @@ test("retired show-in-folder IPC stays removed without expanding renderer author
   assert.doesNotMatch(preload, /stage-dropped-file/, "stage-dropped-file IPC was removed as dead code");
   assert.doesNotMatch(preload, /openFileDialog:/, "unused open-file dialog IPC was removed");
   assert.doesNotMatch(main, /ipcMain\.handle\("open-file-dialog"/, "unused open-file dialog handler was removed");
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 7, "no invoke channel beyond the seven currently approved narrow requests");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 8, "no invoke channel beyond the eight currently approved narrow requests");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "shell is never exposed to the renderer");
   assert.doesNotMatch(preload, /exec\(|spawn\(|execFile\(/, "no arbitrary command execution");
 

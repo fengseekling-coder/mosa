@@ -18,6 +18,7 @@ import { resolveAllowedFolderPath } from "../lib/server-security.js";
 import { isPathInsideOrEqual, isUrlLikePath, pathsEqual } from "../lib/path-safety.mjs";
 import { getBuildIdentity } from "../lib/build-identity.mjs";
 import { MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
+import { downloadWindowsUpdate, launchWindowsUpdateHelper } from "./windows-updater.mjs";
 
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
 const desktopPlatform = desktopPlatformAdapter();
@@ -120,6 +121,7 @@ let updateCheckPromise = null;
 let usageReportPromise = null;
 let usageReportTimer = null;
 const USAGE_REPORT_RECHECK_MS = 15 * 60 * 1000;
+const WINDOWS_UPDATE_STAGING_ROOT = join(desktopDataDir, "updates", "windows");
 const rendererConsoleErrors = new Set();
 const MAX_RENDERER_CONSOLE_ERRORS = 32;
 
@@ -370,6 +372,49 @@ function registerIPC() {
     return runUpdateCheck({ notify: notify === true });
   });
 
+  ipcMain.handle("download-and-install-update", async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return { status: "unavailable", currentVersion: app.getVersion() };
+    }
+    if (process.platform !== "win32" || !app.isPackaged || isolationContext.qaRun) {
+      return { status: "unsupported", currentVersion: app.getVersion() };
+    }
+    try {
+      // Re-read the first-party manifest in the trusted main process instead of
+      // accepting a renderer-supplied URL, filename or digest.
+      const release = await checkForMosaUpdate({ currentVersion: app.getVersion() });
+      if (!release.updateAvailable) return { status: "current", currentVersion: release.currentVersion };
+      if (!release.windowsArtifact) return { status: "unavailable", currentVersion: release.currentVersion };
+      const download = await downloadWindowsUpdate({
+        artifact: release.windowsArtifact,
+        version: release.latestVersion,
+        stagingRoot: WINDOWS_UPDATE_STAGING_ROOT,
+        onProgress: (progress) => {
+          if (!mainWindow || mainWindow.isDestroyed()) return;
+          mainWindow.webContents.send("update-download-progress", progress);
+        },
+      });
+      await launchWindowsUpdateHelper({
+        zipPath: download.zipPath,
+        installDir: dirname(process.execPath),
+        exeName: "MOSA.exe",
+        processId: process.pid,
+      });
+
+      // Give the external helper exclusive ownership of the replacement only
+      // after MOSA has drained its local service and released SQLite/runtime locks.
+      shuttingDown = true;
+      stopBridgeNotificationPoll();
+      stopAnonymousUsageLifecycle();
+      await stopOwnedRuntime();
+      app.exit(0);
+      return { status: "installing", latestVersion: release.latestVersion };
+    } catch (error) {
+      console.warn(`[MOSA] Windows update failed: ${error?.message || error}`);
+      return { status: "error", currentVersion: app.getVersion(), code: "WINDOWS_UPDATE_FAILED" };
+    }
+  });
+
   ipcMain.handle("open-download-page", async (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false };
     try {
@@ -532,13 +577,19 @@ function runUpdateCheck({ notify = false } = {}) {
         const copy = getUpdateNotificationText(result.latestVersion, currentLocale);
         const notification = new Notification({ title: copy.title, body: copy.body, silent: true });
         notification.on("click", () => {
-          void shell.openExternal(MOSA_DOWNLOAD_PAGE_URL).catch((error) => {
-            console.warn(`[MOSA] unable to open download page: ${error?.message || error}`);
-          });
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+          }
         });
         notification.show();
       }
-      return { status: "ok", ...result };
+      return {
+        status: "ok",
+        ...result,
+        canInstallInApp: process.platform === "win32" && app.isPackaged && Boolean(result.windowsArtifact),
+      };
     })
     .catch((error) => {
       console.warn(`[MOSA] update check failed: ${error?.message || error}`);
