@@ -6,7 +6,7 @@ import test from "node:test";
 import { createJsonAssetStore } from "../lib/asset-store.mjs";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 import { normalizeAssetSort } from "../lib/asset-sort.js";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+1CBR3wAAAABJRU5ErkJggg==", "base64");
 
@@ -28,7 +28,7 @@ async function seed(store, sourcePath) {
 
 async function makeRoot(t, prefix) {
   const root = await mkdtemp(join(tmpdir(), prefix));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });

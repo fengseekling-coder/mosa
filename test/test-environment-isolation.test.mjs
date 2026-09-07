@@ -33,7 +33,7 @@ function baseEnv() {
 function runProbe(script, extraEnv = {}) {
   const result = spawnSync(
     process.execPath,
-    ["--import", cleanEnvPath, "--input-type=module", "-e", script],
+    ["--import", pathToFileURL(cleanEnvPath).href, "--input-type=module", "-e", script],
     { env: { ...baseEnv(), ...extraEnv }, encoding: "utf8", cwd: root },
   );
   assert.equal(result.status, 0, `probe exited ${result.status}: ${result.stderr}`);

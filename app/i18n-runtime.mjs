@@ -4,6 +4,22 @@
 // t 保持 (key, variables) 签名，全部既有调用点不变。
 import translations from "./i18n.mjs";
 
+// macOS hides files in Finder and MOSA's reveal action opens Finder there; on
+// Windows the same action opens 文件资源管理器/File Explorer, so the labels for
+// these keys are resolved per platform instead of naming Finder everywhere.
+const WINDOWS_FILE_EXPLORER_ALIASES = {
+  openedInFinder: "openedInFileExplorer",
+  showInFinder: "showInFileExplorer",
+  shownInFinder: "shownInFileExplorer",
+  showInFinderFailed: "showInFileExplorerFailed",
+  openInFinder: "openInFileExplorer",
+};
+
+function runsOnWindows() {
+  if (typeof navigator === "undefined") return false;
+  return /Windows|Win32|Win64|WOW64|ARM64/i.test(navigator.userAgent || navigator.platform || "");
+}
+
 export function resolveLocale(value) {
   if (value === "zh" || value === "en") return value;
   return /^zh/i.test(navigator.language || "") ? "zh" : "en";
@@ -11,7 +27,12 @@ export function resolveLocale(value) {
 
 export function createT({ getLocale }) {
   return function t(key, variables = {}) {
-    const template = translations[getLocale()]?.[key] ?? translations.en[key] ?? key;
+    const resolvedKey = runsOnWindows() ? WINDOWS_FILE_EXPLORER_ALIASES[key] ?? key : key;
+    const template = translations[getLocale()]?.[resolvedKey]
+      ?? translations.en[resolvedKey]
+      ?? translations[getLocale()]?.[key]
+      ?? translations.en[key]
+      ?? key;
     return template.replace(/\{(\w+)\}/g, (_, name) => String(variables[name] ?? ""));
   };
 }

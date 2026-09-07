@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -14,7 +14,7 @@ const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJA
 
 async function makeWorkspace(t, prefix) {
   const dir = await mkdtemp(join(tmpdir(), prefix));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  deferTestPathRemoval(dir, { recursive: true, force: true });
   const projectRoot = join(dir, "project");
   const generated = join(projectRoot, "generated-images");
   await mkdir(generated, { recursive: true });
@@ -62,7 +62,7 @@ for (const kind of ["json", "sqlite"]) {
     });
 
     const outsideDir = await mkdtemp(join(tmpdir(), `mosa-import-outside-${kind}-`));
-    t.after(() => rm(outsideDir, { recursive: true, force: true }));
+    deferTestPathRemoval(outsideDir, { recursive: true, force: true });
     const outsidePath = join(outsideDir, "outside.png");
     await writeFile(outsidePath, ONE_PIXEL_PNG);
     await assert.rejects(store.createAsset({ imagePath: outsidePath }), (error) => {

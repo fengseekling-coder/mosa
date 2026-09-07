@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 // V2 FilterBar (mosa-library-v2, 2026-08-16): the single global search input lives
@@ -94,7 +95,7 @@ test("6. i18n placeholder uses the V2 copy in both locales", async () => {
   const input = /<input id="searchInput"[^>]*>/.exec(await readHtml());
   assert.match(input[0], /data-i18n-placeholder="searchPlaceholder"/, "placeholder i18n binding must be preserved");
   assert.match(input[0], /placeholder="搜索所有素材\.\.\."/, "default zh placeholder must match V2");
-  const messages = (await import(resolve(root, "app/i18n.mjs"))).default;
+  const messages = (await import(pathToFileURL(resolve(root, "app/i18n.mjs")).href)).default;
   assert.equal(messages.zh.searchPlaceholder, "搜索所有素材...", "zh placeholder must match V2");
   assert.equal(messages.en.searchPlaceholder, "Search all assets...", "en placeholder must match V2");
 });

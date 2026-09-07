@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -13,7 +13,7 @@ test("50k SQLite library uses indexed filters, starts under 3s, and keeps search
   // Windows can keep SQLite WAL/SHM handles alive for a short moment after
   // close (and Defender may briefly inspect them). Retry the cleanup instead
   // of turning an otherwise-passing performance run red with EBUSY/EPERM.
-  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const libraryDir = join(root, "library");

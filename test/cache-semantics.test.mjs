@@ -6,13 +6,13 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
 import { DISABLEABLE_BRIDGES } from "../lib/runtime-bridges.mjs";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 
 test("static resource cache semantics: no-cache for UI files and immutable for library images", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cache-semantics-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   // Use a completely different library path to avoid conflicts with real user library
   const isolatedLibraryDir = join(root, "isolated-test-library");

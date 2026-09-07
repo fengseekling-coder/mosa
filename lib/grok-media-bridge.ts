@@ -61,8 +61,8 @@ export function createGrokMediaBridge(options: { store?: Store; sessionsDir?: st
   return { start, stop, reconcile, scheduleReconcile, status: apiStatus };
 }
 
-export async function reconcileGrokMedia(options: { store: Store; sessionsDir: string; projectId?: string; knownHashes?: Set<string> | null; processedSignatures?: Map<string, string> | null; sessionMetadataCache?: Map<string, CachedSessionMetadata> | null; }): Promise<ReconcileResult> {
-  const { store, sessionsDir, projectId = DEFAULT_PROJECT_ID, knownHashes: knownHashesOpt, processedSignatures = null, sessionMetadataCache = null } = options;
+export async function reconcileGrokMedia(options: { store: Store; sessionsDir: string; projectId?: string; knownHashes?: Set<string> | null; processedSignatures?: Map<string, string> | null; sessionMetadataCache?: Map<string, CachedSessionMetadata> | null; sha256FileImpl?: typeof sha256File; }): Promise<ReconcileResult> {
+  const { store, sessionsDir, projectId = DEFAULT_PROJECT_ID, knownHashes: knownHashesOpt, processedSignatures = null, sessionMetadataCache = null, sha256FileImpl = sha256File } = options;
   const root = resolve(sessionsDir); let rootReal: string;
   try { rootReal = await realpath(root); } catch (error: unknown) { if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return { imported: [], skipped: [], updated: [], candidates: 0, warnings: [] }; throw error; }
   const { candidates, skipped: discoverySkipped } = await readGrokMediaCandidates(root, rootReal);
@@ -100,7 +100,7 @@ export async function reconcileGrokMedia(options: { store: Store; sessionsDir: s
       processedSignatures?.set(candidate.mediaPath, signature);
       continue;
     }
-    let contentHash: string; try { contentHash = await sha256File(candidate.mediaPath); } catch (error) { skipped.push({ path: candidate.mediaPath, reason: "not-ready", error: error instanceof Error ? error.message : String(error) }); continue; }
+    let contentHash: string; try { contentHash = await sha256FileImpl(candidate.mediaPath); } catch (error) { skipped.push({ path: candidate.mediaPath, reason: "not-ready", error: error instanceof Error ? error.message : String(error) }); continue; }
     const existingAsset = await lookup.byContentHash(contentHash);
     if (existingAsset || contentHashes.has(contentHash)) {
       if (existingAsset && await upgradeGenerationMetadata(store, existingAsset as unknown as Record<string, unknown>, generation, candidate)) {

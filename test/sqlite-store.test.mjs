@@ -10,11 +10,11 @@ import { createAssetStore } from "../lib/asset-store.mjs";
 import { PIXEL_HASH_VERSION, safePixelDigest } from "../lib/image-pixel-hash.js";
 import { normalizeCreatedAt } from "../lib/recent-window.js";
 import { CURRENT_SCHEMA_VERSION, createSqliteAssetStore, sqliteDatabasePath } from "../lib/sqlite-asset-store.mjs";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 
 test("SQLite managed-file cleanup removes only stale unreferenced files", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-orphan-cleanup-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir: join(root, "library"), initializeFreshLibrary: true });
   t.after(() => store.close());
   await store.ensureProject("default");
@@ -31,11 +31,31 @@ test("SQLite managed-file cleanup removes only stale unreferenced files", async 
   assert.equal((await stat(fresh)).isFile(), true);
 });
 
+test("SQLite managed-file cleanup can skip derivative trees already owned by derivative maintenance", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-orphan-originals-only-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir: join(root, "library"), initializeFreshLibrary: true });
+  t.after(() => store.close());
+  await store.ensureProject("default");
+  const staleTime = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  const orphanOriginal = join(store.imagesDir("default"), "orphan.png");
+  const orphanPreview = join(store.previewsDir("default"), "orphan.webp");
+  await writeFile(orphanOriginal, "orphan");
+  await writeFile(orphanPreview, "orphan");
+  await utimes(orphanOriginal, staleTime, staleTime);
+  await utimes(orphanPreview, staleTime, staleTime);
+
+  const result = await store.cleanupOrphanedManagedFiles({ olderThanMs: 24 * 60 * 60 * 1000, includeDerivatives: false });
+  assert.equal(result.removed, 1);
+  await assert.rejects(stat(orphanOriginal), /ENOENT/);
+  assert.equal((await stat(orphanPreview)).isFile(), true);
+});
+
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+1CBR3wAAAABJRU5ErkJggg==", "base64");
 
 test("SQLite read-only library queries do not materialize project asset directories", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-read-only-project-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir: join(root, "library"), initializeFreshLibrary: true });
   t.after(() => store.close());
   const projectId = "read-only-project";
@@ -51,7 +71,7 @@ test("SQLite read-only library queries do not materialize project asset director
 
 test("SQLite materializes search and filter scalars without changing search semantics", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-search-scalars-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const libraryDir = join(root, "library");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
@@ -164,7 +184,7 @@ test("SQLite materializes search and filter scalars without changing search sema
 
 test("SQLite store keeps archive, duplicate, version, and cursor contracts", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });
@@ -204,7 +224,7 @@ test("SQLite store keeps archive, duplicate, version, and cursor contracts", asy
 
 test("SQLite group stats expose automatic source buckets for sidebar navigation", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-source-groups-sqlite-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });
@@ -232,7 +252,7 @@ test("SQLite group stats expose automatic source buckets for sidebar navigation"
 
 test("SQLite deleting a group clears asset assignments and its search index", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-delete-group-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });
@@ -263,7 +283,7 @@ test("SQLite deleting a group clears asset assignments and its search index", as
 
 test("SQLite group deletion moves every asset in the group to Trash and keeps them restorable", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-delete-group-assets-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });
@@ -290,7 +310,7 @@ test("SQLite group deletion moves every asset in the group to Trash and keeps th
 
 test("SQLite group Trash move is atomic metadata work and does not touch managed files", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-delete-group-atomic-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });
@@ -334,7 +354,7 @@ test("SQLite deleteAsset is a soft-delete and permanent deletion stages files be
   assert.match(permanentBody, /await staged\.commit\(\)/);
 
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-delete-asset-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });
@@ -350,7 +370,7 @@ test("SQLite deleteAsset is a soft-delete and permanent deletion stages files be
 
 test("SQLite recipe snapshots change only with generation inputs and remain immutable", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-recipes-sqlite-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });
@@ -415,7 +435,7 @@ test("SQLite recipe snapshots change only with generation inputs and remain immu
 
 test("SQLite carries reference rights recorded after archival into the stored snapshot", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-recipe-rights-sqlite-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });
@@ -458,7 +478,7 @@ test("SQLite carries reference rights recorded after archival into the stored sn
 
 test("SQLite recent filter and counter share the JSON store's date semantics", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-recent-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const now = new Date();
   const nowIso = now.toISOString();
@@ -573,7 +593,7 @@ test("SQLite recent filter and counter share the JSON store's date semantics", a
 
 test("SQLite content-hash lookup uses its index and matches the JSON store's choice", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-content-hash-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
@@ -647,7 +667,7 @@ test("SQLite content-hash lookup uses its index and matches the JSON store's cho
 
 test("SQLite pixel-hash lookup ignores obsolete hash versions", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-pixel-version-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "pixel.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });
@@ -677,7 +697,7 @@ test("SQLite pixel-hash lookup ignores obsolete hash versions", async (t) => {
 
 test("runtime storage selection cannot bypass migration completion", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-storage-selection-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const libraryDir = join(root, "library");
@@ -699,7 +719,7 @@ test("runtime storage selection cannot bypass migration completion", async (t) =
 
 test("SQLite schema v1 upgrades once without changing completed migration state", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-schema-upgrade-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const libraryDir = join(root, "library");
   const databasePath = join(libraryDir, "mosa.db");
@@ -749,7 +769,7 @@ test("SQLite schema v1 upgrades once without changing completed migration state"
 
 test("SQLite schema v5 upgrades suppression identity to include pixel hash version", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-schema-v5-suppression-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const libraryDir = join(root, "library");
   const databasePath = join(libraryDir, "mosa.db");
@@ -808,7 +828,7 @@ test("SQLite schema v5 upgrades suppression identity to include pixel hash versi
 
 test("SQLite schema v7 backfills conversation and generation-batch scalars", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-schema-v7-query-scalars-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const libraryDir = join(root, "library");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
@@ -856,7 +876,7 @@ test("SQLite schema v7 backfills conversation and generation-batch scalars", asy
 
 test("SQLite upgrades a legacy assets table before creating the source-path index", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-schema-source-path-order-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const libraryDir = join(root, "library");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
@@ -896,7 +916,7 @@ test("SQLite upgrades a legacy assets table before creating the source-path inde
 
 test("SQLite schema v2 migration backfills current recipes for existing assets", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-recipe-backfill-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const libraryDir = join(root, "library");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
@@ -931,7 +951,7 @@ test("SQLite schema v2 migration backfills current recipes for existing assets",
 
 test("SQLite refuses to downgrade a newer schema", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-schema-future-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const libraryDir = join(root, "library");
   const databasePath = join(libraryDir, "mosa.db");
   await mkdir(libraryDir, { recursive: true });
@@ -955,7 +975,7 @@ test("SQLite refuses to downgrade a newer schema", async (t) => {
 
 test("concurrent SQLite creates with the same ID cannot overwrite the winner", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-create-race-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const generatedDir = join(projectRoot, "generated-images");
   const firstPath = join(generatedDir, "first.png");
@@ -987,7 +1007,7 @@ test("concurrent SQLite creates with the same ID cannot overwrite the winner", a
 
 test("derivative job writes WebP previews without changing the original", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-derivatives-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "image.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });
@@ -1026,7 +1046,7 @@ test("derivative job writes WebP previews without changing the original", async 
 
 test("failed derivative jobs retry with backoff and stop after three attempts", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-derivative-retry-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "broken.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });
@@ -1057,7 +1077,7 @@ test("failed derivative jobs retry with backoff and stop after three attempts", 
 
 test("SQLite store re-links copied Codex assets, archived ones included, and explains each skip", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-hardlink-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const codexImagesDir = join(root, ".codex", "generated_images");
   await mkdir(join(codexImagesDir, "task-1"), { recursive: true });
@@ -1109,7 +1129,7 @@ test("SQLite store re-links copied Codex assets, archived ones included, and exp
 
 test("derivative stream rejects inherited kind names", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-derivative-kind-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const store = createSqliteAssetStore({
     projectRoot: root,
     managerDir: join(root, "mosa"),

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -11,7 +11,7 @@ import { createCowartProjectRegistry } from "../lib/cowart-project-registry.js";
 
 test("archives registered project-local Cowart canvases", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-manager-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "workspace");
   const managerDir = join(projectRoot, "mosa");
@@ -67,7 +67,7 @@ test("archives registered project-local Cowart canvases", async (t) => {
 
 test("requires a trusted Cowart canvas for newly registered projects", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-registry-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const registryPath = join(root, "state", "cowart-projects.json");
   const registry = createCowartProjectRegistry({ registryPath });
 
@@ -100,7 +100,7 @@ test("requires a trusted Cowart canvas for newly registered projects", async (t)
 
 test("legacy registry entries without a trusted Cowart canvas stay lazy at startup", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-legacy-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "workspace");
   const managerDir = join(projectRoot, "mosa");
   const emptyProject = join(root, "empty-project");

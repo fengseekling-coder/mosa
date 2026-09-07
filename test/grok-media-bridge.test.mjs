@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { appendFile, chmod, mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { appendFile, mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
+import { removeTestPath as rm, deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -133,7 +133,7 @@ async function createGrokSessionFixture(root, {
 
 test("passes automatic ingest mode and continues after a suppressed Grok media item", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-suppressed-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const first = await createGrokSessionFixture(root, { sessionId: "019f8f50-1f0d-7983-ab3f-544a0b5f7578", imageName: "first.png" });
   const second = await createGrokSessionFixture(root, { sessionId: "019f8f50-1f0d-7983-ab3f-544a0b5f7579", imageName: "second.png" });
   await writeFile(second.mediaPath, pngFixture(640, 480));
@@ -161,7 +161,7 @@ test("passes automatic ingest mode and continues after a suppressed Grok media i
 
 test("skips unchanged Grok candidates without re-querying the asset store", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-signature-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const fixture = await createGrokSessionFixture(root);
   let sourceLookups = 0;
   let listCalls = 0;
@@ -187,7 +187,7 @@ test("skips unchanged Grok candidates without re-querying the asset store", asyn
 
 test("caches Grok session parsing and ignores unrelated chat mtime churn", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-session-cache-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const fixture = await createGrokSessionFixture(root);
   const chatPath = join(fixture.sessionPath, "chat_history.jsonl");
   let sourceLookups = 0;
@@ -241,7 +241,7 @@ test("caches Grok session parsing and ignores unrelated chat mtime churn", async
 
 test("retries a deterministic Grok asset id collision through automatic identity dedupe", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-id-race-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const fixture = await createGrokSessionFixture(root);
   const assetIds = [];
   const store = {
@@ -266,7 +266,7 @@ test("retries a deterministic Grok asset id collision through automatic identity
 
 test("archives Grok images with tool prompt and avoids duplicates on restart", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const fixture = await createGrokSessionFixture(root, {
@@ -300,7 +300,7 @@ test("archives Grok images with tool prompt and avoids duplicates on restart", a
 
 test("archives image and video with the same stem without id collision", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sessionsDir = join(root, "sessions");
@@ -338,7 +338,7 @@ test("archives image and video with the same stem without id collision", async (
 
 test("archives Grok videos without running image derivative expectations", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const fixture = await createGrokSessionFixture(root, {
@@ -387,7 +387,7 @@ test("archives Grok videos without running image derivative expectations", async
 
 test("uses ordered call-scoped user fallback only for a matched tool result without tool prompt", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sessionsDir = join(root, "sessions");
@@ -424,7 +424,7 @@ test("uses ordered call-scoped user fallback only for a matched tool result with
 
 test("does not attach a later user prompt to an earlier tool call without tool prompt", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sessionsDir = join(root, "sessions");
@@ -484,7 +484,7 @@ test("does not attach a later user prompt to an earlier tool call without tool p
 
 test("orphan media is archived with not-available prompt instead of session fallback", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sessionsDir = join(root, "sessions");
@@ -526,7 +526,7 @@ test("orphan media is archived with not-available prompt instead of session fall
 
 test("ambiguous tool matches leave media without a wrong prompt", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sessionsDir = join(root, "sessions");
@@ -558,20 +558,25 @@ test("ambiguous tool matches leave media without a wrong prompt", async (t) => {
 
 test("records not-ready when a discovered candidate becomes unreadable", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const fixture = await createGrokSessionFixture(root, {
     imageName: "locked.png",
     includeChat: false,
   });
-  await chmod(fixture.mediaPath, 0);
-  t.after(async () => {
-    try { await chmod(fixture.mediaPath, 0o644); } catch { /* cleanup best-effort */ }
-  });
-
+  // Windows cannot express POSIX chmod(0) read-deny, so the unreadable fault
+  // is injected at the hash-read seam instead of through filesystem permissions.
   const store = createAssetStore({ projectRoot, managerDir });
-  const result = await reconcileGrokMedia({ store, sessionsDir: fixture.sessionsDir });
+  const result = await reconcileGrokMedia({
+    store,
+    sessionsDir: fixture.sessionsDir,
+    sha256FileImpl: async (filePath) => {
+      const error = new Error("EACCES: permission denied, open " + filePath);
+      error.code = "EACCES";
+      throw error;
+    },
+  });
   assert.equal(result.imported.length, 0);
   assert.equal(result.skipped.some((item) => item.reason === "not-ready" || item.reason === "import-failed"), true);
   const assets = await store.listAssets({ projectId: "default" });
@@ -580,7 +585,7 @@ test("records not-ready when a discovered candidate becomes unreadable", async (
 
 test("rejects tool-result paths and symlinks that escape the Grok sessions root", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const outsideDir = join(root, "outside");
@@ -613,7 +618,7 @@ test("rejects tool-result paths and symlinks that escape the Grok sessions root"
 
 test("deduplicates by content hash and can upgrade provenance from a later Grok path", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const fixture = await createGrokSessionFixture(root, {
@@ -735,7 +740,7 @@ test("buildGrokAssetId distinguishes media kind, normalized-equivalent names, an
 
 test("rejects symlinked chat_history or summary outside the sessions root", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const fixture = await createGrokSessionFixture(root, {
@@ -767,7 +772,7 @@ test("rejects symlinked chat_history or summary outside the sessions root", asyn
 
 test("rejects session when summary.json is an out-of-root symlink even with safe chat_history", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const fixture = await createGrokSessionFixture(root, {
@@ -794,7 +799,7 @@ test("rejects session when summary.json is an out-of-root symlink even with safe
 
 test("sha256File streams file contents instead of loading the whole file", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-hash-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const filePath = join(root, "payload.bin");
   const payload = Buffer.alloc(256 * 1024, 7);
   await writeFile(filePath, payload);

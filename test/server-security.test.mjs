@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtemp, mkdir, readFile, realpath, symlink } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { isAllowedIngestOrigin, isAllowedLocalOrigin, isApprovedExtensionOrigin, parseAllowedIngestOrigins, resolveAllowedFolderPath } from "../lib/server-security.js";
@@ -29,7 +29,7 @@ test("allows only explicitly configured extension origins for ingest", () => {
 
 test("resolves only real paths inside allowed Finder roots and rejects symlink escapes", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-server-security-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const allowedRoot = join(root, "mosa");
   const nested = join(allowedRoot, "assets", "default", "images");
   const outside = join(root, "secret");

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { removeTestPath as rm, deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -12,7 +12,7 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 
 test("migration copies legacy JSON assets, preserves unknown fields, and verifies hashes", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-migrate-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const managerDir = join(root, "mosa");
   const imagePath = join(managerDir, "assets", "default", "images", "legacy.png");
   const metadataPath = join(managerDir, "assets", "default", "metadata", "legacy.json");
@@ -61,7 +61,7 @@ test("migration copies legacy JSON assets, preserves unknown fields, and verifie
 
 test("completed migrations fail closed when mosa.db disappears instead of reopening stale JSON", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-migrate-missing-db-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const managerDir = join(root, "mosa");
   const imageDir = join(managerDir, "assets", "default", "images");
   const metadataDir = join(managerDir, "assets", "default", "metadata");
@@ -83,7 +83,7 @@ test("completed migrations fail closed when mosa.db disappears instead of reopen
 
 test("a backup directory alone does not claim a failed migration completed", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-migrate-backup-only-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const managerDir = join(root, "mosa");
   const imageDir = join(managerDir, "assets", "default", "images");
   const metadataDir = join(managerDir, "assets", "default", "metadata");
@@ -101,7 +101,7 @@ test("a backup directory alone does not claim a failed migration completed", asy
 
 test("corrupt legacy JSON blocks migration and identifies the exact file", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-migrate-corrupt-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const managerDir = join(root, "mosa");
   const corruptPath = join(managerDir, "assets", "default", "metadata", "broken.json");
   await mkdir(join(managerDir, "assets", "default", "metadata"), { recursive: true });
@@ -116,7 +116,7 @@ test("corrupt legacy JSON blocks migration and identifies the exact file", async
 
 test("corrupt groups JSON blocks migration and identifies the exact file", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-migrate-groups-corrupt-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const managerDir = join(root, "mosa");
   const groupsPath = join(managerDir, "assets", "default", "groups.json");
   await mkdir(join(managerDir, "assets", "default"), { recursive: true });
@@ -129,7 +129,7 @@ test("corrupt groups JSON blocks migration and identifies the exact file", async
 
 test("migration orders version parents before children and preserves the tree", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-migrate-versions-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const managerDir = join(root, "mosa");
   const metadataDir = join(managerDir, "assets", "default", "metadata");
   const imagesDir = join(managerDir, "assets", "default", "images");
@@ -165,7 +165,7 @@ test("migration orders version parents before children and preserves the tree", 
 
 test("migration reports invalid legacy version relationships without writing SQLite assets", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-migrate-invalid-version-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const managerDir = join(root, "mosa");
   const metadataDir = join(managerDir, "assets", "default", "metadata");
   const imagesDir = join(managerDir, "assets", "default", "images");
@@ -187,7 +187,7 @@ test("migration reports invalid legacy version relationships without writing SQL
 
 test("migration blocks duplicate asset IDs before and after normalization", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-migrate-duplicate-ids-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const cases = [
     ["same", "same"],
     ["same value", "same@value"],
@@ -218,7 +218,7 @@ test("migration blocks duplicate asset IDs before and after normalization", asyn
 
 test("migration allows the same asset ID in distinct projects", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-migrate-cross-project-ids-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const managerDir = join(root, "mosa");
   for (const projectId of ["alpha", "beta"]) {
     const metadataDir = join(managerDir, "assets", projectId, "metadata");
@@ -235,7 +235,7 @@ test("migration allows the same asset ID in distinct projects", async (t) => {
 
 test("migration reports cross-project parents and multi-node cycles", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-migrate-invalid-graphs-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const managerDir = join(root, "mosa");
   const records = [
     ["default", "a", "b"],
@@ -268,7 +268,7 @@ test("migration reports cross-project parents and multi-node cycles", async (t) 
 
 test("migration turns hard-linked Codex assets into copies that re-linking reclaims", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-migrate-hardlink-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const codexImagesDir = join(root, ".codex", "generated_images");

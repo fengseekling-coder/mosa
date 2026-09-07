@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { removeTestPath as rm, deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,7 +11,7 @@ import { createCowartAssetBridge, reconcileCowartAssets } from "../lib/cowart-br
 
 test("archives Cowart page assets once and keeps MOSA-origin images out", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -45,7 +45,7 @@ test("archives Cowart page assets once and keeps MOSA-origin images out", async 
 
 test("skips unchanged Cowart candidates without re-querying the asset store", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-signature-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const canvasDir = join(root, "cowart-data", "mosa");
   const pageDir = join(canvasDir, "pages", "page");
   const pageAssetsDir = join(pageDir, "assets");
@@ -80,7 +80,7 @@ test("skips unchanged Cowart candidates without re-querying the asset store", as
 
 test("deduplicates Cowart copies by content even when their page asset paths differ", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-content-dedupe-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const canvasDir = join(root, "cowart-data", "mosa");
@@ -108,7 +108,7 @@ test("deduplicates Cowart copies by content even when their page asset paths dif
 
 test("deduplicates Cowart re-encodes by current display pixels", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-pixel-dedupe-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const canvasDir = join(root, "cowart-data", "mosa");
@@ -144,7 +144,7 @@ test("deduplicates Cowart re-encodes by current display pixels", async (t) => {
 
 test("continues Cowart reconciliation after one asset import fails", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-import-failure-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const canvasDir = join(root, "cowart-data", "mosa");
   const pageDir = join(canvasDir, "pages", "page");
@@ -188,7 +188,7 @@ test("continues Cowart reconciliation after one asset import fails", async (t) =
 
 test("skips a suppressed Cowart asset and continues to the next candidate", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-suppressed-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const canvasDir = join(root, "cowart-data", "mosa");
   const pageDir = join(canvasDir, "pages", "page");
   const pageAssetsDir = join(pageDir, "assets");
@@ -298,7 +298,7 @@ test("waits for an active Cowart archive before cleanup", async (t) => {
 
 test("archives a registered external Cowart canvas through the SQLite store only within its pages root", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-sqlite-external-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "workspace");
   const managerDir = join(projectRoot, "mosa");

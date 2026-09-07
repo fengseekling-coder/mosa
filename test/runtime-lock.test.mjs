@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -11,7 +11,7 @@ import { acquireMosaRuntimeLock } from "../lib/runtime-lock.js";
 test("permits only one MOSA bridge runtime for a library", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-runtime-lock-"));
   const libraryDir = join(root, "library");
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const first = await acquireMosaRuntimeLock({ libraryDir });
   await assert.rejects(
@@ -31,7 +31,7 @@ test("recovers a lock left by a terminated runtime", async (t) => {
   const lockPath = join(libraryDir, ".mosa-runtime.lock");
   await mkdir(libraryDir, { recursive: true });
   await writeFile(lockPath, `${JSON.stringify({ token: "stale", pid: 999_999_999, createdAt: "2026-07-23T00:00:00.000Z" })}\n`, "utf8");
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const lock = await acquireMosaRuntimeLock({ libraryDir });
   assert.equal(lock.owner.pid, process.pid);
@@ -43,7 +43,7 @@ test("legacy JSON MCP refuses a second writer while a MOSA runtime lease is acti
   const libraryDir = join(root, "library");
   await mkdir(join(libraryDir, "assets", "default", "metadata"), { recursive: true });
   await writeFile(join(libraryDir, "assets", "default", "metadata", "legacy.json"), JSON.stringify({ id: "legacy", asset: "legacy.png" }));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const lease = await acquireMosaRuntimeLock({ libraryDir });
   t.after(() => lease.release());

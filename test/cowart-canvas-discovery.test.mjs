@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -8,7 +8,7 @@ import { discoverCowartProjectsFromCodexSessions } from "../lib/cowart-canvas-di
 
 test("discovers only projects with a real Cowart launch call and canvas marker", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-discovery-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const sessionsDir = join(root, "sessions");
   const nativeProject = join(root, "native-project");
   const fallbackProject = join(root, "fallback-project");
@@ -50,7 +50,7 @@ test("discovers only projects with a real Cowart launch call and canvas marker",
 
 test("discovers project from structured JSON arguments with workdir and no turn_context.cwd", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-workdir-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const sessionsDir = join(root, "sessions");
   const workdirProject = join(root, "workdir-project");
   await Promise.all([
@@ -85,7 +85,7 @@ test("discovers project from structured JSON arguments with workdir and no turn_
 
 test("discovers project from structured JSON arguments with cwd and no turn_context.cwd", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-cwd-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const sessionsDir = join(root, "sessions");
   const cwdProject = join(root, "cwd-project");
   await Promise.all([
@@ -117,7 +117,7 @@ test("discovers project from structured JSON arguments with cwd and no turn_cont
 
 test("does not discover project when cmd only mentions start-canvas.sh in a search", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-falsepos-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const sessionsDir = join(root, "sessions");
   const searchProject = join(root, "search-project");
   await Promise.all([
@@ -147,7 +147,7 @@ test("does not discover project when cmd only mentions start-canvas.sh in a sear
 
 test("does not discover project when arguments mention start-canvas.sh in a comment or string", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-comment-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const sessionsDir = join(root, "sessions");
   const commentProject = join(root, "comment-project");
   await Promise.all([
@@ -176,7 +176,7 @@ test("does not discover project when arguments mention start-canvas.sh in a comm
 
 test("discovered project is the projectDir even when workdir and cwd point to other canvas-bearing projects", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-priority-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const sessionsDir = join(root, "sessions");
   const projectDirProject = join(root, "projectdir-project");
   const workdirProject = join(root, "workdir-project");
@@ -217,7 +217,7 @@ test("discovered project is the projectDir even when workdir and cwd point to ot
 
 test("falls back to workdir when projectDir is missing and cwd points to another canvas", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-workdir-fallback-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const sessionsDir = join(root, "sessions");
   const workdirProject = join(root, "workdir-project");
   const cwdProject = join(root, "cwd-project");
@@ -253,7 +253,7 @@ test("falls back to workdir when projectDir is missing and cwd points to another
 
 test("regex fallback on an un-stringified JS call still picks only the first valid field by priority", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cowart-js-priority-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const sessionsDir = join(root, "sessions");
   const projectDirProject = join(root, "projectdir-project");
   const workdirProject = join(root, "workdir-project");

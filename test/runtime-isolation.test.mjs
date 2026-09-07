@@ -9,7 +9,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
 import { DISABLEABLE_BRIDGES } from "../lib/runtime-bridges.mjs";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -103,7 +103,7 @@ async function stopServer(child) {
 describe("runtime isolation with all bridges disabled", () => {
   it("library contains only manually created fixtures", async (t) => {
     const root = await mkdtemp(join(tmpdir(), "mosa-isolation-"));
-    t.after(() => rm(root, { recursive: true, force: true }));
+    deferTestPathRemoval(root, { recursive: true, force: true });
 
     const libraryDir = join(root, "library");
     const opts = runtimeOptions(root);
@@ -149,7 +149,7 @@ describe("runtime isolation with all bridges disabled", () => {
 describe("disabledBridges validation", () => {
   it("throws on unknown bridge name", async (t) => {
     const root = await mkdtemp(join(tmpdir(), "mosa-isolation-bad-"));
-    t.after(() => rm(root, { recursive: true, force: true }));
+    deferTestPathRemoval(root, { recursive: true, force: true });
 
     const libraryDir = join(root, "library");
     const opts = runtimeOptions(root);
@@ -170,7 +170,7 @@ describe("disabledBridges validation", () => {
 
   it("empty disabledBridges array starts normally", async (t) => {
     const root = await mkdtemp(join(tmpdir(), "mosa-isolation-empty-"));
-    t.after(() => rm(root, { recursive: true, force: true }));
+    deferTestPathRemoval(root, { recursive: true, force: true });
 
     const libraryDir = join(root, "library");
     const opts = runtimeOptions(root);
@@ -193,7 +193,7 @@ describe("disabledBridges validation", () => {
 describe("environment-only server startup isolation", () => {
   it("starts server.mjs from environment variables without touching manager assets", async (t) => {
     const root = await mkdtemp(join(tmpdir(), "mosa-e2e-isolation-"));
-    t.after(() => rm(root, { recursive: true, force: true }));
+    deferTestPathRemoval(root, { recursive: true, force: true });
 
     const libraryDir = join(root, "library");
     const fixtureImage = await createFixtureImage(root);
@@ -246,7 +246,7 @@ describe("environment-only server startup isolation", () => {
 
   it("fresh default startup selects SQLite without touching manager assets", async (t) => {
     const tempHome = await mkdtemp(join(tmpdir(), "mosa-no-lib-home-"));
-    t.after(() => rm(tempHome, { recursive: true, force: true }));
+    deferTestPathRemoval(tempHome, { recursive: true, force: true });
 
     // Canonical assets/default hash before: we expect no writes on startup
     const managerAssetsBefore = await snapshotDirectory(join(repositoryRoot, "assets", "default"));
@@ -256,7 +256,10 @@ describe("environment-only server startup isolation", () => {
     const child = spawn(process.execPath, ["server.mjs"], {
       cwd: repositoryRoot,
       env: {
+        // os.homedir() resolves USERPROFILE on Windows and HOME elsewhere; a
+        // fresh-install simulation must redirect both to stay portable.
         HOME: tempHome,
+        USERPROFILE: tempHome,
         PATH: process.env.PATH,
         MOSA_PORT: "0",
         MOSA_PROJECT_DIR: repositoryRoot,
@@ -316,7 +319,7 @@ describe("environment-only server startup isolation", () => {
 
   it("SQLite backend aligns health and library-path endpoints with the SQLite library directory", async (t) => {
     const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-contract-"));
-    t.after(() => rm(root, { recursive: true, force: true }));
+    deferTestPathRemoval(root, { recursive: true, force: true });
 
     const libraryDir = join(root, "library");
     const fixtureImage = await createFixtureImage(root);
