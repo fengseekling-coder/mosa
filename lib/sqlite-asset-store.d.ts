@@ -121,6 +121,8 @@ export interface SqliteAssetStore {
   purgeExpiredTrash(options?: { nowMs?: number; retentionMs?: number }): Promise<{ due: number; removed: number; failed: number }>;
   emptyTrash(projectId?: string): Promise<{ removed: number; failed: Array<Record<string, unknown>>; partial: boolean }>;
   cleanupPermanentDeletionStaging(): Promise<{ removed: number; failed: number }>;
+  cleanupOrphanedManagedFiles(options?: { olderThanMs?: number; includeDerivatives?: boolean }): Promise<{ removed: number; failed: number }>;
+  cleanupOrphanedDerivativeFiles(options?: { olderThanMs?: number }): Promise<{ removed: number; failed: number }>;
   isAssetActive(projectId: string, assetId: string): Promise<boolean>;
   withAssetLifecycleLock<T>(projectId: string, assetId: string, task: () => Promise<T>): Promise<T>;
   duplicateAsset(projectId: string, assetId: string): Promise<StoredAsset>;

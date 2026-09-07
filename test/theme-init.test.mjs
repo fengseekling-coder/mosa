@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -96,7 +96,7 @@ test("brand safe-area offset remains desktop-only", async () => {
 
 test("the runtime serves /theme-init.mjs same-origin for CSP compliance", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-theme-init-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const runtime = await startMosaRuntime(runtimeOptions(root));
   t.after(() => runtime.stop());
 

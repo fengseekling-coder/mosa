@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -19,7 +19,7 @@ const FIXTURES = [
 
 async function startSeededRuntime(t, prefix) {
   const root = await mkdtemp(join(tmpdir(), prefix));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });

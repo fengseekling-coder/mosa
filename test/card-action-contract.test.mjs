@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
@@ -245,7 +246,7 @@ test("17. no API, data-structure or persistence changes", async () => {
 
 // 18. i18n parity: zh/en key sets match and cover the card quick actions.
 test("18. i18n zh/en key parity including quick-action strings", async () => {
-  const messages = (await import(resolve(root, "app/i18n.mjs"))).default;
+  const messages = (await import(pathToFileURL(resolve(root, "app/i18n.mjs")).href)).default;
   const zhKeys = Object.keys(messages.zh).sort();
   const enKeys = Object.keys(messages.en).sort();
   assert.deepEqual(zhKeys, enKeys, "zh and en must expose the same key set");

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { removeTestPath as rm, deferTestPathRemoval } from "./test-cleanup.mjs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -449,7 +449,7 @@ test("request body errors return correct HTTP status codes", async (t) => {
 
 test("JSON backend invalid cursor returns 400 with INVALID_ASSET_CURSOR", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-json-cursor-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const { createAssetStore } = await import("../lib/asset-store.mjs");
   const libraryDir = join(root, "library");
   await mkdir(join(libraryDir, "assets", "default"), { recursive: true });
@@ -495,7 +495,7 @@ test("JSON backend invalid cursor returns 400 with INVALID_ASSET_CURSOR", async 
 
 test("cross-origin request returns 403 while same-origin succeeds", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cors-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const server = spawn(process.execPath, ["server.mjs"], {
     cwd: process.cwd(),
     env: {
@@ -536,7 +536,7 @@ test("cross-origin request returns 403 while same-origin succeeds", async (t) =>
 
 test("multi-byte UTF-8 body exceeding 5 MiB returns 413", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-multibyte-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const server = spawn(process.execPath, ["server.mjs"], {
     cwd: process.cwd(),
     env: {

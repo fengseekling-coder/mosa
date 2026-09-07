@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, readdir, utimes, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { removeTestPath as rm, deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -31,7 +31,7 @@ const SAMPLE_PNG_BASE64 = await (async () => {
 
 test("web capture temp cleanup removes stale crash leftovers without touching fresh files", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-temp-cleanup-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const tempRoot = join(root, ".web-capture-tmp");
   await mkdir(tempRoot, { recursive: true });
   const stale = join(tempRoot, "chatgpt-stale.png");
@@ -99,7 +99,7 @@ test("request body budget also covers supported generated video captures", () =>
 
 test("ingests Flow generated video bytes and dedupes them by content hash", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-video-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const libraryDir = join(root, "library");
   await mkdir(libraryDir, { recursive: true });
   const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
@@ -240,7 +240,7 @@ test("ingests chatgpt web capture bytes and dedupes by content hash", async () =
 
 test("deduplicated ChatGPT output advances generation status from partial to completed", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-generation-status-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const libraryDir = join(root, "library");
   await mkdir(libraryDir, { recursive: true });
   const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
@@ -287,7 +287,7 @@ test("deduplicated ChatGPT output advances generation status from partial to com
 
 test("completed ChatGPT bytes replace an earlier provisional asset with the same provider asset id", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-provisional-replace-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const libraryDir = join(root, "library");
   await mkdir(libraryDir, { recursive: true });
   const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
@@ -348,7 +348,7 @@ test("completed ChatGPT bytes replace an earlier provisional asset with the same
 for (const terminalStatus of ["failed", "cancelled"]) {
   test(`${terminalStatus} ChatGPT output keeps the final visible bytes on the same logical asset`, async (t) => {
     const root = await mkdtemp(join(tmpdir(), `mosa-web-${terminalStatus}-replace-`));
-    t.after(() => rm(root, { recursive: true, force: true }));
+    deferTestPathRemoval(root, { recursive: true, force: true });
     const libraryDir = join(root, "library");
     await mkdir(libraryDir, { recursive: true });
     const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
@@ -388,7 +388,7 @@ for (const terminalStatus of ["failed", "cancelled"]) {
 
 test("output-scoped URL fallback upgrades one ChatGPT output without collapsing siblings", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-output-url-fallback-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const libraryDir = join(root, "library");
   await mkdir(libraryDir, { recursive: true });
   const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
@@ -442,7 +442,7 @@ test("output-scoped URL fallback upgrades one ChatGPT output without collapsing 
 
 test("concurrent provisional and terminal captures serialize one logical provider asset", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-logical-concurrency-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const libraryDir = join(root, "library");
   await mkdir(libraryDir, { recursive: true });
   const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
@@ -482,7 +482,7 @@ test("concurrent provisional and terminal captures serialize one logical provide
 
 test("metadata-only provider Prompt upgrade preserves media identity and asset count", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-metadata-upgrade-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const libraryDir = join(root, "library");
   await mkdir(libraryDir, { recursive: true });
   const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
@@ -526,7 +526,7 @@ test("metadata-only provider Prompt upgrade preserves media identity and asset c
 
 test("records a reliable capture session without inventing a generation batch", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-session-only-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   let created;
   let createOptions;
   const store = {
@@ -558,7 +558,7 @@ test("records a reliable capture session without inventing a generation batch", 
 
 test("skips suppressed web captures and removes their temporary file", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-suppressed-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const tempRoot = join(root, "capture");
   let createOptions;
   const store = {
@@ -584,7 +584,7 @@ test("skips suppressed web captures and removes their temporary file", async (t)
 
 test("accepts the allowlisted generic providers with provider-derived metadata", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-providers-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const expected = [
     ["gemini", "Gemini", "web-gemini", "Gemini web capture"],
     ["flow", "Flow", "web-flow", "Flow web capture"],
@@ -618,7 +618,7 @@ test("accepts the allowlisted generic providers with provider-derived metadata",
 
 test("persists Gemini, Flow, and AI Studio provider-visible prompts as unverified", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-flow-prompt-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const image = await noiseImage(42);
   const created = [];
   const store = {
@@ -709,7 +709,7 @@ test("persists Gemini, Flow, and AI Studio provider-visible prompts as unverifie
 
 test("does not let a Flow-only prompt upgrade a same-image asset from another provider", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-flow-prompt-dedupe-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const image = await noiseImage(44);
   const assets = [];
   const store = {
@@ -1777,7 +1777,7 @@ test("prefers the store's indexed content-hash lookup over a project scan", asyn
   // capturing new images. A store that offers the indexed lookup must have it
   // used, and the listing must not be pulled just to answer the byte question.
   const root = await mkdtemp(join(tmpdir(), "mosa-ingest-indexed-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const image = await noiseImage(5);
 
   let indexedCalls = 0;
@@ -1802,7 +1802,7 @@ test("prefers the store's indexed content-hash lookup over a project scan", asyn
 
 test("links only the references from the generation's own turn", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-ingest-turn-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const archived = [
     { id: "old-gen", source: { conversation_id: "c1", captured_at: "2026-07-26T10:01:00.000Z" }, business_fields: { is_reference: false } },
@@ -1839,7 +1839,7 @@ test("links only the references from the generation's own turn", async (t) => {
 
 test("a reference upload never calls createAsset", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-ingest-ref-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const image = await noiseImage(0);
 
   let createCalls = 0;
@@ -1866,7 +1866,7 @@ test("a reference upload never calls createAsset", async (t) => {
 
 test("serializes concurrent reference attachment index updates", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-reference-concurrent-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const referenceStore = createReferenceAttachmentStore(root);
   const independentStore = createReferenceAttachmentStore(root);
   const [first, second] = await Promise.all([
@@ -1880,7 +1880,7 @@ test("serializes concurrent reference attachment index updates", async (t) => {
 
 test("reference attachment pruning keeps reachable shared references and removes unreachable files", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-reference-prune-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const referenceStore = createReferenceAttachmentStore(root);
   const first = await referenceStore.save(referenceFixture(await noiseImage(62), "c1", "2026-08-13T10:00:00.000Z"));
   const second = await referenceStore.save(referenceFixture(await noiseImage(63), "c2", "2026-08-13T10:00:01.000Z"));
@@ -1895,7 +1895,7 @@ test("reference attachment pruning keeps reachable shared references and removes
 
 test("reference attachments dedupe re-encodes by current display pixels", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-reference-pixels-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const raw = Buffer.alloc(32 * 24 * 4);
   for (let i = 0; i < raw.length; i += 4) {
     raw[i] = (i * 17) & 255;
@@ -1919,7 +1919,7 @@ test("reference attachments dedupe re-encodes by current display pixels", async 
 
 test("a capture with no conversation identifier links nothing", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-ingest-noconv-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const image = await noiseImage(6);
 
   let created;

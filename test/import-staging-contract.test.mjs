@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, symlink, utimes, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
@@ -28,7 +28,7 @@ const sha256 = (buffer) => createHash("sha256").update(buffer).digest("hex");
 
 async function makeWorkspace(t, prefix) {
   const dir = await mkdtemp(join(tmpdir(), prefix));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  deferTestPathRemoval(dir, { recursive: true, force: true });
   return dir;
 }
 

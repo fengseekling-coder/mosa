@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { assetSearchScore, compareAssetSearchResults } from "../lib/asset-search.mjs";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+1CBR3wAAAABJRU5ErkJggg==", "base64");
 
@@ -43,7 +43,7 @@ test("asset search keeps all query terms mandatory", () => {
 
 test("SQLite search paginates relevance-first without duplicates", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-search-rank-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });
@@ -83,7 +83,7 @@ test("SQLite search paginates relevance-first without duplicates", async (t) => 
 
 test("FTS page cache is isolated per media kind filter", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-search-media-kind-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });
@@ -113,7 +113,7 @@ test("FTS page cache is isolated per media kind filter", async (t) => {
 
 test("short ASCII search terms keep page count consistent with results", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-search-short-term-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
   await mkdir(join(projectRoot, "generated-images"), { recursive: true });

@@ -3,11 +3,12 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { cleanupPermanentDeletionStaging, stageFilesForPermanentDeletion } from "../lib/trash-files.mjs";
 
 test("permanent deletion preserves staged bytes when rollback cannot restore immediately", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-trash-rollback-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const source = join(root, "asset.png");
   await writeFile(source, "original-bytes");
 
@@ -25,7 +26,7 @@ test("permanent deletion preserves staged bytes when rollback cannot restore imm
 
 test("committed permanent deletion is swept instead of restored", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-trash-commit-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const source = join(root, "asset.png");
   await writeFile(source, "deleted-bytes");
 

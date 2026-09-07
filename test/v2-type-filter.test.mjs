@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -15,7 +15,7 @@ const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJA
 for (const kind of ["sqlite", "json"]) {
   test(`${kind} store mediaKind filter splits images and videos`, async (t) => {
     const root = await mkdtemp(join(tmpdir(), `mosa-type-filter-${kind}-`));
-    t.after(() => rm(root, { recursive: true, force: true }));
+    deferTestPathRemoval(root, { recursive: true, force: true });
     const projectRoot = join(root, "project");
     const mediaDir = join(projectRoot, "generated-images");
     await mkdir(mediaDir, { recursive: true });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { appendFile, mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { removeTestPath as rm, deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,7 +9,7 @@ import { createCodexImageBridge, reconcileCodexGeneratedImages } from "../lib/co
 
 test("archives Codex generated images with task metadata and avoids duplicates", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const imagesDir = join(root, "generated_images");
@@ -53,7 +53,7 @@ test("archives Codex generated images with task metadata and avoids duplicates",
 
 test("skips unchanged Codex candidates without touching the asset store twice", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-codex-signature-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const imagesDir = join(root, "generated_images");
   const imagePath = join(imagesDir, "task-a", "stable.png");
   await mkdir(join(imagesDir, "task-a"), { recursive: true });
@@ -86,7 +86,7 @@ test("skips unchanged Codex candidates without touching the asset store twice", 
 
 test("caches Codex session parsing and ignores unrelated session mtime churn", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-codex-session-cache-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const imagesDir = join(root, "generated_images");
   const sessionsDir = join(root, "sessions");
   const taskId = "019f776f-f6d5-7692-b9e5-dd280fc09f88";
@@ -151,7 +151,7 @@ test("caches Codex session parsing and ignores unrelated session mtime churn", a
 
 test("passes automatic ingest mode and continues after a suppressed Codex image", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-codex-suppressed-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const imagesDir = join(root, "generated_images");
   const firstPath = join(imagesDir, "task-a", "first.png");
   const secondPath = join(imagesDir, "task-b", "second.png");
@@ -183,7 +183,7 @@ test("passes automatic ingest mode and continues after a suppressed Codex image"
 
 test("retries a deterministic Codex asset id collision through automatic identity dedupe", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-codex-id-race-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const imagesDir = join(root, "generated_images");
   const imagePath = join(imagesDir, "task-a", "same.png");
   await mkdir(join(imagesDir, "task-a"), { recursive: true });
@@ -213,7 +213,7 @@ test("retries a deterministic Codex asset id collision through automatic identit
 
 test("upgrades an archived task instruction to the matching image generation prompt", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const imagesDir = join(root, "generated_images");
@@ -253,7 +253,7 @@ test("upgrades an archived task instruction to the matching image generation pro
 
 test("does not downgrade revised prompt provenance when only task fallback remains", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const imagesDir = join(root, "generated_images");
@@ -296,7 +296,7 @@ test("does not downgrade revised prompt provenance when only task fallback remai
 
 test("does not infer an unmatched image model from the task's final turn", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const imagesDir = join(root, "generated_images");
@@ -323,7 +323,7 @@ test("does not infer an unmatched image model from the task's final turn", async
 
 test("watches a later Codex image and stores fallback metadata when no session is available", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const imagesDir = join(root, "generated_images");
@@ -344,7 +344,7 @@ test("watches a later Codex image and stores fallback metadata when no session i
 
 test("bridge caches the session index but refreshes metadata after a matching session changes", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const imagesDir = join(root, "generated_images");
   const sessionsDir = join(root, "sessions");
   const taskId = "019f776f-f6d5-7692-b9e5-dd280fc09f09";

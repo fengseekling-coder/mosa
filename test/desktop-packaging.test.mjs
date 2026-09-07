@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -132,7 +132,7 @@ test("Windows Forge config omits mac signing and selects Windows native runtime 
 
 test("desktop icon source generates valid macOS and Windows icon containers", async (t) => {
   const outputDir = await mkdtemp(join(tmpdir(), "mosa-desktop-icons-"));
-  t.after(() => rm(outputDir, { recursive: true, force: true }));
+  deferTestPathRemoval(outputDir, { recursive: true, force: true });
 
   const source = await readFile(DESKTOP_ICON_SOURCE_PATH, "utf8");
   assert.match(source, /linearGradient id="mosaGradient"/);
@@ -262,7 +262,7 @@ test("desktop package keeps every required runtime surface", () => {
 
 test("reduces the packaged dependency tree to arm64 runtime files", async (t) => {
   const buildPath = await mkdtemp(join(tmpdir(), "mosa-desktop-package-"));
-  t.after(() => rm(buildPath, { recursive: true, force: true }));
+  deferTestPathRemoval(buildPath, { recursive: true, force: true });
   const packageDir = join(buildPath, "node_modules", "better-sqlite3");
   const metadataPath = join(packageDir, "build", "config.gypi");
   const bindingPath = join(packageDir, "prebuilds", "darwin-arm64.node");
@@ -330,7 +330,7 @@ test("reduces the packaged dependency tree to arm64 runtime files", async (t) =>
 
 test("reduces a Windows package to win32-x64 native runtime files", async (t) => {
   const buildPath = await mkdtemp(join(tmpdir(), "mosa-desktop-package-win32-"));
-  t.after(() => rm(buildPath, { recursive: true, force: true }));
+  deferTestPathRemoval(buildPath, { recursive: true, force: true });
   const packageDir = join(buildPath, "node_modules", "better-sqlite3");
   const windowsBinding = join(packageDir, "prebuilds", "win32-x64.node");
   const macBinding = join(packageDir, "prebuilds", "darwin-arm64.node");
@@ -360,7 +360,7 @@ test("reduces a Windows package to win32-x64 native runtime files", async (t) =>
 
 test("Windows packaging fails closed with actionable cross-packaging guidance when target Sharp is absent", async (t) => {
   const buildPath = await mkdtemp(join(tmpdir(), "mosa-desktop-package-win32-missing-sharp-"));
-  t.after(() => rm(buildPath, { recursive: true, force: true }));
+  deferTestPathRemoval(buildPath, { recursive: true, force: true });
   const packageDir = join(buildPath, "node_modules", "better-sqlite3");
   await mkdir(join(packageDir, "prebuilds"), { recursive: true });
   await writeFile(join(packageDir, "prebuilds", "win32-x64.node"), "windows binding");

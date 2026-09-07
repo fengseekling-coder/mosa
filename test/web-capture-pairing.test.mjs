@@ -13,7 +13,7 @@ import {
   MOSA_WEB_CAPTURE_EXTENSION_ORIGINS,
   MOSA_WEB_CAPTURE_STORE_EXTENSION_ID,
 } from "../desktop/web-capture-pairing.mjs";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 
 test("desktop Web Capture pairing accepts both development and Chrome Web Store identities", () => {
   assert.match(MOSA_WEB_CAPTURE_EXTENSION_ID, /^[a-p]{32}$/);
@@ -33,7 +33,7 @@ test("desktop Web Capture pairing accepts both development and Chrome Web Store 
 
 test("desktop creates one private persistent Web Capture token", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-pairing-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const first = await loadOrCreateWebCaptureToken(root);
   const second = await loadOrCreateWebCaptureToken(root);

@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { pipeStreamToResponse } from "../lib/http-response.mjs";
+import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
+import { processDerivativeJob } from "../lib/derivative-worker.js";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import sharp from "sharp";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -34,7 +37,7 @@ function runtimeOptions(root, overrides = {}) {
 
 async function makeTemporaryRoot(t, prefix) {
   const root = await mkdtemp(join(tmpdir(), prefix));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   return root;
 }
 
@@ -203,4 +206,86 @@ test("releases the library lock when bridge startup fails", async (t) => {
   } finally {
     await runtime.stop();
   }
+});
+
+test("historical orphan derivative sweep is post-listen maintenance and the worker starts after it settles", async (t) => {
+  const root = await makeTemporaryRoot(t, "mosa-runtime-orphan-sweep-");
+  const libraryDir = join(root, "library");
+  const sourcesDir = join(root, "project", "generated-images");
+  await mkdir(sourcesDir, { recursive: true });
+  const sourcePath = join(sourcesDir, "seed.png");
+  await sharp({ create: { width: 96, height: 64, channels: 3, background: { r: 30, g: 120, b: 200 } } }).png().toFile(sourcePath);
+  const store = createSqliteAssetStore({
+    projectRoot: join(root, "project"),
+    managerDir: join(root, "project", "mosa"),
+    libraryDir,
+    initializeFreshLibrary: true,
+  });
+  await store.createAsset({ projectId: "default", assetId: "seed-asset", imagePath: sourcePath, prompt: "seed" }, { ingestMode: "manual" });
+  for (;;) {
+    const job = await store.claimDerivativeJob();
+    if (!job) break;
+    assert.equal((await processDerivativeJob(store, job)).ok, true);
+  }
+  const projectDir = join(libraryDir, "assets", "default");
+  const stale = new Date(Date.now() - 60 * 60 * 1000);
+  const orphanPaths = [];
+  for (const dir of ["previews", "mediums", "thumbnails"]) {
+    for (let index = 0; index < 40; index += 1) {
+      const orphanPath = join(projectDir, dir, "orphan-" + index + ".webp");
+      await writeFile(orphanPath, "orphan");
+      await utimes(orphanPath, stale, stale);
+      orphanPaths.push(orphanPath);
+    }
+  }
+  t.after(() => store.close());
+  const runtime = await startMosaRuntime(runtimeOptions(root));
+  t.after(() => runtime.stop());
+  assert.equal((await fetch(runtime.url + "/api/health")).status, 200, "startup serves before maintenance matters");
+  const fileExists = async (filePath) => access(filePath).then(() => true, () => false);
+  const sweepDeadline = Date.now() + 15000;
+  let orphansRemaining = -1;
+  do {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 200));
+    orphansRemaining = 0;
+    for (const orphanPath of orphanPaths) if (await fileExists(orphanPath)) orphansRemaining += 1;
+  } while (orphansRemaining > 0 && Date.now() < sweepDeadline);
+  assert.equal(orphansRemaining, 0, "historical orphans must be reclaimed after startup without blocking it");
+  assert.equal(await fileExists(join(projectDir, "thumbnails", "seed-asset.webp")), true, "referenced derivatives are never touched by the sweep");
+  const create = await fetch(runtime.url + "/api/assets/create", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: "default", assetId: "post-sweep-asset", imagePath: sourcePath, prompt: "after sweep" }),
+  });
+  assert.equal(create.status, 200);
+  const thumbnailDeadline = Date.now() + 15000;
+  let thumbnailExists = false;
+  while (Date.now() < thumbnailDeadline) {
+    thumbnailExists = await fileExists(join(projectDir, "thumbnails", "post-sweep-asset.webp"));
+    if (thumbnailExists) break;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 200));
+  }
+  assert.equal(thumbnailExists, true, "derivative worker must generate new derivatives after the sweep settled");
+});
+
+test("shutdown awaits the in-flight orphan sweep without leaking it", async (t) => {
+  const root = await makeTemporaryRoot(t, "mosa-runtime-orphan-shutdown-");
+  const libraryDir = join(root, "library");
+  const projectDir = join(libraryDir, "assets", "default");
+  await mkdir(join(projectDir, "previews"), { recursive: true });
+  await mkdir(join(projectDir, "mediums"), { recursive: true });
+  await mkdir(join(projectDir, "thumbnails"), { recursive: true });
+  const stale = new Date(Date.now() - 60 * 60 * 1000);
+  for (const dir of ["previews", "mediums", "thumbnails"]) {
+    for (let index = 0; index < 150; index += 1) {
+      const orphanPath = join(projectDir, dir, "orphan-" + index + ".webp");
+      await writeFile(orphanPath, "orphan");
+      await utimes(orphanPath, stale, stale);
+    }
+  }
+  const runtime = await startMosaRuntime(runtimeOptions(root));
+  t.after(() => runtime.stop());
+  assert.equal((await fetch(runtime.url + "/api/health")).status, 200);
+  await runtime.stop();
+  await assert.rejects(fetch(runtime.url + "/api/health", { signal: AbortSignal.timeout(2000) }));
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ for (const implementation of [
 ]) {
   test(`${implementation[0]} store creates and reads deterministic recipe version trees`, async (t) => {
     const root = await mkdtemp(join(tmpdir(), `mosa-version-${implementation[0].toLowerCase()}-`));
+  deferTestPathRemoval(root, { recursive: true, force: true });
     const projectRoot = join(root, "project");
     const managerDir = join(projectRoot, "mosa");
     const sourcePath = join(projectRoot, "generated-images", "fixture.png");
@@ -28,7 +29,6 @@ for (const implementation of [
     const store = implementation[1]({ projectRoot, managerDir, libraryDir: join(root, "library") });
     t.after(async () => {
       store.close?.();
-      await rm(root, { recursive: true, force: true });
     });
 
     const parent = await store.createAsset({
@@ -216,6 +216,7 @@ for (const [label, factory] of [
 ]) {
   test(`${label} store refuses to delete a version parent that still has children`, async (t) => {
     const root = await mkdtemp(join(tmpdir(), `mosa-version-delete-guard-${label.toLowerCase()}-`));
+  deferTestPathRemoval(root, { recursive: true, force: true });
     const projectRoot = join(root, "project");
     const managerDir = join(projectRoot, "mosa");
     const sourcePath = join(projectRoot, "generated-images", "fixture.png");
@@ -224,7 +225,6 @@ for (const [label, factory] of [
     const store = factory({ projectRoot, managerDir, libraryDir: join(root, "library") });
     t.after(async () => {
       store.close?.();
-      await rm(root, { recursive: true, force: true });
     });
 
     const parent = await store.createAsset({ assetId: "guard-parent", imagePath: sourcePath, prompt: "parent" });
@@ -248,6 +248,7 @@ for (const [label, factory] of [
 
 test("SQLite store cleans stale version rows pointing at a deleted asset", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-version-stale-rows-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
@@ -256,7 +257,6 @@ test("SQLite store cleans stale version rows pointing at a deleted asset", async
   const store = createSqliteAssetStore({ projectRoot, managerDir, libraryDir: join(root, "library") });
   t.after(async () => {
     store.close?.();
-    await rm(root, { recursive: true, force: true });
   });
 
   const parent = await store.createAsset({ assetId: "stale-parent", imagePath: sourcePath, prompt: "parent" });

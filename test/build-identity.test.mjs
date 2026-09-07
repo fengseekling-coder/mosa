@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { getBuildIdentity, resetBuildIdentityCache, computeRuntimeFingerprint, computeUiFingerprint } from "../lib/build-identity.mjs";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
 import { MCP_SERVER_VERSION, MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { removeTestPath as rm, deferTestPathRemoval } from "./test-cleanup.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -157,7 +157,7 @@ test("runtimeFingerprint in build-identity.json matches the actual local runtime
 
 test("/api/health returns product, protocol, MCP, Git, UI, and runtime build identities", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-health-build-id-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const service = await startMosaRuntime(runtimeOptions(root));
   t.after(() => service.stop());
 
@@ -184,7 +184,7 @@ test("/api/health returns product, protocol, MCP, Git, UI, and runtime build ide
 
 test("runtime health keeps the identity snapshot captured at process start", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-health-snapshot-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const tempAppDir = join(root, "app");
   await mkdir(tempAppDir, { recursive: true });
   const initialIdentity = {
@@ -219,7 +219,7 @@ test("runtime health keeps the identity snapshot captured at process start", asy
 
 test("static resources served by the runtime match the source files in app/", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-static-check-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const service = await startMosaRuntime(runtimeOptions(root));
   t.after(() => service.stop());
 

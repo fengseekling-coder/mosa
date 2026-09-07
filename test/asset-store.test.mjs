@@ -7,7 +7,7 @@ import Database from "better-sqlite3";
 import sharp from "sharp";
 import { createAssetStore } from "../lib/asset-store.mjs";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { PIXEL_HASH_VERSION, safePixelDigest } from "../lib/image-pixel-hash.js";
 
 // createAssetStore falls back to process.env.MOSA_LIBRARY_DIR, so path-selection
@@ -25,7 +25,7 @@ function withoutMosaLibraryDir(t) {
 test("JSON runtime without any libraryDir keeps assets under managerDir/assets", async (t) => {
   withoutMosaLibraryDir(t);
   const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -39,7 +39,7 @@ test("JSON runtime without any libraryDir keeps assets under managerDir/assets",
 
 test("library revision changes for local and external writes without listing assets", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-library-revision-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const jsonProjectRoot = join(root, "json-project");
   const jsonStore = createAssetStore({ projectRoot: jsonProjectRoot, managerDir: join(jsonProjectRoot, "mosa") });
@@ -67,7 +67,7 @@ test("library revision changes for local and external writes without listing ass
 test("JSON group stats expose automatic source buckets for sidebar navigation", async (t) => {
   withoutMosaLibraryDir(t);
   const root = await mkdtemp(join(tmpdir(), "mosa-source-groups-json-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
@@ -106,7 +106,7 @@ test("JSON group stats expose automatic source buckets for sidebar navigation", 
 test("JSON favorite toggle is serialized and does not create a recipe revision", async (t) => {
   withoutMosaLibraryDir(t);
   const root = await mkdtemp(join(tmpdir(), "mosa-favorite-json-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sourcePath = join(projectRoot, "fixture.png");
@@ -131,7 +131,7 @@ test("JSON favorite toggle is serialized and does not create a recipe revision",
 
 test("SQLite favorite toggle is atomic and leaves content revision metadata untouched", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-favorite-sqlite-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const libraryDir = join(root, "library");
@@ -159,7 +159,7 @@ test("SQLite favorite toggle is atomic and leaves content revision metadata unto
 test("a fresh explicit options.libraryDir starts directly in SQLite", async (t) => {
   withoutMosaLibraryDir(t);
   const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -176,11 +176,11 @@ test("a fresh explicit options.libraryDir starts directly in SQLite", async (t) 
 test("a fresh MOSA_LIBRARY_DIR starts directly in SQLite", async (t) => {
   const saved = process.env.MOSA_LIBRARY_DIR;
   const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   process.env.MOSA_LIBRARY_DIR = join(root, "env-library");
   t.after(() => {
     if (saved === undefined) delete process.env.MOSA_LIBRARY_DIR;
     else process.env.MOSA_LIBRARY_DIR = saved;
-    return rm(root, { recursive: true, force: true });
   });
 
   const projectRoot = join(root, "project");
@@ -196,7 +196,7 @@ test("a fresh MOSA_LIBRARY_DIR starts directly in SQLite", async (t) => {
 test("a runtime-style fresh default libraryDir starts directly in SQLite", async (t) => {
   withoutMosaLibraryDir(t);
   const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -220,7 +220,7 @@ test("a runtime-style fresh default libraryDir starts directly in SQLite", async
 test("a fresh explicit explicitLibraryDir also starts directly in SQLite", async (t) => {
   withoutMosaLibraryDir(t);
   const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -241,7 +241,7 @@ test("a fresh explicit explicitLibraryDir also starts directly in SQLite", async
 test("legacy JSON data keeps an explicit library on JSON until migration completes", async (t) => {
   withoutMosaLibraryDir(t);
   const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -257,7 +257,7 @@ test("legacy JSON data keeps an explicit library on JSON until migration complet
 test("a default libraryDir still selects a completed SQLite library when nothing is explicit", async (t) => {
   withoutMosaLibraryDir(t);
   const root = await mkdtemp(join(tmpdir(), "mosa-paths-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -291,7 +291,7 @@ test("a default libraryDir still selects a completed SQLite library when nothing
 
 test("imports a Codex default generated image and preserves its provenance", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const codexImagesDir = join(root, ".codex", "generated_images");
   const taskId = "019f-codex-task";
@@ -318,7 +318,7 @@ test("imports a Codex default generated image and preserves its provenance", asy
   assert.equal(asset.source.generation_tool, "imagegen");
   assert.equal(asset.source.model, "gpt-5.6");
   assert.equal(asset.source.storage_mode, "hard-link");
-  assert.match(asset.image_path, /mosa\/assets\/default\/images\/codex-fixture\.png$/);
+  assert.match(asset.image_path, /mosa[\\/]assets[\\/]default[\\/]images[\\/]codex-fixture\.png$/);
   const [sourceStat, libraryStat] = await Promise.all([stat(sourcePath), stat(asset.image_path)]);
   assert.equal(sourceStat.ino, libraryStat.ino);
 
@@ -348,7 +348,7 @@ test("imports a Codex default generated image and preserves its provenance", asy
 for (const kind of ["json", "sqlite"]) {
   test(`${kind} deleteAsset moves assets to Trash, restores them, and only permanent deletion removes managed files`, async (t) => {
     const root = await mkdtemp(join(tmpdir(), `mosa-delete-${kind}-`));
-    t.after(() => rm(root, { recursive: true, force: true }));
+    deferTestPathRemoval(root, { recursive: true, force: true });
     const projectRoot = join(root, "project");
     const managerDir = join(projectRoot, "mosa");
     const libraryDir = join(root, "library");
@@ -394,7 +394,7 @@ for (const kind of ["json", "sqlite"]) {
 
 test("JSON recipe snapshots change only with generation inputs and remain immutable", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-recipes-json-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
@@ -455,7 +455,7 @@ test("JSON recipe snapshots change only with generation inputs and remain immuta
 
 test("JSON history synthesizes an initial snapshot for legacy metadata", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-recipes-json-legacy-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
@@ -477,7 +477,7 @@ test("JSON history synthesizes an initial snapshot for legacy metadata", async (
 
 test("JSON pagination remains stable when the cursor asset is archived", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-cursor-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
@@ -498,7 +498,7 @@ test("JSON pagination remains stable when the cursor asset is archived", async (
 
 test("corrupt canonical JSON metadata cannot be hidden or overwritten", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-corrupt-metadata-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
@@ -523,7 +523,7 @@ test("corrupt canonical JSON metadata cannot be hidden or overwritten", async (t
 
 test("persists manually created groups, including empty groups", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -549,7 +549,7 @@ test("persists manually created groups, including empty groups", async (t) => {
 
 test("JSON group deletion moves every asset in the group to Trash and keeps them restorable", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-delete-group-assets-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sourceDir = join(projectRoot, "generated-images");
@@ -576,7 +576,7 @@ test("JSON group deletion moves every asset in the group to Trash and keeps them
 
 test("JSON group deletion rolls metadata back when a later logical write fails", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-delete-group-assets-rollback-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sourceDir = join(projectRoot, "generated-images");
@@ -603,7 +603,7 @@ test("JSON group deletion rolls metadata back when a later logical write fails",
 
 test("keeps concurrent group creations from independent store instances", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -621,7 +621,7 @@ test("keeps concurrent group creations from independent store instances", async 
 
 test("does not reclaim a stale-looking lock held by a live group writer", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -647,7 +647,7 @@ test("does not reclaim a stale-looking lock held by a live group writer", async 
 
 test("recovers a stale group lock whose owner has exited", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -665,7 +665,7 @@ test("recovers a stale group lock whose owner has exited", async (t) => {
 
 test("continues to reject image paths outside approved source roots", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const outsidePath = join(root, "outside", "not-allowed.png");
   await mkdir(join(root, "outside"), { recursive: true });
@@ -682,7 +682,7 @@ test("continues to reject image paths outside approved source roots", async (t) 
 
 test("rejects symbolic links even when their link path is inside an approved root", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -699,7 +699,7 @@ test("rejects symbolic links even when their link path is inside an approved roo
 
 test("rejects a regular file reached through a symbolic-link directory", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -717,7 +717,7 @@ test("rejects a regular file reached through a symbolic-link directory", async (
 
 test("imports Cowart page assets from the configured external canvas directory", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const canvasDir = join(root, "cowart-data", "mosa");
@@ -738,12 +738,12 @@ test("imports Cowart page assets from the configured external canvas directory",
 
   assert.equal(asset.source.type, "cowart-generated");
   assert.equal(asset.source.path, sourcePath);
-  assert.match(asset.image_path, /mosa\/assets\/default\/images\/cowart-bear\.png$/);
+  assert.match(asset.image_path, /mosa[\\/]assets[\\/]default[\\/]images[\\/]cowart-bear\.png$/);
 });
 
 test("JSON store listAssets combines multiple filters with AND semantics", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-multi-filter-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -840,7 +840,7 @@ test("JSON store listAssets combines multiple filters with AND semantics", async
 
 test("JSON store recent filter excludes legacy assets with null, missing, or invalid created_at", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-recent-bad-date-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -906,7 +906,7 @@ test("JSON store recent filter excludes legacy assets with null, missing, or inv
 
 test("JSON store recent filter compares parsed timestamps, not raw created_at strings", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-recent-numeric-date-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -1024,7 +1024,7 @@ test("JSON store recent filter compares parsed timestamps, not raw created_at st
 
 test("JSON store normalizes parseable created_at to ISO 8601 on write", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-created-at-normalize-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -1086,7 +1086,7 @@ test("JSON store normalizes parseable created_at to ISO 8601 on write", async (t
 
 test("JSON store presents legacy created_at in canonical form without rewriting the file", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-created-at-read-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -1141,7 +1141,7 @@ test("JSON store presents legacy created_at in canonical form without rewriting 
 
 test("readProjectAssets warns again when corrupt content changes but size and mtime do not", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-corrupt-rehash-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -1179,7 +1179,7 @@ test("readProjectAssets warns again when corrupt content changes but size and mt
 
 test("JSON store looks assets up by content hash without listing the project", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-content-hash-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -1232,7 +1232,7 @@ test("JSON store looks assets up by content hash without listing the project", a
 
 test("JSON pixel-hash lookup ignores obsolete hash versions", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-json-pixel-version-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const sourcePath = join(projectRoot, "generated-images", "pixel.png");
@@ -1253,7 +1253,7 @@ test("JSON pixel-hash lookup ignores obsolete hash versions", async (t) => {
 
 test("readProjectAssets warns on corrupt JSON and still returns valid assets", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-corrupt-warn-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -1294,7 +1294,7 @@ test("readProjectAssets warns on corrupt JSON and still returns valid assets", a
 
 test("readProjectAssets warning does not leak corrupt file content", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-corrupt-no-leak-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -1331,7 +1331,7 @@ test("readProjectAssets warning does not leak corrupt file content", async (t) =
 
 test("readProjectAssets isolates synchronous and asynchronous warning sink failures", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-corrupt-warning-sink-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -1356,7 +1356,7 @@ test("readProjectAssets isolates synchronous and asynchronous warning sink failu
 
 test("readProjectAssets warns only once per corrupt file per scan", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-corrupt-dedup-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
@@ -1410,7 +1410,7 @@ test("readProjectAssets warns only once per corrupt file per scan", async (t) =>
 
 test("getAsset still throws on corrupt metadata when onWarning is configured", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-corrupt-get-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");

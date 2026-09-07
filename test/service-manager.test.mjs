@@ -16,13 +16,13 @@ import {
   shouldAllowStaleServiceUpgrade,
   startMosaService,
 } from "../desktop/service-manager.mjs";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 async function temporaryRoot(t, prefix) {
   const root = await mkdtemp(join(tmpdir(), prefix));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   return root;
 }
 

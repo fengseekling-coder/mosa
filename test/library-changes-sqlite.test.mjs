@@ -10,7 +10,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
 import { createSqliteAssetStore, LIBRARY_CHANGE_JOURNAL_LIMIT } from "../lib/sqlite-asset-store.mjs";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 
 const ONE_PIXEL_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -19,7 +19,7 @@ const ONE_PIXEL_PNG = Buffer.from(
 
 async function createStore(t, name = "library") {
   const root = await mkdtemp(join(tmpdir(), `mosa-library-changes-${name}-`));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const generated = join(root, "generated-images");
   await mkdir(generated, { recursive: true });
   await writeFile(join(generated, "pixel.png"), ONE_PIXEL_PNG);
@@ -142,7 +142,7 @@ test("journal retention stays bounded and old revisions report an explicit gap",
 
 test("delta continuity survives a store restart (crash-safe journal)", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-library-changes-restart-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const generated = join(root, "generated-images");
   await mkdir(generated, { recursive: true });
   await writeFile(join(generated, "pixel.png"), ONE_PIXEL_PNG);
@@ -311,7 +311,7 @@ test("derivative completions coalesce into one durable batch revision instead of
 
 test("pending derivative readiness survives a store restart and flushes into the normal delta protocol", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-derivative-pending-restart-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const generated = join(root, "generated-images");
   await mkdir(generated, { recursive: true });
   const imagePath = join(generated, "pixel.png");
@@ -475,7 +475,7 @@ test("a large derivative storm stays O(chunks): one revision, ceil(n/500) journa
 
 test("library-changes and gallery-rows routes serve the incremental contract over HTTP", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-library-changes-http-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const generated = join(root, "generated-images");
   await mkdir(generated, { recursive: true });
   await writeFile(join(generated, "pixel.png"), ONE_PIXEL_PNG);

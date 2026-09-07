@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import { mkdtemp, mkdir, readdir, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -21,6 +21,7 @@ function deferred() {
 
 async function setupStore(t, kind) {
   const root = await mkdtemp(join(tmpdir(), `mosa-ingest-suppression-${kind}-`));
+  deferTestPathRemoval(root, { recursive: true, force: true });
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
   const libraryDir = join(root, "library");
@@ -32,7 +33,6 @@ async function setupStore(t, kind) {
     : createJsonAssetStore({ projectRoot, managerDir });
   t.after(async () => {
     store.close?.();
-    await rm(root, { recursive: true, force: true });
   });
   return { root, projectRoot, libraryDir, sourcePath, store };
 }

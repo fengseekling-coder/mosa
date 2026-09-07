@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { removeTestPath as rm } from "./test-cleanup.mjs";
+import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -109,10 +109,10 @@ for (const [name, createStore] of [
 ]) {
   test(`${name} store keeps generation events independent from deduplicated assets`, async (t) => {
     const root = await mkdtemp(join(tmpdir(), `mosa-generation-${name.toLowerCase()}-`));
+    deferTestPathRemoval(root, { recursive: true, force: true });
     let store;
     t.after(async () => {
       store?.close?.();
-      await rm(root, { recursive: true, force: true });
     });
     await mkdir(join(root, "input"), { recursive: true });
     const firstPath = join(root, "input", "first.png");
