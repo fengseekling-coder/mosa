@@ -70,11 +70,13 @@ test("1-6. single-column architecture, tab roles removed, V2 sections in approve
 
   // 1. Single column: one inspector shell with one header and one scroll container.
   const renderDetail = functionSlice(app, "renderDetail");
-  assert.ok(renderDetail.includes('<div class="detail-inspector"><div class="detail-inspector-header">'), "inspector shell with fixed header");
-  assert.ok(renderDetail.includes('<div class="detail-inspector-scroll">'), "single scroll container in markup");
+  const shell = functionSlice(app, "ensureDetailInspectorShell");
+  assert.ok(shell.includes('<div class="detail-inspector"><div class="detail-inspector-header">'), "persistent inspector shell has fixed header");
+  assert.ok(shell.includes('<div class="detail-inspector-scroll"></div>'), "persistent shell owns the single scroll container");
   assert.ok(renderDetail.includes('${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}'), "file facts and tags stay adjacent without an extra overview wrapper");
-  assert.equal(count(renderDetail, 'class="detail-inspector-scroll"'), 3,
-    "renderDetail has empty, Stack, and asset branches, each with the same single scroll container");
+  assert.equal(count(shell, 'class="detail-inspector-scroll"'), 1, "the shell creates exactly one scroll container");
+  assert.doesNotMatch(renderDetail, /els\.detailPanel\.innerHTML\s*=/, "asset switches must not rebuild the entire inspector shell");
+  assert.match(renderDetail, /renderDetailInspectorContent\(t\("assetInspector"\)/, "asset content renders into the persistent shell");
   const scroller = blockAfter(css, ".detail-inspector-scroll {");
   assert.match(scroller, /overflow-y: auto/);
   assert.match(scroller, /overflow-x: hidden/);
@@ -112,6 +114,9 @@ test("1-6. single-column architecture, tab roles removed, V2 sections in approve
   assert.match(css, /\.mosa-v2 \.detail-inspector-scroll > \.inspector-section \{[\s\S]*?flex: 0 0 auto;/, "semantic sections must not shrink out of the flex scroll column");
   assert.match(css, /\.mosa-v2 \.detail-inspector-scroll \{[\s\S]*?gap: 0;[\s\S]*?padding: 0 0 var\(--inspector-space-6\);/);
   assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-section \{[\s\S]*?border-top: 1px solid var\(--inspector-divider\);[\s\S]*?border-radius: 0;[\s\S]*?background: transparent;/);
+  assert.doesNotMatch(blockAfter(css, ".mosa-v2 .detail-inspector {"), /animation:/, "persistent shell itself never replays the materialize animation");
+  assert.match(css, /\.mosa-v2 \.detail\.detail-entering \.detail-inspector \{[\s\S]*?animation: inspector-materialize/, "materialize animation is limited to a closed-to-open transition");
+  assert.match(functionSlice(app, "setDetailOpen"), /classList\.toggle\("detail-entering", state\.detailOpen && !wasOpen\)/, "selection changes while open cannot retrigger the inspector entrance");
 });
 
 // 7. File-facts section exists. 8. Missing facts fall back to notRecorded.
@@ -551,6 +556,8 @@ test("scroll. single-column scroll and focus restoration policy", async () => {
   assert.match(headerContext, /scroller\.scrollTop >= overview\.offsetTop \+ overview\.offsetHeight - 8/);
   assert.match(headerContext, /headerLabel\.textContent = overviewPassed \? assetTitle : t\("assetInspector"\)/);
   assert.match(headerContext, /classList\.toggle\("is-contextual", overviewPassed\)/);
+  assert.match(headerContext, /scroller\.onscroll = syncHeader;/, "persistent scroller replaces, rather than accumulates, header scroll handlers");
+  assert.match(functionSlice(app, "renderDetailInspectorContent"), /scroller\.onscroll = null;/, "non-asset content clears the previous asset scroll handler");
 });
 
 test("generation lineage nodes expose evidence and relation management without generation actions", async () => {

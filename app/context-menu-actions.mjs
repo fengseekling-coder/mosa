@@ -435,25 +435,6 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           },
         },
         { separator: true },
-        {
-          label: t("noGroup"),
-          action: async () => {
-            const ids = await selectedMutationIds(asset, selectedAssets, options);
-            const assets = mutationAssetsForIds(ids);
-            if (!await confirmSelectedAssetMutation(assets)) return;
-            await runAction(async () => {
-              const response = await applyGroupMutation(ids, "");
-              const outcome = reconcileBatchMutation(assets, response);
-              commitSelectedAssetMutation(assets);
-              if (outcome.failed.length) showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
-              else showToast(t("movedToGroup"), "success");
-              window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
-                detail: { updatedAssetIds: outcome.succeeded.map((entry) => entry.id) },
-              }));
-            });
-          },
-        },
-        { separator: true },
         ...state.groups.groups.map(([groupName, count]) => {
           // Source of truth for group colors lives in app.mjs colorForGroup so
           // the saved palette and the rendered swatch never diverge.

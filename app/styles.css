@@ -1901,6 +1901,8 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 }
 .mosa-v2 .detail-inspector {
   isolation: isolate;
+}
+.mosa-v2 .detail.detail-entering .detail-inspector {
   animation: inspector-materialize var(--duration-normal) var(--ease-standard) both;
 }
 .mosa-v2 .detail-inspector-header {

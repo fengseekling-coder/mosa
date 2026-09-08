@@ -128,12 +128,9 @@ test("19-21. Return / Prev / Next / Zoom 控件可见契约", async () => {
 test("22-24. Inspector V2 八项顺序：File/Tags 直接进入滚动列，More 收尾", async () => {
   const appJs = await source("app/app.mjs");
   const inspector = await source("app/inspector-markup.mjs");
-  const scrollStart = appJs.lastIndexOf('detail-inspector-scroll">');
-  const template = appJs.slice(
-    scrollStart,
-    appJs.indexOf("</div></div>`", scrollStart),
-  );
-  assert.notEqual(scrollStart, -1, "inspector scroll template exists");
+  const compositionStart = appJs.indexOf('const scroller = renderDetailInspectorContent(t("assetInspector"), `${detailFileSectionMarkup(asset)}');
+  const template = appJs.slice(compositionStart, appJs.indexOf(";", compositionStart) + 1);
+  assert.notEqual(compositionStart, -1, "asset content is composed into the persistent inspector scroller");
   assert.match(template, /\$\{detailFileSectionMarkup\(asset\)\}\$\{detailTagsSectionMarkup\(asset\)\}/, "File and Tags enter the scroll column directly");
   const order = [
     "detailFileSectionMarkup",
