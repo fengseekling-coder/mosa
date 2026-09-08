@@ -66,31 +66,43 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     return Number.isFinite(count) && count > 0 ? count : Math.max(1, selectedAssets.length);
   }
 
-  async function selectedMutationIds(asset, selectedAssets = [], options = {}) {
+  async function selectedMutationContext(asset, selectedAssets = [], options = {}) {
     const count = logicalSelectionCount(selectedAssets, options);
+    const selectionContext = typeof gallerySelection?.captureActionContext === "function"
+      ? gallerySelection.captureActionContext()
+      : null;
     if (count > 1 && typeof gallerySelection?.resolveSelectedAssetIds === "function") {
-      const ids = await gallerySelection.resolveSelectedAssetIds();
-      if (ids.length) return ids;
+      const resolved = await gallerySelection.resolveSelectedAssetIds(selectionContext || undefined);
+      if (resolved?.ids?.length) return { ...resolved, selectionContext };
+      if (resolved === null) return null;
     }
-    return [asset.id];
+    return { projectId: selectionContext?.projectId || state.project, ids: [asset.id], selectionContext };
   }
 
-  function mutationAssetsForIds(ids = []) {
+  function mutationContextIsCurrent(context) {
+    if (!context) return false;
+    if (context.projectId !== state.project) return false;
+    return !context.selectionContext
+      || typeof gallerySelection?.isActionContextCurrent !== "function"
+      || gallerySelection.isActionContextCurrent(context.selectionContext);
+  }
+
+  function mutationAssetsForIds(ids = [], projectId = state.project) {
     const loaded = new Map((state.assets || []).map((entry) => [entry.id, entry]));
-    return ids.map((id) => loaded.get(id) || { id, project_id: state.project });
+    return ids.map((id) => loaded.get(id) || { id, project_id: projectId });
   }
 
-  async function applyGroupMutation(ids, group) {
+  async function applyGroupMutation(projectId, ids, group) {
     return apiFetch("/api/assets/batch", {
       method: "POST",
-      body: { action: "group", projectId: state.project, assetIds: ids, group },
+      body: { action: "group", projectId, assetIds: ids, group },
     });
   }
 
   // Full manifest of one group via the existing paged asset query. Never cap a
   // user's export by an arbitrary asset count: cursor-loop detection provides
   // the safety bound without silently truncating large libraries.
-  async function fetchGroupAssets(groupName) {
+  async function fetchGroupAssets(groupName, projectId = state.project) {
     const collected = [];
     const seenAssetIds = new Set();
     const seenCursors = new Set();
@@ -100,7 +112,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         if (seenCursors.has(cursor)) throw new Error("Group export pagination stalled.");
         seenCursors.add(cursor);
       }
-      const params = new URLSearchParams({ project: state.project, group: groupName, limit: "100" });
+      const params = new URLSearchParams({ project: projectId, group: groupName, limit: "100" });
       if (cursor) params.set("cursor", cursor);
       const result = await apiFetch(`/api/assets?${params}`);
       for (const asset of result.assets || []) {
@@ -153,10 +165,11 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5-5 5 5"/><path d="M12 5v12"/></svg>',
           action: async () => {
             await runAction(async () => {
-              const assets = await fetchGroupAssets(item.name);
+              const projectId = state.project;
+              const assets = await fetchGroupAssets(item.name, projectId);
               downloadJson(`mosa-group-${safeFileToken(item.name)}.json`, {
                 exportedAt: new Date().toISOString(),
-                project: state.project,
+                project: projectId,
                 group: item.name,
                 assets,
               });
@@ -236,11 +249,14 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8v5h5"/><path d="M5.5 13a7 7 0 1 0 2-7"/></svg>',
           action: async () => {
             await runAction(async () => {
-              const ids = await selectedMutationIds(asset, selectedAssets, options);
-              const assets = mutationAssetsForIds(ids);
+              const context = await selectedMutationContext(asset, selectedAssets, options);
+              if (!context || !mutationContextIsCurrent(context)) return;
+              const { ids, projectId } = context;
+              const assets = mutationAssetsForIds(ids, projectId);
               for (const item of assets) {
                 await apiFetch(`/api/assets/${encodeURIComponent(item.project_id)}/${encodeURIComponent(item.id)}/restore`, { method: "POST" });
               }
+              if (!mutationContextIsCurrent(context)) return;
               showToast(assets.length > 1 ? t("assetsRestored", { count: assets.length }) : t("assetRestored"), "success");
               window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
               window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
@@ -255,15 +271,17 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4h8v2m2 0-1 15H7L6 6"/><path d="M10 10v7M14 10v7"/></svg>',
           danger: true,
           action: async () => {
-            const ids = await selectedMutationIds(asset, selectedAssets, options);
-            const assets = mutationAssetsForIds(ids);
+            const context = await selectedMutationContext(asset, selectedAssets, options);
+            if (!context || !mutationContextIsCurrent(context)) return;
+            const { ids, projectId } = context;
+            const assets = mutationAssetsForIds(ids, projectId);
             const confirmed = await requestConfirmation({
               title: assets.length > 1 ? t("permanentDeleteAssetsTitle", { count: assets.length }) : t("permanentDeleteTitle"),
               description: t("permanentDeleteDescription"),
               confirmLabel: t("permanentDelete"),
               tone: "danger",
             });
-            if (!confirmed) return;
+            if (!confirmed || !mutationContextIsCurrent(context)) return;
             await runAction(async () => {
               await releaseAssetMedia?.(assets);
               const failed = [];
@@ -274,6 +292,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
                   failed.push({ assetId: item.id, error });
                 }
               }
+              if (!mutationContextIsCurrent(context)) return;
               if (failed.length) showToast(t("trashPartialDelete", { count: failed.length }), "error");
               else showToast(assets.length > 1 ? t("assetsPermanentlyDeleted", { count: assets.length }) : t("assetPermanentlyDeleted"), "success");
               window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
@@ -391,19 +410,22 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>'
         : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>',
       action: async () => {
-        const ids = await selectedMutationIds(asset, selectedAssets, options);
-        const assets = mutationAssetsForIds(ids);
+        const context = await selectedMutationContext(asset, selectedAssets, options);
+        if (!context || !mutationContextIsCurrent(context)) return;
+        const { ids, projectId } = context;
+        const assets = mutationAssetsForIds(ids, projectId);
         await runAction(async () => {
           if (isMultiple) {
             const response = await apiFetch("/api/assets/batch", {
               method: "POST",
               body: {
                 action: "favorite",
-                projectId: state.project,
+                projectId,
                 assetIds: ids,
                 favorite: !asset.favorite,
               },
             });
+            if (!mutationContextIsCurrent(context)) return;
             const outcome = reconcileBatchMutation(assets, response);
             if (outcome.failed.length) {
               showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
@@ -414,6 +436,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/favorite`, {
                 method: "POST",
               });
+              if (!mutationContextIsCurrent(context)) return;
               showToast(asset.favorite ? t("removedFromFavorites") : t("addedToFavorites"), "success");
             }
             window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
@@ -443,11 +466,15 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             label: groupName,
             icon: `<svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="${savedColor}"/></svg>`,
             action: async () => {
-              const ids = await selectedMutationIds(asset, selectedAssets, options);
-              const assets = mutationAssetsForIds(ids);
+              const context = await selectedMutationContext(asset, selectedAssets, options);
+              if (!context || !mutationContextIsCurrent(context)) return;
+              const { ids, projectId } = context;
+              const assets = mutationAssetsForIds(ids, projectId);
               if (!await confirmSelectedAssetMutation(assets)) return;
+              if (!mutationContextIsCurrent(context)) return;
               await runAction(async () => {
-                const response = await applyGroupMutation(ids, groupName);
+                const response = await applyGroupMutation(projectId, ids, groupName);
+                if (!mutationContextIsCurrent(context)) return;
                 const outcome = reconcileBatchMutation(assets, response);
                 commitSelectedAssetMutation(assets);
                 if (outcome.failed.length) showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
@@ -517,26 +544,30 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/></svg>',
         danger: true,
         action: async () => {
-          const ids = await selectedMutationIds(asset, selectedAssets, options);
-          const assets = mutationAssetsForIds(ids);
+          const context = await selectedMutationContext(asset, selectedAssets, options);
+          if (!context || !mutationContextIsCurrent(context)) return;
+          const { ids, projectId } = context;
+          const assets = mutationAssetsForIds(ids, projectId);
           const confirmed = await requestConfirmation({
             title: ids.length > 1 ? t("moveAssetsToTrashTitle", { count: ids.length }) : t("moveToTrashTitle"),
             description: t("moveToTrashDescription"),
             confirmLabel: t("moveToTrash"),
             tone: "danger",
           });
-          if (!confirmed) return;
+          if (!confirmed || !mutationContextIsCurrent(context)) return;
           if (!await confirmSelectedAssetMutation(assets)) return;
+          if (!mutationContextIsCurrent(context)) return;
 
           await runAction(async () => {
             const response = await apiFetch("/api/assets/batch", {
               method: "POST",
               body: {
                 action: "trash",
-                projectId: state.project,
+                projectId,
                 assetIds: ids,
               },
             });
+            if (!mutationContextIsCurrent(context)) return;
             const outcome = reconcileBatchMutation(assets, response);
             commitSelectedAssetMutation(outcome.succeeded);
             if (outcome.failed.length) {
@@ -596,10 +627,10 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
       {
         label: t("selectAll"),
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>',
-        shortcut: "⌘A",
-        disabled: true,
+        shortcut: /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘A" : "Ctrl+A",
+        disabled: !state.pageTotal,
         action: async () => {
-          showToast(t("allSelected"), "success");
+          await gallerySelection?.selectAll?.({ announce: true });
         },
       },
     ];

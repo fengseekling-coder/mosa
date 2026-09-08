@@ -104,8 +104,10 @@ test("6. i18n placeholder uses the V2 copy in both locales", async () => {
 test("7. the input event listener still binds #searchInput", async () => {
   const app = await readApp();
   assert.match(app, /searchInput: document\.querySelector\("#searchInput"\)/, "element lookup must keep the #searchInput ID");
-  assert.match(app, /els\.searchInput\?\.addEventListener\("input", debounce\(async \(\) => \{/,
-    "the debounced input listener must stay bound to els.searchInput");
+  assert.match(app, /const commitSearchInput = debounce\(async \(intent\) => \{/,
+    "search commit stays debounced");
+  assert.match(app, /els\.searchInput\?\.addEventListener\("input", \(\) => \{[\s\S]*?commitSearchInput\(beginNavigationIntent\(\)\);[\s\S]*?\}\);/,
+    "the input listener synchronously captures navigation ordering before the debounce wakes up");
   assert.match(app, /const nextQuery = els\.searchInput\.value;/,
     "search must snapshot the proposed value before any destructive navigation");
 });
@@ -122,9 +124,11 @@ test("8. the search state field is unchanged", async () => {
 // 9. The search algorithm, API and i18n behaviour stay locked.
 test("9. search algorithm, API and i18n behaviour stay locked", async () => {
   const [app, apiClient] = await Promise.all([readApp(), readApiClient()]);
-  assert.match(app, /if \(!await confirmDetailNavigation\(null\)\) \{\s+els\.searchInput\.value = state\.query;\s+return;\s+\}/,
-    "search must not discard an unsaved Inspector draft");
-  assert.match(app, /state\.query = nextQuery;\s+state\.nextCursor = null;[\s\S]*?clearDetailSelection\(\);\s+await loadAssets\(\);\s+\}, 180\)/,
+  assert.match(app, /if \(!await authorizeNavigationIntent\(intent\)\) \{\s+if \(isNavigationIntentCurrent\(intent\)\) els\.searchInput\.value = state\.query;\s+return;\s+\}/,
+    "search must flush the Inspector draft and reject stale navigation intents before committing");
+  assert.match(app, /async function authorizeNavigationIntent\(intent\) \{\s+if \(!isNavigationIntentCurrent\(intent\)\) return false;\s+if \(!await confirmDetailNavigation\(null\)\) return false;\s+return isNavigationIntentCurrent\(intent\);\s+\}/,
+    "all async result-set navigation shares one stale-intent guard");
+  assert.match(app, /state\.query = nextQuery;\s+state\.nextCursor = null;[\s\S]*?clearDetailSelection\(\);\s+await loadAssets\(\);\s+\}, 180\);/,
     "the 180ms committed query → loadAssets pipeline must remain intact");
   assert.match(apiClient, /const params = new URLSearchParams\(\{ project: request\.project, q: request\.query \}\)/,
     "the /api/assets query construction must stay unchanged");

@@ -179,7 +179,7 @@ const apiClient = createApiClient({
   prewarmAssetMedia,
   refreshSelectedStackInspector,
 });
-const { apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged, refreshAssetPageTotalInBackground, performFullGalleryReconciliation, reconcileLibraryRevision, noteLibraryRevision, getLibraryRevisionBaseline, setLibraryDeltaApplier, fetchLibraryChanges, resetAssetPrefetch, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
+const { apiFetch, loadProjects, loadStats, switchProjectWorkspace, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged, refreshAssetPageTotalInBackground, performFullGalleryReconciliation, reconcileLibraryRevision, noteLibraryRevision, getLibraryRevisionBaseline, setLibraryDeltaApplier, fetchLibraryChanges, resetAssetPrefetch, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
 
 // ===== New element references =====
 Object.assign(els, {
@@ -219,6 +219,33 @@ Object.assign(els, {
   confirmDialogConfirm: document.querySelector("#confirmDialogConfirm"),
 });
 
+function gallerySelectionRects() {
+  const grid = els.assetGrid;
+  if (!grid || !galleryCardVirtualGeometryById.size || !galleryCardVirtualGeometryColumns.length) return null;
+  const styles = getComputedStyle(grid);
+  const paddingLeft = Number.parseFloat(styles.paddingLeft) || 0;
+  const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
+  const gap = Number.parseFloat(styles.columnGap) || 0;
+  const columnWidth = galleryCardVirtualColumnWidth || galleryCardColumnWidth(styles);
+  const result = [];
+  for (const geometry of galleryCardVirtualGeometryById.values()) {
+    const left = paddingLeft + geometry.columnIndex * (columnWidth + gap);
+    const top = paddingTop + Math.max(0, geometry.rowStart - 1);
+    const slotHeight = Math.max(1, geometry.rowEnd - geometry.rowStart);
+    const cardHeight = Math.max(1, slotHeight - gap);
+    result.push({
+      id: geometry.id,
+      rect: {
+        left,
+        right: left + columnWidth,
+        top,
+        bottom: top + cardHeight,
+      },
+    });
+  }
+  return result;
+}
+
 const gallerySelection = createGallerySelection({
   els,
   state,
@@ -228,6 +255,7 @@ const gallerySelection = createGallerySelection({
   requestAssetPage,
   apiFetch,
   showToast,
+  getCardSelectionRects: gallerySelectionRects,
 });
 
 // ===== Library Change 增量 reconciliation =====
@@ -854,7 +882,8 @@ function announceEmptyState(kind) {
  * container is the fallback.
  */
 async function resetLibraryRefinements() {
-  if (!await confirmDetailNavigation(null)) return false;
+  const intent = beginNavigationIntent();
+  if (!await authorizeNavigationIntent(intent)) return false;
   discardDetailDraft();
   state.query = "";
   if (els.searchInput) els.searchInput.value = "";
@@ -1473,12 +1502,33 @@ function updateViewTitle() {
 
 async function clearSearchQuery() {
   if (!state.query && !els.searchInput?.value) return false;
-  if (!await confirmDetailNavigation(null)) return;
+  const intent = beginNavigationIntent();
+  if (!await authorizeNavigationIntent(intent)) return false;
   discardDetailDraft();
   state.query = "";
   if (els.searchInput) els.searchInput.value = "";
   applyFilterChange();
   return true;
+}
+
+let navigationIntentRevision = 0;
+function beginNavigationIntent() {
+  return {
+    revision: ++navigationIntentRevision,
+    projectId: state.project,
+    selectedId: state.selectedId,
+  };
+}
+function isNavigationIntentCurrent(intent) {
+  return Boolean(intent)
+    && intent.revision === navigationIntentRevision
+    && intent.projectId === state.project
+    && intent.selectedId === state.selectedId;
+}
+async function authorizeNavigationIntent(intent) {
+  if (!isNavigationIntentCurrent(intent)) return false;
+  if (!await confirmDetailNavigation(null)) return false;
+  return isNavigationIntentCurrent(intent);
 }
 
 function bindEvents() {
@@ -1489,13 +1539,13 @@ function bindEvents() {
   els.mobileNavScrim?.addEventListener("click", () => setMobileNavOpen(false, { restoreFocus: true }));
   els.sidebar?.addEventListener("click", (event) => {
     if (!isMobileNavigationViewport()) return;
-    if (event.target.closest(".nav-item, .add-group-button, .settings-trigger")) setMobileNavOpen(false);
+    if (event.target.closest(".nav-item, .settings-trigger")) setMobileNavOpen(false);
   });
-  els.searchInput?.addEventListener("input", debounce(async () => {
+  const commitSearchInput = debounce(async (intent) => {
     const nextQuery = els.searchInput.value;
     if (nextQuery === state.query) return;
-    if (!await confirmDetailNavigation(null)) {
-      els.searchInput.value = state.query;
+    if (!await authorizeNavigationIntent(intent)) {
+      if (isNavigationIntentCurrent(intent)) els.searchInput.value = state.query;
       return;
     }
     discardDetailDraft();
@@ -1505,11 +1555,18 @@ function bindEvents() {
     if (state.viewMode === "asset") returnToLibrary();
     clearDetailSelection();
     await loadAssets();
-  }, 180));
+  }, 180);
+  els.searchInput?.addEventListener("input", () => {
+    // Capture ordering synchronously, before the debounce delay. A later click
+    // on a filter/sort/project control must outrank an older search keystroke
+    // even if the search callback wakes up afterwards.
+    commitSearchInput(beginNavigationIntent());
+  });
   els.sortSelect?.addEventListener("change", async () => {
     const nextSort = normalizeSort(els.sortSelect.value);
     if (nextSort === state.sort) return;
-    if (!await confirmDetailNavigation(null)) {
+    const intent = beginNavigationIntent();
+    if (!await authorizeNavigationIntent(intent)) {
       els.sortSelect.value = state.sort;
       return;
     }
@@ -1669,16 +1726,36 @@ function bindEvents() {
     event.preventDefault();
     startSidebarGroupCreate();
   });
+  let manualGroupClickTimer = null;
   els.sidebarManualGroupList?.addEventListener("click", (event) => {
     if (event.target.closest("[data-sidebar-group-editor]")) return;
     const button = event.target.closest("[data-filter]");
-    if (button) void setFilter(button.dataset.filter, button.dataset.value);
+    if (!button) return;
+    const filter = button.dataset.filter;
+    const value = button.dataset.value;
+    const intent = beginNavigationIntent();
+    // Keyboard activation has no dblclick ambiguity and should remain
+    // immediate. Pointer single-click waits briefly so a real double-click can
+    // be claimed exclusively by rename instead of also toggling the filter.
+    if (event.detail === 0) {
+      void setFilter(filter, value, intent);
+      return;
+    }
+    if (manualGroupClickTimer !== null) window.clearTimeout(manualGroupClickTimer);
+    manualGroupClickTimer = window.setTimeout(() => {
+      manualGroupClickTimer = null;
+      void setFilter(filter, value, intent);
+    }, 220);
   });
   els.sidebarManualGroupList?.addEventListener("dblclick", (event) => {
     const button = event.target.closest('[data-filter="group"][data-value]');
     if (!button) return;
     event.preventDefault();
     event.stopPropagation();
+    if (manualGroupClickTimer !== null) {
+      window.clearTimeout(manualGroupClickTimer);
+      manualGroupClickTimer = null;
+    }
     startSidebarGroupRename(button.dataset.value);
   });
   els.sidebarManualGroupList?.addEventListener("input", (event) => {
@@ -1706,7 +1783,8 @@ function bindEvents() {
   els.typeFilters?.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-type]");
     if (!button || button.dataset.type === state.mediaKind) return;
-    if (!await confirmDetailNavigation(null)) return;
+    const intent = beginNavigationIntent();
+    if (!await authorizeNavigationIntent(intent)) return;
     discardDetailDraft();
     state.mediaKind = button.dataset.type;
     renderTypeFilters();
@@ -1718,7 +1796,8 @@ function bindEvents() {
     if (!select) return;
     const previousProject = state.project;
     if (select.value === previousProject) return;
-    if (!await confirmDetailNavigation(null)) {
+    const intent = beginNavigationIntent();
+    if (!await authorizeNavigationIntent(intent)) {
       select.value = previousProject;
       return;
     }
@@ -1727,13 +1806,26 @@ function bindEvents() {
       showToast(t("operationInProgress"), "default");
       return;
     }
-    discardDetailDraft();
-    if (state.activeStackId) assetStacks.abandonStackContext();
-    state.project = select.value; clearDetailSelection(); state.scope = "all"; clearFacets(); state.query = ""; els.searchInput.value = ""; state.nextCursor = null;
-    // Phase 3A：项目切换改变结果集语义，退出查看模式（设置菜单在侧栏，查看模式下仍可达）。
-    if (state.viewMode === "asset") returnToLibrary();
-    await loadStats(); await loadAssets();
-    startLibraryEventStream();
+    const nextProject = select.value;
+    try {
+      const switched = await switchProjectWorkspace(nextProject, {
+        shouldCommit: () => isNavigationIntentCurrent(intent),
+      });
+      if (!switched) {
+        select.value = state.project;
+        return;
+      }
+      discardDetailDraft();
+      assetStacks.abandonStackContext();
+      clearDetailSelection();
+      gallerySelection.clear();
+      if (els.searchInput) els.searchInput.value = "";
+      if (state.viewMode === "asset") returnToLibrary();
+      startLibraryEventStream();
+    } catch (error) {
+      select.value = previousProject;
+      showToast(error?.message || t("loadFailed"), "error");
+    }
   });
   els.settingsMenu?.addEventListener("click", (event) => {
     const button = event.target.closest("button");
@@ -2060,10 +2152,10 @@ function setSidebarNavigationState(type, value = "") {
 }
 
 /** One entry point for the three sidebar navigation zones. */
-async function setFilter(type, value = "") {
+async function setFilter(type, value = "", intent = beginNavigationIntent()) {
   const valid = type === "all" || SCOPES.includes(type) || type === "source" || type === "group";
   if (!valid) return;
-  if (!await confirmDetailNavigation(null)) return;
+  if (!await authorizeNavigationIntent(intent)) return;
   discardDetailDraft();
   if (!setSidebarNavigationState(type, value)) return;
   applyFilterChange();
@@ -2086,7 +2178,8 @@ async function showRelatedGenerations(asset, mode) {
   const conversationId = String(asset?.source?.conversation_id || "").trim();
   const messageId = String(asset?.source?.message_id || "").trim();
   if (!conversationId || (mode === "batch" && !messageId)) return;
-  if (!await confirmDetailNavigation(null)) return;
+  const intent = beginNavigationIntent();
+  if (!await authorizeNavigationIntent(intent)) return;
   discardDetailDraft();
   state.scope = "all";
   state.mediaKind = "all";
@@ -2454,9 +2547,6 @@ function shouldHydrateGalleryCard(entry, ordinal) {
 }
 
 function replaceVirtualGalleryCards(observerEntries) {
-  const grid = els.assetGrid;
-  const bottomOffset = grid ? Math.max(0, grid.scrollHeight - grid.scrollTop - grid.clientHeight) : null;
-  const preserveBottomOffset = bottomOffset !== null && bottomOffset <= 1200;
   const replacements = [];
   for (const item of observerEntries) {
     const card = item.target;
@@ -2515,10 +2605,6 @@ function replaceVirtualGalleryCards(observerEntries) {
   if (changed) {
     invalidateCardGeometryCache();
     gallerySelection.syncRenderedSelection({ prune: false, changedIds });
-    if (preserveBottomOffset && grid) {
-      const targetScrollTop = Math.max(0, grid.scrollHeight - grid.clientHeight - bottomOffset);
-      if (Math.abs(grid.scrollTop - targetScrollTop) > 0.5) grid.scrollTop = targetScrollTop;
-    }
   }
 }
 
@@ -2929,6 +3015,77 @@ function setupGalleryMediaVirtualization(roots = null) {
   });
 }
 
+function galleryCardIntrinsicHeight(card) {
+  const mediaButton = card.querySelector(":scope > .asset-card-select");
+  const info = card.querySelector(":scope > .asset-card-info");
+  const mediaHeight = mediaButton instanceof HTMLElement ? mediaButton.getBoundingClientRect().height : 0;
+  const infoHeight = info instanceof HTMLElement ? info.getBoundingClientRect().height : 0;
+  const contentHeight = mediaHeight + infoHeight;
+  return contentHeight > 0 ? contentHeight : (card.getBoundingClientRect().height || 0);
+}
+
+function masonryGeometrySpan(grid, geometry) {
+  const card = galleryCardVirtualNode(grid, geometry.id);
+  let span = card
+    ? Number.parseInt(String(card.style.gridRowEnd || "").replace(/\D+/g, ""), 10)
+    : galleryCardVirtualSpanCache.get(galleryVirtualSpanKey(geometry.id));
+  if (!Number.isFinite(span) || span <= 0) span = geometry.rowEnd - geometry.rowStart;
+  if (!Number.isFinite(span) || span <= 0) {
+    const entry = galleryCardVirtualEntries.get(geometry.id);
+    if (entry) span = estimatedGalleryCardSpan(entry.asset);
+  }
+  return Math.max(1, Number.isFinite(span) ? Math.ceil(span) : 1);
+}
+
+// A hydrated card may reveal a more accurate height than its virtual estimate.
+// Re-running shortest-column placement for the entire gallery at that point
+// makes later cards hop between columns, which is especially visible while an
+// infinite-scroll page is entering the warm zone. Keep the established column
+// assignment stable and shift only the affected column from the first changed
+// card downward. Full relayouts (resize, density or structural changes) still
+// use placeMasonryCards and are free to rebalance columns.
+function reflowPlacedMasonryColumns(grid, cards) {
+  const affectedColumns = new Map();
+  for (const card of cards) {
+    if (!(card instanceof HTMLElement) || !card.dataset.id) return false;
+    const geometry = galleryCardVirtualGeometryById.get(card.dataset.id);
+    const column = geometry ? galleryCardVirtualGeometryColumns[geometry.columnIndex] : null;
+    if (!geometry || !column) return false;
+    const index = column.findIndex((item) => item.id === geometry.id);
+    if (index < 0) return false;
+    const previous = affectedColumns.get(geometry.columnIndex);
+    affectedColumns.set(geometry.columnIndex, previous === undefined ? index : Math.min(previous, index));
+  }
+
+  for (const [columnIndex, startIndex] of affectedColumns) {
+    const column = galleryCardVirtualGeometryColumns[columnIndex];
+    let rowStart = startIndex > 0 ? column[startIndex - 1].rowEnd : 1;
+    for (let index = startIndex; index < column.length; index += 1) {
+      const geometry = column[index];
+      const span = masonryGeometrySpan(grid, geometry);
+      geometry.rowStart = rowStart;
+      geometry.rowEnd = rowStart + span;
+      const card = galleryCardVirtualNode(grid, geometry.id);
+      if (card) {
+        const columnStart = String(columnIndex + 1);
+        const nextRowStart = String(geometry.rowStart);
+        if (card.style.gridColumnStart !== columnStart) card.style.gridColumnStart = columnStart;
+        if (card.style.gridRowStart !== nextRowStart) card.style.gridRowStart = nextRowStart;
+        card.style.gridRowEnd = `span ${span}`;
+      }
+      rowStart = geometry.rowEnd;
+    }
+  }
+
+  invalidateCardGeometryCache();
+  syncGalleryVirtualExtent();
+  if (state.assets.length >= GALLERY_CARD_VIRTUAL_THRESHOLD) {
+    pruneGalleryCardDomWindow();
+    scheduleGalleryCardVirtualWindowSync();
+  }
+  return true;
+}
+
 function layoutMasonry(cards = null) {
   const grid = els.assetGrid;
   if (!grid) return;
@@ -2941,30 +3098,37 @@ function layoutMasonry(cards = null) {
   const measurements = [];
   let needsPlacement = !cards;
   let allTargetsUnplaced = Boolean(cards?.length);
+  let allTargetsPlaced = Boolean(cards?.length);
   targets.forEach((card) => {
     if (!(card instanceof HTMLElement) || !card.isConnected) return;
     const alreadyPlaced = Boolean(card.style.gridColumnStart && card.style.gridRowStart);
-    if (!alreadyPlaced) needsPlacement = true;
+    if (!alreadyPlaced) {
+      needsPlacement = true;
+      allTargetsPlaced = false;
+    }
     else allTargetsUnplaced = false;
     if (card.classList.contains("asset-card-virtual-placeholder")) return;
-    // content-visibility is enabled only after the real masonry span has been
-    // measured. Temporarily expose the card when a relayout is required so an
-    // offscreen intrinsic placeholder can never feed a fake height back into
-    // the masonry algorithm.
+    // Keep the existing grid span pinned while measuring. Removing grid-row-end
+    // forces a temporary one-row topology and can make Chromium's scroll anchor
+    // react to an intermediate layout that is never meant to be painted.
+    // Exposing descendants is enough because the card itself is align-self:start.
     const previousSpan = Number.parseInt(String(card.style.gridRowEnd || "").replace(/\D+/g, ""), 10);
     card.classList.remove("masonry-content-virtualized");
-    card.style.removeProperty("grid-row-end");
     measureTargets.push([card, previousSpan]);
   });
   // All layout-affecting writes above are complete before the first geometry
   // read, so Chromium performs one layout flush instead of a write/read cycle
   // for every card.
   measureTargets.forEach(([card, previousSpan]) => {
-    const height = card.getBoundingClientRect().height || 0;
+    const height = galleryCardIntrinsicHeight(card);
     if (height) measurements.push([card, Math.ceil(height + galleryGap), previousSpan]);
   });
+  const spanChangedCards = [];
   measurements.forEach(([card, span, previousSpan]) => {
-    if (!Number.isFinite(previousSpan) || previousSpan !== span) needsPlacement = true;
+    if (!Number.isFinite(previousSpan) || previousSpan !== span) {
+      needsPlacement = true;
+      spanChangedCards.push(card);
+    }
     card.style.gridRowEnd = `span ${span}`;
     if (card.dataset.id) galleryCardVirtualSpanCache.set(galleryVirtualSpanKey(card.dataset.id, virtualColumnWidth), span);
     card.classList.add("masonry-content-virtualized");
@@ -2973,6 +3137,7 @@ function layoutMasonry(cards = null) {
     invalidateCardGeometryCache();
     return;
   }
+  if (allTargetsPlaced && spanChangedCards.length && reflowPlacedMasonryColumns(grid, spanChangedCards)) return;
   const columnCount = Math.max(1, gridStyles.gridTemplateColumns.split(/\s+/).filter(Boolean).length);
   const canAppendIncrementally = allTargetsUnplaced
     && galleryCardVirtualGeometryColumns.length === columnCount

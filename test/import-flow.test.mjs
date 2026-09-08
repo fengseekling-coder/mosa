@@ -362,7 +362,8 @@ test("blocks a double submit and shows a loading state while saving", async () =
   assert.match(app, /\} finally \{\s*setImportBusy\(false\);/);
   // Success still selects the new asset and refreshes the gallery.
   assert.match(app, /state\.selectedId = result\.asset\.id;\s*\n\s*clearImportForm\(\); closeImportModal\(\{ force: true \}\);/);
-  assert.match(app, /await loadStats\(\); await loadAssets\(\);/);
+  assert.match(app, /await Promise\.all\(\[loadStats\(\), loadAssets\(\)\]\);/,
+    "success refreshes stats and gallery together instead of serialising two independent reads");
 });
 
 test("keeps the import dialog's focus contract and translates every new string", async () => {
