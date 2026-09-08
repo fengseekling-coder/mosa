@@ -3966,6 +3966,10 @@ function setDetailOpen(open) {
   state.detailOpen = Boolean(open);
   if (!state.detailOpen && isInspectorDocked()) state.detailOpen = true;
   els.appShell?.classList.toggle("details-open", state.detailOpen); document.body.classList.toggle("detail-open", state.detailOpen); els.detailPanel?.setAttribute("aria-hidden", String(!state.detailOpen));
+  // The inspector shell is persistent while browsing assets. Scope the materialize
+  // animation to a real closed -> open transition so changing the selected asset
+  // never replays a full-panel fade/translate animation.
+  els.detailPanel?.classList.toggle("detail-entering", state.detailOpen && !wasOpen);
   if (state.detailOpen) setMobileNavOpen(false);
   if (state.detailOpen) {
     if (!wasOpen) {
@@ -4307,15 +4311,43 @@ function trapImagePreviewFocus(event) {
 
 let detailRenderSequence = 0;
 // Phase 4A：单栏检视器滚动策略——同素材重渲染（语言切换/后台刷新/收藏）保留滚动
-// 位置；切换到另一素材（Viewer Previous/Next、画廊选择）随 innerHTML 重建自然回顶；
+// 位置；切换到另一素材（Viewer Previous/Next、画廊选择）显式回顶；检视器 shell 常驻，
+// 只替换唯一滚动列的内容，避免切图时整栏 DOM 销毁/重建和入场动画重播；
 // Phase 4B 起版本切换由 selectDetailVersion 在重建后显式钳制恢复滚动位置。焦点原本
 // 在面板内时焦点恢复优先（浏览器会把聚焦的 #detailTitle 滚入视野）。
 let detailRenderedAssetId = null;
 
+function ensureDetailInspectorShell() {
+  let inspector = els.detailPanel?.querySelector(":scope > .detail-inspector");
+  if (!inspector && els.detailPanel) {
+    els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span data-detail-header-label></span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll"></div></div>`;
+    inspector = els.detailPanel.querySelector(":scope > .detail-inspector");
+    inspector?.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => { void closeDetailSurface(); });
+  }
+  const scroller = inspector?.querySelector(".detail-inspector-scroll") || null;
+  const headerLabel = inspector?.querySelector("[data-detail-header-label]") || null;
+  const closeButton = inspector?.querySelector('[data-action="close-detail"]') || null;
+  return { inspector, scroller, headerLabel, closeButton };
+}
+
+function renderDetailInspectorContent(headerText, markup) {
+  const { scroller, headerLabel, closeButton } = ensureDetailInspectorShell();
+  if (!scroller || !headerLabel) return null;
+  headerLabel.textContent = headerText;
+  headerLabel.title = "";
+  headerLabel.classList.remove("is-contextual");
+  closeButton?.setAttribute("aria-label", t("close"));
+  // bindDetailHeaderContext owns this slot for asset details. Clearing it here
+  // prevents persistent-shell renders from accumulating stale scroll handlers.
+  scroller.onscroll = null;
+  scroller.innerHTML = markup;
+  return scroller;
+}
+
 function renderDetail({ syncAssetView = true } = {}) {
   if (!els.detailPanel) return;
-  // Rebuilding destroys every input; cancel a pending debounced save so it
-  // cannot fire against the fresh DOM. An in-flight PATCH is left to resolve
+  // Replacing inspector content destroys its inputs; cancel a pending debounced
+  // save so it cannot fire against the fresh content. An in-flight PATCH is left to resolve
   // and bail via the stale renderId guard inside persistInspectorDraft.
   cancelInspectorSave();
   activeInspector = null;
@@ -4327,21 +4359,27 @@ function renderDetail({ syncAssetView = true } = {}) {
   // step; keep the keyboard anchored on the detail title instead.
   const hadPanelFocus = document.activeElement instanceof HTMLElement && els.detailPanel.contains(document.activeElement);
   if (stackDetail) {
+    const previousRenderedId = detailRenderedAssetId;
     detailRenderedAssetId = `stack:${stackDetail.id}`;
-    els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span data-detail-header-label>${t("stackInspectorTitle")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${stackInspectorMarkup(stackDetail)}</div></div>`;
+    const scroller = renderDetailInspectorContent(t("stackInspectorTitle"), stackInspectorMarkup(stackDetail));
+    if (scroller && previousRenderedId !== detailRenderedAssetId) scroller.scrollTop = 0;
     bindStackInspectorMediaFallbacks(els.detailPanel);
-    els.detailPanel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => { void closeDetailSurface(); });
     return;
   }
   const keepScrollTop = !hadPanelFocus && asset && detailRenderedAssetId === asset.id
     ? els.detailPanel.querySelector(".detail-inspector-scroll")?.scrollTop ?? null
     : null;
-  if (!asset) { detailRenderedAssetId = null; els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span data-detail-header-label>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll"><div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t(state.assets.length ? "noSelection" : "noAssets")}</p><span>${t(state.assets.length ? "noSelectionHint" : "noAssetsHint")}</span></div></div></div>`; return; }
+  if (!asset) {
+    detailRenderedAssetId = null;
+    const scroller = renderDetailInspectorContent(t("assetInspector"), `<div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t(state.assets.length ? "noSelection" : "noAssets")}</p><span>${t(state.assets.length ? "noSelectionHint" : "noAssetsHint")}</span></div>`);
+    if (scroller) scroller.scrollTop = 0;
+    return;
+  }
   const cachedHistory = versionHistoryForAsset(asset);
   const cachedRecipeHistory = recipeHistoryForAsset(asset) || recipeHistoryFromAsset(asset);
   const cachedGenerationHistory = generationHistoryForAsset(asset);
   // Library v2 保持单层详情容器：语义区块直接进入唯一滚动列，不再额外包卡片壳。
-  els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span data-detail-header-label>${t("assetInspector")}</span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll">${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailMoreSectionMarkup(asset)}</div></div>`;
+  const scroller = renderDetailInspectorContent(t("assetInspector"), `${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailMoreSectionMarkup(asset)}`);
   const previewAspect = els.detailPanel.querySelector("[data-detail-preview-aspect]");
   if (previewAspect?.dataset.detailPreviewAspect) {
     previewAspect.style.setProperty("--detail-preview-aspect", previewAspect.dataset.detailPreviewAspect);
@@ -4358,8 +4396,8 @@ function renderDetail({ syncAssetView = true } = {}) {
     image?.addEventListener("load", applyNaturalPreviewAspect, { once: true });
     if (image?.complete) applyNaturalPreviewAspect();
   }
-  const scroller = els.detailPanel.querySelector(".detail-inspector-scroll");
   if (scroller && keepScrollTop !== null) scroller.scrollTop = keepScrollTop;
+  else if (scroller) scroller.scrollTop = 0;
   bindDetailHeaderContext(asset);
   bindDetailEvents(asset, renderId);
   bindReferenceThumbnailFallbacks(els.detailPanel);
@@ -4390,7 +4428,7 @@ function bindDetailHeaderContext(asset) {
     headerLabel.title = overviewPassed ? assetTitle : "";
     headerLabel.classList.toggle("is-contextual", overviewPassed);
   };
-  scroller.addEventListener("scroll", syncHeader, { passive: true });
+  scroller.onscroll = syncHeader;
   syncHeader();
 }
 

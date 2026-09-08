@@ -71,6 +71,8 @@ export function createContextMenu() {
 
       if (item.submenu) {
         menuItem._submenuItems = item.submenu;
+        menuItem.setAttribute("aria-haspopup", "menu");
+        menuItem.setAttribute("aria-expanded", "false");
         const arrow = document.createElement("span");
         arrow.className = "context-menu-arrow";
         arrow.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>';
@@ -82,7 +84,7 @@ export function createContextMenu() {
         menuItem.addEventListener("click", async (e) => {
           e.stopPropagation();
           if (item.submenu) {
-            showSubmenu(menuItem, item.submenu);
+            toggleSubmenu(menuItem, item.submenu);
           } else if (item.action) {
             const returnTarget = currentTarget;
             hide();
@@ -90,13 +92,16 @@ export function createContextMenu() {
             await item.action();
           }
         });
-
-        if (item.submenu) {
-          menuItem.addEventListener("mouseenter", () => {
-            showSubmenu(menuItem, item.submenu);
-          });
-        }
       }
+
+      // Pointer navigation owns submenu lifetime too. Moving to another root
+      // item must collapse the previous submenu instead of leaving it floating
+      // until the whole context menu is dismissed.
+      menuItem.addEventListener("mouseenter", () => {
+        if (!item.disabled) menuItem.focus({ preventScroll: true });
+        if (!item.disabled && item.submenu) showSubmenu(menuItem, item.submenu);
+        else if (currentSubmenuParent !== menuItem) hideSubmenu();
+      });
 
       menu.appendChild(menuItem);
     });
@@ -116,7 +121,7 @@ export function createContextMenu() {
 
     // Setup event listeners
     const closeHandler = (e) => {
-      if (!menu.contains(e.target)) {
+      if (!menu.contains(e.target) && !currentSubmenu?.contains(e.target)) {
         hide();
       }
     };
@@ -152,11 +157,29 @@ export function createContextMenu() {
     };
   }
 
-  function showSubmenu(parentItem, items) {
-    // Remove existing submenus
+  function hideSubmenu({ restoreParentFocus = false } = {}) {
+    const parent = currentSubmenuParent;
+    parent?.setAttribute("aria-expanded", "false");
     currentSubmenu?.remove();
     currentSubmenu = null;
     currentSubmenuParent = null;
+    if (restoreParentFocus) parent?.focus({ preventScroll: true });
+  }
+
+  function toggleSubmenu(parentItem, items) {
+    if (currentSubmenuParent === parentItem && currentSubmenu?.isConnected) {
+      hideSubmenu({ restoreParentFocus: true });
+      return;
+    }
+    showSubmenu(parentItem, items);
+  }
+
+  function showSubmenu(parentItem, items) {
+    if (currentSubmenuParent === parentItem && currentSubmenu?.isConnected) return;
+
+    // A root menu owns at most one submenu. Switching parents replaces the old
+    // submenu atomically so stale group menus cannot linger beside the menu.
+    hideSubmenu();
 
     const submenu = document.createElement("div");
     submenu.className = "context-menu context-menu-submenu";
@@ -213,6 +236,7 @@ export function createContextMenu() {
     document.body.appendChild(submenu);
     currentSubmenu = submenu;
     currentSubmenuParent = parentItem;
+    parentItem.setAttribute("aria-expanded", "true");
 
     // Position submenu next to parent item
     const rect = parentItem.getBoundingClientRect();
@@ -255,17 +279,17 @@ export function createContextMenu() {
       case "ArrowDown":
         e.preventDefault();
         if (currentIndex < items.length - 1) {
-          items[currentIndex + 1]?.focus();
+          focusMenuItem(menu, items[currentIndex + 1]);
         } else {
-          items[0]?.focus();
+          focusMenuItem(menu, items[0]);
         }
         break;
       case "ArrowUp":
         e.preventDefault();
         if (currentIndex > 0) {
-          items[currentIndex - 1]?.focus();
+          focusMenuItem(menu, items[currentIndex - 1]);
         } else {
-          items[items.length - 1]?.focus();
+          focusMenuItem(menu, items[items.length - 1]);
         }
         break;
       case "ArrowRight":
@@ -280,14 +304,18 @@ export function createContextMenu() {
       case "ArrowLeft":
         if (menu.classList.contains("context-menu-submenu")) {
           e.preventDefault();
-          const parent = currentSubmenuParent;
-          currentSubmenu?.remove();
-          currentSubmenu = null;
-          currentSubmenuParent = null;
-          parent?.focus();
+          hideSubmenu({ restoreParentFocus: true });
         }
         break;
     }
+  }
+
+  function focusMenuItem(menu, item) {
+    if (!item) return;
+    if (!menu.classList.contains("context-menu-submenu") && item !== currentSubmenuParent) {
+      hideSubmenu();
+    }
+    item.focus({ preventScroll: true });
   }
 
   function hide({ restoreFocus = false } = {}) {

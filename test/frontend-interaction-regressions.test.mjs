@@ -112,6 +112,41 @@ test("context-menu favorite batch mutations preserve partial failures instead of
     "archive is intentionally absent from the asset context menu");
 });
 
+test("move-to-group submenu contains create-group and real groups only", async () => {
+  const [actions, i18n] = await Promise.all([
+    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
+    readFile(resolve(root, "app/i18n.mjs"), "utf8"),
+  ]);
+  const submenu = sliceBetween(actions, "// Move to group submenu", "if (!isMultiple)");
+
+  assert.match(submenu, /label: t\("createGroup"\)/, "create-group remains the first utility action");
+  assert.match(submenu, /\.\.\.state\.groups\.groups\.map/, "saved groups still populate the submenu");
+  assert.doesNotMatch(submenu, /t\("noGroup"\)|applyGroupMutation\(ids, ""\)/,
+    "the explicit no-group destination is removed from the move submenu");
+  assert.doesNotMatch(i18n, /noGroup: "(?:无分组|No group)"/,
+    "the retired no-group menu copy leaves no dead locale key");
+});
+
+test("context-menu submenu collapses when pointer or keyboard leaves its parent", async () => {
+  const source = await readFile(resolve(root, "app/context-menu.mjs"), "utf8");
+
+  assert.match(source, /function hideSubmenu\(\{ restoreParentFocus = false \} = \{\}\)/,
+    "submenu lifetime has one centralized close path");
+  assert.match(source, /function toggleSubmenu\(parentItem, items\)/,
+    "clicking the same submenu parent can close it again");
+  assert.match(source, /if \(currentSubmenuParent === parentItem && currentSubmenu\?\.isConnected\) \{\s*hideSubmenu\(\{ restoreParentFocus: true \}\)/,
+    "re-clicking an open submenu parent toggles the submenu closed");
+  assert.match(source, /menuItem\.addEventListener\("mouseenter", \(\) => \{[\s\S]*?else if \(currentSubmenuParent !== menuItem\) hideSubmenu\(\);/,
+    "moving onto another root item collapses the open submenu");
+  assert.match(source, /function focusMenuItem\(menu, item\)[\s\S]*?item !== currentSubmenuParent[\s\S]*?hideSubmenu\(\);/,
+    "keyboard movement away from the submenu parent collapses it too");
+  assert.match(source, /!menu\.contains\(e\.target\) && !currentSubmenu\?\.contains\(e\.target\)/,
+    "the detached submenu is still treated as part of the active context menu");
+  assert.match(source, /setAttribute\("aria-haspopup", "menu"\)/);
+  assert.match(source, /setAttribute\("aria-expanded", "true"\)/);
+  assert.match(source, /setAttribute\("aria-expanded", "false"\)/);
+});
+
 test("manual sidebar groups create and rename inline without routing through the group modal", async () => {
   const [app, html, actions, bindings] = await Promise.all([
     readApp(),
