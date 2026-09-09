@@ -160,6 +160,14 @@ test("manual sidebar groups create and rename inline without routing through the
   assert.match(app, /function startSidebarGroupRename\(groupName\)/);
   assert.match(app, /async function commitSidebarGroupEdit\(\)/);
   assert.match(app, /addGroupBtn\?\.addEventListener\("click"[\s\S]*?startSidebarGroupCreate\(\)/);
+  assert.match(app, /if \(event\.target\.closest\("\.nav-item, \.settings-trigger"\)\) setMobileNavOpen\(false\);/,
+    "mobile add-group keeps the sidebar open so the inline editor remains reachable");
+  assert.doesNotMatch(app, /\.nav-item, \.add-group-button, \.settings-trigger/,
+    "the add-group trigger must not immediately close the mobile drawer");
+  assert.match(app, /let manualGroupClickTimer = null;[\s\S]*?window\.setTimeout\(\(\) => \{[\s\S]*?setFilter\(filter, value, intent\);[\s\S]*?\}, 220\);/,
+    "pointer single-click waits for double-click arbitration instead of toggling the group first");
+  assert.match(app, /sidebarManualGroupList\?\.addEventListener\("dblclick"[\s\S]*?window\.clearTimeout\(manualGroupClickTimer\)[\s\S]*?startSidebarGroupRename/,
+    "double-click cancels the pending filter navigation and owns rename exclusively");
   assert.match(app, /sidebarManualGroupList\?\.addEventListener\("focusout"[\s\S]*?commitSidebarGroupEdit\(\)/);
   assert.match(app, /event\.key === "Enter"[\s\S]*?commitSidebarGroupEdit\(\)/);
   assert.match(actions, /label: t\("renameGroup"\)/);
@@ -262,6 +270,46 @@ test("group export paginates until exhaustion without a silent asset cap", async
   assert.match(actions, /if \(seenCursors\.has\(cursor\)\) throw new Error\("Group export pagination stalled\."\);/);
   assert.match(actions, /if \(!cursor\) break;/,
     "pagination terminates only when the server reports no next cursor");
+  assert.match(actions, /const projectId = state\.project;\s+const assets = await fetchGroupAssets\(item\.name, projectId\)/,
+    "group export freezes the project at action start instead of reading live state on every page");
+  assert.match(actions, /project: projectId/,
+    "the exported manifest records the same frozen project used for pagination");
+});
+
+test("project switching commits one complete destination workspace or leaves the old project untouched", async () => {
+  const [app, apiClient] = await Promise.all([
+    readApp(),
+    readFile(resolve(root, "app/api-client.mjs"), "utf8"),
+  ]);
+  const switcher = sliceBetween(apiClient, "async function switchProjectWorkspace(project, options = {})", "let assetRequestSequence");
+  assert.match(switcher, /const \[library, navigation, assetsResult\] = await Promise\.all\(/,
+    "destination library/navigation/gallery data are fetched before project state changes");
+  const firstCommit = switcher.indexOf("state.project = projectId;");
+  const fetchDone = switcher.indexOf("const [library, navigation, assetsResult] = await Promise.all");
+  assert.ok(firstCommit > fetchDone, "project id is not changed before the destination workspace is available");
+  assert.match(switcher, /if \(typeof options\.shouldCommit === "function" && !options\.shouldCommit\(\)\) return false;/,
+    "a slower obsolete project request cannot commit after a newer project intent");
+  assert.match(switcher, /state\.selectedId = null;[\s\S]*?state\.selectedIds = new Set\(\);[\s\S]*?state\.assets = assetsResult\.assets \|\| \[\];/,
+    "selection and gallery are replaced inside the same project transaction");
+  assert.match(app, /await switchProjectWorkspace\(nextProject, \{[\s\S]*?shouldCommit: \(\) => isNavigationIntentCurrent\(intent\)[\s\S]*?\}\);[\s\S]*?startLibraryEventStream\(\);[\s\S]*?catch \(error\) \{[\s\S]*?select\.value = previousProject;/,
+    "the UI restores the original project selector when the transaction fails");
+});
+
+test("context-menu mutations freeze selection/project context and empty-grid Select All is real", async () => {
+  const actions = await readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8");
+  const selection = await readFile(resolve(root, "app/gallery-selection.mjs"), "utf8");
+  assert.match(selection, /function captureActionContext\(\)[\s\S]*?projectId: state\.project[\s\S]*?revision: selectionRevision/);
+  assert.match(selection, /async function resolveSelectedAssetIds\(context = captureActionContext\(\)\)[\s\S]*?project: context\.projectId/,
+    "Stack expansion uses the frozen project for every cursor page");
+  assert.match(selection, /if \(!isActionContextCurrent\(context\)\) return null;/,
+    "a project/query/selection change cancels stale bulk action resolution");
+  assert.match(actions, /function selectedMutationContext\(asset, selectedAssets = \[\], options = \{\}\)/);
+  assert.match(actions, /projectId,[\s\S]*?assetIds: ids/,
+    "batch mutations send the frozen project id rather than live state.project");
+  assert.match(actions, /shortcut: \/Mac\|iPhone\|iPad\/\.test\(navigator\.platform\) \? "⌘A" : "Ctrl\+A"/,
+    "context-menu shortcut copy follows the current platform");
+  assert.match(actions, /disabled: !state\.pageTotal,[\s\S]*?gallerySelection\?\.selectAll\?\.\(\{ announce: true \}\)/,
+    "empty-grid Select All delegates to the same real selection pipeline as the toolbar/shortcut");
 });
 
 test("global drag guard blocks default file navigation outside an active library drop target", async () => {
@@ -372,7 +420,7 @@ test("masonry image loads only repair their own card instead of remeasuring the 
   assert.match(masonry, /const card = media\.closest\("\.asset-card"\);\s*if \(card\) scheduleMasonryLayout\(card\);/, "an image settle schedules only its containing card");
   assert.doesNotMatch(masonry, /addEventListener\("load",\s*schedule/, "media load must not schedule a full-grid layout");
   assert.match(masonry, /Math\.abs\(width - masonryObservedWidth\) < 0\.5/, "ResizeObserver ignores height-only churn from masonry itself");
-  assert.match(masonry, /card\.classList\.remove\("masonry-content-virtualized"\);[\s\S]*?getBoundingClientRect\(\)[\s\S]*?card\.classList\.add\("masonry-content-virtualized"\)/,
+  assert.match(masonry, /card\.classList\.remove\("masonry-content-virtualized"\);[\s\S]*?galleryCardIntrinsicHeight\(card\)[\s\S]*?card\.classList\.add\("masonry-content-virtualized"\)/,
     "offscreen content virtualization is enabled only after the real masonry height is measured");
   assert.match(css, /\.asset-card\.masonry-content-virtualized\s*\{[^}]*content-visibility:\s*auto;/,
     "laid-out cards use browser-native offscreen rendering virtualization");
@@ -527,12 +575,31 @@ test("large galleries use explicit masonry placement and bounded card hydration"
     "virtual placeholder height follows the known media aspect ratio");
   assert.match(virtualization, /galleryCardVirtualScrollGrid\.addEventListener\("scroll", handleGalleryCardVirtualScroll/,
     "indexed scroll synchronization guards large compositor jumps without an O(N) card scan");
+  assert.match(app, /function gallerySelectionRects\(\)[\s\S]*?galleryCardVirtualGeometryById\.values\(\)[\s\S]*?columnIndex \* \(columnWidth \+ gap\)/,
+    "marquee selection can use the complete masonry geometry instead of only the currently mounted DOM window");
+  assert.match(app, /getCardSelectionRects: gallerySelectionRects/,
+    "the shared selection controller receives the stable masonry geometry provider");
   assert.match(masonry, /const columnEnds = Array\(columnCount\)\.fill\(1\)/,
     "masonry placement tracks column heights in a linear pass");
   assert.match(masonry, /const canAppendIncrementally =[\s\S]*?galleryCardVirtualGeometryColumns\[columnIndex\]\.push\(geometry\)[\s\S]*?return;/,
     "infinite-scroll append extends existing masonry columns instead of re-placing the full gallery");
-  assert.match(masonry, /const previousSpan[\s\S]*?removeProperty\("grid-row-end"\)[\s\S]*?measureTargets\.forEach[\s\S]*?getBoundingClientRect\(\)/,
-    "masonry preserves the previous span and batches layout writes before geometry reads");
+  assert.match(masonry, /const previousSpan[\s\S]*?measureTargets\.forEach[\s\S]*?galleryCardIntrinsicHeight\(card\)/,
+    "masonry preserves the existing grid span while batching intrinsic-height reads");
+  assert.doesNotMatch(masonry, /removeProperty\("grid-row-end"\)/,
+    "height verification must not collapse a placed card to a temporary one-row grid item");
+  assert.match(app, /function reflowPlacedMasonryColumns\(grid, cards\)[\s\S]*?affectedColumns[\s\S]*?geometry\.rowStart = rowStart[\s\S]*?return true;/,
+    "hydration height corrections keep established column assignments stable");
+  assert.match(masonry, /allTargetsPlaced && spanChangedCards\.length && reflowPlacedMasonryColumns\(grid, spanChangedCards\)/,
+    "placed-card height corrections use stable per-column reflow before any global rebalance");
+  const hydration = sliceBetween(app, "function replaceVirtualGalleryCards", "function flushGalleryCardVirtualPendingChanges");
+  assert.doesNotMatch(hydration, /grid\.scrollTop\s*=/,
+    "virtual hydration must not drag the user's viewport to preserve a bottom offset");
+  assert.match(css, /\.asset-card-virtual-placeholder\s*\{[^}]*overflow-anchor:\s*none;/,
+    "ephemeral virtual cards cannot become Chromium scroll anchors");
+  assert.match(css, /\.infinite-scroll-sentinel\s*\{[^}]*overflow-anchor:\s*none;/,
+    "the replaceable pagination sentinel cannot become a scroll anchor");
+  assert.match(css, /\.gallery-virtual-extent\s*\{[^}]*overflow-anchor:\s*none;/,
+    "the synthetic virtual extent cannot become a scroll anchor");
   assert.match(masonry, /card\.style\.gridColumnStart = String\(columnStart\)/);
   assert.match(masonry, /card\.style\.gridRowStart = String\(rowStart\)/);
   assert.doesNotMatch(css, /grid-auto-flow:\s*dense/,

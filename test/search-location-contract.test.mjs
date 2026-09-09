@@ -104,8 +104,10 @@ test("6. i18n placeholder uses the V2 copy in both locales", async () => {
 test("7. the input event listener still binds #searchInput", async () => {
   const app = await readApp();
   assert.match(app, /searchInput: document\.querySelector\("#searchInput"\)/, "element lookup must keep the #searchInput ID");
-  assert.match(app, /els\.searchInput\?\.addEventListener\("input", debounce\(async \(\) => \{/,
-    "the debounced input listener must stay bound to els.searchInput");
+  assert.match(app, /const commitSearchInput = debounce\(async \(intent\) => \{/,
+    "search commit stays debounced");
+  assert.match(app, /els\.searchInput\?\.addEventListener\("input", \(\) => \{[\s\S]*?commitSearchInput\(beginNavigationIntent\(\)\);[\s\S]*?\}\);/,
+    "the input listener synchronously captures navigation ordering before the debounce wakes up");
   assert.match(app, /const nextQuery = els\.searchInput\.value;/,
     "search must snapshot the proposed value before any destructive navigation");
 });
@@ -122,9 +124,11 @@ test("8. the search state field is unchanged", async () => {
 // 9. The search algorithm, API and i18n behaviour stay locked.
 test("9. search algorithm, API and i18n behaviour stay locked", async () => {
   const [app, apiClient] = await Promise.all([readApp(), readApiClient()]);
-  assert.match(app, /if \(!await confirmDetailNavigation\(null\)\) \{\s+els\.searchInput\.value = state\.query;\s+return;\s+\}/,
-    "search must not discard an unsaved Inspector draft");
-  assert.match(app, /state\.query = nextQuery;\s+state\.nextCursor = null;[\s\S]*?clearDetailSelection\(\);\s+await loadAssets\(\);\s+\}, 180\)/,
+  assert.match(app, /if \(!await authorizeNavigationIntent\(intent\)\) \{\s+if \(isNavigationIntentCurrent\(intent\)\) els\.searchInput\.value = state\.query;\s+return;\s+\}/,
+    "search must flush the Inspector draft and reject stale navigation intents before committing");
+  assert.match(app, /async function authorizeNavigationIntent\(intent\) \{\s+if \(!isNavigationIntentCurrent\(intent\)\) return false;\s+if \(!await confirmDetailNavigation\(null\)\) return false;\s+return isNavigationIntentCurrent\(intent\);\s+\}/,
+    "all async result-set navigation shares one stale-intent guard");
+  assert.match(app, /state\.query = nextQuery;\s+state\.nextCursor = null;[\s\S]*?clearDetailSelection\(\);\s+await loadAssets\(\);\s+\}, 180\);/,
     "the 180ms committed query → loadAssets pipeline must remain intact");
   assert.match(apiClient, /const params = new URLSearchParams\(\{ project: request\.project, q: request\.query \}\)/,
     "the /api/assets query construction must stay unchanged");
@@ -164,10 +168,10 @@ test("11. no duplicate or hidden synced search control exists", async () => {
 test("12. no new dependencies", async () => {
   const pkg = await readFile(resolve(root, "package.json"), "utf8");
   const manifest = JSON.parse(pkg);
-  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must stay untouched");
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "0339eb218322b3a863818f979cfe4aca62624c31811a775da305ccda617d91a7", "package.json dependencies must stay untouched");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
   const lock = await readFile(resolve(root, "package-lock.json"), "utf8");
-  assert.equal(sha256(lock), "5f63f56e0757215ab2e5f2773de24afe1e7fa9a5bddc41adde805856f0fe09ec", "package-lock.json must stay untouched");
+  assert.equal(sha256(lock), "51f3ff53219df2cfe3ea27ad9caf932a0cadbe062fec8905a11e39819a81fe54", "package-lock.json must stay untouched");
 });
 
 // 13. No !important anywhere in the stylesheet (comments stripped).

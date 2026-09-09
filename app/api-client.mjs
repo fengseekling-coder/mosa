@@ -73,15 +73,7 @@ export function createApiClient(deps) {
       state.supportedMediaExtensions = Array.isArray(library.supportedMediaExtensions) ? library.supportedMediaExtensions : [];
       updateCodexHint();
     }
-    const rawGroups = result.navigation || {};
-    const nextGroups = {
-      total: Number(rawGroups.total || 0),
-      favorites: Number(rawGroups.favorites || 0),
-      unorganized: Number(rawGroups.unorganized || 0),
-      trash: Number(rawGroups.trash || 0),
-      sourceTypes: Array.isArray(rawGroups.sourceTypes) ? rawGroups.sourceTypes : [],
-      groups: Array.isArray(rawGroups.groups) ? rawGroups.groups : [],
-    };
+    const nextGroups = navigationStateFromPayload(result);
     const changed = JSON.stringify(nextGroups) !== JSON.stringify(state.groups);
     state.groups = nextGroups;
     if (!options.background || changed) {
@@ -90,6 +82,85 @@ export function createApiClient(deps) {
         || state.assets.every((asset) => (asset.project_id || project) === project);
       if (state.galleryStatus !== "loading" && assetsBelongToProject) updateViewTitle();
     }
+    return true;
+  }
+
+  function navigationStateFromPayload(result = {}) {
+    const rawGroups = result.navigation || {};
+    return {
+      total: Number(rawGroups.total || 0),
+      favorites: Number(rawGroups.favorites || 0),
+      unorganized: Number(rawGroups.unorganized || 0),
+      trash: Number(rawGroups.trash || 0),
+      sourceTypes: Array.isArray(rawGroups.sourceTypes) ? rawGroups.sourceTypes : [],
+      groups: Array.isArray(rawGroups.groups) ? rawGroups.groups : [],
+    };
+  }
+
+  // Project switching is a transaction, not a sequence of state mutations.
+  // Fetch the complete destination workspace against an explicit request first;
+  // only after every required request succeeds do we replace project-scoped
+  // state. A failed switch therefore leaves the old project and its gallery
+  // paired, instead of exposing old cards under a new project id.
+  async function switchProjectWorkspace(project, options = {}) {
+    const projectId = String(project || "").trim();
+    if (!projectId || projectId === state.project) return true;
+    const request = {
+      project: projectId,
+      query: "",
+      scope: "all",
+      mediaKind: "all",
+      facets: Object.fromEntries(FACET_KEYS.map((key) => [key, ""])),
+      sort: state.sort,
+      stackId: "",
+    };
+    const [library, navigation, assetsResult] = await Promise.all([
+      apiFetch(`/api/library-path?project=${encodeURIComponent(projectId)}`).catch(() => null),
+      apiFetch(`/api/navigation?project=${encodeURIComponent(projectId)}`),
+      requestAssetPage(request, { limit: GALLERY_INITIAL_PAGE_SIZE }),
+    ]);
+    if (typeof options.shouldCommit === "function" && !options.shouldCommit()) return false;
+
+    resetAssetPrefetch();
+    state.project = projectId;
+    state.query = "";
+    state.scope = "all";
+    state.mediaKind = "all";
+    state.facets = { ...request.facets };
+    state.activeStackId = "";
+    state.activeStackSummary = null;
+    state.stackReturnSnapshot = null;
+    state.selectedId = null;
+    state.selectedIds = new Set();
+    state.selectedStackNodes = new Map();
+    state.selectionProject = projectId;
+    state.selectionRequestKey = "";
+    state.detailAsset = null;
+    state.detailStack = null;
+    state.versionHistory = null;
+    state.recipeHistory = null;
+    state.generationHistory = null;
+    state.assets = assetsResult.assets || [];
+    state.loadedAssetCount = state.assets.length;
+    state.loadedPageCount = 1;
+    state.pageTotal = Number.isFinite(Number(assetsResult.page?.total)) ? Number(assetsResult.page.total) : state.assets.length;
+    state.nextCursor = assetsResult.page?.nextCursor || null;
+    state.galleryStatus = "ready";
+    state.galleryError = null;
+    state.paginationStatus = "idle";
+    state.groups = navigationStateFromPayload(navigation);
+    state.libraryPath = library?.path || "";
+    state.libraryRoot = library?.libraryDir || "";
+    state.codexImagesDir = library?.codexGeneratedImagesDir || "";
+    state.supportedMediaExtensions = Array.isArray(library?.supportedMediaExtensions) ? library.supportedMediaExtensions : [];
+    updateCodexHint();
+    renderQuickFilters();
+    renderSettingsMenu();
+    renderGrid({ preserveScroll: false });
+    updateViewTitle();
+    lastCommittedAssetRequestKey = assetRequestKey(request);
+    noteLibraryRevision(assetsResult.revision);
+    if (state.nextCursor) void prefetchNextAssetPage();
     return true;
   }
 
@@ -606,7 +677,7 @@ export function createApiClient(deps) {
   }
 
   return {
-    apiFetch, loadProjects, loadStats, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged,
+    apiFetch, loadProjects, loadStats, switchProjectWorkspace, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged,
     refreshAssetPageTotalInBackground, refreshLoadedAssetsInBackground, performFullGalleryReconciliation,
     buildAssetPageParams, requestAssetPage, requestAssetTotal, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion,
     noteLibraryRevision, getLibraryRevisionBaseline, setLibraryDeltaApplier, fetchLibraryChanges,

@@ -45,6 +45,7 @@ export function createGallerySelection({
   requestAssetPage,
   apiFetch,
   showToast,
+  getCardSelectionRects,
 }) {
   let pointer = null;
   let selectionBox = null;
@@ -71,6 +72,24 @@ export function createGallerySelection({
     } catch {
       return "";
     }
+  }
+
+  function captureActionContext() {
+    const selectedIds = new Set(ensureSelectionSet());
+    return {
+      projectId: state.project,
+      requestKey: currentSelectionRequestKey(),
+      revision: selectionRevision,
+      selectedIds,
+      stackNodes: new Map(ensureStackSelectionMap()),
+    };
+  }
+
+  function isActionContextCurrent(context) {
+    if (!context) return false;
+    return context.projectId === state.project
+      && context.requestKey === currentSelectionRequestKey()
+      && context.revision === selectionRevision;
   }
 
   function ensureStackSelectionMap() {
@@ -250,11 +269,14 @@ export function createGallerySelection({
     }
   }
 
-  async function resolveSelectedAssetIds() {
-    const selected = new Set(ensureSelectionSet());
-    const stackNodes = new Map(ensureStackSelectionMap());
-    if (!stackNodes.size) return [...selected];
-    if (typeof apiFetch !== "function") return [...selected].filter((id) => !stackNodes.has(id));
+  async function resolveSelectedAssetIds(context = captureActionContext()) {
+    if (!isActionContextCurrent(context)) return null;
+    const selected = new Set(context.selectedIds);
+    const stackNodes = new Map(context.stackNodes);
+    if (!stackNodes.size) return { projectId: context.projectId, ids: [...selected] };
+    if (typeof apiFetch !== "function") {
+      return { projectId: context.projectId, ids: [...selected].filter((id) => !stackNodes.has(id)) };
+    }
     for (const [coverId, stackId] of stackNodes) {
       selected.delete(coverId);
       const seenCursors = new Set();
@@ -264,15 +286,16 @@ export function createGallerySelection({
           if (seenCursors.has(cursor)) throw new Error("Stack selection pagination stalled.");
           seenCursors.add(cursor);
         }
-        const params = new URLSearchParams({ project: state.project, limit: "250", includeTotal: "0" });
+        const params = new URLSearchParams({ project: context.projectId, limit: "250", includeTotal: "0" });
         if (cursor) params.set("cursor", cursor);
         const page = await apiFetch(`/api/asset-stacks/${encodeURIComponent(stackId)}/assets?${params}`);
+        if (!isActionContextCurrent(context)) return null;
         for (const asset of page.assets || []) if (asset?.id) selected.add(asset.id);
         cursor = page.page?.nextCursor || "";
         if (!cursor) break;
       }
     }
-    return [...selected];
+    return { projectId: context.projectId, ids: [...selected] };
   }
 
   function replaceWith(id, { announce = false } = {}) {
@@ -328,21 +351,26 @@ export function createGallerySelection({
     pointer.startContentX = startX - bounds.left + scrollLeft;
     pointer.startContentY = startY - bounds.top + scrollTop;
     // Cache card geometry once per gesture in scroll-content coordinates.
-    // Pointermove can fire far above the display refresh rate; avoiding an
-    // all-card getBoundingClientRect() loop per event removes the largest
-    // source of marquee jank in large Stacks.
-    pointer.cardRects = [...els.assetGrid.querySelectorAll(":scope > .asset-card")].map((card) => {
-      const rect = card.getBoundingClientRect();
-      return {
-        id: card.dataset.id || "",
-        rect: {
-          left: rect.left - bounds.left + scrollLeft,
-          right: rect.right - bounds.left + scrollLeft,
-          top: rect.top - bounds.top + scrollTop,
-          bottom: rect.bottom - bounds.top + scrollTop,
-        },
-      };
-    }).filter((entry) => entry.id);
+    // Large galleries prune offscreen card DOM while marquee auto-scroll is
+    // active, so prefer the masonry geometry provider: it represents the whole
+    // loaded result window regardless of which cards are mounted. Small views
+    // keep the DOM measurement fallback. Pointermove then intersects a stable
+    // snapshot instead of a virtualized DOM window that changes underneath it.
+    const providedRects = typeof getCardSelectionRects === "function" ? getCardSelectionRects() : null;
+    pointer.cardRects = Array.isArray(providedRects) && providedRects.length
+      ? providedRects
+      : [...els.assetGrid.querySelectorAll(":scope > .asset-card")].map((card) => {
+        const rect = card.getBoundingClientRect();
+        return {
+          id: card.dataset.id || "",
+          rect: {
+            left: rect.left - bounds.left + scrollLeft,
+            right: rect.right - bounds.left + scrollLeft,
+            top: rect.top - bounds.top + scrollTop,
+            bottom: rect.bottom - bounds.top + scrollTop,
+          },
+        };
+      }).filter((entry) => entry.id);
     pointer.cardRectBands = new Map();
     for (const entry of pointer.cardRects) {
       const firstBand = Math.floor(entry.rect.top / MARQUEE_GEOMETRY_BAND_PX);
@@ -542,6 +570,8 @@ export function createGallerySelection({
     replaceWith,
     selectAll,
     selectRange,
+    captureActionContext,
+    isActionContextCurrent,
     resolveSelectedAssetIds,
     hasSelectedStacks: () => ensureStackSelectionMap().size > 0,
     syncRenderedSelection,

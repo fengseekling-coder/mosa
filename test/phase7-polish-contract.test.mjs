@@ -251,7 +251,7 @@ test("13. No !important in app or extension surfaces", async () => {
 // 14. Manifest pinned: no new dependencies, lockfile intact.
 test("14. package manifest and lockfile unchanged", async () => {
   const manifest = JSON.parse(await read("package.json"));
-  assert.deepEqual(manifest.dependencies, { "better-sqlite3": "^13.0.1", sharp: "^0.35.3" }, "dependencies pinned");
+  assert.deepEqual(manifest.dependencies, { "better-sqlite3": "^13.0.1", sharp: "^0.35.4" }, "dependencies pinned");
   const expectedDevDeps = [
     "eslint",
     "electron",

@@ -284,7 +284,10 @@ test("22. the search lives in the topbar, not the sidebar", async () => {
   const sidebarEnd = html.indexOf("</aside>", sidebarStart);
   assert.equal(html.slice(sidebarStart, sidebarEnd).includes('id="searchInput"'), false, "no search input may remain in the sidebar");
   const app = await readApp();
-  assert.match(app, /els\.searchInput\?\.addEventListener\("input", debounce/, "search event wiring unchanged");
+  assert.match(app, /const commitSearchInput = debounce\(async \(intent\) => \{/,
+    "search commit remains debounced");
+  assert.match(app, /els\.searchInput\?\.addEventListener\("input", \(\) => \{[\s\S]*?commitSearchInput\(beginNavigationIntent\(\)\);/,
+    "the topbar input remains the single search event source");
 });
 
 // 23. No !important anywhere in the stylesheet (comments stripped).

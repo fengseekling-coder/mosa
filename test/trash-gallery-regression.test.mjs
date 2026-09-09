@@ -34,8 +34,10 @@ test("Move to Trash uses one batch mutation and reconciles removed cards before 
 
   assert.match(actions, /apiFetch\("\/api\/assets\/batch"[\s\S]*?action: "trash"[\s\S]*?assetIds: ids/,
     "Trash selection must not issue one HTTP DELETE per card");
-  assert.match(actions, /selectedMutationIds\(asset, selectedAssets, options\)/,
-    "Trash must operate on the complete logical selection, including unloaded pages and Stack members");
+  assert.match(actions, /selectedMutationContext\(asset, selectedAssets, options\)/,
+    "Trash must resolve the complete logical selection through the frozen action context, including unloaded pages and Stack members");
+  assert.match(actions, /if \(!context \|\| !mutationContextIsCurrent\(context\)\) return;/,
+    "a stale project/query/selection context must cancel before the Trash mutation");
   assert.match(actions, /removedAssetIds: outcome\.succeeded\.map/,
     "partial batches must remove only server-confirmed successes from the visible gallery");
   assert.match(bindings, /kind: "asset-deleted", entityType: "asset", entityId: String\(id\)/,

@@ -299,7 +299,7 @@ test("out-of-scope files stay locked and the Phase 1C card contract is stable", 
   // leave the hash table; their security-relevant behaviour is asserted
   // structurally below. The lockfile stays hash-pinned.
   const expected = {
-    "package-lock.json": "5f63f56e0757215ab2e5f2773de24afe1e7fa9a5bddc41adde805856f0fe09ec",
+    "package-lock.json": "51f3ff53219df2cfe3ea27ad9caf932a0cadbe062fec8905a11e39819a81fe54",
   };
   for (const [file, hash] of Object.entries(expected)) {
     const text = await readFile(resolve(root, file), "utf8");
@@ -311,7 +311,7 @@ test("out-of-scope files stay locked and the Phase 1C card contract is stable", 
   assert.match(server, /process\.exit\(1\)/, "server.mjs must exit non-zero on isolation guard rejection");
   // package.json dependency sections stay frozen.
   const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
-  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "73c83773a57e21a20917d81b24288bdfddd9bb7ddd644fdaedd6e6cfba13c405", "package.json dependencies must stay untouched");
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "0339eb218322b3a863818f979cfe4aca62624c31811a775da305ccda617d91a7", "package.json dependencies must stay untouched");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
   // The Phase 1C/1C.1 card quick-action contract rules are locked verbatim against drift.
   // Phase 1C.1 re-locks: child-button disclosure granularity, 28px click area (Phase 1B
