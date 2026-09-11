@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { watch } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -16,6 +17,57 @@ const DEFAULT_TAKEOVER_GRACE_MS = 5000;
 const DEFAULT_CONTROLLED_TAKEOVER_GRACE_MS = 30_000;
 const DEFAULT_TAKEOVER_POLL_MS = 250;
 const DEFAULT_PROBE_TIMEOUT_MS = 1200;
+const DEFAULT_SOURCE_CHANGE_SETTLE_MS = 750;
+
+export function watchOwnedRuntimeSources({
+  watchImpl = watch,
+  settleMs = DEFAULT_SOURCE_CHANGE_SETTLE_MS,
+  sources = [
+    { path: join(repositoryRoot, "app"), recursive: true },
+    { path: join(repositoryRoot, "lib"), recursive: true },
+    { path: serverEntry, recursive: false },
+    { path: join(repositoryRoot, "package.json"), recursive: false },
+  ],
+} = {}) {
+  const watchers = [];
+  let settleTimer = null;
+  let closed = false;
+  let resolveChange;
+  const promise = new Promise((resolvePromise) => { resolveChange = resolvePromise; });
+
+  const closeHandles = () => {
+    for (const watcher of watchers.splice(0)) watcher.close?.();
+  };
+  const scheduleChange = () => {
+    if (closed) return;
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => {
+      if (closed) return;
+      closed = true;
+      settleTimer = null;
+      closeHandles();
+      resolveChange({ reason: "source-change" });
+    }, Math.max(50, Number(settleMs) || DEFAULT_SOURCE_CHANGE_SETTLE_MS));
+    settleTimer.unref?.();
+  };
+
+  for (const source of sources) {
+    const watcher = watchImpl(source.path, { recursive: source.recursive === true }, scheduleChange);
+    watcher.on?.("error", scheduleChange);
+    watchers.push(watcher);
+  }
+
+  return {
+    promise,
+    close() {
+      if (closed) return;
+      closed = true;
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = null;
+      closeHandles();
+    },
+  };
+}
 
 export async function probeMosaOwner({
   port = process.env.MOSA_PORT || DEFAULT_MOSA_DESKTOP_PORT,
@@ -99,6 +151,7 @@ export async function runSupervisor({
     env: process.env,
     stdio: "inherit",
   }),
+  watchSources = () => watchOwnedRuntimeSources(),
   sleep = (delayMs) => new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs)),
   idlePollMs = DEFAULT_IDLE_POLL_MS,
   takeoverGraceMs = DEFAULT_TAKEOVER_GRACE_MS,
@@ -142,7 +195,29 @@ export async function runSupervisor({
       lastIdleReason = "";
       child = spawnRuntime();
       logger.info?.(`[MOSA supervisor] started background runtime PID ${child.pid || "unknown"}.`);
-      const exit = await waitForChildExit(child);
+      const sourceWatch = watchSources();
+      const exitPromise = waitForChildExit(child).then((exit) => ({ type: "exit", exit }));
+      const outcome = await Promise.race([
+        exitPromise,
+        sourceWatch.promise.then(() => ({ type: "source-change" })),
+      ]);
+      sourceWatch.close?.();
+
+      if (outcome.type === "source-change") {
+        if (!stopping && child.exitCode == null && child.signalCode == null) {
+          logger.info?.("[MOSA supervisor] source changed; restarting the owned background runtime.");
+          child.kill("SIGTERM");
+        }
+        await exitPromise;
+        child = null;
+        if (stopping) break;
+        // Re-enter through probe instead of spawning blindly. A desktop app
+        // may have acquired the library lock while the old source runtime was
+        // shutting down, and the cooperative ownership rule must still win.
+        continue;
+      }
+
+      const exit = outcome.exit;
       child = null;
       if (stopping) break;
 

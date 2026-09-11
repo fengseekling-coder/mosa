@@ -653,6 +653,16 @@ test("background stats refresh skips the effectively static library-path request
   assert.match(stats, /const rawGroups = result\.navigation \|\| \{\}/);
 });
 
+test("mutation auth recovers once from a restarted same-origin runtime", async () => {
+  const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
+  const fetcher = sliceBetween(apiClient, "async function apiFetch(path, options = {})", "async function loadProjects()");
+  assert.match(apiClient, /async function refreshMosaBrowserSession\(\)/);
+  assert.match(apiClient, /fetch\("\/", \{[\s\S]*?cache: "no-store"[\s\S]*?credentials: "same-origin"/);
+  assert.match(fetcher, /for \(let attempt = 0; attempt < 2; attempt \+= 1\)/);
+  assert.match(fetcher, /payload\.code === "MOSA_CLIENT_UNAUTHORIZED"[\s\S]*?await refreshMosaBrowserSession\(\)/);
+  assert.match(fetcher, /credentials: "same-origin"/);
+});
+
 test("infinite scroll rearms deterministically after an appended page replaces the sentinel", async () => {
   const app = await readApp();
   const scrolling = sliceBetween(app, "let infiniteScrollObserver = null;", "/**\n * Placeholders sized like real cards");
