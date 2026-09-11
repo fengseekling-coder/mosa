@@ -1,0 +1,213 @@
+#!/usr/bin/env node
+
+import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { DEFAULT_MOSA_DESKTOP_PORT, normalizeMosaPort } from "../lib/runtime-defaults.mjs";
+import { verifyMosaRuntimeLockProcessIdentity } from "../lib/runtime-lock.js";
+
+const moduleDir = dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = resolve(moduleDir, "..");
+const serverEntry = join(repositoryRoot, "server.mjs");
+const DEFAULT_IDLE_POLL_MS = 5000;
+const DEFAULT_TAKEOVER_GRACE_MS = 5000;
+const DEFAULT_CONTROLLED_TAKEOVER_GRACE_MS = 30_000;
+const DEFAULT_TAKEOVER_POLL_MS = 250;
+const DEFAULT_PROBE_TIMEOUT_MS = 1200;
+
+export async function probeMosaOwner({
+  port = process.env.MOSA_PORT || DEFAULT_MOSA_DESKTOP_PORT,
+  libraryDir = process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"),
+  fetchImpl = globalThis.fetch,
+  timeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
+  leaseProbe = () => probeRuntimeLease({ libraryDir }),
+} = {}) {
+  const normalizedPort = normalizeMosaPort(port, { label: "MOSA supervisor port" });
+  const expectedLibraryDir = resolve(libraryDir);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(100, Number(timeoutMs) || DEFAULT_PROBE_TIMEOUT_MS));
+  try {
+    const response = await fetchImpl(`http://127.0.0.1:${normalizedPort}/api/health`, {
+      signal: controller.signal,
+    });
+    if (!response?.ok) {
+      const lease = await leaseProbe();
+      return lease.state === "starting" ? lease : { state: "conflict", reason: `HTTP ${response?.status || 0}` };
+    }
+    const health = await response.json();
+    if (health?.product !== "mosa" || typeof health.libraryDir !== "string") {
+      return { state: "conflict", reason: "non-mosa-listener" };
+    }
+    if (resolve(health.libraryDir) !== expectedLibraryDir) {
+      return { state: "conflict", reason: "different-library" };
+    }
+    return { state: "attached", health };
+  } catch (error) {
+    const code = error?.cause?.code || error?.code;
+    const lease = await leaseProbe();
+    if (lease.state === "starting") return lease;
+    if (code === "ECONNREFUSED") return { state: "unavailable" };
+    if (error?.name === "AbortError") return { state: "conflict", reason: "timeout" };
+    return { state: "conflict", reason: code || "unverified-listener" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function probeRuntimeLease({
+  libraryDir = process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"),
+  readFileImpl = readFile,
+  isProcessAlive = defaultIsProcessAlive,
+  verifyProcessIdentity = verifyMosaRuntimeLockProcessIdentity,
+} = {}) {
+  const lockPath = join(resolve(libraryDir), ".mosa-runtime.lock");
+  try {
+    const owner = JSON.parse(await readFileImpl(lockPath, "utf8"));
+    if (!Number.isInteger(owner?.pid) || owner.pid <= 0 || typeof owner?.token !== "string" || !owner.token) {
+      return { state: "unavailable" };
+    }
+    if (!isProcessAlive(owner.pid)) return { state: "unavailable" };
+    const identityMatch = await verifyProcessIdentity(owner);
+    if (identityMatch === false) return { state: "unavailable" };
+    return { state: "starting", owner: { pid: owner.pid } };
+  } catch {
+    return { state: "unavailable" };
+  }
+}
+
+export async function waitForReplacementOwner({
+  probe = probeMosaOwner,
+  sleep = (delayMs) => new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs)),
+  graceMs = DEFAULT_TAKEOVER_GRACE_MS,
+  pollMs = DEFAULT_TAKEOVER_POLL_MS,
+} = {}) {
+  const checks = Math.max(1, Math.ceil(Math.max(0, Number(graceMs) || 0) / Math.max(1, Number(pollMs) || 1)));
+  for (let index = 0; index < checks; index += 1) {
+    const status = await probe();
+    if (status.state !== "unavailable") return status;
+    if (index + 1 < checks) await sleep(pollMs);
+  }
+  return { state: "unavailable" };
+}
+
+export async function runSupervisor({
+  probe = () => probeMosaOwner(),
+  spawnRuntime = () => spawn(process.execPath, [serverEntry], {
+    cwd: repositoryRoot,
+    env: process.env,
+    stdio: "inherit",
+  }),
+  sleep = (delayMs) => new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs)),
+  idlePollMs = DEFAULT_IDLE_POLL_MS,
+  takeoverGraceMs = DEFAULT_TAKEOVER_GRACE_MS,
+  controlledTakeoverGraceMs = DEFAULT_CONTROLLED_TAKEOVER_GRACE_MS,
+  takeoverPollMs = DEFAULT_TAKEOVER_POLL_MS,
+  logger = console,
+  signalTarget = process,
+} = {}) {
+  let stopping = false;
+  let child = null;
+  let lastIdleReason = "";
+
+  const stop = () => {
+    stopping = true;
+    if (child && child.exitCode == null && child.signalCode == null) child.kill("SIGTERM");
+  };
+  signalTarget.once?.("SIGINT", stop);
+  signalTarget.once?.("SIGTERM", stop);
+
+  try {
+    while (!stopping) {
+      const current = await probe();
+      if (current.state === "attached" || current.state === "starting") {
+        if (lastIdleReason !== current.state) {
+          logger.info?.(current.state === "attached"
+            ? "[MOSA supervisor] another verified MOSA runtime owns this library; standing by."
+            : "[MOSA supervisor] another active MOSA runtime owns the library lock and is starting; standing by.");
+        }
+        lastIdleReason = current.state;
+        await sleep(idlePollMs);
+        continue;
+      }
+      if (current.state === "conflict") {
+        const reason = `conflict:${current.reason || "unknown"}`;
+        if (lastIdleReason !== reason) logger.warn?.(`[MOSA supervisor] port is occupied by an unverified or different runtime (${current.reason || "unknown"}); standing by.`);
+        lastIdleReason = reason;
+        await sleep(idlePollMs);
+        continue;
+      }
+
+      lastIdleReason = "";
+      child = spawnRuntime();
+      logger.info?.(`[MOSA supervisor] started background runtime PID ${child.pid || "unknown"}.`);
+      const exit = await waitForChildExit(child);
+      child = null;
+      if (stopping) break;
+
+      const replacement = await waitForReplacementOwner({
+        probe,
+        sleep,
+        graceMs: exit?.signal === "SIGTERM" ? controlledTakeoverGraceMs : takeoverGraceMs,
+        pollMs: takeoverPollMs,
+      });
+      if (replacement.state === "attached" || replacement.state === "starting") {
+        logger.info?.("[MOSA supervisor] background runtime yielded to another verified MOSA owner.");
+        continue;
+      }
+      if (replacement.state === "conflict") {
+        logger.warn?.(`[MOSA supervisor] background runtime exited and the port is now occupied (${replacement.reason || "unknown"}); standing by.`);
+        continue;
+      }
+      logger.warn?.(`[MOSA supervisor] background runtime exited (${formatExit(exit)}); restarting after takeover grace.`);
+    }
+  } finally {
+    signalTarget.off?.("SIGINT", stop);
+    signalTarget.off?.("SIGTERM", stop);
+    if (child && child.exitCode == null && child.signalCode == null) {
+      child.kill("SIGTERM");
+      await waitForChildExit(child).catch(() => {});
+    }
+  }
+}
+
+function waitForChildExit(child) {
+  if (child.exitCode != null || child.signalCode != null) {
+    return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
+  }
+  return new Promise((resolveExit, rejectExit) => {
+    const onError = (error) => {
+      cleanup();
+      rejectExit(error);
+    };
+    const onExit = (code, signal) => {
+      cleanup();
+      resolveExit({ code, signal });
+    };
+    const cleanup = () => {
+      child.off("error", onError);
+      child.off("exit", onExit);
+    };
+    child.once("error", onError);
+    child.once("exit", onExit);
+  });
+}
+
+function formatExit(exit) {
+  if (exit?.signal) return `signal ${exit.signal}`;
+  return `code ${exit?.code ?? "unknown"}`;
+}
+
+function defaultIsProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await runSupervisor();
+}
