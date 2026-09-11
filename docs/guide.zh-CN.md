@@ -32,7 +32,7 @@ MOSA 当前是绑定 `127.0.0.1` 的本地 Web 应用，也提供共享同一套
 
 当前 Windows 真机已经验证：`MOSA.exe` 启动、本地 SQLite、Sharp 原生图像处理、素材库/资产检视器，以及 Codex 素材自动收录。Windows 使用原生标题栏，但隐藏 Electron 默认菜单栏；菜单 accelerator 仍保留。
 
-Windows 上的 Grok/Cowart 来源目录尚未完成真机验证，暂不把推测路径写成正式默认值。Windows 安装器、代码签名和自动更新也仍属于发布阶段工作，因此当前 Windows 构建应视为测试版，而不是正式发行版。
+Windows 上的 Grok/Cowart 来源目录尚未完成真机验证，暂不把推测路径写成正式默认值。当前打包版已经支持在应用内读取官方 release manifest、下载对应版本的 portable ZIP、校验文件大小与 SHA-256，并在退出本地 Runtime、释放文件锁后通过独立更新辅助进程原位替换应用目录；替换失败时会回滚旧目录。Windows 安装器和代码签名仍属于发布阶段工作，因此当前 Windows 构建仍应视为测试版，而不是正式签名发行版。
 
 ## 本地启动
 

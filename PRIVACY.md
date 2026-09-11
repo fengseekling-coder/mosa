@@ -1,6 +1,6 @@
 # Privacy
 
-MOSA is a local-first creative asset library. It does not operate a MOSA cloud library, advertising system, or remote user account. The desktop app can send minimal anonymous usage metrics alongside its existing update-check request as described below.
+MOSA is a local-first creative asset library. It does not operate a MOSA cloud library, advertising system, or remote user account. Packaged desktop builds send the bounded anonymous usage signal described below through a bodyless request to the same first-party release endpoint used for update metadata; usage reporting and update-manifest parsing are separate operations.
 
 ## Data MOSA Reads
 
@@ -84,7 +84,7 @@ On Flow (`labs.google`), it also may capture the one visible Prompt card structu
 
 ## Network Boundary
 
-The MOSA service binds to `127.0.0.1` and is not designed for public exposure. MOSA does not add remote synchronization. The desktop shell's only MOSA-operated analytics signal is the optional bounded usage metadata attached to its existing HTTPS update-check request described above.
+The MOSA service binds to `127.0.0.1` and is not designed for public exposure. MOSA does not add remote synchronization. The desktop shell's only MOSA-operated analytics signal is the bounded usage metadata sent through the separate HTTPS request described above.
 
 Codex, ChatGPT, Grok, Cowart, Chrome, and any AI or image-generation provider used before an asset reaches MOSA are separate products. Their own network behavior and privacy policies still apply.
 

@@ -1,7 +1,7 @@
 # MOSA 系统架构
 
 本文档描述仓库当前实现，而不是未来重构方案。产品版本以根目录
-`package.json` 的 `version` 字段为准（当前为 `0.2.1`）。运行时要求 Node.js
+`package.json` 的 `version` 字段为唯一权威，不在本文档重复硬编码。运行时要求 Node.js
 22 或更高版本；桌面层共享同一套 Electron/Renderer/Runtime 代码，目前明确支持
 `darwin-arm64` 与 `win32-x64` 两个打包目标，其中 Windows 10/11 x64 处于 Preview/Testing 阶段。
 
@@ -12,8 +12,9 @@ MOSA 是一个本地优先的创意资产库。它把图像和视频原件、可
 和版本化的能力。MOSA 不生成媒体、不提供云端同步，也不把
 素材库自动上传到远端服务。
 
-默认服务只绑定 `127.0.0.1`。浏览器扩展是可选集成，只有在显式配置本地
-ingest Token 和允许的扩展 origin 后才启用。
+默认服务只绑定 `127.0.0.1`。浏览器扩展是可选集成：独立 `npm start` Runtime
+只有在显式配置本地 ingest Token 和允许的扩展 origin 后才启用；Packaged Desktop
+会在本地自动生成 Token，并只授权固定的 MOSA 扩展 origin 完成配对。
 
 ## 2. 运行时分层
 
@@ -57,7 +58,7 @@ Web UI 是原生浏览器模块，不依赖前端打包器或组件运行时：
 
 Electron 桌面壳由 `desktop/main.mjs`、`desktop/preload.cjs` 和
 `desktop/service-manager.mjs` 组成。它加载同一套 `app/` UI，并通过受限的
-preload API 处理桌面能力（例如文件导入暂存、在系统文件管理器中定位原件和通知）；业务数据
+preload API 处理桌面能力（例如文件导入暂存、在系统文件管理器中定位原件、通知和受控更新）；业务数据
 仍由同一个本地 HTTP 运行时提供。
 
 操作系统差异集中在 `desktop/platform/index.mjs`。当前 adapter 只负责桌面壳
@@ -145,7 +146,7 @@ npm start                 启动 Node 本地服务
 npm run mcp               启动 MCP stdio 服务
 npm run desktop:start     启动 Electron 本地开发壳
 npm run desktop:package   Forge 打包 macOS arm64 应用目录
-npm run desktop:make      Forge 生成 macOS arm64 ZIP
+npm run desktop:make      Forge 打包 macOS arm64 应用并生成 DMG
 npm run desktop:package:windows  Forge 打包 Windows 10/11 x64 应用目录
 npm run desktop:make:windows     Forge 生成 Windows x64 ZIP（开发产物）
 npm run build             编译 TypeScript 并写入构建身份
@@ -215,8 +216,9 @@ SQLite 迁移：
   升级程序而自动删除旧数据。
 
 SQLite 数据库路径为 `$HOME/MOSA Library/mosa.db`（也可由
-`MOSA_LIBRARY_DIR` 指定）。当前 SQLite 实现的 `CURRENT_SCHEMA_VERSION` 为
-`13`，启用 WAL、外键和 busy timeout。主要表和索引包括：
+`MOSA_LIBRARY_DIR` 指定）。SQLite schema 版本以
+`lib/sqlite-asset-store.mjs` 导出的 `CURRENT_SCHEMA_VERSION` 为唯一权威；不要在
+运维或架构文档中复制一个容易随迁移失效的数字。数据库启用 WAL、外键和 busy timeout。主要表和索引包括：
 
 - `projects`、`groups`、`assets`：项目、分组、素材原数据、哈希、来源和状态。
 - `tags`、`asset_tags`：标签关联。
@@ -347,6 +349,7 @@ Token 写入公共文档、日志或仓库：
 | `MOSA_DESKTOP_PORT` | Electron 壳使用的端口，默认 `43517` |
 | `MOSA_LIBRARY_DIR` | SQLite/库目录；显式指定后用于库隔离和迁移 |
 | `MOSA_PROJECT_DIR` | 项目根目录覆盖 |
+| `CODEX_GENERATED_IMAGES_DIR` | Codex 生成图片目录覆盖 |
 | `CODEX_SESSIONS_DIR` | Codex 会话目录覆盖 |
 | `GROK_SESSIONS_DIR` | Grok 会话目录覆盖 |
 | `COWART_MOSA_CANVAS_DIR` | MOSA 管理画布目录覆盖 |

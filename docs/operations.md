@@ -63,7 +63,9 @@ Forge writes the macOS application under `out/MOSA-darwin-arm64/` and the Window
 
 Windows 10/11 x64 is currently a **Preview / testing** target. A real Windows-machine smoke cycle has verified application startup, SQLite, Sharp, the shared library/Inspector UI, and automatic Codex collection. The Windows shell keeps the native title bar but hides Electron's visible application menu row; the underlying menu remains installed so keyboard accelerators continue to work. Grok and Cowart Windows source discovery remain unverified until their real local source layouts are confirmed.
 
-Windows development builds are unsigned and SmartScreen may warn about an unknown publisher. macOS local DMGs use the existing local/ad-hoc app signing path and are not release-notarized; `desktop:release` is the release-grade signed/notarized DMG path. A Windows installer, Windows code signing, automatic in-place updates, and background login launch are separate release work.
+Windows development builds are unsigned and SmartScreen may warn about an unknown publisher. macOS local DMGs use the existing local/ad-hoc app signing path and are not release-notarized; `desktop:release` is the release-grade signed/notarized DMG path. A Windows installer, Windows code signing, and background login launch are separate release work.
+
+Packaged Windows builds do support an explicit in-app update flow for portable ZIP releases. The main process re-reads the first-party release manifest, requires the artifact platform/architecture/filename to match the advertised release, downloads only from the fixed MOSA download origin, verifies the declared byte size and SHA-256 digest, then starts a detached PowerShell helper. MOSA stops any runtime it owns and releases SQLite/runtime locks before exiting. The helper expands the ZIP, moves the current application directory to a temporary backup, installs the new payload, launches the replacement `MOSA.exe`, and removes the backup only after the new executable is present. If replacement fails, it restores the previous directory and attempts to relaunch the old executable. The updater keeps only its own latest staging directory so old 150 MB-class ZIPs do not accumulate.
 
 ## Library Migration
 
@@ -120,7 +122,7 @@ Expected conditions:
 - `grok.sessionsDir` points at the configured Grok sessions root (default `~/.grok/sessions`).
 - `lastError` is empty or `null`.
 - `cowartDiscovery` is enabled when the service can read local Codex session records.
-- `webCapture.enabled` is true only when `MOSA_WEB_CAPTURE_TOKEN` and at least one approved extension origin are explicitly configured; its providers list should contain `chatgpt`, `gemini`, `flow`, and `google-ai-studio`.
+- `webCapture.enabled` is true only when the active runtime has a local ingest Token and at least one approved extension origin. A standalone `npm start` runtime gets those values from explicit configuration; Packaged Desktop provisions them automatically for its fixed extension identities. Its providers list should contain `chatgpt`, `gemini`, `flow`, and `google-ai-studio`.
 
 Run an integrity check whenever a migration, repair, or service incident is resolved:
 
