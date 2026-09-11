@@ -142,8 +142,12 @@ test("source watcher resolves once and closes every watched handle", async () =>
     watchImpl: (_path, _options, callback) => {
       callbacks.push(callback);
       const handle = new EventEmitter();
+      const keepEventLoopAlive = setTimeout(() => {}, 1000);
       handle.closed = false;
-      handle.close = () => { handle.closed = true; };
+      handle.close = () => {
+        clearTimeout(keepEventLoopAlive);
+        handle.closed = true;
+      };
       handles.push(handle);
       return handle;
     },
