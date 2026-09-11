@@ -34,6 +34,12 @@ export function mosaMutationHeaders(method = "POST") {
 }
 
 export function createApiClient(deps) {
+  // Consume the one-time bootstrap capability as soon as the client is
+  // constructed. Keeping it in the URL fragment until the first mutation
+  // leaves the capability unnecessarily visible for the lifetime of a
+  // read-only browsing session. mosaClientToken() persists it to
+  // sessionStorage and removes only its own fragment key.
+  mosaClientToken();
   const {
     state,
     els,
