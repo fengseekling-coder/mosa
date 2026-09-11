@@ -6,6 +6,13 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 No user-visible changes recorded yet.
 
+## 0.2.1-rc.9 — 2026-09-11 / Release Candidate
+
+### Stack drag authentication validation / 堆叠拖拽鉴权验收
+
+- Rebuilt the macOS application from the post-PR #78 `main` baseline so the installed desktop bundle and its local runtime include the authenticated drag-to-stack recovery shipped in `cbd4516`.
+- Preserved the browser-session capability and runtime-supervision fixes while giving the corrected build a distinct release-candidate version for reliable rollback and field diagnosis.
+
 ## 0.2.1-rc.8 — 2026-09-11 / Release Candidate
 
 ### Desktop runtime ownership and drag workflow recovery / 桌面运行时接管与拖拽工作流恢复
