@@ -40,6 +40,25 @@ jobs:
       - run: codesign --verify --deep --strict --verbose=2 out/MOSA-darwin-arm64/MOSA.app
       - run: npm run qa:packaged:smoke
 
+  release-macos-artifact:
+    if: github.event_name == 'pull_request' && github.head_ref == 'ci/temp-rc7-macos-artifact-20260911'
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run desktop:make
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MOSA-darwin-arm64-0.2.1-rc.7
+          path: out/make/dmg/darwin/arm64/MOSA-darwin-arm64-0.2.1-rc.7.dmg
+          if-no-files-found: error
+
   desktop-windows:
     runs-on: windows-2022
     steps:
