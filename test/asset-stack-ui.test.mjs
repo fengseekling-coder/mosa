@@ -124,6 +124,16 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
   assert.match(stackController, /setPointerCapture\(event\.pointerId\)/);
   assert.match(stackController, /if \(pointerMoveFrame !== null\) \{\s+cancelAnimationFrame\(pointerMoveFrame\);\s+pointerMoveFrame = null;\s+flushPointerMove\(\);/,
     "pointerup flushes a coalesced move before resolving the drop target");
+  const endPointer = stackController.slice(
+    stackController.indexOf("function endPointer"),
+    stackController.indexOf("async function finishGroupDrop"),
+  );
+  assert.match(endPointer, /const groupTarget = dropGroupTarget;/,
+    "sidebar drops snapshot their target before visual drag state is cleared");
+  assert.ok(endPointer.indexOf("const groupTarget = dropGroupTarget;") < endPointer.indexOf("removeGhost();"),
+    "sidebar drop target must survive removeGhost/clearDropTarget until the mutation is scheduled");
+  assert.match(endPointer, /if \(groupTarget\)[\s\S]*?finishGroupDrop\(drag\.assetIds, value\)/,
+    "the preserved sidebar target drives the group mutation");
   assert.match(stackController, /lostpointercapture/);
   assert.match(stackController, /window\.addEventListener\("blur"/);
   assert.match(stackController, /moveBlockRelative\(currentIds, drag\.assetIds, targetId, placement\)/);

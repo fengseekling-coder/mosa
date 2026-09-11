@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs";
 import { createHash, timingSafeEqual } from "node:crypto";
 
 const CLIENT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43,128}$/;
+export const MOSA_BROWSER_CLIENT_COOKIE_PREFIX = "mosa-browser-client-";
 
 export function normalizeMosaClientToken(value: unknown): string {
   const token = String(value || "").trim();
@@ -25,6 +26,59 @@ export function isAuthorizedMosaClientToken(provided: unknown, configured: unkno
 export function mosaClientTokenFingerprint(value: unknown): string {
   const token = normalizeMosaClientToken(value);
   return token ? createHash("sha256").update(token).digest("base64url").slice(0, 22) : "";
+}
+
+function normalizeBrowserClientPort(value: unknown): string {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric >= 1 && numeric <= 65_535 ? String(numeric) : "";
+}
+
+export function mosaBrowserClientCookieName(port: unknown): string {
+  const normalizedPort = normalizeBrowserClientPort(port);
+  return normalizedPort ? `${MOSA_BROWSER_CLIENT_COOKIE_PREFIX}${normalizedPort}` : "";
+}
+
+export function mosaBrowserClientToken(value: unknown, port: unknown): string {
+  const token = normalizeMosaClientToken(value);
+  const normalizedPort = normalizeBrowserClientPort(port);
+  if (!token || !normalizedPort) return "";
+  return createHash("sha256")
+    .update("mosa-browser-client\0")
+    .update(normalizedPort)
+    .update("\0")
+    .update(token)
+    .digest("base64url");
+}
+
+export function mosaBrowserClientCookieHeader(value: unknown, port: unknown): string {
+  const name = mosaBrowserClientCookieName(port);
+  const token = mosaBrowserClientToken(value, port);
+  return name && token ? `${name}=${token}; Path=/; HttpOnly; SameSite=Strict` : "";
+}
+
+function cookieValue(cookieHeader: unknown, name: string): string {
+  if (!name) return "";
+  const header = String(cookieHeader || "");
+  for (const part of header.split(";")) {
+    const separator = part.indexOf("=");
+    if (separator < 0) continue;
+    if (part.slice(0, separator).trim() !== name) continue;
+    return part.slice(separator + 1).trim();
+  }
+  return "";
+}
+
+export function isAuthorizedMosaClientRequest(
+  providedToken: unknown,
+  cookieHeader: unknown,
+  configuredToken: unknown,
+  port: unknown,
+): boolean {
+  if (isAuthorizedMosaClientToken(providedToken, configuredToken)) return true;
+  const expectedBrowserToken = mosaBrowserClientToken(configuredToken, port);
+  if (!expectedBrowserToken) return false;
+  const browserToken = cookieValue(cookieHeader, mosaBrowserClientCookieName(port));
+  return isAuthorizedMosaClientToken(browserToken, expectedBrowserToken);
 }
 
 /**

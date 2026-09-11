@@ -525,6 +525,7 @@ export function createAssetStackController({
     const completed = drag.dragging;
     const targetId = dropTarget?.dataset.id || "";
     const placement = dropPlacement;
+    const groupTarget = dropGroupTarget;
     pointer = null;
     state.assetStackDragCandidate = false;
     state.assetStackDragging = false;
@@ -536,8 +537,8 @@ export function createAssetStackController({
     suppressSyntheticClick();
     event.preventDefault();
     // 侧边栏投放优先：分组项 → 移入该组；“待整理”项 → 移出分组。
-    if (dropGroupTarget) {
-      const item = dropGroupTarget;
+    if (groupTarget) {
+      const item = groupTarget;
       const filter = item.dataset.filter;
       const value = filter === "group" ? item.dataset.value : "";
       void runStackMutation(() => finishGroupDrop(drag.assetIds, value));

@@ -60,7 +60,7 @@ try {
   console.log("[e2e] Electron renderer: restart -> persistence verification");
   await runElectronRound("verify", desktopSearchTerm, desktopRecipeChange);
 
-  console.log("[e2e] Web renderer: Stack create -> enter -> reorder cover -> return");
+  console.log("[e2e] Web renderer: bare URL -> direct-drag Stack create -> enter -> reorder cover -> return");
   await runWebStackRound();
 
   console.log(JSON.stringify({ ok: true, storage: "sqlite", flows: ["web", "electron", "stack"], restartVerified: true }));
@@ -122,7 +122,7 @@ async function runWebStackRound() {
       cwd: rootDir,
       env: {
         ...process.env,
-        MOSA_E2E_WEB_TARGET_URL: `http://127.0.0.1:${port}/#mosa-client-token=${encodeURIComponent(QA_CLIENT_TOKEN)}`,
+        MOSA_E2E_WEB_TARGET_URL: `http://127.0.0.1:${port}/`,
         MOSA_E2E_WEB_USER_DATA: webUserData,
         MOSA_E2E_WEB_FLOW: "stack",
       },
