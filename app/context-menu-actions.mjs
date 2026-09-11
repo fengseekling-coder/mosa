@@ -458,7 +458,8 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           },
         },
         { separator: true },
-        ...state.groups.groups.map(([groupName, count]) => {
+        ...(Array.isArray(state.groups.groups) ? state.groups.groups : []).map((group) => {
+          const groupName = group.name;
           // Source of truth for group colors lives in app.mjs colorForGroup so
           // the saved palette and the rendered swatch never diverge.
           const savedColor = resolveGroupColor(groupName);

@@ -2348,7 +2348,9 @@ function renderSidebarGroups() {
   els.sidebarGroupList.innerHTML = items;
 
   if (!els.sidebarManualGroupList) return;
-  const manualItems = (Array.isArray(state.groups.groups) ? state.groups.groups : []).map(([groupName, count]) => {
+  const manualItems = (Array.isArray(state.groups.groups) ? state.groups.groups : []).map((group) => {
+    const groupName = group.name;
+    const count = group.count;
     if (sidebarGroupEdit?.mode === "rename" && sidebarGroupEdit.originalName === groupName) {
       return sidebarGroupEditorMarkup(groupName, sidebarGroupEdit.value, colorForGroup(groupName));
     }

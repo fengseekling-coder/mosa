@@ -19,6 +19,7 @@ const electronBinary = electronExecutablePath({ rootDir });
 const webDriver = join(rootDir, "scripts", "e2e-web-driver.mjs");
 const DISABLED_BRIDGES = "cowart,cowartDiscovery,codex,grok";
 const ELECTRON_QA_FLAGS = process.platform === "win32" ? ["--disable-gpu"] : [];
+const QA_CLIENT_TOKEN = "mosa_e2e_client_token_0123456789abcdefghijklmnop";
 
 if (!existsSync(electronBinary)) throw new Error(`Electron binary not found: ${electronBinary}`);
 
@@ -86,7 +87,7 @@ async function runWebRound(mode, searchTerm, recipeChange) {
       cwd: rootDir,
       env: {
         ...process.env,
-        MOSA_E2E_WEB_TARGET_URL: `http://127.0.0.1:${port}`,
+        MOSA_E2E_WEB_TARGET_URL: `http://127.0.0.1:${port}/#mosa-client-token=${encodeURIComponent(QA_CLIENT_TOKEN)}`,
         MOSA_E2E_WEB_USER_DATA: webUserData,
         MOSA_E2E_WEB_MODE: mode,
         MOSA_E2E_WEB_FIXTURE: webFixturePath,
@@ -121,7 +122,7 @@ async function runWebStackRound() {
       cwd: rootDir,
       env: {
         ...process.env,
-        MOSA_E2E_WEB_TARGET_URL: `http://127.0.0.1:${port}`,
+        MOSA_E2E_WEB_TARGET_URL: `http://127.0.0.1:${port}/#mosa-client-token=${encodeURIComponent(QA_CLIENT_TOKEN)}`,
         MOSA_E2E_WEB_USER_DATA: webUserData,
         MOSA_E2E_WEB_FLOW: "stack",
       },
@@ -195,6 +196,7 @@ function qaEnvironment({ portVariable, port, userData }) {
     ...process.env,
     MOSA_RUNTIME_MODE: "qa",
     MOSA_QA_RUN: "1",
+    MOSA_CLIENT_TOKEN: QA_CLIENT_TOKEN,
     MOSA_LIBRARY_DIR: libraryDir,
     MOSA_USER_DATA: userData,
     MOSA_DISABLE_BRIDGES: DISABLED_BRIDGES,

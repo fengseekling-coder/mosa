@@ -120,7 +120,10 @@ test("move-to-group submenu contains create-group and real groups only", async (
   const submenu = sliceBetween(actions, "// Move to group submenu", "if (!isMultiple)");
 
   assert.match(submenu, /label: t\("createGroup"\)/, "create-group remains the first utility action");
-  assert.match(submenu, /\.\.\.state\.groups\.groups\.map/, "saved groups still populate the submenu");
+  assert.match(submenu, /Array\.isArray\(state\.groups\.groups\)/,
+    "saved groups are guarded at the navigation-state boundary");
+  assert.match(submenu, /const groupName = group\.name;/,
+    "saved navigation group objects populate the submenu by canonical name");
   assert.doesNotMatch(submenu, /t\("noGroup"\)|applyGroupMutation\(ids, ""\)/,
     "the explicit no-group destination is removed from the move submenu");
   assert.doesNotMatch(i18n, /noGroup: "(?:无分组|No group)"/,

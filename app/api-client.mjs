@@ -123,13 +123,29 @@ export function createApiClient(deps) {
 
   function navigationStateFromPayload(result = {}) {
     const rawGroups = result.navigation || {};
+    const groups = (Array.isArray(rawGroups.groups) ? rawGroups.groups : []).map((entry, index) => {
+      if (Array.isArray(entry)) {
+        return {
+          name: String(entry[0] || ""),
+          count: Number(entry[1] || 0),
+          color: "",
+          position: index,
+        };
+      }
+      return {
+        name: String(entry?.name || ""),
+        count: Number(entry?.count || 0),
+        color: String(entry?.color || ""),
+        position: Number(entry?.position ?? index),
+      };
+    }).filter((entry) => entry.name);
     return {
       total: Number(rawGroups.total || 0),
       favorites: Number(rawGroups.favorites || 0),
       unorganized: Number(rawGroups.unorganized || 0),
       trash: Number(rawGroups.trash || 0),
       sourceTypes: Array.isArray(rawGroups.sourceTypes) ? rawGroups.sourceTypes : [],
-      groups: Array.isArray(rawGroups.groups) ? rawGroups.groups : [],
+      groups,
     };
   }
 
