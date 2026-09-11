@@ -431,6 +431,8 @@ test("packaged smoke waits for the real renderer and tears Electron down before 
   assert.match(source, /waitForRenderer\(/, "packaged smoke must wait for renderer readiness");
   assert.match(source, /document\.querySelector\('#appShell'\)/, "renderer readiness must require the real MOSA app shell");
   assert.match(source, /window\.electronAPI/, "renderer readiness must verify preload exposure");
+  assert.match(source, /sessionStorage.*mosa\.client-token/, "packaged smoke must reuse the real renderer client capability");
+  assert.match(source, /"x-mosa-client-token": clientToken/, "packaged smoke mutations must authenticate with that capability");
   assert.match(source, /await stopChild\(.*\.child\)/, "cleanup must wait for Electron teardown");
   assert.match(source, /signalProcessTree\(childProcess\.pid, \{ force: true \}\)/, "teardown must have a bounded process-tree hard-stop fallback");
 });
