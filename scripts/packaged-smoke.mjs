@@ -193,7 +193,7 @@ async function waitForRenderer(expectedOrigin, cdpPort, childProcess) {
         preload: Boolean(window.electronAPI && typeof window.electronAPI.writeClipboardText === 'function'),
         clientToken: String(window.sessionStorage?.getItem?.('mosa.client-token') || '')
       })`);
-      if (result?.appShell && result?.preload && result.readyState !== "loading") return result;
+      if (result?.appShell && result?.preload && result?.clientToken && result.readyState !== "loading") return result;
     } catch {
       // The renderer and CDP endpoint become available a little after the
       // runtime health endpoint. Keep polling until both are genuinely ready.
