@@ -128,14 +128,21 @@ export function createWebCaptureIngest(options: { store?: Store; libraryDir?: st
   let activeIngests = 0;
   const ingestWaiters: Array<() => void> = [];
   async function acquireIngestSlot(): Promise<void> {
-    if (activeIngests >= maxConcurrentIngests) {
-      await new Promise<void>((resolveSlot) => ingestWaiters.push(resolveSlot));
+    if (activeIngests < maxConcurrentIngests && ingestWaiters.length === 0) {
+      activeIngests += 1;
+      return;
     }
-    activeIngests += 1;
+    // The releasing owner transfers its occupied slot directly to this waiter.
+    // The waiter therefore must not increment activeIngests after waking.
+    await new Promise<void>((resolveSlot) => ingestWaiters.push(resolveSlot));
   }
   function releaseIngestSlot(): void {
+    const next = ingestWaiters.shift();
+    if (next) {
+      next();
+      return;
+    }
     activeIngests = Math.max(0, activeIngests - 1);
-    ingestWaiters.shift()?.();
   }
   const state: { enabled: boolean; providers: string[]; lastIngestAt: string | null; lastImportCount: number; totalImported: number; totalSkipped: number; lastError: string | null; lastSkippedReason: string | null } = { enabled: Boolean(token) && allowedOriginCount > 0, providers: Object.keys(PROVIDER_CONFIG), lastIngestAt: null, lastImportCount: 0, totalImported: 0, totalSkipped: 0, lastError: null, lastSkippedReason: null };
   function status(): Record<string, unknown> { return { ...state, tokenConfigured: Boolean(token), originConfigured: allowedOriginCount > 0, allowedOriginCount }; }
@@ -1264,19 +1271,24 @@ async function mergeDuplicateGenerationRecipe(
     selfAssetId: existing.id,
   });
   const currentReferences = Array.isArray(existing.references) ? existing.references : [];
+  // Duplicate/late observations are monotonic: an incomplete observation with
+  // no resolved references must never erase a reference set already archived
+  // on the asset. A later non-empty observation may still replace the set when
+  // it carries better evidence for the same generation occurrence.
+  const mergedReferences = references.length ? references : currentReferences;
   const currentContext = String(existing.source?.generation_context_id || existing.business_fields?.generation_context_id || "");
   const currentGenerationStatus = normalizeGenerationStatus(existing.source?.generation_status || existing.business_fields?.generation_status);
   const contextChanged = Boolean(input.generationContextId && input.generationContextId !== currentContext);
   const nextGenerationStatus = normalizeGenerationStatus(input.generationStatus);
   const statusChanged = nextGenerationStatus !== "unknown" && nextGenerationStatus !== currentGenerationStatus;
-  const referencesChanged = referenceIdentityList(currentReferences) !== referenceIdentityList(references);
+  const referencesChanged = referenceIdentityList(currentReferences) !== referenceIdentityList(mergedReferences);
   // Plain prompt/user-message upgrades are handled by maybeUpgradePrompt below.
   // This merge exists specifically for a distinct generation occurrence or a
   // late-arriving reference set, otherwise it would swallow the normal upgrade signal.
   if (!contextChanged && !referencesChanged && !statusChanged) return { asset: existing, merged: false };
 
   const updated = await store.updateMetadata(existing.project_id, existing.id, {
-    references,
+    references: mergedReferences,
     source: {
       ...(existing.source || {}),
       generation_context_id: input.generationContextId || existing.source?.generation_context_id || null,

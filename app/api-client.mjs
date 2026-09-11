@@ -3,7 +3,43 @@
 // 请求语义/游标/顺序守卫与原先完全一致；请求序号等模块级状态随闭包迁移。
 import { FACET_KEYS, GALLERY_INITIAL_PAGE_SIZE, GALLERY_PAGE_SIZE } from "./config.mjs";
 
+let cachedClientToken;
+
+export function mosaClientToken() {
+  if (cachedClientToken !== undefined) return cachedClientToken;
+  cachedClientToken = "";
+  if (typeof window === "undefined") return cachedClientToken;
+  try {
+    const params = new URLSearchParams(String(window.location.hash || "").replace(/^#/, ""));
+    const fragmentToken = String(params.get("mosa-client-token") || "").trim();
+    const storedToken = String(window.sessionStorage?.getItem?.("mosa.client-token") || "").trim();
+    cachedClientToken = fragmentToken || storedToken;
+    if (fragmentToken) {
+      window.sessionStorage?.setItem?.("mosa.client-token", fragmentToken);
+      params.delete("mosa-client-token");
+      const suffix = params.toString();
+      window.history?.replaceState?.(null, "", `${window.location.pathname}${window.location.search}${suffix ? `#${suffix}` : ""}`);
+    }
+  } catch {
+    cachedClientToken = "";
+  }
+  return cachedClientToken;
+}
+
+export function mosaMutationHeaders(method = "POST") {
+  const verb = String(method || "GET").toUpperCase();
+  if (verb === "GET" || verb === "HEAD" || verb === "OPTIONS") return {};
+  const token = mosaClientToken();
+  return token ? { "x-mosa-client-token": token } : {};
+}
+
 export function createApiClient(deps) {
+  // Consume the one-time bootstrap capability as soon as the client is
+  // constructed. Keeping it in the URL fragment until the first mutation
+  // leaves the capability unnecessarily visible for the lifetime of a
+  // read-only browsing session. mosaClientToken() persists it to
+  // sessionStorage and removes only its own fragment key.
+  mosaClientToken();
   const {
     state,
     els,
@@ -22,9 +58,15 @@ export function createApiClient(deps) {
   } = deps;
 
   async function apiFetch(path, options = {}) {
+    const method = options.method || "GET";
+    const headers = {
+      ...(options.body ? { "content-type": "application/json" } : {}),
+      ...mosaMutationHeaders(method),
+      ...(options.headers || {}),
+    };
     const response = await fetch(path, {
-      method: options.method || "GET",
-      headers: options.body ? { "content-type": "application/json" } : undefined,
+      method,
+      headers: Object.keys(headers).length ? headers : undefined,
       body: options.body ? JSON.stringify(options.body) : undefined,
       signal: options.signal,
     });
@@ -87,13 +129,29 @@ export function createApiClient(deps) {
 
   function navigationStateFromPayload(result = {}) {
     const rawGroups = result.navigation || {};
+    const groups = (Array.isArray(rawGroups.groups) ? rawGroups.groups : []).map((entry, index) => {
+      if (Array.isArray(entry)) {
+        return {
+          name: String(entry[0] || ""),
+          count: Number(entry[1] || 0),
+          color: "",
+          position: index,
+        };
+      }
+      return {
+        name: String(entry?.name || ""),
+        count: Number(entry?.count || 0),
+        color: String(entry?.color || ""),
+        position: Number(entry?.position ?? index),
+      };
+    }).filter((entry) => entry.name);
     return {
       total: Number(rawGroups.total || 0),
       favorites: Number(rawGroups.favorites || 0),
       unorganized: Number(rawGroups.unorganized || 0),
       trash: Number(rawGroups.trash || 0),
       sourceTypes: Array.isArray(rawGroups.sourceTypes) ? rawGroups.sourceTypes : [],
-      groups: Array.isArray(rawGroups.groups) ? rawGroups.groups : [],
+      groups,
     };
   }
 
@@ -105,6 +163,10 @@ export function createApiClient(deps) {
   async function switchProjectWorkspace(project, options = {}) {
     const projectId = String(project || "").trim();
     if (!projectId || projectId === state.project) return true;
+    assetRequestController?.abort();
+    assetRequestController = null;
+    assetRequestSequence += 1;
+    setGalleryBusy(false);
     const request = {
       project: projectId,
       query: "",
@@ -165,6 +227,7 @@ export function createApiClient(deps) {
   }
 
   let assetRequestSequence = 0;
+  let assetRequestController = null;
   let assetPrefetchGeneration = 0;
   const assetPrefetchTasks = new Map();
   const prefetchedAssetPages = new Map();
@@ -305,6 +368,9 @@ export function createApiClient(deps) {
   }
 
   async function loadAssets(options = {}) {
+    assetRequestController?.abort();
+    const controller = new AbortController();
+    assetRequestController = controller;
     const requestId = ++assetRequestSequence;
     const request = currentAssetRequest();
     const requestKey = assetRequestKey(request);
@@ -328,6 +394,7 @@ export function createApiClient(deps) {
           cursor: appendCursor,
           includeTotal: !options.append,
           limit: options.append ? GALLERY_PAGE_SIZE : GALLERY_INITIAL_PAGE_SIZE,
+          signal: controller.signal,
         });
       }
     } catch (error) {
@@ -464,6 +531,9 @@ export function createApiClient(deps) {
   }
 
   async function performFullGalleryReconciliation(options = {}) {
+    assetRequestController?.abort();
+    const controller = new AbortController();
+    assetRequestController = controller;
     const requestId = ++assetRequestSequence;
     const request = currentAssetRequest();
     const requestKey = assetRequestKey(request);
@@ -494,7 +564,12 @@ export function createApiClient(deps) {
     let cursor = null;
     try {
       for (let page = 0; page < pageCount; page += 1) {
-        if (!result) result = await requestAssetPage(request, { cursor, limit: RELOAD_PAGE_LIMIT, includeTotal: page === 0 ? undefined : false });
+        if (!result) result = await requestAssetPage(request, {
+          cursor,
+          limit: RELOAD_PAGE_LIMIT,
+          includeTotal: page === 0 ? undefined : false,
+          signal: controller.signal,
+        });
         if (!isCurrentAssetRequest(requestId, request)) return false;
         pages.push(result);
         const nextCursor = result.page?.nextCursor || null;

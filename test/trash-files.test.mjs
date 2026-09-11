@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -35,4 +35,21 @@ test("committed permanent deletion is swept instead of restored", async (t) => {
   const recovered = await cleanupPermanentDeletionStaging(root);
   assert.deepEqual(recovered, { removed: 0, restored: 0, failed: 0 });
   await assert.rejects(readFile(source, "utf8"), /ENOENT/);
+});
+
+test("permanent deletion rejects lexical and symlink-resolved paths outside the project", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-trash-boundary-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const project = join(root, "project");
+  const outside = join(root, "outside");
+  await mkdir(project);
+  await mkdir(outside);
+  const outsideFile = join(outside, "keep.png");
+  await writeFile(outsideFile, "keep-me");
+
+  await assert.rejects(stageFilesForPermanentDeletion(project, [outsideFile]), /outside the project directory/);
+  const escape = join(project, "escape");
+  await symlink(outside, escape, "dir");
+  await assert.rejects(stageFilesForPermanentDeletion(project, [join(escape, "keep.png")]), /symlink-resolved file outside/);
+  assert.equal(await readFile(outsideFile, "utf8"), "keep-me");
 });

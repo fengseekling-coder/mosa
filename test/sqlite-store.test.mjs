@@ -826,6 +826,55 @@ test("SQLite schema v5 upgrades suppression identity to include pixel hash versi
   assert.equal(schemaVersion, String(CURRENT_SCHEMA_VERSION));
 });
 
+test("SQLite suppression migration recovers an interrupted legacy-table rebuild", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-schema-suppression-recovery-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const projectRoot = join(root, "project");
+  const libraryDir = join(root, "library");
+  const databasePath = join(libraryDir, "mosa.db");
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir });
+  await store.recordAutomaticIngestSuppression("default", {
+    pixel_sha256: "e".repeat(64),
+    pixel_hash_version: "recovery-v1",
+    deleted_at: "2026-09-01T00:00:00.000Z",
+  });
+  store.close();
+
+  const interrupted = new Database(databasePath);
+  interrupted.exec(`
+    DROP INDEX automatic_suppressions_project_content_idx;
+    DROP INDEX automatic_suppressions_project_pixel_idx;
+    DROP INDEX automatic_suppressions_project_deleted_idx;
+    ALTER TABLE automatic_ingest_suppressions RENAME TO automatic_ingest_suppressions_legacy;
+    CREATE TABLE automatic_ingest_suppressions (
+      project_id TEXT NOT NULL,
+      content_sha256 TEXT NOT NULL DEFAULT '',
+      pixel_sha256 TEXT NOT NULL DEFAULT '',
+      pixel_hash_version TEXT NOT NULL DEFAULT '',
+      deleted_at TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT 'user-deleted',
+      PRIMARY KEY (project_id, content_sha256, pixel_sha256, pixel_hash_version),
+      CHECK (content_sha256 != '' OR pixel_sha256 != '')
+    );
+  `);
+  interrupted.close();
+
+  createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir }).close();
+  const recovered = new Database(databasePath, { readonly: true });
+  const suppression = recovered.prepare("SELECT pixel_sha256, pixel_hash_version FROM automatic_ingest_suppressions").get();
+  const legacyTable = recovered.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'automatic_ingest_suppressions_legacy'").get();
+  const indexes = recovered.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'automatic_suppressions_project_%' ORDER BY name").all().map((row) => row.name);
+  recovered.close();
+
+  assert.deepEqual(suppression, { pixel_sha256: "e".repeat(64), pixel_hash_version: "recovery-v1" });
+  assert.equal(legacyTable, undefined);
+  assert.deepEqual(indexes, [
+    "automatic_suppressions_project_content_idx",
+    "automatic_suppressions_project_deleted_idx",
+    "automatic_suppressions_project_pixel_idx",
+  ]);
+});
+
 test("SQLite schema v7 backfills conversation and generation-batch scalars", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-schema-v7-query-scalars-"));
   deferTestPathRemoval(root, { recursive: true, force: true });

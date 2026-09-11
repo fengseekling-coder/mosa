@@ -9,6 +9,7 @@ import {
   normalizeMosaPort,
 } from "../lib/runtime-defaults.mjs";
 import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
+import { verifyMosaRuntimeLockProcessIdentity } from "../lib/runtime-lock.js";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PROBE_TIMEOUT_MS = 1500;
@@ -123,7 +124,7 @@ export async function startMosaService(options = {}) {
     const initial = await probeMosaService(probeOptions);
     if (initial.state === "attached") {
       const identityConflict = serviceIdentityConflict(initial, options.expectedIdentity);
-      if (!identityConflict) return attachedService(initial);
+      if (!identityConflict) return attachedService(initial, options.clientToken);
       lastConflict = identityConflict;
       identityMismatch = identityConflict;
       continue;
@@ -148,8 +149,10 @@ export async function startMosaService(options = {}) {
   if (identityMismatch) {
     const olderUpgradeAllowed = options.allowStaleServiceUpgrade === true
       && identityMismatch.upgradeEligible === true;
-    const sameVersionReplacementAllowed = options.allowSameVersionServiceReplacement === true
-      && identityMismatch.sameVersionReplacementEligible === true;
+    const authOnlyMismatch = identityMismatch.mismatches.length > 0
+      && identityMismatch.mismatches.every((item) => item.field === "clientAuthFingerprint");
+    const sameVersionReplacementAllowed = identityMismatch.sameVersionReplacementEligible === true
+      && (options.allowSameVersionServiceReplacement === true || (authOnlyMismatch && Boolean(options.clientToken)));
     if ((olderUpgradeAllowed || sameVersionReplacementAllowed)
       && hasCompleteServiceIdentity(identityMismatch.expectedIdentity)) {
       const upgradeService = options.upgradeService || retireOlderMosaService;
@@ -168,6 +171,7 @@ export async function startMosaService(options = {}) {
         try {
           const runtime = await (options.startRuntime || startMosaRuntime)({
             ...(options.runtimeOptions || {}),
+            clientToken: options.clientToken || options.runtimeOptions?.clientToken,
             port: identityMismatch.service.port,
             libraryDir,
             isolationContext: options.isolationContext,
@@ -184,7 +188,7 @@ export async function startMosaService(options = {}) {
           });
           if (retry.state === "attached") {
             const retryConflict = serviceIdentityConflict(retry, options.expectedIdentity);
-            if (!retryConflict) return attachedService(retry);
+            if (!retryConflict) return attachedService(retry, options.clientToken);
             throw retryConflict;
           }
           if (retry.state === "conflict") throw retry.error;
@@ -207,6 +211,7 @@ export async function startMosaService(options = {}) {
     try {
       const runtime = await (options.startRuntime || startMosaRuntime)({
         ...(options.runtimeOptions || {}),
+        clientToken: options.clientToken || options.runtimeOptions?.clientToken,
         port: candidatePort,
         libraryDir,
         isolationContext: options.isolationContext,
@@ -217,7 +222,7 @@ export async function startMosaService(options = {}) {
       const retry = await probeMosaService(probeOptions);
       if (retry.state === "attached") {
         const identityConflict = serviceIdentityConflict(retry, options.expectedIdentity);
-        if (!identityConflict) return attachedService(retry);
+        if (!identityConflict) return attachedService(retry, options.clientToken);
         lastConflict = identityConflict;
         continue;
       }
@@ -281,6 +286,7 @@ export async function probeMosaService(options = {}) {
       gitSha: typeof health.gitSha === "string" ? health.gitSha : "unknown",
       uiFingerprint: typeof health.uiFingerprint === "string" ? health.uiFingerprint : "unknown",
       runtimeFingerprint: typeof health.runtimeFingerprint === "string" ? health.runtimeFingerprint : "unknown",
+      clientAuthFingerprint: typeof health.clientAuthFingerprint === "string" ? health.clientAuthFingerprint : "unknown",
     };
   } catch (error) {
     if (isConnectionRefused(error)) return { state: "unavailable" };
@@ -324,6 +330,8 @@ export async function retireOlderMosaService(conflict, options = {}) {
 
   const isProcessAlive = options.isProcessAlive || defaultIsProcessAlive;
   if (!isProcessAlive(owner.pid)) return false;
+  const verifyProcessIdentity = options.verifyProcessIdentity || verifyMosaRuntimeLockProcessIdentity;
+  if (await verifyProcessIdentity(owner) === false) return false;
   const terminateProcess = options.terminateProcess || ((pid) => process.kill(pid, "SIGTERM"));
   try {
     terminateProcess(owner.pid);
@@ -382,7 +390,7 @@ async function probeLegacyMosaIdentity({ url, fetchImpl, signal }) {
   };
 }
 
-function attachedService(details) {
+function attachedService(details, clientToken = "") {
   return {
     mode: "attached",
     url: details.url,
@@ -393,6 +401,7 @@ function attachedService(details) {
     gitSha: details.gitSha || "unknown",
     uiFingerprint: details.uiFingerprint || "unknown",
     runtimeFingerprint: details.runtimeFingerprint || "unknown",
+    clientToken,
     stop: async () => {},
   };
 }
@@ -409,6 +418,7 @@ function ownedService(runtime) {
     gitSha: runtime.gitSha,
     uiFingerprint: runtime.uiFingerprint,
     runtimeFingerprint: runtime.runtimeFingerprint,
+    clientToken: runtime.clientToken,
     stop() {
       if (!stopPromise) stopPromise = runtime.stop();
       return stopPromise;
@@ -422,7 +432,7 @@ function conflict(message, cause, { retryable = false } = {}) {
 
 function serviceIdentityConflict(details, expectedIdentity) {
   if (!expectedIdentity || typeof expectedIdentity !== "object") return null;
-  const fields = ["serviceProtocolVersion", "productVersion", "gitSha", "uiFingerprint", "runtimeFingerprint"];
+  const fields = ["serviceProtocolVersion", "productVersion", "gitSha", "uiFingerprint", "runtimeFingerprint", "clientAuthFingerprint"];
   const mismatches = [];
   for (const field of fields) {
     const expected = normalizedIdentityValue(expectedIdentity[field]);
@@ -504,7 +514,12 @@ async function readRuntimeLockOwner(lockPath, readFileImpl) {
   try {
     const parsed = JSON.parse(await readFileImpl(lockPath, "utf8"));
     if (typeof parsed?.token !== "string" || !parsed.token || !Number.isInteger(parsed?.pid) || parsed.pid <= 0) return null;
-    return { token: parsed.token, pid: parsed.pid };
+    if (parsed.processIdentity != null && typeof parsed.processIdentity !== "string") return null;
+    return {
+      token: parsed.token,
+      pid: parsed.pid,
+      ...(parsed.processIdentity ? { processIdentity: parsed.processIdentity } : {}),
+    };
   } catch {
     return null;
   }

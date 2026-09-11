@@ -397,7 +397,9 @@ test("keeps the desktop window single-instance and sandboxed", async () => {
   assert.doesNotMatch(source, /homedir\(\).*MOSA Library/);
   assert.match(source, /failOnPrimaryLibraryMismatch: true/);
   assert.match(source, /cowartProjectDir: desktopDataDir/);
-  assert.match(source, /loadURL\(service\.url\)/);
+  assert.match(source, /const clientUrl = new URL\(service\.url\)/);
+  assert.match(source, /clientUrl\.hash = `mosa-client-token=/);
+  assert.match(source, /loadURL\(clientUrl\.toString\(\)\)/);
   assert.doesNotMatch(source, /loadFile\(/);
   assert.match(source, /app\.on\("before-quit"/);
   assert.match(source, /service\?\.mode === "owned"/);
@@ -425,10 +427,18 @@ test("keeps the desktop window single-instance and sandboxed", async () => {
 
 test("packaged smoke waits for the real renderer and tears Electron down before cleanup", async () => {
   const source = await readFile(resolve(import.meta.dirname, "..", "scripts", "packaged-smoke.mjs"), "utf8");
+  const apiClientSource = await readFile(resolve(import.meta.dirname, "..", "app", "api-client.mjs"), "utf8");
   assert.match(source, /--remote-debugging-port=/, "packaged smoke must inspect the packaged renderer");
   assert.match(source, /waitForRenderer\(/, "packaged smoke must wait for renderer readiness");
   assert.match(source, /document\.querySelector\('#appShell'\)/, "renderer readiness must require the real MOSA app shell");
   assert.match(source, /window\.electronAPI/, "renderer readiness must verify preload exposure");
+  assert.match(source, /sessionStorage.*mosa\.client-token/, "packaged smoke must reuse the real renderer client capability");
+  assert.match(source, /"x-mosa-client-token": clientToken/, "packaged smoke mutations must authenticate with that capability");
+  const clientFactoryStart = apiClientSource.indexOf("export function createApiClient(deps)");
+  const bootstrapConsume = apiClientSource.indexOf("mosaClientToken();", clientFactoryStart);
+  const apiFetchStart = apiClientSource.indexOf("async function apiFetch", clientFactoryStart);
+  assert.ok(clientFactoryStart >= 0 && bootstrapConsume > clientFactoryStart && bootstrapConsume < apiFetchStart,
+    "API client construction must consume the bootstrap capability before request handling begins");
   assert.match(source, /await stopChild\(.*\.child\)/, "cleanup must wait for Electron teardown");
   assert.match(source, /signalProcessTree\(childProcess\.pid, \{ force: true \}\)/, "teardown must have a bounded process-tree hard-stop fallback");
 });

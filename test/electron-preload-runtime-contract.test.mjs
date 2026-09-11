@@ -54,7 +54,10 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(main, /const preloadPath = fileURLToPath\(new URL\("\.\/preload\.cjs", import\.meta\.url\)\);/);
   assert.match(main, /preload: preloadPath/);
   assert.match(main, /webContents\.once\("preload-error"/);
-  assert.match(main, /webContents\.once\("render-process-gone"/);
+  assert.match(main, /webContents\.on\("render-process-gone"/);
+  assert.match(main, /rendererRecoveryAttempts > 2/);
+  assert.match(main, /mainWindow\.webContents\.reload\(\)/);
+  assert.match(main, /app\.relaunch\(\)/);
   assert.match(main, /webContents\.on\("console-message"/);
   assert.match(main, /MAX_RENDERER_CONSOLE_ERRORS = 32/);
   assert.doesNotMatch(main, /process\.cwd\(\)|join\(__dirname/);
@@ -170,14 +173,16 @@ async function waitForPort(port, child, getOutput, timeout = 20_000) {
   throw new Error(`Electron did not expose CDP before exit=${child.exitCode}\n${getOutput()}`);
 }
 
-async function waitForPageTarget(port, child, getOutput) {
+async function waitForPageTarget(port, child, getOutput, expectedOrigin = "") {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) break;
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/list`);
       const targets = await response.json();
-      const page = targets.find((target) => target.type === "page" && target.webSocketDebuggerUrl);
+      const page = targets.find((target) => target.type === "page"
+        && target.webSocketDebuggerUrl
+        && (!expectedOrigin || String(target.url || "").startsWith(expectedOrigin)));
       if (page) return page;
     } catch {}
     await wait(100);
@@ -297,7 +302,8 @@ test("real Electron preload smoke (opt-in)", { skip: process.env.MOSA_ELECTRON_P
 
   const output = () => `stdout:\n${stdout.slice(-4000)}\nstderr:\n${stderr.slice(-4000)}`;
   await waitForPort(cdpPort, child, output);
-  const target = await waitForPageTarget(cdpPort, child, output);
+  const expectedOrigin = `http://127.0.0.1:${desktopPort}`;
+  const target = await waitForPageTarget(cdpPort, child, output, expectedOrigin);
   const client = await createCdpClient(target.webSocketDebuggerUrl);
   t.after(() => client.close());
   const rendererIssues = [];
@@ -306,16 +312,28 @@ test("real Electron preload smoke (opt-in)", { skip: process.env.MOSA_ELECTRON_P
   });
   client.on("Runtime.exceptionThrown", (params) => rendererIssues.push(params));
   await client.send("Runtime.enable");
-  await wait(500);
-
-  const state = JSON.parse(await evaluate(client, `JSON.stringify({
-    href: location.href,
-    hasElectronAPI: Boolean(window.electronAPI),
-    keys: window.electronAPI ? Object.keys(window.electronAPI).sort() : [],
-    functionKeys: window.electronAPI ? Object.keys(window.electronAPI).filter((key) => typeof window.electronAPI[key] === "function").sort() : [],
-    finderButtons: document.querySelectorAll('[data-action="show-in-finder"]').length,
-    webLinks: document.querySelectorAll('a.original-media-link').length,
-  })`));
+  const state = JSON.parse(await waitForRendererValue(client, `(() => {
+    let clientToken = '';
+    try { clientToken = String(window.sessionStorage?.getItem?.('mosa.client-token') || ''); } catch {}
+    return JSON.stringify({
+      href: location.href,
+      hasElectronAPI: Boolean(window.electronAPI),
+      keys: window.electronAPI ? Object.keys(window.electronAPI).sort() : [],
+      functionKeys: window.electronAPI ? Object.keys(window.electronAPI).filter((key) => typeof window.electronAPI[key] === "function").sort() : [],
+      finderButtons: document.querySelectorAll('[data-action="show-in-finder"]').length,
+      webLinks: document.querySelectorAll('a.original-media-link').length,
+      clientToken,
+    });
+  })()`, (value) => {
+    try {
+      const ready = JSON.parse(value);
+      return String(ready.href || "").startsWith(expectedOrigin)
+        && ready.hasElectronAPI === true
+        && Boolean(ready.clientToken);
+    } catch {
+      return false;
+    }
+  }, 20_000));
   assert.match(state.href, /^http:\/\/127\.0\.0\.1:/, "the real app URL finished loading");
   assert.equal(state.hasElectronAPI, true);
   assert.deepEqual(state.keys, EXPECTED_API_KEYS);
@@ -327,9 +345,16 @@ test("real Electron preload smoke (opt-in)", { skip: process.env.MOSA_ELECTRON_P
   assert.equal(preloadIssues.length, 0, JSON.stringify(rendererIssues));
 
   const origin = new URL(state.href).origin;
+  assert.equal(new URL(state.href).hash.includes("mosa-client-token="), false,
+    "the desktop renderer consumes the runtime capability out of the visible URL fragment");
+  const clientToken = state.clientToken;
+  assert.ok(clientToken, "the desktop renderer retains the runtime client capability in session storage");
   const createResponse = await fetch(`${origin}/api/assets/create`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "x-mosa-client-token": clientToken,
+    },
     body: JSON.stringify({ projectId: "default", imagePath: fixturePath, prompt: "preload smoke fixture" }),
   });
   assert.equal(createResponse.status, 200, await createResponse.text());

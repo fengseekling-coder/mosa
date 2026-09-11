@@ -32,7 +32,8 @@ try {
   const renderer = await waitForRenderer(activeLaunch.origin, activeLaunch.cdpPort, activeLaunch.child);
   if (!renderer.appShell) throw new Error("Packaged renderer did not mount the MOSA app shell.");
   if (!renderer.preload) throw new Error("Packaged renderer did not expose the Electron preload API.");
-  const importedAssetId = await verifyPackagedImport(activeLaunch.origin);
+  if (!renderer.clientToken) throw new Error("Packaged renderer did not retain the MOSA client capability.");
+  const importedAssetId = await verifyPackagedImport(activeLaunch.origin, renderer.clientToken);
 
   await stopChild(activeLaunch.child);
   activeLaunch = null;
@@ -97,18 +98,22 @@ function assertPackagedHealth(health, { libraryDir: isolatedLibraryDir, expected
   }
 }
 
-async function verifyPackagedImport(origin) {
+async function verifyPackagedImport(origin, clientToken) {
   const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+1CBR3wAAAABJRU5ErkJggg==", "base64");
   const stageResponse = await fetch(`${origin}/api/import/stage`, {
     method: "POST",
-    headers: { "content-type": "image/png", "x-mosa-file-name": encodeURIComponent("packaged-smoke.png") },
+    headers: {
+      "content-type": "image/png",
+      "x-mosa-file-name": encodeURIComponent("packaged-smoke.png"),
+      "x-mosa-client-token": clientToken,
+    },
     body: bytes,
   });
   if (!stageResponse.ok) throw new Error(`Packaged import staging failed (${stageResponse.status}).`);
   const staged = await stageResponse.json();
   const createResponse = await fetch(`${origin}/api/assets/create`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "x-mosa-client-token": clientToken },
     body: JSON.stringify({ projectId: "default", imagePath: staged.path, prompt: "packaged smoke import" }),
   });
   if (!createResponse.ok) throw new Error(`Packaged asset creation failed (${createResponse.status}).`);
@@ -185,9 +190,10 @@ async function waitForRenderer(expectedOrigin, cdpPort, childProcess) {
         href: location.href,
         readyState: document.readyState,
         appShell: Boolean(document.querySelector('#appShell')),
-        preload: Boolean(window.electronAPI && typeof window.electronAPI.writeClipboardText === 'function')
+        preload: Boolean(window.electronAPI && typeof window.electronAPI.writeClipboardText === 'function'),
+        clientToken: String(window.sessionStorage?.getItem?.('mosa.client-token') || '')
       })`);
-      if (result?.appShell && result?.preload && result.readyState !== "loading") return result;
+      if (result?.appShell && result?.preload && result?.clientToken && result.readyState !== "loading") return result;
     } catch {
       // The renderer and CDP endpoint become available a little after the
       // runtime health endpoint. Keep polling until both are genuinely ready.

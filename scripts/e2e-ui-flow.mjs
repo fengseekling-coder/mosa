@@ -5,6 +5,9 @@ export function createCriticalUiFlowSource({ mode, fixturePath, searchTerm, reci
   const config = ${config};
   const editedPrompt = config.searchTerm + ' / ' + config.recipeChange;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const rendererErrors = [];
+  window.addEventListener('error', (event) => rendererErrors.push(String(event.error?.stack || event.message || event.error || 'renderer error')));
+  window.addEventListener('unhandledrejection', (event) => rendererErrors.push(String(event.reason?.stack || event.reason || 'unhandled rejection')));
   async function waitFor(check, label, timeoutMs = 15000) {
     const deadline = Date.now() + timeoutMs;
     let lastError = null;
@@ -61,11 +64,26 @@ export function createCriticalUiFlowSource({ mode, fixturePath, searchTerm, reci
   }
   async function openNewestResult() {
     const card = await waitFor(() => document.querySelector('.asset-card .asset-card-select'), 'asset card');
+    const assetId = card.closest('.asset-card')?.dataset.id;
+    if (!assetId) throw new Error('Asset card is missing its id');
+    const selectionTrace = [];
     card.click();
-    await waitFor(
-      () => document.querySelector('#detailPanel')?.getAttribute('aria-hidden') === 'false',
-      'detail inspector',
-    );
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const selected = document.querySelector('.asset-card.selected');
+      const favorite = document.querySelector('[data-action="toggle-favorite"]');
+      const sample = {
+        cardConnected: card.isConnected,
+        selectedId: selected?.dataset.id || '',
+        favorite: Boolean(favorite),
+      };
+      const previous = selectionTrace.at(-1);
+      if (!previous || JSON.stringify(previous) !== JSON.stringify(sample)) selectionTrace.push(sample);
+      if (sample.selectedId === assetId && sample.favorite) return;
+      await sleep(20);
+    }
+    throw new Error('Timed out waiting for selected asset inspector trace=' + JSON.stringify(selectionTrace)
+      + ' rendererErrors=' + JSON.stringify(rendererErrors));
   }
 
   await waitFor(

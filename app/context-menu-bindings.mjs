@@ -28,15 +28,15 @@ export function bindContextMenuEvents(options = {}) {
     event.preventDefault();
 
     const groupName = groupItem.dataset.value;
-    const groupEntry = state.groups.groups.find((entry) => entry[0] === groupName);
+    const groupEntry = (Array.isArray(state.groups.groups) ? state.groups.groups : [])
+      .find((entry) => entry.name === groupName);
     if (!groupEntry) return;
 
-    // Convert array format [name, count] to object format for menu actions
     const group = {
       id: groupName,
       name: groupName,
-      count: groupEntry[1],
-      color: groupItem.querySelector("[data-group-color]")?.dataset.groupColor || "#6366f1"
+      count: groupEntry.count,
+      color: groupItem.querySelector("[data-group-color]")?.dataset.groupColor || groupEntry.color || "#6366f1"
     };
 
     contextMenu.show({

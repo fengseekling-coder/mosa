@@ -1,9 +1,11 @@
-import { mkdir } from "node:fs/promises";
-import { dirname, extname } from "node:path";
-import sharp from "./sharp-runtime.js";
+import { fork } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { extname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const DEFAULT_CONCURRENCY = 2;
 const VIDEO_EXTENSIONS = new Set([".m4v", ".mov", ".mp4", ".webm"]);
+const DERIVATIVE_PROCESSOR_PATH = fileURLToPath(new URL("./derivative-processor.js", import.meta.url));
 
 interface DerivativeJob {
   project_id?: string;
@@ -29,17 +31,189 @@ interface DerivativeWorker {
   readonly active: number;
 }
 
+interface DerivativeProcessorResult extends Record<string, unknown> {
+  previewPath: string;
+  mediumPath: string;
+  thumbnailPath: string;
+  width: number;
+  height: number;
+  processorPid: number;
+}
+
+interface DerivativeProcessor {
+  process(job: DerivativeJob): Promise<DerivativeProcessorResult>;
+  close(): Promise<void>;
+  readonly pid: number | null;
+}
+
+interface ProcessorTransport {
+  readonly pid: number | null;
+  send(message: Record<string, unknown>): void;
+  kill(): void;
+  onMessage(listener: (message: unknown) => void): void;
+  onExit(listener: (code: number | null, signal?: string | null) => void): void;
+  onError(listener: (error: unknown) => void): void;
+}
+
+async function createProcessorTransport(): Promise<ProcessorTransport> {
+  const runtimeProcess = process as NodeJS.Process & { type?: string };
+  if (process.versions.electron && runtimeProcess.type === "browser") {
+    const { utilityProcess } = await import("electron");
+    const child = utilityProcess.fork(DERIVATIVE_PROCESSOR_PATH, [], {
+      stdio: "ignore",
+      serviceName: "MOSA Image Processor",
+    });
+    return {
+      get pid() { return child.pid || null; },
+      send(message) { child.postMessage(message); },
+      kill() { child.kill(); },
+      onMessage(listener) { child.on("message", listener); },
+      onExit(listener) { child.once("exit", (code) => listener(code, null)); },
+      onError(listener) { child.on("error", listener); },
+    };
+  }
+
+  const child = fork(DERIVATIVE_PROCESSOR_PATH, [], {
+    stdio: ["ignore", "ignore", "ignore", "ipc"],
+  });
+  return {
+    get pid() { return child.pid || null; },
+    send(message) {
+      if (!child.connected) throw new Error("Derivative processor IPC channel is closed.");
+      child.send(message);
+    },
+    kill() { child.kill(); },
+    onMessage(listener) { child.on("message", listener); },
+    onExit(listener) { child.once("exit", listener); },
+    onError(listener) { child.on("error", listener); },
+  };
+}
+
+export function createDerivativeProcessor(): DerivativeProcessor {
+  let transport: ProcessorTransport | null = null;
+  let starting: Promise<ProcessorTransport> | null = null;
+  let generation = 0;
+  const pending = new Map<string, {
+    resolve: (result: DerivativeProcessorResult) => void;
+    reject: (error: Error) => void;
+  }>();
+
+  function rejectPending(error: Error) {
+    const requests = [...pending.values()];
+    pending.clear();
+    for (const request of requests) request.reject(error);
+  }
+
+  function bindTransport(next: ProcessorTransport, boundGeneration: number) {
+    next.onMessage((message) => {
+      if (boundGeneration !== generation || !message || typeof message !== "object" || Array.isArray(message)) return;
+      const response = message as Record<string, unknown>;
+      if (response.type !== "derivative-result" || typeof response.requestId !== "string") return;
+      const request = pending.get(response.requestId);
+      if (!request) return;
+      pending.delete(response.requestId);
+      if (response.ok === true && response.result && typeof response.result === "object") {
+        request.resolve(response.result as DerivativeProcessorResult);
+      } else {
+        request.reject(new Error(String(response.error || "Derivative processor failed.")));
+      }
+    });
+    next.onExit((code, signal) => {
+      if (boundGeneration !== generation) return;
+      transport = null;
+      starting = null;
+      rejectPending(new Error(`Derivative processor exited unexpectedly${code != null ? ` (code ${code})` : signal ? ` (${signal})` : ""}.`));
+    });
+    next.onError((error) => {
+      if (boundGeneration !== generation) return;
+      transport = null;
+      starting = null;
+      rejectPending(new Error(`Derivative processor failed: ${error instanceof Error ? error.message : String(error)}`));
+      try { next.kill(); } catch {}
+    });
+  }
+
+  async function ensureTransport(): Promise<ProcessorTransport> {
+    if (transport) return transport;
+    if (!starting) {
+      const boundGeneration = ++generation;
+      starting = createProcessorTransport().then((next) => {
+        if (boundGeneration !== generation) {
+          try { next.kill(); } catch {}
+          throw new Error("Derivative processor startup was superseded.");
+        }
+        transport = next;
+        bindTransport(next, boundGeneration);
+        return next;
+      }).finally(() => {
+        if (boundGeneration === generation) starting = null;
+      });
+    }
+    return starting;
+  }
+
+  return {
+    async process(job) {
+      const child = await ensureTransport();
+      const requestId = randomUUID();
+      return new Promise<DerivativeProcessorResult>((resolveResult, rejectResult) => {
+        pending.set(requestId, { resolve: resolveResult, reject: rejectResult });
+        try {
+          child.send({
+            type: "process-derivative",
+            requestId,
+            job: {
+              original_path: String(job.original_path || ""),
+              previewPath: job.previewPath,
+              mediumPath: job.mediumPath,
+              thumbnailPath: job.thumbnailPath,
+            },
+          });
+        } catch (error) {
+          pending.delete(requestId);
+          rejectResult(error instanceof Error ? error : new Error(String(error)));
+        }
+      });
+    },
+    async close() {
+      const child = transport || await starting?.catch(() => null) || null;
+      generation += 1;
+      transport = null;
+      starting = null;
+      rejectPending(new Error("Derivative processor was stopped."));
+      if (!child) return;
+      await new Promise<void>((resolveClose) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          resolveClose();
+        };
+        child.onExit(() => finish());
+        try { child.kill(); } catch { finish(); }
+        setTimeout(finish, 1000).unref?.();
+      });
+    },
+    get pid() {
+      return transport?.pid || null;
+    },
+  };
+}
+
 /**
- * Drains SQLite-backed derivative jobs without blocking archive operations.
- * Jobs are durable: a running job becomes eligible again after its lease ages
- * out, so restarting MOSA never loses thumbnail work.
+ * Drains SQLite-backed derivative jobs without loading native image decoders
+ * into the MOSA runtime process. Image decoding lives in a disposable child
+ * process, so a native crash fails the current jobs instead of taking down the
+ * library service.
  */
 export function createDerivativeWorker(options: {
   store?: DerivativeStore;
   concurrency?: number;
   idleDelayMs?: number;
+  processor?: DerivativeProcessor;
 } = {}): DerivativeWorker {
   const store = options.store;
+  const processor = options.processor || createDerivativeProcessor();
   const concurrency = Math.max(1, Math.min(Number(options.concurrency) || DEFAULT_CONCURRENCY, DEFAULT_CONCURRENCY));
   const idleDelayMs = Math.max(250, Number(options.idleDelayMs) || 1000);
   let stopped = true;
@@ -60,7 +234,7 @@ export function createDerivativeWorker(options: {
       const job = await store.claimDerivativeJob();
       if (!job) break;
       active += 1;
-      processDerivativeJob(store, job)
+      processDerivativeJob(store, job, { processor })
         .catch(() => {})
         .finally(() => {
           active -= 1;
@@ -84,8 +258,8 @@ export function createDerivativeWorker(options: {
       stopped = true;
       if (timer) clearTimeout(timer);
       timer = null;
-      if (active === 0) return;
-      await new Promise<void>((resolveStop) => stopWaiters.push(resolveStop));
+      if (active !== 0) await new Promise<void>((resolveStop) => stopWaiters.push(resolveStop));
+      await processor.close();
     },
     wake() {
       if (!stopped) void schedule();
@@ -96,47 +270,42 @@ export function createDerivativeWorker(options: {
   };
 }
 
-export async function processDerivativeJob(store: DerivativeStore, job: DerivativeJob): Promise<Record<string, unknown>> {
+export async function processDerivativeJob(
+  store: DerivativeStore,
+  job: DerivativeJob,
+  options: { processor?: DerivativeProcessor } = {},
+): Promise<Record<string, unknown>> {
+  const processor = options.processor || createDerivativeProcessor();
+  const ownsProcessor = !options.processor;
   const run = async (): Promise<Record<string, unknown>> => {
     const projectId = String(job.project_id || "default");
     const assetId = String(job.asset_id || "");
     if (assetId && store.isAssetActive && !await store.isAssetActive(projectId, assetId)) {
       return { ok: false, skipped: true, error: "Asset is no longer active." };
     }
-    try {
     if (VIDEO_EXTENSIONS.has(extname(String(job.original_path || "")).toLowerCase())) {
       const error = "Video assets are served as original media; derivative generation is skipped.";
       await store.completeDerivativeJob(job, { error });
       return { ok: false, error, skipped: true };
     }
-    await Promise.all([
-      mkdir(dirname(job.previewPath), { recursive: true }),
-      mkdir(dirname(job.mediumPath), { recursive: true }),
-      mkdir(dirname(job.thumbnailPath), { recursive: true }),
-    ]);
-    const metadata = await sharp(String(job.original_path), { animated: false }).metadata();
-    const orientation = Number(metadata.orientation) || 1;
-    const swapsAxes = orientation >= 5 && orientation <= 8;
-    const width = swapsAxes ? Number(metadata.height) : Number(metadata.width);
-    const height = swapsAxes ? Number(metadata.width) : Number(metadata.height);
-    // Keep per-job image work serial. With the worker concurrency at two, the
-    // previous Promise.all could fan out to six simultaneous libvips encode
-    // pipelines during burst ingestion and contend directly with Chromium for
-    // CPU. Thumbnail first improves perceived readiness without CPU spikes.
-    await sharp(String(job.original_path), { animated: false }).rotate().resize({ width: 400, height: 400, fit: "inside", withoutEnlargement: true }).webp({ quality: 78 }).toFile(job.thumbnailPath);
-    await sharp(String(job.original_path), { animated: false }).rotate().resize({ width: 960, height: 960, fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toFile(job.mediumPath);
-    await sharp(String(job.original_path), { animated: false }).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).webp({ quality: 84 }).toFile(job.previewPath);
-    const result = { previewPath: job.previewPath, mediumPath: job.mediumPath, thumbnailPath: job.thumbnailPath, width, height };
+    let result: DerivativeProcessorResult;
+    try {
+      result = await processor.process(job);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await store.completeDerivativeJob(job, { error: message });
+      return { ok: false, error: message };
+    }
     await store.completeDerivativeJob(job, result);
     return { ok: true, ...result };
-    } catch (error) {
-      await store.completeDerivativeJob(job, { error: error instanceof Error ? error.message : String(error) });
-      return { ok: false, error };
-    }
   };
   const projectId = String(job.project_id || "default");
   const assetId = String(job.asset_id || "");
-  return assetId && store.withAssetLifecycleLock
-    ? store.withAssetLifecycleLock(projectId, assetId, run)
-    : run();
+  try {
+    return await (assetId && store.withAssetLifecycleLock
+      ? store.withAssetLifecycleLock(projectId, assetId, run)
+      : run());
+  } finally {
+    if (ownsProcessor) await processor.close();
+  }
 }

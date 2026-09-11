@@ -260,8 +260,11 @@ test("desktop main.mjs derives the app root from its own module location, not ap
   assert.ok(!source.includes("app.getAppPath()"), "must not use app.getAppPath()");
   assert.ok(!source.includes("process.cwd()"), "must not use process.cwd()");
   assert.ok(!source.includes('appDir: join(appPath, "app")'), "must not join appPath with app");
-  // 原有契约不变：loadURL(service.url)、preload、sandbox 与导航限制。
-  assert.ok(source.includes("loadURL(service.url)"), "must keep loadURL(service.url)");
+  // Renderer still loads the verified loopback service. The management
+  // capability travels only in the URL fragment, which HTTP never receives.
+  assert.ok(source.includes("const clientUrl = new URL(service.url)"), "must derive the renderer URL from service.url");
+  assert.ok(source.includes("mosa-client-token="), "must deliver the management capability through the fragment");
+  assert.ok(source.includes("loadURL(clientUrl.toString())"), "must load the capability-bearing loopback URL");
   assert.ok(!source.includes("loadFile("), "must not use loadFile");
   assert.ok(source.includes("preload: preloadPath"), "must keep the preload path");
   assert.ok(source.includes("sandbox: true"), "must keep the sandboxed renderer");
