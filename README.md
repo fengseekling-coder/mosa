@@ -121,6 +121,7 @@ See [PRIVACY.md](PRIVACY.md) for the full data boundary and [SECURITY.md](SECURI
 - [Contributing guide](CONTRIBUTING.md): development workflow, checks, and privacy requirements.
 - [Support guide](SUPPORT.md): questions, bug reports, and feature requests.
 - [Changelog](CHANGELOG.md): user-visible changes and release status.
+- [Third-party notices](THIRD_PARTY_NOTICES.md): upstream projects that materially informed MOSA's design or implementation.
 
 ## License
 
@@ -131,3 +132,5 @@ MOSA is source-available under the [PolyForm Noncommercial License 1.0.0](LICENS
 - Redistributions must preserve the license terms and required copyright notice.
 
 MOSA is source-available software, not OSI-approved open-source software.
+
+Third-party attribution is documented separately in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and does not change MOSA's own license terms.

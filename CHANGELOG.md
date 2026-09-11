@@ -4,7 +4,9 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
-- No user-visible changes recorded yet.
+### Documentation and attribution
+
+- Added a durable third-party notice crediting APSAL Open `v0.14.0` as a design influence on MOSA's recipe snapshot model, while explicitly separating that attribution from MOSA's own PolyForm Noncommercial licensing.
 
 ## 0.2.1-rc.6 — 2026-09-10 / Release Candidate
 
