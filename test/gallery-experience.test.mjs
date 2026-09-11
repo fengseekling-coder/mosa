@@ -173,7 +173,10 @@ test("offers a stable image-only / with-info density switch", async () => {
   assert.match(app, /class="asset-card-title"/);
   assert.match(app, /class="asset-card-meta"/);
   assert.match(app, /class="asset-card-badge"/);
-  assert.match(app, /versionIndex > 1 \? t\("versionLabelShort", \{ number: versionIndex \}\) : \(asset\.group \|\| ""\)/);
+  // Version and group badges coexist instead of the group being shadowed by
+  // the version label.
+  assert.match(app, /versionIndex > 1 \? t\("versionLabelShort", \{ number: versionIndex \}\) : ""/);
+  assert.match(app, /String\(asset\.group \|\| ""\)\.trim\(\),/);
   // The block is always rendered and only revealed, so toggling cannot reorder cards.
   assert.match(css, /\.asset-card-info \{ display: none;/);
   assert.match(css, /\.grid\[data-density="info"\] \.asset-card-info \{ display: block; \}/);

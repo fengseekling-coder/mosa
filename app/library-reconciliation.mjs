@@ -67,7 +67,7 @@ export function classifyLibraryChanges(changes) {
         const event = assetEvent(String(change.entityId || ""));
         event.kinds.add("updated");
         for (const flag of Array.isArray(change.flags) ? change.flags : []) event.flags.add(String(flag));
-        if (event.flags.has("favorite")) statsDirty = true;
+        if (event.flags.has("favorite") || event.flags.has("group")) statsDirty = true;
         break;
       }
       case "assets-updated": {
@@ -77,7 +77,7 @@ export function classifyLibraryChanges(changes) {
           event.kinds.add("updated");
           for (const flag of flags) event.flags.add(flag);
         }
-        if (flags.includes("favorite")) statsDirty = true;
+        if (flags.includes("favorite") || flags.includes("group")) statsDirty = true;
         break;
       }
       case "asset-deleted":
@@ -141,6 +141,8 @@ export function classifyLibraryChanges(changes) {
       case "group-created":
       case "group-renamed":
       case "group-deleted":
+      case "group-updated":
+      case "groups-reordered":
         groupEvents.push(change);
         statsDirty = true;
         break;
@@ -470,6 +472,37 @@ export function createLibraryReconciler({
     syncViewerAfterGalleryChanges?.(outcome, classified);
   }
 
+  /**
+   * Another window may have renamed, merged, or deleted the group the active
+   * view is filtered by. The journal detail says where the members went, so
+   * the facet is redirected before the request snapshot is taken:
+   * - rename: same members, same filter semantics → rewrite the facet (and the
+   *   pending stack-return snapshot) and let the normal row reconcile run;
+   * - merge: the result set widens to the surviving group's own members;
+   * - delete: the result set collapses. Both of those change the whole view,
+   *   not just the affected rows, so the caller recovers through the
+   *   full-reload path with the corrected facet already in place.
+   */
+  function redirectActiveGroupFilter(classified) {
+    if (!classified.groupEvents.length) return { reload: false };
+    const activeGroup = String(state.facets?.group || "");
+    if (!activeGroup) return { reload: false };
+    const root = rootView();
+    for (const change of classified.groupEvents) {
+      if (String(change.entityId || "") !== activeGroup) continue;
+      if (change.kind === "group-renamed" && change.detail?.to) {
+        state.facets.group = String(change.detail.to);
+        if (root?.request?.facets?.group === activeGroup) root.request.facets.group = String(change.detail.to);
+        return { reload: false };
+      }
+      if (change.kind === "group-deleted") {
+        state.facets.group = change.detail?.mergedInto ? String(change.detail.mergedInto) : "";
+        return { reload: true };
+      }
+    }
+    return { reload: false };
+  }
+
   async function applyChangesInner({ changes, revision, complete, commit = true } = {}) {
     const baseline = getBaselineRevision();
     if (revision != null && String(revision) === String(baseline)) return true;
@@ -484,6 +517,8 @@ export function createLibraryReconciler({
     }
     if (classified.unclassified) return performFullRecovery(revision);
 
+    const redirect = redirectActiveGroupFilter(classified);
+    if (redirect.reload) return performFullRecovery(revision);
     const requestAtStart = currentAssetRequest();
     const targets = [];
     // 初始加载未完成的视图由 loadAssets 的正常路径负责（会带上最新 revision）。

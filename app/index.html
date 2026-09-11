@@ -92,6 +92,20 @@
       </div>
     </div>
 
+    <!-- 分组统计：右键分组 → 分组统计。内容按 /api/groups/:name/stats 渲染。 -->
+    <div class="modal-overlay" id="groupStatsModal" aria-hidden="true">
+      <div class="modal-card group-stats-card" role="dialog" aria-modal="true" aria-labelledby="groupStatsTitle" tabindex="-1">
+        <div class="modal-header">
+          <h3 id="groupStatsTitle">分组统计</h3>
+          <button class="icon-button" id="closeGroupStatsModal" type="button" data-i18n-aria-label="closeGroupStats" aria-label="关闭分组统计">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body group-stats-body" id="groupStatsBody"></div>
+        <div class="modal-footer"><button class="btn-primary" id="groupStatsCloseBtn" type="button" data-i18n="close">关闭</button></div>
+      </div>
+    </div>
+
     <!-- Phase 5B / F-15：全应用唯一 ConfirmDialog——替换 window.confirm 的四条业务确认
          （批量归档、单素材归档、放弃未保存修改、受限参考图再生）。标题/说明/确认按钮文案
          由 requestConfirmation 动态填充；Cancel 固定复用 cancel。tone 切换确认按钮原语：

@@ -97,7 +97,7 @@ export function bindContextMenuEvents(options = {}) {
       changes.push({ kind: "asset-permanently-deleted", entityType: "asset", entityId: String(id) });
     }
     for (const id of detail.updatedAssetIds || []) {
-      changes.push({ kind: "asset-updated", entityType: "asset", entityId: String(id) });
+      changes.push({ kind: "asset-updated", entityType: "asset", entityId: String(id), flags: detail.groupChanged ? ["group"] : [] });
     }
     if (detail.stackDissolved?.id) {
       changes.push({ kind: "stack-dissolved", entityType: "stack", entityId: String(detail.stackDissolved.id) });

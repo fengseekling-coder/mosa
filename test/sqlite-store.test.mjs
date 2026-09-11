@@ -266,7 +266,7 @@ test("SQLite deleting a group clears asset assignments and its search index", as
 
   await store.renameGroup("default", "Aurora", "Nebula");
   assert.equal((await store.getAsset("default", asset.id)).group, "Nebula");
-  assert.deepEqual((await store.listGroups("default")).groups, [["Nebula", 1]]);
+  assert.deepEqual((await store.listGroups("default")).groups, [{ name: "Nebula", count: 1, color: "", position: 0 }]);
   assert.equal((await store.listAssetPage({ projectId: "default", query: "Nebula", limit: 10 })).page.total, 1);
   assert.equal((await store.listAssetPage({ projectId: "default", query: "Aurora", limit: 10 })).page.total, 0);
   await store.renameGroup("default", "Nebula", "Aurora");
@@ -278,7 +278,7 @@ test("SQLite deleting a group clears asset assignments and its search index", as
   assert.deepEqual((await store.listGroups("default")).groups, []);
 
   await store.createGroup({ projectId: "default", name: "Aurora" });
-  assert.deepEqual((await store.listGroups("default")).groups, [["Aurora", 0]]);
+  assert.deepEqual((await store.listGroups("default")).groups, [{ name: "Aurora", count: 0, color: "", position: 0 }]);
 });
 
 test("SQLite group deletion moves every asset in the group to Trash and keeps them restorable", async (t) => {
@@ -305,7 +305,7 @@ test("SQLite group deletion moves every asset in the group to Trash and keeps th
   assert.deepEqual((await store.listGroups("default")).groups, []);
   await store.restoreAsset("default", first.id);
   assert.equal((await store.getAsset("default", first.id)).group, "Disposable");
-  assert.deepEqual((await store.listGroups("default")).groups, [["Disposable", 1]]);
+  assert.deepEqual((await store.listGroups("default")).groups, [{ name: "Disposable", count: 1, color: "", position: 0 }]);
 });
 
 test("SQLite group Trash move is atomic metadata work and does not touch managed files", async (t) => {
