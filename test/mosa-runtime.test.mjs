@@ -139,6 +139,29 @@ test("management mutations reject callers without the runtime capability", async
   });
 });
 
+test("first-party browser HTML bootstraps an HttpOnly mutation capability", async (t) => {
+  const root = await makeTemporaryRoot(t, "mosa-runtime-browser-auth-");
+  const runtime = await startMosaRuntime(runtimeOptions(root));
+  t.after(() => runtime.stop());
+
+  const page = await fetch(`${runtime.url}/`);
+  assert.equal(page.status, 200);
+  const setCookie = page.headers.get("set-cookie") || "";
+  assert.match(setCookie, new RegExp(`^mosa-browser-client-${runtime.port}=[A-Za-z0-9_-]{43}; Path=/; HttpOnly; SameSite=Strict$`));
+  const browserCookie = setCookie.split(";", 1)[0];
+
+  const mutation = await fetch(`${runtime.url}/api/assets/batch`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      cookie: browserCookie,
+      "x-mosa-client-token": "stale-renderer-token",
+    },
+    body: JSON.stringify({ action: "group", projectId: "default", assetIds: ["missing"], group: "" }),
+  });
+  assert.notEqual(mutation.status, 401);
+});
+
 test("runtime shutdown closes active library event streams before waiting for HTTP drain", async (t) => {
   const root = await makeTemporaryRoot(t, "mosa-runtime-sse-shutdown-");
   const runtime = await startMosaRuntime(runtimeOptions(root));

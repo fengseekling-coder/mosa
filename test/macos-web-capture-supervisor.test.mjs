@@ -5,6 +5,7 @@ import {
   probeMosaOwner,
   probeRuntimeLease,
   runSupervisor,
+  watchOwnedRuntimeSources,
   waitForReplacementOwner,
 } from "../scripts/macos-web-capture-supervisor.mjs";
 
@@ -127,4 +128,82 @@ test("supervisor stands by while desktop owns the library and starts service aft
 
   assert.equal(spawnCount, 1);
   assert.ok(probeCount >= 3);
+});
+
+test("source watcher resolves once and closes every watched handle", async () => {
+  const callbacks = [];
+  const handles = [];
+  const sourceWatch = watchOwnedRuntimeSources({
+    settleMs: 1,
+    sources: [
+      { path: "/tmp/app", recursive: true },
+      { path: "/tmp/server.mjs", recursive: false },
+    ],
+    watchImpl: (_path, _options, callback) => {
+      callbacks.push(callback);
+      const handle = new EventEmitter();
+      const keepEventLoopAlive = setTimeout(() => {}, 1000);
+      handle.closed = false;
+      handle.close = () => {
+        clearTimeout(keepEventLoopAlive);
+        handle.closed = true;
+      };
+      handles.push(handle);
+      return handle;
+    },
+  });
+
+  callbacks[0]();
+  callbacks[1]();
+  assert.deepEqual(await sourceWatch.promise, { reason: "source-change" });
+  assert.equal(handles.every((handle) => handle.closed), true);
+});
+
+test("supervisor restarts an owned background runtime when source changes", async () => {
+  const signalTarget = new EventEmitter();
+  let spawnCount = 0;
+  let watchCount = 0;
+  const children = [];
+
+  function makeChild(pid) {
+    const child = new EventEmitter();
+    child.pid = pid;
+    child.exitCode = null;
+    child.signalCode = null;
+    child.kill = (signal) => {
+      child.signalCode = signal;
+      queueMicrotask(() => child.emit("exit", null, signal));
+      return true;
+    };
+    children.push(child);
+    return child;
+  }
+
+  await runSupervisor({
+    signalTarget,
+    probe: async () => ({ state: "unavailable" }),
+    spawnRuntime: () => {
+      spawnCount += 1;
+      const child = makeChild(5000 + spawnCount);
+      if (spawnCount === 2) queueMicrotask(() => signalTarget.emit("SIGTERM"));
+      return child;
+    },
+    watchSources: () => {
+      watchCount += 1;
+      return {
+        promise: watchCount === 1
+          ? Promise.resolve({ reason: "source-change" })
+          : new Promise(() => {}),
+        close() {},
+      };
+    },
+    sleep: async () => {},
+    takeoverGraceMs: 1,
+    takeoverPollMs: 1,
+    logger: { info() {}, warn() {} },
+  });
+
+  assert.equal(spawnCount, 2);
+  assert.equal(children[0].signalCode, "SIGTERM");
+  assert.equal(children[1].signalCode, "SIGTERM");
 });

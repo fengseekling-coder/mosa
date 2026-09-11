@@ -4,6 +4,7 @@
 import { FACET_KEYS, GALLERY_INITIAL_PAGE_SIZE, GALLERY_PAGE_SIZE } from "./config.mjs";
 
 let cachedClientToken;
+let browserSessionRefreshPromise = null;
 
 export function mosaClientToken() {
   if (cachedClientToken !== undefined) return cachedClientToken;
@@ -33,6 +34,19 @@ export function mosaMutationHeaders(method = "POST") {
   return token ? { "x-mosa-client-token": token } : {};
 }
 
+async function refreshMosaBrowserSession() {
+  if (typeof window === "undefined" || typeof fetch !== "function") return false;
+  if (browserSessionRefreshPromise) return browserSessionRefreshPromise;
+  browserSessionRefreshPromise = fetch("/", {
+    method: "GET",
+    cache: "no-store",
+    credentials: "same-origin",
+  }).then((response) => response.ok).catch(() => false).finally(() => {
+    browserSessionRefreshPromise = null;
+  });
+  return browserSessionRefreshPromise;
+}
+
 export function createApiClient(deps) {
   // Consume the one-time bootstrap capability as soon as the client is
   // constructed. Keeping it in the URL fragment until the first mutation
@@ -59,35 +73,47 @@ export function createApiClient(deps) {
 
   async function apiFetch(path, options = {}) {
     const method = options.method || "GET";
-    const headers = {
-      ...(options.body ? { "content-type": "application/json" } : {}),
-      ...mosaMutationHeaders(method),
-      ...(options.headers || {}),
-    };
-    const response = await fetch(path, {
-      method,
-      headers: Object.keys(headers).length ? headers : undefined,
-      body: options.body ? JSON.stringify(options.body) : undefined,
-      signal: options.signal,
-    });
-    const raw = await response.text();
-    let payload = {};
-    try { payload = raw ? JSON.parse(raw) : {}; }
-    catch {
-      // 200 + 非法 JSON（反代/网关错误页）不得伪装成空结果——否则画廊会渲染
-      // “没有找到匹配的素材”空态而非错误态。HTTP/2 下 statusText 恒为空串，
-      // 错误消息退回状态码文本。
-      if (!response.ok) throw new Error(response.statusText || `HTTP ${response.status}`);
-      throw new Error(`Invalid JSON response (HTTP ${response.status})`);
-    }
-    if (!response.ok) {
+    const isMutation = !["GET", "HEAD", "OPTIONS"].includes(String(method).toUpperCase());
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const headers = {
+        ...(options.body ? { "content-type": "application/json" } : {}),
+        ...mosaMutationHeaders(method),
+        ...(options.headers || {}),
+      };
+      const response = await fetch(path, {
+        method,
+        headers: Object.keys(headers).length ? headers : undefined,
+        body: options.body ? JSON.stringify(options.body) : undefined,
+        signal: options.signal,
+        credentials: "same-origin",
+      });
+      const raw = await response.text();
+      let payload = {};
+      try { payload = raw ? JSON.parse(raw) : {}; }
+      catch {
+        // 200 + 非法 JSON（反代/网关错误页）不得伪装成空结果——否则画廊会渲染
+        // “没有找到匹配的素材”空态而非错误态。HTTP/2 下 statusText 恒为空串，
+        // 错误消息退回状态码文本。
+        if (!response.ok) throw new Error(response.statusText || `HTTP ${response.status}`);
+        throw new Error(`Invalid JSON response (HTTP ${response.status})`);
+      }
+      if (response.ok) return payload;
+      // A source/background runtime can be restarted while a browser tab stays
+      // open. Its old cookie/header capability then becomes stale even though
+      // the page is still the trusted same-origin MOSA UI. Refresh the
+      // HttpOnly browser session from the root document and retry exactly once;
+      // unrelated 401s and persistent auth failures still surface normally.
+      if (attempt === 0 && isMutation && payload.code === "MOSA_CLIENT_UNAUTHORIZED"
+        && await refreshMosaBrowserSession()) {
+        continue;
+      }
       // Carry the server's machine-readable code so callers can attribute a
       // failure to a specific form field instead of matching on prose.
       const error = new Error(payload.error || response.statusText);
       if (payload.code) error.code = payload.code;
       throw error;
     }
-    return payload;
+    throw new Error("MOSA request failed after authentication refresh.");
   }
 
   async function loadProjects() {

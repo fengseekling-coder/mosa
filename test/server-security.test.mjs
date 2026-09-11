@@ -8,7 +8,11 @@ import {
   isAllowedIngestOrigin,
   isAllowedLocalOrigin,
   isApprovedExtensionOrigin,
+  isAuthorizedMosaClientRequest,
   isAuthorizedMosaClientToken,
+  mosaBrowserClientCookieHeader,
+  mosaBrowserClientCookieName,
+  mosaBrowserClientToken,
   mosaClientTokenFingerprint,
   normalizeMosaClientToken,
   parseAllowedIngestOrigins,
@@ -26,9 +30,17 @@ test("allows only same-origin browser requests", () => {
 
 test("management mutations require a high-entropy runtime capability", () => {
   const token = "a".repeat(43);
+  const browserToken = mosaBrowserClientToken(token, 43517);
+  const browserCookieName = mosaBrowserClientCookieName(43517);
   assert.equal(normalizeMosaClientToken(token), token);
   assert.equal(isAuthorizedMosaClientToken(token, token), true);
   assert.equal(isAuthorizedMosaClientToken(`${token.slice(0, -1)}b`, token), false);
+  assert.equal(browserToken.length, 43);
+  assert.equal(browserCookieName, "mosa-browser-client-43517");
+  assert.match(mosaBrowserClientCookieHeader(token, 43517), /^mosa-browser-client-43517=[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; SameSite=Strict$/);
+  assert.equal(isAuthorizedMosaClientRequest("", `${browserCookieName}=${browserToken}`, token, 43517), true);
+  assert.equal(isAuthorizedMosaClientRequest("stale", `${browserCookieName}=${browserToken}`, token, 43517), true);
+  assert.equal(isAuthorizedMosaClientRequest("", `${browserCookieName}=${browserToken}`, token, 43518), false);
   assert.equal(mosaClientTokenFingerprint(token).length, 22);
   assert.equal(requiresMosaClientToken("POST", "/api/assets/create"), true);
   assert.equal(requiresMosaClientToken("DELETE", "/api/trash"), true);

@@ -222,17 +222,16 @@ export function createStackUiFlowSource() {
   pointer(window, 'pointerup', selfDropTo.left + selfDropTo.width / 2, selfDropTo.top + selfDropTo.height / 2, 90);
   await sleep(80);
   if (document.querySelector('#assetGrid > .asset-card.is-stack')) throw new Error('Self-drop unexpectedly created a Stack');
-  const stackButton = await waitFor(
-    () => {
-      const button = document.querySelector('#selectionStack');
-      return button && !button.disabled ? button : null;
-    },
-    'enabled Stack action',
-  );
-  stackButton.click();
+  ctrlClick(initialCards[0].querySelector('.asset-card-select'));
+  ctrlClick(initialCards[1].querySelector('.asset-card-select'));
+  const dragFrom = initialCards[0].getBoundingClientRect();
+  const dragTo = initialCards[1].getBoundingClientRect();
+  pointer(initialCards[0].querySelector('.asset-card-select'), 'pointerdown', dragFrom.left + dragFrom.width / 2, dragFrom.top + dragFrom.height / 2, 92);
+  pointer(window, 'pointermove', dragTo.left + dragTo.width / 2, dragTo.top + dragTo.height / 2, 92);
+  pointer(window, 'pointerup', dragTo.left + dragTo.width / 2, dragTo.top + dragTo.height / 2, 92);
   const stackCard = await waitFor(
     () => document.querySelector('#assetGrid > .asset-card.is-stack'),
-    'collapsed Stack card',
+    'collapsed Stack card created by direct drag',
   );
   const stackId = stackCard.dataset.stackId;
   const rootCountAfterStack = document.querySelectorAll('#assetGrid > .asset-card').length;
