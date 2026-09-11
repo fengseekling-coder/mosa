@@ -330,9 +330,18 @@ test("real Electron preload smoke (opt-in)", { skip: process.env.MOSA_ELECTRON_P
   assert.equal(preloadIssues.length, 0, JSON.stringify(rendererIssues));
 
   const origin = new URL(state.href).origin;
+  const clientToken = new URL(state.href).hash
+    .replace(/^#/, "")
+    .split("&")
+    .map((part) => part.split("="))
+    .find(([key]) => key === "mosa-client-token")?.[1];
+  assert.ok(clientToken, "the desktop renderer URL carries the runtime client capability");
   const createResponse = await fetch(`${origin}/api/assets/create`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "x-mosa-client-token": decodeURIComponent(clientToken),
+    },
     body: JSON.stringify({ projectId: "default", imagePath: fixturePath, prompt: "preload smoke fixture" }),
   });
   assert.equal(createResponse.status, 200, await createResponse.text());
