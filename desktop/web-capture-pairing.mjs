@@ -19,6 +19,7 @@ export const MOSA_WEB_CAPTURE_EXTENSION_ID = MOSA_WEB_CAPTURE_DEVELOPMENT_EXTENS
 export const MOSA_WEB_CAPTURE_EXTENSION_ORIGIN = `chrome-extension://${MOSA_WEB_CAPTURE_EXTENSION_ID}`;
 
 const TOKEN_FILE_NAME = "web-capture-token";
+const CLIENT_TOKEN_FILE_NAME = "desktop-client-token";
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43,128}$/;
 
 /**
@@ -32,6 +33,24 @@ export async function loadOrCreateWebCaptureToken(userDataDir) {
 
   await mkdir(root, { recursive: true });
   const tokenPath = join(root, TOKEN_FILE_NAME);
+  const existing = await readStoredToken(tokenPath);
+  if (existing) {
+    await chmod(tokenPath, 0o600).catch(() => {});
+    return existing;
+  }
+
+  const token = randomBytes(32).toString("base64url");
+  await writeFile(tokenPath, `${token}\n`, { encoding: "utf8", mode: 0o600 });
+  await chmod(tokenPath, 0o600).catch(() => {});
+  return token;
+}
+
+export async function loadOrCreateMosaClientToken(userDataDir) {
+  const root = String(userDataDir || "").trim();
+  if (!root) throw new Error("Desktop userData directory is required for the MOSA client token.");
+
+  await mkdir(root, { recursive: true });
+  const tokenPath = join(root, CLIENT_TOKEN_FILE_NAME);
   const existing = await readStoredToken(tokenPath);
   if (existing) {
     await chmod(tokenPath, 0o600).catch(() => {});

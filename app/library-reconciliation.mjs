@@ -33,6 +33,7 @@ export function classifyLibraryChanges(changes) {
   const assetEvents = new Map();
   const stackEvents = new Map();
   const groupEvents = [];
+  const generationAssetIds = new Set();
   const deletedAssetIds = new Set();
   let unclassified = false;
   let statsDirty = false;
@@ -143,6 +144,12 @@ export function classifyLibraryChanges(changes) {
         groupEvents.push(change);
         statsDirty = true;
         break;
+      case "generation-updated":
+      case "generation-relation-updated":
+      case "generation-relation-candidate-updated":
+      case "generation-relation-deleted":
+        idsOf(change).forEach((id) => generationAssetIds.add(String(id)));
+        break;
       case "":
         break;
       default:
@@ -150,7 +157,7 @@ export function classifyLibraryChanges(changes) {
         break;
     }
   }
-  return { assetEvents, stackEvents, groupEvents, deletedAssetIds, unclassified, statsDirty };
+  return { assetEvents, stackEvents, groupEvents, generationAssetIds, deletedAssetIds, unclassified, statsDirty };
 }
 
 function compareIds(left, right) {
@@ -335,6 +342,7 @@ export function createLibraryReconciler({
   apiFetch,
   currentAssetRequest,
   assetRequestKey,
+  assetListVersion,
   getBaselineRevision,
   setBaselineRevision,
   fetchLibraryChanges,
@@ -345,6 +353,7 @@ export function createLibraryReconciler({
   renderDetail,
   isDetailEditorActive,
   refreshSelectedStackInspector,
+  refreshSelectedGenerationHistory,
   syncViewerAfterGalleryChanges,
   refreshPageTotal,
   resetAssetPrefetch,
@@ -412,6 +421,7 @@ export function createLibraryReconciler({
 
   async function reconcileTarget(target, classified) {
     const list = target.kind === "root" ? target.root.assets : state.assets;
+    const sourceVersion = typeof assetListVersion === "function" ? assetListVersion(list) : list;
     const affectedIds = collectAffectedAssetIds(classified);
     // Stack 事件的受影响行是其节点行（封面 id）；当前列表里已加载的该 Stack
     // 节点也要一并取回，才能更新 count/match_count/封面。
@@ -430,7 +440,13 @@ export function createLibraryReconciler({
       afterCursorRowIds: fetched.afterCursorRowIds,
       project: target.request.project,
     });
-    return { changed: true, outcome };
+    return { changed: true, outcome, sourceVersion };
+  }
+
+  function activeListUnchanged(sourceVersion) {
+    return typeof assetListVersion === "function"
+      ? assetListVersion(state.assets) === sourceVersion
+      : state.assets === sourceVersion;
   }
 
   function postReconcileActive(outcome, classified) {
@@ -461,7 +477,8 @@ export function createLibraryReconciler({
 
     const classified = classifyLibraryChanges(changes);
     const hasEntities = classified.assetEvents.size || classified.stackEvents.size || classified.groupEvents.length;
-    if (!hasEntities && !classified.unclassified) {
+    const generationDirty = classified.generationAssetIds.size > 0;
+    if (!hasEntities && !generationDirty && !classified.unclassified) {
       if (revision != null) setBaselineRevision(revision);
       return true;
     }
@@ -477,12 +494,26 @@ export function createLibraryReconciler({
     let activeOutcome = null;
     let statsDirty = classified.statsDirty;
     for (const target of targets) {
-      const result = await reconcileTarget(target, classified);
+      let result = await reconcileTarget(target, classified);
       if (!result.changed) continue;
       if (target.kind === "active") {
         // 等待期间用户已切换查询语义：丢弃 DOM 提交（新视图数据已晚于这些变化），
         // 但 revision 仍推进，避免旧 delta 反复重放。
         if (!activeRequestUnchanged(requestAtStart)) continue;
+        // Pagination append owns the same `state.assets` list but runs outside
+        // this reconciliation queue. If it commits while gallery-row fetches
+        // are in flight, recompute against the newer list instead of replacing
+        // the append with a stale snapshot. A continuously moving target falls
+        // back to the authoritative recovery path rather than advancing the
+        // revision on an uncertain local state.
+        let retries = 0;
+        while (!activeListUnchanged(result.sourceVersion) && retries < 3) {
+          if (!activeRequestUnchanged(requestAtStart)) break;
+          result = await reconcileTarget(target, classified);
+          retries += 1;
+        }
+        if (!activeRequestUnchanged(requestAtStart)) continue;
+        if (!activeListUnchanged(result.sourceVersion)) return performFullRecovery(revision);
         state.assets = result.outcome.list;
         // loadedAssetCount 只描述 root 已加载窗口大小；Stack 视图内的
         // state.assets 是成员列表，不得覆盖它（Stack 退出依赖该值）。
@@ -509,6 +540,9 @@ export function createLibraryReconciler({
       if (structuralChange) void refreshPageTotal?.();
     }
     if (statsDirty) void loadStats?.({ background: true });
+    if (generationDirty && state.selectedId && classified.generationAssetIds.has(state.selectedId)) {
+      void refreshSelectedGenerationHistory?.();
+    }
 
     // Stack 内逗留期间，把原始变化排队到 root 快照，退出时统一回放（二十二）。
     const pendingRoot = state.activeStackId ? state.stackReturnSnapshot?.rootView : null;

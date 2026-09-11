@@ -96,6 +96,46 @@ test("every core mutation writes a typed journal entry and advances the revision
   assert.deepEqual(groupDelta.changes.map((change) => change.kind), ["group-created", "group-renamed", "group-deleted"]);
 });
 
+test("generation events and relation mutations participate in the library journal", async (t) => {
+  const { store, imagePath } = await createStore(t);
+  const parentAsset = await createSampleAsset(store, imagePath, "generation-parent");
+  const childAsset = await createSampleAsset(store, imagePath, "generation-child");
+  const baseline = Number.parseInt(await store.libraryRevision(), 10);
+
+  const parent = await store.recordGenerationEvent({
+    project_id: "default",
+    output_asset_id: parentAsset.id,
+    provider: "chatgpt",
+    capture_context_id: "journal-parent",
+    effective_prompt: "parent",
+    verification_level: "observed",
+  });
+  const child = await store.recordGenerationEvent({
+    project_id: "default",
+    output_asset_id: childAsset.id,
+    provider: "chatgpt",
+    capture_context_id: "journal-child",
+    effective_prompt: "child",
+    verification_level: "observed",
+  });
+  await store.recordGenerationRelation({
+    project_id: "default",
+    child_generation_id: child.id,
+    parent_generation_id: parent.id,
+    relation_type: "edited_from",
+    verification_level: "observed",
+  });
+
+  const delta = await store.listLibraryChangesSince("default", baseline);
+  assert.deepEqual(delta.changes.map((change) => change.kind), [
+    "generation-updated",
+    "generation-updated",
+    "generation-relation-updated",
+  ]);
+  assert.deepEqual(delta.changes[0].assetIds, [parentAsset.id]);
+  assert.deepEqual(new Set(delta.changes[2].assetIds), new Set([parentAsset.id, childAsset.id]));
+});
+
 test("a rolled-back mutation leaves no journal row behind (same-transaction guarantee)", async (t) => {
   const { store, imagePath } = await createStore(t);
   await createSampleAsset(store, imagePath, "atom-a");
@@ -163,6 +203,17 @@ test("delta continuity survives a store restart (crash-safe journal)", async (t)
   await createSampleAsset(second, join(generated, "pixel.png"), "restart-b");
   const delta2 = await second.listLibraryChangesSince("default", 1);
   assert.deepEqual(delta2.changes.map((change) => change.kind), ["asset-added"]);
+});
+
+test("an empty project treats another project's global revision as a complete empty delta", async (t) => {
+  const { store } = await createStore(t);
+  await store.ensureProject("other-project");
+  await store.createGroup({ projectId: "other-project", name: "OtherGroup" });
+
+  const delta = await store.listLibraryChangesSince("default", 0);
+  assert.equal(delta.complete, true);
+  assert.deepEqual(delta.changes, []);
+  assert.ok(Number(delta.currentRevision) >= 1, "the shared revision may advance outside the requested project");
 });
 
 test("listGalleryRowsForAssets maps affected members to their stack node under gallery semantics", async (t) => {

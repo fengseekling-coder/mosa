@@ -77,6 +77,7 @@ function createHarness({
       stackId: state.activeStackId || "",
     }),
     assetRequestKey: (request) => JSON.stringify([request.project, request.stackId || "", request.query, request.scope, request.mediaKind || "all", request.sort]),
+    assetListVersion: (assets) => assets.map((asset) => `${asset.id}:${asset.updated_at || ""}`).join("|"),
     getBaselineRevision: () => baseline,
     setBaselineRevision: (revision) => { baseline = String(revision); },
     fetchLibraryChanges: async () => {
@@ -102,6 +103,34 @@ function createHarness({
   });
   return { state, reconciler, calls, getBaseline: () => baseline, setBaseline: (value) => { baseline = String(value); } };
 }
+
+test("reconciliation recomputes against a pagination append that commits while affected rows are in flight", async () => {
+  let releaseFirstFetch;
+  let fetchCount = 0;
+  const firstFetchBlocked = new Promise((resolve) => { releaseFirstFetch = resolve; });
+  const harness = createHarness({
+    initialAssets: [row("a", "2026-01-01")],
+    galleryRows: async () => {
+      fetchCount += 1;
+      if (fetchCount === 1) await firstFetchBlocked;
+      return { rows: [row("a", "2026-02-01")], rowByAssetId: { a: "a" } };
+    },
+  });
+  harness.setBaseline("10");
+  const applying = harness.reconciler.applyChangeDelta({
+    changes: [{ revision: 11, kind: "asset-updated", entityType: "asset", entityId: "a" }],
+    revision: "11",
+    complete: true,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  harness.state.assets = [...harness.state.assets, row("b", "2025-12-01")];
+  releaseFirstFetch();
+  assert.equal(await applying, true);
+  assert.equal(fetchCount, 2, "a stale reconciliation snapshot must be recomputed once the append commits");
+  assert.deepEqual(harness.state.assets.map((asset) => asset.id), ["a", "b"]);
+  assert.equal(harness.state.assets[0].updated_at, "2026-02-01");
+  assert.equal(harness.getBaseline(), "11");
+});
 
 test("asset-added inserts only the new row and never reloads the loaded window", async () => {
   const harness = createHarness({

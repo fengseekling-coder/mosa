@@ -397,7 +397,9 @@ test("keeps the desktop window single-instance and sandboxed", async () => {
   assert.doesNotMatch(source, /homedir\(\).*MOSA Library/);
   assert.match(source, /failOnPrimaryLibraryMismatch: true/);
   assert.match(source, /cowartProjectDir: desktopDataDir/);
-  assert.match(source, /loadURL\(service\.url\)/);
+  assert.match(source, /const clientUrl = new URL\(service\.url\)/);
+  assert.match(source, /clientUrl\.hash = `mosa-client-token=/);
+  assert.match(source, /loadURL\(clientUrl\.toString\(\)\)/);
   assert.doesNotMatch(source, /loadFile\(/);
   assert.match(source, /app\.on\("before-quit"/);
   assert.match(source, /service\?\.mode === "owned"/);

@@ -27,7 +27,7 @@ try {
   }
   throw err;
 }
-console.log(`MOSA: ${runtime.url}`);
+console.log(`MOSA: ${runtime.url}/#mosa-client-token=${encodeURIComponent(runtime.clientToken)}`);
 
 let shutdownPromise = null;
 

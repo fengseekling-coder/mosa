@@ -234,9 +234,27 @@ function toolDefinitions() {
       description: "Update metadata fields for a saved asset. Pass `references` to record reference rights and permitted uses for an already-archived asset; that annotation is not a generation input, so it refreshes the existing recipe snapshot rather than appending a new one.",
       inputSchema: {
         type: "object",
-        properties: { projectId: { type: "string" }, assetId: { type: "string" }, references: REFERENCE_SCHEMA },
+        properties: {
+          projectId: { type: "string" },
+          assetId: { type: "string" },
+          prompt: { type: "string" },
+          user_prompt: { type: "string" },
+          negative_prompt: { type: "string" },
+          references: REFERENCE_SCHEMA,
+          skill: { type: "string" },
+          style: { type: "string" },
+          ratio: { type: "string" },
+          theme: { type: "string" },
+          business_fields: { type: "object" },
+          tags: { type: "array", items: { type: "string" } },
+          favorite: { type: "boolean" },
+          group: { type: "string" },
+          category: { type: "string" },
+          rating: { type: "integer", minimum: 0, maximum: 5 },
+          recipe_change_summary: { type: "string" },
+        },
         required: ["assetId"],
-        additionalProperties: true
+        additionalProperties: false
       }
     },
     {

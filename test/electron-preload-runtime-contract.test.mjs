@@ -54,7 +54,10 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(main, /const preloadPath = fileURLToPath\(new URL\("\.\/preload\.cjs", import\.meta\.url\)\);/);
   assert.match(main, /preload: preloadPath/);
   assert.match(main, /webContents\.once\("preload-error"/);
-  assert.match(main, /webContents\.once\("render-process-gone"/);
+  assert.match(main, /webContents\.on\("render-process-gone"/);
+  assert.match(main, /rendererRecoveryAttempts > 2/);
+  assert.match(main, /mainWindow\.webContents\.reload\(\)/);
+  assert.match(main, /app\.relaunch\(\)/);
   assert.match(main, /webContents\.on\("console-message"/);
   assert.match(main, /MAX_RENDERER_CONSOLE_ERRORS = 32/);
   assert.doesNotMatch(main, /process\.cwd\(\)|join\(__dirname/);

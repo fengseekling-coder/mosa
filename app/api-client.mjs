@@ -3,6 +3,36 @@
 // 请求语义/游标/顺序守卫与原先完全一致；请求序号等模块级状态随闭包迁移。
 import { FACET_KEYS, GALLERY_INITIAL_PAGE_SIZE, GALLERY_PAGE_SIZE } from "./config.mjs";
 
+let cachedClientToken;
+
+export function mosaClientToken() {
+  if (cachedClientToken !== undefined) return cachedClientToken;
+  cachedClientToken = "";
+  if (typeof window === "undefined") return cachedClientToken;
+  try {
+    const params = new URLSearchParams(String(window.location.hash || "").replace(/^#/, ""));
+    const fragmentToken = String(params.get("mosa-client-token") || "").trim();
+    const storedToken = String(window.sessionStorage?.getItem?.("mosa.client-token") || "").trim();
+    cachedClientToken = fragmentToken || storedToken;
+    if (fragmentToken) {
+      window.sessionStorage?.setItem?.("mosa.client-token", fragmentToken);
+      params.delete("mosa-client-token");
+      const suffix = params.toString();
+      window.history?.replaceState?.(null, "", `${window.location.pathname}${window.location.search}${suffix ? `#${suffix}` : ""}`);
+    }
+  } catch {
+    cachedClientToken = "";
+  }
+  return cachedClientToken;
+}
+
+export function mosaMutationHeaders(method = "POST") {
+  const verb = String(method || "GET").toUpperCase();
+  if (verb === "GET" || verb === "HEAD" || verb === "OPTIONS") return {};
+  const token = mosaClientToken();
+  return token ? { "x-mosa-client-token": token } : {};
+}
+
 export function createApiClient(deps) {
   const {
     state,
@@ -22,9 +52,15 @@ export function createApiClient(deps) {
   } = deps;
 
   async function apiFetch(path, options = {}) {
+    const method = options.method || "GET";
+    const headers = {
+      ...(options.body ? { "content-type": "application/json" } : {}),
+      ...mosaMutationHeaders(method),
+      ...(options.headers || {}),
+    };
     const response = await fetch(path, {
-      method: options.method || "GET",
-      headers: options.body ? { "content-type": "application/json" } : undefined,
+      method,
+      headers: Object.keys(headers).length ? headers : undefined,
       body: options.body ? JSON.stringify(options.body) : undefined,
       signal: options.signal,
     });
@@ -105,6 +141,10 @@ export function createApiClient(deps) {
   async function switchProjectWorkspace(project, options = {}) {
     const projectId = String(project || "").trim();
     if (!projectId || projectId === state.project) return true;
+    assetRequestController?.abort();
+    assetRequestController = null;
+    assetRequestSequence += 1;
+    setGalleryBusy(false);
     const request = {
       project: projectId,
       query: "",
@@ -165,6 +205,7 @@ export function createApiClient(deps) {
   }
 
   let assetRequestSequence = 0;
+  let assetRequestController = null;
   let assetPrefetchGeneration = 0;
   const assetPrefetchTasks = new Map();
   const prefetchedAssetPages = new Map();
@@ -305,6 +346,9 @@ export function createApiClient(deps) {
   }
 
   async function loadAssets(options = {}) {
+    assetRequestController?.abort();
+    const controller = new AbortController();
+    assetRequestController = controller;
     const requestId = ++assetRequestSequence;
     const request = currentAssetRequest();
     const requestKey = assetRequestKey(request);
@@ -328,6 +372,7 @@ export function createApiClient(deps) {
           cursor: appendCursor,
           includeTotal: !options.append,
           limit: options.append ? GALLERY_PAGE_SIZE : GALLERY_INITIAL_PAGE_SIZE,
+          signal: controller.signal,
         });
       }
     } catch (error) {
@@ -464,6 +509,9 @@ export function createApiClient(deps) {
   }
 
   async function performFullGalleryReconciliation(options = {}) {
+    assetRequestController?.abort();
+    const controller = new AbortController();
+    assetRequestController = controller;
     const requestId = ++assetRequestSequence;
     const request = currentAssetRequest();
     const requestKey = assetRequestKey(request);
@@ -494,7 +542,12 @@ export function createApiClient(deps) {
     let cursor = null;
     try {
       for (let page = 0; page < pageCount; page += 1) {
-        if (!result) result = await requestAssetPage(request, { cursor, limit: RELOAD_PAGE_LIMIT, includeTotal: page === 0 ? undefined : false });
+        if (!result) result = await requestAssetPage(request, {
+          cursor,
+          limit: RELOAD_PAGE_LIMIT,
+          includeTotal: page === 0 ? undefined : false,
+          signal: controller.signal,
+        });
         if (!isCurrentAssetRequest(requestId, request)) return false;
         pages.push(result);
         const nextCursor = result.page?.nextCursor || null;

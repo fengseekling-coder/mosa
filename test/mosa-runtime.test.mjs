@@ -122,6 +122,23 @@ test("starts, identifies itself, stops idempotently, and restarts", async (t) =>
   }
 });
 
+test("management mutations reject callers without the runtime capability", async (t) => {
+  const root = await makeTemporaryRoot(t, "mosa-runtime-client-auth-");
+  const runtime = await startMosaRuntime(runtimeOptions(root));
+  t.after(() => runtime.stop());
+
+  const response = await fetch(`${runtime.url}/api/assets/batch`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-mosa-client-token": "" },
+    body: JSON.stringify({ action: "favorite", assetIds: ["missing"] }),
+  });
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), {
+    error: "Unauthorized MOSA client.",
+    code: "MOSA_CLIENT_UNAUTHORIZED",
+  });
+});
+
 test("runtime shutdown closes active library event streams before waiting for HTTP drain", async (t) => {
   const root = await makeTemporaryRoot(t, "mosa-runtime-sse-shutdown-");
   const runtime = await startMosaRuntime(runtimeOptions(root));
@@ -254,7 +271,7 @@ test("historical orphan derivative sweep is post-listen maintenance and the work
   assert.equal(await fileExists(join(projectDir, "thumbnails", "seed-asset.webp")), true, "referenced derivatives are never touched by the sweep");
   const create = await fetch(runtime.url + "/api/assets/create", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "x-mosa-client-token": runtime.clientToken },
     body: JSON.stringify({ projectId: "default", assetId: "post-sweep-asset", imagePath: sourcePath, prompt: "after sweep" }),
   });
   assert.equal(create.status, 200);

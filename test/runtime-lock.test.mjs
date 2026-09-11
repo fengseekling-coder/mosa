@@ -38,6 +38,25 @@ test("recovers a lock left by a terminated runtime", async (t) => {
   assert.equal(await lock.release(), true);
 });
 
+test("recovers a lock when the PID was recycled by a different process identity", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-runtime-lock-recycled-pid-"));
+  const libraryDir = join(root, "library");
+  const lockPath = join(libraryDir, ".mosa-runtime.lock");
+  await mkdir(libraryDir, { recursive: true });
+  await writeFile(lockPath, `${JSON.stringify({
+    token: "old-runtime",
+    pid: process.pid,
+    createdAt: "2026-07-23T00:00:00.000Z",
+    processIdentity: "unix-start:definitely-not-this-process",
+  })}\n`, "utf8");
+  deferTestPathRemoval(root, { recursive: true, force: true });
+
+  const lock = await acquireMosaRuntimeLock({ libraryDir });
+  assert.equal(lock.owner.pid, process.pid);
+  assert.notEqual(lock.owner.processIdentity, "unix-start:definitely-not-this-process");
+  assert.equal(await lock.release(), true);
+});
+
 test("legacy JSON MCP refuses a second writer while a MOSA runtime lease is active", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-mcp-json-lock-"));
   const libraryDir = join(root, "library");

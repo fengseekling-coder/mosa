@@ -210,6 +210,12 @@ export async function launchWindowsUpdateHelper({
     stdio: "ignore",
     windowsHide: true,
   });
+  child.once?.("error", (error) => {
+    // Detached children can fail after spawn() has already returned (for
+    // example PowerShell missing from PATH). Always consume that EventEmitter
+    // error so updater launch failure cannot terminate the Electron process.
+    console.error(`[MOSA] Windows update helper failed to launch: ${error?.message || error}`);
+  });
   child.unref?.();
   return { scriptPath, logPath };
 }

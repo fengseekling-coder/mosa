@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, ipcMain, clipboard, nativeImage, session, shell, Notification } from "electron";
+import { app, BrowserWindow, Menu, dialog, ipcMain, clipboard, nativeImage, screen, session, shell, Notification } from "electron";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import { userInfo } from "node:os";
@@ -10,11 +10,11 @@ import { parseDisabledBridges } from "../lib/runtime-bridges.mjs";
 import { cleanupOrphanStagedFiles, importStagingDir, writeStagedPng } from "../lib/import-staging.mjs";
 import { shouldAllowSameVersionServiceReplacement, shouldAllowStaleServiceUpgrade, startMosaService } from "./service-manager.mjs";
 import { getDesktopText, getNotificationTextForAssetsImported, getUpdateNotificationText } from "./notification-i18n.mjs";
-import { loadOrCreateWebCaptureToken, MOSA_WEB_CAPTURE_DEFAULT_ORIGINS } from "./web-capture-pairing.mjs";
+import { loadOrCreateMosaClientToken, loadOrCreateWebCaptureToken, MOSA_WEB_CAPTURE_DEFAULT_ORIGINS } from "./web-capture-pairing.mjs";
 import { desktopPlatformAdapter } from "./platform/index.mjs";
 import { checkForMosaUpdate, MOSA_DOWNLOAD_PAGE_URL, reportAnonymousUsage } from "./update-service.mjs";
 import { prepareAnonymousUsage } from "./anonymous-usage.mjs";
-import { resolveAllowedFolderPath } from "../lib/server-security.js";
+import { mosaClientTokenFingerprint, resolveAllowedFolderPath } from "../lib/server-security.js";
 import { isPathInsideOrEqual, isUrlLikePath, pathsEqual } from "../lib/path-safety.mjs";
 import { getBuildIdentity } from "../lib/build-identity.mjs";
 import { MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
@@ -112,6 +112,7 @@ const DEFAULT_BOUNDS = { width: 1320, height: 860 };
 
 let mainWindow = null;
 let service = null;
+let rendererRecoveryAttempts = 0;
 let shuttingDown = false;
 let shutdownPromise = null;
 let windowPromise = null;
@@ -172,10 +173,23 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 function loadBounds() {
+  let saved = null;
   try {
-    if (existsSync(BOUNDS_PATH)) return JSON.parse(readFileSync(BOUNDS_PATH, "utf-8"));
+    if (existsSync(BOUNDS_PATH)) saved = JSON.parse(readFileSync(BOUNDS_PATH, "utf-8"));
   } catch {}
-  return DEFAULT_BOUNDS;
+  if (!saved || !Number.isFinite(saved.width) || !Number.isFinite(saved.height)) return DEFAULT_BOUNDS;
+  const normalized = {
+    width: Math.max(960, Math.round(saved.width)),
+    height: Math.max(640, Math.round(saved.height)),
+  };
+  if (!Number.isFinite(saved.x) || !Number.isFinite(saved.y)) return normalized;
+  const candidate = { ...normalized, x: Math.round(saved.x), y: Math.round(saved.y) };
+  const visible = screen.getAllDisplays().some(({ workArea }) => {
+    const overlapWidth = Math.min(candidate.x + candidate.width, workArea.x + workArea.width) - Math.max(candidate.x, workArea.x);
+    const overlapHeight = Math.min(candidate.y + candidate.height, workArea.y + workArea.height) - Math.max(candidate.y, workArea.y);
+    return overlapWidth >= 120 && overlapHeight >= 80;
+  });
+  return visible ? candidate : normalized;
 }
 
 function saveBounds(win) {
@@ -620,6 +634,8 @@ function openMainWindow() {
 async function createMainWindow() {
   denyBrowserPermissions();
   if (!service) {
+    const clientToken = process.env.MOSA_CLIENT_TOKEN
+      || await loadOrCreateMosaClientToken(desktopDataDir);
     const webCaptureToken = process.env.MOSA_WEB_CAPTURE_TOKEN
       || await loadOrCreateWebCaptureToken(desktopDataDir);
     const webCaptureOrigins = process.env.MOSA_WEB_CAPTURE_ORIGINS
@@ -650,7 +666,11 @@ async function createMainWindow() {
         qaRun: isolationContext.qaRun,
         explicitPort: Boolean(process.env.MOSA_DESKTOP_PORT),
       }),
-      expectedIdentity: expectedServiceIdentity,
+      expectedIdentity: {
+        ...expectedServiceIdentity,
+        clientAuthFingerprint: mosaClientTokenFingerprint(clientToken),
+      },
+      clientToken,
       importStagingRoot,
       isolationContext,
       runtimeOptions: {
@@ -663,6 +683,7 @@ async function createMainWindow() {
         generatedImagesDir: join(libraryDir, "imports"),
         webCaptureToken,
         webCaptureOrigins,
+        clientToken,
         // MOSA_DISABLE_BRIDGES lets isolated runs (Task 1 verification) keep
         // the local Codex/Grok/Cowart directories invisible, so the gallery
         // reflects only the configured fixture library. Accepted names:
@@ -694,9 +715,32 @@ async function createMainWindow() {
   mainWindow.webContents.once("preload-error", (_event, attemptedPath, error) => {
     console.error(`[MOSA] preload-error path=${attemptedPath} ${error?.stack || error}`);
   });
-  mainWindow.webContents.once("render-process-gone", (_event, details) => {
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
     console.error(`[MOSA] render-process-gone ${JSON.stringify(details)}`);
+    if (shuttingDown || !mainWindow || mainWindow.isDestroyed()) return;
+    if (details?.reason === "clean-exit") return;
+    rendererRecoveryAttempts += 1;
+    if (rendererRecoveryAttempts > 2) {
+      void dialog.showMessageBox(mainWindow, {
+        type: "error",
+        title: "MOSA",
+        message: "MOSA's interface stopped unexpectedly and could not recover automatically.",
+        buttons: ["Restart MOSA", "Close"],
+        defaultId: 0,
+        cancelId: 1,
+      }).then(({ response }) => {
+        if (response === 0) {
+          app.relaunch();
+          app.quit();
+        }
+      });
+      return;
+    }
+    setTimeout(() => {
+      if (!shuttingDown && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reload();
+    }, 250 * rendererRecoveryAttempts);
   });
+  mainWindow.webContents.on("did-finish-load", () => { rendererRecoveryAttempts = 0; });
   mainWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
     if (level < 2 || rendererConsoleErrors.size >= MAX_RENDERER_CONSOLE_ERRORS) return;
     const entry = `${level}:${sourceId}:${line}:${message}`;
@@ -719,7 +763,9 @@ async function createMainWindow() {
 
   buildMenu();
   registerIPC();
-  await mainWindow.loadURL(service.url);
+  const clientUrl = new URL(service.url);
+  if (service.clientToken) clientUrl.hash = `mosa-client-token=${encodeURIComponent(service.clientToken)}`;
+  await mainWindow.loadURL(clientUrl.toString());
   mainWindow.show();
 
   startBridgeNotificationPoll(service.port);
@@ -743,6 +789,8 @@ function isVerifiedMosaUrl(targetUrl, expectedUrl) {
 
 let bridgePollTimer = null;
 let lastImportedCount = 0;
+let bridgePollFailures = 0;
+let runtimeRecoveryPromise = null;
 
 function startBridgeNotificationPoll(runtimePort) {
   if (bridgePollTimer) return;
@@ -751,7 +799,8 @@ function startBridgeNotificationPoll(runtimePort) {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     try {
       const response = await fetch(`http://127.0.0.1:${runtimePort}/api/bridges`);
-      if (!response.ok) return;
+      if (!response.ok) throw new Error(`Bridge health returned HTTP ${response.status}`);
+      bridgePollFailures = 0;
       const data = await response.json();
       const codexImported = Number(data.codex?.totalImported || 0);
       const cowartImported = Number(data.cowart?.totalImported || 0);
@@ -765,10 +814,34 @@ function startBridgeNotificationPoll(runtimePort) {
         }
       }
       lastImportedCount = totalImported;
-    } catch {
-      // Transient fetch errors are expected during shutdown.
+    } catch (error) {
+      if (shuttingDown) return;
+      bridgePollFailures += 1;
+      if (bridgePollFailures >= 3) void recoverRuntimeAfterHealthFailure(error);
     }
   }, interval);
+}
+
+function recoverRuntimeAfterHealthFailure(cause) {
+  if (runtimeRecoveryPromise || shuttingDown) return runtimeRecoveryPromise;
+  runtimeRecoveryPromise = (async () => {
+    console.error(`[MOSA] local runtime health failed repeatedly; rebuilding desktop runtime: ${cause?.message || cause}`);
+    stopBridgeNotificationPoll();
+    bridgePollFailures = 0;
+    const failedWindow = mainWindow;
+    if (failedWindow && !failedWindow.isDestroyed()) failedWindow.destroy();
+    if (mainWindow === failedWindow) mainWindow = null;
+    const failedService = service;
+    service = null;
+    await failedService?.stop?.().catch((error) => {
+      console.warn(`[MOSA] failed runtime cleanup during recovery: ${error?.message || error}`);
+    });
+    lastImportedCount = 0;
+    await openMainWindow();
+  })()
+    .catch(reportStartupFailure)
+    .finally(() => { runtimeRecoveryPromise = null; });
+  return runtimeRecoveryPromise;
 }
 
 function stopBridgeNotificationPoll() {
@@ -776,6 +849,7 @@ function stopBridgeNotificationPoll() {
     clearInterval(bridgePollTimer);
     bridgePollTimer = null;
   }
+  bridgePollFailures = 0;
 }
 
 function stopOwnedRuntime() {

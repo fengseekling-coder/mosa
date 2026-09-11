@@ -7,7 +7,7 @@ import {
   cardShortTitle, debounce, displayAssetTitle, escapeHtml, formatDate, normalizeDensity, normalizeSort, safeStorageGet, safeStorageSet,
 } from "./utils.mjs";
 import { createToastManager } from "./toast-manager.mjs";
-import { createApiClient } from "./api-client.mjs";
+import { createApiClient, mosaMutationHeaders } from "./api-client.mjs";
 import { createConfirmDialog } from "./confirm-dialog.mjs";
 import { createImagePreviewViewer } from "./image-preview.mjs";
 import { createAssetViewer } from "./asset-view.mjs";
@@ -268,6 +268,7 @@ const librarySync = createLibraryReconciler({
   apiFetch,
   currentAssetRequest,
   assetRequestKey,
+  assetListVersion,
   getBaselineRevision: getLibraryRevisionBaseline,
   setBaselineRevision: noteLibraryRevision,
   fetchLibraryChanges,
@@ -278,6 +279,10 @@ const librarySync = createLibraryReconciler({
   renderDetail,
   isDetailEditorActive,
   refreshSelectedStackInspector,
+  refreshSelectedGenerationHistory: async () => {
+    const asset = selectedAsset();
+    if (asset) await loadGenerationHistory(asset);
+  },
   syncViewerAfterGalleryChanges: handleGalleryChangesInViewer,
   refreshPageTotal: refreshAssetPageTotalInBackground,
   resetAssetPrefetch,
@@ -352,6 +357,7 @@ async function stageBrowserFile(file) {
     headers: {
       "content-type": file.type || "application/octet-stream",
       "x-mosa-file-name": encodeURIComponent(file.name),
+      ...mosaMutationHeaders("POST"),
     },
     body: file,
   });

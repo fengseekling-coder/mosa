@@ -519,6 +519,43 @@ test("controlled retirement requires matching service identity and lock owner, t
   assert.deepEqual(signals, [{ pid: 4242, signal: "SIGTERM" }]);
 });
 
+test("controlled retirement never signals a recycled PID with a different process identity", async () => {
+  const libraryDir = resolve("/tmp/mosa-recycled-pid-upgrade-library");
+  const service = {
+    state: "attached",
+    url: "http://127.0.0.1:43517",
+    port: 43517,
+    libraryDir,
+    storage: "sqlite",
+    productVersion: "0.2.0",
+    gitSha: "old-sha",
+    uiFingerprint: "old-ui",
+    runtimeFingerprint: "old-runtime",
+  };
+  const conflict = new MosaServiceBuildMismatchError({
+    details: service,
+    expectedIdentity: {
+      productVersion: "0.2.1-rc.1",
+      gitSha: "new-sha",
+      uiFingerprint: "new-ui",
+      runtimeFingerprint: "new-runtime",
+    },
+    mismatches: [{ field: "productVersion", expected: "0.2.1-rc.1", actual: "0.2.0" }],
+  });
+  const signals = [];
+
+  const retired = await retireOlderMosaService(conflict, {
+    readFileImpl: async () => JSON.stringify({ token: "old-runtime-token", pid: 4242, processIdentity: "old-start" }),
+    probeImpl: async () => service,
+    isProcessAlive: () => true,
+    verifyProcessIdentity: async () => false,
+    terminateProcess: (pid) => signals.push(pid),
+  });
+
+  assert.equal(retired, false);
+  assert.deepEqual(signals, []);
+});
+
 test("controlled retirement accepts a KeepAlive replacement only after it matches the requested build", async () => {
   const libraryDir = resolve("/tmp/mosa-keepalive-upgrade-library");
   const staleService = {

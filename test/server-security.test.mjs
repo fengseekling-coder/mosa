@@ -4,7 +4,17 @@ import { mkdtemp, mkdir, readFile, realpath, symlink } from "node:fs/promises";
 import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { isAllowedIngestOrigin, isAllowedLocalOrigin, isApprovedExtensionOrigin, parseAllowedIngestOrigins, resolveAllowedFolderPath } from "../lib/server-security.js";
+import {
+  isAllowedIngestOrigin,
+  isAllowedLocalOrigin,
+  isApprovedExtensionOrigin,
+  isAuthorizedMosaClientToken,
+  mosaClientTokenFingerprint,
+  normalizeMosaClientToken,
+  parseAllowedIngestOrigins,
+  requiresMosaClientToken,
+  resolveAllowedFolderPath,
+} from "../lib/server-security.js";
 
 test("allows only same-origin browser requests", () => {
   assert.equal(isAllowedLocalOrigin(undefined, 43517), true);
@@ -12,6 +22,19 @@ test("allows only same-origin browser requests", () => {
   assert.equal(isAllowedLocalOrigin("http://localhost:43517", 43517), true);
   assert.equal(isAllowedLocalOrigin("https://example.com", 43517), false);
   assert.equal(isAllowedLocalOrigin("null", 43517), false);
+});
+
+test("management mutations require a high-entropy runtime capability", () => {
+  const token = "a".repeat(43);
+  assert.equal(normalizeMosaClientToken(token), token);
+  assert.equal(isAuthorizedMosaClientToken(token, token), true);
+  assert.equal(isAuthorizedMosaClientToken(`${token.slice(0, -1)}b`, token), false);
+  assert.equal(mosaClientTokenFingerprint(token).length, 22);
+  assert.equal(requiresMosaClientToken("POST", "/api/assets/create"), true);
+  assert.equal(requiresMosaClientToken("DELETE", "/api/trash"), true);
+  assert.equal(requiresMosaClientToken("GET", "/api/assets"), false);
+  assert.equal(requiresMosaClientToken("POST", "/not-api"), false);
+  assert.throws(() => normalizeMosaClientToken("too-short"), /32-byte-or-stronger/);
 });
 
 test("allows only explicitly configured extension origins for ingest", () => {
