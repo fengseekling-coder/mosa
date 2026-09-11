@@ -4,8 +4,16 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
-### Documentation and attribution
+No user-visible changes recorded yet.
 
+## 0.2.1-rc.7 — 2026-09-11 / Release Candidate
+
+### Runtime integrity, group workflows, and release validation / 运行时完整性、分组工作流与发布验证
+
+- Hardened local runtime integrity with authenticated state-changing API requests, PID-reuse-safe runtime ownership, transactional metadata and generation-lineage updates, stricter Trash path boundaries, and isolated derivative processing so native image decoder failures cannot take down the main MOSA runtime.
+- Strengthened Web Capture and gallery synchronization under concurrency, including serialized chunk uploads, safer ingest-slot handoff, revision-aware reconciliation, and protection against stale refreshes overwriting newly appended gallery pages.
+- Expanded manual group management with drag-to-group, batch move/remove, persistent ordering and colors, group merge, group statistics, normalized case-insensitive naming, and safer version-family moves.
+- Aligned source, Electron, E2E, and packaged-app validation with the runtime client-capability model across macOS and Windows, including authenticated packaged smoke coverage.
 - Added a durable third-party notice crediting APSAL Open `v0.14.0` as a design influence on MOSA's recipe snapshot model, while explicitly separating that attribution from MOSA's own PolyForm Noncommercial licensing.
 
 ## 0.2.1-rc.6 — 2026-09-10 / Release Candidate
