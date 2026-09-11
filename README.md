@@ -92,20 +92,20 @@ Current desktop status:
 | macOS arm64 | DMG distribution target | Electron shell, local runtime, packaged smoke path, native dependencies, drag-to-Applications distribution |
 | Windows 10/11 x64 | **Preview / testing** | `MOSA.exe` startup, SQLite, Sharp, library UI, Inspector, and automatic Codex collection on a real Windows machine |
 
-The Windows target keeps the shared renderer and runtime code, uses Windows-native `better-sqlite3` and Sharp binaries, and hides Electron's native application menu bar while retaining menu accelerators. Grok and Cowart source discovery on Windows, a signed installer, code signing, and automatic updates are still release work.
+The Windows target keeps the shared renderer and runtime code, uses Windows-native `better-sqlite3` and Sharp binaries, and hides Electron's native application menu bar while retaining menu accelerators. Packaged Windows builds can check the first-party release manifest, download the matching portable ZIP in-app, verify its declared size and SHA-256 digest, replace the current application directory through a detached updater helper, and roll back if replacement fails. Grok and Cowart source discovery on Windows, a signed installer, and code signing are still release work.
 
 When the configured port already serves the same MOSA library, the desktop app attaches to it and leaves it running on Quit. Otherwise, it starts and owns a local runtime, which stops cleanly when the app quits. MOSA never terminates an unverified listener or a service for a different library.
 
-> **Project status:** macOS now has a DMG distribution path. Local development DMGs are not release-notarized; `npm run desktop:release` requires the configured Developer ID and Apple notarization credentials and fails closed when they are missing. Windows testing still uses an unsigned preview/portable ZIP and does not yet have an installer.
+> **Project status:** macOS now has a DMG distribution path. Local development DMGs are not release-notarized; `npm run desktop:release` requires the configured Developer ID and Apple notarization credentials and fails closed when they are missing. Windows testing still uses an unsigned preview/portable ZIP and does not yet have a signed installer, but packaged Windows builds support an explicit in-app download-and-replace update flow for published ZIP releases.
 
 ## Local by design
 
 - MOSA is a local Web UI bound to loopback; it is not a cloud service and must not be exposed through a public port or reverse proxy.
 - It reads only its configured Codex, Grok, and approved Cowart locations. It does not scan Downloads, Desktop, or arbitrary image folders.
-- Web Capture is optional and remains disabled until you configure both a local ingest Token and an approved extension origin. It sends captured image bytes and page provenance only to the configured local MOSA address. ChatGPT retains message-scoped context when available; Gemini, Flow, and Google AI Studio retain only narrowly associated visible user Prompt text when it can be safely matched and mark it unverified.
+- Web Capture is optional. Packaged Desktop provisions its local ingest Token and fixed approved extension origins automatically; a standalone `npm start` runtime keeps capture disabled until those values are configured explicitly. The extension sends captured image bytes and page provenance only to the configured local MOSA address. ChatGPT retains message-scoped context when available; Gemini, Flow, and Google AI Studio retain only narrowly associated visible user Prompt text when it can be safely matched and mark it unverified.
 - Eligible reference images are stored as private, content-hash-deduplicated generation-record attachments, not ordinary gallery assets.
 - MOSA adds no AI model, remote sync, embedding search, or automatic upload of your library.
-- Desktop builds send minimal anonymous install/activity metadata with the existing daily update check. This contains only a random installation ID, version, platform, architecture, and first-launch/daily-active event. It is not exposed as an in-app preference and never includes assets, Prompts, or local paths. See [PRIVACY.md](PRIVACY.md).
+- Packaged desktop builds send minimal anonymous install/activity metadata through a separate bodyless request to the same first-party release endpoint used for update metadata. This contains only a random installation ID, version, platform, architecture, and first-launch/daily-active event. It is not exposed as an in-app preference, manual update checks do not create extra activity reports, and the request never includes assets, Prompts, or local paths. See [PRIVACY.md](PRIVACY.md).
 
 See [PRIVACY.md](PRIVACY.md) for the full data boundary and [SECURITY.md](SECURITY.md) for private vulnerability reporting.
 

@@ -2,6 +2,30 @@
 
 This file records user-visible changes. Internal deployment notes, local paths, and development handoffs are intentionally not tracked in the public repository.
 
+## Unreleased
+
+- No user-visible changes recorded yet.
+
+## 0.2.1-rc.6 — 2026-09-10 / Release Candidate
+
+### Gallery stability and dependency hardening / 图库稳定性与依赖加固
+
+- Stabilized infinite-scroll pagination so adding the next gallery page no longer temporarily collapses the virtual scroll extent and nudges the viewport.
+- Hydrates all currently visible virtual gallery cards in the same paint cycle while keeping background hydration bounded, eliminating the visible placeholder-to-card ripple during fast paging.
+- Hardened gallery interaction and navigation race handling, including incremental Masonry corrections that preserve stable per-column placement rather than globally rebalancing loaded cards.
+- Updated Sharp to the release carrying the current libheif security fixes used by MOSA's packaged image pipeline.
+
+## 0.2.1-rc.5 — 2026-09-08 / Release Candidate
+
+### Desktop distribution, large-library navigation, and synchronization / 桌面分发、大图库导航与同步
+
+- Added the first-party desktop release manifest and update-check flow. Packaged Windows builds can download the matching portable ZIP in-app, verify its size and SHA-256 digest, replace the application directory through a detached helper, and roll back on replacement failure.
+- Added a macOS DMG distribution path with drag-to-Applications replacement behavior while keeping release-grade Developer ID signing and notarization fail-closed behind `desktop:release`.
+- Added Stack Inspector behavior, windowed gallery navigation, large-gallery virtualization, and safer selection/navigation handling so loaded pages and scroll state survive common library transitions.
+- Reworked library synchronization around revision-aware incremental change reconciliation instead of routinely reloading the entire loaded gallery window after one asset changes.
+- Hardened desktop runtime ownership and stale-runtime handoff, Web Capture delivery/retry behavior, capture lookup performance, Windows packaging/runtime paths, file reveal on spaced Windows paths, and Inspector/context-submenu rendering.
+- Aligned packaged anonymous install/activity reporting across website, GitHub, and directly shared packages while keeping development and QA launches excluded.
+
 ## 0.2.1-rc.4 — 2026-09-02 / Release Candidate
 
 ### Library organization and desktop branding / 素材整理与桌面品牌
