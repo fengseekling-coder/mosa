@@ -312,15 +312,19 @@ test("real Electron preload smoke (opt-in)", { skip: process.env.MOSA_ELECTRON_P
   });
   client.on("Runtime.exceptionThrown", (params) => rendererIssues.push(params));
   await client.send("Runtime.enable");
-  const state = JSON.parse(await waitForRendererValue(client, `JSON.stringify({
-    href: location.href,
-    hasElectronAPI: Boolean(window.electronAPI),
-    keys: window.electronAPI ? Object.keys(window.electronAPI).sort() : [],
-    functionKeys: window.electronAPI ? Object.keys(window.electronAPI).filter((key) => typeof window.electronAPI[key] === "function").sort() : [],
-    finderButtons: document.querySelectorAll('[data-action="show-in-finder"]').length,
-    webLinks: document.querySelectorAll('a.original-media-link').length,
-    clientToken: String(window.sessionStorage?.getItem?.('mosa.client-token') || ''),
-  })`, (value) => {
+  const state = JSON.parse(await waitForRendererValue(client, `(() => {
+    let clientToken = '';
+    try { clientToken = String(window.sessionStorage?.getItem?.('mosa.client-token') || ''); } catch {}
+    return JSON.stringify({
+      href: location.href,
+      hasElectronAPI: Boolean(window.electronAPI),
+      keys: window.electronAPI ? Object.keys(window.electronAPI).sort() : [],
+      functionKeys: window.electronAPI ? Object.keys(window.electronAPI).filter((key) => typeof window.electronAPI[key] === "function").sort() : [],
+      finderButtons: document.querySelectorAll('[data-action="show-in-finder"]').length,
+      webLinks: document.querySelectorAll('a.original-media-link').length,
+      clientToken,
+    });
+  })()`, (value) => {
     try {
       const ready = JSON.parse(value);
       return String(ready.href || "").startsWith(expectedOrigin)
