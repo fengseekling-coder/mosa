@@ -57,3 +57,22 @@ jobs:
       - run: npm run test:e2e
       - run: npm run desktop:package:windows
       - run: npm run qa:packaged:smoke
+
+  release-windows-artifact:
+    if: github.event_name == 'pull_request' && github.head_ref == 'ci/temp-rc7-windows-artifact-20260911'
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run desktop:make:windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MOSA-win32-x64-0.2.1-rc.7
+          path: out/make/zip/win32/x64/MOSA-win32-x64-0.2.1-rc.7.zip
+          if-no-files-found: error
