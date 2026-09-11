@@ -55,6 +55,7 @@ export function createAssetStackController({
   let ghost = null;
   let dropTarget = null;
   let dropPlacement = "";
+  let dropGroupTarget = null;
   let mutationInFlight = false;
   let suppressClickAfterDrag = false;
   let pointerMoveFrame = null;
@@ -63,6 +64,8 @@ export function createAssetStackController({
     dropTarget?.classList.remove("stack-drop-target", "stack-reorder-target", "stack-reorder-before", "stack-reorder-after");
     dropTarget = null;
     dropPlacement = "";
+    dropGroupTarget?.classList.remove("group-drop-target");
+    dropGroupTarget = null;
   }
 
   function removeGhost() {
@@ -374,6 +377,14 @@ export function createAssetStackController({
     return element?.closest?.(".asset-card") || null;
   }
 
+  // 拖拽入组：侧边栏分组项（data-filter="group"）与“待整理”项都是合法投放目标。
+  // 命中分组即高亮；松手后走批量归属接口。
+  function targetGroupAt(clientX, clientY) {
+    const element = document.elementFromPoint(clientX, clientY);
+    const item = element?.closest?.('[data-filter="group"][data-value], [data-filter="unorganized"]');
+    return item;
+  }
+
   function flushPointerMove() {
     pointerMoveFrame = null;
     if (!pointer?.dragging) return;
@@ -381,6 +392,18 @@ export function createAssetStackController({
     const clientY = pointer.lastY;
     const marker = createGhost(pointer.assetIds.length);
     marker.style.transform = `translate3d(${clientX + 12}px, ${clientY + 12}px, 0)`;
+    // 侧边栏目标优先于画廊卡片：指针进入侧边栏后分组目标接管高亮，
+    // 同时清掉画廊卡片的高亮残留。
+    const groupItem = state.activeStackId ? null : targetGroupAt(clientX, clientY);
+    if (groupItem) {
+      const next = groupItem.dataset.filter === "group" ? groupItem.dataset.value : "";
+      const changed = dropGroupTarget !== groupItem || dropGroupTarget?.dataset.value !== next;
+      if (changed) clearDropTarget();
+      dropGroupTarget = groupItem;
+      groupItem.classList.add("group-drop-target");
+      return;
+    }
+    if (dropGroupTarget) clearDropTarget();
     const target = targetCardAt(clientX, clientY);
     if (target !== dropTarget) clearDropTarget();
     if (!target) return;
@@ -512,10 +535,39 @@ export function createAssetStackController({
     }
     suppressSyntheticClick();
     event.preventDefault();
+    // 侧边栏投放优先：分组项 → 移入该组；“待整理”项 → 移出分组。
+    if (dropGroupTarget) {
+      const item = dropGroupTarget;
+      const filter = item.dataset.filter;
+      const value = filter === "group" ? item.dataset.value : "";
+      void runStackMutation(() => finishGroupDrop(drag.assetIds, value));
+      return;
+    }
     if (!targetId) return;
     void runStackMutation(() => state.activeStackId
       ? finishReorder(targetId, drag, placement)
       : finishRootDrop(targetId, drag));
+  }
+
+  /** 批量改归属 + 本地增量（assets-updated 带 group 标志）。 */
+  async function finishGroupDrop(assetIds, groupName) {
+    if (!assetIds.length) return false;
+    await apiFetch("/api/assets/batch", {
+      method: "POST",
+      body: { action: "group", projectId: state.project, assetIds: [...assetIds], group: groupName },
+    });
+    gallerySelection.clear();
+    await librarySync.applyLocalChanges([{
+      kind: "assets-updated",
+      entityType: "asset-batch",
+      entityId: "group-assignment",
+      assetIds: [...assetIds],
+      flags: ["group"],
+    }]);
+    showToast(groupName
+      ? t("moveToGroupCount", { count: assetIds.length, group: groupName })
+      : t("removeFromGroupCount", { count: assetIds.length }), "success");
+    return true;
   }
 
   function abandonStackContext() {

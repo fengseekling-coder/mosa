@@ -127,7 +127,7 @@ const els = {
   typeFilters: document.querySelector(".topbar-type-filters"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
   sortSelect: document.querySelector("#sortSelect"),
-  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
+  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
   viewTitle: document.querySelector("#viewTitle"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
 
@@ -1285,6 +1285,7 @@ const contextMenuActions = createContextMenuActions({
   discardDetailDraft,
   releaseAssetMedia: releaseAssetMediaForDeletion,
   openGroupModal,
+  loadAssets: (...args) => loadAssets(...args),
   getGroupColor: colorForGroup,
   saveGroupColor,
   writeClipboardText,
@@ -1734,6 +1735,15 @@ function bindEvents() {
   });
   let manualGroupClickTimer = null;
   els.sidebarManualGroupList?.addEventListener("click", (event) => {
+    const editorDot = event.target.closest(".sidebar-group-editor-dot[data-group-color]");
+    if (editorDot && sidebarGroupEdit && !sidebarGroupEdit.saving) {
+      // 单击色点在六个预设间循环，选择随建组/重命名一并提交。
+      event.preventDefault();
+      event.stopPropagation();
+      sidebarGroupEdit.color = cycleGroupColor(sidebarGroupEdit.originalName || "", editorDot.dataset.groupColor);
+      editorDot.dataset.groupColor = sidebarGroupEdit.color;
+      return;
+    }
     if (event.target.closest("[data-sidebar-group-editor]")) return;
     const button = event.target.closest("[data-filter]");
     if (!button) return;
@@ -1943,6 +1953,10 @@ function bindEvents() {
   els.groupNameInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") { event.preventDefault(); void saveGroup(); }
   });
+  els.closeGroupStatsModal?.addEventListener("click", closeGroupStatsModal);
+  els.groupStatsCloseBtn?.addEventListener("click", closeGroupStatsModal);
+  els.groupStatsModal?.addEventListener("click", (event) => { if (event.target === els.groupStatsModal) closeGroupStatsModal(); });
+  window.addEventListener("mosa:show-group-stats", (event) => { void showGroupStats(event.detail?.groupName); });
   // Phase 5B / F-15：ConfirmDialog——Cancel/Confirm 结算唯一 pending Promise；Backdrop 点击只能取消，绝不确认。
   els.confirmDialogCancel?.addEventListener("click", () => closeConfirmDialog(false));
   els.confirmDialogConfirm?.addEventListener("click", () => closeConfirmDialog(true));
@@ -2004,6 +2018,7 @@ function bindEvents() {
   document.addEventListener("keydown", trapImportModalFocus);
   document.addEventListener("keydown", trapSettingsModalFocus);
   document.addEventListener("keydown", trapGroupModalFocus);
+  document.addEventListener("keydown", trapGroupStatsModalFocus);
   document.addEventListener("keydown", trapImagePreviewFocus);
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
@@ -2389,7 +2404,7 @@ function setSidebarSectionCollapsed(section, collapsed) {
 }
 
 function sidebarGroupEditorMarkup(originalName, value = "", color = GROUP_COLORS[0]) {
-  return `<li class="sidebar-group-editor" data-sidebar-group-editor data-original-name="${escapeHtml(originalName)}"><span class="sidebar-group-editor-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><input class="sidebar-group-editor-input" data-sidebar-group-input type="text" maxlength="80" value="${escapeHtml(value)}" placeholder="${escapeHtml(t("inlineGroupPlaceholder"))}" aria-label="${escapeHtml(t(originalName ? "renameGroup" : "addGroup"))}" /></li>`;
+  return `<li class="sidebar-group-editor" data-sidebar-group-editor data-original-name="${escapeHtml(originalName)}"><button class="sidebar-group-editor-dot" type="button" data-group-color="${escapeHtml(color)}" data-i18n-aria-label="groupColor" aria-label="${escapeHtml(t("groupColor"))}" title="${escapeHtml(t("groupColor"))}"></button><input class="sidebar-group-editor-input" data-sidebar-group-input type="text" maxlength="80" value="${escapeHtml(value)}" placeholder="${escapeHtml(t("inlineGroupPlaceholder"))}" aria-label="${escapeHtml(t(originalName ? "renameGroup" : "addGroup"))}" /></li>`;
 }
 
 function focusSidebarGroupEditor() {
@@ -2440,7 +2455,10 @@ async function commitSidebarGroupEdit() {
   if (input instanceof HTMLInputElement) input.disabled = true;
   try {
     if (draft.mode === "create") {
-      const result = await apiFetch("/api/groups", { method: "POST", body: { projectId: state.project, name } });
+      const result = await apiFetch("/api/groups", {
+        method: "POST",
+        body: { projectId: state.project, name, color: draft.color },
+      });
       saveGroupColor(result.group.name, draft.color);
       showToast(`${t("groupCreated")}${result.group.name}`, "success");
     } else {
@@ -2454,6 +2472,10 @@ async function commitSidebarGroupEdit() {
       delete colors[originalName];
       colors[result.group.name] = GROUP_COLORS.includes(previousColor) ? previousColor : deterministicGroupColor(result.group.name);
       safeStorageSet(groupColorStorageKey(), JSON.stringify(colors));
+      // 编辑器里循环过的色点随重命名一起生效。
+      if (GROUP_COLORS.includes(draft.color) && draft.color !== colors[result.group.name]) {
+        persistGroupColor(result.group.name, draft.color);
+      }
       if (state.facets.group === originalName) state.facets.group = result.group.name;
       showToast(`${t("groupRenamed")}${result.group.name}`, "success");
     }
@@ -3695,8 +3717,13 @@ function buildGalleryCardEntry(asset, ordinal, animateCard) {
       : t("stackAccessibleName", { label, count: asset.stack.count }))}"`
     : "";
   const versionIndex = Number(asset.version_index) || 0;
-  const badge = versionIndex > 1 ? t("versionLabelShort", { number: versionIndex }) : (asset.group || "");
-  const info = `<div class="asset-card-info"><p class="asset-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</p><p class="asset-card-meta"><span>${escapeHtml(sourceLabel)}</span><span>${escapeHtml(date)}</span>${badge ? `<span class="asset-card-badge" title="${escapeHtml(badge)}">${escapeHtml(badge)}</span>` : ""}</p></div>`;
+  // 版本徽章与分组徽章并存：版本家族拆散后，分组在任何只读界面都不再"失踪"。
+  const badges = [
+    versionIndex > 1 ? t("versionLabelShort", { number: versionIndex }) : "",
+    String(asset.group || "").trim(),
+  ].filter(Boolean);
+  const badgeMarkup = badges.map((badge) => `<span class="asset-card-badge" title="${escapeHtml(badge)}">${escapeHtml(badge)}</span>`).join("");
+  const info = `<div class="asset-card-info"><p class="asset-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</p><p class="asset-card-meta"><span>${escapeHtml(sourceLabel)}</span><span>${escapeHtml(date)}</span>${badgeMarkup}</p></div>`;
   const isFav = asset.favorite;
   const favoriteLabel = isFav ? t("removeFavorite") : t("addFavorite");
   // Phase 1C/1C.1 契约：.card-actions > button.card-action-btn.card-favorite / .card-quick-copy，
@@ -4204,7 +4231,7 @@ function setDetailOpen(open) {
 function hasBlockingOverlay(except = "") {
   return [
     ["import", Boolean(els.importModal?.classList.contains("open"))],
-    ["group", Boolean(els.groupModal?.classList.contains("open"))],
+    ["group", Boolean(els.groupModal?.classList.contains("open")) || Boolean(els.groupStatsModal?.classList.contains("open"))],
     ["settings", Boolean(els.settingsMenu && !els.settingsMenu.hidden)],
     ["preview", Boolean(els.imagePreviewModal && !els.imagePreviewModal.hidden)],
   ].some(([name, open]) => name !== except && open);
@@ -4272,7 +4299,16 @@ function deterministicGroupColor(name) {
   for (const character of String(name || "")) hash = ((hash << 5) - hash + character.codePointAt(0)) | 0;
   return GROUP_COLORS[Math.abs(hash) % GROUP_COLORS.length];
 }
+function serverGroupColor(name) {
+  const record = (Array.isArray(state.groups?.groups) ? state.groups.groups : [])
+    .find((group) => group.name === name);
+  return GROUP_COLORS.includes(record?.color) ? record.color : "";
+}
 function colorForGroup(name) {
+  // Server record first, then the local palette cache (offline fallback and
+  // the pre-color-API era), finally the deterministic swatch.
+  const server = serverGroupColor(name);
+  if (server) return server;
   const stored = groupColorMap()[name];
   return GROUP_COLORS.includes(stored) ? stored : deterministicGroupColor(name);
 }
@@ -4280,6 +4316,22 @@ function saveGroupColor(name, color) {
   const colors = groupColorMap();
   colors[name] = GROUP_COLORS.includes(color) ? color : deterministicGroupColor(name);
   safeStorageSet(groupColorStorageKey(), JSON.stringify(colors));
+}
+/** Persists a swatch choice to the server (single source of truth) while
+ * keeping the localStorage cache warm for offline rendering. */
+function persistGroupColor(name, color) {
+  saveGroupColor(name, color);
+  void apiFetch(`/api/groups/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    body: { projectId: state.project, color },
+  }).then(() => loadStats({ background: true })).catch(() => {
+    // Offline / legacy store: the localStorage cache written above still
+    // renders the choice locally.
+  });
+}
+function cycleGroupColor(name, currentColor) {
+  const index = GROUP_COLORS.indexOf(currentColor);
+  return GROUP_COLORS[(index + 1 + GROUP_COLORS.length) % GROUP_COLORS.length];
 }
 function selectGroupColor(color) {
   if (!GROUP_COLORS.includes(color)) return;
@@ -4292,9 +4344,13 @@ function selectGroupColor(color) {
 function selectedGroupColor() {
   return els.groupModal?.querySelector("[data-group-color][aria-pressed='true']")?.dataset.groupColor || GROUP_COLORS[0];
 }
-function openGroupModal() {
+// 建组即分配：从“移动到分组 → 新建分组”打开时暂存回调，创建成功后把
+// 当时选中的素材移入新组。回调自带选中上下文校验，失败只提示不影响建组结果。
+let pendingGroupCreated = null;
+function openGroupModal({ onCreated } = {}) {
   if (state.groupSaving || hasBlockingOverlay("group")) return;
   state.modalReturnFocus = document.activeElement;
+  pendingGroupCreated = typeof onCreated === "function" ? onCreated : null;
   els.groupModal?.classList.add("open");
   els.groupModal?.setAttribute("aria-hidden", "false");
   if (els.groupNameInput) els.groupNameInput.value = "";
@@ -4311,11 +4367,71 @@ function setGroupBusy(busy) {
 }
 function closeGroupModal({ force = false } = {}) {
   if (state.groupSaving && !force) return false;
+  pendingGroupCreated = null;
   els.groupModal?.classList.remove("open");
   els.groupModal?.setAttribute("aria-hidden", "true");
   if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus();
   state.modalReturnFocus = null;
   return true;
+}
+
+// ===== 分组统计（右键分组 → 分组统计；GET /api/groups/:name/stats）=====
+function groupStatsFacetMarkup(entries = []) {
+  if (!entries.length) return `<span class="empty-copy">${escapeHtml(t("notRecorded"))}</span>`;
+  return `<div class="group-stats-tags">${entries.map(([name, count]) => `<span class="group-stats-tag">${escapeHtml(name)}<em>${Number(count || 0)}</em></span>`).join("")}</div>`;
+}
+
+function groupStatsMarkup(stats = {}) {
+  const rows = [
+    [t("groupStatsMembers"), Number(stats.total || 0)],
+    [t("groupStatsFavorites"), Number(stats.favorites || 0)],
+    [t("groupStatsImages"), Number(stats.images || 0)],
+    [t("groupStatsVideos"), Number(stats.videos || 0)],
+    [t("groupStatsVersions"), Number(stats.versionChildren || 0)],
+    [t("groupStatsTrashed"), Number(stats.trashed || 0)],
+  ];
+  return `
+    <div class="group-stats-overview">${rows.map(([label, value]) => `<div class="group-stats-cell"><strong>${value}</strong><span>${escapeHtml(label)}</span></div>`).join("")}</div>
+    <div class="group-stats-facet"><h4>${escapeHtml(t("groupStatsByCategory"))}</h4>${groupStatsFacetMarkup(stats.categories)}</div>
+    <div class="group-stats-facet"><h4>${escapeHtml(t("groupStatsBySource"))}</h4>${groupStatsFacetMarkup(stats.sources)}</div>`;
+}
+
+async function showGroupStats(groupName) {
+  const name = String(groupName || "").trim();
+  if (!name || hasBlockingOverlay("group")) return;
+  const color = colorForGroup(name);
+  if (els.groupStatsBody) els.groupStatsBody.innerHTML = `<p class="empty-copy">${escapeHtml(t("refreshing"))}</p>`;
+  state.modalReturnFocus = document.activeElement;
+  els.groupStatsModal?.classList.add("open");
+  els.groupStatsModal?.setAttribute("aria-hidden", "false");
+  const title = els.groupStatsModal?.querySelector("#groupStatsTitle");
+  if (title) title.innerHTML = `<span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span>${escapeHtml(t("groupStatsTitleLabel", { group: name }))}`;
+  requestAnimationFrame(() => els.closeGroupStatsModal?.focus());
+  try {
+    const result = await apiFetch(`/api/groups/${encodeURIComponent(name)}/stats?project=${encodeURIComponent(state.project)}`);
+    if (els.groupStatsBody) els.groupStatsBody.innerHTML = groupStatsMarkup(result?.stats || {});
+  } catch (error) {
+    if (els.groupStatsBody) els.groupStatsBody.innerHTML = `<p class="empty-copy">${escapeHtml(error?.message || t("loadFailed"))}</p>`;
+  }
+}
+
+function closeGroupStatsModal() {
+  els.groupStatsModal?.classList.remove("open");
+  els.groupStatsModal?.setAttribute("aria-hidden", "true");
+  if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus();
+  state.modalReturnFocus = null;
+}
+
+function trapGroupStatsModalFocus(event) {
+  if (event.defaultPrevented) return;
+  if (!els.groupStatsModal?.classList.contains("open")) return;
+  if (event.key === "Escape") { event.preventDefault(); closeGroupStatsModal(); return; }
+  if (event.key !== "Tab") return;
+  const focusable = [...els.groupStatsModal.querySelectorAll("button:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((element) => !element.hasAttribute("hidden"));
+  if (!focusable.length) return;
+  const current = focusable.indexOf(document.activeElement);
+  const next = event.shiftKey ? (current <= 0 ? focusable.length - 1 : current - 1) : (current === focusable.length - 1 ? 0 : current + 1);
+  event.preventDefault(); focusable[next].focus();
 }
 
 function trapImportModalFocus(event) {
@@ -4356,12 +4472,16 @@ async function saveGroup() {
   const originProjectId = state.project;
   const originAssetId = state.selectedId;
   const hadDetailDraft = state.detailDirty;
+  const onCreated = pendingGroupCreated;
   // 同 saveAsset：防重窗口先于草稿冲刷的网络往返打开，冲刷期间双击不重复建组。
   setGroupBusy(true);
   try {
     if (hadDetailDraft && !await confirmDetailNavigation(null)) return;
     await runAction(async () => {
-      const result = await apiFetch("/api/groups", { method: "POST", body: { projectId: originProjectId, name } });
+      const result = await apiFetch("/api/groups", {
+        method: "POST",
+        body: { projectId: originProjectId, name, color: selectedGroupColor() },
+      });
       if (hadDetailDraft && originProjectId === state.project && originAssetId === state.selectedId) discardDetailDraft();
       saveGroupColor(result.group.name, selectedGroupColor());
       closeGroupModal({ force: true });
@@ -4372,6 +4492,9 @@ async function saveGroup() {
       // 素材右键的“移动到分组”子菜单中。
       clearDetailSelection();
       renderQuickFilters();
+      // 建组即分配（从“移动到分组 → 新建分组”进入时）：把打开弹窗时选中的
+      // 素材移入新组。回调内部自带选中上下文时效校验。
+      if (onCreated) await onCreated(result.group.name);
     });
   } finally {
     setGroupBusy(false);

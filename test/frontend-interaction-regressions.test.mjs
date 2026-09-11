@@ -112,20 +112,27 @@ test("context-menu favorite batch mutations preserve partial failures instead of
     "archive is intentionally absent from the asset context menu");
 });
 
-test("move-to-group submenu contains create-group and real groups only", async () => {
+test("move-to-group submenu contains create-with-selection, remove-from-group, and real groups only", async () => {
   const [actions, i18n] = await Promise.all([
     readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
     readFile(resolve(root, "app/i18n.mjs"), "utf8"),
   ]);
   const submenu = sliceBetween(actions, "// Move to group submenu", "if (!isMultiple)");
 
-  assert.match(submenu, /label: t\("createGroup"\)/, "create-group remains the first utility action");
+  assert.match(submenu, /label: t\("createGroupWithSelection"\)/,
+    "create-group with assignment remains the first utility action");
+  assert.match(submenu, /openGroupModal\?\.\(\{[\s\S]*?onCreated:/,
+    "creating from the submenu assigns the pending selection to the new group");
+  assert.match(submenu, /label: t\("removeFromGroup"\)/,
+    "an explicit remove-from-group destination exists (empty group name clears membership)");
+  assert.match(submenu, /disabled: !selectionHasGroupedAsset\(/,
+    "remove-from-group is only enabled when the selection actually has a group");
   assert.match(submenu, /Array\.isArray\(state\.groups\.groups\)/,
     "saved groups are guarded at the navigation-state boundary");
   assert.match(submenu, /const groupName = group\.name;/,
     "saved navigation group objects populate the submenu by canonical name");
-  assert.doesNotMatch(submenu, /t\("noGroup"\)|applyGroupMutation\(ids, ""\)/,
-    "the explicit no-group destination is removed from the move submenu");
+  assert.doesNotMatch(submenu, /t\("noGroup"\)/,
+    "the ambiguous no-group menu copy is still retired");
   assert.doesNotMatch(i18n, /noGroup: "(?:无分组|No group)"/,
     "the retired no-group menu copy leaves no dead locale key");
 });

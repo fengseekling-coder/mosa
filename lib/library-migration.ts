@@ -26,7 +26,8 @@ export async function inspectLegacyLibrary(options: { managerDir?: string; legac
   for (const entry of projectEntries.filter((i) => i.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
     const projectId = entry.name; const groupsPath = join(legacyAssetsRoot, projectId, "groups.json");
     try { const parsedGroups = JSON.parse(await readFile(groupsPath, "utf8")); if (!Array.isArray(parsedGroups)) { issues.push({ kind: "invalid-groups", path: groupsPath, detail: "groups.json must contain an array." }); } else {
-      const names = new Map<string, string>(); for (const v of parsedGroups) { const name = normalizeGroupName(v); if (name && !names.has(name.toLocaleLowerCase())) names.set(name.toLocaleLowerCase(), name); }
+      // groups.json entries are either legacy strings or { name, color, position } records.
+      const names = new Map<string, string>(); for (const v of parsedGroups) { const name = normalizeGroupName(typeof v === "object" && v !== null ? (v as { name?: unknown }).name : v); if (name && !names.has(name.toLocaleLowerCase())) names.set(name.toLocaleLowerCase(), name); }
       for (const name of names.values()) groups.push({ projectId, name });
     } } catch (error: unknown) { if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") issues.push({ kind: "corrupt-groups-json", path: groupsPath, detail: error instanceof Error ? error.message : String(error) }); }
     const metadataDir = join(legacyAssetsRoot, projectId, "metadata"); const imagesDir = join(legacyAssetsRoot, projectId, "images");
@@ -47,13 +48,13 @@ export async function migrateLegacyLibrary(options: { managerDir?: string; legac
   const report: MigrationReport = { legacyAssetsRoot: inspection.legacyAssetsRoot, discovered: inspection.records.length, discoveredGroups: inspection.groups.length, imported: 0, importedGroups: 0, skipped: 0, skippedGroups: 0, verified: 0, issues: inspection.issues, backupPath: null, completed: false };
   if (options.dryRun || inspection.issues.length) return report;
   const libraryDir = resolve(options.libraryDir!); const managerDir = resolve(options.managerDir || process.cwd()); const projectRoot = resolve(options.projectRoot || dirname(managerDir));
-  const store = createSqliteAssetStore({ projectRoot, managerDir, libraryDir, legacyAssetsRoot: inspection.legacyAssetsRoot, storage: "sqlite" }) as unknown as { clearMigrationIssues(): Promise<void>; setMigrationState(s: string, d: Record<string, unknown>): Promise<void>; listGroups(p: string): Promise<{ groups: Array<[string, string]> }>; createGroup(p: { projectId: string; name: string }): Promise<void>; getAsset(p: string, id: string): Promise<{ id: string; image_path: string } | null>; createAsset(p: Record<string, unknown>, o?: Record<string, unknown>): Promise<{ id: string; image_path: string }>; recordMigrationIssue(i: MigrationIssue): Promise<void>; verifyLibrary(): Promise<Record<string, unknown>>; migrationStatus(): Promise<unknown>; listMigrationIssues(): Promise<MigrationIssue[]>; close(): void; };
+  const store = createSqliteAssetStore({ projectRoot, managerDir, libraryDir, legacyAssetsRoot: inspection.legacyAssetsRoot, storage: "sqlite" }) as unknown as { clearMigrationIssues(): Promise<void>; setMigrationState(s: string, d: Record<string, unknown>): Promise<void>; listGroups(p: string): Promise<{ groups: Array<{ name: string }> }>; createGroup(p: { projectId: string; name: string }): Promise<void>; getAsset(p: string, id: string): Promise<{ id: string; image_path: string } | null>; createAsset(p: Record<string, unknown>, o?: Record<string, unknown>): Promise<{ id: string; image_path: string }>; recordMigrationIssue(i: MigrationIssue): Promise<void>; verifyLibrary(): Promise<Record<string, unknown>>; migrationStatus(): Promise<unknown>; listMigrationIssues(): Promise<MigrationIssue[]>; close(): void; };
   await store.clearMigrationIssues(); await store.setMigrationState("migrating", { legacyAssetsRoot: inspection.legacyAssetsRoot, discovered: inspection.records.length });
   try {
     report.backupPath = await backupLegacyJson({ libraryDir, legacyAssetsRoot: inspection.legacyAssetsRoot });
     const knownGroups = new Map<string, Set<string>>();
     for (const group of inspection.groups) {
-      if (!knownGroups.has(group.projectId)) { const stats = await store.listGroups(group.projectId); knownGroups.set(group.projectId, new Set(stats.groups.map(([name]) => name.toLocaleLowerCase()))); }
+      if (!knownGroups.has(group.projectId)) { const stats = await store.listGroups(group.projectId); knownGroups.set(group.projectId, new Set(stats.groups.map((group) => group.name.toLocaleLowerCase()))); }
       const names = knownGroups.get(group.projectId)!; if (names.has(group.name.toLocaleLowerCase())) { report.skippedGroups += 1; continue; }
       await store.createGroup({ projectId: group.projectId, name: group.name }); names.add(group.name.toLocaleLowerCase()); report.importedGroups += 1;
     }

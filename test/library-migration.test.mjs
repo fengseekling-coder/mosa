@@ -49,7 +49,7 @@ test("migration copies legacy JSON assets, preserves unknown fields, and verifie
   const groups = await store.listGroups("default");
   store.close();
   assert.equal(migrated.legacy_note, "must survive migration");
-  assert.deepEqual(groups.groups, [["Empty collection", 0]]);
+  assert.deepEqual(groups.groups, [{ name: "Empty collection", count: 0, color: "", position: 0 }]);
   assert.equal(JSON.parse(verification.migration.migration_details).completed, true);
 
   const backup = await readFile(join(report.backupPath, "default", "metadata", "legacy.json"), "utf8");

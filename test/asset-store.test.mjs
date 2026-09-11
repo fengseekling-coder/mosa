@@ -531,7 +531,7 @@ test("persists manually created groups, including empty groups", async (t) => {
   await store.createGroup({ projectId: "default", name: "  Inspiration   board " });
 
   let stats = await store.listGroups("default");
-  assert.deepEqual(stats.groups, [["Inspiration board", 0]]);
+  assert.deepEqual(stats.groups, [{ name: "Inspiration board", count: 0, color: "", position: 0 }]);
   await assert.rejects(store.createGroup({ projectId: "default", name: "inspiration board" }), /Group already exists/);
 
   const sourcePath = join(projectRoot, "generated-images", "fixture.png");
@@ -544,7 +544,7 @@ test("persists manually created groups, including empty groups", async (t) => {
   await assert.rejects(store.renameGroup("default", "Missing", "Other"), /Group not found/);
 
   stats = await createAssetStore({ projectRoot, managerDir }).listGroups("default");
-  assert.deepEqual(stats.groups, [["Mood board", 1]]);
+  assert.deepEqual(stats.groups, [{ name: "Mood board", count: 1, color: "", position: 0 }]);
 });
 
 test("JSON group deletion moves every asset in the group to Trash and keeps them restorable", async (t) => {
@@ -571,7 +571,7 @@ test("JSON group deletion moves every asset in the group to Trash and keeps them
   assert.deepEqual((await store.listGroups("default")).groups, []);
   await store.restoreAsset("default", first.id);
   assert.equal((await store.getAsset("default", first.id)).group, "Disposable");
-  assert.deepEqual((await store.listGroups("default")).groups, [["Disposable", 1]]);
+  assert.deepEqual((await store.listGroups("default")).groups, [{ name: "Disposable", count: 1, color: "", position: 0 }]);
 });
 
 test("JSON group deletion rolls metadata back when a later logical write fails", async (t) => {
@@ -598,7 +598,7 @@ test("JSON group deletion rolls metadata back when a later logical write fails",
   assert.equal((await store.getAsset("default", first.id)).deleted_at, null);
   assert.equal((await store.getAsset("default", second.id)).group, "Atomic");
   assert.equal((await store.getAsset("default", second.id)).deleted_at, null);
-  assert.deepEqual((await store.listGroups("default")).groups, [["Atomic", 2]]);
+  assert.deepEqual((await store.listGroups("default")).groups, [{ name: "Atomic", count: 2, color: "", position: 0 }]);
 });
 
 test("keeps concurrent group creations from independent store instances", async (t) => {
@@ -616,7 +616,12 @@ test("keeps concurrent group creations from independent store instances", async 
   ]);
 
   const stats = await firstStore.listGroups("default");
-  assert.deepEqual(stats.groups, [["alpha", 0], ["beta", 0]]);
+  // Concurrent creations race for positions; assert the set, not the order.
+  assert.deepEqual(
+    stats.groups.map((group) => group.name).sort(),
+    ["alpha", "beta"],
+  );
+  assert.deepEqual(stats.groups.map((group) => group.position).sort((a, b) => a - b), [0, 1]);
 });
 
 test("does not reclaim a stale-looking lock held by a live group writer", async (t) => {
@@ -625,24 +630,28 @@ test("does not reclaim a stale-looking lock held by a live group writer", async 
 
   const projectRoot = join(root, "project");
   const managerDir = join(projectRoot, "mosa");
-  const firstStore = createAssetStore({ projectRoot, managerDir });
-  const secondStore = createAssetStore({ projectRoot, managerDir });
-  firstStore.listAssets = async () => {
-    await delay(150);
-    return [];
-  };
+  const store = createAssetStore({ projectRoot, managerDir });
+  await store.ensureProject("default");
 
-  const firstWrite = firstStore.createGroup({ projectId: "default", name: "alpha" });
+  // Simulate a live writer at the exact file level the store uses: the lock
+  // owner pid is this (alive) test process, but the mtime looks 31s stale.
   const lockPath = join(managerDir, "assets", "default", ".groups.lock");
-  await waitForPath(lockPath);
+  await writeFile(lockPath, JSON.stringify({ token: "live-owner", pid: process.pid }), "utf8");
   const staleTime = new Date(Date.now() - 31_000);
   await utimes(lockPath, staleTime, staleTime);
 
-  const secondWrite = secondStore.createGroup({ projectId: "default", name: "beta" });
-  await Promise.all([firstWrite, secondWrite]);
+  const write = store.createGroup({ projectId: "default", name: "beta" });
+  await delay(300);
+  // A buggy waiter would have reclaimed the lock, finished its write, and
+  // released (unlinked) the lock file. Neither may have happened.
+  assert.equal(await access(lockPath).then(() => true, () => false), true, "live owner's lock must survive");
+  assert.equal(write instanceof Promise, true);
 
-  const stats = await secondStore.listGroups("default");
-  assert.deepEqual(stats.groups, [["alpha", 0], ["beta", 0]]);
+  // The live owner releases: the waiter completes normally.
+  await unlink(lockPath);
+  await write;
+  const stats = await store.listGroups("default");
+  assert.deepEqual(stats.groups, [{ name: "beta", count: 0, color: "", position: 0 }]);
 });
 
 test("recovers a stale group lock whose owner has exited", async (t) => {
@@ -660,7 +669,7 @@ test("recovers a stale group lock whose owner has exited", async (t) => {
 
   await store.createGroup({ projectId: "default", name: "recovered" });
   const stats = await store.listGroups("default");
-  assert.deepEqual(stats.groups, [["recovered", 0]]);
+  assert.deepEqual(stats.groups, [{ name: "recovered", count: 0, color: "", position: 0 }]);
 });
 
 test("continues to reject image paths outside approved source roots", async (t) => {

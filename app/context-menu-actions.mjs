@@ -3,7 +3,7 @@
  * Defines all context menu items and their actions
  */
 
-export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, getGroupColor, saveGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, gallerySelection }) {
+export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, loadAssets, getGroupColor, saveGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, gallerySelection }) {
   const { apiFetch } = apiClient;
   // getGroupColor falls back to the deterministic palette so call sites can rely
   // on a single source of truth for group colors (mirrors app.mjs colorForGroup).
@@ -99,6 +99,40 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     });
   }
 
+  function selectionHasGroupedAsset(asset, selectedAssets = [], options = {}) {
+    const count = logicalSelectionCount(selectedAssets, options);
+    if (count > 1) {
+      const selection = selectedAssets.length ? selectedAssets : [];
+      if (selection.some((entry) => String(entry?.group || "").trim())) return true;
+      // 折叠 Stack / 跨页选择无法在此刻展开校验时保留入口可用。
+      return selection.length !== count;
+    }
+    return Boolean(String(asset?.group || "").trim());
+  }
+
+  /**
+   * 版本家族防拆散提示：移动家族的一部分（而非全部）时软确认一次。
+   * 家族成员可以合法分属不同分组（删除分组时服务端才硬拦），但多数拆散
+   * 是无意的——这里只在已加载行里能判定时提示，不为此发额外请求。
+   */
+  async function confirmVersionFamilySplit(ids = []) {
+    const selected = new Set(ids.map(String));
+    const loaded = state.assets || [];
+    const straddle = loaded.some((entry) => {
+      const parentId = String(entry?.parent_asset_id || "");
+      if (parentId && selected.has(entry.id) && !selected.has(parentId)) return true;
+      return parentId && !selected.has(entry.id) && selected.has(parentId);
+    });
+    if (!straddle) return true;
+    return requestConfirmation({
+      title: t("versionSplitTitle"),
+      description: t("versionSplitDescription"),
+      confirmLabel: t("versionSplitConfirm"),
+      cancelLabel: t("cancel"),
+      tone: "warning",
+    });
+  }
+
   // Full manifest of one group via the existing paged asset query. Never cap a
   // user's export by an arbitrary asset count: cursor-loop detection provides
   // the safety bound without silently truncating large libraries.
@@ -134,7 +168,38 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     const items = [];
 
     if (type === "group") {
+      const otherGroups = (Array.isArray(state.groups.groups) ? state.groups.groups : [])
+        .filter((group) => group.name !== item.name);
+      const order = (Array.isArray(state.groups.groups) ? state.groups.groups : []).map((group) => group.name);
+      const orderIndex = order.indexOf(item.name);
       items.push(
+        {
+          label: t("moveGroupUp"),
+          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 15 6-6 6 6"/></svg>',
+          disabled: orderIndex <= 0,
+          action: async () => {
+            await runAction(async () => {
+              const next = order.slice();
+              [next[orderIndex - 1], next[orderIndex]] = [next[orderIndex], next[orderIndex - 1]];
+              await apiFetch("/api/groups/order", { method: "PATCH", body: { projectId: state.project, names: next } });
+              window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
+            });
+          },
+        },
+        {
+          label: t("moveGroupDown"),
+          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg>',
+          disabled: orderIndex < 0 || orderIndex >= order.length - 1,
+          action: async () => {
+            await runAction(async () => {
+              const next = order.slice();
+              [next[orderIndex], next[orderIndex + 1]] = [next[orderIndex + 1], next[orderIndex]];
+              await apiFetch("/api/groups/order", { method: "PATCH", body: { projectId: state.project, names: next } });
+              window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
+            });
+          },
+        },
+        { separator: true },
         {
           label: t("renameGroup"),
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>',
@@ -143,22 +208,41 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           },
         },
         {
-          label: t("duplicateGroup"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
-          action: async () => {
-            await runAction(async () => {
-              const newName = `${item.name} ${t("copy")}`;
-              await apiFetch("/api/groups", {
-                method: "POST",
-                body: { projectId: state.project, name: newName },
+          // 单一分组成员模型下“复制分组”不可能复制成员（一个素材只能属于一个
+          // 分组），真正有用的是把成员并入另一组并删除当前组。
+          label: t("mergeGroupInto"),
+          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 7h13M13 17H3"/><path d="m17 4 3 3-3 3"/><path d="m7 14-3 3 3 3"/></svg>',
+          disabled: !otherGroups.length,
+          submenu: otherGroups.map((group) => ({
+            label: group.name,
+            icon: `<svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="${resolveGroupColor(group.name)}"/></svg>`,
+            action: async () => {
+              const confirmed = await requestConfirmation({
+                title: t("mergeGroupTitle", { from: item.name, into: group.name }),
+                description: t("mergeGroupDescription", { from: item.name, into: group.name, count: Number(item.count || 0) }),
+                confirmLabel: t("mergeGroupConfirm"),
+                tone: "warning",
               });
-              // The store keeps colors in the per-project palette (localStorage),
-              // not in the create-group API, so duplicate the swatch here too.
-              if (typeof saveGroupColor === "function" && item.color) saveGroupColor(newName, item.color);
-              showToast(t("groupDuplicated"), "success");
-              window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
-            });
-          },
+              if (!confirmed) return;
+              await runAction(async () => {
+                const result = await apiFetch(`/api/groups/${encodeURIComponent(item.name)}/merge`, {
+                  method: "POST",
+                  body: { projectId: state.project, into: group.name },
+                });
+                // 本窗口正在浏览被并入的分组时直接跟随到目标分组；跨窗口由
+                // journal 的 group-deleted + mergedInto 详情重定向。过滤器语义
+                // 变化必须整视图重载，行级增量覆盖不了目标组原有成员。
+                if (state.facets.group === item.name) {
+                  state.facets.group = result.into || group.name;
+                  state.nextCursor = null;
+                  await loadAssets?.();
+                }
+                showToast(t("groupMerged", { into: result.into || group.name, count: result.movedAssets || 0 }), "success");
+                window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
+                window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
+              });
+            },
+          })),
         },
         {
           label: t("exportGroup"),
@@ -182,9 +266,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           label: t("groupStats"),
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3v18h18"/><path d="m7 16 4-4 4 4 6-6"/></svg>',
           action: async () => {
-            // The sidebar group entry already carries the live count from
-            // GET /api/groups; no per-group stats endpoint exists to call.
-            showToast(`${item.name}: ${item.count} ${t("assets")}`, "default");
+            window.dispatchEvent(new CustomEvent("mosa:show-group-stats", { detail: { groupName: item.name } }));
           },
         },
         { separator: true },
@@ -217,14 +299,18 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               });
               showToast(t(deleteAssets ? "groupAndAssetsDeleted" : "groupDeleted"), "success");
 
-              // Clear group filter if the deleted group was active
-              if (state.facets.group === item.name) {
+              // Clear group filter if the deleted group was active. The filter
+              // semantics changed, so the gallery reloads under the widened
+              // scope instead of reconciling only the affected rows.
+              const filterWasActive = state.facets.group === item.name;
+              if (filterWasActive) {
                 state.facets.group = "";
                 state.nextCursor = null;
               }
 
               window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
-              window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
+              if (filterWasActive) await loadAssets?.();
+              else window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
             } catch (error) {
               console.error("Delete group error:", error);
               showToast(error.message || t("deleteFailed"), "error");
@@ -447,15 +533,60 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     });
 
     // Move to group submenu
+    const moveSelectionToGroup = (groupName) => async () => {
+      const context = await selectedMutationContext(asset, selectedAssets, options);
+      if (!context || !mutationContextIsCurrent(context)) return;
+      const { ids, projectId } = context;
+      const assets = mutationAssetsForIds(ids, projectId);
+      if (!await confirmSelectedAssetMutation(assets)) return;
+      if (!await confirmVersionFamilySplit(ids)) return;
+      if (!mutationContextIsCurrent(context)) return;
+      await runAction(async () => {
+        const response = await applyGroupMutation(projectId, ids, groupName);
+        if (!mutationContextIsCurrent(context)) return;
+        const outcome = reconcileBatchMutation(assets, response);
+        commitSelectedAssetMutation(assets);
+        if (outcome.failed.length) showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
+        else showToast(groupName ? t("movedToGroup") : t("removedFromGroup"), "success");
+        window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+          detail: { updatedAssetIds: outcome.succeeded.map((entry) => entry.id), groupChanged: true },
+        }));
+      });
+    };
     items.push({
       label: t("moveToGroup"),
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
       submenu: [
         {
-          label: t("createGroup"),
+          // 建组即分配：弹窗创建成功后把当前选中的素材直接移入新分组，
+          // 不再让用户回到画廊右键第二轮。
+          label: t("createGroupWithSelection"),
           action: async () => {
-            openGroupModal?.();
+            const context = await selectedMutationContext(asset, selectedAssets, options);
+            if (!context) return;
+            const { ids, projectId } = context;
+            openGroupModal?.({
+              onCreated: async (groupName) => {
+                if (projectId !== state.project) return;
+                const assets = mutationAssetsForIds(ids, projectId);
+                const response = await applyGroupMutation(projectId, ids, groupName);
+                const outcome = reconcileBatchMutation(assets, response);
+                commitSelectedAssetMutation(assets);
+                if (outcome.failed.length) showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
+                else showToast(t("movedToGroup"), "success");
+                window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+                  detail: { updatedAssetIds: outcome.succeeded.map((entry) => entry.id), groupChanged: true },
+                }));
+              },
+            });
           },
+        },
+        {
+          // 移出分组：后端批量接口传空分组名即解除归属，这里补上唯一缺失的入口。
+          label: t("removeFromGroup"),
+          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="m9 12 6 0"/></svg>',
+          disabled: !selectionHasGroupedAsset(asset, selectedAssets, options),
+          action: moveSelectionToGroup(""),
         },
         { separator: true },
         ...(Array.isArray(state.groups.groups) ? state.groups.groups : []).map((group) => {
@@ -466,25 +597,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           return {
             label: groupName,
             icon: `<svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="${savedColor}"/></svg>`,
-            action: async () => {
-              const context = await selectedMutationContext(asset, selectedAssets, options);
-              if (!context || !mutationContextIsCurrent(context)) return;
-              const { ids, projectId } = context;
-              const assets = mutationAssetsForIds(ids, projectId);
-              if (!await confirmSelectedAssetMutation(assets)) return;
-              if (!mutationContextIsCurrent(context)) return;
-              await runAction(async () => {
-                const response = await applyGroupMutation(projectId, ids, groupName);
-                if (!mutationContextIsCurrent(context)) return;
-                const outcome = reconcileBatchMutation(assets, response);
-                commitSelectedAssetMutation(assets);
-                if (outcome.failed.length) showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
-                else showToast(t("movedToGroup"), "success");
-                window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
-                  detail: { updatedAssetIds: outcome.succeeded.map((entry) => entry.id) },
-                }));
-              });
-            },
+            action: moveSelectionToGroup(groupName),
           };
         }),
       ],
