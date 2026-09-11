@@ -2623,11 +2623,14 @@ function flushGalleryCardVirtualPendingChanges() {
       taken += 1;
     }
   };
-  // Normal scrolling should hydrate from the 1200px warm zone before a card is
-  // visible. If a fast fling outruns that runway, resolve a bounded visible
-  // batch per frame rather than freezing the compositor to hydrate the whole
-  // viewport synchronously.
-  if (galleryCardVirtualVisiblePendingChanges.size) takeChanges(galleryCardVirtualVisiblePendingChanges, 6);
+  // Normal scrolling hydrates from the 1200px warm zone before a card becomes
+  // visible. If a fast fling outruns that runway, the visible set is still
+  // bounded by the viewport, so resolve the complete visible queue in this
+  // pre-paint frame. Spreading it across several frames exposes placeholders
+  // and makes cards visibly swap/jump while the user is scrolling.
+  if (galleryCardVirtualVisiblePendingChanges.size) {
+    takeChanges(galleryCardVirtualVisiblePendingChanges, galleryCardVirtualVisiblePendingChanges.size);
+  }
   // Eviction must make progress in the same frame as visible hydration. If
   // the background queue waited for the visible queue to empty, a fast scroll
   // would retain every card it ever visited and defeat DOM virtualization.
@@ -3432,6 +3435,17 @@ function galleryPaginationMarkup() {
   return `<div class="asset-load-more" hidden><button type="button" data-action="load-more">${escapeHtml(t("loadMore"))}</button></div><div class="infinite-scroll-sentinel" data-sentinel="true"></div>`;
 }
 
+function removeGalleryPaginationBoundary(grid) {
+  grid.querySelectorAll(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel").forEach((element) => element.remove());
+}
+
+function insertGalleryPaginationBoundary(grid) {
+  if (!state.nextCursor) return;
+  const extent = grid.querySelector(":scope > .gallery-virtual-extent");
+  if (extent) extent.insertAdjacentHTML("beforebegin", galleryPaginationMarkup());
+  else grid.insertAdjacentHTML("beforeend", galleryPaginationMarkup());
+}
+
 function reconcileAssetCards(entries) {
   const grid = els.assetGrid;
   if (!grid) return { changedCards: [], replacedFocusedCard: false, structureChanged: false };
@@ -3489,8 +3503,12 @@ function reconcileAssetCards(entries) {
     if (card !== cursor) grid.insertBefore(card, cursor);
     cursor = card.nextElementSibling;
   });
-  grid.querySelectorAll(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel, :scope > .gallery-virtual-extent").forEach((element) => element.remove());
-  if (state.nextCursor) grid.insertAdjacentHTML("beforeend", galleryPaginationMarkup());
+  // Pagination controls are replaceable, but the virtual extent belongs to the
+  // masonry virtualization layer. Keeping it mounted preserves the scroll range
+  // while a reconciliation is being laid out and avoids an intermediate
+  // scrollHeight collapse near the pagination boundary.
+  removeGalleryPaginationBoundary(grid);
+  insertGalleryPaginationBoundary(grid);
   if (changedCards.length || existingCards.size !== desiredCards.length) invalidateCardGeometryCache();
   return { changedCards, replacedFocusedCard, structureChanged };
 }
@@ -3498,16 +3516,22 @@ function reconcileAssetCards(entries) {
 function appendAssetCards(entries) {
   const grid = els.assetGrid;
   if (!grid) return [];
-  grid.querySelectorAll(":scope > .asset-load-more, :scope > .infinite-scroll-sentinel, :scope > .gallery-virtual-extent").forEach((element) => element.remove());
+  // Never tear down the virtual extent during an append. It is the stable
+  // representation of the already-laid-out gallery height; removing it even
+  // for one synchronous append/layout cycle can clamp scrollTop in Chromium
+  // before the new page has received explicit masonry coordinates.
+  removeGalleryPaginationBoundary(grid);
   const createdCards = createAssetCardElements(entries);
   const changedCards = entries.map((entry) => createdCards.get(entry.id)).filter(Boolean);
   if (changedCards.length) {
-    grid.append(...changedCards);
+    const extent = grid.querySelector(":scope > .gallery-virtual-extent");
+    if (extent) extent.before(...changedCards);
+    else grid.append(...changedCards);
     changedCards.forEach((card) => {
       if (card.dataset.id) galleryCardVirtualNodes.set(card.dataset.id, card);
     });
   }
-  if (state.nextCursor) grid.insertAdjacentHTML("beforeend", galleryPaginationMarkup());
+  insertGalleryPaginationBoundary(grid);
   if (changedCards.length) invalidateCardGeometryCache();
   return changedCards;
 }
