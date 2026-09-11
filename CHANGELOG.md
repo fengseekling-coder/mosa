@@ -6,6 +6,16 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 No user-visible changes recorded yet.
 
+## 0.2.1-rc.8 — 2026-09-11 / Release Candidate
+
+### Desktop runtime ownership and drag workflow recovery / 桌面运行时接管与拖拽工作流恢复
+
+- Hardened macOS background-runtime supervision so the desktop app can safely take ownership of the correct local MOSA runtime without leaving stale process state behind.
+- Restored authenticated drag-to-stack creation and drag-into-existing-stack workflows while preserving the local runtime capability boundary.
+- Added a first-party HttpOnly browser-session capability for direct loopback Web UI launches so state-changing actions no longer fail with `Unauthorized MOSA client.` when the page is opened without a fragment token.
+- Fixed drag-to-group target lifetime so dropping assets onto manual groups or Unorganized continues to work after drag visual state is cleared.
+- Expanded end-to-end regression coverage to exercise direct drag Stack creation from a bare local URL, Stack reordering, and browser mutation authentication.
+
 ## 0.2.1-rc.7 — 2026-09-11 / Release Candidate
 
 ### Runtime integrity, group workflows, and release validation / 运行时完整性、分组工作流与发布验证
