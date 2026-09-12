@@ -13,12 +13,8 @@ export function bindContextMenuEvents(options = {}) {
     apiFetch,
     loadStats,
     librarySync,
-    renderGrid,
-    updateViewTitle,
     selectAsset,
     openAssetView,
-    showToast,
-    t,
     gallerySelection,
   } = options;
 

@@ -386,7 +386,8 @@ test("keeps the desktop window single-instance and sandboxed", async () => {
   const source = await readFile(resolve(import.meta.dirname, "..", "desktop", "main.mjs"), "utf8");
   assert.match(source, /app\.requestSingleInstanceLock\(\)/);
   assert.match(source, /desktopPlatformAdapter\(\)/);
-  assert.match(source, /app\.on\("window-all-closed", \(\) => desktopPlatform\.onWindowAllClosed\(app\)\)/);
+  assert.match(source, /app\.on\("window-all-closed", \(\) => \{[\s\S]*?if \(runtimeRecoveryInProgress\) return;[\s\S]*?desktopPlatform\.onWindowAllClosed\(app\);[\s\S]*?\}\)/,
+    "internal runtime recovery must not look like a user quit on Windows");
   assert.match(source, /\.\.\.desktopPlatform\.windowOptions\(\)/);
   assert.match(source, /desktopPlatform\.capabilities\.hideApplicationMenuBar/);
   assert.match(source, /mainWindow\.setMenuBarVisibility\(false\)/);
@@ -397,10 +398,22 @@ test("keeps the desktop window single-instance and sandboxed", async () => {
   assert.doesNotMatch(source, /homedir\(\).*MOSA Library/);
   assert.match(source, /failOnPrimaryLibraryMismatch: true/);
   assert.match(source, /cowartProjectDir: desktopDataDir/);
-  assert.match(source, /const clientUrl = new URL\(service\.url\)/);
+  assert.match(source, /const clientUrl = new URL\(activeService\.url\)/);
   assert.match(source, /clientUrl\.hash = `mosa-client-token=/);
-  assert.match(source, /loadURL\(clientUrl\.toString\(\)\)/);
-  assert.doesNotMatch(source, /loadFile\(/);
+  assert.match(source, /windowRef\.loadURL\(clientUrl\.toString\(\)\)/);
+  assert.match(source, /const startupShellPath = fileURLToPath\(new URL\("\.\/startup\.html"/);
+  assert.match(source, /await windowRef\.loadFile\(startupShellPath\)/);
+  assert.match(source, /serviceManagerModulePromise \|\|= import\("\.\/service-manager\.mjs"\)/);
+  assert.match(source, /if \(serviceStartPromise\) return serviceStartPromise;/,
+    "concurrent window activation must share one runtime startup transaction");
+  assert.match(source, /windowOpenRequested = true;[\s\S]*?if \(windowPromise\) return windowPromise;[\s\S]*?do \{[\s\S]*?windowOpenRequested = false;[\s\S]*?await createMainWindow\(\);[\s\S]*?while \(!shuttingDown && windowOpenRequested/,
+    "closing the startup shell followed by Dock/second-instance activation must queue a replacement window");
+  assert.doesNotMatch(source, /^import .*service-manager\.mjs/m,
+    "the heavy runtime/service graph must stay off the pre-window module-evaluation path");
+  assert.ok(
+    source.indexOf("await windowRef.loadFile(startupShellPath)") < source.indexOf("const activeService = await ensureDesktopService()"),
+    "the startup shell must paint before importing and waiting for runtime readiness",
+  );
   assert.match(source, /app\.on\("before-quit"/);
   assert.match(source, /service\?\.mode === "owned"/);
   assert.match(source, /contextIsolation: true/);
@@ -411,6 +424,10 @@ test("keeps the desktop window single-instance and sandboxed", async () => {
   assert.match(source, /webContents\.on\("will-redirect", blockForeignNavigation\)/);
   assert.match(source, /setPermissionCheckHandler\(\(\) => false\)/);
   assert.match(source, /setPermissionRequestHandler\(\(_webContents, _permission, callback\) => callback\(false\)\)/);
+  assert.match(source, /const controller = new AbortController\(\);[\s\S]*?BRIDGE_POLL_TIMEOUT_MS[\s\S]*?await fetch\([\s\S]*?signal: controller\.signal[\s\S]*?const data = await response\.json\(\);[\s\S]*?bridgePollFailures = 0;/,
+    "runtime health polling must be bounded and only reset failures after a fully parsed response");
+  assert.doesNotMatch(source, /setInterval\(async \(\) =>[\s\S]*?\/api\/bridges/,
+    "runtime health checks must not overlap through an async setInterval");
   assert.match(source, /app\.exit\(0\)/);
   assert.match(
     source,
@@ -448,6 +465,7 @@ test("the packaged app includes build-identity.json in app/", () => {
   assert.equal(isIgnored("/app/build-identity.json"), false);
   assert.equal(isIgnored("/app/index.html"), false);
   assert.equal(isIgnored("/app/app.mjs"), false);
+  assert.equal(isIgnored("/desktop/startup.html"), false);
   assert.equal(isIgnored("/app/styles.css"), false);
   assert.equal(isIgnored("/lib/build-identity.mjs"), false);
   assert.equal(isIgnored("/desktop/preload.cjs"), false);
@@ -470,7 +488,7 @@ test("retired show-in-folder IPC stays removed without expanding renderer author
   assert.doesNotMatch(preload, /stage-dropped-file/, "stage-dropped-file IPC was removed as dead code");
   assert.doesNotMatch(preload, /openFileDialog:/, "unused open-file dialog IPC was removed");
   assert.doesNotMatch(main, /ipcMain\.handle\("open-file-dialog"/, "unused open-file dialog handler was removed");
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 8, "no invoke channel beyond the eight currently approved narrow requests");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 10, "no invoke channel beyond the ten currently approved narrow requests");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "shell is never exposed to the renderer");
   assert.doesNotMatch(preload, /exec\(|spawn\(|execFile\(/, "no arbitrary command execution");
 

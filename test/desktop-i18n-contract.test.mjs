@@ -137,6 +137,7 @@ test("package metadata stays frozen and the runtime preload preserves its approv
   const preload = await read("desktop/preload.cjs");
   const exposedKeys = [...preload.matchAll(/^\s{2}(\w+):/gm)].map((match) => match[1]).sort();
   assert.deepEqual(exposedKeys, [
+    "cancelUpdateDownload",
     "changeLibraryLocation",
     "checkForUpdates",
     "downloadAndInstallUpdate",
@@ -145,11 +146,12 @@ test("package metadata stays frozen and the runtime preload preserves its approv
     "onUpdateDownloadProgress",
     "openDownloadPage",
     "pasteImage",
+    "reportRendererReady",
     "setLocale",
     "writeClipboardImage",
     "writeClipboardText",
   ]);
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 8, "preload keeps the eight approved invoke channels");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 10, "preload keeps the ten approved invoke channels");
   assert.match(preload, /checkForUpdates: \(notify = false\) =>[\s\S]*?ipcRenderer\.invoke\("check-for-updates", notify === true\)/);
   assert.doesNotMatch(preload, /shell\s*[:.]/, "renderer still receives no generic shell capability");
   // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/

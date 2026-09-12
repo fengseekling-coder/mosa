@@ -179,7 +179,7 @@ const apiClient = createApiClient({
   prewarmAssetMedia,
   refreshSelectedStackInspector,
 });
-const { apiFetch, loadProjects, loadStats, switchProjectWorkspace, loadAssets, refreshLibraryInBackground, refreshLibraryIfChanged, refreshAssetPageTotalInBackground, performFullGalleryReconciliation, reconcileLibraryRevision, noteLibraryRevision, getLibraryRevisionBaseline, setLibraryDeltaApplier, fetchLibraryChanges, resetAssetPrefetch, buildAssetPageParams, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion } = apiClient;
+const { apiFetch, loadProjects, loadStats, switchProjectWorkspace, loadAssets, refreshLibraryIfChanged, refreshAssetPageTotalInBackground, performFullGalleryReconciliation, reconcileLibraryRevision, noteLibraryRevision, getLibraryRevisionBaseline, setLibraryDeltaApplier, fetchLibraryChanges, resetAssetPrefetch, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion } = apiClient;
 
 // ===== New element references =====
 Object.assign(els, {
@@ -798,7 +798,7 @@ function setupKeyboardShortcuts() {
 
 // ===== Image preview zoom/pan/pinch（已提取至 image-preview.mjs，R1 批次 4）=====
 const imagePreview = createImagePreviewViewer({ els, state, t, announceGalleryStatus });
-const { resetImageZoom, zoomImage, panImagePreview, announceImagePreviewZoom, setupImageZoomPan,
+const { resetImageZoom, zoomImage, panImagePreview, setupImageZoomPan,
   reconcileImagePreviewTransform, consumeImagePreviewSuppressedClick,
   IMAGE_PREVIEW_ZOOM_STEP, IMAGE_PREVIEW_PAN_STEP } = imagePreview;
 // ===== Inspector markup（检视器区块 markup helper，已提取至 inspector-markup.mjs，R1 批次 4）=====
@@ -806,16 +806,14 @@ const inspectorMarkup = createInspectorMarkup({ state, t, referenceRightsMarkup 
 const { detailFileSectionMarkup, detailPromptSectionMarkup, detailSourceSectionMarkup,
   detailVersionSectionMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup,
   detailMoreSectionMarkup, versionPickerMarkup, versionHistoryMarkup,
-  generationHistoryMarkup, recipeHistoryMarkup, recipeHistoryDisclosureMarkup, categoryOptions, buildSourceRows, sourceName,
-  sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup, formatFileSize, fileDimensionsText, fileFormatText,
-  fileSizeText, fileFactRowMarkup, editRecipeFieldsMarkup, versionOptionLabel, detailVersionSummaryMarkup, stackInspectorMarkup,
-  referenceRightsSummary, promptReferencesMarkup } = inspectorMarkup;
+  generationHistoryMarkup, recipeHistoryMarkup, sourceCopyValue, isVideoAsset,
+  assetMediaPreviewMarkup, stackInspectorMarkup, promptReferencesMarkup } = inspectorMarkup;
 
 // ===== Asset view（大图查看器，已提取至 asset-view.mjs，R1 批次 4）=====
 const assetViewer = createAssetViewer({ els, state, t, announceGalleryStatus, selectedAsset, isVideoAsset,
   confirmDetailNavigation, discardDetailDraft, isCurrentDetailSelection, assetRequestKey, currentAssetRequest, requestAssetPage,
   renderGrid, updateViewTitle, showToast, renderDetail, updateSelectedCard, setDetailOpen, setupMasonryLayout });
-const { setViewMode, renderAssetView, openAssetView, returnToLibrary, resetAssetViewTransform,
+const { renderAssetView, openAssetView, returnToLibrary,
   handleAssetViewImageLoad, handleAssetViewImageError, canNavigateAssetView, navigateAssetView,
   zoomAssetViewBy, fitAssetView, resetAssetViewToHundred, ASSET_VIEW_ZOOM_STEP } = assetViewer;
 
@@ -928,8 +926,17 @@ async function init() {
     // the closed state because isInspectorDocked() is false there.
     setDetailOpen(false);
     try {
-      await Promise.all([loadProjects(), loadProductVersion()]);
-      await Promise.all([loadStats(), loadAssets()]);
+      // Build identity is the readiness gate for the renderer. Do not let
+      // stateful library requests commit into a renderer that belongs to a
+      // different runtime build.
+      await loadProductVersion();
+      // Once identity is trusted, the library reads are independent. Wait for
+      // all of them to settle before surfacing a failure so a slower successful
+      // request can never overwrite the fatal startup state afterwards.
+      const initialReads = await Promise.allSettled([loadAssets(), loadStats(), loadProjects()]);
+      const rejected = initialReads.find((result) => result.status === "rejected");
+      if (rejected) throw rejected.reason;
+      if (initialReads[0].value === false) throw state.galleryError || new Error(t("loadFailed"));
       void refreshBridgeStatus();
       bridgeStatusPoller.start();
       startLibraryEventStream();
@@ -953,6 +960,10 @@ async function init() {
           return librarySync.reconcileToRevision(result.revision);
         },
       };
+      // Post-update rollback is released only after the renderer has completed
+      // build-identity validation, loaded its initial library snapshot and
+      // initialized live synchronization.
+      void window.electronAPI?.reportRendererReady?.();
     } catch (error) {
       renderErrorState(error);
       setStatus(t("statusUnavailable"), "error");
@@ -1002,7 +1013,9 @@ function updateVersionSummary() {
 function updateVersionControlMarkup() {
   if (!window.electronAPI?.checkForUpdates) return "";
   if (state.updateStatus === "downloading") {
-    return `<button class="settings-text-action" type="button" disabled>${escapeHtml(t("downloadingUpdate", { percent: state.updateDownloadPercent }))}</button>`;
+    const cancelHint = window.electronAPI?.cancelUpdateDownload ? ` · ${t("cancelUpdateDownload")}` : "";
+    const action = window.electronAPI?.cancelUpdateDownload ? " data-cancel-update" : " disabled";
+    return `<button class="settings-text-action" type="button"${action}>${escapeHtml(t("downloadingUpdate", { percent: state.updateDownloadPercent }) + cancelHint)}</button>`;
   }
   if (state.updateStatus === "available") {
     const key = state.updateCanInstallInApp ? "downloadAndInstall" : "downloadLatest";
@@ -1287,7 +1300,6 @@ const contextMenuActions = createContextMenuActions({
   openGroupModal,
   loadAssets: (...args) => loadAssets(...args),
   getGroupColor: colorForGroup,
-  saveGroupColor,
   writeClipboardText,
   copyOriginalImage: writeClipboardImage,
   isVideoAsset,
@@ -1909,6 +1921,12 @@ function bindEvents() {
     }
     const checkUpdatesButton = event.target.closest("[data-check-updates]");
     if (checkUpdatesButton) { void checkForUpdates(); return; }
+    const cancelUpdateButton = event.target.closest("[data-cancel-update]");
+    if (cancelUpdateButton && window.electronAPI?.cancelUpdateDownload) {
+      cancelUpdateButton.disabled = true;
+      void window.electronAPI.cancelUpdateDownload();
+      return;
+    }
     const installUpdateButton = event.target.closest("[data-install-update]");
     if (installUpdateButton && window.electronAPI?.downloadAndInstallUpdate && state.updateStatus !== "downloading") {
       void (async () => {
@@ -1920,6 +1938,9 @@ function bindEvents() {
           if (result?.status === "current") {
             state.updateStatus = "current";
             showToast(t("upToDate"), "success");
+          } else if (result?.status === "cancelled") {
+            state.updateStatus = "available";
+            state.updateDownloadPercent = 0;
           } else if (result?.status !== "installing") {
             state.updateStatus = "available";
             showToast(t("updateInstallFailed"), "error");
@@ -2004,12 +2025,8 @@ function bindEvents() {
     apiFetch,
     loadStats,
     librarySync,
-    renderGrid,
-    updateViewTitle,
     selectAsset,
     openAssetView,
-    showToast,
-    t,
     gallerySelection,
   });
   // Phase 5B：ConfirmDialog 陷阱先于其余陷阱注册——Escape 优先级链最前（preventDefault +
@@ -3764,7 +3781,7 @@ function buildRenderedGalleryCard(asset, ordinal, animateCard) {
 // 插入/重定位=确保节点存在并按 state.assets 的最终顺序移动；删除=摘节点清
 // 记账。最后 scheduleMasonryLayout() 全量重放置并级联 extent 同步、窗口剪枝
 // 与挂载同步（rAF 合并，O(DOM 窗口) 而非 O(50k markup)）。
-function commitIncrementalGalleryChanges(outcome, classified = null) {
+function commitIncrementalGalleryChanges(outcome) {
   const grid = els.assetGrid;
   const { updatedIds = [], removedIds = [], insertedIds = [], repositionIds = [] } = outcome || {};
   if (!grid || (!updatedIds.length && !removedIds.length && !insertedIds.length && !repositionIds.length)) return;
@@ -5196,7 +5213,7 @@ function renderReferenceRightsRegion(asset) {
   const wasOpen = section?.open;
   region.innerHTML = referenceRightsMarkup(asset);
   if (section && wasOpen) section.open = true;
-  bindReferenceRightsEvents(els.detailPanel, asset, detailRenderSequence);
+  bindReferenceRightsEvents(els.detailPanel);
 }
 function bindRecipeHistoryEvents(history, asset) {
   if (!history) return;
@@ -5247,7 +5264,7 @@ function bindDetailEvents(asset, renderId) {
   }));
   panel.querySelector('[data-action="save-recipe"]')?.addEventListener("click", () => runAction(() => flushInspectorSave()));
 
-  bindReferenceRightsEvents(panel, asset, renderId);
+  bindReferenceRightsEvents(panel);
 }
 
 const USE_PERMISSION_CYCLE = { undeclared: "allowed", allowed: "forbidden", forbidden: "undeclared" };
@@ -5261,7 +5278,7 @@ function handleReferenceRightsOpen(event) {
   section.querySelector("select")?.focus({ preventScroll: true });
 }
 
-function bindReferenceRightsEvents(panel, asset, renderId) {
+function bindReferenceRightsEvents(panel) {
   const section = panel.querySelector("[data-reference-rights-section]");
   if (!section) return;
 

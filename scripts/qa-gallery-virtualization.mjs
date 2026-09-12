@@ -383,7 +383,7 @@ async function main() {
     const scenarios = [];
     qaResult.incrementalScenarios = scenarios;
     const runScenario = async (name, mutate, waitExpression, waitDescription) => {
-      const requestsBefore = await drainRequests();
+      await drainRequests();
       const revisionBefore = await revisionNow();
       const startedAt = Date.now();
       const result = await mutate();
@@ -401,11 +401,9 @@ async function main() {
       const galleryRowsRequests = requests.filter((entry) => entry.url.includes("/api/gallery-rows")).length;
       const pageRequests = requests.filter((entry) => entry.url.includes("/api/assets?") || entry.url.includes("asset-stacks")).length;
       scenarios.push({ name, revisionBefore, revisionAfter, deltaCount: deltas, requestCount: requests.length, galleryRowsRequests, pageRequests, fullReloads, elapsedMs, ...result });
-      void requestsBefore;
     };
 
     const liveId = `perf-live-${Date.now()}`;
-    const firstRootCardId = async () => evaluate(client, "document.querySelector('#assetGrid > .asset-card')?.dataset.id || ''");
 
     // 外部 ingest 走正规 staging 流程（desktop runtime 只信任自己的 staging 根）。
     const liveAssetBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");

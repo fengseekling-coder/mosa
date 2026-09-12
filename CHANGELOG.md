@@ -6,6 +6,15 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 No user-visible changes recorded yet.
 
+## 0.2.1-rc.12 — 2026-09-12 / Release Candidate
+
+### Startup critical-path redesign / 启动关键路径重构
+
+- Shows a lightweight MOSA shell immediately while local runtime ownership and SQLite startup continue in parallel.
+- Moves Codex, Grok, Cowart, and Cowart discovery scans off the runtime readiness path and isolates integration startup failures from the core library.
+- Probes local runtime discovery ports concurrently while preserving primary-port fail-closed ownership rules.
+- Runs independent first-view renderer requests in parallel so the gallery is no longer serialized behind project/version reads.
+
 ## 0.2.1-rc.11 — 2026-09-11 / Release Candidate
 
 ### Live drag preview / 实时拖拽预览

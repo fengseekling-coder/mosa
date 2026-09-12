@@ -21,7 +21,7 @@
  */
 
 import { existsSync, mkdtempSync, writeFileSync, chmodSync, mkdirSync } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, execFileSync } from "node:child_process";

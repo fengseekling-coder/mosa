@@ -243,7 +243,7 @@ function galleryRowSignature(asset, project = "default") {
  *
  * 幂等：重复应用同一批 rows 只会原地更新，不会产生重复卡片。
  */
-export function reconcileAssetListView({ list, request, rows, rowByAssetId, afterCursorRowIds = [], assetVersion: _assetVersion, project = "default" }) {
+export function reconcileAssetListView({ list, request, rows, rowByAssetId, afterCursorRowIds = [], project = "default" }) {
   const sort = request?.stackId ? "manual" : String(request?.sort || "newest");
   // searchKind（类型意图搜索）按相关性排序，位置无法在客户端复现；
   // 普通 FTS/LIKE 搜索只过滤不重排（服务端 _search_score 恒为 1），可正常插入。

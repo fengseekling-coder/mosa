@@ -414,7 +414,7 @@ test("36-37. recipe editing and reference rights stay inside disclosures", async
   // and the deep link no longer depends on switching tabs.
   const sourceSection = functionSlice(inspector, "detailSourceSectionMarkup");
   assert.match(sourceSection, /<details class="detail-disclosure" data-reference-rights-section><summary>\$\{t\("referenceRights"\)\}<\/summary><div class="disclosure-content" data-reference-rights>\$\{referenceRightsMarkup\(asset\)\}<\/div><\/details>/);
-  assert.match(app, /function bindReferenceRightsEvents\(panel, asset, renderId\)/);
+  assert.match(app, /function bindReferenceRightsEvents\(panel\)/);
   assert.match(app, /<button class="recipe-save-btn secondary" type="button" data-action="save-reference-rights">/);
 });
 

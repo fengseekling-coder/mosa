@@ -246,6 +246,7 @@ test("preload surface and Electron security boundaries are unchanged", async () 
   const preload = await readFile(join(root, "desktop", "preload.cjs"), "utf8");
   const exposed = [...preload.matchAll(/^\s{2}(\w+):/gm)].map((match) => match[1]).sort();
   assert.deepEqual(exposed, [
+    "cancelUpdateDownload",
     "changeLibraryLocation",
     "checkForUpdates",
     "downloadAndInstallUpdate",
@@ -254,6 +255,7 @@ test("preload surface and Electron security boundaries are unchanged", async () 
     "onUpdateDownloadProgress",
     "openDownloadPage",
     "pasteImage",
+    "reportRendererReady",
     "setLocale",
     "writeClipboardImage",
     "writeClipboardText",

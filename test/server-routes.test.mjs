@@ -104,9 +104,7 @@ test("returns 404 for a missing library image without stopping the server", asyn
   assert.equal(missingImage.status, 404);
   assert.deepEqual(await missingImage.json(), { error: "Asset not found" });
 
-  const bridgeStatus = await fetch(`http://127.0.0.1:${port}/api/bridges`, {
-    headers: { origin: `http://127.0.0.1:${port}` },
-  });
+  const bridgeStatus = await waitForBridgeEnabled(port, server, "grok");
   assert.equal(bridgeStatus.status, 200);
   const bridges = await bridgeStatus.json();
   assert.equal(bridges.grok?.enabled, true);
@@ -116,6 +114,8 @@ test("returns 404 for a missing library image without stopping the server", asyn
   assert.equal(bridges.webCapture?.originConfigured, false);
   assert.ok(Array.isArray(bridges.webCapture?.providers));
   assert.equal(server.exitCode, null);
+
+  await waitForBridgeEnabled(port, server, "cowartDiscovery");
 
   const webCaptureStatus = await fetch(`http://127.0.0.1:${port}/api/web-capture`);
   assert.equal(webCaptureStatus.status, 200);
@@ -625,6 +625,22 @@ async function waitForServer(port, server) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
   }
   throw new Error("Timed out waiting for MOSA server startup.");
+}
+
+async function waitForBridgeEnabled(port, server, bridgeName) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (server.exitCode !== null) throw new Error("MOSA server exited while integrations were starting.");
+    const response = await fetch(`http://127.0.0.1:${port}/api/bridges`, {
+      headers: { origin: `http://127.0.0.1:${port}` },
+    });
+    if (response.ok) {
+      const payload = await response.clone().json();
+      if (payload?.[bridgeName]?.enabled === true) return response;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  }
+  throw new Error(`Timed out waiting for ${bridgeName} bridge startup.`);
 }
 
 async function waitForResponse(url) {

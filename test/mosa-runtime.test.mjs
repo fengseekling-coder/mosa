@@ -231,20 +231,43 @@ test("releases the library lock when listener startup fails", async (t) => {
   }
 });
 
-test("releases the library lock when bridge startup fails", async (t) => {
+test("runtime listens before delayed optional integrations start", async (t) => {
+  const root = await makeTemporaryRoot(t, "mosa-runtime-fast-core-");
+  const startedAt = performance.now();
+  const runtime = await startMosaRuntime(runtimeOptions(root, {
+    bridgeStartupDelayMs: 5000,
+    maintenanceStartDelayMs: 5000,
+  }));
+  t.after(() => runtime.stop());
+  const readyMs = performance.now() - startedAt;
+  assert.ok(readyMs < 1000, `core runtime readiness took ${readyMs.toFixed(1)}ms while optional integrations were delayed`);
+  assert.equal((await fetch(`${runtime.url}/api/health`)).status, 200);
+  const bridges = await (await fetch(`${runtime.url}/api/bridges`)).json();
+  assert.equal(bridges.codex.enabled, false);
+  assert.equal(bridges.grok.enabled, false);
+  assert.equal(bridges.cowart.enabled, false);
+});
+
+test("bridge startup failures do not block the local library runtime", async (t) => {
   const root = await makeTemporaryRoot(t, "mosa-runtime-bridge-rollback-");
-  const options = runtimeOptions(root);
+  const options = runtimeOptions(root, { bridgeStartupDelayMs: 0 });
   await mkdir(join(root, "state"), { recursive: true });
   await writeFile(options.cowartRegistryPath, "not-json", "utf8");
 
-  await assert.rejects(startMosaRuntime(options), /Cowart canvas registry is invalid/);
-
-  await writeFile(options.cowartRegistryPath, '{"version":1,"projects":[]}\n', "utf8");
   const runtime = await startMosaRuntime(options);
   try {
     assert.equal((await fetch(`${runtime.url}/api/health`)).status, 200);
+    assert.equal((await fetch(`${runtime.url}/`)).status, 200);
   } finally {
     await runtime.stop();
+  }
+
+  await writeFile(options.cowartRegistryPath, '{"version":1,"projects":[]}\n', "utf8");
+  const restarted = await startMosaRuntime(options);
+  try {
+    assert.equal((await fetch(`${restarted.url}/api/health`)).status, 200);
+  } finally {
+    await restarted.stop();
   }
 });
 

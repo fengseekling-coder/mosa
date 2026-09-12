@@ -280,15 +280,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .settings-cowart-status[data-state="ok"] { background: var(--color-success); }
 .settings-cowart-status[data-state="error"] { background: var(--color-danger); }
 .settings-cowart-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.settings-diagnostics-toggle { display: flex; width: 100%; align-items: center; justify-content: space-between; }
-.settings-diagnostics { padding: 4px 8px 6px; }
-.settings-diagnostics[hidden] { display: none; }
-.settings-diagnostics dl { display: grid; gap: 3px; margin: 0; }
-.settings-diagnostics dt { color: var(--color-text-tertiary); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
-.settings-diagnostics dd { margin: 0; color: var(--color-text-secondary); font-size: 11px; font-family: var(--font-family-mono); word-break: break-all; }
-.diag-loading { color: var(--color-text-tertiary); font-size: 11px; }
-.diag-error { color: var(--color-danger); font-size: 11px; overflow-wrap: anywhere; }
-
 /* 分段控件（设置菜单内：主题 / 密度） */
 .segmented { display: flex; gap: 2px; margin: 2px 4px 4px; padding: 2px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); background: var(--app-sidebar); }
 .segmented-btn { flex: 1; height: 26px; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 12px; font-weight: 500; transition: background-color .12s ease, color .12s ease; }
@@ -1192,7 +1183,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .nav-count { color: var(--color-text-tertiary); font-size: 10px; }.mosa-v2 .nav-label { margin: 18px 0 6px; padding: 0 12px; color: var(--color-text-tertiary); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 .mosa-v2 .sidebar-group-list { gap: 0; }.mosa-v2 .sidebar-group-list[hidden] { display: none; }.mosa-v2 .sidebar-group-list .nav-item { padding-left: 12px; }.mosa-v2 .add-group-button { justify-content: flex-start; gap: 8px; padding: 0 10px; }
 .mosa-v2 .sidebar-footer { padding: 12px; border-top: 0; }.mosa-v2 .settings-trigger { width: 100%; justify-content: flex-start; gap: 8px; padding: 0 12px; }
-.mosa-v2 .account-trigger { margin-bottom: 2px; }
 .mosa-v2 .topbar-context { align-items: center; gap: 12px; }
 .mosa-v2 .title-row { align-items: center; }
 .mosa-v2 .topbar-type-filters { margin-left: 0; gap: 4px; }

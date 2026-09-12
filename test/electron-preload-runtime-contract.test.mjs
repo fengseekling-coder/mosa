@@ -16,6 +16,7 @@ const electronPath = process.platform === "darwin"
     ? resolve(root, "node_modules", "electron", "dist", "electron.exe")
     : resolve(root, "node_modules", "electron", "dist", "electron");
 const EXPECTED_API_KEYS = [
+  "cancelUpdateDownload",
   "changeLibraryLocation",
   "checkForUpdates",
   "downloadAndInstallUpdate",
@@ -24,6 +25,7 @@ const EXPECTED_API_KEYS = [
   "onUpdateDownloadProgress",
   "openDownloadPage",
   "pasteImage",
+  "reportRendererReady",
   "setLocale",
   "writeClipboardImage",
   "writeClipboardText",
@@ -74,18 +76,22 @@ test("preload path, module format, security settings, and API surface are stable
   assert.doesNotMatch(preload, /openExternal|sendSync|\.send\(/, "generic IPC is not exposed");
   // The preload exposes only narrow, named request channels. Update actions
   // accept no URL from the renderer; the main process owns the fixed website.
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 8, "only the eight approved invoke channels remain");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 10, "only the ten approved invoke channels remain");
   assert.deepEqual(sortedApiKeys(preload), EXPECTED_API_KEYS);
   assert.match(preload, /writeClipboardImage: \(path\) => ipcRenderer\.invoke\("write-clipboard-image", path\)/);
   assert.match(preload, /writeClipboardText: \(text\) => ipcRenderer\.invoke\("write-clipboard-text", text\)/);
   assert.match(preload, /checkForUpdates: \(notify = false\) =>[\s\S]*?ipcRenderer\.invoke\("check-for-updates", notify === true\)/);
+  assert.match(preload, /cancelUpdateDownload: \(\) => ipcRenderer\.invoke\("cancel-update-download"\)/);
   assert.match(preload, /downloadAndInstallUpdate: \(\) => ipcRenderer\.invoke\("download-and-install-update"\)/);
+  assert.match(preload, /reportRendererReady: \(\) => ipcRenderer\.invoke\("renderer-ready"\)/);
   assert.match(preload, /onUpdateDownloadProgress: \(callback\) =>[\s\S]*?ipcRenderer\.on\("update-download-progress"/);
   assert.match(preload, /openDownloadPage: \(\) => ipcRenderer\.invoke\("open-download-page"\)/);
   assert.match(preload, /changeLibraryLocation: \(\) => ipcRenderer\.invoke\("change-library-location"\)/);
   assert.doesNotMatch(preload, /openDownloadPage:\s*\([^)]*url/i, "renderer cannot choose an update destination");
   assert.match(main, /MOSA_DOWNLOAD_PAGE_URL/);
   assert.match(main, /ipcMain\.handle\("check-for-updates"/);
+  assert.match(main, /ipcMain\.handle\("cancel-update-download"/);
+  assert.match(main, /ipcMain\.handle\("renderer-ready"/);
   assert.match(main, /ipcMain\.handle\("download-and-install-update"/);
   assert.match(main, /ipcMain\.handle\("open-download-page"/);
   assert.match(main, /ipcMain\.handle\("change-library-location"/);

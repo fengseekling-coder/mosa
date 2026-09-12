@@ -104,6 +104,12 @@ npm exec mosa -- thumbnails rebuild --library /absolute/path/to/library
 
 The command is resumable. It does not modify original image bytes.
 
+## Local Build Artifact Cleanup
+
+`npm run clean:local` deletes only explicitly regenerable local artifacts: `coverage/`, `.nyc_output/`, and the scratch namespaces `out/tmp/`, `out/qa/`, `out/inspect/`. The CLI is fixed to this MOSA checkout and does not accept a custom repository root. It never touches release artifacts (`out/make/`, `out/MOSA-darwin-arm64/`, `out/MOSA-win32-x64/`, `out/store/`), refuses paths outside the repository, and resolves each existing target before deletion so parent-directory symlinks cannot redirect cleanup outside the checkout. Preview the exact effect first with `npm run clean:local -- --dry-run`.
+
+When a throwaway repack, ASAR inspection, or QA run needs a directory under `out/`, create it inside `out/tmp/`, `out/qa/`, or `out/inspect/` so the next `clean:local` removes it. Anything placed directly under `out/` is treated as a deliberate artifact and is never cleaned automatically.
+
 ## Health Checks
 
 After starting a service, check the active storage and every bridge in one place:

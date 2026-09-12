@@ -262,10 +262,10 @@ test("desktop main.mjs derives the app root from its own module location, not ap
   assert.ok(!source.includes('appDir: join(appPath, "app")'), "must not join appPath with app");
   // Renderer still loads the verified loopback service. The management
   // capability travels only in the URL fragment, which HTTP never receives.
-  assert.ok(source.includes("const clientUrl = new URL(service.url)"), "must derive the renderer URL from service.url");
+  assert.ok(source.includes("const clientUrl = new URL(activeService.url)"), "must derive the renderer URL from the verified active service URL");
   assert.ok(source.includes("mosa-client-token="), "must deliver the management capability through the fragment");
-  assert.ok(source.includes("loadURL(clientUrl.toString())"), "must load the capability-bearing loopback URL");
-  assert.ok(!source.includes("loadFile("), "must not use loadFile");
+  assert.ok(source.includes("windowRef.loadURL(clientUrl.toString())"), "must load the capability-bearing loopback URL");
+  assert.ok(source.includes("windowRef.loadFile(startupShellPath)"), "startup may load only the packaged local shell before the verified loopback renderer");
   assert.ok(source.includes("preload: preloadPath"), "must keep the preload path");
   assert.ok(source.includes("sandbox: true"), "must keep the sandboxed renderer");
   assert.ok(source.includes('webContents.on("will-navigate", blockForeignNavigation)'), "must keep navigation blocking");

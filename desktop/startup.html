@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MOSA</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f5f5f4;
+      --panel: #ffffff;
+      --text: #1c1917;
+      --muted: #a8a29e;
+      --line: #e7e5e4;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #171717;
+        --panel: #1f1f1f;
+        --text: #f5f5f4;
+        --muted: #737373;
+        --line: #303030;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; }
+    body {
+      display: grid;
+      grid-template-columns: 212px minmax(0, 1fr) 320px;
+      overflow: hidden;
+      color: var(--text);
+      background: var(--bg);
+      font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-app-region: drag;
+    }
+    aside, main { min-width: 0; border-right: 1px solid var(--line); background: var(--panel); }
+    aside:last-child { border: 0; }
+    .brand { height: 56px; display: flex; align-items: center; padding: 0 16px; font-size: 17px; font-weight: 700; letter-spacing: .02em; }
+    .nav { display: grid; gap: 8px; padding: 8px 12px; }
+    .bar, .card, .line { border-radius: 8px; background: color-mix(in srgb, var(--muted) 16%, transparent); }
+    .bar { height: 32px; }
+    main { background: var(--bg); }
+    header { height: 56px; display: flex; gap: 12px; align-items: center; padding: 0 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+    header .bar:first-child { width: 124px; }
+    header .bar:nth-child(2) { width: 220px; }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 20px; }
+    .card { aspect-ratio: 4 / 5; border-radius: 12px; }
+    .inspector { padding: 20px 16px; }
+    .inspector h1 { margin: 0 0 20px; font-size: 15px; }
+    .line { height: 12px; margin: 12px 0; }
+    .line.short { width: 58%; }
+    .pulse { animation: pulse 1.15s ease-in-out infinite alternate; }
+    @keyframes pulse { from { opacity: .42; } to { opacity: .72; } }
+    @media (max-width: 1050px) { body { grid-template-columns: 188px minmax(0, 1fr); } .inspector { display: none; } }
+  </style>
+</head>
+<body aria-label="MOSA 正在启动">
+  <aside>
+    <div class="brand">MOSA</div>
+    <div class="nav pulse">
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    </div>
+  </aside>
+  <main>
+    <header class="pulse"><div class="bar"></div><div class="bar"></div></header>
+    <div class="grid pulse">
+      <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+      <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+    </div>
+  </main>
+  <aside class="inspector pulse">
+    <h1>资产检视器</h1>
+    <div class="line"></div><div class="line short"></div><div class="line"></div><div class="line short"></div>
+  </aside>
+</body>
+</html>

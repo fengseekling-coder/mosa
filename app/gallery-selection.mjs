@@ -482,7 +482,7 @@ export function createGallerySelection({
       if (distance < MARQUEE_DRAG_THRESHOLD_PX) return;
       pointer.dragging = true;
       captureDragGeometry();
-      try { els.assetGrid?.setPointerCapture(event.pointerId); } catch { /* global listeners still keep the gesture alive */ }
+      try { els.assetGrid?.setPointerCapture(event.pointerId); } catch { /* Window-level listeners still keep the gesture alive. */ }
       document.body.classList.add("marquee-selecting");
       suppressNextGridClick = true;
     }

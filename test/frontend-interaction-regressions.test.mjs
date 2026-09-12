@@ -235,12 +235,29 @@ test("group deletion uses a second confirmation to decide whether assets are kep
     "follow-up confirmation waits for the first dialog's closed state to paint before reusing the overlay");
   assert.match(actions, /params\.set\("deleteAssets", "true"\)/,
     "the move-to-Trash branch is explicit in the API request");
+  assert.match(actions, /const selectedGroupAsset = state\.selectedId[\s\S]*?asset\?\.group === item\.name/,
+    "destructive group changes detect whether the dirty Inspector asset belongs to the group");
+  assert.match(actions, /selectedGroupAsset && !\(await confirmSelectedAssetMutation\(\[selectedGroupAsset\]\)\)/,
+    "dirty Inspector state is resolved before deleting a group or its assets");
+  assert.match(actions, /if \(selectedGroupAsset\) commitSelectedAssetMutation\(\[selectedGroupAsset\]\)/,
+    "the editor draft is reconciled only after the group mutation succeeds");
   assert.doesNotMatch(dialog, /alternateLabel|confirmDialogAlternate/,
     "the shared dialog has returned to the original two-button contract");
   assert.doesNotMatch(html, /confirmDialogAlternate|btn-danger-solid/,
     "there is no separate delete-group-and-assets button in the dialog shell");
   assert.equal(translations.zh.keepGroupAssetsAction, "保留素材");
   assert.equal(translations.zh.deleteGroupAssetsAction, "移到回收站");
+});
+
+test("group ordering uses a collection route that cannot collide with a group named order", async () => {
+  const [actions, routes] = await Promise.all([
+    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
+    readFile(resolve(root, "lib/api/library-routes.mjs"), "utf8"),
+  ]);
+  assert.match(actions, /apiFetch\("\/api\/group-order"/);
+  assert.match(routes, /url\.pathname === "\/api\/group-order"/);
+  assert.doesNotMatch(actions, /\/api\/groups\/order/);
+  assert.doesNotMatch(routes, /url\.pathname === "\/api\/groups\/order"/);
 });
 
 test("Unorganized replaces Recent in primary navigation and Trash remains a first-class 90-day scope", async () => {
@@ -642,6 +659,27 @@ test("background library polling yields while an infinite-scroll append is in fl
   assert.match(init, /LIBRARY_REFRESH_INTERVAL/);
   assert.match(apiClient, /\/api\/library-revision\?project=/, "timer polls only a lightweight revision token");
   assert.match(apiClient, /if \(nextRevision === lastLibraryRevision\) return false;/, "unchanged libraries do not reload groups or assets");
+});
+
+test("startup validates build identity before stateful reads and settles all parallel reads before failure UI", async () => {
+  const app = await readApp();
+  const init = sliceBetween(app, "async function init()", "async function loadProductVersion()");
+  assert.ok(
+    init.indexOf("await loadProductVersion()") < init.indexOf("Promise.allSettled([loadAssets(), loadStats(), loadProjects()])"),
+    "runtime/build identity must be trusted before library state can commit",
+  );
+  assert.match(init, /const initialReads = await Promise\.allSettled\(\[loadAssets\(\), loadStats\(\), loadProjects\(\)\]\)/);
+  assert.match(init, /const rejected = initialReads\.find\(\(result\) => result\.status === "rejected"\)/);
+  assert.match(init, /if \(initialReads\[0\]\.value === false\) throw state\.galleryError/,
+    "a loadAssets failure must prevent event-stream startup even though it reports through gallery state");
+  assert.ok(
+    init.indexOf("Promise.allSettled([loadAssets(), loadStats(), loadProjects()])") < init.indexOf("startLibraryEventStream()"),
+    "live synchronization starts only after the complete initial snapshot is healthy",
+  );
+  assert.ok(
+    init.indexOf("startLibraryEventStream()") < init.indexOf("reportRendererReady"),
+    "post-update readiness is reported only after live synchronization is initialized",
+  );
 });
 
 test("background stats refresh skips the effectively static library-path request", async () => {

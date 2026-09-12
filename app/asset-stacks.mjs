@@ -472,7 +472,7 @@ export function createAssetStackController({
       if (Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) < STACK_DRAG_THRESHOLD_PX) return;
       pointer.dragging = true;
       state.assetStackDragging = true;
-      try { els.assetGrid?.setPointerCapture(event.pointerId); } catch { /* global listeners keep the gesture alive */ }
+      try { els.assetGrid?.setPointerCapture(event.pointerId); } catch { /* Window-level listeners keep the gesture alive. */ }
       document.body.classList.add("asset-stack-dragging");
     }
     event.preventDefault();

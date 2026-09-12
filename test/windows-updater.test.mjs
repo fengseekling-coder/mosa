@@ -3,12 +3,14 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import test from "node:test";
 
 import {
   downloadWindowsUpdate,
   launchWindowsUpdateHelper,
+  resolveWindowsUpdateReadyFile,
   validateWindowsUpdateArtifact,
   windowsUpdateDownloadUrl,
   windowsUpdateHelperScript,
@@ -76,9 +78,12 @@ test("Windows updater downloads to userData staging and verifies exact size plus
 test("Windows apply helper waits for MOSA, replaces the whole portable directory, rolls back, and relaunches", async () => {
   const script = windowsUpdateHelperScript();
   assert.match(script, /Wait-Process -Id \$TargetPid/);
+  assert.match(script, /\$transactionRoot = Join-Path \$parentDir/);
   assert.match(script, /Move-Item -LiteralPath \$InstallDir -Destination \$backupDir/);
   assert.match(script, /Move-Item -LiteralPath \$backupDir -Destination \$InstallDir/);
-  assert.match(script, /Start-Process -FilePath \$newExe/);
+  assert.match(script, /--mosa-update-ready-file=/);
+  assert.match(script, /Test-Path -LiteralPath \$ReadyFile/);
+  assert.match(script, /did not report readiness before the rollback deadline/);
 
   const root = await mkdtemp(join(tmpdir(), "mosa-win-helper-"));
   const zipPath = join(root, "MOSA-win32-x64-0.3.0.zip");
@@ -91,7 +96,10 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
       processId: 1234,
       spawnImpl: (command, args, options) => {
         invocation = { command, args, options };
-        return { unref() {} };
+        const child = new EventEmitter();
+        child.unref = () => {};
+        queueMicrotask(() => child.emit("spawn"));
+        return child;
       },
     });
     assert.equal(invocation.command, "powershell.exe");
@@ -102,4 +110,31 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   } finally {
     await removeTestPath(root, { recursive: true, force: true });
   }
+});
+
+test("Windows update helper rejects when PowerShell cannot spawn", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-win-helper-spawn-error-"));
+  try {
+    await assert.rejects(launchWindowsUpdateHelper({
+      zipPath: join(root, "MOSA-win32-x64-0.3.0.zip"),
+      installDir: "C:\\Users\\Example\\MOSA-win32-x64",
+      exeName: "MOSA.exe",
+      processId: 1234,
+      spawnImpl: () => {
+        const child = new EventEmitter();
+        child.unref = () => {};
+        queueMicrotask(() => child.emit("error", Object.assign(new Error("spawn powershell.exe ENOENT"), { code: "ENOENT" })));
+        return child;
+      },
+    }), /ENOENT/);
+  } finally {
+    await removeTestPath(root, { recursive: true, force: true });
+  }
+});
+
+test("post-update readiness argument is accepted only inside the updater staging root", () => {
+  const root = "C:\\Users\\Example\\AppData\\Roaming\\MOSA\\updates\\windows";
+  const ready = `${root}\\0.3.0\\update-ready.json`;
+  assert.equal(resolveWindowsUpdateReadyFile([`--mosa-update-ready-file=${ready}`], root), ready);
+  assert.equal(resolveWindowsUpdateReadyFile(["--mosa-update-ready-file=C:\\Temp\\fake-ready.json"], root), null);
 });

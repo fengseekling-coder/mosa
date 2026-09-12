@@ -8,7 +8,6 @@ import { DEFAULT_MOSA_DESKTOP_PORT, MOSA_RESERVED_PRODUCTION_PORTS } from "../li
 import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
 import { parseDisabledBridges } from "../lib/runtime-bridges.mjs";
 import { cleanupOrphanStagedFiles, importStagingDir, writeStagedPng } from "../lib/import-staging.mjs";
-import { shouldAllowSameVersionServiceReplacement, shouldAllowStaleServiceUpgrade, startMosaService } from "./service-manager.mjs";
 import { getDesktopText, getNotificationTextForAssetsImported, getUpdateNotificationText } from "./notification-i18n.mjs";
 import { loadOrCreateMosaClientToken, loadOrCreateWebCaptureToken, MOSA_WEB_CAPTURE_DEFAULT_ORIGINS } from "./web-capture-pairing.mjs";
 import { desktopPlatformAdapter } from "./platform/index.mjs";
@@ -16,11 +15,13 @@ import { checkForMosaUpdate, MOSA_DOWNLOAD_PAGE_URL, reportAnonymousUsage } from
 import { prepareAnonymousUsage } from "./anonymous-usage.mjs";
 import { mosaClientTokenFingerprint, resolveAllowedFolderPath } from "../lib/server-security.js";
 import { isPathInsideOrEqual, isUrlLikePath, pathsEqual } from "../lib/path-safety.mjs";
+import { finalizeCopiedSqliteLibrary } from "../lib/library-relocation.mjs";
 import { getBuildIdentity } from "../lib/build-identity.mjs";
 import { MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
-import { downloadWindowsUpdate, launchWindowsUpdateHelper } from "./windows-updater.mjs";
+import { downloadWindowsUpdate, launchWindowsUpdateHelper, resolveWindowsUpdateReadyFile } from "./windows-updater.mjs";
 
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
+const startupShellPath = fileURLToPath(new URL("./startup.html", import.meta.url));
 const desktopPlatform = desktopPlatformAdapter();
 // The parent of this module's own directory is the application root: the
 // repository root in dev (electron desktop/main.mjs) and the app.asar root
@@ -116,13 +117,19 @@ let rendererRecoveryAttempts = 0;
 let shuttingDown = false;
 let shutdownPromise = null;
 let windowPromise = null;
+let windowOpenRequested = false;
 let ipcRegistered = false;
 let currentLocale = "zh"; // safe default matching original Chinese-only notifications
 let updateCheckPromise = null;
+let windowsUpdateInstallPromise = null;
+let windowsUpdateDownloadController = null;
 let usageReportPromise = null;
 let usageReportTimer = null;
+let serviceManagerModulePromise = null;
+let serviceStartPromise = null;
 const USAGE_REPORT_RECHECK_MS = 15 * 60 * 1000;
 const WINDOWS_UPDATE_STAGING_ROOT = join(desktopDataDir, "updates", "windows");
+const windowsUpdateReadyFile = resolveWindowsUpdateReadyFile(process.argv, WINDOWS_UPDATE_STAGING_ROOT);
 const rendererConsoleErrors = new Set();
 const MAX_RENDERER_CONSOLE_ERRORS = 32;
 
@@ -138,12 +145,11 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow.focus();
   });
 
-  app.whenReady().then(() => {
-    // Usage telemetry belongs to the packaged desktop lifecycle, not to the
-    // website download flow or renderer initialization. Start it as soon as
-    // Electron is ready so GitHub/directly shared packages are counted too.
+  app.whenReady().then(async () => {
+    // First paint wins the startup race. Telemetry and every other non-visual
+    // lifecycle task wait until MOSA has at least presented a window.
+    await openMainWindow();
     startAnonymousUsageLifecycle();
-    return openMainWindow();
   }).catch(reportStartupFailure);
 
   app.on("activate", () => {
@@ -153,8 +159,13 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   // Preserve MOSA's current background-runtime behavior while keeping the OS
-  // lifecycle decision behind one desktop-platform boundary.
-  app.on("window-all-closed", () => desktopPlatform.onWindowAllClosed(app));
+  // lifecycle decision behind one desktop-platform boundary. Internal runtime
+  // recovery intentionally destroys the last window before rebuilding it, so
+  // Windows must not interpret that internal transition as a user quit.
+  app.on("window-all-closed", () => {
+    if (runtimeRecoveryInProgress) return;
+    desktopPlatform.onWindowAllClosed(app);
+  });
 
   app.on("before-quit", (event) => {
     if (shuttingDown) return;
@@ -379,6 +390,25 @@ function registerIPC() {
     return true;
   });
 
+  ipcMain.handle("renderer-ready", async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return false;
+    if (!service) return false;
+    if (windowsUpdateReadyFile) {
+      try {
+        mkdirSync(dirname(windowsUpdateReadyFile), { recursive: true });
+        writeFileSync(windowsUpdateReadyFile, JSON.stringify({
+          version: app.getVersion(),
+          readyAt: new Date().toISOString(),
+          port: service.port,
+        }), "utf8");
+      } catch (error) {
+        console.error(`[MOSA] unable to report post-update readiness: ${error?.message || error}`);
+        return false;
+      }
+    }
+    return true;
+  });
+
   ipcMain.handle("check-for-updates", async (event, notify = false) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
       return { status: "unavailable", currentVersion: app.getVersion() };
@@ -393,7 +423,11 @@ function registerIPC() {
     if (process.platform !== "win32" || !app.isPackaged || isolationContext.qaRun) {
       return { status: "unsupported", currentVersion: app.getVersion() };
     }
-    try {
+    if (windowsUpdateInstallPromise) return windowsUpdateInstallPromise;
+    windowsUpdateInstallPromise = (async () => {
+      const controller = new AbortController();
+      windowsUpdateDownloadController = controller;
+      try {
       // Re-read the first-party manifest in the trusted main process instead of
       // accepting a renderer-supplied URL, filename or digest.
       const release = await checkForMosaUpdate({ currentVersion: app.getVersion() });
@@ -403,11 +437,13 @@ function registerIPC() {
         artifact: release.windowsArtifact,
         version: release.latestVersion,
         stagingRoot: WINDOWS_UPDATE_STAGING_ROOT,
+        signal: controller.signal,
         onProgress: (progress) => {
           if (!mainWindow || mainWindow.isDestroyed()) return;
           mainWindow.webContents.send("update-download-progress", progress);
         },
       });
+      if (windowsUpdateDownloadController === controller) windowsUpdateDownloadController = null;
       await launchWindowsUpdateHelper({
         zipPath: download.zipPath,
         installDir: dirname(process.execPath),
@@ -423,10 +459,24 @@ function registerIPC() {
       await stopOwnedRuntime();
       app.exit(0);
       return { status: "installing", latestVersion: release.latestVersion };
-    } catch (error) {
-      console.warn(`[MOSA] Windows update failed: ${error?.message || error}`);
-      return { status: "error", currentVersion: app.getVersion(), code: "WINDOWS_UPDATE_FAILED" };
-    }
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return { status: "cancelled", currentVersion: app.getVersion() };
+        }
+        console.warn(`[MOSA] Windows update failed: ${error?.message || error}`);
+        return { status: "error", currentVersion: app.getVersion(), code: "WINDOWS_UPDATE_FAILED" };
+      } finally {
+        if (windowsUpdateDownloadController === controller) windowsUpdateDownloadController = null;
+      }
+    })().finally(() => { windowsUpdateInstallPromise = null; });
+    return windowsUpdateInstallPromise;
+  });
+
+  ipcMain.handle("cancel-update-download", async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false };
+    if (!windowsUpdateDownloadController || windowsUpdateDownloadController.signal.aborted) return { ok: false };
+    windowsUpdateDownloadController.abort(new Error("Windows update download cancelled by the user."));
+    return { ok: true };
   });
 
   ipcMain.handle("open-download-page", async (event) => {
@@ -502,6 +552,13 @@ function registerIPC() {
           errorOnExist: true,
         });
       }
+      // SQLite stores the managed original/derivative locations as absolute
+      // paths. Rebase and verify the copied database before changing the saved
+      // preference or deleting a single byte from the old authoritative tree.
+      await finalizeCopiedSqliteLibrary({
+        sourceLibraryDir: previousLibraryDir,
+        destinationLibraryDir: nextLibraryDir,
+      });
       saveLibraryDir(nextLibraryDir);
     } catch (error) {
       console.error(`[MOSA] library relocation failed: ${error?.stack || error}`);
@@ -617,83 +674,29 @@ function runUpdateCheck({ notify = false } = {}) {
 
 function openMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) {
+    windowOpenRequested = false;
     mainWindow.show();
     mainWindow.focus();
     return Promise.resolve();
   }
+  windowOpenRequested = true;
   if (windowPromise) return windowPromise;
   // BUG-01 fix: sweep staged files left behind by failed/cancelled imports
   // (older than 24h) at startup; never blocks window creation.
   cleanupOrphanStagedFiles(importStagingRoot).catch((error) => {
     console.error(`[MOSA] import-staging orphan sweep failed: ${error?.message || error}`);
   });
-  windowPromise = createMainWindow().finally(() => { windowPromise = null; });
+  windowPromise = (async () => {
+    do {
+      windowOpenRequested = false;
+      await createMainWindow();
+    } while (!shuttingDown && windowOpenRequested && (!mainWindow || mainWindow.isDestroyed()));
+  })().finally(() => { windowPromise = null; });
   return windowPromise;
 }
 
 async function createMainWindow() {
   denyBrowserPermissions();
-  if (!service) {
-    const clientToken = process.env.MOSA_CLIENT_TOKEN
-      || await loadOrCreateMosaClientToken(desktopDataDir);
-    const webCaptureToken = process.env.MOSA_WEB_CAPTURE_TOKEN
-      || await loadOrCreateWebCaptureToken(desktopDataDir);
-    const webCaptureOrigins = process.env.MOSA_WEB_CAPTURE_ORIGINS
-      || MOSA_WEB_CAPTURE_DEFAULT_ORIGINS;
-    service = await startMosaService({
-      port: desktopPort,
-      libraryDir,
-      allowPortFallback: !process.env.MOSA_DESKTOP_PORT,
-      // If the primary MOSA port is already owned by a verified MOSA runtime
-      // for another library, fail closed instead of silently spawning a second
-      // desktop library on 43518+. This turns future path-resolution regressions
-      // into an explicit startup error rather than an apparently empty library.
-      failOnPrimaryLibraryMismatch: true,
-      // Normal packaged launches may replace a strictly older MOSA runtime
-      // that owns this exact library. QA, source development, and explicit
-      // port launches stay fail-closed so test tooling never terminates an
-      // unrelated local process.
-      allowStaleServiceUpgrade: shouldAllowStaleServiceUpgrade({
-        isPackaged: app.isPackaged,
-        qaRun: isolationContext.qaRun,
-        explicitPort: Boolean(process.env.MOSA_DESKTOP_PORT),
-      }),
-      // Source development may safely replace a verified same-version MOSA
-      // owner for the same library. Packaged builds keep the stricter semver
-      // upgrade rule; QA and explicit-port launches remain fail-closed.
-      allowSameVersionServiceReplacement: shouldAllowSameVersionServiceReplacement({
-        isPackaged: app.isPackaged,
-        qaRun: isolationContext.qaRun,
-        explicitPort: Boolean(process.env.MOSA_DESKTOP_PORT),
-      }),
-      expectedIdentity: {
-        ...expectedServiceIdentity,
-        clientAuthFingerprint: mosaClientTokenFingerprint(clientToken),
-      },
-      clientToken,
-      importStagingRoot,
-      isolationContext,
-      runtimeOptions: {
-        projectRoot: appRoot,
-        managerDir: appRoot,
-        cowartProjectDir: desktopDataDir,
-        appDir: join(appRoot, "app"),
-        // JSON fallback libraries must remain writable when MOSA is packaged.
-        assetsRoot: join(libraryDir, "assets"),
-        generatedImagesDir: join(libraryDir, "imports"),
-        webCaptureToken,
-        webCaptureOrigins,
-        clientToken,
-        // MOSA_DISABLE_BRIDGES lets isolated runs (Task 1 verification) keep
-        // the local Codex/Grok/Cowart directories invisible, so the gallery
-        // reflects only the configured fixture library. Accepted names:
-        // cowart, cowartDiscovery, codex, grok.
-        disabledBridges: parseDisabledBridges({ env: process.env }),
-      },
-    });
-  }
-
-  const url = new URL(service.url);
   const bounds = loadBounds();
   mainWindow = new BrowserWindow({
     ...bounds,
@@ -702,6 +705,7 @@ async function createMainWindow() {
     minWidth: 960,
     minHeight: 640,
     show: false,
+    backgroundColor: "#f5f5f4",
     ...desktopPlatform.windowOptions(),
     webPreferences: {
       preload: preloadPath,
@@ -710,6 +714,7 @@ async function createMainWindow() {
       sandbox: true,
     },
   });
+  const windowRef = mainWindow;
 
   console.info(`[MOSA] preload-path=${preloadPath}`);
   mainWindow.webContents.once("preload-error", (_event, attemptedPath, error) => {
@@ -755,20 +760,91 @@ async function createMainWindow() {
     stopBridgeNotificationPoll();
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  const blockForeignNavigation = (event, targetUrl) => {
-    if (!isVerifiedMosaUrl(targetUrl, url)) event.preventDefault();
-  };
-  mainWindow.webContents.on("will-navigate", blockForeignNavigation);
-  mainWindow.webContents.on("will-redirect", blockForeignNavigation);
 
   buildMenu();
   registerIPC();
-  const clientUrl = new URL(service.url);
-  if (service.clientToken) clientUrl.hash = `mosa-client-token=${encodeURIComponent(service.clientToken)}`;
-  await mainWindow.loadURL(clientUrl.toString());
-  mainWindow.show();
+  await windowRef.loadFile(startupShellPath);
+  if (windowRef.isDestroyed()) return;
+  windowRef.show();
 
-  startBridgeNotificationPoll(service.port);
+  const activeService = await ensureDesktopService();
+  if (windowRef.isDestroyed() || mainWindow !== windowRef) return;
+  const url = new URL(activeService.url);
+  const blockForeignNavigation = (event, targetUrl) => {
+    if (!isVerifiedMosaUrl(targetUrl, url)) event.preventDefault();
+  };
+  windowRef.webContents.on("will-navigate", blockForeignNavigation);
+  windowRef.webContents.on("will-redirect", blockForeignNavigation);
+  const clientUrl = new URL(activeService.url);
+  if (activeService.clientToken) clientUrl.hash = `mosa-client-token=${encodeURIComponent(activeService.clientToken)}`;
+  await windowRef.loadURL(clientUrl.toString());
+  if (windowRef.isDestroyed()) return;
+  windowRef.show();
+
+  startBridgeNotificationPoll(activeService.port);
+}
+
+async function ensureDesktopService() {
+  if (service) return service;
+  if (serviceStartPromise) return serviceStartPromise;
+  serviceStartPromise = (async () => {
+    serviceManagerModulePromise ||= import("./service-manager.mjs");
+    const {
+      shouldAllowSameVersionServiceReplacement,
+      shouldAllowStaleServiceUpgrade,
+      startMosaService,
+    } = await serviceManagerModulePromise;
+    const clientToken = process.env.MOSA_CLIENT_TOKEN
+      || await loadOrCreateMosaClientToken(desktopDataDir);
+    const webCaptureToken = process.env.MOSA_WEB_CAPTURE_TOKEN
+      || await loadOrCreateWebCaptureToken(desktopDataDir);
+    const webCaptureOrigins = process.env.MOSA_WEB_CAPTURE_ORIGINS
+      || MOSA_WEB_CAPTURE_DEFAULT_ORIGINS;
+    const nextService = await startMosaService({
+      port: desktopPort,
+      libraryDir,
+      allowPortFallback: !process.env.MOSA_DESKTOP_PORT,
+      failOnPrimaryLibraryMismatch: true,
+      allowStaleServiceUpgrade: shouldAllowStaleServiceUpgrade({
+        isPackaged: app.isPackaged,
+        qaRun: isolationContext.qaRun,
+        explicitPort: Boolean(process.env.MOSA_DESKTOP_PORT),
+      }),
+      allowSameVersionServiceReplacement: shouldAllowSameVersionServiceReplacement({
+        isPackaged: app.isPackaged,
+        qaRun: isolationContext.qaRun,
+        explicitPort: Boolean(process.env.MOSA_DESKTOP_PORT),
+      }),
+      expectedIdentity: {
+        ...expectedServiceIdentity,
+        clientAuthFingerprint: mosaClientTokenFingerprint(clientToken),
+      },
+      clientToken,
+      importStagingRoot,
+      isolationContext,
+      runtimeOptions: {
+        projectRoot: appRoot,
+        managerDir: appRoot,
+        cowartProjectDir: desktopDataDir,
+        appDir: join(appRoot, "app"),
+        assetsRoot: join(libraryDir, "assets"),
+        generatedImagesDir: join(libraryDir, "imports"),
+        webCaptureToken,
+        webCaptureOrigins,
+        clientToken,
+        disabledBridges: parseDisabledBridges({ env: process.env }),
+      },
+    });
+    if (shuttingDown) {
+      if (nextService.mode === "owned") await nextService.stop().catch(() => {});
+      throw new Error("MOSA startup was cancelled during shutdown.");
+    }
+    service = nextService;
+    return service;
+  })().finally(() => {
+    serviceStartPromise = null;
+  });
+  return serviceStartPromise;
 }
 
 function denyBrowserPermissions() {
@@ -788,20 +864,38 @@ function isVerifiedMosaUrl(targetUrl, expectedUrl) {
 }
 
 let bridgePollTimer = null;
+let bridgePollAbortController = null;
 let lastImportedCount = 0;
 let bridgePollFailures = 0;
 let runtimeRecoveryPromise = null;
+let runtimeRecoveryInProgress = false;
+const BRIDGE_POLL_INTERVAL_MS = 15_000;
+const BRIDGE_POLL_TIMEOUT_MS = 5_000;
 
 function startBridgeNotificationPoll(runtimePort) {
-  if (bridgePollTimer) return;
-  const interval = 15_000;
-  bridgePollTimer = setInterval(async () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (bridgePollTimer || bridgePollAbortController) return;
+  const scheduleNext = () => {
+    if (shuttingDown || runtimeRecoveryInProgress || bridgePollTimer || bridgePollAbortController) return;
+    bridgePollTimer = setTimeout(() => {
+      bridgePollTimer = null;
+      void pollOnce();
+    }, BRIDGE_POLL_INTERVAL_MS);
+    bridgePollTimer.unref?.();
+  };
+  const pollOnce = async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      scheduleNext();
+      return;
+    }
+    const controller = new AbortController();
+    bridgePollAbortController = controller;
+    const timeout = setTimeout(() => controller.abort(), BRIDGE_POLL_TIMEOUT_MS);
+    timeout.unref?.();
     try {
-      const response = await fetch(`http://127.0.0.1:${runtimePort}/api/bridges`);
+      const response = await fetch(`http://127.0.0.1:${runtimePort}/api/bridges`, { signal: controller.signal });
       if (!response.ok) throw new Error(`Bridge health returned HTTP ${response.status}`);
-      bridgePollFailures = 0;
       const data = await response.json();
+      bridgePollFailures = 0;
       const codexImported = Number(data.codex?.totalImported || 0);
       const cowartImported = Number(data.cowart?.totalImported || 0);
       const grokImported = Number(data.grok?.totalImported || 0);
@@ -817,14 +911,23 @@ function startBridgeNotificationPoll(runtimePort) {
     } catch (error) {
       if (shuttingDown) return;
       bridgePollFailures += 1;
-      if (bridgePollFailures >= 3) void recoverRuntimeAfterHealthFailure(error);
+      if (bridgePollFailures >= 3) {
+        void recoverRuntimeAfterHealthFailure(error);
+        return;
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (bridgePollAbortController === controller) bridgePollAbortController = null;
+      scheduleNext();
     }
-  }, interval);
+  };
+  scheduleNext();
 }
 
 function recoverRuntimeAfterHealthFailure(cause) {
   if (runtimeRecoveryPromise || shuttingDown) return runtimeRecoveryPromise;
-  runtimeRecoveryPromise = (async () => {
+  runtimeRecoveryInProgress = true;
+  const recovery = (async () => {
     console.error(`[MOSA] local runtime health failed repeatedly; rebuilding desktop runtime: ${cause?.message || cause}`);
     stopBridgeNotificationPoll();
     bridgePollFailures = 0;
@@ -838,17 +941,23 @@ function recoverRuntimeAfterHealthFailure(cause) {
     });
     lastImportedCount = 0;
     await openMainWindow();
-  })()
+  })();
+  runtimeRecoveryPromise = recovery
     .catch(reportStartupFailure)
-    .finally(() => { runtimeRecoveryPromise = null; });
+    .finally(() => {
+      runtimeRecoveryPromise = null;
+      runtimeRecoveryInProgress = false;
+    });
   return runtimeRecoveryPromise;
 }
 
 function stopBridgeNotificationPoll() {
   if (bridgePollTimer) {
-    clearInterval(bridgePollTimer);
+    clearTimeout(bridgePollTimer);
     bridgePollTimer = null;
   }
+  bridgePollAbortController?.abort();
+  bridgePollAbortController = null;
   bridgePollFailures = 0;
 }
 

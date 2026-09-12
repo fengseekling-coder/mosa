@@ -15,8 +15,6 @@ const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PROBE_TIMEOUT_MS = 1500;
 const DEFAULT_UPGRADE_STOP_TIMEOUT_MS = 5000;
 const DEFAULT_UPGRADE_STOP_POLL_MS = 100;
-const DEFAULT_UPGRADE_READY_TIMEOUT_MS = 30_000;
-const DEFAULT_UPGRADE_READY_POLL_MS = 100;
 const RUNTIME_LOCK_FILE_NAME = ".mosa-runtime.lock";
 
 export class MosaServiceConflictError extends Error {
@@ -112,7 +110,7 @@ export async function startMosaService(options = {}) {
   let identityMismatch = null;
   const availablePorts = [];
 
-  for (const candidatePort of candidatePorts) {
+  const initialProbes = await Promise.all(candidatePorts.map(async (candidatePort) => {
     const probeOptions = {
       host,
       port: candidatePort,
@@ -120,8 +118,10 @@ export async function startMosaService(options = {}) {
       fetchImpl: options.fetchImpl,
       timeoutMs: options.probeTimeoutMs,
     };
+    return { candidatePort, initial: await probeMosaService(probeOptions) };
+  }));
 
-    const initial = await probeMosaService(probeOptions);
+  for (const { candidatePort, initial } of initialProbes) {
     if (initial.state === "attached") {
       const identityConflict = serviceIdentityConflict(initial, options.expectedIdentity);
       if (!identityConflict) return attachedService(initial, options.clientToken);

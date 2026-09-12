@@ -3,7 +3,7 @@
  * Defines all context menu items and their actions
  */
 
-export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, loadAssets, getGroupColor, saveGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, gallerySelection }) {
+export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, loadAssets, getGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, gallerySelection }) {
   const { apiFetch } = apiClient;
   // getGroupColor falls back to the deterministic palette so call sites can rely
   // on a single source of truth for group colors (mirrors app.mjs colorForGroup).
@@ -181,7 +181,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             await runAction(async () => {
               const next = order.slice();
               [next[orderIndex - 1], next[orderIndex]] = [next[orderIndex], next[orderIndex - 1]];
-              await apiFetch("/api/groups/order", { method: "PATCH", body: { projectId: state.project, names: next } });
+              await apiFetch("/api/group-order", { method: "PATCH", body: { projectId: state.project, names: next } });
               window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
             });
           },
@@ -194,7 +194,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             await runAction(async () => {
               const next = order.slice();
               [next[orderIndex], next[orderIndex + 1]] = [next[orderIndex + 1], next[orderIndex]];
-              await apiFetch("/api/groups/order", { method: "PATCH", body: { projectId: state.project, names: next } });
+              await apiFetch("/api/group-order", { method: "PATCH", body: { projectId: state.project, names: next } });
               window.dispatchEvent(new CustomEvent("mosa:refresh-groups"));
             });
           },
@@ -292,11 +292,17 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
                 tone: "danger",
               });
 
+              const selectedGroupAsset = state.selectedId
+                ? state.assets.find((asset) => asset?.id === state.selectedId && asset?.group === item.name)
+                : null;
+              if (selectedGroupAsset && !(await confirmSelectedAssetMutation([selectedGroupAsset]))) return;
+
               const params = new URLSearchParams({ project: state.project });
               if (deleteAssets) params.set("deleteAssets", "true");
               await apiFetch(`/api/groups/${encodeURIComponent(item.name)}?${params}`, {
                 method: "DELETE",
               });
+              if (selectedGroupAsset) commitSelectedAssetMutation([selectedGroupAsset]);
               showToast(t(deleteAssets ? "groupAndAssetsDeleted" : "groupDeleted"), "success");
 
               // Clear group filter if the deleted group was active. The filter
