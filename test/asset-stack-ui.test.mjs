@@ -118,6 +118,18 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
     "an unselected ordinary card must be draggable without a preparatory click");
   assert.match(stackController, /const candidateIds = dragIdsForCard\(state, assetId\)/,
     "direct drag still preserves an existing multi-selection when appropriate");
+  const createGhost = stackController.slice(
+    stackController.indexOf("function createGhost"),
+    stackController.indexOf("function syncChrome"),
+  );
+  assert.match(createGhost, /if \(count <= 1\)[\s\S]*?return null;/,
+    "single-asset drags do not render an empty floating ghost");
+  assert.match(createGhost, /ghost\.textContent = String\(count\)/,
+    "multi-asset drags render only the selection count");
+  assert.match(stackController, /if \(marker\) marker\.style\.transform/,
+    "drag targeting remains active when a single-asset drag has no ghost node");
+  assert.match(css, /\.asset-stack-drag-ghost \{[^}]*min-width: 24px;[^}]*height: 24px;[^}]*border-radius: 999px;/,
+    "the multi-asset drag count uses a compact badge instead of the old white rectangle");
   assert.match(stackController, /if \(!targetId \|\| drag\.assetIds\.includes\(targetId\)\) return false/);
   assert.match(stackController, /if \(movingIds\.includes\(targetId\)\) return false/);
   assert.match(stackController, /STACK_DRAG_THRESHOLD_PX = 8/);

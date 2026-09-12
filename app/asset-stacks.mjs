@@ -103,10 +103,15 @@ export function createAssetStackController({
   }
 
   function createGhost(count) {
+    if (count <= 1) {
+      ghost?.remove();
+      ghost = null;
+      return null;
+    }
     if (ghost?.isConnected) return ghost;
     ghost = document.createElement("div");
     ghost.className = "asset-stack-drag-ghost";
-    ghost.textContent = count > 1 ? String(count) : "";
+    ghost.textContent = String(count);
     document.body.append(ghost);
     return ghost;
   }
@@ -391,7 +396,7 @@ export function createAssetStackController({
     const clientX = pointer.lastX;
     const clientY = pointer.lastY;
     const marker = createGhost(pointer.assetIds.length);
-    marker.style.transform = `translate3d(${clientX + 12}px, ${clientY + 12}px, 0)`;
+    if (marker) marker.style.transform = `translate3d(${clientX + 12}px, ${clientY + 12}px, 0)`;
     // 侧边栏目标优先于画廊卡片：指针进入侧边栏后分组目标接管高亮，
     // 同时清掉画廊卡片的高亮残留。
     const groupItem = state.activeStackId ? null : targetGroupAt(clientX, clientY);

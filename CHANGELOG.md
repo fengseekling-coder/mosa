@@ -6,6 +6,13 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 No user-visible changes recorded yet.
 
+## 0.2.1-rc.10 — 2026-09-11 / Release Candidate
+
+### Drag feedback cleanup / 拖拽反馈清理
+
+- Removed the empty floating drag ghost for single-asset Stack and group drags.
+- Reduced multi-selection drag feedback to a compact count badge while keeping drop-target highlighting and Stack/group behavior unchanged.
+
 ## 0.2.1-rc.9 — 2026-09-11 / Release Candidate
 
 ### Stack drag authentication validation / 堆叠拖拽鉴权验收
