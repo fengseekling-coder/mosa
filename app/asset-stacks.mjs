@@ -102,17 +102,52 @@ export function createAssetStackController({
     window.setTimeout(() => { suppressClickAfterDrag = false; }, 0);
   }
 
-  function createGhost(count) {
-    if (count <= 1) {
-      ghost?.remove();
-      ghost = null;
-      return null;
-    }
+  function createGhost(drag) {
     if (ghost?.isConnected) return ghost;
+    const count = drag?.assetIds?.length || 1;
+    const sourceCard = drag?.assetId
+      ? els.assetGrid?.querySelector(`:scope > .asset-card[data-id="${CSS.escape(drag.assetId)}"]`)
+      : null;
+    const sourceButton = sourceCard?.querySelector(".asset-card-select");
+    const sourceMedia = sourceButton?.querySelector(".thumb");
     ghost = document.createElement("div");
     ghost.className = "asset-stack-drag-ghost";
-    ghost.textContent = String(count);
+    ghost.setAttribute("aria-hidden", "true");
+
+    const preview = document.createElement("div");
+    preview.className = "asset-stack-drag-preview";
+    const sourceRect = sourceButton?.getBoundingClientRect?.();
+    if (sourceRect?.width > 0 && sourceRect?.height > 0) {
+      const ratio = sourceRect.width / sourceRect.height;
+      const previewWidth = ratio >= 1 ? 96 : Math.max(56, Math.round(112 * ratio));
+      const previewHeight = ratio >= 1 ? Math.max(56, Math.round(96 / ratio)) : 112;
+      preview.style.width = `${previewWidth}px`;
+      preview.style.height = `${previewHeight}px`;
+    }
+    if (sourceMedia) {
+      const media = sourceMedia.cloneNode(true);
+      media.removeAttribute?.("id");
+      media.querySelectorAll?.("[id]").forEach((node) => node.removeAttribute("id"));
+      if (media instanceof HTMLImageElement) {
+        media.loading = "eager";
+        media.draggable = false;
+      }
+      media.querySelectorAll?.("img").forEach((image) => {
+        image.loading = "eager";
+        image.draggable = false;
+      });
+      preview.append(media);
+    }
+    ghost.append(preview);
+    if (count > 1) {
+      ghost.classList.add("is-multi");
+      const badge = document.createElement("span");
+      badge.className = "asset-stack-drag-count";
+      badge.textContent = String(count);
+      ghost.append(badge);
+    }
     document.body.append(ghost);
+    requestAnimationFrame(() => ghost?.classList.add("is-visible"));
     return ghost;
   }
 
@@ -395,8 +430,8 @@ export function createAssetStackController({
     if (!pointer?.dragging) return;
     const clientX = pointer.lastX;
     const clientY = pointer.lastY;
-    const marker = createGhost(pointer.assetIds.length);
-    if (marker) marker.style.transform = `translate3d(${clientX + 12}px, ${clientY + 12}px, 0)`;
+    const marker = createGhost(pointer);
+    marker.style.transform = `translate3d(${clientX + 14}px, ${clientY + 14}px, 0)`;
     // 侧边栏目标优先于画廊卡片：指针进入侧边栏后分组目标接管高亮，
     // 同时清掉画廊卡片的高亮残留。
     const groupItem = state.activeStackId ? null : targetGroupAt(clientX, clientY);

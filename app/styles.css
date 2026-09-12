@@ -402,7 +402,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .asset-card.stack-drop-target .asset-card-select { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 72%, transparent); transform: scale(.985); }
 .asset-card.stack-reorder-target.stack-reorder-before .asset-card-select::after { box-shadow: inset 3px 0 0 var(--color-accent), inset 0 0 0 1px rgb(28 25 23 / 0.06); }
 .asset-card.stack-reorder-target.stack-reorder-after .asset-card-select::after { box-shadow: inset -3px 0 0 var(--color-accent), inset 0 0 0 1px rgb(28 25 23 / 0.06); }
-.asset-stack-drag-ghost { position: fixed; z-index: var(--z-modal); top: 0; left: 0; display: grid; min-width: 24px; height: 24px; place-items: center; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--color-accent) 72%, transparent); border-radius: 999px; color: var(--color-accent-contrast); background: var(--color-accent); box-shadow: var(--shadow-popover); pointer-events: none; font-size: 11px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; }
+.asset-stack-drag-ghost { position: fixed; z-index: var(--z-modal); top: 0; left: 0; pointer-events: none; will-change: transform; }
+.asset-stack-drag-preview { position: relative; width: 76px; height: 92px; overflow: hidden; border: 1px solid rgb(255 255 255 / .7); border-radius: 12px; background: var(--app-card); box-shadow: 0 10px 28px rgb(15 23 42 / .22), 0 2px 8px rgb(15 23 42 / .16); opacity: 0; transform: rotate(2deg) scale(.92); transform-origin: 18% 18%; transition: opacity 110ms ease-out, transform 140ms cubic-bezier(.2,.8,.2,1); }
+.asset-stack-drag-ghost.is-visible .asset-stack-drag-preview { opacity: .94; transform: rotate(2deg) scale(1); }
+.asset-stack-drag-preview > .thumb, .asset-stack-drag-preview > .thumb img, .asset-stack-drag-preview > .thumb video, .asset-stack-drag-preview > img.thumb, .asset-stack-drag-preview > svg.thumb { width: 100%; height: 100%; object-fit: cover; }
+.asset-stack-drag-preview > .thumb { min-height: 0; border-radius: inherit; }
+.asset-stack-drag-ghost.is-multi .asset-stack-drag-preview::before, .asset-stack-drag-ghost.is-multi .asset-stack-drag-preview::after { content: ""; position: absolute; z-index: -1; inset: 0; border-radius: inherit; background: var(--app-card); box-shadow: 0 2px 8px rgb(15 23 42 / .12); }
+.asset-stack-drag-ghost.is-multi .asset-stack-drag-preview::before { transform: translate(5px, 5px) rotate(1.5deg); }
+.asset-stack-drag-ghost.is-multi .asset-stack-drag-preview::after { transform: translate(9px, 9px) rotate(3deg); }
+.asset-stack-drag-count { position: absolute; right: -9px; bottom: -9px; display: grid; min-width: 26px; height: 26px; place-items: center; padding: 0 7px; border: 2px solid var(--app-card); border-radius: 999px; color: var(--color-accent-contrast); background: var(--color-accent); box-shadow: 0 4px 12px rgb(15 23 42 / .18); font-size: 11px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
 body.asset-stack-dragging { cursor: grabbing; user-select: none; }
 .card-check { position: absolute; z-index: 2; top: var(--space-1); left: var(--space-1); display: none; width: 16px; height: 16px; place-items: center; border-radius: 50%; color: var(--color-accent-contrast); background: var(--color-accent); pointer-events: none; }
 .card-check svg { width: 10px; height: 10px; }

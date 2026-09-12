@@ -6,6 +6,13 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 No user-visible changes recorded yet.
 
+## 0.2.1-rc.11 — 2026-09-11 / Release Candidate
+
+### Live drag preview / 实时拖拽预览
+
+- Replaced the invisible single-asset drag state with a lightweight thumbnail preview that follows the pointer in real time.
+- Added a short lift-in animation and a compact count badge for multi-selection drags without delaying pointer tracking or changing Stack/group drop semantics.
+
 ## 0.2.1-rc.10 — 2026-09-11 / Release Candidate
 
 ### Drag feedback cleanup / 拖拽反馈清理

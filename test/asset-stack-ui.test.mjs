@@ -122,14 +122,18 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
     stackController.indexOf("function createGhost"),
     stackController.indexOf("function syncChrome"),
   );
-  assert.match(createGhost, /if \(count <= 1\)[\s\S]*?return null;/,
-    "single-asset drags do not render an empty floating ghost");
-  assert.match(createGhost, /ghost\.textContent = String\(count\)/,
-    "multi-asset drags render only the selection count");
-  assert.match(stackController, /if \(marker\) marker\.style\.transform/,
-    "drag targeting remains active when a single-asset drag has no ghost node");
-  assert.match(css, /\.asset-stack-drag-ghost \{[^}]*min-width: 24px;[^}]*height: 24px;[^}]*border-radius: 999px;/,
-    "the multi-asset drag count uses a compact badge instead of the old white rectangle");
+  assert.match(createGhost, /sourceCard[\s\S]*?sourceButton[\s\S]*?sourceMedia/,
+    "drag feedback resolves the actual source card media");
+  assert.match(createGhost, /sourceMedia\.cloneNode\(true\)/,
+    "drag feedback previews the dragged asset instead of an empty rectangle");
+  assert.match(createGhost, /if \(count > 1\)[\s\S]*?asset-stack-drag-count/,
+    "multi-asset drags add a count badge on top of the media preview");
+  assert.match(stackController, /marker\.style\.transform = `translate3d\(\$\{clientX \+ 14\}px, \$\{clientY \+ 14\}px, 0\)`/,
+    "the drag preview follows the pointer position every animation frame");
+  assert.match(css, /\.asset-stack-drag-preview \{[^}]*opacity: 0;[^}]*transform: rotate\(2deg\) scale\(\.92\);[^}]*transition:/,
+    "the media preview has an entrance animation without adding pointer lag");
+  assert.match(css, /\.asset-stack-drag-ghost\.is-visible \.asset-stack-drag-preview \{[^}]*opacity: \.94;[^}]*scale\(1\)/,
+    "the media preview settles into a visible lifted state");
   assert.match(stackController, /if \(!targetId \|\| drag\.assetIds\.includes\(targetId\)\) return false/);
   assert.match(stackController, /if \(movingIds\.includes\(targetId\)\) return false/);
   assert.match(stackController, /STACK_DRAG_THRESHOLD_PX = 8/);
