@@ -109,6 +109,10 @@ test("starts, identifies itself, stops idempotently, and restarts", async (t) =>
   assert.match(await i18nModule.text(), /export default/);
   const bridges = await (await fetch(`${first.url}/api/bridges`)).json();
   assert.equal(bridges.cowart.sources[0].projectDir, options.cowartProjectDir);
+  assert.equal(typeof bridges.codex.watchingImages, "boolean");
+  assert.equal(typeof bridges.codex.watchingSessions, "boolean");
+  assert.equal(typeof bridges.codex.pendingSessionResults, "number");
+  assert.equal(typeof bridges.codex.lastSessionBytesRead, "number");
 
   await first.stop();
   await first.stop();
@@ -120,6 +124,34 @@ test("starts, identifies itself, stops idempotently, and restarts", async (t) =>
   } finally {
     await second.stop();
   }
+});
+
+test("CODEX_HOME drives every default Codex-owned runtime source consistently", async (t) => {
+  const root = await makeTemporaryRoot(t, "mosa-runtime-codex-home-");
+  const codexHome = join(root, "codex-home");
+  const options = runtimeOptions(root, {
+    codexImagesDir: undefined,
+    codexSessionsDir: undefined,
+    cowartCanvasDir: undefined,
+    cowartRegistryPath: undefined,
+    env: {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      CODEX_GENERATED_IMAGES_DIR: undefined,
+      CODEX_SESSIONS_DIR: undefined,
+      COWART_MOSA_CANVAS_DIR: undefined,
+      MOSA_COWART_REGISTRY_PATH: undefined,
+    },
+  });
+  const runtime = await startMosaRuntime(options);
+  t.after(() => runtime.stop());
+
+  const bridges = await (await fetch(`${runtime.url}/api/bridges`)).json();
+  const library = await (await fetch(`${runtime.url}/api/library-path`)).json();
+  assert.equal(bridges.codex.imagesDir, join(codexHome, "generated_images"));
+  assert.equal(bridges.codex.sessionsDir, join(codexHome, "sessions"));
+  assert.equal(library.codexGeneratedImagesDir, join(codexHome, "generated_images"));
+  assert.equal(bridges.cowart.sources[0].canvasDir, join(codexHome, "cowart-data", "mosa"));
 });
 
 test("management mutations reject callers without the runtime capability", async (t) => {

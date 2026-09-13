@@ -18,6 +18,7 @@ export interface SourceLocationOverrides {
 }
 
 export interface SourceLocationEnvironment {
+  CODEX_HOME?: string;
   CODEX_GENERATED_IMAGES_DIR?: string;
   CODEX_SESSIONS_DIR?: string;
   GROK_SESSIONS_DIR?: string;
@@ -45,7 +46,7 @@ export function resolveSourceLocations({
   overrides?: SourceLocationOverrides;
   pathApi?: typeof nodePath;
 } = {}): SourceLocations {
-  const codexRoot = pathApi.join(home, ".codex");
+  const codexRoot = pathApi.resolve(env?.CODEX_HOME || pathApi.join(home, ".codex"));
   const envValue = (name: keyof typeof SOURCE_ENV_KEYS): string | undefined => (
     env ? env[SOURCE_ENV_KEYS[name]] : undefined
   );

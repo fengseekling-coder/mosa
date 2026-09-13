@@ -125,6 +125,9 @@ Expected conditions:
 
 - `storage` is `sqlite` only after a completed migration.
 - Codex, Grok, and Cowart report `enabled: true`; watcher/polling availability depends on the local source directories.
+- Codex image and session sources should resolve beneath the same `CODEX_HOME` unless an explicit per-source override is configured. With no overrides, use `<CODEX_HOME>/generated_images` and `<CODEX_HOME>/sessions`; when `CODEX_HOME` is unset it defaults to the user's `.codex` directory.
+- Codex bridge diagnostics expose independent `watchingImages` and `watchingSessions` flags. `pendingSessionResults` is the number of generation events still waiting for a standard file or recoverable session result, and `lastSessionBytesRead` shows how many JSONL bytes the most recent incremental scan actually consumed.
+- Standard files under `generated_images` are always preferred. Session-result recovery is only a fallback when the standard file is unavailable; recovered bytes are validated and staged inside MOSA's private assets area, then copied into the library and removed from staging.
 - `grok.sessionsDir` points at the configured Grok sessions root (default `~/.grok/sessions`).
 - `lastError` is empty or `null`.
 - `cowartDiscovery` is enabled when the service can read local Codex session records.

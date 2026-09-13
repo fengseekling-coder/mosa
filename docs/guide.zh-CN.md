@@ -81,11 +81,17 @@ npm exec mosa -- thumbnails rebuild --library /absolute/path/to/library
 
 ### Codex 生图
 
-服务运行时，MOSA 只监听 `~/.codex/generated_images/`。它会匹配对应 Codex 任务的本地会话 JSONL：优先保存生图事件中的 `revised_prompt`，缺失时才回退保存任务最后一条用户指令，并明确记录 Prompt 的来源状态。
+服务运行时，MOSA 跟随 Codex 自己的本地数据根。若设置了 `CODEX_HOME`，就以该目录为准；未设置时 macOS/Linux 使用 `$HOME/.codex`，Windows 使用 `%USERPROFILE%\.codex`。
 
-Windows 10/11 x64 真机已经验证 Codex 自动收录链路可工作。来源路径仍通过统一的 source-location resolver 处理；后续若 Codex 官方 Windows 存储布局发生变化，应以真机检测结果为准，而不是在业务代码中散落平台判断。
+默认自动收录使用两条互补通道：`<CODEX_HOME>/generated_images/` 是标准图片来源，`<CODEX_HOME>/sessions/` 是生成事件与元数据来源。正常情况下 MOSA 优先收标准落盘图片，再按同一 Codex session 补齐 Prompt、模型、call ID 和生成时间。
 
-MOSA 不扫描 Downloads、桌面或任意本地图片目录。原图在同一文件系统时优先硬链接入库，跨文件系统时才复制。
+如果 Codex 的 session 已经记录了 `image_generation_call` / `image_generation_end` 图片结果，但标准 `generated_images` 文件没有真正写出来，MOSA 会自动从 session 中恢复这张图片并正常入库。恢复结果先经过体积限制、base64 校验和真实图片格式检查，只暂存在 MOSA 自己的私有目录，完成素材库 copy 后立即删除；session 里的任意 `saved_path` 不会因此获得额外文件读取权限。
+
+运行期间 MOSA 同时监听图片目录和 session 目录。session JSONL 首次建立索引后只读取后续新增的完整记录，不会在每次轮询时重新解析整份会话。watcher 不可用时仍有轮询兜底。MOSA 不再把 `Documents\\codex`、当前 workspace 或任意项目目录当成 Codex 默认素材来源。
+
+如果你以前改过 Codex 自己的存储根，应修改 Codex 的 `CODEX_HOME`，MOSA 会跟随同一个根。`CODEX_GENERATED_IMAGES_DIR` 和 `CODEX_SESSIONS_DIR` 仍可作为显式高级覆盖，但它们不是新的默认规则。
+
+MOSA 不扫描 Downloads、桌面、Documents 或任意本地图片目录。原图在同一文件系统时优先硬链接入库，跨文件系统时才复制。
 
 ### 网页生图
 
@@ -113,7 +119,7 @@ Prompt 优先级：仅在工具调用与 tool_result 能匹配到该媒体路径
 
 ### Cowart 画布
 
-MOSA 始终监听自己的专用画布 `~/.codex/cowart-data/mosa/`。其他项目必须先在 Codex 中真实打开 Cowart 画布；MOSA 从本地启动记录识别项目，验证 `<项目>/canvas/` 的画布标记后才加入允许列表并监听。
+MOSA 始终监听 Codex 根下的专用画布 `<CODEX_HOME>/cowart-data/mosa/`；未设置 `CODEX_HOME` 时就是用户默认的 `.codex/cowart-data/mosa/`。其他项目必须先在 Codex 中真实打开 Cowart 画布；MOSA 从本地启动记录识别项目，验证 `<项目>/canvas/` 的画布标记后才加入允许列表并监听。
 
 Cowart 快照可提供画布说明与来源，但不保证具有完整生图 Prompt。MOSA 会保留这种差异，避免把画布描述误写成完整 Prompt。
 

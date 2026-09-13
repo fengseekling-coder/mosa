@@ -4,7 +4,20 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
-No user-visible changes recorded yet.
+## 0.2.1-rc.13 — 2026-09-13 / Release Candidate
+
+### Codex default source alignment / Codex 默认来源对齐
+
+- MOSA now treats Codex's own `CODEX_HOME` as the single default root for Codex-owned local data. When `CODEX_HOME` is unset, the default remains `$HOME/.codex` on macOS/Linux and `%USERPROFILE%\.codex` on Windows.
+- Automatic Codex image archive reads `generated_images` under that root, while Prompt/model/provenance matching reads `sessions` under the same root. Cowart's MOSA canvas and registry defaults are rebased from that same Codex root as well.
+- Codex automatic archive now treats `generated_images` and `sessions` as two coordinated sources: standard generated files remain primary, while inline `image_generation_call` / `image_generation_end` results can recover an image when Codex did not persist the advertised generated file.
+- Session JSONL processing was redesigned as an incremental byte-indexed reader. After the initial scan, an active runtime reads only newly appended complete records instead of reparsing whole session files on every bridge reconciliation.
+- Inline session images are size-limited, base64-validated, binary-signature checked, staged only inside MOSA's private recovery directory, copied into the library, and then removed. Session `saved_path` values do not widen MOSA's filesystem trust boundary.
+- Removed the MOSA-invented Windows `Documents\\codex` default and project-directory image scanning path. Custom source variables remain explicit overrides, but they no longer redefine Codex's defaults implicitly.
+- Runtime startup resolves the Codex/Cowart source locations once and passes the same paths to every integration, preventing image, session, and Cowart components from drifting onto different roots.
+- Codex automatic archive now reconciles two native sources: files under `<CODEX_HOME>/generated_images` and image-generation events appended to `<CODEX_HOME>/sessions`, so result-only generations can still be recovered when Codex does not persist the image file.
+- Session JSONL processing is incremental by byte offset, merges duplicate call/end surfaces by generation identity, carries incomplete records across scans, and bounds inline-result recovery without rescanning whole sessions on every poll.
+- Recovered session results are validated into a MOSA-private temporary area, copied into the library, then removed; they are never treated as external trusted roots or later hard-linked back to Codex session data.
 
 ## 0.2.1-rc.12 — 2026-09-12 / Release Candidate
 

@@ -58,3 +58,16 @@ test("the resolver follows the host path implementation without hardcoded separa
     cowartRegistryPath: "C:\\Users\\example\\.codex\\mosa\\cowart-projects.json",
   });
 });
+
+test("CODEX_HOME rebases Codex-owned defaults without changing unrelated providers", () => {
+  const resolved = resolveSourceLocations({
+    home: "/Users/example",
+    pathApi: posix,
+    env: { CODEX_HOME: "/Volumes/codex-home" },
+  });
+  assert.equal(resolved.codexImagesDir, "/Volumes/codex-home/generated_images");
+  assert.equal(resolved.codexSessionsDir, "/Volumes/codex-home/sessions");
+  assert.equal(resolved.cowartCanvasDir, "/Volumes/codex-home/cowart-data/mosa");
+  assert.equal(resolved.cowartRegistryPath, "/Volumes/codex-home/mosa/cowart-projects.json");
+  assert.equal(resolved.grokSessionsDir, "/Users/example/.grok/sessions");
+});

@@ -106,7 +106,7 @@ function toolDefinitions() {
   return [
     {
       name: TOOL_ASSET_CREATE,
-      description: "Copy a generated image into the MOSA library and save prompt recipe metadata. Codex's default ~/.codex/generated_images task folders are supported and recorded as the source.",
+      description: "Copy a generated image into the MOSA library and save prompt recipe metadata. Codex's <CODEX_HOME>/generated_images task folders are supported and recorded as the source; CODEX_HOME defaults to the user's .codex directory.",
       inputSchema: {
         type: "object",
         properties: {
@@ -123,7 +123,7 @@ function toolDefinitions() {
           business_fields: { type: "object" },
           parent_asset_id: { type: "string" },
           version_change: { type: "string" },
-          sourceType: { type: "string", description: "Optional source type. Defaults to codex-generated for images under ~/.codex/generated_images." },
+          sourceType: { type: "string", description: "Optional source type. Defaults to codex-generated for images under <CODEX_HOME>/generated_images (normally the user's .codex/generated_images)." },
           source: {
             type: "object",
             description: "Optional generation provenance, such as generation_tool, model, codex_session_id, or codex_thread_id. The original image path and Codex task ID are detected automatically.",
