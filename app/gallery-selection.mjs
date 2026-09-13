@@ -15,6 +15,15 @@ export function rectsIntersect(a, b) {
   return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
 }
 
+export function cardSelectionFlags(id, selectedIds = new Set(), detailSelectedId = "") {
+  const explicitSelection = selectedIds instanceof Set ? selectedIds : new Set(selectedIds || []);
+  const multiSelected = explicitSelection.has(id);
+  return {
+    multiSelected,
+    detailSelected: !explicitSelection.size && id === detailSelectedId,
+  };
+}
+
 export function selectionRangeIds(assets = [], anchorId = "", targetId = "") {
   const ids = (assets || []).map((asset) => String(asset?.id || "")).filter(Boolean);
   const targetIndex = ids.indexOf(String(targetId || ""));
@@ -121,6 +130,19 @@ export function createGallerySelection({
     return !state.activeStackId && Boolean(asset?.stack?.id);
   }
 
+  function currentDetailSelectionId() {
+    const id = String(state.selectedId || "");
+    if (!id) return "";
+    return (state.assets || []).some((asset) => asset?.id === id) ? id : "";
+  }
+
+  function additiveSelectionBase({ excludeDetailId = "" } = {}) {
+    const next = new Set(ensureSelectionSet());
+    const detailId = currentDetailSelectionId();
+    if (!next.size && detailId && detailId !== excludeDetailId) next.add(detailId);
+    return next;
+  }
+
   function reconcileStackSelection(nextSelection, explicitStackNodes = null) {
     const nextStacks = explicitStackNodes instanceof Map
       ? new Map([...explicitStackNodes].filter(([id]) => nextSelection.has(id)))
@@ -137,8 +159,8 @@ export function createGallerySelection({
     if (!(card instanceof HTMLElement)) return;
     const id = card.dataset.id;
     if (!id) return;
-    const multiSelected = selectedIds.has(id);
-    const detailSelected = id === state.selectedId;
+    const { multiSelected, detailSelected } = cardSelectionFlags(id, selectedIds, state.selectedId);
+    card.classList.toggle("selected", detailSelected);
     card.classList.toggle("multi-selected", multiSelected);
     card.querySelector(".asset-card-select")?.setAttribute("aria-pressed", String(detailSelected || multiSelected));
   }
@@ -191,9 +213,11 @@ export function createGallerySelection({
 
   function commitSelection(nextSelection, { announce = false, stackNodes = null, anchorId = null } = {}) {
     const current = ensureSelectionSet();
+    const batchModeChanged = Boolean(current.size) !== Boolean(nextSelection.size);
     const changedIds = new Set();
     for (const id of current) if (!nextSelection.has(id)) changedIds.add(id);
     for (const id of nextSelection) if (!current.has(id)) changedIds.add(id);
+    if (batchModeChanged && state.selectedId) changedIds.add(state.selectedId);
     if (!sameIds(current, nextSelection)) state.selectedIds = new Set(nextSelection);
     state.selectedStackNodes = reconcileStackSelection(nextSelection, stackNodes);
     if (anchorId !== null) selectionAnchorId = anchorId;
@@ -212,7 +236,7 @@ export function createGallerySelection({
 
   function toggle(id, { announce = true } = {}) {
     if (!id) return false;
-    const next = new Set(ensureSelectionSet());
+    const next = additiveSelectionBase({ excludeDetailId: id });
     if (next.has(id)) next.delete(id);
     else next.add(id);
     commitSelection(next, { announce, anchorId: id });
@@ -222,7 +246,7 @@ export function createGallerySelection({
   function selectRange(id, { additive = false, announce = true } = {}) {
     if (!id) return false;
     const range = selectionRangeIds(state.assets, selectionAnchorId || state.selectedId || id, id);
-    const next = additive ? new Set(ensureSelectionSet()) : new Set();
+    const next = additive ? additiveSelectionBase() : new Set();
     range.forEach((assetId) => next.add(assetId));
     commitSelection(next, { announce, anchorId: id });
     return true;
@@ -404,7 +428,8 @@ export function createGallerySelection({
     box.style.width = `${Math.max(0, clippedRight - clippedLeft)}px`;
     box.style.height = `${Math.max(0, clippedBottom - clippedTop)}px`;
 
-    const next = pointer.additive ? new Set(pointer.baseSelection) : new Set();
+    const next = pointer.additive ? new Set(pointer.additiveBaseSelection) : new Set();
+    if (!pointer.additive && pointer.promoteDetailId) next.add(pointer.promoteDetailId);
     // When a marquee starts on top of a card, that origin card is part of the
     // user's intended sweep even for a right-to-left / bottom-to-top drag.
     // Keeping it explicitly also avoids a one-pixel boundary miss at the exact
@@ -459,6 +484,8 @@ export function createGallerySelection({
     if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) return;
     const startCard = event.target.closest?.(".asset-card");
     if (startCard && !event.shiftKey) return;
+    const explicitSelection = ensureSelectionSet();
+    const promoteDetailId = explicitSelection.size ? "" : currentDetailSelectionId();
     pointer = {
       id: event.pointerId,
       startX: event.clientX,
@@ -466,8 +493,10 @@ export function createGallerySelection({
       lastX: event.clientX,
       lastY: event.clientY,
       additive: event.shiftKey,
-      baseSelection: new Set(ensureSelectionSet()),
+      baseSelection: new Set(explicitSelection),
+      additiveBaseSelection: event.shiftKey ? additiveSelectionBase() : new Set(explicitSelection),
       baseStackNodes: new Map(ensureStackSelectionMap()),
+      promoteDetailId,
       startCardId: startCard?.dataset.id || "",
       dragging: false,
     };
