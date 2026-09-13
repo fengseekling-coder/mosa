@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { link, readFile, rename, stat, unlink } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 interface Asset {
   id: string;
@@ -49,6 +49,12 @@ export async function relinkCodexAsset(asset: Asset): Promise<SingleRelinkResult
   const sourcePath = asset.source?.path ? resolve(asset.source.path as string) : null;
   const targetPath = asset.image_path ? resolve(asset.image_path) : null;
   if (!sourcePath || !targetPath) return { status: "missing-path" };
+  const generatedImagesRoot = typeof asset.source?.codex_generated_images_root === "string"
+    ? resolve(asset.source.codex_generated_images_root as string)
+    : null;
+  if (!generatedImagesRoot || !isStrictChildPath(generatedImagesRoot, sourcePath)) {
+    return { status: "non-generated-images-source" };
+  }
   let sourceStat, targetStat;
   try {
     [sourceStat, targetStat] = await Promise.all([stat(sourcePath), stat(targetPath)]);
@@ -71,4 +77,9 @@ export async function relinkCodexAsset(asset: Asset): Promise<SingleRelinkResult
   } finally {
     await unlink(temporaryPath).catch(() => {});
   }
+}
+
+function isStrictChildPath(parent: string, child: string): boolean {
+  const rel = relative(resolve(parent), resolve(child));
+  return Boolean(rel) && !rel.startsWith("..") && !isAbsolute(rel);
 }

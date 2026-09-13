@@ -293,11 +293,35 @@ mosa thumbnails <rebuild|repair> [--library <path>]
 
 ### 7.1 Codex
 
-`lib/codex-image-bridge.ts` 监视配置的 Codex 生成图像目录，默认是
-`$HOME/.codex/generated_images`，并读取配置的会话目录（默认
-`$HOME/.codex/sessions`）匹配任务、Prompt、模型和生成时间。它同时使用文件
-watcher 与轮询，并按内容哈希和来源路径去重；找不到可靠 Prompt 时记录不可用，
-不会凭空生成 Prompt。
+`lib/codex-image-bridge.ts` 监视 Codex 自己的生成图像目录，并读取同一 Codex 根
+下的会话数据匹配任务、Prompt、模型和生成时间。Codex 根优先取 `CODEX_HOME`；
+未设置时 macOS/Linux 默认为 `$HOME/.codex`，Windows 默认为
+`%USERPROFILE%\.codex`。因此默认素材目录为 `<CODEX_HOME>/generated_images`，
+会话目录为 `<CODEX_HOME>/sessions`。
+
+Codex 自动收录是双来源模型，而不是只靠一个图片目录：
+
+- **文件来源**：监听 `<CODEX_HOME>/generated_images`，发现真实落盘图片后按来源路径、
+  SHA-256 和像素哈希去重，并从对应 session 补齐 Prompt、模型、call ID 和生成时间。
+- **会话来源**：同时监听 `<CODEX_HOME>/sessions`。`lib/codex-session-index.ts` 对 JSONL
+  维护进程内字节游标；首次读取完整文件，后续只读取新增的完整行。若
+  `image_generation_call` / `image_generation_end` 携带图片 `result`，但标准
+  `generated_images` 文件不存在，MOSA 可以从 session 恢复图片，不会因为 Codex
+  某次未落盘而漏收。
+
+标准文件始终优先。只有标准图片不可用时才启用 session result 恢复。
+`lib/codex-session-recovery.ts` 会先限制事件与图片体积、校验 base64 并按二进制签名
+识别真实图片格式，再写入 MOSA 私有临时目录；素材库完成 copy 后立即删除临时文件。
+session 中的任意 `saved_path` 不会因此成为新的受信任文件根。恢复出来的素材继续走
+与标准文件相同的 automatic-ingest suppression、内容哈希、像素哈希和资产创建链。
+
+图片目录和 session 目录都使用 watcher；watcher 不可用时由轮询兜底。MOSA 不会为了
+监听而创建 Codex 的 `sessions` 目录，Codex 后续创建目录后轮询会自动重新挂载 watcher。
+找不到可靠 Prompt 时明确记录不可用，不会凭空生成 Prompt。
+
+MOSA 不把 Codex 的 workspace、Documents、Desktop、Downloads 或任意项目目录当作
+默认素材扫描根。若用户确实修改了 Codex 本身的存储根，应配置 Codex 官方的
+`CODEX_HOME`；MOSA 会跟随同一个根，而不是另外发明一套默认目录。
 
 ### 7.2 Grok Build CLI
 
@@ -312,7 +336,8 @@ watcher 与轮询，并按内容哈希和来源路径去重；找不到可靠 Pr
 `lib/cowart-canvas-discovery.ts` 可从近期 Codex 会话发现 Cowart 项目；
 `lib/cowart-bridge-manager.ts` 管理主画布和已注册外部项目；
 
-默认管理画布目录为 `$HOME/.codex/cowart-data/mosa`。外部画布必须通过路径、
+默认管理画布目录为 `<CODEX_HOME>/cowart-data/mosa`，MOSA 自己的 Cowart registry
+默认为 `<CODEX_HOME>/mosa/cowart-projects.json`。外部画布必须通过路径、
 目录标记、非 symlink 和项目内边界校验；不可信条目可以移除，但不会启动 watcher。
 
 ### 7.4 Web Capture
@@ -349,6 +374,7 @@ Token 写入公共文档、日志或仓库：
 | `MOSA_DESKTOP_PORT` | Electron 壳使用的端口，默认 `43517` |
 | `MOSA_LIBRARY_DIR` | SQLite/库目录；显式指定后用于库隔离和迁移 |
 | `MOSA_PROJECT_DIR` | 项目根目录覆盖 |
+| `CODEX_HOME` | Codex 本地数据根；默认 `$HOME/.codex` / `%USERPROFILE%\.codex` |
 | `CODEX_GENERATED_IMAGES_DIR` | Codex 生成图片目录覆盖 |
 | `CODEX_SESSIONS_DIR` | Codex 会话目录覆盖 |
 | `GROK_SESSIONS_DIR` | Grok 会话目录覆盖 |
@@ -357,8 +383,9 @@ Token 写入公共文档、日志或仓库：
 | `MOSA_WEB_CAPTURE_TOKEN` | 启用网页捕获的本地 Token |
 | `MOSA_WEB_CAPTURE_ORIGINS` | 网页捕获允许的扩展 origin 列表 |
 
-MOSA 只读取已配置的 Codex、Grok 和 Cowart 位置，不扫描 Downloads、Desktop
-或任意图片目录。导入路径、画布路径、外部来源和打开文件夹操作均经过边界
+MOSA 只读取已配置的 Codex、Grok 和 Cowart 位置；不会把 Downloads、Desktop、
+Documents 或任意项目图片目录作为默认扫描根。导入路径、画布路径、外部来源和
+打开文件夹操作均经过边界
 校验；运行时隔离检查在写入库或监听端口前失败即停止。请把 Prompt、会话 ID、
 页面 URL、素材和 Token 视为私人数据。
 

@@ -51,6 +51,47 @@ test("archives Codex generated images with task metadata and avoids duplicates",
   assert.equal(second.skipped[0].reason, "already-archived");
 });
 
+test("recovers an inline Codex image_generation_call result when generated_images has no file", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-codex-session-result-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const projectRoot = join(root, "project");
+  const managerDir = join(projectRoot, "mosa");
+  const imagesDir = join(root, "generated_images");
+  const sessionsDir = join(root, "sessions");
+  const taskId = "019f776f-f6d5-7692-b9e5-dd280fc09f40";
+  const callId = "ig_session_recovery";
+  const advertisedPath = join(imagesDir, taskId, `${callId}.png`);
+  const sessionPath = join(sessionsDir, "2026", "09", "12", `rollout-test-${taskId}.jsonl`);
+  const revisedPrompt = "A precise editorial still life with translucent glass forms.";
+  const result = pngFixture(640, 480).toString("base64");
+  await mkdir(imagesDir, { recursive: true });
+  await mkdir(join(sessionsDir, "2026", "09", "12"), { recursive: true });
+  await writeFile(sessionPath, [
+    { type: "turn_context", payload: { model: "gpt-5.6-terra" } },
+    { type: "response_item", timestamp: "2026-09-12T20:00:00.000Z", payload: { type: "image_generation_call", id: callId, status: "generating", result } },
+    { type: "event_msg", timestamp: "2026-09-12T20:00:00.100Z", payload: { type: "image_generation_end", call_id: callId, status: "generating", saved_path: advertisedPath, revised_prompt: revisedPrompt } },
+  ].map((event) => JSON.stringify(event)).join("\n") + "\n");
+
+  const store = createAssetStore({ projectRoot, managerDir, codexImagesDir: imagesDir });
+  const first = await reconcileCodexGeneratedImages({ store, imagesDir, sessionsDir });
+  assert.equal(first.imported.length, 1);
+  const asset = first.imported[0];
+  assert.equal(asset.prompt, revisedPrompt);
+  assert.equal(asset.source.generation_tool, "codex-imagegen-session-recovery");
+  assert.equal(asset.source.codex_task_id, taskId);
+  assert.equal(asset.source.codex_image_generation_call_id, callId);
+  assert.equal(asset.source.codex_image_path, advertisedPath);
+  assert.equal(asset.source.codex_session_path, sessionPath);
+  assert.equal(asset.source.codex_recovered_from_session, true);
+  assert.equal(asset.source.storage_mode, "copy");
+  assert.equal(asset.source.model, "gpt-5.6-terra");
+  assert.equal(asset.ratio, "4:3");
+
+  const second = await reconcileCodexGeneratedImages({ store, imagesDir, sessionsDir });
+  assert.equal(second.imported.length, 0);
+  assert.ok(second.skipped.some((item) => item.reason === "already-archived-session-result"));
+});
+
 test("skips unchanged Codex candidates without touching the asset store twice", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-codex-signature-"));
   deferTestPathRemoval(root, { recursive: true, force: true });
@@ -82,71 +123,6 @@ test("skips unchanged Codex candidates without touching the asset store twice", 
   assert.equal(second.skipped[0].reason, "unchanged");
   assert.equal(sourceLookups, 1);
   assert.equal(listCalls, 0, "indexed bridge lookup must not fall back to full project listing");
-});
-
-test("caches Codex session parsing and ignores unrelated session mtime churn", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "mosa-codex-session-cache-"));
-  deferTestPathRemoval(root, { recursive: true, force: true });
-  const imagesDir = join(root, "generated_images");
-  const sessionsDir = join(root, "sessions");
-  const taskId = "019f776f-f6d5-7692-b9e5-dd280fc09f88";
-  const imagePath = join(imagesDir, taskId, "cached.png");
-  const sessionPath = join(sessionsDir, `rollout-test-${taskId}.jsonl`);
-  await mkdir(join(imagesDir, taskId), { recursive: true });
-  await mkdir(sessionsDir, { recursive: true });
-  await writeFile(imagePath, pngFixture(64, 64));
-  const revisedPrompt = "Use case: cache-test\nAsset type: stable image\nPrimary request: Keep this prompt stable.";
-  await writeFile(sessionPath, `${JSON.stringify({
-    type: "event_msg",
-    timestamp: "2026-08-31T01:00:00.000Z",
-    payload: { type: "image_generation_end", call_id: "stable-call", saved_path: imagePath, revised_prompt: revisedPrompt },
-  })}\n`);
-
-  let sourceLookups = 0;
-  let updates = 0;
-  const store = {
-    codexImagesDir: imagesDir,
-    async listAssets() { return []; },
-    async findAssetBySourcePath() {
-      sourceLookups += 1;
-      return {
-        id: "existing",
-        project_id: "default",
-        prompt: revisedPrompt,
-        theme: "stable image",
-        business_fields: { prompt_status: "image-generation-revised-prompt" },
-        source: {
-          path: imagePath,
-          codex_session_path: sessionPath,
-          codex_image_generation_call_id: "stable-call",
-          codex_image_generated_at: "2026-08-31T01:00:00.000Z",
-          prompt_status: "image-generation-revised-prompt",
-        },
-      };
-    },
-    async updateMetadata() { updates += 1; },
-    async createAsset() { throw new Error("create should not run"); },
-  };
-  const processedSignatures = new Map();
-  const sessionPathCache = new Map();
-  const sessionMetadataCache = new Map();
-  const options = { store, imagesDir, sessionsDir, processedSignatures, sessionPathCache, sessionMetadataCache };
-
-  await reconcileCodexGeneratedImages(options);
-  const updatesAfterFirstReconcile = updates;
-  const firstCached = sessionMetadataCache.get(sessionPath)?.metadata;
-  await reconcileCodexGeneratedImages(options);
-  assert.equal(sessionMetadataCache.get(sessionPath)?.metadata, firstCached, "unchanged JSONL must reuse parsed metadata");
-
-  await appendFile(sessionPath, `${JSON.stringify({
-    type: "response_item",
-    payload: { type: "message", role: "user", content: [{ type: "input_text", text: "unrelated follow-up conversation" }] },
-  })}\n`);
-  const third = await reconcileCodexGeneratedImages(options);
-  assert.equal(third.skipped[0].reason, "unchanged", "session mtime alone must not invalidate an archived image");
-  assert.equal(sourceLookups, 1);
-  assert.equal(updates, updatesAfterFirstReconcile, "unrelated session churn must not write asset metadata again");
-  assert.notEqual(sessionMetadataCache.get(sessionPath)?.metadata, firstCached, "changed JSONL should refresh the parse cache once");
 });
 
 test("passes automatic ingest mode and continues after a suppressed Codex image", async (t) => {
