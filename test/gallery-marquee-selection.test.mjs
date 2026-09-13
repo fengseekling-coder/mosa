@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { MARQUEE_DRAG_THRESHOLD_PX, rectFromPoints, rectsIntersect, selectionRangeIds } from "../app/gallery-selection.mjs";
+import {
+  MARQUEE_DRAG_THRESHOLD_PX,
+  cardSelectionFlags,
+  createGallerySelection,
+  rectFromPoints,
+  rectsIntersect,
+  selectionRangeIds,
+} from "../app/gallery-selection.mjs";
 
 test("marquee geometry normalizes drag direction and detects overlap", () => {
   assert.deepEqual(rectFromPoints(40, 50, 10, 20), {
@@ -19,6 +26,49 @@ test("marquee geometry normalizes drag direction and detects overlap", () => {
   const assets = ["a", "b", "c", "d"].map((id) => ({ id }));
   assert.deepEqual(selectionRangeIds(assets, "b", "d"), ["b", "c", "d"]);
   assert.deepEqual(selectionRangeIds(assets, "d", "b"), ["b", "c", "d"]);
+});
+
+test("entering batch selection promotes the current detail selection", () => {
+  const state = {
+    project: "default",
+    assets: ["a", "b", "c"].map((id) => ({ id })),
+    selectedId: "a",
+    selectedIds: new Set(),
+    selectedStackNodes: new Map(),
+    selectionProject: "default",
+    selectionRequestKey: "",
+    activeStackId: "",
+    viewMode: "library",
+    scope: "all",
+    storageKind: "sqlite",
+    pageTotal: 3,
+  };
+  const selection = createGallerySelection({
+    els: {},
+    state,
+    t: (key) => key,
+  });
+  let prevented = false;
+  const handled = selection.handleCardClick({
+    metaKey: true,
+    ctrlKey: false,
+    shiftKey: false,
+    preventDefault() { prevented = true; },
+  }, "b");
+
+  assert.equal(handled, true);
+  assert.equal(prevented, true);
+  assert.deepEqual([...state.selectedIds].sort(), ["a", "b"]);
+  assert.deepEqual(cardSelectionFlags("a", state.selectedIds, state.selectedId), {
+    multiSelected: true,
+    detailSelected: false,
+  });
+
+  selection.clear();
+  assert.deepEqual(cardSelectionFlags("a", state.selectedIds, state.selectedId), {
+    multiSelected: false,
+    detailSelected: true,
+  });
 });
 
 test("gallery marquee selection is wired into shared web/app renderer", async () => {
@@ -68,6 +118,10 @@ test("gallery marquee selection is wired into shared web/app renderer", async ()
   assert.match(selection, /const startCard = event\.target\.closest\?\.\("\.asset-card"\)/);
   assert.match(selection, /if \(startCard && !event\.shiftKey\) return/);
   assert.match(selection, /startCardId: startCard\?\.dataset\.id \|\| ""/);
+  assert.match(selection, /const promoteDetailId = explicitSelection\.size \? "" : currentDetailSelectionId\(\)/,
+    "starting a marquee from a single Inspector selection promotes that first card into the batch");
+  assert.match(selection, /if \(!pointer\.additive && pointer\.promoteDetailId\) next\.add\(pointer\.promoteDetailId\)/,
+    "plain marquee entry must not leave the visibly selected Inspector card outside the real batch selection");
   assert.match(selection, /if \(pointer\.startCardId\) next\.add\(pointer\.startCardId\)/);
   assert.match(selection, /pointer\.dragging = true;\s+captureDragGeometry\(\);\s+try \{ els\.assetGrid\?\.setPointerCapture/);
   assert.match(selection, /pointer\.startContentX/);
