@@ -17,9 +17,16 @@ const isolationContext = {
 };
 let runtime;
 try {
-  runtime = await startMosaRuntime(disabledBridges.length > 0
-    ? { disabledBridges, isolationContext }
-    : { isolationContext });
+  runtime = await startMosaRuntime({
+    ...(disabledBridges.length > 0 ? { disabledBridges } : {}),
+    isolationContext,
+    // A CLI server has no surface to ask the user, so pairing stays
+    // denied by default. Automation that owns the process opts in
+    // explicitly with MOSA_WEB_CAPTURE_PAIR=auto.
+    ...(process.env.MOSA_WEB_CAPTURE_PAIR === "auto"
+      ? { webCapturePairingConfirm: async () => true }
+      : {}),
+  });
 } catch (err) {
   if (err.code === "ERR_ISOLATION_GUARD") {
     console.error(err.message);
@@ -27,7 +34,13 @@ try {
   }
   throw err;
 }
-console.log(`MOSA: ${runtime.url}/#mosa-client-token=${encodeURIComponent(runtime.clientToken)}`);
+if (process.stdout.isTTY) {
+  console.log(`MOSA: ${runtime.url}/#mosa-client-token=${encodeURIComponent(runtime.clientToken)}`);
+} else {
+  // Redirected output (service logs, .mosa-server.log) must not persist the
+  // management capability. The URL is still delivered interactively.
+  console.log(`MOSA: ${runtime.url} (client token handoff suppressed in redirected output)`);
+}
 
 let shutdownPromise = null;
 

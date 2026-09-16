@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain, clipboard, nativeImage, screen, session, shell, Notification } from "electron";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
-import { cp, mkdir, readdir, rm } from "node:fs/promises";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { cp, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { dirname, join, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -108,6 +108,11 @@ if (!guard.ok) {
 }
 
 const MAX_CLIPBOARD_TEXT_LENGTH = 1_000_000;
+const MAX_NATIVE_DRAG_FILES = 512;
+// webContents.startDrag requires a non-empty icon on macOS. Most image assets
+// can supply their own preview directly; this tiny PNG is only the fallback for
+// video/unsupported image formats and never leaves the process.
+const NATIVE_DRAG_FALLBACK_ICON = nativeImage.createFromDataURL("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAACTSURBVHgBpZKBCYAgEEV/TeAIjuIIbdQIuUGt0CS1gW1iZ2jIVaTnhw+Cvs8/OYDJA4Y8kR3ZR2/kmazxJbpUEfQ/Dm/UG7wVwHkjlQdMFfDdJMFaACebnjJGyDWgcnZu1/lrCrl6NCoEHJBrDwEr5NrT6ko/UV8xdLAC2N49mlc5CylpYh8wCwqrvbBGLoKGvz8Bfq0QPWEUo/EAAAAASUVORK5CYII=");
 const BOUNDS_PATH = join(desktopDataDir, "window-bounds.json");
 const DEFAULT_BOUNDS = { width: 1320, height: 860 };
 
@@ -150,6 +155,7 @@ if (!app.requestSingleInstanceLock()) {
     // lifecycle task wait until MOSA has at least presented a window.
     await openMainWindow();
     startAnonymousUsageLifecycle();
+    cleanupStaleWindowsUpdateTransactions();
   }).catch(reportStartupFailure);
 
   app.on("activate", () => {
@@ -322,6 +328,60 @@ function buildMenu() {
   }
 }
 
+// Native, out-of-band consent for handing the long-lived web-capture ingest
+// token to a requester that proved nothing beyond a forgeable Origin header.
+// Denial is the default: timeout, missing window, or any dialog failure.
+const WEB_CAPTURE_PAIR_CONFIRM_TIMEOUT_MS = 120_000;
+
+function confirmWebCapturePairing(origin) {
+  if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve(false);
+  const dialogPromise = dialog.showMessageBox(mainWindow, {
+    type: "question",
+    buttons: [
+      getDesktopText("pairConfirmAllow", currentLocale),
+      getDesktopText("pairConfirmDeny", currentLocale),
+    ],
+    defaultId: 1,
+    cancelId: 1,
+    title: getDesktopText("pairConfirmTitle", currentLocale),
+    message: getDesktopText("pairConfirmMessage", currentLocale),
+    detail: origin ? getDesktopText("pairConfirmDetail", currentLocale).replaceAll("{origin}", origin) : "",
+  }).then((result) => result.response === 0).catch(() => false);
+  let expiry;
+  const timeoutPromise = new Promise((resolveTimeout) => {
+    expiry = setTimeout(() => resolveTimeout(false), WEB_CAPTURE_PAIR_CONFIRM_TIMEOUT_MS);
+  });
+  return Promise.race([dialogPromise, timeoutPromise]).finally(() => clearTimeout(expiry));
+}
+
+// The Windows update helper parks the previous installation under
+// .MOSA-update-*/previous next to the executable and deliberately leaves that
+// recovery data in place after a successful apply. A running, packaged
+// Windows app can safely sweep those directories once they are old enough
+// that no in-flight update transaction can still own them.
+const WINDOWS_UPDATE_TRANSACTION_PREFIX = ".MOSA-update-";
+const WINDOWS_UPDATE_TRANSACTION_MIN_AGE_MS = 10 * 60 * 1000;
+
+function cleanupStaleWindowsUpdateTransactions() {
+  if (process.platform !== "win32" || !app.isPackaged) return;
+  const parentDir = dirname(process.execPath);
+  void (async () => {
+    try {
+      const entries = await readdir(parentDir, { withFileTypes: true });
+      await Promise.all(entries
+        .filter((entry) => entry.isDirectory() && entry.name.startsWith(WINDOWS_UPDATE_TRANSACTION_PREFIX))
+        .map(async (entry) => {
+          const transactionDir = join(parentDir, entry.name);
+          const info = await stat(transactionDir).catch(() => null);
+          if (!info || Date.now() - info.mtimeMs < WINDOWS_UPDATE_TRANSACTION_MIN_AGE_MS) return;
+          await rm(transactionDir, { recursive: true, force: true }).catch(() => {});
+        }));
+    } catch {
+      // Sweep is best-effort recovery hygiene; failures must never affect startup.
+    }
+  })();
+}
+
 function registerIPC() {
   if (ipcRegistered) return;
   ipcRegistered = true;
@@ -379,6 +439,34 @@ function registerIPC() {
     } catch {
       return { ok: false, reason: "unavailable" };
     }
+  });
+
+  // Native file export is deliberately a one-way, narrow bridge. The renderer
+  // may nominate library paths, but the trusted main process canonicalizes
+  // every path, rejects directories/out-of-library targets, caps the batch,
+  // and only then hands files to the OS drag session.
+  ipcMain.handle("start-native-file-drag", async (event, requestedPaths) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false };
+    const input = Array.isArray(requestedPaths) ? requestedPaths.slice(0, MAX_NATIVE_DRAG_FILES) : [];
+    const files = [];
+    const seen = new Set();
+    for (const requestedPath of input) {
+      if (typeof requestedPath !== "string" || !requestedPath.trim()) continue;
+      let allowed;
+      try {
+        allowed = resolveAllowedFolderPath(requestedPath.trim(), [libraryDir]);
+        if (!allowed || seen.has(allowed) || !existsSync(allowed) || !statSync(allowed).isFile()) continue;
+      } catch {
+        continue;
+      }
+      seen.add(allowed);
+      files.push(allowed);
+    }
+    if (!files.length) return { ok: false };
+    let icon = nativeImage.createFromPath(files[0]);
+    if (icon.isEmpty()) icon = NATIVE_DRAG_FALLBACK_ICON;
+    event.sender.startDrag({ file: files[0], files, icon });
+    return { ok: true, count: files.length };
   });
 
   ipcMain.handle("set-locale", async (event, locale) => {
@@ -624,6 +712,9 @@ function runAnonymousUsageReport() {
 }
 
 function startAnonymousUsageLifecycle() {
+  // Explicit local opt-out. The daily HEAD ping carries no identifiers beyond
+  // a random install id, but the machine owner can still switch it off.
+  if (process.env.MOSA_DISABLE_TELEMETRY === "1") return;
   if (usageReportTimer || isolationContext.qaRun || !app.isPackaged) return;
   void runAnonymousUsageReport();
   usageReportTimer = setInterval(() => {
@@ -831,6 +922,7 @@ async function ensureDesktopService() {
         generatedImagesDir: join(libraryDir, "imports"),
         webCaptureToken,
         webCaptureOrigins,
+        webCapturePairingConfirm: ({ origin } = {}) => confirmWebCapturePairing(origin),
         clientToken,
         disabledBridges: parseDisabledBridges({ env: process.env }),
       },

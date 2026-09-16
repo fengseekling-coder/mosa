@@ -199,6 +199,7 @@ $payloadDir = Join-Path $extractDir "MOSA-win32-x64"
 $backupDir = Join-Path $transactionRoot "previous"
 $oldExe = Join-Path $InstallDir $ExeName
 $newProcess = $null
+$movedOriginal = $false
 
 try {
   Wait-Process -Id $TargetPid -ErrorAction SilentlyContinue
@@ -210,6 +211,7 @@ try {
   }
 
   Move-Item -LiteralPath $InstallDir -Destination $backupDir
+  $movedOriginal = $true
   try {
     Move-Item -LiteralPath $payloadDir -Destination $InstallDir
     $newExe = Join-Path $InstallDir $ExeName
@@ -228,19 +230,27 @@ try {
     if (-not (Test-Path -LiteralPath $ReadyFile -PathType Leaf)) {
       throw "Updated MOSA did not report readiness before the rollback deadline."
     }
-    Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+    # Keep $backupDir parked inside $transactionRoot. The updated app sweeps
+    # stale .MOSA-update-* directories on a later boot, so a crash shortly
+    # after this point remains recoverable from the parked previous copy.
+    Remove-Item -LiteralPath $extractDir -Recurse -Force -ErrorAction SilentlyContinue
   } catch {
     if ($newProcess -and -not $newProcess.HasExited) {
       Stop-Process -Id $newProcess.Id -Force -ErrorAction SilentlyContinue
       Wait-Process -Id $newProcess.Id -ErrorAction SilentlyContinue
     }
-    Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
-    if (Test-Path -LiteralPath $backupDir) {
+    # The destructive removal is explicitly scoped: it only runs once the
+    # original directory is verifiably parked in $backupDir, so whatever sits
+    # at $InstallDir at this point is replacement payload this helper moved
+    # in — never files that predate the update.
+    if ($movedOriginal -and (Test-Path -LiteralPath $backupDir -PathType Container)) {
+      if (Test-Path -LiteralPath $InstallDir) {
+        Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+      }
       Move-Item -LiteralPath $backupDir -Destination $InstallDir
     }
     throw
   }
-  Remove-Item -LiteralPath $transactionRoot -Recurse -Force -ErrorAction SilentlyContinue
 } catch {
   if (Test-Path -LiteralPath $oldExe -PathType Leaf) {
     Start-Process -FilePath $oldExe -WorkingDirectory $InstallDir -ErrorAction SilentlyContinue

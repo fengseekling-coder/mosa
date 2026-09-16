@@ -1410,6 +1410,7 @@ test("HTTP ingest endpoint accepts chrome-extension origin with token", async (t
       MOSA_COWART_REGISTRY_PATH: join(root, "state", "cowart-projects.json"),
       MOSA_WEB_CAPTURE_TOKEN: "test-token",
       MOSA_WEB_CAPTURE_ORIGINS: "chrome-extension://abc123",
+      MOSA_WEB_CAPTURE_PAIR: "auto",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -1720,6 +1721,65 @@ test("HTTP ingest endpoint accepts chrome-extension origin with token", async (t
   const bridgeBody = await bridges.json();
   assert.equal(bridgeBody.webCapture?.enabled, true);
   assert.ok(bridgeBody.webCapture?.providers?.includes("chatgpt"));
+});
+
+test("pairing is denied by default on a headless CLI runtime", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-pair-"));
+  const sessionsDir = join(root, "sessions");
+  const libraryDir = join(root, "library");
+  await mkdir(sessionsDir, { recursive: true });
+  await writeFile(join(sessionsDir, "empty.jsonl"), "\n");
+  const seeded = createSqliteAssetStore({ projectRoot: root, managerDir: process.cwd(), libraryDir });
+  await seeded.ensureProject("default");
+  await seeded.setMigrationState("completed", { test: true });
+  seeded.close();
+
+  // No MOSA_WEB_CAPTURE_PAIR here: a CLI runtime has no user to ask.
+  const server = spawn(process.execPath, ["server.mjs"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      MOSA_PORT: "0",
+      MOSA_PROJECT_DIR: root,
+      MOSA_LIBRARY_DIR: libraryDir,
+      CODEX_GENERATED_IMAGES_DIR: join(root, "generated-images"),
+      CODEX_SESSIONS_DIR: sessionsDir,
+      GROK_SESSIONS_DIR: join(root, "grok-sessions"),
+      COWART_MOSA_CANVAS_DIR: join(root, "cowart-data"),
+      MOSA_COWART_REGISTRY_PATH: join(root, "state", "cowart-projects.json"),
+      MOSA_WEB_CAPTURE_TOKEN: "test-token",
+      MOSA_WEB_CAPTURE_ORIGINS: "chrome-extension://abc123",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(async () => {
+    if (server.exitCode === null) {
+      const exited = once(server, "exit");
+      server.kill("SIGTERM");
+      const forceKill = setTimeout(() => {
+        if (server.exitCode === null) server.kill("SIGKILL");
+      }, 5_000);
+      try {
+        await exited;
+      } finally {
+        clearTimeout(forceKill);
+      }
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const port = await waitForServerPort(server);
+  await waitForServer(port, server);
+
+  // Even a perfectly formed extension Origin must not receive the long-lived
+  // ingest token without out-of-band user consent.
+  const pairAttempt = await fetch(`http://127.0.0.1:${port}/api/web-capture/pair`, {
+    method: "POST",
+    headers: { origin: "chrome-extension://abc123", "content-type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(pairAttempt.status, 503);
+  assert.equal((await pairAttempt.json()).code, "WEB_CAPTURE_PAIRING_CONFIRMATION_UNAVAILABLE");
 });
 
 async function waitForServerPort(server) {

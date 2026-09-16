@@ -4,6 +4,29 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+## 0.2.1-rc.14 — 2026-09-16 / Release Candidate
+
+### Drag & drop import / 拖放导入
+
+- Dropping files and whole folders onto the gallery or the import card now imports every supported image/video in one batched queue, with progress in the gallery status line and per-batch failure isolation instead of "first file only".
+- Unsupported files inside dropped folders are skipped and reported as an informational count; a folder full of non-media files no longer exhausts the import budget.
+- The file picker accepts multi-selection; single files keep opening the familiar import flow.
+- Holding a card drag and leaving the MOSA window hands the selected assets to the OS as a native file drag (Electron desktop), so assets can be dropped into Finder, browsers, and other apps.
+
+### Security & privacy / 安全与隐私
+
+- Web Capture pairing now requires an explicit native confirmation dialog in front of the user; headless CLI runtimes deny pairing by default (`MOSA_WEB_CAPTURE_PAIR=auto` opts in for automation).
+- The CLI server no longer prints the management token into redirected output logs; interactive terminals keep the URL handoff.
+- Anonymous usage telemetry can be disabled locally with `MOSA_DISABLE_TELEMETRY=1`.
+- Web capture upload sessions are bounded (8 concurrent) to cap temp disk usage.
+
+### Reliability / 稳定性
+
+- The JSON fallback store now serializes every per-asset metadata/lifecycle write through one lock, closing a race where a metadata edit could resurrect an asset that was just moved to the Trash.
+- Group hard-delete and asset creation now stage file removals/copies so interrupted operations roll back or clean up instead of leaving half-deleted or half-written files.
+- Windows update apply keeps the previous installation parked for recovery until the updated app's next boot sweeps it, and the rollback deletion is explicitly scoped to the replacement payload.
+- `npm run check` now also syntax-checks `.cjs` sources (the desktop preload was previously outside its coverage).
+
 ## 0.2.1-rc.13 — 2026-09-13 / Release Candidate
 
 ### Codex default source alignment / Codex 默认来源对齐

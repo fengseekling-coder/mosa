@@ -22,7 +22,7 @@ async function collectJavaScript(directory) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
       if (!ignored.has(entry.name)) files.push(...await collectJavaScript(path));
-    } else if (entry.isFile() && /\.(?:mjs|js)$/.test(entry.name)) files.push(path);
+    } else if (entry.isFile() && /\.(?:mjs|cjs|js)$/.test(entry.name)) files.push(path);
   }
   return files.sort();
 }

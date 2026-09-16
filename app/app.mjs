@@ -19,6 +19,8 @@ import { bindContextMenuEvents } from "./context-menu-bindings.mjs";
 import { createGallerySelection } from "./gallery-selection.mjs";
 import { createAssetStackController } from "./asset-stacks.mjs";
 import { createLibraryReconciler } from "./library-reconciliation.mjs";
+import { collectDroppedFiles, createBatchImporter, dropErrorMessage } from "./batch-import.mjs";
+import { createNativeAssetDrag } from "./native-asset-drag.mjs";
 let statusAnnouncementTimer = null;
 let statusTextWriteTimer = null;
 let statusAnnouncementSequence = 0;
@@ -70,7 +72,7 @@ function isInspectorDocked() {
 }
 
 const state = {
-  project: "default", projects: [], assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, loadedAssetCount: 0, selectedId: null, selectedIds: new Set(), selectedStackNodes: new Map(), selectionProject: "default", selectionRequestKey: "", detailAsset: null, detailStack: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
+  project: "default", assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, loadedAssetCount: 0, selectedId: null, selectedIds: new Set(), selectedStackNodes: new Map(), selectionProject: "default", selectionRequestKey: "", detailAsset: null, detailStack: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
   groups: { total: 0, favorites: 0, unorganized: 0, trash: 0, sourceTypes: [], groups: [] },
@@ -84,20 +86,19 @@ const state = {
   updateStatus: "idle",
   latestVersion: "",
   updatePublishedAt: "",
-  updateNotes: null,
   updateCanInstallInApp: false,
   updateDownloadPercent: 0,
   darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null,
   sidebarSmartCollapsed: safeStorageGet("mosa.sidebar-smart-collapsed") === "true",
   sidebarManualCollapsed: safeStorageGet("mosa.sidebar-manual-collapsed") === "true",
   detailReturnFocusAssetId: null, previewReturnFocusAssetId: null,
-  imageZoom: 1, imagePanX: 0, imagePanY: 0, imageDragging: false,
+  imageZoom: 1, imagePanX: 0, imagePanY: 0,
   // Bulk-selection gate. The viewer short-circuits while batch mode is active so
   // Phase 3A / D4：专用大图查看模式最小状态——viewMode 二值（library/asset）+ 进入时的
   // 画廊返回快照。不复刻搜索/筛选/排序状态、不深拷贝 state、无第二套 selectedAsset、无平行 Router。
   viewMode: "library", libraryReturnSnapshot: null,
   activeStackId: "", activeStackSummary: null, stackReturnSnapshot: null,
-  assetStackDragCandidate: false, assetStackDragging: false,
+  assetStackDragCandidate: false,
 };
 
 // ===== i18n 运行时（resolveLocale/t/applyLanguage 已提取至 i18n-runtime.mjs）=====
@@ -258,6 +259,22 @@ const gallerySelection = createGallerySelection({
   getCardSelectionRects: gallerySelectionRects,
 });
 
+const batchImporter = createBatchImporter({
+  state,
+  apiFetch,
+  stageFile: stageBrowserFile,
+  cleanupStagedFile,
+  isSupportedFile: isSupportedImportFile,
+  announce: announceGalleryStatus,
+  showToast,
+  refreshLibrary: async () => {
+    await Promise.all([loadStats(), loadAssets()]);
+  },
+  t,
+});
+
+const nativeAssetDrag = createNativeAssetDrag({ els, state, showToast, t });
+
 // ===== Library Change 增量 reconciliation =====
 // 数据层（library-reconciliation.mjs）负责 classify → fetch affected → reconcile
 // → advance revision；本模块注入定向 DOM 提交与渲染回调。普通库变更走这条
@@ -303,6 +320,7 @@ const assetStacks = createAssetStackController({
   updateViewTitle,
   showToast,
   closeDetailSurface,
+  nativeAssetDrag,
   t,
 });
 
@@ -470,25 +488,30 @@ function setupDragDrop() {
     e.preventDefault();
     hideDragOverlay({ announce: false });
     announceGalleryStatus(t("dropImportReceived"), { persist: true });
-    const files = e.dataTransfer?.files;
-    if (!files || !files.length) {
-      // 无文件：不进入导入流程，清空持久 live region（audit fix batch 1.3）。
+    let collected = { files: [], unsupported: 0 };
+    try {
+      let lastScanAnnounce = 0;
+      collected = await collectDroppedFiles(e.dataTransfer, {
+        isSupported: (name) => isSupportedImportFile({ name }),
+        onProgress: (count) => {
+          if (count - lastScanAnnounce < 200) return;
+          lastScanAnnounce = count;
+          announceGalleryStatus(t("batchImportScanning", { count }), { persist: true });
+        },
+      });
+    } catch (error) {
       announceGalleryStatus("");
+      showToast(dropErrorMessage(error, t), "error");
       return;
     }
-    // P2-1: Multi-file drop indication
-    if (files.length > 1) {
-      showToast(t("multipleFilesIgnored"), "info");
-    }
-    const file = files[0];
-    if (!isSupportedImportFile(file)) {
+    const { files, unsupported } = collected;
+    if (!files.length) {
+      // 无文件（或全部格式不支持）：不进入导入流程，清空持久 live region（audit fix batch 1.3）。
       announceGalleryStatus("");
-      showToast(t("errorPathUnsupported"), "error");
+      if (unsupported) showToast(t("errorPathUnsupported"), "error");
       return;
     }
-    const prepared = await prepareImportFile(file);
-    announceGalleryStatus("");
-    if (!prepared) return;
+    void batchImporter.enqueue(files);
   });
 }
 
@@ -912,6 +935,7 @@ async function resetLibraryRefinements() {
 async function init() {
     applyLanguage();
     applyDarkMode();
+    nativeAssetDrag.bind();
     assetStacks.bind();
     gallerySelection.bind();
     bindEvents();
@@ -1038,8 +1062,7 @@ async function checkForUpdates({ notify = false, silent = false } = {}) {
     if (result?.status === "ok") {
       state.latestVersion = String(result.latestVersion || "").replace(/^v/i, "");
       state.updatePublishedAt = String(result.publishedAt || "");
-      state.updateNotes = result.notes && typeof result.notes === "object" ? result.notes : null;
-      state.updateCanInstallInApp = result.canInstallInApp === true;
+        state.updateCanInstallInApp = result.canInstallInApp === true;
       state.updateStatus = result.updateAvailable ? "available" : "current";
       if (!silent || (notify && result.updateAvailable)) {
         showToast(result.updateAvailable ? t("updateAvailableToast", { version: state.latestVersion }) : t("upToDate"), "success");
@@ -1700,8 +1723,13 @@ function bindEvents() {
     }
   });
   els.importFileInput?.addEventListener("change", () => {
-    const file = els.importFileInput.files?.[0];
-    if (file) void prepareImportFile(file, { openModal: false });
+    const files = Array.from(els.importFileInput.files || []);
+    if (!files.length) return;
+    if (files.length === 1) {
+      void prepareImportFile(files[0], { openModal: false });
+      return;
+    }
+    void batchImporter.enqueue(files);
   });
   const importDropZone = els.browseFileBtn?.closest(".import-v2-path-card");
   ["dragenter", "dragover"].forEach((eventName) => {
@@ -1725,14 +1753,20 @@ function bindEvents() {
       if (eventName !== "drop") return;
       // P1-3: Prevent drop during import save to avoid phantom path race
       if (state.importSaving) return;
-      const files = event.dataTransfer?.files;
-      if (!files || !files.length) return;
-      // P2-1: Multi-file drop indication
-      if (files.length > 1) {
-        showToast(t("multipleFilesIgnored"), "info");
-      }
-      const file = files[0];
-      if (file) void prepareImportFile(file, { openModal: false });
+      void (async () => {
+        const { files, unsupported } = await collectDroppedFiles(event.dataTransfer, {
+          isSupported: (name) => isSupportedImportFile({ name }),
+        });
+        if (files.length === 1) {
+          void prepareImportFile(files[0], { openModal: false });
+          return;
+        }
+        if (files.length) {
+          void batchImporter.enqueue(files);
+          return;
+        }
+        if (unsupported) showToast(t("errorPathUnsupported"), "error");
+      })().catch((error) => showToast(dropErrorMessage(error, t), "error"));
     });
   });
   els.quickFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) void setFilter(button.dataset.filter); });
