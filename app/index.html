@@ -92,6 +92,22 @@
       </div>
     </div>
 
+    <!-- Stack 重命名：右键堆叠 → 重命名。单一名称输入收集器，提交回调由调用方注入。 -->
+    <div class="modal-overlay" id="stackRenameModal" aria-hidden="true">
+      <div class="modal-card group-modal-card" role="dialog" aria-modal="true" aria-labelledby="stackRenameModalTitle" tabindex="-1">
+        <div class="modal-header">
+          <h3 id="stackRenameModalTitle" data-i18n="renameStackTitle">重命名堆叠</h3>
+          <button class="icon-button" id="stackRenameModalClose" type="button" data-i18n-aria-label="closeStackRename" aria-label="关闭重命名堆叠窗口">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <label class="field"><span data-i18n="stackName">堆叠名称</span><input id="stackRenameInput" data-i18n-placeholder="stackNamePlaceholder" placeholder="例如：灵感参考" maxlength="80" /></label>
+        </div>
+        <div class="modal-footer"><button class="btn-secondary" id="cancelStackRenameBtn" type="button" data-i18n="cancel">取消</button><button class="btn-primary" id="saveStackRenameBtn" type="button" data-i18n="renameStack">重命名</button></div>
+      </div>
+    </div>
+
     <!-- 分组统计：右键分组 → 分组统计。内容按 /api/groups/:name/stats 渲染。 -->
     <div class="modal-overlay" id="groupStatsModal" aria-hidden="true">
       <div class="modal-card group-stats-card" role="dialog" aria-modal="true" aria-labelledby="groupStatsTitle" tabindex="-1">

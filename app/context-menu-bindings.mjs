@@ -98,6 +98,9 @@ export function bindContextMenuEvents(options = {}) {
     if (detail.stackDissolved?.id) {
       changes.push({ kind: "stack-dissolved", entityType: "stack", entityId: String(detail.stackDissolved.id) });
     }
+    if (detail.stackUpdated?.id) {
+      changes.push({ kind: "stack-updated", entityType: "stack", entityId: String(detail.stackUpdated.id) });
+    }
     const statsRefresh = loadStats({ background: true }).catch((error) => console.warn("Context-menu refresh failed:", error));
     if (changes.length && typeof librarySync?.applyLocalChanges === "function") {
       void librarySync.applyLocalChanges(changes).catch((error) => console.warn("Incremental refresh failed:", error));

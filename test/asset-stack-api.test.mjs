@@ -76,7 +76,7 @@ test("Stack API keeps raw assets complete while gallery view collapses to one lo
 
   const gallery = await (await fetch(`${runtime.url}/api/assets?project=default&view=gallery&limit=100`)).json();
   assert.deepEqual(gallery.assets.map((asset) => asset.id).sort(), ["a", "c"]);
-  assert.deepEqual(gallery.assets.find((asset) => asset.id === "a").stack, { id: stack.id, count: 2 });
+  assert.deepEqual(gallery.assets.find((asset) => asset.id === "a").stack, { id: stack.id, count: 2, name: "" });
 
   for (const query of [
     "view=gallery&source=web-flow",
@@ -86,7 +86,7 @@ test("Stack API keeps raw assets complete while gallery view collapses to one lo
   ]) {
     const result = await (await fetch(`${runtime.url}/api/assets?project=default&limit=100&${query}`)).json();
     assert.deepEqual(result.assets.map((asset) => asset.id), ["a"]);
-    assert.deepEqual(result.assets[0].stack, { id: stack.id, count: 2, match_count: 1 });
+    assert.deepEqual(result.assets[0].stack, { id: stack.id, count: 2, match_count: 1, name: "" });
     assert.equal(result.page.total, 1);
   }
 
@@ -102,4 +102,39 @@ test("Stack API keeps raw assets complete while gallery view collapses to one lo
   assert.deepEqual((await dissolved.json()).assetIds, ["a", "b"]);
   const afterDissolve = await (await fetch(`${runtime.url}/api/assets?project=default&view=gallery&limit=100`)).json();
   assert.deepEqual(afterDissolve.assets.map((asset) => asset.id).sort(), ["a", "b", "c"]);
+});
+
+test("Stack rename PATCH persists a display name and surfaces it on gallery nodes", async (t) => {
+  const { runtime, create } = await startStackRuntime(t);
+  await create("a");
+  await create("b");
+
+  const stacked = await fetch(`${runtime.url}/api/asset-stacks`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: "default", assetIds: ["a", "b"], coverAssetId: "a" }),
+  });
+  const stack = (await stacked.json()).stack;
+
+  const renamed = await fetch(`${runtime.url}/api/asset-stacks/${encodeURIComponent(stack.id)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: "default", name: "  Mood board  " }),
+  });
+  assert.equal(renamed.status, 200);
+  assert.equal((await renamed.json()).stack.name, "Mood board");
+
+  const reread = await (await fetch(`${runtime.url}/api/asset-stacks/${encodeURIComponent(stack.id)}?project=default`)).json();
+  assert.equal(reread.stack.name, "Mood board");
+
+  const gallery = await (await fetch(`${runtime.url}/api/assets?project=default&view=gallery&limit=100`)).json();
+  assert.equal(gallery.assets.find((asset) => asset.id === "a").stack.name, "Mood board");
+
+  const empty = await fetch(`${runtime.url}/api/asset-stacks/${encodeURIComponent(stack.id)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projectId: "default", name: "   " }),
+  });
+  assert.equal(empty.status, 400);
+  assert.equal((await empty.json()).code, "STACK_NAME_EMPTY");
 });

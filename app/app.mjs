@@ -128,7 +128,7 @@ const els = {
   typeFilters: document.querySelector(".topbar-type-filters"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
   sortSelect: document.querySelector("#sortSelect"),
-  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
+  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), stackRenameModal: document.querySelector("#stackRenameModal"), stackRenameModalTitle: document.querySelector("#stackRenameModalTitle"), stackRenameModalInput: document.querySelector("#stackRenameInput"), stackRenameModalClose: document.querySelector("#stackRenameModalClose"), cancelStackRenameBtn: document.querySelector("#cancelStackRenameBtn"), saveStackRenameBtn: document.querySelector("#saveStackRenameBtn"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
   viewTitle: document.querySelector("#viewTitle"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
 
@@ -690,6 +690,7 @@ function setupKeyboardShortcuts() {
       if (confirmDialogState.pending
         || els.importModal?.classList.contains("open")
         || els.groupModal?.classList.contains("open")
+        || els.stackRenameModal?.classList.contains("open")
         || !els.imagePreviewModal?.hidden
         || !els.settingsMenu?.hidden) return;
       if ((event.key === "a" || event.key === "A") && state.viewMode === "library" && state.assets.length) {
@@ -730,7 +731,8 @@ function setupKeyboardShortcuts() {
       && els.imagePreviewModal?.hidden
       && els.settingsMenu?.hidden
       && !els.importModal?.classList.contains("open")
-      && !els.groupModal?.classList.contains("open")) { event.preventDefault(); els.searchInput?.focus(); return; }
+      && !els.groupModal?.classList.contains("open")
+      && !els.stackRenameModal?.classList.contains("open")) { event.preventDefault(); els.searchInput?.focus(); return; }
     if (event.key === "Escape") {
       // Phase 3A 运行时修复：bindEvents 先行注册的 Modal 焦点陷阱已消费本次 Escape
       // （preventDefault）时，本链不得再继续向下穿透（否则会关 Modal 同时退出查看模式）。
@@ -738,6 +740,7 @@ function setupKeyboardShortcuts() {
       if (!els.imagePreviewModal?.hidden) { closeImagePreview(); event.preventDefault(); return; }
       if (els.importModal?.classList.contains("open")) { closeImportModal(); event.preventDefault(); return; }
       if (els.groupModal?.classList.contains("open")) { closeGroupModal(); event.preventDefault(); return; }
+      if (els.stackRenameModal?.classList.contains("open")) { closeStackRenameModal(); event.preventDefault(); return; }
       // Escape 先关最上层 Modal，再退出查看模式，不得穿透。
       if (!els.settingsMenu?.hidden) { closePanel(els.settingsMenu, els.settingsToggle); event.preventDefault(); return; }
       if (state.viewMode === "library" && state.selectedIds?.size) {
@@ -779,6 +782,7 @@ function setupKeyboardShortcuts() {
       && els.imagePreviewModal?.hidden
       && !els.importModal?.classList.contains("open")
       && !els.groupModal?.classList.contains("open")
+      && !els.stackRenameModal?.classList.contains("open")
       && els.settingsMenu?.hidden
       && !event.target.closest?.("[contenteditable]")) {
       if (event.target.matches?.("input, textarea, select")) return; // 输入控件一律不触发 Viewer 快捷键
@@ -1226,7 +1230,7 @@ function handleLibraryKeyboardNavigation(event) {
 // router. The name is retained for the Phase 3 contract seam; it does not add a
 // second document listener or a second shortcut manager.
 function bindKeyboardNav(event) {
-  if (confirmDialogState.pending || els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open")) return;
+  if (confirmDialogState.pending || els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open") || els.stackRenameModal?.classList.contains("open")) return;
   if (!els.imagePreviewModal?.hidden || !els.settingsMenu?.hidden) return;
   if (event.target.closest?.("[contenteditable]")) return;
   if (event.target.closest?.("[role='tab']")) return;
@@ -1321,6 +1325,7 @@ const contextMenuActions = createContextMenuActions({
   discardDetailDraft,
   releaseAssetMedia: releaseAssetMediaForDeletion,
   openGroupModal,
+  openStackRenameModal,
   loadAssets: (...args) => loadAssets(...args),
   getGroupColor: colorForGroup,
   writeClipboardText,
@@ -1520,7 +1525,12 @@ function updateViewTitle() {
         matched: state.pageTotal || state.assets.length,
         total: state.activeStackSummary?.count || state.pageTotal || state.assets.length,
       })
-      : t("stackItemCount", { count: state.activeStackSummary?.count || state.pageTotal || state.assets.length }))
+      : state.activeStackSummary?.name
+        ? t("stackNamedItemCount", {
+          name: state.activeStackSummary.name,
+          count: state.activeStackSummary?.count || state.pageTotal || state.assets.length,
+        })
+        : t("stackItemCount", { count: state.activeStackSummary?.count || state.pageTotal || state.assets.length }))
     : (titles[state.scope] || t("allAssets"));
   // Match V2 SearchBar's scope-aware hint without changing the shared search
   // control or any query semantics.
@@ -2001,6 +2011,13 @@ function bindEvents() {
   els.closeGroupModal?.addEventListener("click", closeGroupModal);
   els.cancelGroupBtn?.addEventListener("click", closeGroupModal);
   els.groupModal?.addEventListener("click", (event) => { if (event.target === els.groupModal) closeGroupModal(); });
+  els.stackRenameModalClose?.addEventListener("click", () => closeStackRenameModal());
+  els.cancelStackRenameBtn?.addEventListener("click", () => closeStackRenameModal());
+  els.stackRenameModal?.addEventListener("click", (event) => { if (event.target === els.stackRenameModal) closeStackRenameModal(); });
+  els.stackRenameModalInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") { event.preventDefault(); void saveStackRename(); }
+  });
+  els.saveStackRenameBtn?.addEventListener("click", () => { void saveStackRename(); });
   els.groupModal?.addEventListener("click", (event) => {
     const swatch = event.target.closest("[data-group-color]");
     if (swatch) selectGroupColor(swatch.dataset.groupColor);
@@ -2079,7 +2096,7 @@ function bindEvents() {
     if (!state.detailOpen) return;
     // Phase 3A：查看模式的 Escape 由 setupKeyboardShortcuts 的优先级链统一处理（先浮层后退出）。
     if (state.viewMode === "asset") return;
-    if (els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open") || !els.imagePreviewModal?.hidden) return;
+    if (els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open") || els.stackRenameModal?.classList.contains("open") || !els.imagePreviewModal?.hidden) return;
     if (!els.settingsMenu?.hidden) return;
     if (isInspectorDocked()) return;
     event.preventDefault();
@@ -2100,6 +2117,7 @@ function bindDesktopIntegration() {
       || !els.imagePreviewModal?.hidden
       || els.importModal?.classList.contains("open")
       || els.groupModal?.classList.contains("open")
+      || els.stackRenameModal?.classList.contains("open")
     );
     // Never steal paste from a native editor, and never stack an Import modal
     // on top of another modal/lightbox. Image paste remains available from the
@@ -3477,6 +3495,7 @@ function assetCardRenderKey(asset, selected) {
     state.scope === "trash" ? String(trashRemainingDays(asset.deleted_at)) : "",
     asset.stack?.id || "",
     asset.stack?.count || "",
+    asset.stack?.name || "",
     asset.stack?.match_count || "",
     state.locale,
   ].join("\u001f");
@@ -3752,7 +3771,9 @@ function renderGrid() {
 
 // ===== Gallery 卡片构建（renderGrid 与增量提交共用）=====
 function buildGalleryCardEntry(asset, ordinal, animateCard) {
-  const title = cardShortTitle(asset);
+  // 自定义堆叠名优先于封面素材标题（服务端只在 ≥2 个活跃成员时标注 stack）。
+  const stackName = String(asset.stack?.name || "").trim();
+  const title = stackName || cardShortTitle(asset);
   const sourceLabel = assetSourceLabel(asset);
   const date = formatDate(asset.created_at, state.locale);
   const selected = asset.id === state.selectedId;
@@ -4283,6 +4304,7 @@ function hasBlockingOverlay(except = "") {
   return [
     ["import", Boolean(els.importModal?.classList.contains("open"))],
     ["group", Boolean(els.groupModal?.classList.contains("open")) || Boolean(els.groupStatsModal?.classList.contains("open"))],
+    ["rename", Boolean(els.stackRenameModal?.classList.contains("open"))],
     ["settings", Boolean(els.settingsMenu && !els.settingsMenu.hidden)],
     ["preview", Boolean(els.imagePreviewModal && !els.imagePreviewModal.hidden)],
   ].some(([name, open]) => name !== except && open);
@@ -4424,6 +4446,61 @@ function closeGroupModal({ force = false } = {}) {
   if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus();
   state.modalReturnFocus = null;
   return true;
+}
+
+// ===== Stack 重命名（右键堆叠 → 重命名）=====
+// Promise 式单一输入收集器，与 ConfirmDialog 同款“单 pending”策略：已有弹窗时
+// 新请求直接返回 null，两个调用方绝不共享同一个 resolver。名称校验（trim、
+// 非空）在此拦截，持久化由调用方注入的 onSubmit 完成并返回是否成功。
+const stackRenameState = { pending: false, resolve: null, saving: false, onSubmit: null };
+function setStackRenameBusy(busy) {
+  stackRenameState.saving = busy;
+  if (els.saveStackRenameBtn) { els.saveStackRenameBtn.disabled = busy; els.saveStackRenameBtn.setAttribute("aria-busy", String(busy)); }
+  if (els.stackRenameModalClose) els.stackRenameModalClose.disabled = busy;
+  if (els.cancelStackRenameBtn) els.cancelStackRenameBtn.disabled = busy;
+  if (els.stackRenameModalInput) els.stackRenameModalInput.disabled = busy;
+}
+function openStackRenameModal({ initialValue = "", confirmLabel = "", onSubmit } = {}) {
+  if (stackRenameState.pending || hasBlockingOverlay("rename")) return Promise.resolve(null);
+  state.modalReturnFocus = document.activeElement;
+  stackRenameState.pending = true;
+  stackRenameState.onSubmit = typeof onSubmit === "function" ? onSubmit : null;
+  if (els.stackRenameModalTitle) els.stackRenameModalTitle.textContent = t("renameStackTitle");
+  if (els.saveStackRenameBtn) els.saveStackRenameBtn.textContent = confirmLabel || t("renameStack");
+  if (els.stackRenameModalInput) els.stackRenameModalInput.value = initialValue;
+  els.stackRenameModal?.classList.add("open");
+  els.stackRenameModal?.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => { els.stackRenameModalInput?.focus(); els.stackRenameModalInput?.select(); });
+  return new Promise((resolve) => { stackRenameState.resolve = resolve; });
+}
+function closeStackRenameModal({ force = false } = {}) {
+  if (stackRenameState.saving && !force) return false;
+  if (!stackRenameState.pending) return false;
+  const { resolve } = stackRenameState;
+  stackRenameState.pending = false;
+  stackRenameState.resolve = null;
+  stackRenameState.onSubmit = null;
+  els.stackRenameModal?.classList.remove("open");
+  els.stackRenameModal?.setAttribute("aria-hidden", "true");
+  if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus();
+  state.modalReturnFocus = null;
+  if (resolve) resolve(null);
+  return true;
+}
+async function saveStackRename() {
+  if (!stackRenameState.pending || stackRenameState.saving) return;
+  const value = els.stackRenameModalInput?.value.trim() || "";
+  if (!value) { showToast(t("stackNameRequired"), "error"); return; }
+  const onSubmit = stackRenameState.onSubmit;
+  setStackRenameBusy(true);
+  try {
+    // onSubmit 返回 false 表示提交失败（错误已由其内部 toast 呈现），保持弹窗
+    // 打开让用户修改；其余结果（含无回调）视为已处理并关闭。
+    const succeeded = await onSubmit?.(value);
+    if (succeeded !== false) closeStackRenameModal({ force: true });
+  } finally {
+    setStackRenameBusy(false);
+  }
 }
 
 // ===== 分组统计（右键分组 → 分组统计；GET /api/groups/:name/stats）=====
