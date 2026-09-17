@@ -356,7 +356,6 @@ test("25-28. tags section renders prompt-derived chips and add action (D3)", asy
   assert.match(tagsSection, /t\("addTag"\)/);
   const css = await readCss();
   assert.match(css, /\.detail-tags-row \{[^}]*max-height: 56px/);
-  assert.match(i18n, /tagsAutoHint: "从提示词自动提取"/);
   assert.match(i18n, /addTag: "添加标签"/);
 });
 
@@ -505,9 +504,9 @@ test("48-51. hygiene: no !important, no undefined tokens, manifest and dependenc
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
   assert.equal(sha256(lock), "51f3ff53219df2cfe3ea27ad9caf932a0cadbe062fec8905a11e39819a81fe54", "package-lock.json must stay untouched");
 
-  // 51. app.js gains no new imports (no new runtime dependencies).
+  // 51. app.js imports only approved first-party helpers (no new runtime dependencies).
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./library-reconciliation.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
+    ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./batch-import.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./library-reconciliation.mjs", "./native-asset-drag.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
 });
 
 // i18n symmetry: every new Phase 4A key ships in both languages, and no
@@ -524,8 +523,6 @@ test("i18n. new Phase 4A keys are symmetric across zh and en", async () => {
     [/aspectRatio: "比例"/, /aspectRatio: "Ratio"/],
     [/assetMetadata: "素材标签"/, /assetMetadata: "Asset metadata"/],
     [/tags: "标签"/, /tags: "Tags"/],
-    [/createNewVersion: "创建新版本"/, /createNewVersion: "Create new version"/],
-    [/moreActions: "更多操作"/, /moreActions: "More actions"/],
     [/recipeAndEditing: "配方与编辑"/, /recipeAndEditing: "Recipe and editing"/],
     [/notGrouped: "未分组"/, /notGrouped: "Ungrouped"/],
   ];

@@ -84,6 +84,15 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   assert.match(script, /--mosa-update-ready-file=/);
   assert.match(script, /Test-Path -LiteralPath \$ReadyFile/);
   assert.match(script, /did not report readiness before the rollback deadline/);
+  // The destructive rollback removal must be explicitly scoped to runs where
+  // the original directory is verifiably parked in the backup location.
+  assert.match(script, /\$movedOriginal = \$true/);
+  assert.match(script, /if \(\$movedOriginal -and \(Test-Path -LiteralPath \$backupDir -PathType Container\)\)/);
+  // Recovery data survives a successful apply until the updated app's own
+  // boot sweep reclaims it; only the redundant extracted payload is dropped.
+  assert.doesNotMatch(script, /Remove-Item -LiteralPath \$backupDir/);
+  assert.doesNotMatch(script, /Remove-Item -LiteralPath \$transactionRoot/);
+  assert.match(script, /Remove-Item -LiteralPath \$extractDir -Recurse -Force/);
 
   const root = await mkdtemp(join(tmpdir(), "mosa-win-helper-"));
   const zipPath = join(root, "MOSA-win32-x64-0.3.0.zip");

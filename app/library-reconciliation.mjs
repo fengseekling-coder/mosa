@@ -19,7 +19,7 @@ const GALLERY_ROWS_CHUNK_SIZE = 500;
 
 // Revision token 形如 "<journal counter>"（JSON store）或 "<counter>:<data_version>"
 //（SQLite store）。整数前缀是 delta API 的 since 游标。
-export function parseRevisionNumber(token) {
+function parseRevisionNumber(token) {
   const value = Number.parseInt(String(token ?? ""), 10);
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
@@ -29,7 +29,7 @@ export function parseRevisionNumber(token) {
  * 未知 kind 一律视为 unclassified（触发有界 partial refresh），保证前向安全：
  * 旧前端遇到新后端事件时退化为旧行为，而不是静默丢变化。
  */
-export function classifyLibraryChanges(changes) {
+function classifyLibraryChanges(changes) {
   const assetEvents = new Map();
   const stackEvents = new Map();
   const groupEvents = [];
@@ -174,7 +174,7 @@ function compareIds(left, right) {
  * Stack 内 manual = (stack_position ASC, id ASC)。createdAt 为 ISO 字符串，
  * 字典序即时间序，与 SQLite TEXT 比较一致。
  */
-export function compareGalleryNodeOrder(left, right, sort) {
+function compareGalleryNodeOrder(left, right, sort) {
   if (sort === "manual") {
     const leftPosition = Number(left?.stack_position ?? Number.POSITIVE_INFINITY);
     const rightPosition = Number(right?.stack_position ?? Number.POSITIVE_INFINITY);

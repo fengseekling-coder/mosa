@@ -581,9 +581,10 @@ export function createGallerySelection({
     els.assetGrid.addEventListener("lostpointercapture", () => {
       if (pointer?.dragging) cancelPointerGesture();
     });
-    // Browser-native image dragging competes with marquee pointer events when
-    // the gesture begins directly on a thumbnail. MOSA has no internal card
-    // drag operation, so suppress only drags originating from an asset card.
+    // Browser-native image dragging competes with MOSA's Pointer-based card
+    // drag and marquee selection. Cards stay non-native inside the renderer;
+    // the Stack controller promotes the held card drag to the desktop OS only
+    // after the pointer actually leaves the MOSA window.
     els.assetGrid.addEventListener("dragstart", (event) => {
       if (event.target.closest?.(".asset-card")) event.preventDefault();
     });

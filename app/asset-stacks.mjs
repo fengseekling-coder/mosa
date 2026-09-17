@@ -1,13 +1,9 @@
+import { dragIdsForCard } from "./drag-gesture.mjs";
+
 const STACK_DRAG_THRESHOLD_PX = 8;
 
 function emptyFacets() {
   return { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" };
-}
-
-function dragIdsForCard(state, assetId) {
-  const selected = state.selectedIds instanceof Set ? state.selectedIds : new Set();
-  if (selected.size > 1 && selected.has(assetId)) return [...selected];
-  return [assetId];
 }
 
 function moveBlockBefore(items, movingIds, targetId) {
@@ -49,6 +45,7 @@ export function createAssetStackController({
   updateViewTitle,
   showToast,
   closeDetailSurface,
+  nativeAssetDrag,
   t,
 }) {
   let pointer = null;
@@ -91,7 +88,7 @@ export function createAssetStackController({
     if (pointerMoveFrame !== null) cancelAnimationFrame(pointerMoveFrame);
     pointerMoveFrame = null;
     state.assetStackDragCandidate = false;
-    state.assetStackDragging = false;
+    nativeAssetDrag?.clearCandidate?.();
     if (releaseCapture && pointerId != null) releasePointerCapture(pointerId);
     removeGhost();
     return hadPointer;
@@ -410,6 +407,7 @@ export function createAssetStackController({
       dragging: false,
     };
     state.assetStackDragCandidate = true;
+    nativeAssetDrag?.begin?.(pointer);
   }
 
   function targetCardAt(clientX, clientY) {
@@ -470,10 +468,21 @@ export function createAssetStackController({
     pointer.lastY = event.clientY;
     if (!pointer.dragging) {
       if (Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) < STACK_DRAG_THRESHOLD_PX) return;
+      if (nativeAssetDrag?.startIfOutside?.(event)) {
+        suppressSyntheticClick();
+        event.preventDefault();
+        cancelPointerGesture();
+        return;
+      }
       pointer.dragging = true;
-      state.assetStackDragging = true;
       try { els.assetGrid?.setPointerCapture(event.pointerId); } catch { /* Window-level listeners keep the gesture alive. */ }
       document.body.classList.add("asset-stack-dragging");
+    }
+    if (nativeAssetDrag?.startIfOutside?.(event)) {
+      suppressSyntheticClick();
+      event.preventDefault();
+      cancelPointerGesture();
+      return;
     }
     event.preventDefault();
     if (pointerMoveFrame === null) pointerMoveFrame = requestAnimationFrame(flushPointerMove);
@@ -568,7 +577,6 @@ export function createAssetStackController({
     const groupTarget = dropGroupTarget;
     pointer = null;
     state.assetStackDragCandidate = false;
-    state.assetStackDragging = false;
     releasePointerCapture(drag.id);
     removeGhost();
     if (!completed || canceled) {

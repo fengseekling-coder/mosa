@@ -6,7 +6,7 @@ import { FACET_KEYS, GALLERY_INITIAL_PAGE_SIZE, GALLERY_PAGE_SIZE } from "./conf
 let cachedClientToken;
 let browserSessionRefreshPromise = null;
 
-export function mosaClientToken() {
+function mosaClientToken() {
   if (cachedClientToken !== undefined) return cachedClientToken;
   cachedClientToken = "";
   if (typeof window === "undefined") return cachedClientToken;
@@ -117,8 +117,7 @@ export function createApiClient(deps) {
   }
 
   async function loadProjects() {
-    const result = await apiFetch("/api/projects");
-    state.projects = result.projects || [];
+    await apiFetch("/api/projects");
     renderSettingsMenu();
   }
 

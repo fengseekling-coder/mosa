@@ -121,6 +121,32 @@ test("import rejections reach the client as 400 with a code, and the format list
   const created = await post({ projectId: "default", imagePath });
   assert.equal(created.status, 200);
   const asset = (await created.json()).asset;
+
+  // Quick collection accepts a bounded batch and isolates individual failures
+  // instead of aborting the whole drop when one file is bad.
+  const batchImageA = join(generated, "batch-a.png");
+  const batchImageB = join(generated, "batch-b.png");
+  await writeFile(batchImageA, ONE_PIXEL_PNG);
+  await writeFile(batchImageB, ONE_PIXEL_PNG);
+  const importedBatch = await fetch(`${runtime.url}/api/assets/import-batch`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      projectId: "default",
+      items: [
+        { imagePath: batchImageA, fileName: "batch-a.png" },
+        { imagePath: join(generated, "missing-batch.png"), fileName: "missing-batch.png" },
+        { imagePath: batchImageB, fileName: "batch-b.png" },
+      ],
+    }),
+  });
+  assert.equal(importedBatch.status, 200);
+  const importedBatchBody = await importedBatch.json();
+  assert.equal(importedBatchBody.imported, 2);
+  assert.equal(importedBatchBody.failed, 1);
+  assert.deepEqual(importedBatchBody.results.map((item) => item.ok), [true, false, true]);
+  assert.equal(importedBatchBody.results[1].code, "IMAGE_PATH_NOT_FOUND");
+
   const batch = (body) => fetch(`${runtime.url}/api/assets/batch`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   });
@@ -296,9 +322,11 @@ test("offers a real file picker while keeping server-sourced format guidance", a
   // reveal an absolute local path. The staged server path stays internal to the
   // existing create-asset form.
   assert.doesNotMatch(app, /showOpenFilePicker|webkitdirectory/);
-  assert.match(html, /id="importFileInput"[^>]*type="file"/);
+  assert.match(html, /id="importFileInput"[^>]*type="file"[^>]*multiple/);
   assert.match(app, /fetch\("\/api\/import\/stage"/);
   assert.match(app, /els\.importFileInput\.click\(\)/);
+  assert.match(app, /collectDroppedFiles\(e\.dataTransfer/);
+  assert.match(app, /batchImporter\.enqueue\(files\)/);
 });
 
 test("keeps desktop bridge minimal while manual files use unified server staging", async () => {

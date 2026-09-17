@@ -52,6 +52,11 @@ const desktopTranslations = {
     menuZoom: "缩放",
     menuBringAllToFront: "将全部置于最前",
     startupErrorTitle: "MOSA 无法启动",
+    pairConfirmTitle: "连接浏览器采集扩展?",
+    pairConfirmMessage: "有浏览器扩展正在请求连接 MOSA 并获取网页采集权限。",
+    pairConfirmDetail: "请求来源:{origin}\n仅在你刚刚主动发起了配对时点击“允许”;否则请拒绝。",
+    pairConfirmAllow: "允许",
+    pairConfirmDeny: "拒绝",
   },
   en: {
     menuFile: "File",
@@ -83,6 +88,11 @@ const desktopTranslations = {
     menuZoom: "Zoom",
     menuBringAllToFront: "Bring All to Front",
     startupErrorTitle: "MOSA could not start",
+    pairConfirmTitle: "Connect the browser capture extension?",
+    pairConfirmMessage: "A browser extension is asking to connect to MOSA and receive web capture access.",
+    pairConfirmDetail: "Requester: {origin}\nOnly allow this if you just started pairing yourself; otherwise deny it.",
+    pairConfirmAllow: "Allow",
+    pairConfirmDeny: "Deny",
   },
 };
 

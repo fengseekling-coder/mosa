@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   pasteImage: () => ipcRenderer.invoke("paste-image"),
   writeClipboardText: (text) => ipcRenderer.invoke("write-clipboard-text", text),
   writeClipboardImage: (path) => ipcRenderer.invoke("write-clipboard-image", path),
+  startNativeDrag: (paths) => ipcRenderer.invoke("start-native-file-drag", paths),
   setLocale: (locale) => ipcRenderer.invoke("set-locale", locale),
   checkForUpdates: (notify = false) =>
     ipcRenderer.invoke("check-for-updates", notify === true),

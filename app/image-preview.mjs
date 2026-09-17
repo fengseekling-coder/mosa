@@ -85,7 +85,6 @@ export function createImagePreviewViewer({ els, state, t, announceGalleryStatus 
     state.imageZoom = 1;
     state.imagePanX = 0;
     state.imagePanY = 0;
-    state.imageDragging = false;
     applyImageTransform();
     if (announce && changed) announceImagePreviewZoom();
     return changed;
@@ -229,7 +228,6 @@ export function createImagePreviewViewer({ els, state, t, announceGalleryStatus 
       startPanY: state.imagePanY,
       moved: false,
     };
-    state.imageDragging = true;
     els.imagePreviewStage?.classList.add("dragging");
   }
 
@@ -239,7 +237,6 @@ export function createImagePreviewViewer({ els, state, t, announceGalleryStatus 
     const distance = imagePreviewPointerDistance(entries);
     if (!(distance > IMAGE_PREVIEW_SCALE_EPSILON)) return false;
     imagePreviewPanSession = null;
-    state.imageDragging = false;
     els.imagePreviewStage?.classList.remove("dragging");
     imagePreviewPinchSession = {
       pointerIds: entries.slice(0, 2).map(([pointerId]) => pointerId),
@@ -288,7 +285,6 @@ export function createImagePreviewViewer({ els, state, t, announceGalleryStatus 
     imagePreviewActivePointers.clear();
     imagePreviewPanSession = null;
     imagePreviewPinchSession = null;
-    state.imageDragging = false;
     els.imagePreviewStage?.classList.remove("dragging");
   }
 
@@ -359,11 +355,9 @@ export function createImagePreviewViewer({ els, state, t, announceGalleryStatus 
     if (endingPinch) {
       finishImagePreviewPinch({ announce: true });
       imagePreviewPanSession = null;
-      state.imageDragging = false;
       transitionImagePreviewPinchToPan();
     } else if (imagePreviewPanSession?.pointerId === event.pointerId) {
       imagePreviewPanSession = null;
-      state.imageDragging = false;
       els.imagePreviewStage?.classList.remove("dragging");
     }
     if (!imagePreviewActivePointers.size) clearImagePreviewPointerSession({ release: false });

@@ -242,7 +242,7 @@ test("cleanupOrphanStagedFiles tolerates a missing staging root", async () => {
   assert.deepEqual(result, { removed: 0, failed: 0 });
 });
 
-test("preload surface and Electron security boundaries are unchanged", async () => {
+test("preload surface and Electron security boundaries stay narrowly approved", async () => {
   const preload = await readFile(join(root, "desktop", "preload.cjs"), "utf8");
   const exposed = [...preload.matchAll(/^\s{2}(\w+):/gm)].map((match) => match[1]).sort();
   assert.deepEqual(exposed, [
@@ -257,6 +257,7 @@ test("preload surface and Electron security boundaries are unchanged", async () 
     "pasteImage",
     "reportRendererReady",
     "setLocale",
+    "startNativeDrag",
     "writeClipboardImage",
     "writeClipboardText",
   ], "electronAPI surface must match the approved narrow desktop capabilities");
@@ -458,7 +459,8 @@ test("Electron manual drag/drop uses the same byte-stream staging path as Web", 
   assert.doesNotMatch(preload, /getPathForFile|webUtils\.getPathForFile|stage-dropped-file/,
     "preload must not expose raw local file paths for drag/drop");
   assert.match(app, /library\.addEventListener\("drop", async \(e\) => \{/, "drop handler must await staging");
-  assert.match(app, /const prepared = await prepareImportFile\(file\);/, "drop handler uses the unified preparation path");
+  assert.match(app, /collectDroppedFiles\(e\.dataTransfer/, "drop handler collects files and folders through the shared batch path");
+  assert.match(app, /batchImporter\.enqueue\(files\)/, "gallery drop enters the quick import queue instead of the single-file modal");
   assert.match(app, /filePath = await stageBrowserFile\(file\);/, "manual import streams selected bytes through the runtime");
   assert.doesNotMatch(app, /file\.path|electronAPI\.getPathForFile/,
     "renderer must never read or request the raw Electron file path");
@@ -470,16 +472,20 @@ test("drop failures clear the live region and never open an empty import modal",
   const app = await readFile(join(root, "app", "app.mjs"), "utf8");
   const drop = app.match(/library\.addEventListener\("drop", async \(e\) => \{[\s\S]*?\n  }\);/)[0];
 
-  assert.match(drop, /const prepared = await prepareImportFile\(file\);/);
+  assert.match(drop, /collectDroppedFiles\(e\.dataTransfer/);
+  assert.match(drop, /void batchImporter\.enqueue\(files\);/);
   assert.match(drop, /announceGalleryStatus\(""\);/, "drop completion always clears the persistent live-region message");
-  assert.match(drop, /if \(!prepared\) return;/, "failed preparation stops the drop flow");
+  assert.match(drop, /catch \(error\) \{[\s\S]*?announceGalleryStatus\(""\);[\s\S]*?return;/,
+    "drop collection failure clears the live region and stops the flow");
+  assert.doesNotMatch(drop, /openImportModal|prepareImportFile\(/,
+    "quick gallery drops never open the single-file import modal");
 
   const prepare = app.slice(app.indexOf("async function prepareImportFile"), app.indexOf("// ===== Drag & Drop ====="));
   assert.match(prepare, /catch \(error\) \{/, "staging failures are caught centrally");
   assert.match(prepare, /showToast\(error\?\.message \|\| t\("fileSelectionFailed"\), "error"\)/, "staging failure shows visible feedback");
   assert.match(prepare, /if \(!filePath\) \{[\s\S]*?return false;/, "an empty staged path never opens the modal");
 
-  // 无文件：清空持久 live region，不留误导性的"已收到文件"。
-  const noFilesBlock = drop.slice(drop.indexOf("if (!files || !files.length)"), drop.indexOf("const file = files[0];"));
+  // 无文件（或全部格式不支持）：清空持久 live region，不留误导性的"已收到文件"。
+  const noFilesBlock = drop.slice(drop.indexOf("if (!files.length)"), drop.indexOf("void batchImporter.enqueue"));
   assert.match(noFilesBlock, /announceGalleryStatus\(""\);/, "no-files branch clears the live region");
 });

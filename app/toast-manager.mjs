@@ -7,12 +7,12 @@
 // 过渡为 class + transition 可中断，transitionend 后移除并有短 fallback 防僵尸节点。
 // Toast 状态不进素材 state、不写 localStorage；消息一律 textContent，绝不接受任意 HTML。
 // 提取自 app.js（REFACTORING-PLAN R1 批次 3）：els/state/t/isConfirmFocusTarget 经参数注入。
-export const TOAST_DURATIONS = { success: 2200, default: 2200, error: 6000 };
-export const TOAST_VISIBLE_LIMIT = 2;
-export const TOAST_LEAVE_FALLBACK_MS = 400;
+const TOAST_DURATIONS = { success: 2200, default: 2200, error: 6000 };
+const TOAST_VISIBLE_LIMIT = 2;
+const TOAST_LEAVE_FALLBACK_MS = 400;
 let toastSequence = 0;
 
-export function normalizeToastMessage(message) {
+function normalizeToastMessage(message) {
   if (typeof message === "string") return message;
   if (message == null) return "";
   if (typeof message.message === "string") return message.message;
