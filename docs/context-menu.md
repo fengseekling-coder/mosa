@@ -44,7 +44,9 @@ MOSA 现已支持完整的右键菜单功能，为导航栏和素材库提供快
 
 #### Stack 节点
 - **打开 Stack** - 进入该 Stack 的成员视图
-- **解散 Stack** - 仅解除 Stack 关系，不删除、归档或移动成员素材
+- **重命名 Stack** - 为 Stack 设置显示名称；空名称不会被保存，刷新后名称保持
+- **解散 Stack** - 仅解除 Stack 关系，不删除、归档或移动成员素材；确认后 Toast 会显示恢复为独立素材的数量
+- **移到回收站** - 危险操作。确认框显示 Stack 内素材数量。数据层语义：进入回收站的是 Stack 的全部活跃成员素材（复用普通素材的回收逻辑）；`asset_stacks` 记录与成员关系**原样保留**——Stack 本身没有独立的"已删除"状态，它从画廊消失只是因为活跃成员数为 0。从回收站还原成员后，Stack 关系与手动顺序自动重建
 
 ### 📋 空白区域右键菜单
 
@@ -114,7 +116,7 @@ app/
 - `/api/assets/:projectId/:assetId/restore` - 从回收站还原素材
 - `/api/assets/:projectId/:assetId/permanent` - 永久删除回收站素材
 - `DELETE /api/trash` - 通过请求体中的 `projectId` 清空指定项目的回收站
-- `/api/asset-stacks/:stackId` - 读取或解散 Stack，并配合成员接口维护 Stack 内容与顺序
+- `/api/asset-stacks/:stackId` - 读取、重命名（PATCH）或解散 Stack，并配合成员接口维护 Stack 内容与顺序
 - `/api/groups` - 管理分组
 - `/api/group-order` - 调整分组顺序
 - `/api/groups/:name/merge` - 将当前分组成员并入另一个分组

@@ -40,7 +40,7 @@ test("asset stacks collapse to one gallery node and use the first member as cove
 
   const rootPage = await store.listAssetPage({ projectId: "default", limit: 0, sort: "oldest", collapseStacks: true });
   assert.deepEqual(rootPage.assets.map((asset) => asset.id), ["b", "d"]);
-  assert.deepEqual(rootPage.assets[0].stack, { id: stack.id, count: 3 });
+  assert.deepEqual(rootPage.assets[0].stack, { id: stack.id, count: 3, name: "" });
 
   const allAssets = await store.listAssets({ projectId: "default", sort: "oldest" });
   assert.deepEqual(allAssets.map((asset) => asset.id), ["a", "b", "c", "d"]);
@@ -147,7 +147,7 @@ test("root search maps hidden member matches back to one stack cover node", asyn
   const page = await store.listAssetPage({ projectId: "default", query: "neon orchid", limit: 100, collapseStacks: true });
   assert.equal(page.page.total, 1);
   assert.deepEqual(page.assets.map((asset) => asset.id), ["a"]);
-  assert.deepEqual(page.assets[0].stack, { id: stack.id, count: 3, match_count: 2 });
+  assert.deepEqual(page.assets[0].stack, { id: stack.id, count: 3, match_count: 2, name: "" });
 
   const inside = await store.listAssetStackAssets("default", stack.id, { query: "neon orchid" });
   assert.deepEqual(inside.assets.map((asset) => asset.id), ["b", "c"]);
@@ -161,7 +161,7 @@ test("root and Stack-interior searches share the same asset-kind intent semantic
 
   const rootLogo = await store.listAssetPage({ projectId: "default", query: "logo", collapseStacks: true, limit: 100 });
   assert.deepEqual(rootLogo.assets.map((asset) => asset.id), ["a"]);
-  assert.deepEqual(rootLogo.assets[0].stack, { id: stack.id, count: 3, match_count: 1 });
+  assert.deepEqual(rootLogo.assets[0].stack, { id: stack.id, count: 3, match_count: 1, name: "" });
 
   const insideLogo = await store.listAssetStackAssets("default", stack.id, { query: "logo" });
   assert.deepEqual(insideLogo.assets.map((asset) => asset.id), ["b"]);
@@ -190,7 +190,7 @@ test("gallery filters match hidden members while raw asset queries keep every me
   ]) {
     const page = await store.listAssetPage({ projectId: "default", collapseStacks: true, limit: 100, ...filters });
     assert.deepEqual(page.assets.map((asset) => asset.id), ["a"]);
-    assert.deepEqual(page.assets[0].stack, { id: stack.id, count: 2, match_count: 1 });
+    assert.deepEqual(page.assets[0].stack, { id: stack.id, count: 2, match_count: 1, name: "" });
     assert.equal(page.page.total, 1);
   }
 
@@ -236,4 +236,113 @@ test("name ordering follows the visible Stack cover and its later metadata edits
   await store.updateMetadata("default", "c", { theme: "Zzz Cover" });
   const afterRename = await store.listAssetPage({ projectId: "default", collapseStacks: true, sort: "name", limit: 0 });
   assert.deepEqual(afterRename.assets.map((asset) => asset.id), ["d", "c"]);
+});
+
+test("renaming a stack persists a display name and retargets name sorting", async (t) => {
+  const store = await createFixtureStore(t);
+  await store.updateMetadata("default", "d", { theme: "Paris" });
+  const stack = await store.createAssetStack("default", ["a", "b", "c"], { coverAssetId: "b" });
+
+  const named = await store.renameAssetStack("default", stack.id, "  Neon set  ");
+  assert.equal(named.name, "Neon set", "display name is trimmed but not case-mangled");
+
+  const reread = await store.getAssetStack("default", stack.id);
+  assert.equal(reread.name, "Neon set", "rename persists across store re-reads");
+
+  const page = await store.listAssetPage({ projectId: "default", collapseStacks: true, limit: 0, sort: "newest" });
+  assert.equal(page.assets.find((asset) => asset.id === "b").stack.name, "Neon set",
+    "collapsed gallery nodes carry the custom name");
+
+  // "paris" sorts after "neon set" but before a cover-derived file name and
+  // before any "stack-…" id key, so this order discriminates every wrong
+  // sort-key source at once.
+  const nameSorted = await store.listAssetPage({ projectId: "default", collapseStacks: true, limit: 0, sort: "name" });
+  assert.deepEqual(nameSorted.assets.map((asset) => asset.id), ["b", "d"],
+    "the node sorts by its custom display name");
+
+  await store.updateMetadata("default", "b", { theme: "Zed" });
+  const afterCoverEdit = await store.listAssetPage({ projectId: "default", collapseStacks: true, limit: 0, sort: "name" });
+  assert.deepEqual(afterCoverEdit.assets.map((asset) => asset.id), ["b", "d"],
+    "the key stays pinned to the custom name instead of following the renamed cover");
+
+  await assert.rejects(
+    store.renameAssetStack("default", stack.id, "   "),
+    (error) => error.code === "STACK_NAME_EMPTY",
+    "an empty final name is rejected instead of silently clearing",
+  );
+  await assert.rejects(
+    store.renameAssetStack("default", "stack-missing", "whatever"),
+    (error) => error.code === "STACK_NOT_FOUND",
+  );
+});
+
+test("trashing every member hides the stack node and restoring members rebuilds it", async (t) => {
+  const store = await createFixtureStore(t);
+  const stack = await store.createAssetStack("default", ["a", "b", "c"], { coverAssetId: "b" });
+  await store.reorderAssetStack("default", stack.id, ["c", "b", "a"]);
+
+  await Promise.all(["a", "b", "c"].map((id) => store.deleteAsset("default", id)));
+  const trashedGallery = await store.listAssetPage({ projectId: "default", collapseStacks: true, limit: 0, sort: "oldest" });
+  assert.deepEqual(trashedGallery.assets.map((asset) => asset.id), ["d"],
+    "the collapsed node disappears once no active member remains");
+  assert.equal((await store.getAssetStack("default", stack.id)).count, 0);
+
+  const trashScope = await store.listAssetPage({ projectId: "default", trash: true, limit: 0, sort: "oldest" });
+  assert.deepEqual(trashScope.assets.map((asset) => asset.id), ["a", "b", "c"],
+    "members surface individually in the Trash scope");
+
+  for (const id of ["a", "b", "c"]) await store.restoreAsset("default", id);
+  const restored = await store.listAssetPage({ projectId: "default", collapseStacks: true, limit: 0, sort: "oldest" });
+  assert.deepEqual(restored.assets.map((asset) => asset.id), ["c", "d"],
+    "restoring the members brings back one stack node (row id = current cover)");
+  assert.deepEqual(restored.assets[0].stack, { id: stack.id, count: 3, name: "" });
+  assert.deepEqual(
+    (await store.listAssetStackAssets("default", stack.id)).assets.map((asset) => asset.id),
+    ["c", "b", "a"],
+    "membership survives Trash so the restored stack keeps its manual order",
+  );
+});
+
+test("a single restored member stays a plain asset while its retained membership blocks restacking", async (t) => {
+  const store = await createFixtureStore(t);
+  const stack = await store.createAssetStack("default", ["a", "b"], { coverAssetId: "a" });
+  await Promise.all(["a", "b"].map((id) => store.deleteAsset("default", id)));
+  await store.restoreAsset("default", "a");
+
+  const page = await store.listAssetPage({ projectId: "default", collapseStacks: true, limit: 0, sort: "oldest" });
+  assert.equal(page.assets.find((asset) => asset.id === "a").stack, undefined,
+    "one active member no longer renders as a stack node");
+  await assert.rejects(
+    store.createAssetStack("default", ["a", "d"], { coverAssetId: "a" }),
+    (error) => error.code === "ASSET_ALREADY_STACKED",
+    "the retained hidden membership still owns the asset (existing semantics)",
+  );
+});
+
+test("permanently deleting every trashed member leaves no orphan stack rows or ghost node", async (t) => {
+  const store = await createFixtureStore(t);
+  const stack = await store.createAssetStack("default", ["a", "b"], { coverAssetId: "a" });
+
+  await Promise.all(["a", "b"].map((id) => store.deleteAsset("default", id)));
+  // Documented mid-state: the stack row survives with 0 active members so
+  // Restore can rebuild the group; it merely stops rendering in the gallery.
+  assert.equal((await store.getAssetStack("default", stack.id)).count, 0);
+
+  for (const id of ["a", "b"]) await store.permanentlyDeleteAsset("default", id);
+
+  await assert.rejects(
+    store.getAssetStack("default", stack.id),
+    (error) => error.code === "STACK_NOT_FOUND",
+    "no orphan asset_stacks row survives its last member's permanent deletion",
+  );
+  const gallery = await store.listAssetPage({ projectId: "default", collapseStacks: true, limit: 0, sort: "oldest" });
+  assert.deepEqual(gallery.assets.map((asset) => asset.id), ["c", "d"], "no ghost stack node remains");
+  assert.equal(gallery.assets[0].stack, undefined);
+
+  // Membership rows cascade with the deleted asset rows (foreign_keys = ON),
+  // so the surviving assets can form a fresh stack without
+  // ASSET_ALREADY_STACKED interference from the removed one.
+  const restacked = await store.createAssetStack("default", ["c", "d"], { coverAssetId: "c" });
+  assert.equal(restacked.count, 2);
+  assert.equal(restacked.cover_asset_id, "c");
 });

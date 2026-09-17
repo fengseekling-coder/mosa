@@ -3,11 +3,13 @@
  * Defines all context menu items and their actions
  */
 
-export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, loadAssets, getGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, gallerySelection }) {
+export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, openStackRenameModal, loadAssets, getGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, gallerySelection }) {
   const { apiFetch } = apiClient;
   // getGroupColor falls back to the deterministic palette so call sites can rely
   // on a single source of truth for group colors (mirrors app.mjs colorForGroup).
   const resolveGroupColor = typeof getGroupColor === "function" ? getGroupColor : () => "#6366f1";
+  // Mirrors the server's MAX_BATCH_ASSET_IDS cap on /api/assets/batch.
+  const MAX_STACK_TRASH_BATCH = 1000;
 
   // Same-origin download of a stored media file; the browser/Electron save
   // dialog picks the destination, so no server-side export surface is needed.
@@ -330,6 +332,38 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
   }
 
   /**
+   * Complete active-member manifest of one stack via the existing paged stack
+   * query — the same cursor-loop safety bound as fetchGroupAssets(). Only
+   * active (non-trashed, non-archived) members are returned, which is exactly
+   * the set "move this stack to Trash" must submit.
+   */
+  async function fetchStackMemberIds(stackId, projectId = state.project) {
+    const collected = [];
+    const seenAssetIds = new Set();
+    const seenCursors = new Set();
+    let cursor = "";
+    while (true) {
+      if (cursor) {
+        if (seenCursors.has(cursor)) throw new Error("Stack member pagination stalled.");
+        seenCursors.add(cursor);
+      }
+      const params = new URLSearchParams({ project: projectId, limit: "100" });
+      if (cursor) params.set("cursor", cursor);
+      const result = await apiFetch(`/api/asset-stacks/${encodeURIComponent(stackId)}/assets?${params}`);
+      for (const member of result.assets || []) {
+        const id = String(member?.id || "");
+        if (id && !seenAssetIds.has(id)) {
+          seenAssetIds.add(id);
+          collected.push(id);
+        }
+      }
+      cursor = result.page?.nextCursor || "";
+      if (!cursor) break;
+    }
+    return collected;
+  }
+
+  /**
    * Get single asset context menu
    */
   function getAssetMenu(asset, selectedAssets = [], options = {}) {
@@ -396,13 +430,52 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         },
       ];
     }
+    // Collapsed Stack node. Management actions follow the shared asset-menu
+    // grammar: routine actions on top, structural actions after one separator,
+    // the destructive action last with the shared danger styling. Dissolve and
+    // Trash are deliberately different operations: dissolve only removes the
+    // grouping, while Trash sends every active member through the ordinary
+    // per-asset Trash mutation. The stack row and its memberships are NOT
+    // trashed — asset_stacks has no deleted state — they are retained so that
+    // restoring members rebuilds the stack; the node disappears from the
+    // gallery purely because no active member remains.
     if (options.stackNode && asset?.stack?.id && logicalSelectionCount(selectedAssets, options) === 1) {
+      const stackId = asset.stack.id;
+      const stackCount = Math.max(0, Number(asset.stack.count || 0));
       return [
         {
           label: t("openStack"),
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16v12H4z"/><path d="m9 10 3 3 3-3"/></svg>',
           action: async () => {
-            window.dispatchEvent(new CustomEvent("mosa:open-stack", { detail: { stackId: asset.stack.id, stack: asset.stack } }));
+            window.dispatchEvent(new CustomEvent("mosa:open-stack", { detail: { stackId, stack: asset.stack } }));
+          },
+        },
+        {
+          label: t("renameStack"),
+          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>',
+          disabled: typeof openStackRenameModal !== "function",
+          action: async () => {
+            await openStackRenameModal({
+              initialValue: String(asset.stack.name || ""),
+              confirmLabel: t("renameStack"),
+              onSubmit: async (nextName) => {
+                let succeeded = false;
+                await runAction(async () => {
+                  await apiFetch(`/api/asset-stacks/${encodeURIComponent(stackId)}`, {
+                    method: "PATCH",
+                    body: { projectId: state.project, name: nextName },
+                  });
+                  succeeded = true;
+                  showToast(t("stackRenamed"), "success");
+                  // Node rows re-render through the incremental path; the
+                  // member ids let every open window refresh its node card.
+                  window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+                    detail: { stackUpdated: { id: stackId } },
+                  }));
+                });
+                return succeeded;
+              },
+            });
           },
         },
         { separator: true },
@@ -418,13 +491,58 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             });
             if (!confirmed) return;
             await runAction(async () => {
-              await apiFetch(`/api/asset-stacks/${encodeURIComponent(asset.stack.id)}`, {
+              const result = await apiFetch(`/api/asset-stacks/${encodeURIComponent(stackId)}`, {
                 method: "DELETE",
                 body: { projectId: state.project },
               });
-              showToast(t("stackDissolvedManual"), "success");
+              // The server echoes the member ids it released; prefer that over
+              // the possibly stale menu-time count.
+              const releasedCount = Array.isArray(result?.assetIds) && result.assetIds.length ? result.assetIds.length : stackCount;
+              showToast(t("stackDissolvedCount", { count: releasedCount }), "success");
               window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
-                detail: { stackDissolved: { id: asset.stack.id } },
+                detail: { stackDissolved: { id: stackId } },
+              }));
+            });
+          },
+        },
+        { separator: true },
+        {
+          label: t("moveToTrash"),
+          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/></svg>',
+          danger: true,
+          action: async () => {
+            const confirmed = await requestConfirmation({
+              title: t("stackTrashTitle"),
+              description: t("stackTrashDescription", { count: stackCount }),
+              confirmLabel: t("moveToTrash"),
+              tone: "danger",
+            });
+            if (!confirmed) return;
+            await runAction(async () => {
+              // Trash reuses the ordinary per-asset trash mutation: members
+              // keep their stack membership while trashed, so restoring them
+              // rebuilds the stack without any extra bookkeeping.
+              const memberIds = await fetchStackMemberIds(stackId);
+              if (!memberIds.length) return;
+              const assets = mutationAssetsForIds(memberIds, state.project);
+              if (!await confirmSelectedAssetMutation(assets)) return;
+              let failed = 0;
+              const trashedIds = [];
+              for (let index = 0; index < memberIds.length; index += MAX_STACK_TRASH_BATCH) {
+                const chunk = memberIds.slice(index, index + MAX_STACK_TRASH_BATCH);
+                const response = await apiFetch("/api/assets/batch", {
+                  method: "POST",
+                  body: { action: "trash", projectId: state.project, assetIds: chunk },
+                });
+                const outcome = reconcileBatchMutation(chunk.map((id) => ({ id, project_id: state.project })), response);
+                failed += outcome.failed.length;
+                trashedIds.push(...outcome.succeeded.map((entry) => entry.id));
+                commitSelectedAssetMutation(outcome.succeeded);
+              }
+              if (failed) showToast(t("batchPartialResult", { succeeded: memberIds.length - failed, failed }), "error");
+              else showToast(t("stackMovedToTrash", { count: memberIds.length }), "success");
+              window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+                detail: { removedAssetIds: trashedIds },
               }));
             });
           },

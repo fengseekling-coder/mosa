@@ -165,11 +165,29 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
 
   assert.match(contextActions, /if \(options\.stackNode && asset\?\.stack\?\.id && logicalSelectionCount\(selectedAssets, options\) === 1\)/);
   assert.match(contextActions, /mosa:open-stack/);
+  assert.match(contextActions, /openStackRenameModal\(\{/,
+    "the Stack menu routes rename through the shared rename modal collector");
+  assert.match(contextActions, /method: "PATCH"/,
+    "renaming a stack persists through the stack PATCH route");
   assert.match(contextActions, /dissolveStack/);
   assert.match(contextActions, /method: "DELETE"/);
+  assert.match(contextActions, /stackTrashTitle/,
+    "moving a stack to Trash confirms with the member count before mutating");
+  const stackMenu = contextActions.slice(
+    contextActions.indexOf("if (options.stackNode"),
+    contextActions.lastIndexOf("const selectionCount = logicalSelectionCount"),
+  );
+  assert.match(stackMenu, /danger: true/,
+    "the destructive Stack action reuses the shared danger item styling");
+  assert.ok(stackMenu.indexOf("label: t(\"dissolveStack\")") < stackMenu.indexOf("label: t(\"moveToTrash\")"),
+    "the structural dissolve action precedes the destructive trash action");
+  assert.match(contextActions, /action: "trash"/,
+    "stack trash reuses the ordinary per-asset batch trash mutation");
   assert.match(contextActions, /gallerySelection\?\.resolveSelectedAssetIds/,
     "mixed Stack selections resolve to real member asset IDs at mutation time");
   assert.match(contextBindings, /stackNode: !state\.activeStackId && Boolean\(asset\.stack\?\.id\)/);
+  assert.match(contextBindings, /stack-updated/,
+    "rename refresh events flow through the incremental stack reconciliation");
   assert.match(contextBindings, /if \(!selectedIds\.has\(asset\.id\)\) \{[\s\S]*?gallerySelection\?\.replaceWith\?\.\(asset\.id\)/,
     "right-clicking outside the current selection first makes that card the selection");
   assert.match(contextBindings, /selectionCount: selectedIds\.size/);
@@ -177,6 +195,19 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
   assert.match(html, /id="stackBack"/);
   assert.match(html, /id="selectionStack"/);
   assert.match(html, /id="selectionRemoveFromStack"/);
+  assert.match(html, /id="stackRenameModal"/,
+    "stack rename reuses the shared modal-overlay/modal-card shell");
+  assert.match(html, /id="stackRenameInput"/);
+  assert.match(app, /function openStackRenameModal/);
+  assert.match(app, /stackRenameModal\?\.classList\.contains\("open"\)/,
+    "the rename modal joins the shared keyboard/overlay guard chains");
+  assert.match(app, /stackNameRequired/,
+    "an empty final stack name is rejected at the modal before any request");
+  assert.match(app, /stackName \|\| cardShortTitle\(asset\)/,
+    "a custom stack name takes over the collapsed card title");
+  assert.match(app, /asset\.stack\?\.name \|\| ""/,
+    "the card render key includes the stack name so renames re-render");
+  assert.match(app, /stackNamedItemCount/);
   assert.match(css, /\.asset-card\.is-stack/);
   assert.match(css, /\.asset-stack-count/);
   assert.match(css, /\.asset-card\.stack-drop-target/);
@@ -195,4 +226,8 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
   assert.match(i18n, /searchStack:/);
   assert.match(i18n, /stackMatchCount:/);
   assert.match(i18n, /dissolveStack:/);
+  assert.match(i18n, /renameStack: "重命名堆叠"/);
+  assert.match(i18n, /stackTrashDescription: "其中的 \{count\} 个素材也会一起移到回收站。你可以之后从回收站恢复。"/);
+  assert.match(i18n, /renameStack: "Rename stack"/);
+  assert.match(i18n, /stackTrashDescription: "Its \{count\} assets will also move to Trash\. You can restore them later from Trash\."/);
 });

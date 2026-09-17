@@ -230,6 +230,7 @@ function galleryRowSignature(asset, project = "default") {
     asset?.deleted_at || "",
     asset?.stack?.id || "",
     String(asset?.stack?.count ?? ""),
+    String(asset?.stack?.name ?? ""),
     String(asset?.stack?.match_count ?? ""),
   ].join("\u001f");
 }

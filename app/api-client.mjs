@@ -767,6 +767,7 @@ export function createApiClient(deps) {
       asset.version_index || "",
       asset.stack?.id || "",
       asset.stack?.count || "",
+      asset.stack?.name || "",
       asset.stack?.match_count || "",
       asset.deleted_at || "",
     ].join("\u001f")).join("|");
