@@ -22,5 +22,6 @@ test("retrieval acceptance set keeps semantic probes diagnostic rather than pret
   const fixture = await loadRetrievalAcceptanceFixture();
   const diagnostic = fixture.queries.filter((item) => !item.enforce);
   assert.ok(diagnostic.some((item) => item.tier === "semantic"));
-  assert.ok(diagnostic.some((item) => item.tier === "visual"));
+  assert.ok(diagnostic.filter((item) => item.tier === "visual").length >= 4,
+    "visual diagnostics should cover multiple pixel-only composition intents");
 });
