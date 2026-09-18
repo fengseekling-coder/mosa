@@ -77,6 +77,25 @@ npm exec mosa -- thumbnails rebuild --library /absolute/path/to/library
 
 迁移会校验 JSON、原图、哈希和空分组。未完成或失败时不会激活 SQLite；完成后 SQLite 是唯一运行期权威，JSON 只保留为备份和兼容回退，不做双写。
 
+### 素材库备份与恢复
+
+SQLite 迁移完成后，可以把整个 MOSA 素材库备份到另一个空目录：
+
+```bash
+npm exec mosa -- backup --library /absolute/path/to/library --to /absolute/path/to/backup
+npm exec mosa -- backup-verify --from /absolute/path/to/backup
+```
+
+备份包含 SQLite 快照、受 MOSA 管理的原图/派生文件、参考图附件和迁移完成标记。只有在库校验通过并写出带文件大小与 SHA-256 的 `backup-manifest.json` 后，这个目录才被视为完整备份。
+
+恢复必须显式指定一个空目录，不会覆盖现有素材库：
+
+```bash
+npm exec mosa -- restore --from /absolute/path/to/backup --to /absolute/path/to/restored-library
+```
+
+恢复前会先校验备份清单和文件哈希，恢复后会把受管理的绝对路径重定位到新目录并再次执行素材库完整性校验。建议备份时尽量暂停大批量导入/网页捕获；若备份过程中素材文件被并发永久删除，MOSA 会让本次备份失败，而不是发布一个数据库仍引用缺失文件的快照。
+
 ## 自动归档
 
 ### Codex 生图
