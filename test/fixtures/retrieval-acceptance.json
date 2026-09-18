@@ -102,21 +102,21 @@
       "tier": "conversational",
       "query": "找一下之前做过的金色未来城市海报",
       "expected_any": ["gold-future-city-poster"],
-      "enforce": false
+      "enforce": true
     },
     {
       "id": "conversational-blue-portrait",
       "tier": "conversational",
       "query": "那个留白很多、蓝色背景的人物设计",
       "expected_any": ["blue-portrait-whitespace"],
-      "enforce": false
+      "enforce": true
     },
     {
       "id": "conversational-curated-kv",
       "tier": "conversational",
       "query": "我之前精选过适合继续做品牌KV的版本",
       "expected_any": ["brand-kv-curated"],
-      "enforce": false
+      "enforce": true
     },
     {
       "id": "semantic-city-key-visual",
