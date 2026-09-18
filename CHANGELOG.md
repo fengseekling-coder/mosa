@@ -4,6 +4,18 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+### Search & Stack reliability / 搜索与堆叠稳定性
+
+- Custom Stack names are now searchable from the collapsed gallery while raw asset and Stack-interior searches keep their existing member-level semantics.
+- Whole-Stack Trash operations now preserve and reconcile confirmed progress when a later batch request is interrupted; outcomes without a response are reported as unresolved instead of being mislabeled as failures or retried blindly.
+- Local context-menu refresh events are scoped to the project that was mutated so a long-running operation cannot reconcile its result into a different project after navigation.
+
+### Performance / 性能
+
+- Added an indexed short-Unicode candidate table for one- and two-character non-ASCII search terms, with schema backfill and write-path synchronization, avoiding full-library `LIKE` scans for common short CJK queries.
+- Collapsed gallery paging now uses a dedicated no-filter fast path and Stack annotations aggregate only the Stacks relevant to returned rows instead of scanning every active Stack member.
+- The 50k performance gate now separately covers cold search, short CJK search, and a mixed library with 2,000 five-member Stacks.
+
 ## 0.2.1-rc.14 — 2026-09-16 / Release Candidate
 
 ### Drag & drop import / 拖放导入
