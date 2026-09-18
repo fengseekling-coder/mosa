@@ -20,7 +20,8 @@
       "category": "人物",
       "group": "人物研究",
       "style": "minimal",
-      "theme": "blue"
+      "theme": "blue",
+      "visual_fixture": "blue-right-portrait"
     },
     {
       "id": "brand-kv-curated",
@@ -59,6 +60,36 @@
       "group": "包装研究",
       "style": "natural",
       "theme": "sustainable"
+    },
+    {
+      "id": "visual-red-circle-left",
+      "prompt": "visual fixture alpha",
+      "tags": ["visual-fixture"],
+      "category": "fixture",
+      "group": "visual acceptance",
+      "style": "",
+      "theme": "",
+      "visual_fixture": "red-circle-left"
+    },
+    {
+      "id": "visual-green-box-center",
+      "prompt": "visual fixture beta",
+      "tags": ["visual-fixture"],
+      "category": "fixture",
+      "group": "visual acceptance",
+      "style": "",
+      "theme": "",
+      "visual_fixture": "green-box-center"
+    },
+    {
+      "id": "visual-black-bottom-whitespace",
+      "prompt": "visual fixture gamma",
+      "tags": ["visual-fixture"],
+      "category": "fixture",
+      "group": "visual acceptance",
+      "style": "",
+      "theme": "",
+      "visual_fixture": "black-bottom-whitespace"
     }
   ],
   "queries": [
@@ -144,6 +175,27 @@
       "tier": "visual",
       "query": "人物站在画面右侧的蓝色图",
       "expected_any": ["blue-portrait-whitespace"],
+      "enforce": false
+    },
+    {
+      "id": "visual-red-circle-left",
+      "tier": "visual",
+      "query": "左边有红色圆形的画面",
+      "expected_any": ["visual-red-circle-left"],
+      "enforce": false
+    },
+    {
+      "id": "visual-green-box-center",
+      "tier": "visual",
+      "query": "中央绿色方盒",
+      "expected_any": ["visual-green-box-center"],
+      "enforce": false
+    },
+    {
+      "id": "visual-bottom-subject",
+      "tier": "visual",
+      "query": "大片白色留白，下方有黑色主体",
+      "expected_any": ["visual-black-bottom-whitespace"],
       "enforce": false
     }
   ]

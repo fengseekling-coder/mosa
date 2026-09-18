@@ -1,6 +1,7 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import sharp from "sharp";
 
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 
@@ -40,14 +41,14 @@ export async function evaluateRetrievalFixture(fixture, { limit = 10 } = {}) {
   const managerDir = join(projectRoot, "mosa");
   const libraryDir = join(root, "library");
   const sourceDir = join(projectRoot, "generated-images");
-  const sourcePath = join(sourceDir, "fixture.png");
   await mkdir(sourceDir, { recursive: true });
-  await writeFile(sourcePath, ONE_PIXEL_PNG);
   const store = createSqliteAssetStore({ projectRoot, managerDir, libraryDir });
 
   try {
     for (let index = 0; index < fixture.assets.length; index += 1) {
       const asset = fixture.assets[index];
+      const sourcePath = join(sourceDir, `fixture-${index}.png`);
+      await writeFixtureImage(sourcePath, asset.visual_fixture);
       const created = await store.createAsset({
         assetId: asset.id,
         imagePath: sourcePath,
@@ -94,6 +95,33 @@ export async function evaluateRetrievalFixture(fixture, { limit = 10 } = {}) {
     store.close();
     await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
+}
+
+async function writeFixtureImage(path, kind) {
+  if (!kind) {
+    await writeFile(path, ONE_PIXEL_PNG);
+    return;
+  }
+  const svg = visualFixtureSvg(kind);
+  if (!svg) throw new Error("Unknown visual fixture: " + kind);
+  await sharp(Buffer.from(svg)).png().toFile(path);
+}
+
+function visualFixtureSvg(kind) {
+  const frame = (body) => `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240" viewBox="0 0 320 240">${body}</svg>`;
+  if (kind === "blue-right-portrait") {
+    return frame('<rect width="320" height="240" fill="#315fba"/><ellipse cx="245" cy="74" rx="26" ry="34" fill="#171717"/><rect x="213" y="106" width="64" height="112" rx="24" fill="#171717"/>');
+  }
+  if (kind === "red-circle-left") {
+    return frame('<rect width="320" height="240" fill="#f4f1e9"/><circle cx="72" cy="120" r="54" fill="#c72f35"/>');
+  }
+  if (kind === "green-box-center") {
+    return frame('<rect width="320" height="240" fill="#eeeae0"/><rect x="105" y="62" width="110" height="116" rx="8" fill="#3d8a55"/><path d="M105 62l55-28 55 28-55 28z" fill="#64a875"/>');
+  }
+  if (kind === "black-bottom-whitespace") {
+    return frame('<rect width="320" height="240" fill="#fafafa"/><rect x="116" y="184" width="88" height="38" rx="4" fill="#151515"/>');
+  }
+  return "";
 }
 
 function validateFixture(fixture) {

@@ -126,6 +126,8 @@ The current conversational planner is intentionally conservative: it only activa
 
 Before introducing a text-embedding runtime, MOSA also applies a small audited design-vocabulary layer when at least two independent vocabulary signals are present. It covers high-value designer terminology such as `negative space` → `留白`, `eco friendly` → `可持续`, and common key-visual/packaging/portrait phrasing. A single ordinary keyword hit is never rewritten, which keeps searches such as `editorial portrait` on the existing lexical path. These mappings are a controlled product vocabulary, not a claim of general semantic understanding; the semantic acceptance tier therefore remains diagnostic until the fixture is substantially broader.
 
+Visual probes use generated pixel fixtures whose decisive composition facts are intentionally absent from Prompt, tags, category, group, style, and theme. The set includes spatial/color cases such as a blue portrait subject on the right, a red circle on the left, a centered green box, and a black subject under large white negative space. Text search is expected to miss these. Any future image-embedding or captioning candidate must be evaluated against the pixels themselves; passing by adding those answers to metadata would invalidate the benchmark.
+
 ## Codex Hard-Link Reclaim
 
 Migration re-imports each record from the legacy library file rather than from the Codex path, so a library that was hard-linked before migrating holds a second copy of every Codex asset. Reclaim that space once the migration has been verified:
