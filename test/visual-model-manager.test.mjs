@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { access, mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -129,4 +129,28 @@ test("visual model manager selects only verified discovered packs", async (t) =>
   const selected = await manager.selectPack("model-b", "r2");
   assert.equal(selected.active_pack.id, "model-b");
   await assert.rejects(() => manager.selectPack("missing", "r1"), /not installed|failed verification/);
+});
+
+test("visual model manager cleans older revisions only after a newer revision is selected", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-visual-manager-cleanup-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const oldDir = join(root, "visual-model-packs", "model-a-r1");
+  const newDir = join(root, "visual-model-packs", "model-a-r2");
+  const otherDir = join(root, "visual-model-packs", "model-b-r1");
+  await Promise.all([mkdir(oldDir, { recursive: true }), mkdir(newDir, { recursive: true }), mkdir(otherDir, { recursive: true })]);
+  const packs = [
+    { ...pack("model-a", "r1"), pack_dir: oldDir },
+    { ...pack("model-a", "r2"), pack_dir: newDir },
+    { ...pack("model-b", "r1"), pack_dir: otherDir },
+  ];
+  const manager = createVisualModelManager({
+    userDataDir: root,
+    discoverPacks: async () => ({ root: join(root, "visual-model-packs"), packs, invalid: [] }),
+  });
+  await manager.selectPack("model-a", "r2");
+  const result = await manager.cleanupInactivePacks();
+  assert.deepEqual(result.removed, [oldDir]);
+  await assert.rejects(access(oldDir));
+  await access(newDir);
+  await access(otherDir);
 });

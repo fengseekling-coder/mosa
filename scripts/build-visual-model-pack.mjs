@@ -106,9 +106,29 @@ async function main() {
       role: file.role,
     })),
   };
-  await writeFile(join(output, "model-pack.json"), JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  await writeFile(join(output, "model-pack.json"), manifestBytes);
   const totalBytes = manifest.files.reduce((sum, file) => sum + file.bytes, 0);
-  console.log(JSON.stringify({ ok: true, output, files: manifest.files.length, total_bytes: totalBytes }, null, 2));
+  const releaseEntry = includeRuntime ? {
+    id: manifest.id,
+    revision: manifest.revision,
+    totalSize: totalBytes,
+    manifest: {
+      size: manifestBytes.length,
+      sha256: createHash("sha256").update(manifestBytes).digest("hex"),
+    },
+    license: {
+      id: manifest.license.id,
+      source: manifest.license.source,
+    },
+  } : null;
+  console.log(JSON.stringify({
+    ok: true,
+    output,
+    files: manifest.files.length,
+    total_bytes: totalBytes,
+    ...(releaseEntry ? { release_manifest_patch: { visualPacks: { [runtimeTarget]: releaseEntry } } } : {}),
+  }, null, 2));
 }
 
 async function obtainFile({ file, sourceDir, download, candidate }) {

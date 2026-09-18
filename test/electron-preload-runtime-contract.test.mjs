@@ -17,15 +17,19 @@ const electronPath = process.platform === "darwin"
     : resolve(root, "node_modules", "electron", "dist", "electron");
 const EXPECTED_API_KEYS = [
   "cancelUpdateDownload",
+  "cancelVisualPackInstall",
   "changeLibraryLocation",
   "checkForUpdates",
   "downloadAndInstallUpdate",
   "getVisualModelState",
+  "installVisualPack",
   "onMenuImport",
   "onMenuSearch",
   "onUpdateDownloadProgress",
+  "onVisualPackProgress",
   "openDownloadPage",
   "pasteImage",
+  "removeVisualPack",
   "reportRendererReady",
   "setLocale",
   "setVisualModelEnabled",
@@ -79,7 +83,7 @@ test("preload path, module format, security settings, and API surface are stable
   assert.doesNotMatch(preload, /openExternal|sendSync|\.send\(/, "generic IPC is not exposed");
   // The preload exposes only narrow, named request channels. Update actions
   // accept no URL from the renderer; the main process owns the fixed website.
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 13, "only the thirteen approved invoke channels remain");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 16, "only the sixteen approved invoke channels remain");
   assert.deepEqual(sortedApiKeys(preload), EXPECTED_API_KEYS);
   assert.match(preload, /startNativeDrag: \(paths\) => ipcRenderer\.invoke\("start-native-file-drag", paths\)/);
   assert.match(preload, /writeClipboardImage: \(path\) => ipcRenderer\.invoke\("write-clipboard-image", path\)/);
@@ -93,6 +97,10 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(preload, /changeLibraryLocation: \(\) => ipcRenderer\.invoke\("change-library-location"\)/);
   assert.match(preload, /getVisualModelState: \(refresh = false\) => ipcRenderer\.invoke\("visual-model-state", refresh === true\)/);
   assert.match(preload, /setVisualModelEnabled: \(enabled\) => ipcRenderer\.invoke\("visual-model-set-enabled", enabled === true\)/);
+  assert.match(preload, /installVisualPack: \(\) => ipcRenderer\.invoke\("visual-pack-install"\)/);
+  assert.match(preload, /cancelVisualPackInstall: \(\) => ipcRenderer\.invoke\("visual-pack-cancel"\)/);
+  assert.match(preload, /removeVisualPack: \(\) => ipcRenderer\.invoke\("visual-pack-remove"\)/);
+  assert.match(preload, /onVisualPackProgress: \(callback\) =>[\s\S]*?ipcRenderer\.on\("visual-pack-progress"/);
   assert.doesNotMatch(preload, /openDownloadPage:\s*\([^)]*url/i, "renderer cannot choose an update destination");
   assert.match(main, /MOSA_DOWNLOAD_PAGE_URL/);
   assert.match(main, /ipcMain\.handle\("check-for-updates"/);
@@ -103,6 +111,9 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(main, /ipcMain\.handle\("change-library-location"/);
   assert.match(main, /ipcMain\.handle\("visual-model-state"/);
   assert.match(main, /ipcMain\.handle\("visual-model-set-enabled"/);
+  assert.match(main, /ipcMain\.handle\("visual-pack-install"/);
+  assert.match(main, /ipcMain\.handle\("visual-pack-cancel"/);
+  assert.match(main, /ipcMain\.handle\("visual-pack-remove"/);
   const relocationHandler = main.slice(main.indexOf('ipcMain.handle("change-library-location"'), main.indexOf('\n\n  // Phase 4C', main.indexOf('ipcMain.handle("change-library-location"')));
   assert.match(relocationHandler, /event\.sender !== mainWindow\.webContents/, "library relocation validates the sender");
   assert.match(relocationHandler, /process\.env\.MOSA_LIBRARY_DIR/, "an explicit environment-managed library cannot be overridden in-app");

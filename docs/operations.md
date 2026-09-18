@@ -67,6 +67,20 @@ Windows development builds are unsigned and SmartScreen may warn about an unknow
 
 Packaged Windows builds do support an explicit in-app update flow for portable ZIP releases. The main process re-reads the first-party release manifest, requires the artifact platform/architecture/filename to match the advertised release, downloads only from the fixed MOSA download origin, verifies the declared byte size and SHA-256 digest, then starts a detached PowerShell helper. MOSA stops any runtime it owns and releases SQLite/runtime locks before exiting. The helper expands the ZIP, moves the current application directory to a temporary backup, installs the new payload, launches the replacement `MOSA.exe`, and removes the backup only after the new executable is present. If replacement fails, it restores the previous directory and attempts to relaunch the old executable. The updater keeps only its own latest staging directory so old 150 MB-class ZIPs do not accumulate.
 
+### Optional Visual Pack publishing
+
+Visual search model/runtime bytes are not shipped inside the core desktop package. Build one platform-specific pack per supported target and publish its directory tree under the fixed first-party origin:
+
+```bash
+node scripts/build-visual-model-pack.mjs --source <candidate-source> \
+  --runtime-target darwin-arm64 \
+  --output <release-root>/siglip2-base-patch16-224/<revision>/darwin-arm64
+```
+
+Use `--runtime-target win32-x64` for the Windows pack. The command prints a `release_manifest_patch.visualPacks.<target>` object containing the exact pack id/revision, total payload bytes, `model-pack.json` byte size and SHA-256, and license metadata. Upload the output directory byte-for-byte to `/downloads/visual-packs/<id>/<revision>/<target>/`, then merge that generated entry into the official `releases/latest.json`.
+
+Do not publish the release-feed entry until every referenced file is already present at the fixed download origin. The desktop installer rejects arbitrary renderer-provided URLs, redirects, unsupported targets, mismatched runtime architecture, insufficient disk space, manifest/file size drift, SHA-256 drift, and packs that fail final `verifyVisualModelPack()` validation. Updates download beside the working revision and select the new revision only after verification, so a failed update does not destroy the last known-good pack.
+
 ## Library Migration
 
 Before a first migration, leave the source JSON directory untouched and use a dry run:

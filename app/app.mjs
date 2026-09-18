@@ -1166,10 +1166,33 @@ function visualModelStatusMarkup() {
   const bytes = Number(pack?.total_bytes || 0);
   const sizeLabel = bytes > 0 ? ` · ${(bytes / (1024 * 1024)).toFixed(bytes >= 100 * 1024 * 1024 ? 0 : 1)} MB` : "";
   const modelLabel = pack ? `${pack.id} · ${pack.revision}${sizeLabel}` : "";
-  const action = visual.installed && window.electronAPI?.setVisualModelEnabled
-    ? `<button class="settings-text-action" type="button" data-visual-model-toggle>${escapeHtml(t(visual.enabled ? "visualModelDisable" : "visualModelEnable"))}</button>`
+  const distribution = visual.distribution || {};
+  const progress = distribution.progress || null;
+  const progressPercent = Math.max(0, Math.min(100, Math.round(Number(progress?.percent) || 0)));
+  const releaseBytes = Number(distribution.release?.total_size || 0);
+  const releaseSize = releaseBytes > 0 ? ` · ${(releaseBytes / (1024 * 1024)).toFixed(0)} MB` : "";
+  const releaseLabel = !pack && distribution.release
+    ? `${distribution.release.id} · ${distribution.release.license?.id || ""}${releaseSize}`
     : "";
-  return `<div class="visual-model-status"><strong>${escapeHtml(t(stateKey))}</strong>${modelLabel ? `<span>${escapeHtml(modelLabel)}</span>` : ""}${action}</div>`;
+  const actions = [];
+  if (progress && ["preparing", "downloading", "verifying", "installing"].includes(progress.phase)) {
+    actions.push(`<span class="visual-model-progress">${escapeHtml(t(progress.phase === "verifying" ? "visualPackVerifying" : progress.phase === "installing" ? "visualPackInstalling" : "visualPackDownloading"))} ${progressPercent}%</span>`);
+    if (window.electronAPI?.cancelVisualPackInstall) actions.push(`<button class="settings-text-action" type="button" data-visual-pack-cancel>${escapeHtml(t("visualPackCancel"))}</button>`);
+  } else if ((distribution.action === "install" || distribution.action === "update") && window.electronAPI?.installVisualPack) {
+    actions.push(`<button class="settings-text-action" type="button" data-visual-pack-install>${escapeHtml(t(distribution.action === "update" ? "visualPackUpdate" : "visualPackInstall"))}</button>`);
+  }
+  if (visual.installed && window.electronAPI?.setVisualModelEnabled) {
+    actions.push(`<button class="settings-text-action" type="button" data-visual-model-toggle>${escapeHtml(t(visual.enabled ? "visualModelDisable" : "visualModelEnable"))}</button>`);
+  }
+  if (visual.installed && window.electronAPI?.removeVisualPack) {
+    actions.push(`<button class="settings-text-action settings-text-action-danger" type="button" data-visual-pack-remove>${escapeHtml(t("visualPackRemove"))}</button>`);
+  }
+  const releaseNote = distribution.error
+    ? `<span class="visual-model-error">${escapeHtml(t("visualPackReleaseUnavailable"))}</span>`
+    : (!visual.installed && distribution.action === "unavailable")
+      ? `<span class="visual-model-error">${escapeHtml(t("visualPackNotPublished"))}</span>`
+      : "";
+  return `<div class="visual-model-status"><strong>${escapeHtml(t(stateKey))}</strong>${modelLabel ? `<span>${escapeHtml(modelLabel)}</span>` : ""}${releaseLabel ? `<span>${escapeHtml(releaseLabel)}</span>` : ""}${releaseNote}${actions.join("")}</div>`;
 }
 
 async function refreshVisualModelStatus({ force = false } = {}) {
@@ -2129,6 +2152,43 @@ function bindEvents() {
       });
       return;
     }
+    const visualPackInstallButton = event.target.closest("[data-visual-pack-install]");
+    if (visualPackInstallButton && window.electronAPI?.installVisualPack) {
+      visualPackInstallButton.disabled = true;
+      void runAction(async () => {
+        try {
+          const result = await window.electronAPI.installVisualPack();
+          if (result?.state) state.visualModelStatus = result.state;
+          syncSettingsMenuView();
+          if (result?.ok) showToast(t("visualPackInstalledToast"), "success");
+        } catch (error) {
+          showToast(error?.message || t("visualPackInstallFailed"), "error");
+          await refreshVisualModelStatus({ force: true });
+        }
+      });
+      return;
+    }
+    const visualPackCancelButton = event.target.closest("[data-visual-pack-cancel]");
+    if (visualPackCancelButton && window.electronAPI?.cancelVisualPackInstall) {
+      visualPackCancelButton.disabled = true;
+      void window.electronAPI.cancelVisualPackInstall();
+      return;
+    }
+    const visualPackRemoveButton = event.target.closest("[data-visual-pack-remove]");
+    if (visualPackRemoveButton && window.electronAPI?.removeVisualPack) {
+      visualPackRemoveButton.disabled = true;
+      void runAction(async () => {
+        try {
+          const result = await window.electronAPI.removeVisualPack();
+          if (result?.cancelled) return;
+          if (result?.ok) showToast(t("visualPackRemovedToast"), "success");
+        } catch (error) {
+          showToast(error?.message || t("visualPackRemoveFailed"), "error");
+          await refreshVisualModelStatus({ force: true });
+        }
+      });
+      return;
+    }
     const checkUpdatesButton = event.target.closest("[data-check-updates]");
     if (checkUpdatesButton) { void checkForUpdates(); return; }
     const captureRetryButton = event.target.closest("[data-capture-retry]");
@@ -2317,6 +2377,15 @@ function bindDesktopIntegration() {
     const percent = Math.max(0, Math.min(100, Math.round(Number(progress?.percent) || 0)));
     state.updateDownloadPercent = percent;
     if (state.updateStatus !== "downloading") state.updateStatus = "downloading";
+    syncSettingsMenuView();
+  });
+  api.onVisualPackProgress?.((progress) => {
+    if (!state.visualModelStatus) return;
+    state.visualModelStatus.distribution ||= {};
+    state.visualModelStatus.distribution.progress = progress || null;
+    if (progress && ["preparing", "downloading", "verifying", "installing"].includes(progress.phase)) {
+      state.visualModelStatus.distribution.action = "installing";
+    }
     syncSettingsMenuView();
   });
 }
