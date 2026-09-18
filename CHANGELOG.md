@@ -22,6 +22,12 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - The extension reports only redacted queue diagnostics to the authenticated loopback Runtime; raw Prompt text, page/media URLs, and media bytes are excluded from this status channel.
 - A Settings retry action requests the extension to drain its existing durable queue; MOSA does not create a second delivery queue or blindly duplicate failed captures.
 
+### Library backup & restore / 素材库备份与恢复
+
+- Added explicit CLI backup, backup verification, and restore commands for completed SQLite libraries. A backup includes the SQLite snapshot, managed originals/derivatives, reference attachments, and the migration-completion marker.
+- Backups are published only after MOSA integrity checks pass and a SHA-256 manifest has been written; verification detects missing or modified files before restore.
+- Restore requires an explicit empty destination and rebases managed absolute paths into that destination before running the normal library verifier. Large media hashes are streamed instead of loaded into memory as one buffer.
+
 ## 0.2.1-rc.14 — 2026-09-16 / Release Candidate
 
 ### Drag & drop import / 拖放导入

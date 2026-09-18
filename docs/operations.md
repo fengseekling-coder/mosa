@@ -84,6 +84,32 @@ npm exec mosa -- verify --library /absolute/path/to/library
 
 Migration checks JSON records, original files, hashes, and empty groups before marking the SQLite library completed. The migration creates a `legacy-json-backup` directory. Do not delete the original JSON source, the backup, or `mosa.db` during migration or recovery.
 
+## Library Backup and Restore
+
+For a completed SQLite library, create a point-in-time backup in a separate directory:
+
+```bash
+npm exec mosa -- backup --library /absolute/path/to/library --to /absolute/path/to/backup
+```
+
+The destination must be empty or absent and must not be inside the live library (or contain it). MOSA first takes a SQLite online backup, then copies the managed media tree and reference attachments. It verifies the copied library before publishing `backup-manifest.json`; that manifest is the completion marker and records every backed-up file's size and SHA-256 digest.
+
+Verify a backup before relying on it or moving it to another disk:
+
+```bash
+npm exec mosa -- backup-verify --from /absolute/path/to/backup
+```
+
+Restore only into an explicit empty directory:
+
+```bash
+npm exec mosa -- restore --from /absolute/path/to/backup --to /absolute/path/to/restored-library
+```
+
+Restore verifies the manifest first, copies through a private staging directory, rebases managed absolute paths into the new library root, and then runs the normal SQLite/library integrity verifier. If verification fails, the incomplete destination is removed instead of being left as a usable library.
+
+Backups are local snapshots, not synchronization. Stop or pause heavy capture/import activity when practical. The SQLite snapshot itself is consistent under concurrent writes, and reference-attachment writes are guarded, but a concurrently deleted media file can intentionally make the backup fail closed so that MOSA never publishes a snapshot whose database references missing bytes.
+
 ## Codex Hard-Link Reclaim
 
 Migration re-imports each record from the legacy library file rather than from the Codex path, so a library that was hard-linked before migrating holds a second copy of every Codex asset. Reclaim that space once the migration has been verified:
