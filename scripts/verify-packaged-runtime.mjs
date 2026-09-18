@@ -49,12 +49,6 @@ function requireNativeEntry(nativeEntries, predicate, description) {
   return entry;
 }
 
-function requireFileEntry(files, predicate, description) {
-  const entry = files.find(predicate);
-  if (!entry) throw new Error(`Packaged runtime is missing ${description}.`);
-  return entry;
-}
-
 export function packagedAsarPath({
   projectRoot = rootDir,
   outDir = process.env.MOSA_FORGE_OUT_DIR || "out",
@@ -117,35 +111,18 @@ export async function verifyPackagedRuntime({
       `Sharp native runtime @img/${packageName}`,
     );
   }
-
-  const onnxPrefix = `node_modules/onnxruntime-node/bin/napi-v6/${target.platform}/${target.arch}/`;
-  requireNativeEntry(
-    nativeEntries,
-    ({ path }) => path === `${onnxPrefix}onnxruntime_binding.node`,
-    `onnxruntime-node native binding for ${target.id}`,
-  );
-  requireNativeEntry(
-    nativeEntries,
-    ({ path }) => target.platform === "darwin"
-      ? path.startsWith(onnxPrefix) && /libonnxruntime.*\.dylib$/u.test(path)
-      : path === `${onnxPrefix}onnxruntime.dll`,
-    `onnxruntime-node runtime library for ${target.id}`,
-  );
-  requireFileEntry(
-    files,
-    ({ path }) => path === "node_modules/onnxruntime-node/dist/index.js",
-    "onnxruntime-node JavaScript runtime",
-  );
-  requireFileEntry(
-    files,
-    ({ path }) => path === "node_modules/onnxruntime-common/dist/cjs/index.js",
-    "onnxruntime-common runtime",
-  );
-  requireFileEntry(
-    files,
-    ({ path }) => path === "node_modules/@huggingface/tokenizers/dist/tokenizers.mjs",
-    "Hugging Face tokenizer runtime",
-  );
+  const forbiddenVisualRuntimePrefixes = [
+    "node_modules/onnxruntime-node/",
+    "node_modules/onnxruntime-common/",
+    "node_modules/@huggingface/tokenizers/",
+  ];
+  const bundledVisualRuntime = files.find(({ path }) => forbiddenVisualRuntimePrefixes.some((prefix) => path.startsWith(prefix)));
+  if (bundledVisualRuntime) {
+    throw new Error(`Optional visual runtime must stay out of MOSA.app: ${bundledVisualRuntime.path}`);
+  }
+  const unpackedOnnxDir = join(unpackedRoot, "node_modules", "onnxruntime-node");
+  const unpackedOnnx = await stat(unpackedOnnxDir).catch(() => null);
+  if (unpackedOnnx) throw new Error("Optional ONNX Runtime must stay out of MOSA.app unpacked resources.");
 
   const sourceIdentity = JSON.parse(await readFile(resolve(projectRoot, "app", "build-identity.json"), "utf8"));
   const packagedIdentity = parseJsonBuffer(extractFile(asarPath, "app/build-identity.json"), "packaged build identity");

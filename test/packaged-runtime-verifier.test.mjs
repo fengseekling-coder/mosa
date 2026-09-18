@@ -32,22 +32,15 @@ async function createFixture(t, { platform, arch, packedNatives = false }) {
   await writeFixtureFile(projectRoot, "package.json", `${JSON.stringify(manifest, null, 2)}\n`);
   await writeFixtureFile(runtimeRoot, "app/build-identity.json", `${JSON.stringify(IDENTITY, null, 2)}\n`);
   await writeFixtureFile(runtimeRoot, "package.json", `${JSON.stringify(manifest, null, 2)}\n`);
-  await writeFixtureFile(runtimeRoot, "node_modules/onnxruntime-node/dist/index.js", "export default {};\n");
-  await writeFixtureFile(runtimeRoot, "node_modules/onnxruntime-common/dist/cjs/index.js", "module.exports = {};\n");
-  await writeFixtureFile(runtimeRoot, "node_modules/@huggingface/tokenizers/dist/tokenizers.mjs", "export {};\n");
 
   if (platform === "darwin") {
     await writeFixtureFile(runtimeRoot, "node_modules/better-sqlite3/prebuilds/darwin-arm64.node", "sqlite-native");
     await writeFixtureFile(runtimeRoot, "node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64.node", "sharp-native");
     await writeFixtureFile(runtimeRoot, "node_modules/@img/sharp-libvips-darwin-arm64/lib/libvips.8.dylib", "libvips-native");
-    await writeFixtureFile(runtimeRoot, "node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64/onnxruntime_binding.node", "onnx-native");
-    await writeFixtureFile(runtimeRoot, "node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64/libonnxruntime.1.30.0.dylib", "onnx-runtime");
   } else {
     await writeFixtureFile(runtimeRoot, "node_modules/better-sqlite3/prebuilds/win32-x64.node", "sqlite-native");
     await writeFixtureFile(runtimeRoot, "node_modules/@img/sharp-win32-x64/lib/sharp-win32-x64.node", "sharp-native");
     await writeFixtureFile(runtimeRoot, "node_modules/@img/sharp-win32-x64/lib/libvips.dll", "libvips-native");
-    await writeFixtureFile(runtimeRoot, "node_modules/onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime_binding.node", "onnx-native");
-    await writeFixtureFile(runtimeRoot, "node_modules/onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime.dll", "onnx-runtime");
   }
 
   const asarPath = packagedAsarPath({ projectRoot, platform, arch });
@@ -56,7 +49,8 @@ async function createFixture(t, { platform, arch, packedNatives = false }) {
     await createPackage(runtimeRoot, asarPath);
   } else {
     await createPackageWithOptions(runtimeRoot, asarPath, {
-      unpackDir: "node_modules",
+      unpack: "*.node",
+      unpackDir: platform === "darwin" ? "node_modules/@img/sharp-libvips-darwin-arm64" : "node_modules/@img/sharp-win32-x64",
     });
   }
   return { projectRoot, asarPath };
@@ -68,7 +62,7 @@ test("packaged runtime verifier accepts a macOS package only when native binarie
   assert.equal(result.asarPath, asarPath);
   assert.equal(result.target, "darwin-arm64");
   assert.equal(result.productVersion, IDENTITY.productVersion);
-  assert.equal(result.nativeBinaries.length, 5);
+  assert.equal(result.nativeBinaries.length, 3);
 });
 
 test("packaged runtime verifier rejects the manual repack failure mode with packed .node files", async (t) => {
@@ -88,7 +82,32 @@ test("packaged runtime verifier applies the same native gate to Windows packages
   const result = await verifyPackagedRuntime({ projectRoot, platform: "win32", arch: "x64" });
   assert.equal(result.asarPath, asarPath);
   assert.equal(result.target, "win32-x64");
-  assert.equal(result.nativeBinaries.length, 5);
+  assert.equal(result.nativeBinaries.length, 3);
+});
+
+test("packaged runtime verifier rejects optional visual runtime bundled into MOSA.app", async (t) => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "mosa-package-verifier-visual-bundle-"));
+  deferTestPathRemoval(projectRoot, { recursive: true, force: true });
+  const runtimeRoot = join(projectRoot, "runtime");
+  const manifest = { name: "mosa", version: IDENTITY.productVersion };
+  await writeFixtureFile(projectRoot, "app/build-identity.json", `${JSON.stringify(IDENTITY, null, 2)}\n`);
+  await writeFixtureFile(projectRoot, "package.json", `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeFixtureFile(runtimeRoot, "app/build-identity.json", `${JSON.stringify(IDENTITY, null, 2)}\n`);
+  await writeFixtureFile(runtimeRoot, "package.json", `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeFixtureFile(runtimeRoot, "node_modules/better-sqlite3/prebuilds/darwin-arm64.node", "sqlite-native");
+  await writeFixtureFile(runtimeRoot, "node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64.node", "sharp-native");
+  await writeFixtureFile(runtimeRoot, "node_modules/@img/sharp-libvips-darwin-arm64/lib/libvips.8.dylib", "libvips-native");
+  await writeFixtureFile(runtimeRoot, "node_modules/onnxruntime-node/dist/index.js", "module.exports = {};\n");
+  const asarPath = packagedAsarPath({ projectRoot, platform: "darwin", arch: "arm64" });
+  await mkdir(dirname(asarPath), { recursive: true });
+  await createPackageWithOptions(runtimeRoot, asarPath, {
+    unpack: "*.node",
+    unpackDir: "node_modules/@img/sharp-libvips-darwin-arm64",
+  });
+  await assert.rejects(
+    verifyPackagedRuntime({ projectRoot, platform: "darwin", arch: "arm64" }),
+    /Optional visual runtime must stay out of MOSA\.app/,
+  );
 });
 
 test("packaged runtime verifier rejects source/package build identity drift", async (t) => {

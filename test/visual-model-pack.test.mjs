@@ -45,6 +45,30 @@ test("visual model pack manifest requires product-use licensing and safe relativ
   }), /traversal|relative/);
 });
 
+test("visual model pack manifest accepts only approved optional local runtime targets", () => {
+  const digest = "a".repeat(64);
+  const manifest = manifestFor(10, digest);
+  manifest.runtime = {
+    provider: "onnxruntime-node",
+    version: "1.30.0",
+    tokenizer_version: "0.2.0",
+    platform: "darwin",
+    arch: "arm64",
+    root: "runtime",
+  };
+  const valid = validateVisualModelPackManifest(manifest);
+  assert.equal(valid.runtime.provider, "onnxruntime-node");
+  assert.equal(valid.runtime.root, "runtime");
+  assert.throws(() => validateVisualModelPackManifest({
+    ...manifest,
+    runtime: { ...manifest.runtime, platform: "linux", arch: "x64" },
+  }), /darwin-arm64|win32-x64/);
+  assert.throws(() => validateVisualModelPackManifest({
+    ...manifest,
+    runtime: { ...manifest.runtime, root: "../runtime" },
+  }), /traversal|relative/);
+});
+
 test("visual model pack verifier checks bytes and hashes without allowing symlink substitution", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-model-pack-"));
   deferTestPathRemoval(root, { recursive: true, force: true });

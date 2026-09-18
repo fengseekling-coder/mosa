@@ -27,7 +27,7 @@ export function createVisualModelManager({
     const probePromise = (async () => {
       if (typeof probeRuntime === "function") {
         try {
-          return await probeRuntime();
+          return await probeRuntime(activePack);
         } catch (error) {
           return { ok: false, reason: "runtime-unavailable", message: error?.message || "Visual runtime probe failed." };
         }
