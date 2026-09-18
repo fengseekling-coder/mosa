@@ -196,28 +196,38 @@ With a compatible provider configured, `/api/visual/search?q=...` performs text-
 
 ## Local inference runtime and pack installation
 
-The shipping runtime is ONNX Runtime through `onnxruntime-node` (MIT), with
-`@huggingface/tokenizers` (Apache-2.0) for SentencePiece tokenization. Inference
-runs in a dedicated forked child process (`lib/visual-inference-worker-entry.mjs`)
-that is reached only through `lib/visual-inference-client.mjs`: bounded request
-queue, per-request timeouts, request-id correlation, crash detection, and a
-fail-closed posture (a dead or hung worker rejects work with coded errors and
-is never silently respawned). The renderer has no access to this channel and
-never handles model or asset file paths. No Python, Ollama, or other external
-runtime is required.
+The optional Visual Pack is self-contained: it carries the pinned SigLIP2 model,
+ONNX Runtime through `onnxruntime-node` (MIT), and
+`@huggingface/tokenizers` (Apache-2.0) for SentencePiece tokenization. These
+visual-only runtime dependencies are deliberately excluded from `MOSA.app`, so
+users who never enable local visual search do not pay the ONNX Runtime install
+size. Inference still runs in a dedicated forked child process
+(`lib/visual-inference-worker-entry.mjs`) reached only through
+`lib/visual-inference-client.mjs`: bounded request queue, per-request timeouts,
+request-id correlation, crash detection, and a fail-closed posture (a dead or
+hung worker rejects work with coded errors and is never silently respawned).
+The renderer has no access to this channel and never handles model or asset
+file paths. No Python, Ollama, or other separately installed daemon is required.
 
-A pack is built from the pinned candidate with digests verified at build time:
+A platform-specific pack is built from the pinned candidate plus the matching
+local runtime, with every model/runtime file digested into the manifest:
 
 ```bash
 node scripts/build-visual-model-pack.mjs --source <downloaded-files-dir> \
+  --runtime-target darwin-arm64 \
   --output "$HOME/Library/Application Support/mosa/visual-model-packs/siglip2-base-patch16-224"
 npm exec mosa -- visual-model-verify --from "$HOME/Library/Application Support/mosa/visual-model-packs/siglip2-base-patch16-224"
 ```
 
+Use `--runtime-target win32-x64` for the Windows pack. `--model-only` remains a
+development/evaluation escape hatch; a production packaged MOSA build requires
+the runtime-bearing pack before visual search can become ready.
+
 After a restart, Settings reports the real runtime state machine:
 `not-installed`, `disabled`, `loading`, `ready`, `runtime-unavailable`, or
-`error`. Runtime availability is measured by spawning the inference worker
-without a model, never assumed from a build flag.
+`error`. Runtime availability is measured by starting the active verified pack
+inside the inference worker, never assumed from a build flag or from files in
+the main application bundle.
 
 Benchmarks for the integrated candidate are reproducible with:
 
@@ -237,6 +247,6 @@ Candidate weights that already exist locally can be arranged as a MOSA visual mo
 npm exec mosa -- visual-model-verify --from /absolute/path/to/model-pack
 ```
 
-The pack root contains `model-pack.json` with schema `mosa.visual-model-pack/1`. The manifest pins an id, revision, `image-text-embedding` model type, embedding dimension, product-use license declaration, preprocessing metadata, and every model/runtime file's relative path, role, byte size, and SHA-256 digest. Verification rejects absolute/traversal paths, duplicate entries, symlinks, size mismatches, hash mismatches, missing license fields, unconfirmed product use, and first-stage packs above 512 MiB.
+The pack root contains `model-pack.json` with schema `mosa.visual-model-pack/1`. The manifest pins an id, revision, `image-text-embedding` model type, embedding dimension, product-use license declaration, preprocessing metadata, the runtime provider/version/platform/architecture, and every model/runtime file's relative path, role, byte size, and SHA-256 digest. Verification rejects absolute/traversal paths, duplicate entries, symlinks, size mismatches, hash mismatches, missing license fields, unconfirmed product use, unsupported or host-mismatched runtime targets, runtime-package version drift, and first-stage packs above 512 MiB.
 
 Verified packs are intended to live under `<Electron userData>/visual-model-packs`, not under `MOSA Library`. The library therefore remains portable and its backup does not silently duplicate model weights.

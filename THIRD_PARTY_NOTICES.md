@@ -23,7 +23,7 @@ The upstream Apache License 2.0 text is available in APSAL Open's tagged source 
 
 ## ONNX Runtime (onnxruntime-node)
 
-MOSA-local visual search executes the verified model pack through **onnxruntime-node**, the official Node.js binding for ONNX Runtime.
+The optional MOSA Visual Pack executes its verified model through **onnxruntime-node**, the official Node.js binding for ONNX Runtime. This dependency is distributed with the optional visual pack rather than the core `MOSA.app` bundle.
 
 - Project: `microsoft/onnxruntime`
 - Dependency: `onnxruntime-node` (^1.30.0)
@@ -35,7 +35,7 @@ The MIT license text is available in the upstream repository at <https://github.
 
 ## Hugging Face Tokenizers (@huggingface/tokenizers)
 
-SigLIP2 SentencePiece tokenization inside the visual inference worker uses **@huggingface/tokenizers**, the JavaScript tokenizer package published by Hugging Face.
+SigLIP2 SentencePiece tokenization inside the optional visual inference worker uses **@huggingface/tokenizers**, the JavaScript tokenizer package published by Hugging Face. This dependency is distributed with the optional visual pack rather than the core `MOSA.app` bundle.
 
 - Project: `huggingface/tokenizers` (JavaScript distribution)
 - Dependency: `@huggingface/tokenizers` (^0.2.0)

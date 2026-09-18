@@ -57,7 +57,6 @@ test("packages MOSA with ASAR and unpacked native dependencies", () => {
     forgeConfig.packagerConfig.asar.unpackDir,
     "node_modules/@img/sharp-libvips-darwin-arm64",
   );
-  assert.equal(forgeConfig.packagerConfig.asar.unpack, "**/*.dylib");
   assert.equal(typeof forgeConfig.hooks.packageAfterPrune, "function");
   assert.equal(typeof forgeConfig.hooks.generateAssets, "function");
   assert.deepEqual(forgeConfig.packagerConfig.ignore, packageIgnorePatterns);
@@ -122,7 +121,6 @@ test("Windows Forge config omits mac signing and selects Windows native runtime 
   assert.equal("osxNotarize" in config.packagerConfig, false);
   assert.equal(config.packagerConfig.icon, desktopIconBasePath({ outDir: "out" }));
   assert.equal(config.packagerConfig.asar.unpackDir, "node_modules/@img/sharp-win32-x64");
-  assert.equal(config.packagerConfig.asar.unpack, "**/*.dll");
   assert.equal(config.makers.some((maker) => maker.name === "zip" && maker.platforms.includes("win32")), true);
 
   const patterns = packageIgnorePatternsForTarget(target);
@@ -130,9 +128,9 @@ test("Windows Forge config omits mac signing and selects Windows native runtime 
   assert.equal(ignored("/node_modules/@img/sharp-win32-x64/package.json"), false);
   assert.equal(ignored("/node_modules/@img/sharp-darwin-arm64/package.json"), true);
   assert.equal(ignored("/node_modules/better-sqlite3/prebuilds/win32-x64.node"), false);
-  assert.equal(ignored("/node_modules/onnxruntime-node/dist/index.js"), false);
-  assert.equal(ignored("/node_modules/onnxruntime-common/dist/cjs/index.js"), false);
-  assert.equal(ignored("/node_modules/@huggingface/tokenizers/dist/tokenizers.mjs"), false);
+  assert.equal(ignored("/node_modules/onnxruntime-node/dist/index.js"), true);
+  assert.equal(ignored("/node_modules/onnxruntime-common/dist/cjs/index.js"), true);
+  assert.equal(ignored("/node_modules/@huggingface/tokenizers/dist/tokenizers.mjs"), true);
 });
 
 test("desktop icon source generates valid macOS and Windows icon containers", async (t) => {
@@ -220,7 +218,10 @@ test("desktop package excludes every non-runtime project surface", () => {
     "/node_modules/.package-lock.json",
     "/node_modules/@electron/asar/lib/asar.js",
     "/node_modules/@img/sharp-darwin-x64/package.json",
+    "/node_modules/@huggingface/tokenizers/dist/tokenizers.mjs",
     "/node_modules/eslint/lib/api.js",
+    "/node_modules/onnxruntime-common/dist/cjs/index.js",
+    "/node_modules/onnxruntime-node/dist/index.js",
     "/out/MOSA-darwin-arm64/MOSA.app/Contents/Info.plist",
     "/package-lock.json",
     "/README.md",
@@ -260,11 +261,6 @@ test("desktop package keeps every required runtime surface", () => {
     "/node_modules/@img/colour/index.cjs",
     "/node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64-0.35.3.node",
     "/node_modules/@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.3.dylib",
-    "/node_modules/onnxruntime-node/dist/index.js",
-    "/node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64/onnxruntime_binding.node",
-    "/node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64/libonnxruntime.1.30.0.dylib",
-    "/node_modules/onnxruntime-common/dist/cjs/index.js",
-    "/node_modules/@huggingface/tokenizers/dist/tokenizers.mjs",
   ]) {
     assert.equal(isIgnored(path), false, `${path} must remain available to the desktop runtime`);
   }
@@ -283,8 +279,6 @@ test("reduces the packaged dependency tree to arm64 runtime files", async (t) =>
   const nodeAddonPath = join(buildPath, "node_modules", "node-addon-api", "index.js");
   const sharpBindingDir = join(buildPath, "node_modules", "@img", "sharp-darwin-arm64");
   const sharpLibvipsDir = join(buildPath, "node_modules", "@img", "sharp-libvips-darwin-arm64");
-  const onnxTargetDir = join(buildPath, "node_modules", "onnxruntime-node", "bin", "napi-v6", "darwin", "arm64");
-  const onnxForeignDir = join(buildPath, "node_modules", "onnxruntime-node", "bin", "napi-v6", "linux", "x64");
   await mkdir(join(packageDir, "build"), { recursive: true });
   await mkdir(join(packageDir, "prebuilds"), { recursive: true });
   await mkdir(join(packageDir, "src"), { recursive: true });
@@ -292,8 +286,6 @@ test("reduces the packaged dependency tree to arm64 runtime files", async (t) =>
   await mkdir(join(buildPath, "node_modules", "node-addon-api"), { recursive: true });
   await mkdir(sharpBindingDir, { recursive: true });
   await mkdir(sharpLibvipsDir, { recursive: true });
-  await mkdir(onnxTargetDir, { recursive: true });
-  await mkdir(onnxForeignDir, { recursive: true });
   await writeFile(metadataPath, "local_prefix=/Users/example/project\n");
   await writeFile(bindingPath, "binding");
   await writeFile(foreignBindingPath, "foreign binding");
@@ -301,10 +293,6 @@ test("reduces the packaged dependency tree to arm64 runtime files", async (t) =>
   await writeFile(sharpRuntimePath, "runtime");
   await writeFile(sharpTypePath, "types");
   await writeFile(nodeAddonPath, "build helper");
-  await writeFile(join(onnxTargetDir, "onnxruntime_binding.node"), "onnx binding");
-  await writeFile(join(onnxTargetDir, "libonnxruntime.1.30.0.dylib"), "onnx runtime");
-  await writeFile(join(onnxForeignDir, "onnxruntime_binding.node"), "foreign onnx binding");
-  await writeFile(join(onnxForeignDir, "libonnxruntime.so.1"), "foreign onnx runtime");
   await writeFile(
     join(buildPath, "package.json"),
     JSON.stringify({
@@ -318,7 +306,7 @@ test("reduces the packaged dependency tree to arm64 runtime files", async (t) =>
       scripts: { test: "node --test" },
       bin: { mosa: "bin/mosa.mjs" },
       engines: { node: ">=22" },
-      dependencies: { "better-sqlite3": "1", sharp: "1" },
+      dependencies: { "@huggingface/tokenizers": "1", "better-sqlite3": "1", "onnxruntime-node": "1", sharp: "1" },
       devDependencies: { electron: "1" },
     }),
   );
@@ -334,9 +322,6 @@ test("reduces the packaged dependency tree to arm64 runtime files", async (t) =>
   await access(sharpRuntimePath);
   await access(sharpBindingDir);
   await access(sharpLibvipsDir);
-  await access(join(onnxTargetDir, "onnxruntime_binding.node"));
-  await access(join(onnxTargetDir, "libonnxruntime.1.30.0.dylib"));
-  await assert.rejects(access(onnxForeignDir));
   assert.deepEqual(JSON.parse(await readFile(join(buildPath, "package.json"), "utf8")), {
     name: "mosa",
     version: "0.2.0",
@@ -356,18 +341,10 @@ test("reduces a Windows package to win32-x64 native runtime files", async (t) =>
   const windowsBinding = join(packageDir, "prebuilds", "win32-x64.node");
   const macBinding = join(packageDir, "prebuilds", "darwin-arm64.node");
   const windowsSharp = join(buildPath, "node_modules", "@img", "sharp-win32-x64");
-  const windowsOnnx = join(buildPath, "node_modules", "onnxruntime-node", "bin", "napi-v6", "win32", "x64");
-  const macOnnx = join(buildPath, "node_modules", "onnxruntime-node", "bin", "napi-v6", "darwin", "arm64");
   await mkdir(join(packageDir, "prebuilds"), { recursive: true });
   await mkdir(windowsSharp, { recursive: true });
-  await mkdir(windowsOnnx, { recursive: true });
-  await mkdir(macOnnx, { recursive: true });
   await writeFile(windowsBinding, "windows binding");
   await writeFile(macBinding, "mac binding");
-  await writeFile(join(windowsOnnx, "onnxruntime_binding.node"), "windows onnx binding");
-  await writeFile(join(windowsOnnx, "onnxruntime.dll"), "windows onnx runtime");
-  await writeFile(join(macOnnx, "onnxruntime_binding.node"), "mac onnx binding");
-  await writeFile(join(macOnnx, "libonnxruntime.1.30.0.dylib"), "mac onnx runtime");
   await writeFile(join(buildPath, "package.json"), JSON.stringify({
     name: "mosa",
     version: "0.2.0",
@@ -384,10 +361,7 @@ test("reduces a Windows package to win32-x64 native runtime files", async (t) =>
 
   await access(windowsBinding);
   await access(windowsSharp);
-  await access(join(windowsOnnx, "onnxruntime_binding.node"));
-  await access(join(windowsOnnx, "onnxruntime.dll"));
   await assert.rejects(access(macBinding));
-  await assert.rejects(access(macOnnx));
 });
 
 test("Windows packaging fails closed with actionable cross-packaging guidance when target Sharp is absent", async (t) => {

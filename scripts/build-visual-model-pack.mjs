@@ -16,6 +16,9 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const PACK_SCHEMA = "mosa.visual-model-pack/1";
+const ONNX_RUNTIME_VERSION = "1.30.0";
+const TOKENIZER_RUNTIME_VERSION = "0.2.0";
+const SUPPORTED_RUNTIME_TARGETS = new Set(["darwin-arm64", "win32-x64"]);
 
 // The first product candidate. License and file digests are pinned so a
 // rebuild is byte-reproducible; re-check the upstream license before shipping.
@@ -54,17 +57,23 @@ const CANDIDATES = {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const output = resolve(String(args.output || ""));
-  if (!output) throw new Error("Usage: build-visual-model-pack.mjs --output <pack-dir> [--source <dir>] [--candidate <id>] [--download]");
+  if (!output) throw new Error("Usage: build-visual-model-pack.mjs --output <pack-dir> [--source <dir>] [--candidate <id>] [--download] [--runtime-target <darwin-arm64|win32-x64>] [--model-only]");
   const candidate = CANDIDATES[String(args.candidate || "siglip2-base-patch16-224")];
   if (!candidate) throw new Error(`Unknown candidate: ${args.candidate}`);
   const sourceDir = args.source ? resolve(String(args.source)) : null;
   const download = args.download === true;
+  const includeRuntime = args["model-only"] !== true;
+  const runtimeTarget = String(args["runtime-target"] || `${process.platform}-${process.arch}`);
+  if (includeRuntime && !SUPPORTED_RUNTIME_TARGETS.has(runtimeTarget)) {
+    throw new Error(`Unsupported visual runtime target: ${runtimeTarget}. Supported: darwin-arm64, win32-x64.`);
+  }
 
   const staged = [];
   for (const file of candidate.files) {
     const bytes = await obtainFile({ file, sourceDir, download, candidate });
     staged.push(bytes);
   }
+  if (includeRuntime) staged.push(...await collectRuntimeFiles(runtimeTarget));
 
   await mkdir(output, { recursive: true });
   for (const file of staged) {
@@ -80,6 +89,16 @@ async function main() {
     embedding_dimension: candidate.embedding_dimension,
     license: { ...candidate.license },
     preprocessing: { ...candidate.preprocessing },
+    ...(includeRuntime ? {
+      runtime: {
+        provider: "onnxruntime-node",
+        version: ONNX_RUNTIME_VERSION,
+        tokenizer_version: TOKENIZER_RUNTIME_VERSION,
+        platform: runtimeTarget.split("-")[0],
+        arch: runtimeTarget.split("-")[1],
+        root: "runtime",
+      },
+    } : {}),
     files: staged.map((file) => ({
       path: file.path,
       sha256: file.sha256,
@@ -114,6 +133,62 @@ async function obtainFile({ file, sourceDir, download, candidate }) {
   return { ...file, data, bytes: data.length };
 }
 
+async function collectRuntimeFiles(runtimeTarget) {
+  const [platform, arch] = runtimeTarget.split("-");
+  const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+  const nodeModules = join(projectRoot, "node_modules");
+  const specs = [
+    { source: "onnxruntime-node/package.json", role: "runtime-metadata" },
+    { source: "onnxruntime-common/package.json", role: "runtime-metadata" },
+    { source: "onnxruntime-common/dist/cjs/package.json", role: "runtime-metadata" },
+    { source: "@huggingface/tokenizers/package.json", role: "runtime-metadata" },
+    { source: "@huggingface/tokenizers/dist/tokenizers.cjs", role: "runtime-js" },
+  ];
+
+  for (const name of await listMatchingFiles(join(nodeModules, "onnxruntime-node", "dist"), (name) => name.endsWith(".js"))) {
+    specs.push({ source: `onnxruntime-node/dist/${name}`, role: "runtime-js" });
+  }
+  for (const name of await listMatchingFiles(join(nodeModules, "onnxruntime-common", "dist", "cjs"), (name) => name.endsWith(".js"))) {
+    specs.push({ source: `onnxruntime-common/dist/cjs/${name}`, role: "runtime-js" });
+  }
+  const nativeRelativeDir = `onnxruntime-node/bin/napi-v6/${platform}/${arch}`;
+  for (const name of await listMatchingFiles(join(nodeModules, nativeRelativeDir), () => true)) {
+    specs.push({ source: `${nativeRelativeDir}/${name}`, role: "runtime-native" });
+  }
+
+  const versions = await Promise.all([
+    readPackageVersion(join(nodeModules, "onnxruntime-node", "package.json")),
+    readPackageVersion(join(nodeModules, "onnxruntime-common", "package.json")),
+    readPackageVersion(join(nodeModules, "@huggingface", "tokenizers", "package.json")),
+  ]);
+  if (versions[0] !== ONNX_RUNTIME_VERSION || versions[1] !== ONNX_RUNTIME_VERSION || versions[2] !== TOKENIZER_RUNTIME_VERSION) {
+    throw new Error(`Visual runtime dependency versions drifted: onnxruntime-node=${versions[0]}, onnxruntime-common=${versions[1]}, tokenizers=${versions[2]}.`);
+  }
+
+  const files = [];
+  for (const spec of specs) {
+    const sourcePath = join(nodeModules, spec.source);
+    const data = await readFile(sourcePath);
+    files.push({
+      path: `runtime/node_modules/${spec.source}`,
+      role: spec.role,
+      sha256: createHash("sha256").update(data).digest("hex"),
+      bytes: data.length,
+      data,
+    });
+  }
+  return files;
+}
+
+async function listMatchingFiles(directory, predicate) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  return entries.filter((entry) => entry.isFile() && predicate(entry.name)).map((entry) => entry.name).sort();
+}
+
+async function readPackageVersion(path) {
+  return String(JSON.parse(await readFile(path, "utf8")).version || "");
+}
+
 function assertDigest(data, file, label) {
   const digest = createHash("sha256").update(data).digest("hex");
   if (digest !== file.sha256) {
@@ -130,6 +205,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
     if (token === "--download") args.download = true;
+    else if (token === "--model-only") args["model-only"] = true;
     else if (token.startsWith("--")) args[token.slice(2)] = argv[i + 1];
   }
   return args;

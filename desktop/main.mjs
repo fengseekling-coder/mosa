@@ -41,12 +41,12 @@ const expectedServiceIdentity = Object.freeze({
 // never touches. Dev (`npx electron`) reads the name from package.json
 // ("mosa"); the packaged app carries the forge packagerConfig name ("MOSA").
 const desktopDataDir = app.getPath("userData");
-// Runtime availability is measured, never assumed: the probe spawns the
-// inference worker (which imports onnxruntime-node) without loading a model
-// pack, so Settings can distinguish not-installed / disabled /
-// runtime-unavailable / ready without paying the model-load cost.
-async function probeVisualRuntime() {
-  const client = createVisualInferenceClient({ initTimeoutMs: 30_000 });
+// Runtime availability is measured against the active verified Visual Pack.
+// The pack owns its optional ONNX/tokenizer runtime, so MOSA.app itself does
+// not need to carry that heavy dependency when visual search is unused.
+async function probeVisualRuntime(pack) {
+  const model = pack ? { id: pack.id, revision: pack.revision, dimension: pack.embedding_dimension } : null;
+  const client = createVisualInferenceClient({ pack, model, initTimeoutMs: 30_000 });
   try {
     await client.start();
     return { ok: true };
