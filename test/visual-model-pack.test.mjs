@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import {
+  discoverVisualModelPacks,
   validateVisualModelPackManifest,
   verifyVisualModelPack,
   visualModelPackRoot,
@@ -71,4 +72,25 @@ test("visual model pack verifier checks bytes and hashes without allowing symlin
 test("visual model pack root lives under desktop userData, not the asset library", () => {
   assert.equal(visualModelPackRoot("/tmp/mosa-user-data"), "/tmp/mosa-user-data/visual-model-packs");
   assert.throws(() => visualModelPackRoot(""), /userData/);
+});
+
+test("visual model pack discovery verifies installed directories and reports invalid packs separately", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-model-discovery-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const packRoot = visualModelPackRoot(root);
+  const validDir = join(packRoot, "valid");
+  const invalidDir = join(packRoot, "broken");
+  await mkdir(join(validDir, "model"), { recursive: true });
+  await mkdir(invalidDir, { recursive: true });
+  const payload = Buffer.from("verified model");
+  const digest = createHash("sha256").update(payload).digest("hex");
+  await writeFile(join(validDir, "model", "model.bin"), payload);
+  await writeFile(join(validDir, "model-pack.json"), JSON.stringify(manifestFor(payload.length, digest), null, 2));
+  await writeFile(join(invalidDir, "model-pack.json"), "{}");
+
+  const discovery = await discoverVisualModelPacks({ userDataDir: root });
+  assert.equal(discovery.packs.length, 1);
+  assert.equal(discovery.packs[0].pack_dir, await realpath(validDir));
+  assert.equal(discovery.invalid.length, 1);
+  assert.equal(discovery.invalid[0].directory, "broken");
 });

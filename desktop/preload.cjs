@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   writeClipboardImage: (path) => ipcRenderer.invoke("write-clipboard-image", path),
   startNativeDrag: (paths) => ipcRenderer.invoke("start-native-file-drag", paths),
   setLocale: (locale) => ipcRenderer.invoke("set-locale", locale),
+  getVisualModelState: (refresh = false) => ipcRenderer.invoke("visual-model-state", refresh === true),
+  setVisualModelEnabled: (enabled) => ipcRenderer.invoke("visual-model-set-enabled", enabled === true),
   checkForUpdates: (notify = false) =>
     ipcRenderer.invoke("check-for-updates", notify === true),
   downloadAndInstallUpdate: () => ipcRenderer.invoke("download-and-install-update"),

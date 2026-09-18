@@ -4,6 +4,14 @@ Status: evaluation gate, not a shipping-model commitment.
 
 MOSA's current text search already covers explicit keywords, supported Chinese conversational phrasing, and a small audited design vocabulary. The remaining retrieval gap is pixel-grounded intent: composition, subject position, color placement, and other facts that are not present in Prompt or metadata.
 
+## Default product runtime
+
+The default product architecture is **MOSA-local**, not Ollama. The desktop app owns discovery and verification of optional model packs under Electron `userData`, exposes their state in Settings, and keeps installation/enabled/runtime-readiness as separate states. A verified model pack does not become usable until MOSA also has a compatible trusted local inference runtime.
+
+Ollama is not part of the default dependency chain and the normal UI must not instruct users to install or start it. A future external-provider integration may be added for advanced users, but it must implement the same pinned `encodeImage` / `encodeText` contract and cannot weaken model-id/revision/dimension checks.
+
+When no model pack is installed, the rest of MOSA runs normally. When a pack exists but no compatible local runtime is present, Settings reports that state explicitly rather than pretending visual search is available.
+
 ## Product constraints
 
 Any model considered for MOSA visual retrieval must satisfy all of these constraints before product integration:
