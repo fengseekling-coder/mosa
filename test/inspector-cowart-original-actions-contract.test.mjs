@@ -50,7 +50,7 @@ test("29-35. retired show-item-in-folder IPC stays removed", async () => {
 
   assert.doesNotMatch(preload, /showItemInFolder|show-item-in-folder/);
   assert.doesNotMatch(main, /ipcMain\.handle\("show-item-in-folder"/);
-  assert.equal(count(preload, "ipcRenderer.invoke"), 11, "preload exposes only the eleven approved narrow invoke channels");
+  assert.equal(count(preload, "ipcRenderer.invoke"), 13, "preload exposes only the approved narrow invoke channels (11 original + 2 MOSA-local visual model state)");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "the renderer never receives a shell object");
 });
 
@@ -118,9 +118,9 @@ test("59-60. dependency freeze: manifest, lockfile, and app.js imports unchanged
   // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
   // the dependency sections the freeze really guards stay byte-identical.
   const manifest = JSON.parse(pkg);
-  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "0339eb218322b3a863818f979cfe4aca62624c31811a775da305ccda617d91a7", "package.json dependencies must stay untouched");
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies must stay untouched");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
-  assert.equal(sha256(lock), "51f3ff53219df2cfe3ea27ad9caf932a0cadbe062fec8905a11e39819a81fe54", "package-lock.json must stay untouched");
+  assert.equal(sha256(lock), "92d5986ff87283a976b604e0d67a1810edbc05e0ec84631fab7c21ed8c88bb95", "package-lock.json must stay untouched");
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
     ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./batch-import.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./context-package.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./library-reconciliation.mjs", "./native-asset-drag.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
 });

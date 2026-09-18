@@ -20,6 +20,7 @@ import { getBuildIdentity } from "../lib/build-identity.mjs";
 import { MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
 import { downloadWindowsUpdate, launchWindowsUpdateHelper, resolveWindowsUpdateReadyFile } from "./windows-updater.mjs";
 import { createVisualModelManager } from "./visual-model-manager.mjs";
+import { createVisualInferenceClient } from "../lib/visual-inference-client.mjs";
 
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
 const startupShellPath = fileURLToPath(new URL("./startup.html", import.meta.url));
@@ -40,7 +41,22 @@ const expectedServiceIdentity = Object.freeze({
 // never touches. Dev (`npx electron`) reads the name from package.json
 // ("mosa"); the packaged app carries the forge packagerConfig name ("MOSA").
 const desktopDataDir = app.getPath("userData");
-const visualModelManager = createVisualModelManager({ userDataDir: desktopDataDir, runtimeAvailable: false });
+// Runtime availability is measured, never assumed: the probe spawns the
+// inference worker (which imports onnxruntime-node) without loading a model
+// pack, so Settings can distinguish not-installed / disabled /
+// runtime-unavailable / ready without paying the model-load cost.
+async function probeVisualRuntime() {
+  const client = createVisualInferenceClient({ initTimeoutMs: 30_000 });
+  try {
+    await client.start();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: "runtime-unavailable", message: error?.message || "Local inference runtime failed to start." };
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+const visualModelManager = createVisualModelManager({ userDataDir: desktopDataDir, probeRuntime: probeVisualRuntime });
 const productionDefaultUserData = join(app.getPath("appData"), app.name);
 const importStagingRoot = importStagingDir(desktopDataDir);
 const desktopPort = process.env.MOSA_DESKTOP_PORT || DEFAULT_MOSA_DESKTOP_PORT;
@@ -933,6 +949,10 @@ async function ensureDesktopService() {
         projectRoot: appRoot,
         managerDir: appRoot,
         cowartProjectDir: desktopDataDir,
+        visualModel: {
+          userDataDir: desktopDataDir,
+          settings: await visualModelManager.runtimeConfig(),
+        },
         appDir: join(appRoot, "app"),
         assetsRoot: join(libraryDir, "assets"),
         generatedImagesDir: join(libraryDir, "imports"),

@@ -46,6 +46,75 @@ test("visual model manager persists enablement and keeps runtime readiness separ
   assert.equal((await reopened.state()).state, "ready");
 });
 
+test("visual model manager measures runtime readiness through the injected probe", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-visual-manager-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const discoverPacks = async () => ({ root: join(root, "visual-model-packs"), packs: [pack()], invalid: [] });
+  const manager = createVisualModelManager({
+    userDataDir: root,
+    discoverPacks,
+    probeRuntime: async () => ({ ok: true }),
+  });
+  await manager.setEnabled(true);
+  const ready = await manager.state({ refresh: true });
+  assert.equal(ready.state, "ready");
+  assert.equal(ready.runtime_available, true);
+  assert.deepEqual(ready.probe, { ok: true, reason: null, message: null });
+
+  const failing = createVisualModelManager({
+    userDataDir: root,
+    discoverPacks,
+    probeRuntime: async () => ({ ok: false, reason: "runtime-unavailable", message: "onnxruntime-node failed to load" }),
+  });
+  const unavailable = await failing.state({ refresh: true });
+  assert.equal(unavailable.state, "runtime-unavailable");
+  assert.equal(unavailable.runtime_available, false);
+  assert.equal(unavailable.probe.reason, "runtime-unavailable");
+
+  const broken = createVisualModelManager({
+    userDataDir: root,
+    discoverPacks,
+    probeRuntime: async () => ({ ok: false, reason: "error", message: "pack identity mismatch" }),
+  });
+  const errored = await broken.state({ refresh: true });
+  assert.equal(errored.state, "error");
+});
+
+test("visual model manager keeps the disabled state ahead of the probe", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-visual-manager-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const discoverPacks = async () => ({ root: join(root, "visual-model-packs"), packs: [pack()], invalid: [] });
+  let probeCalls = 0;
+  const manager = createVisualModelManager({
+    userDataDir: root,
+    discoverPacks,
+    probeRuntime: async () => {
+      probeCalls += 1;
+      return { ok: true };
+    },
+  });
+  const disabled = await manager.state();
+  assert.equal(disabled.state, "disabled");
+  assert.equal(probeCalls, 0);
+  assert.equal(disabled.probe, null);
+});
+
+test("visual model manager exposes the runtime config consumed by the service", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-visual-manager-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const discoverPacks = async () => ({ root: join(root, "visual-model-packs"), packs: [pack("model-a", "r1")], invalid: [] });
+  const manager = createVisualModelManager({
+    userDataDir: root,
+    discoverPacks,
+    probeRuntime: async () => ({ ok: true }),
+  });
+  const off = await manager.runtimeConfig();
+  assert.deepEqual(off, { enabled: false, active_pack_id: "model-a", active_revision: "r1" });
+  await manager.setEnabled(true);
+  const on = await manager.runtimeConfig();
+  assert.deepEqual(on, { enabled: true, active_pack_id: "model-a", active_revision: "r1" });
+});
+
 test("visual model manager selects only verified discovered packs", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-visual-manager-"));
   deferTestPathRemoval(root, { recursive: true, force: true });

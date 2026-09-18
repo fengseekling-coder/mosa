@@ -29,7 +29,8 @@ The following screen was checked on 2026-09-18. Re-check upstream licenses and f
 
 | Candidate | Current status | Why |
 | --- | --- | --- |
-| Google SigLIP2 Base | **Benchmark candidate** | The published model repos identify Apache-2.0 and SigLIP2 is explicitly multilingual and intended for image-text retrieval. Full-precision Base weights are roughly 1.5 GB, while community ONNX conversions include smaller quantized variants; actual MOSA accuracy and Apple Silicon latency still need measurement. |
+| SigLIP2 Base (ONNX int8, onnx-community) | **First integrated candidate** | Apache-2.0, Apple Silicon CPU latency within the gate, and the Gemma-based 256k tokenizer gives usable Chinese retrieval. The int8 combined graph is 378 MB, inside the pack budget. See the measured results below. |
+| SigLIP v1 Base (ONNX, Xenova) | **Fallback candidate** | Apache-2.0 and a proven export, but the 32k tokenizer has no Chinese coverage: every Chinese query collapses to an identical embedding. English-only retrieval works. |
 | Apple MobileCLIP2 | **Excluded from product evaluation** | The model-weight license is limited to research purposes and explicitly excludes product development and commercial products/services. Its efficiency does not override that restriction. |
 | Jina CLIP v2 | **Excluded from bundled/local product use without separate license** | The downloadable model is CC BY-NC 4.0; the model card directs commercial users to separate commercial channels. |
 | BAAI AltCLIP | **Deferred on footprint** | The model card permits commercial redistribution under CreativeML OpenRAIL-M conditions, but the current checkpoint is multi-gigabyte and does not fit the first model-pack budget without a verified smaller conversion. |
@@ -41,6 +42,46 @@ Primary upstream references:
 - MobileCLIP2 model license: https://github.com/apple-aiml-research/ml-mobileclip/blob/main/LICENSE_MODELS
 - Jina CLIP v2 model card/license: https://huggingface.co/jinaai/jina-clip-v2
 - AltCLIP model card/license: https://huggingface.co/BAAI/AltCLIP
+
+## Measured results (2026-09-18, Apple Silicon, onnxruntime-node 1.30.0)
+
+Environment: darwin/arm64, Node 22, CPU execution provider. The reference
+ground truth was produced by the original PyTorch model (`transformers`
+4.57) on the same real photos.
+
+- Pack: `siglip2-base-patch16-224`, upstream revision `ba1f3b08`, int8 combined graph 378 MB, 768-d embeddings, Apache-2.0. Total pack with tokenizer/config files: 412.4 MB.
+- Cold worker start (pack re-verification + tokenizer + session load): ~1.0–3.5 s (gate: 8 s).
+- Warm image encode (through the IPC worker, including preprocessing): p95 ≈ 48 ms (gate: 250 ms).
+- Warm text encode (through the IPC worker): p95 ≈ 15 ms (gate: 250 ms).
+- Exact Top-20 cosine scan, 768-d: 1k ≈ 2.6 ms, 10k ≈ 5.3 ms, 50k ≈ 26 ms P95 (gate: 60 ms at target scale). Exact search stays; no ANN index.
+- Worker process RSS: ~780–1340 MB (gate: 1536 MB). The Gemma tokenizer's JS vocabulary is the largest fixed cost.
+- Retrieval: Hit@1 = 5/5 English and 5/5 Chinese on a five-photo semantic set (football/bee/beetle/city/tiger) with the fixed-length text recipe below; the PyTorch reference scores 5/5 on the same set.
+- Determinism: identical inputs produce bit-identical embeddings (max |Δ| = 0).
+
+Two non-obvious findings that cost the most time; any future model or
+conversion must be re-verified against them:
+
+1. **Fixed-length text inputs are mandatory.** The community ONNX exports
+   reproduce the upstream text space only when `input_ids` are padded to
+   `max_text_tokens` (64) with the pad token. Variable-length inputs load and
+   run fine but silently corrupt cross-modal alignment (text vectors drift to
+   ≈0.54 cosine from the PyTorch reference; retrieval margins collapse). The
+   same behaviour reproduces through transformers.js 3.8, so it belongs to the
+   export convention, not to any single consumer.
+2. **The separated `text_model.onnx` / `vision_model.onnx` subgraphs are not
+   usable for retrieval.** They emit the pre-projection hidden pools; the
+   projection heads only exist in the combined `model.onnx` graph. Subgraph
+   outputs are individually self-consistent (intra-modal similarity looks
+   healthy) while cross-modal similarity is near-orthogonal — do not mistake
+   that for a working retrieval model. The pack therefore pins the combined
+   graph.
+
+Earlier screening notes that were corrected by measurement: the initial
+evaluation described SigLIP2 as explicitly multilingual; the published
+`siglip2-*` checkpoints are English-trained, and the usable Chinese retrieval
+comes from the Gemma tokenizer's multilingual vocabulary, not from dedicated
+multilingual training. Chinese quality is usable but should be re-scored on a
+broader private corpus before release.
 
 ## Candidate report contract
 
@@ -152,6 +193,41 @@ The embedding build path is also model-neutral. A background worker accepts any 
 Image and text inference share one validated provider contract. The provider must expose both `encodeImage` and `encodeText`, and its model id, revision, and embedding dimension must exactly match the relationship index. MOSA rejects a mismatched vector space instead of comparing embeddings produced by different models. Provider startup is lazy and provider shutdown is owned by the runtime lifecycle.
 
 With a compatible provider configured, `/api/visual/search?q=...` performs text-to-image retrieval against the same versioned image vectors used by image-to-image similarity. The existing lexical search remains independent; visual text search is an optional capability and does not replace explicit Prompt/tag matches.
+
+## Local inference runtime and pack installation
+
+The shipping runtime is ONNX Runtime through `onnxruntime-node` (MIT), with
+`@huggingface/tokenizers` (Apache-2.0) for SentencePiece tokenization. Inference
+runs in a dedicated forked child process (`lib/visual-inference-worker-entry.mjs`)
+that is reached only through `lib/visual-inference-client.mjs`: bounded request
+queue, per-request timeouts, request-id correlation, crash detection, and a
+fail-closed posture (a dead or hung worker rejects work with coded errors and
+is never silently respawned). The renderer has no access to this channel and
+never handles model or asset file paths. No Python, Ollama, or other external
+runtime is required.
+
+A pack is built from the pinned candidate with digests verified at build time:
+
+```bash
+node scripts/build-visual-model-pack.mjs --source <downloaded-files-dir> \
+  --output "$HOME/Library/Application Support/mosa/visual-model-packs/siglip2-base-patch16-224"
+npm exec mosa -- visual-model-verify --from "$HOME/Library/Application Support/mosa/visual-model-packs/siglip2-base-patch16-224"
+```
+
+After a restart, Settings reports the real runtime state machine:
+`not-installed`, `disabled`, `loading`, `ready`, `runtime-unavailable`, or
+`error`. Runtime availability is measured by spawning the inference worker
+without a model, never assumed from a build flag.
+
+Benchmarks for the integrated candidate are reproducible with:
+
+```bash
+node scripts/benchmark-visual-inference.mjs --pack <pack-dir>
+```
+
+The optional `MOSA_VISUAL_SMOKE_PACK` environment variable runs the real
+inference smoke test (`test/visual-inference-smoke.test.mjs`) against an
+installed pack; without it the test skips so CI stays offline.
 
 ## Offline model-pack verification
 

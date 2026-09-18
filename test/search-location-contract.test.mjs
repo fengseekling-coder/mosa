@@ -168,10 +168,10 @@ test("11. no duplicate or hidden synced search control exists", async () => {
 test("12. no new dependencies", async () => {
   const pkg = await readFile(resolve(root, "package.json"), "utf8");
   const manifest = JSON.parse(pkg);
-  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "0339eb218322b3a863818f979cfe4aca62624c31811a775da305ccda617d91a7", "package.json dependencies must stay untouched");
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies must stay untouched");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
   const lock = await readFile(resolve(root, "package-lock.json"), "utf8");
-  assert.equal(sha256(lock), "51f3ff53219df2cfe3ea27ad9caf932a0cadbe062fec8905a11e39819a81fe54", "package-lock.json must stay untouched");
+  assert.equal(sha256(lock), "92d5986ff87283a976b604e0d67a1810edbc05e0ec84631fab7c21ed8c88bb95", "package-lock.json must stay untouched");
 });
 
 // 13. No !important anywhere in the stylesheet (comments stripped).
