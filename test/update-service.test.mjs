@@ -29,6 +29,7 @@ test("update manifest keeps only bounded release metadata", () => {
     version: "0.3.0",
     publishedAt: "2026-09-01T10:00:00Z",
     notes: { zh: "新版", en: "New release" },
+    macArtifact: null,
     windowsArtifact: null,
   });
   assert.equal(MOSA_UPDATE_FEED_URL, "https://mosa.azhuilab.com/releases/latest.json");
@@ -113,6 +114,13 @@ test("update check compares the fixed HTTPS feed against the installed version",
           publishedAt: "2026-09-01T10:00:00Z",
           notes: { zh: "修复问题", en: "Fixes" },
           platforms: {
+            macos: {
+              platform: "macOS",
+              arch: "arm64",
+              file: "MOSA-darwin-arm64-0.2.1.zip",
+              size: 654321,
+              sha256: "b".repeat(64),
+            },
             windows: {
               platform: "Windows",
               arch: "x64",
@@ -135,6 +143,13 @@ test("update check compares the fixed HTTPS feed against the installed version",
   assert.equal(result.currentVersion, "0.2.0");
   assert.equal(result.latestVersion, "0.2.1");
   assert.equal(result.updateAvailable, true);
+  assert.deepEqual(result.macArtifact, {
+    platform: "macOS",
+    arch: "arm64",
+    file: "MOSA-darwin-arm64-0.2.1.zip",
+    size: 654321,
+    sha256: "b".repeat(64),
+  });
   assert.deepEqual(result.windowsArtifact, {
     platform: "Windows",
     arch: "x64",
@@ -152,6 +167,21 @@ test("update manifest rejects a Windows artifact that is not bound to the releas
         platform: "Windows",
         arch: "x64",
         file: "MOSA-win32-x64-0.2.9.zip",
+        size: 123,
+        sha256: "b".repeat(64),
+      },
+    },
+  }), /artifact identity/);
+});
+
+test("update manifest rejects a macOS artifact that is not bound to the release version", () => {
+  assert.throws(() => parseUpdateManifest({
+    version: "0.3.0",
+    platforms: {
+      macos: {
+        platform: "macOS",
+        arch: "arm64",
+        file: "MOSA-darwin-arm64-0.2.9.zip",
         size: 123,
         sha256: "b".repeat(64),
       },

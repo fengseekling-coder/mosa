@@ -299,7 +299,7 @@ test("out-of-scope files stay locked and the Phase 1C card contract is stable", 
   // leave the hash table; their security-relevant behaviour is asserted
   // structurally below. The lockfile stays hash-pinned.
   const expected = {
-    "package-lock.json": "92d5986ff87283a976b604e0d67a1810edbc05e0ec84631fab7c21ed8c88bb95",
+    "package-lock.json": "f9dc6d4a8309ab80e0dde9126b31fed5401f5721541b3635cbe94f49fc29c33f",
   };
   for (const [file, hash] of Object.entries(expected)) {
     const text = await readFile(resolve(root, file), "utf8");

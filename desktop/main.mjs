@@ -19,6 +19,12 @@ import { finalizeCopiedSqliteLibrary } from "../lib/library-relocation.mjs";
 import { getBuildIdentity } from "../lib/build-identity.mjs";
 import { MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
 import { downloadWindowsUpdate, launchWindowsUpdateHelper, resolveWindowsUpdateReadyFile } from "./windows-updater.mjs";
+import {
+  downloadMacosUpdate,
+  launchMacosUpdateHelper,
+  resolveMacosInstallAppPath,
+  resolveMacosUpdateReadyFile,
+} from "./macos-updater.mjs";
 import { createVisualModelManager } from "./visual-model-manager.mjs";
 import {
   checkForVisualPackRelease,
@@ -156,6 +162,8 @@ let windowOpenRequested = false;
 let ipcRegistered = false;
 let currentLocale = "zh"; // safe default matching original Chinese-only notifications
 let updateCheckPromise = null;
+let macosUpdateInstallPromise = null;
+let macosUpdateDownloadController = null;
 let windowsUpdateInstallPromise = null;
 let windowsUpdateDownloadController = null;
 let usageReportPromise = null;
@@ -171,7 +179,9 @@ let desktopStartupHandoffLease = null;
 let desktopStartupHandoffError = null;
 const USAGE_REPORT_RECHECK_MS = 15 * 60 * 1000;
 const VISUAL_PACK_RELEASE_CACHE_MS = 15 * 60 * 1000;
+const MACOS_UPDATE_STAGING_ROOT = join(desktopDataDir, "updates", "macos");
 const WINDOWS_UPDATE_STAGING_ROOT = join(desktopDataDir, "updates", "windows");
+const macosUpdateReadyFile = resolveMacosUpdateReadyFile(process.argv, MACOS_UPDATE_STAGING_ROOT);
 const windowsUpdateReadyFile = resolveWindowsUpdateReadyFile(process.argv, WINDOWS_UPDATE_STAGING_ROOT);
 const rendererConsoleErrors = new Set();
 const MAX_RENDERER_CONSOLE_ERRORS = 32;
@@ -721,10 +731,11 @@ function registerIPC() {
   ipcMain.handle("renderer-ready", async (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return false;
     if (!service) return false;
-    if (windowsUpdateReadyFile) {
+    const updateReadyFiles = [macosUpdateReadyFile, windowsUpdateReadyFile].filter(Boolean);
+    for (const readyFile of updateReadyFiles) {
       try {
-        mkdirSync(dirname(windowsUpdateReadyFile), { recursive: true });
-        writeFileSync(windowsUpdateReadyFile, JSON.stringify({
+        mkdirSync(dirname(readyFile), { recursive: true });
+        writeFileSync(readyFile, JSON.stringify({
           version: app.getVersion(),
           readyAt: new Date().toISOString(),
           port: service.port,
@@ -748,7 +759,57 @@ function registerIPC() {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
       return { status: "unavailable", currentVersion: app.getVersion() };
     }
-    if (process.platform !== "win32" || !app.isPackaged || isolationContext.qaRun) {
+    if (!app.isPackaged || isolationContext.qaRun) {
+      return { status: "unsupported", currentVersion: app.getVersion() };
+    }
+    if (process.platform === "darwin") {
+      if (macosUpdateInstallPromise) return macosUpdateInstallPromise;
+      macosUpdateInstallPromise = (async () => {
+        const controller = new AbortController();
+        macosUpdateDownloadController = controller;
+        try {
+          const release = await checkForMosaUpdate({ currentVersion: app.getVersion() });
+          if (!release.updateAvailable) return { status: "current", currentVersion: release.currentVersion };
+          if (!release.macArtifact) return { status: "unavailable", currentVersion: release.currentVersion };
+          const installAppPath = resolveMacosInstallAppPath(process.execPath);
+          if (!installAppPath) return { status: "unsupported", currentVersion: release.currentVersion };
+          const download = await downloadMacosUpdate({
+            artifact: release.macArtifact,
+            version: release.latestVersion,
+            stagingRoot: MACOS_UPDATE_STAGING_ROOT,
+            signal: controller.signal,
+            onProgress: (progress) => {
+              if (!mainWindow || mainWindow.isDestroyed()) return;
+              mainWindow.webContents.send("update-download-progress", progress);
+            },
+          });
+          if (macosUpdateDownloadController === controller) macosUpdateDownloadController = null;
+          await launchMacosUpdateHelper({
+            zipPath: download.zipPath,
+            installAppPath,
+            version: release.latestVersion,
+            processId: process.pid,
+          });
+          shuttingDown = true;
+          stopBridgeNotificationPoll();
+          stopAnonymousUsageLifecycle();
+          await stopOwnedRuntime();
+          await releaseDesktopStartupHandoff();
+          app.exit(0);
+          return { status: "installing", latestVersion: release.latestVersion };
+        } catch (error) {
+          if (controller.signal.aborted) {
+            return { status: "cancelled", currentVersion: app.getVersion() };
+          }
+          console.warn(`[MOSA] macOS update failed: ${error?.message || error}`);
+          return { status: "error", currentVersion: app.getVersion(), code: "MACOS_UPDATE_FAILED" };
+        } finally {
+          if (macosUpdateDownloadController === controller) macosUpdateDownloadController = null;
+        }
+      })().finally(() => { macosUpdateInstallPromise = null; });
+      return macosUpdateInstallPromise;
+    }
+    if (process.platform !== "win32") {
       return { status: "unsupported", currentVersion: app.getVersion() };
     }
     if (windowsUpdateInstallPromise) return windowsUpdateInstallPromise;
@@ -802,8 +863,9 @@ function registerIPC() {
 
   ipcMain.handle("cancel-update-download", async (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false };
-    if (!windowsUpdateDownloadController || windowsUpdateDownloadController.signal.aborted) return { ok: false };
-    windowsUpdateDownloadController.abort(new Error("Windows update download cancelled by the user."));
+    const controller = process.platform === "darwin" ? macosUpdateDownloadController : windowsUpdateDownloadController;
+    if (!controller || controller.signal.aborted) return { ok: false };
+    controller.abort(new Error("MOSA update download cancelled by the user."));
     return { ok: true };
   });
 
@@ -990,7 +1052,10 @@ function runUpdateCheck({ notify = false } = {}) {
       return {
         status: "ok",
         ...result,
-        canInstallInApp: process.platform === "win32" && app.isPackaged && Boolean(result.windowsArtifact),
+        canInstallInApp: app.isPackaged && (
+          (process.platform === "win32" && Boolean(result.windowsArtifact))
+          || (process.platform === "darwin" && Boolean(result.macArtifact) && Boolean(resolveMacosInstallAppPath(process.execPath)))
+        ),
       };
     })
     .catch((error) => {
