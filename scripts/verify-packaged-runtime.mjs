@@ -49,6 +49,12 @@ function requireNativeEntry(nativeEntries, predicate, description) {
   return entry;
 }
 
+function requireFileEntry(files, predicate, description) {
+  const entry = files.find(predicate);
+  if (!entry) throw new Error(`Packaged runtime is missing ${description}.`);
+  return entry;
+}
+
 export function packagedAsarPath({
   projectRoot = rootDir,
   outDir = process.env.MOSA_FORGE_OUT_DIR || "out",
@@ -111,6 +117,35 @@ export async function verifyPackagedRuntime({
       `Sharp native runtime @img/${packageName}`,
     );
   }
+
+  const onnxPrefix = `node_modules/onnxruntime-node/bin/napi-v6/${target.platform}/${target.arch}/`;
+  requireNativeEntry(
+    nativeEntries,
+    ({ path }) => path === `${onnxPrefix}onnxruntime_binding.node`,
+    `onnxruntime-node native binding for ${target.id}`,
+  );
+  requireNativeEntry(
+    nativeEntries,
+    ({ path }) => target.platform === "darwin"
+      ? path.startsWith(onnxPrefix) && /libonnxruntime.*\.dylib$/u.test(path)
+      : path === `${onnxPrefix}onnxruntime.dll`,
+    `onnxruntime-node runtime library for ${target.id}`,
+  );
+  requireFileEntry(
+    files,
+    ({ path }) => path === "node_modules/onnxruntime-node/dist/index.js",
+    "onnxruntime-node JavaScript runtime",
+  );
+  requireFileEntry(
+    files,
+    ({ path }) => path === "node_modules/onnxruntime-common/dist/cjs/index.js",
+    "onnxruntime-common runtime",
+  );
+  requireFileEntry(
+    files,
+    ({ path }) => path === "node_modules/@huggingface/tokenizers/dist/tokenizers.mjs",
+    "Hugging Face tokenizer runtime",
+  );
 
   const sourceIdentity = JSON.parse(await readFile(resolve(projectRoot, "app", "build-identity.json"), "utf8"));
   const packagedIdentity = parseJsonBuffer(extractFile(asarPath, "app/build-identity.json"), "packaged build identity");

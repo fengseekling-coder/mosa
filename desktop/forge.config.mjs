@@ -49,6 +49,7 @@ const DESKTOP_PACKAGING_TARGETS = Object.freeze({
     sqlitePrebuild: "darwin-arm64.node",
     sharpPackages: Object.freeze(["sharp-darwin-arm64", "sharp-libvips-darwin-arm64"]),
     asarUnpackDir: "node_modules/@img/sharp-libvips-darwin-arm64",
+    onnxRuntimeDir: "darwin/arm64",
   }),
   "win32-x64": Object.freeze({
     id: "win32-x64",
@@ -57,6 +58,7 @@ const DESKTOP_PACKAGING_TARGETS = Object.freeze({
     sqlitePrebuild: "win32-x64.node",
     sharpPackages: Object.freeze(["sharp-win32-x64"]),
     asarUnpackDir: "node_modules/@img/sharp-win32-x64",
+    onnxRuntimeDir: "win32/x64",
   }),
 });
 
@@ -173,6 +175,33 @@ export async function preparePackagedRuntime(buildPath, target = resolveDesktopP
     });
   }
 
+  const onnxNapiDir = join(buildPath, "node_modules", "onnxruntime-node", "bin", "napi-v6");
+  const onnxPlatforms = await readdir(onnxNapiDir, { withFileTypes: true }).catch((error) => {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  });
+  for (const platformEntry of onnxPlatforms) {
+    if (!platformEntry.isDirectory()) continue;
+    const platformDir = join(onnxNapiDir, platformEntry.name);
+    const archEntries = await readdir(platformDir, { withFileTypes: true });
+    await Promise.all(
+      archEntries
+        .filter((archEntry) => archEntry.isDirectory() && `${platformEntry.name}/${archEntry.name}` !== target.onnxRuntimeDir)
+        .map((archEntry) => rm(join(platformDir, archEntry.name), { recursive: true, force: true })),
+    );
+    const remaining = await readdir(platformDir).catch(() => []);
+    if (!remaining.length) await rm(platformDir, { recursive: true, force: true });
+  }
+  const targetOnnxDir = join(onnxNapiDir, ...target.onnxRuntimeDir.split("/"));
+  await access(join(targetOnnxDir, "onnxruntime_binding.node")).catch(() => {
+    throw new Error(`Missing onnxruntime-node native binding for ${target.id}: ${target.onnxRuntimeDir}/onnxruntime_binding.node`);
+  });
+  const targetOnnxFiles = await readdir(targetOnnxDir);
+  const runtimeLibraryPattern = target.platform === "darwin" ? /^libonnxruntime.*\.dylib$/u : /^onnxruntime\.dll$/iu;
+  if (!targetOnnxFiles.some((name) => runtimeLibraryPattern.test(name))) {
+    throw new Error(`Missing onnxruntime-node runtime library for ${target.id} in ${target.onnxRuntimeDir}.`);
+  }
+
   const manifestPath = join(buildPath, "package.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const runtimeManifest = Object.fromEntries(
@@ -195,7 +224,7 @@ export function packageIgnorePatternsForTarget(target = resolveDesktopPackagingT
   /^\/desktop\/(?:forge\.config\.mjs|icon-assets\.mjs|preload\.mjs)$/,
   /^\/lib\/.*(?:\.ts|\.js\.map)$/,
   /^\/node_modules\/\.package-lock\.json$/,
-  new RegExp(`^/node_modules/(?!(?:better-sqlite3|detect-libc|node-addon-api|semver|sharp)(?:/|$)|@img(?:/(?:${allowedImagePackages})(?:/|$)|$)).+`),
+  new RegExp(`^/node_modules/(?!(?:better-sqlite3|detect-libc|node-addon-api|onnxruntime-common|onnxruntime-node|semver|sharp)(?:/|$)|@huggingface(?:/tokenizers(?:/|$)|$)|@img(?:/(?:${allowedImagePackages})(?:/|$)|$)).+`),
   ];
 }
 
@@ -222,6 +251,9 @@ export function createForgeConfig({ target = activeTarget, env = process.env } =
       // Sharp's target package contains native siblings that must stay outside
       // app.asar. The exact package differs between macOS and Windows.
       unpackDir: target.asarUnpackDir,
+      // AutoUnpackNativesPlugin covers .node addons. ONNX Runtime also ships
+      // a sibling dylib/dll that must be a real filesystem path for dlopen.
+      unpack: target.platform === "darwin" ? "**/*.dylib" : "**/*.dll",
     },
   },
   rebuildConfig: {},

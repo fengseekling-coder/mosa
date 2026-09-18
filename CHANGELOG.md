@@ -7,6 +7,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 ### Local visual search / 本地视觉搜索
 
 - Wired the first real MOSA-local image-text embedding runtime: a verified model pack (SigLIP2 Base int8 ONNX, Apache-2.0, 768-d, 412 MB pack) now powers `/api/visual/search`, image-to-image similarity, and near-duplicate/version/Stack candidates through onnxruntime-node in a dedicated fail-closed inference worker process. No Ollama, Python, or network access is required at runtime.
+- Desktop packaging now retains only the target-platform ONNX Runtime native files, unpacks the ONNX binding/runtime library beside `app.asar`, verifies the tokenizer and ONNX JavaScript runtime surfaces structurally, and includes an optional packaged visual smoke that proves the built `MOSA.app` can load the real model, build embeddings, run text-to-image search, and return image-to-image neighbors.
 - Settings now measures real runtime availability instead of reporting a placeholder: states are `not-installed`, `disabled`, `loading`, `ready`, `runtime-unavailable`, and `error`.
 - Background embedding indexes assets incrementally with content-hash staleness detection; deleted assets are pruned from the derived index and a crash of the inference worker degrades to explicit unavailability rather than wrong results.
 
