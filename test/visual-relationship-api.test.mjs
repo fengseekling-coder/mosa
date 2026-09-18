@@ -55,6 +55,10 @@ test("visual API delegates similarity and derived-index cleanup to the configure
         evidence: { source: "visual_embedding_similarity" },
       }];
     },
+    async searchByText(projectId, query, options) {
+      calls.push(["search", projectId, query, options]);
+      return [{ asset_id: "visual-match", score: 0.88 }];
+    },
     async clear(projectId) { calls.push(["clear", projectId]); return 3; },
   };
   const runtime = await startRuntime(t, "mosa-visual-api-on-", service);
@@ -70,6 +74,11 @@ test("visual API delegates similarity and derived-index cleanup to the configure
   assert.equal(candidateResponse.status, 200);
   const candidates = await candidateResponse.json();
   assert.deepEqual(candidates.candidates[0].kinds, ["stack_candidate"]);
+  const searchResponse = await fetch(runtime.url + "/api/visual/search?project=project-a&q=%E8%93%9D%E8%89%B2%20%E4%BA%BA%E7%89%A9&limit=6");
+  assert.equal(searchResponse.status, 200);
+  const search = await searchResponse.json();
+  assert.equal(search.query, "蓝色 人物");
+  assert.deepEqual(search.results.map((item) => item.asset_id), ["visual-match"]);
   const cleared = await fetch(runtime.url + "/api/visual/index?project=project-a", { method: "DELETE" });
   assert.equal(cleared.status, 200);
   assert.equal((await cleared.json()).removed, 3);
@@ -77,6 +86,7 @@ test("visual API delegates similarity and derived-index cleanup to the configure
     ["status", "project-a"],
     ["similar", "project-a", "anchor", { limit: 7, minScore: 0.8 }],
     ["candidates", "project-a", "anchor", { limit: 9, minScore: 0.7 }],
+    ["search", "project-a", "蓝色 人物", { limit: 6, minScore: undefined }],
     ["clear", "project-a"],
   ]);
 });
@@ -86,9 +96,11 @@ test("visual API rejects malformed similarity controls before they reach a provi
     model: { id: "example/model", revision: "r1", dimension: 512 },
     status() { return { available: true, index: { count: 0 } }; },
     similarAssets() { throw new Error("should not run"); },
+    searchByText() { throw new Error("should not run"); },
     clear() { return 0; },
   };
   const runtime = await startRuntime(t, "mosa-visual-api-invalid-", service);
   assert.equal((await fetch(runtime.url + "/api/visual/assets/a/similar?limit=nope")).status, 400);
   assert.equal((await fetch(runtime.url + "/api/visual/assets/a/similar?minScore=2")).status, 400);
+  assert.equal((await fetch(runtime.url + "/api/visual/search?q=")).status, 400);
 });

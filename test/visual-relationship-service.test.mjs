@@ -55,3 +55,51 @@ test("visual relationship service fails closed when candidate metadata is unavai
     /requires an asset store/,
   );
 });
+
+test("visual relationship service uses one pinned vector space for text-to-image search", async () => {
+  const calls = [];
+  const service = createVisualRelationshipService({
+    index: {
+      indexStatus() { return { count: 2 }; },
+      querySimilar(projectId, vector, options) {
+        calls.push([projectId, Array.from(vector), options]);
+        return [{ asset_id: "asset-a", score: 0.91 }];
+      },
+      similarToAsset() { return []; },
+      embeddingState() { return { state: "missing" }; },
+      upsertEmbedding() {},
+      deleteAsset() { return 0; },
+      clearModel() { return 0; },
+    },
+    provider: {
+      model: { id: "example/model", revision: "r1", dimension: 3 },
+      async encodeText(query) {
+        assert.equal(query, "蓝色人物");
+        return new Float32Array([1, 0, 0]);
+      },
+    },
+    model: { id: "example/model", revision: "r1", dimension: 3 },
+  });
+  const result = await service.searchByText("default", "蓝色人物", { limit: 5, minScore: 0.7 });
+  assert.deepEqual(result.map((item) => item.asset_id), ["asset-a"]);
+  assert.deepEqual(calls, [[
+    "default",
+    [1, 0, 0],
+    { id: "example/model", revision: "r1", dimension: 3, limit: 5, minScore: 0.7 },
+  ]]);
+  assert.equal(service.status("default").capabilities.text_visual_search, true);
+});
+
+test("visual relationship service rejects a provider from a different model revision", () => {
+  assert.throws(() => createVisualRelationshipService({
+    index: {
+      indexStatus() { return { count: 0 }; },
+      similarToAsset() { return []; },
+    },
+    provider: {
+      model: { id: "example/model", revision: "r2", dimension: 3 },
+      encodeText() { return [1, 0, 0]; },
+    },
+    model: { id: "example/model", revision: "r1", dimension: 3 },
+  }), /does not match/);
+});
