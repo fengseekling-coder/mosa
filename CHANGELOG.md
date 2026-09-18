@@ -28,6 +28,11 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - Backups are published only after MOSA integrity checks pass and a SHA-256 manifest has been written; verification detects missing or modified files before restore.
 - Restore requires an explicit empty destination and rebases managed absolute paths into that destination before running the normal library verifier. Large media hashes are streamed instead of loaded into memory as one buffer.
 
+### Saved filters / 已保存筛选
+
+- The sidebar can save the current gallery query, scope, media type, facets, and sort order as a named project-local filter preset, then restore the complete view semantics with one action.
+- Saved filters are bounded local UI preferences rather than asset metadata: they do not modify Prompts, provenance, groups, or generation records, and deleting a preset never changes library content.
+
 ## 0.2.1-rc.14 — 2026-09-16 / Release Candidate
 
 ### Drag & drop import / 拖放导入
