@@ -68,7 +68,9 @@ test("visual relationship index invalidates its in-memory matrix after writes an
     assert.deepEqual(index.querySimilar("default", [1, 0, 0], { ...MODEL, limit: 3 }).map((item) => item.asset_id), ["a", "c", "b"]);
     assert.equal(index.deleteAsset("default", "a"), 1);
     assert.deepEqual(index.querySimilar("default", [1, 0, 0], { ...MODEL, limit: 3 }).map((item) => item.asset_id), ["c", "b"]);
-    assert.equal(index.clearModel("default", MODEL), 2);
+    assert.equal(index.pruneAssets("default", ["b", "missing"]), 1);
+    assert.deepEqual(index.querySimilar("default", [1, 0, 0], { ...MODEL, limit: 3 }).map((item) => item.asset_id), ["c"]);
+    assert.equal(index.clearModel("default", MODEL), 1);
     assert.equal(index.indexStatus("default", MODEL).count, 0);
   } finally {
     index.close();
