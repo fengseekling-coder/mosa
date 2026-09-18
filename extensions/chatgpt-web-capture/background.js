@@ -33,6 +33,8 @@ const REMOTE_MEDIA_HOSTS = new Set([
 let settingsMigration;
 let queueDrainPromise;
 let queueMutationPromise = Promise.resolve();
+let queueStatusReportPromise;
+let lastSeenRetryRequestId = 0;
 const chunkedVideoTransfers = new Map();
 const VIDEO_TRANSFER_TTL_MS = 10 * 60 * 1000;
 
@@ -266,6 +268,50 @@ async function writeCaptureQueue(queue) {
   await chrome.storage.local.set({ [CAPTURE_QUEUE_KEY]: queue.slice(-CAPTURE_QUEUE_MAX_ITEMS) });
 }
 
+async function captureQueueStatusSnapshot() {
+  const queue = await readCaptureQueue();
+  return {
+    pending: queue.length,
+    failed: queue.filter((item) => Number(item?.attempts || 0) > 0).length,
+    items: queue.slice(0, 20).map((item) => ({
+      id: String(item?.id || ""),
+      provider: String(item?.payload?.provider || ""),
+      mediaKind: item?.payload?.mediaKind === "video" ? "video" : "image",
+      promptStatus: String(item?.payload?.promptStatus || item?.payload?.prompt_status || "not-available"),
+      generationStatus: String(item?.payload?.generationStatus || item?.payload?.generation_status || "unknown"),
+      createdAt: Number(item?.createdAt || 0),
+      updatedAt: Number(item?.lastUpdatedAt || item?.createdAt || 0),
+      attempts: Number(item?.attempts || 0),
+      lastError: String(item?.lastError || ""),
+    })),
+  };
+}
+
+function reportCaptureQueueStatus() {
+  if (queueStatusReportPromise) return queueStatusReportPromise;
+  queueStatusReportPromise = (async () => {
+    const settings = await getSettings();
+    const token = String(settings.mosaToken || "").trim();
+    if (!token) return { reported: false, retryRequested: false };
+    const baseUrl = normalizeBaseUrl(settings.mosaBaseUrl || DEFAULTS.mosaBaseUrl);
+    const response = await fetchWithTimeout(`${baseUrl}/api/ingest/web-capture-status`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify(await captureQueueStatusSnapshot()),
+      cache: "no-cache",
+    }, 3_000);
+    if (!response.ok) return { reported: false, retryRequested: false };
+    const body = await response.json().catch(() => ({}));
+    const retryRequestId = Math.max(0, Number(body?.retryRequestId || 0));
+    const retryRequested = retryRequestId > lastSeenRetryRequestId;
+    lastSeenRetryRequestId = Math.max(lastSeenRetryRequestId, retryRequestId);
+    return { reported: true, retryRequested };
+  })().catch(() => ({ reported: false, retryRequested: false })).finally(() => {
+    queueStatusReportPromise = undefined;
+  });
+  return queueStatusReportPromise;
+}
+
 async function enqueueCapture(payload) {
   const id = stableCaptureKey(payload);
   const replayPayload = queueReplayPayload(payload, id);
@@ -385,8 +431,10 @@ async function ingestWithQueue(payload = {}) {
   try {
     const result = await ingestToMosa(payload);
     await removeQueuedCapture(queueId).catch(() => {});
+    void reportCaptureQueueStatus();
     return result;
   } catch (error) {
+    void reportCaptureQueueStatus();
     throw error;
   }
 }
@@ -452,7 +500,10 @@ function drainCaptureQueue() {
         }
       }
     }
-  })().finally(() => { queueDrainPromise = undefined; });
+  })().finally(() => {
+    queueDrainPromise = undefined;
+    void reportCaptureQueueStatus();
+  });
   return queueDrainPromise;
 }
 
@@ -462,10 +513,13 @@ chrome.runtime.onInstalled?.addListener(() => {
   void drainCaptureQueue();
 });
 chrome.alarms?.onAlarm?.addListener((alarm) => {
-  if (alarm?.name === CAPTURE_QUEUE_ALARM) void drainCaptureQueue();
+  if (alarm?.name === CAPTURE_QUEUE_ALARM) {
+    void reportCaptureQueueStatus().finally(() => drainCaptureQueue());
+  }
 });
 chrome.alarms?.create?.(CAPTURE_QUEUE_ALARM, { periodInMinutes: 1 });
 void drainCaptureQueue();
+void reportCaptureQueueStatus();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== "string") return false;

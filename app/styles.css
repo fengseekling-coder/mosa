@@ -1558,6 +1558,24 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .settings-text-action:active { transform: scale(.96); }
 .mosa-v2 .settings-text-action { display: inline-flex; min-height: 28px; align-items: center; justify-content: center; padding: 0 7px; border: 0; border-radius: 7px; color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 10px; font-weight: 560; transition: color 110ms ease-out, background 110ms ease-out, transform 90ms ease-out; }
 .mosa-v2 .settings-text-action:disabled { cursor: wait; opacity: .56; }
+.mosa-v2 .capture-task-panel { display: grid; gap: 8px; padding: 2px 0 4px; }
+.mosa-v2 .capture-task-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--color-text-secondary); font-size: 11px; }
+.mosa-v2 .capture-task-head > div { min-width: 0; display: grid; gap: 2px; }
+.mosa-v2 .capture-task-head strong { color: var(--color-text-primary); font-size: 11px; font-weight: 620; }
+.mosa-v2 .capture-task-stale { color: var(--color-warning); font-size: 10px; }
+.mosa-v2 .capture-task-list { display: grid; gap: 2px; padding: 0; margin: 0; list-style: none; }
+.mosa-v2 .capture-task-item { display: grid; grid-template-columns: 7px minmax(0, 1fr); align-items: start; gap: 8px; min-height: 32px; padding: 5px 7px; border-radius: 7px; background: var(--app-hover); }
+.mosa-v2 .capture-task-dot { width: 6px; height: 6px; margin-top: 5px; border-radius: 50%; background: var(--color-text-tertiary); }
+.mosa-v2 .capture-task-item[data-state="imported"] .capture-task-dot { background: var(--color-success); }
+.mosa-v2 .capture-task-item[data-state="failed"] .capture-task-dot { background: var(--color-danger); }
+.mosa-v2 .capture-task-item[data-state="queued"] .capture-task-dot { background: var(--color-warning); }
+.mosa-v2 .capture-task-copy { min-width: 0; display: grid; gap: 1px; }
+.mosa-v2 .capture-task-copy strong { color: var(--color-text-primary); font-size: 10px; font-weight: 600; }
+.mosa-v2 .capture-task-copy small,
+.mosa-v2 .capture-task-copy em { overflow: hidden; color: var(--color-text-tertiary); font-size: 9px; font-style: normal; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .capture-task-copy em { color: var(--color-danger); }
+.mosa-v2 .capture-task-recent-title { margin-top: 2px; color: var(--color-text-tertiary); font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.mosa-v2 .capture-task-empty { padding: 5px 0; margin: 0; color: var(--color-text-tertiary); font-size: 10px; list-style: none; }
 @media (hover: hover) and (pointer: fine) {
   .mosa-v2 .settings-text-action:hover,
   .mosa-v2 .settings-modal-close:hover { color: var(--color-text-primary); background: var(--app-hover); }
