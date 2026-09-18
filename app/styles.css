@@ -1414,6 +1414,11 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .asset-curation-note textarea { box-sizing: border-box; width: 100%; min-height: 78px; resize: vertical; border: 1px solid var(--color-border-subtle); border-radius: 7px; padding: 8px 9px; color: var(--color-text-primary); background: var(--app-card); font: inherit; line-height: 1.45; }
 .mosa-v2 .asset-curation-note textarea:focus { border-color: var(--color-text-secondary); outline: none; }
 .mosa-v2 .asset-curation-actions { display: flex; justify-content: flex-end; }
+.mosa-v2 .context-package-actions { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--color-border-subtle); }
+.mosa-v2 .context-package-actions > div:first-child { display: grid; gap: 2px; }
+.mosa-v2 .context-package-actions > div:first-child strong { color: var(--color-text-primary); font-size: 12px; }
+.mosa-v2 .context-package-actions > div:first-child span { color: var(--color-text-tertiary); font-size: 11px; line-height: 1.4; }
+.mosa-v2 .context-package-actions > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 
 @media (hover: hover) and (pointer: fine) {
   .mosa-v2 .sidebar-section-toggle:hover { color: var(--color-text-primary); }
