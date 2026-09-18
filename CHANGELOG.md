@@ -36,6 +36,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - Assets can now be explicitly marked as curated and given a user-authored experience note. Curation is asset metadata, not generation evidence or a Recipe change, and note text participates in local search.
 - Inspector can copy or export an auditable local reuse-context package. The package allowlists recorded Prompt/Recipe/provenance/version/reference fields, references existing local media instead of duplicating or uploading it, and explicitly leaves unavailable facts unknown.
 - Added a reproducible retrieval acceptance baseline with enforced lexical cases plus diagnostic conversational, semantic, cross-language, and visual-content probes. This makes the case for any future embedding layer measurable instead of assuming that a model is required.
+- Added conservative Chinese conversational query planning: recognizable phrases such as “找一下之前做过的…” are reduced to design terms that actually exist in the local short-term index before entering the existing strict search path. The acceptance set now guards these supported conversational queries while leaving semantic and visual probes diagnostic.
 
 ## 0.2.1-rc.14 — 2026-09-16 / Release Candidate
 

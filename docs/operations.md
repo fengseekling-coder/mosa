@@ -120,9 +120,9 @@ node scripts/evaluate-retrieval-baseline.mjs --json
 node scripts/evaluate-retrieval-baseline.mjs --enforce
 ```
 
-The fixture uses synthetic designer-library assets and realistic search phrasing, never a user's private library. `lexical` cases are release guards and must keep an expected asset in the top five. `conversational`, `semantic`, and `visual` cases are diagnostic probes: they measure the gap between recorded text search and natural-language or image-content retrieval without claiming MOSA already provides semantic search.
+The fixture uses synthetic designer-library assets and realistic search phrasing, never a user's private library. `lexical` and supported `conversational` cases are release guards and must keep an expected asset in the top five. `semantic` and `visual` cases stay diagnostic: they measure the gap between recorded text search and paraphrase/image-content retrieval without claiming MOSA already provides semantic search.
 
-Use the baseline to choose the smallest justified next step. Conversational misses caused by filler words or punctuation should be addressed in query planning before adding a model. Cross-language paraphrase or visual-content misses are evidence for evaluating local text/image embeddings, provided their latency, disk, privacy, and migration costs are measured separately.
+The current conversational planner is intentionally conservative: it only activates on recognizable Chinese search phrasing, removes scaffolding, then keeps CJK terms that are already present in the library's short-term index. Ordinary keyword queries retain their original semantics. Cross-language paraphrase or visual-content misses are evidence for evaluating local text/image embeddings, provided their latency, disk, privacy, and migration costs are measured separately.
 
 ## Codex Hard-Link Reclaim
 
