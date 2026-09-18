@@ -1,0 +1,150 @@
+{
+  "schema": "mosa.retrieval-acceptance/1",
+  "description": "Synthetic, reproducible designer-library queries used to measure lexical, conversational, semantic, and visual retrieval gaps without using private user data.",
+  "assets": [
+    {
+      "id": "gold-future-city-poster",
+      "prompt": "金色 未来城市 建筑群 夜景 品牌海报，暖金灯光与深色天空",
+      "tags": ["金色", "未来城市", "海报", "品牌"],
+      "category": "海报",
+      "group": "城市品牌",
+      "style": "cinematic",
+      "theme": "future city",
+      "curated": true,
+      "curation_note": "城市品牌主视觉候选，建筑层次和金色氛围值得复用。"
+    },
+    {
+      "id": "blue-portrait-whitespace",
+      "prompt": "蓝色背景 人物肖像 大面积留白 极简构图",
+      "tags": ["人物", "蓝色背景", "留白", "肖像"],
+      "category": "人物",
+      "group": "人物研究",
+      "style": "minimal",
+      "theme": "blue"
+    },
+    {
+      "id": "brand-kv-curated",
+      "prompt": "品牌 KV 视觉系统，几何主体与克制排版",
+      "tags": ["品牌", "kv", "主视觉", "几何"],
+      "category": "KV",
+      "group": "品牌系统",
+      "style": "editorial",
+      "theme": "brand",
+      "curated": true,
+      "curation_note": "适合继续发展成品牌 KV；主体关系稳定，后续替换文字内容。"
+    },
+    {
+      "id": "mechanical-future-poster",
+      "prompt": "机械结构 未来工业 海报 红黑配色 金属细节",
+      "tags": ["机械", "未来", "工业", "海报"],
+      "category": "海报",
+      "group": "机械研究",
+      "style": "industrial",
+      "theme": "mechanical"
+    },
+    {
+      "id": "editorial-portrait",
+      "prompt": "editorial portrait photography with restrained typography and warm skin tones",
+      "tags": ["editorial", "portrait", "photography"],
+      "category": "photo",
+      "group": "portrait studies",
+      "style": "editorial",
+      "theme": "portrait"
+    },
+    {
+      "id": "green-packaging",
+      "prompt": "绿色 可持续 包装 纸盒 植物纹理 产品摄影",
+      "tags": ["绿色", "包装", "可持续", "产品"],
+      "category": "包装",
+      "group": "包装研究",
+      "style": "natural",
+      "theme": "sustainable"
+    }
+  ],
+  "queries": [
+    {
+      "id": "lexical-gold-city",
+      "tier": "lexical",
+      "query": "金色 未来城市 海报",
+      "expected_any": ["gold-future-city-poster"],
+      "enforce": true
+    },
+    {
+      "id": "lexical-blue-portrait",
+      "tier": "lexical",
+      "query": "蓝色背景 人物 留白",
+      "expected_any": ["blue-portrait-whitespace"],
+      "enforce": true
+    },
+    {
+      "id": "lexical-brand-kv",
+      "tier": "lexical",
+      "query": "品牌 kv",
+      "expected_any": ["brand-kv-curated"],
+      "enforce": true
+    },
+    {
+      "id": "lexical-mechanical",
+      "tier": "lexical",
+      "query": "机械 未来 海报",
+      "expected_any": ["mechanical-future-poster"],
+      "enforce": true
+    },
+    {
+      "id": "lexical-english-portrait",
+      "tier": "lexical",
+      "query": "editorial portrait",
+      "expected_any": ["editorial-portrait"],
+      "enforce": true
+    },
+    {
+      "id": "conversational-gold-city",
+      "tier": "conversational",
+      "query": "找一下之前做过的金色未来城市海报",
+      "expected_any": ["gold-future-city-poster"],
+      "enforce": false
+    },
+    {
+      "id": "conversational-blue-portrait",
+      "tier": "conversational",
+      "query": "那个留白很多、蓝色背景的人物设计",
+      "expected_any": ["blue-portrait-whitespace"],
+      "enforce": false
+    },
+    {
+      "id": "conversational-curated-kv",
+      "tier": "conversational",
+      "query": "我之前精选过适合继续做品牌KV的版本",
+      "expected_any": ["brand-kv-curated"],
+      "enforce": false
+    },
+    {
+      "id": "semantic-city-key-visual",
+      "tier": "semantic",
+      "query": "高端科技城市主视觉",
+      "expected_any": ["gold-future-city-poster"],
+      "enforce": false
+    },
+    {
+      "id": "semantic-cross-language-whitespace",
+      "tier": "semantic",
+      "query": "clean portrait with lots of negative space",
+      "expected_any": ["blue-portrait-whitespace"],
+      "enforce": false
+    },
+    {
+      "id": "semantic-sustainable-product",
+      "tier": "semantic",
+      "query": "eco friendly product box",
+      "expected_any": ["green-packaging"],
+      "enforce": false
+    },
+    {
+      "id": "visual-right-side-person",
+      "tier": "visual",
+      "query": "人物站在画面右侧的蓝色图",
+      "expected_any": ["blue-portrait-whitespace"],
+      "enforce": false
+    }
+  ]
+}

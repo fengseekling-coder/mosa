@@ -110,6 +110,20 @@ Restore verifies the manifest first, copies through a private staging directory,
 
 Backups are local snapshots, not synchronization. Stop or pause heavy capture/import activity when practical. The SQLite snapshot itself is consistent under concurrent writes, and reference-attachment writes are guarded, but a concurrently deleted media file can intentionally make the backup fail closed so that MOSA never publishes a snapshot whose database references missing bytes.
 
+## Retrieval Acceptance Baseline
+
+Before adding embeddings or another search model, run the reproducible retrieval acceptance set:
+
+```bash
+node scripts/evaluate-retrieval-baseline.mjs
+node scripts/evaluate-retrieval-baseline.mjs --json
+node scripts/evaluate-retrieval-baseline.mjs --enforce
+```
+
+The fixture uses synthetic designer-library assets and realistic search phrasing, never a user's private library. `lexical` cases are release guards and must keep an expected asset in the top five. `conversational`, `semantic`, and `visual` cases are diagnostic probes: they measure the gap between recorded text search and natural-language or image-content retrieval without claiming MOSA already provides semantic search.
+
+Use the baseline to choose the smallest justified next step. Conversational misses caused by filler words or punctuation should be addressed in query planning before adding a model. Cross-language paraphrase or visual-content misses are evidence for evaluating local text/image embeddings, provided their latency, disk, privacy, and migration costs are measured separately.
+
 ## Codex Hard-Link Reclaim
 
 Migration re-imports each record from the legacy library file rather than from the Codex path, so a library that was hard-linked before migrating holds a second copy of every Codex asset. Reclaim that space once the migration has been verified:
