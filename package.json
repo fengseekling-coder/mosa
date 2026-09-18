@@ -59,6 +59,7 @@
     "qa:electron": "node scripts/qa-launcher.mjs --type electron --no-build",
     "qa:packaged": "node scripts/qa-launcher.mjs --type packaged --no-build",
     "qa:packaged:smoke": "node scripts/packaged-smoke.mjs",
+    "qa:packaged:visual-smoke": "node scripts/packaged-visual-smoke.mjs",
     "qa:gallery:performance": "node scripts/qa-gallery-virtualization.mjs"
   },
   "dependencies": {
