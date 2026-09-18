@@ -123,3 +123,15 @@ MOSA_VECTOR_BENCH_ASSETS=100000 MOSA_VECTOR_BENCH_DIMENSION=768 npm run benchmar
 7. Add user controls to remove the optional model pack and derived embeddings without touching original assets or provenance.
 
 Do not implement automatic model downloads until licensing, checksum verification, disk-space handling, and explicit user consent are part of the same change.
+
+## Offline model-pack verification
+
+Candidate weights that already exist locally can be arranged as a MOSA visual model pack and verified without network access:
+
+```bash
+npm exec mosa -- visual-model-verify --from /absolute/path/to/model-pack
+```
+
+The pack root contains `model-pack.json` with schema `mosa.visual-model-pack/1`. The manifest pins an id, revision, `image-text-embedding` model type, embedding dimension, product-use license declaration, preprocessing metadata, and every model/runtime file's relative path, role, byte size, and SHA-256 digest. Verification rejects absolute/traversal paths, duplicate entries, symlinks, size mismatches, hash mismatches, missing license fields, unconfirmed product use, and first-stage packs above 512 MiB.
+
+Verified packs are intended to live under `<Electron userData>/visual-model-packs`, not under `MOSA Library`. The library therefore remains portable and its backup does not silently duplicate model weights.
