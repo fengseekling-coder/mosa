@@ -33,7 +33,7 @@ export async function acquireMosaRuntimeLock(options: { libraryDir?: string; loc
         token,
         pid: process.pid,
         createdAt: new Date().toISOString(),
-        processIdentity: await readProcessIdentity(process.pid) || undefined,
+        processIdentity: await readMosaRuntimeProcessIdentity(process.pid) || undefined,
       };
       try {
         await handle.writeFile(`${JSON.stringify(owner)}\n`, "utf8");
@@ -117,12 +117,12 @@ export async function verifyMosaRuntimeLockProcessIdentity(owner: {
   processIdentity?: string;
 }): Promise<boolean | null> {
   if (!Number.isInteger(owner?.pid) || Number(owner.pid) <= 0 || !owner.processIdentity) return null;
-  const currentIdentity = await readProcessIdentity(Number(owner.pid));
+  const currentIdentity = await readMosaRuntimeProcessIdentity(Number(owner.pid));
   if (!currentIdentity) return null;
   return currentIdentity === owner.processIdentity;
 }
 
-async function readProcessIdentity(pid: number): Promise<string | null> {
+export async function readMosaRuntimeProcessIdentity(pid: number): Promise<string | null> {
   if (!Number.isInteger(pid) || pid <= 0) return null;
   try {
     if (process.platform === "win32") {

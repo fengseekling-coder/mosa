@@ -34,6 +34,8 @@ MOSA 当前是绑定 `127.0.0.1` 的本地 Web 应用，也提供共享同一套
 
 Windows 上的 Grok/Cowart 来源目录尚未完成真机验证，暂不把推测路径写成正式默认值。当前打包版已经支持在应用内读取官方 release manifest、下载对应版本的 portable ZIP、校验文件大小与 SHA-256，并在退出本地 Runtime、释放文件锁后通过独立更新辅助进程原位替换应用目录；替换失败时会回滚旧目录。Windows 安装器和代码签名仍属于发布阶段工作，因此当前 Windows 构建仍应视为测试版，而不是正式签名发行版。
 
+macOS Desktop 与 Web Capture 的后台监督服务共用同一资料库和本地端口。新版 Desktop 启动时会先发布一个最多 30 秒有效、绑定当前 PID 与进程启动身份的接管标记；监督服务看到后会停止自己拉起的后台 Runtime 并让 Desktop 接管。若 Desktop 启动失败，标记会自动过期，后台服务恢复。这样覆盖安装/重启 MOSA 时不应再需要手动结束仓库里的 `server.mjs`。外部非 MOSA 服务、不同资料库的 MOSA Runtime 仍不会被自动终止。
+
 ### 可选本地视觉搜索
 
 Desktop 的“设置 → 本地视觉能力”可以安装、更新、停用或删除 Visual Pack。Visual Pack 包含经固定版本和 SHA-256 校验的 SigLIP2 本地模型、ONNX Runtime 与 tokenizer；它存放在 Electron `userData`，不进入 `MOSA Library`，也不依赖 Ollama、Python 或外部常驻服务。

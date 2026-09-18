@@ -12,6 +12,7 @@ import {
   MosaServiceLibraryMismatchError,
   compareMosaVersions,
   retireOlderMosaService,
+  retireVerifiedMosaService,
   shouldAllowSameVersionServiceReplacement,
   shouldAllowStaleServiceUpgrade,
   startMosaService,
@@ -84,6 +85,61 @@ test("attaches only to a matching MOSA health identity and leaves it running", a
   assert.equal(service.storage, "sqlite");
   await service.stop();
   assert.equal(server.listening, true);
+});
+
+test("explicit desktop handoff can retire an exact matching source runtime and own the primary port", async (t) => {
+  const root = await temporaryRoot(t, "mosa-service-prefer-owned-");
+  const libraryDir = join(root, "library");
+  const expectedIdentity = {
+    productVersion: "0.2.1-rc.14",
+    gitSha: "same-sha",
+    uiFingerprint: "same-ui",
+    runtimeFingerprint: "same-runtime",
+  };
+  const server = createServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({
+      product: "mosa",
+      libraryDir,
+      storage: "sqlite",
+      ...expectedIdentity,
+    }));
+  });
+  await listen(server);
+  t.after(() => close(server));
+  const port = server.address().port;
+  let retireCalls = 0;
+  let startCalls = 0;
+
+  const service = await startMosaService({
+    port,
+    libraryDir,
+    expectedIdentity,
+    preferOwnedRuntime: true,
+    retireVerifiedService: async (details, options) => {
+      retireCalls += 1;
+      assert.equal(details.port, port);
+      assert.deepEqual(options.expectedIdentity, expectedIdentity);
+      await close(server);
+      return true;
+    },
+    startRuntime: async (options) => {
+      startCalls += 1;
+      return {
+        url: `http://127.0.0.1:${options.port}`,
+        port: options.port,
+        libraryDir: options.libraryDir,
+        storage: "sqlite",
+        ...expectedIdentity,
+        stop: async () => {},
+      };
+    },
+  });
+
+  assert.equal(retireCalls, 1);
+  assert.equal(startCalls, 1);
+  assert.equal(service.mode, "owned");
+  assert.equal(service.port, port);
 });
 
 test("rejects a same-library MOSA runtime whose build identity is stale", async (t) => {
@@ -509,6 +565,48 @@ test("controlled retirement requires matching service identity and lock owner, t
     readFileImpl: async () => JSON.stringify({ token: "old-runtime-token", pid: 4242 }),
     probeImpl: async () => probes.shift() || { state: "unavailable" },
     isProcessAlive: () => alive.shift() ?? false,
+    terminateProcess: (pid) => signals.push({ pid, signal: "SIGTERM" }),
+    sleepImpl: async () => {},
+    timeoutMs: 100,
+    pollMs: 100,
+  });
+
+  assert.equal(retired, true);
+  assert.deepEqual(signals, [{ pid: 4242, signal: "SIGTERM" }]);
+});
+
+test("desktop handoff retirement signals an exact matching verified owner once", async () => {
+  const libraryDir = resolve("/tmp/mosa-desktop-handoff-library");
+  const service = {
+    state: "attached",
+    url: "http://127.0.0.1:43517",
+    port: 43517,
+    libraryDir,
+    storage: "sqlite",
+    productVersion: "0.2.1-rc.14",
+    gitSha: "same-sha",
+    uiFingerprint: "same-ui",
+    runtimeFingerprint: "same-runtime",
+  };
+  const probes = [service, { state: "unavailable" }];
+  const alive = [true, false];
+  const signals = [];
+
+  const retired = await retireVerifiedMosaService(service, {
+    expectedIdentity: {
+      productVersion: service.productVersion,
+      gitSha: service.gitSha,
+      uiFingerprint: service.uiFingerprint,
+      runtimeFingerprint: service.runtimeFingerprint,
+    },
+    readFileImpl: async () => JSON.stringify({
+      token: "source-runtime-token",
+      pid: 4242,
+      processIdentity: "unix-start:source-runtime",
+    }),
+    probeImpl: async () => probes.shift() || { state: "unavailable" },
+    isProcessAlive: () => alive.shift() ?? false,
+    verifyProcessIdentity: async () => true,
     terminateProcess: (pid) => signals.push({ pid, signal: "SIGTERM" }),
     sleepImpl: async () => {},
     timeoutMs: 100,
