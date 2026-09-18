@@ -843,7 +843,7 @@ const { resetImageZoom, zoomImage, panImagePreview, setupImageZoomPan,
 const inspectorMarkup = createInspectorMarkup({ state, t, referenceRightsMarkup });
 const { detailFileSectionMarkup, detailPromptSectionMarkup, detailSourceSectionMarkup,
   detailVersionSectionMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup,
-  detailMoreSectionMarkup, versionPickerMarkup, versionHistoryMarkup,
+  detailMoreSectionMarkup, versionPickerMarkup, versionCompareMarkup, versionHistoryMarkup,
   generationHistoryMarkup, recipeHistoryMarkup, sourceCopyValue, isVideoAsset,
   assetMediaPreviewMarkup, stackInspectorMarkup, promptReferencesMarkup } = inspectorMarkup;
 
@@ -5404,10 +5404,12 @@ async function loadVersionHistory(asset) {
     if (requestId !== versionHistoryRequestSequence || `${state.project}\u0000${state.selectedId}` !== selectedKey) return;
     state.versionHistory = result.history;
     renderVersionPickerRegion(result.history, asset.id);
+    renderVersionCompareRegion(result.history, asset.id);
     renderVersionHistoryRegion(result.history, asset.id);
   } catch (error) {
     if (requestId !== versionHistoryRequestSequence || `${state.project}\u0000${state.selectedId}` !== selectedKey) return;
     renderVersionPickerRegion(null, asset.id, error);
+    renderVersionCompareRegion(null, asset.id, error);
     renderVersionHistoryRegion(null, asset.id, error);
   }
 }
@@ -5427,6 +5429,28 @@ function bindVersionPickerEvents() {
   const select = els.detailPanel?.querySelector("[data-version-select]");
   if (!select) return;
   select.addEventListener("change", () => selectDetailVersion(select.value));
+}
+function renderVersionCompareRegion(history, selectedId, error = null, baseId = "", targetId = "") {
+  const region = els.detailPanel?.querySelector("[data-version-compare]");
+  if (!region || state.selectedId !== selectedId) return;
+  region.innerHTML = error
+    ? `<p class="version-history-status error" role="status">${escapeHtml(t("versionLoadFailed"))}: ${escapeHtml(error.message)}</p>`
+    : versionCompareMarkup(history, selectedId, baseId, targetId);
+  bindVersionCompareEvents(history, selectedId);
+}
+function bindVersionCompareEvents(history, selectedId) {
+  if (!history) return;
+  const base = els.detailPanel?.querySelector("[data-version-compare-base]");
+  const target = els.detailPanel?.querySelector("[data-version-compare-target]");
+  if (!base || !target) return;
+  const rerender = (focusTarget) => {
+    const baseId = base.value;
+    const targetId = target.value;
+    renderVersionCompareRegion(history, selectedId, null, baseId, targetId);
+    requestAnimationFrame(() => els.detailPanel?.querySelector(focusTarget)?.focus({ preventScroll: true }));
+  };
+  base.addEventListener("change", () => rerender("[data-version-compare-base]"));
+  target.addEventListener("change", () => rerender("[data-version-compare-target]"));
 }
 function renderVersionHistoryRegion(history, selectedId, error = null) {
   const region = els.detailPanel?.querySelector("[data-version-history]");
