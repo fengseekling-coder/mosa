@@ -141,6 +141,10 @@ Runtime API contracts are stable even without a model pack: `/api/visual/status`
 
 The embedding build path is also model-neutral. A background worker accepts any provider exposing `encodeImage`, skips embeddings that are already current for the pinned model/content hash, records only derived vectors, contains per-asset failures, and supports pause/resume/stop semantics. Deleted or otherwise stale asset ids can be pruned from the derived index without touching the source library. This keeps the future model runtime isolated from MOSA's source-of-truth asset store.
 
+Image and text inference share one validated provider contract. The provider must expose both `encodeImage` and `encodeText`, and its model id, revision, and embedding dimension must exactly match the relationship index. MOSA rejects a mismatched vector space instead of comparing embeddings produced by different models. Provider startup is lazy and provider shutdown is owned by the runtime lifecycle.
+
+With a compatible provider configured, `/api/visual/search?q=...` performs text-to-image retrieval against the same versioned image vectors used by image-to-image similarity. The existing lexical search remains independent; visual text search is an optional capability and does not replace explicit Prompt/tag matches.
+
 ## Offline model-pack verification
 
 Candidate weights that already exist locally can be arranged as a MOSA visual model pack and verified without network access:
