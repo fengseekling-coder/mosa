@@ -329,7 +329,7 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
   // native file drag are deliberate local modules; runtime dependencies and
   // the native Select boundary remain unchanged.
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./batch-import.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./library-reconciliation.mjs", "./native-asset-drag.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
+    ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./batch-import.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./context-package.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./library-reconciliation.mjs", "./native-asset-drag.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
 });
 
 // Picker/recipe styles stay inside the approved boundary: native select reuses

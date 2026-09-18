@@ -21,6 +21,7 @@ import { createAssetStackController } from "./asset-stacks.mjs";
 import { createLibraryReconciler } from "./library-reconciliation.mjs";
 import { collectDroppedFiles, createBatchImporter, dropErrorMessage } from "./batch-import.mjs";
 import { createNativeAssetDrag } from "./native-asset-drag.mjs";
+import { buildContextPackage, contextPackageFileName, contextPackageText } from "./context-package.mjs";
 import {
   captureSavedFilterSnapshot,
   normalizeSavedFilterSnapshot,
@@ -5647,6 +5648,64 @@ function bindCurationEvents(panel, asset, renderId) {
   panel?.querySelector('[data-action="save-curation"]')?.addEventListener("click", () => {
     void runAction(() => saveAssetCuration(asset, renderId));
   });
+  panel?.querySelector('[data-action="copy-context-package"]')?.addEventListener("click", () => {
+    void runAction(async () => {
+      const pkg = await resolveContextPackage(asset, renderId);
+      if (!pkg) return;
+      await writeClipboardText(contextPackageText(pkg));
+      showToast(t("contextPackageCopied"), "success");
+    });
+  });
+  panel?.querySelector('[data-action="export-context-package"]')?.addEventListener("click", () => {
+    void runAction(async () => {
+      const pkg = await resolveContextPackage(asset, renderId);
+      if (!pkg) return;
+      downloadContextPackage(pkg, asset);
+      showToast(t("contextPackageExported"), "success");
+    });
+  });
+}
+
+async function resolveContextPackage(asset, renderId) {
+  const latest = latestAssetSnapshot(asset.project_id, asset.id, asset);
+  let recipeHistory = recipeHistoryForAsset(latest) || recipeHistoryFromAsset(latest);
+  let versionHistory = versionHistoryForAsset(latest);
+  let generationHistory = generationHistoryForAsset(latest);
+  const requests = [];
+  if (!recipeHistory) {
+    requests.push(apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/recipes`)
+      .then((result) => { recipeHistory = result.history || null; }));
+  }
+  if (!versionHistory) {
+    requests.push(apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/versions`)
+      .then((result) => { versionHistory = result.history || null; }));
+  }
+  if (!generationHistory) {
+    requests.push(apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/generation-history`)
+      .then((result) => { generationHistory = result.history || null; }));
+  }
+  // The core package remains useful when an optional history surface is
+  // unavailable. Do not turn a failed lineage lookup into a failed Prompt/path
+  // export, and do not silently replace missing evidence with guesses.
+  if (requests.length) await Promise.allSettled(requests);
+  if (!isCurrentDetailAction(renderId, asset.project_id, asset.id)) return null;
+  return buildContextPackage(latestAssetSnapshot(asset.project_id, asset.id, latest), {
+    recipeHistory,
+    versionHistory,
+    generationHistory,
+  });
+}
+
+function downloadContextPackage(pkg, asset) {
+  const blob = new Blob([`${JSON.stringify(pkg, null, 2)}\n`], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = contextPackageFileName(asset);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function saveAssetCuration(asset, renderId, overrides = {}) {
