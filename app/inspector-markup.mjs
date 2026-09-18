@@ -12,6 +12,7 @@
 import { SOURCE_LABEL_KEYS } from "./config.mjs";
 import { assetTags } from "./tag-utils.mjs";
 import { displayAssetTitle, escapeHtml, formatDate, formatDateTime } from "./utils.mjs";
+import { selectVersionComparisonPair } from "./version-compare.mjs";
 
 export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
   const COPY_ICON_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg>`;
@@ -292,7 +293,20 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
   }
 
   function detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory) {
-    return `<section class="inspector-section detail-version-section" data-inspector-section="version"><div class="detail-prompt-head"><h3>${t("tabVersions")}</h3></div><div class="version-picker" data-version-picker>${versionPickerMarkup(asset, cachedHistory)}</div><details class="detail-disclosure generation-history-disclosure" open><summary>${t("generationHistory")}</summary><div class="disclosure-content generation-history-region" data-generation-history aria-live="polite">${cachedGenerationHistory ? generationHistoryMarkup(cachedGenerationHistory, asset.id) : `<p class="generation-history-status" role="status">${t("generationHistoryLoading")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("versionHistory")}</summary><div class="disclosure-content version-history-region" data-version-history aria-live="polite">${cachedHistory ? versionHistoryMarkup(cachedHistory, asset.id) : `<p class="version-history-status" role="status">${t("versionLoading")}</p>`}</div></details>${recipeHistoryDisclosureMarkup(cachedRecipeHistory)}</section>`;
+    return `<section class="inspector-section detail-version-section" data-inspector-section="version"><div class="detail-prompt-head"><h3>${t("tabVersions")}</h3></div><div class="version-picker" data-version-picker>${versionPickerMarkup(asset, cachedHistory)}</div><details class="detail-disclosure generation-history-disclosure" open><summary>${t("generationHistory")}</summary><div class="disclosure-content generation-history-region" data-generation-history aria-live="polite">${cachedGenerationHistory ? generationHistoryMarkup(cachedGenerationHistory, asset.id) : `<p class="generation-history-status" role="status">${t("generationHistoryLoading")}</p>`}</div></details><details class="detail-disclosure version-compare-disclosure"><summary>${t("compareVersions")}</summary><div class="disclosure-content version-compare-region" data-version-compare aria-live="polite">${cachedHistory ? versionCompareMarkup(cachedHistory, asset.id) : `<p class="version-history-status" role="status">${t("versionLoading")}</p>`}</div></details><details class="detail-disclosure"><summary>${t("versionHistory")}</summary><div class="disclosure-content version-history-region" data-version-history aria-live="polite">${cachedHistory ? versionHistoryMarkup(cachedHistory, asset.id) : `<p class="version-history-status" role="status">${t("versionLoading")}</p>`}</div></details>${recipeHistoryDisclosureMarkup(cachedRecipeHistory)}</section>`;
+  }
+
+  function versionCompareMarkup(history, selectedId, baseId = "", targetId = "") {
+    const pair = selectVersionComparisonPair(history, selectedId, baseId, targetId);
+    if (!pair) return `<p class="version-history-status">${t("versionCompareNeedsTwo")}</p>`;
+    const versions = history?.versions || [];
+    const optionMarkup = (selectedIdValue) => versions.map((version) => `<option value="${escapeHtml(version.id)}"${version.id === selectedIdValue ? " selected" : ""}>${escapeHtml(versionOptionLabel(version, version.id === selectedId))}</option>`).join("");
+    const mediaMarkup = (version) => {
+      const url = version.thumbnail_url || version.preview_url || version.image_url || "";
+      return url ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(versionOptionLabel(version, false))}" loading="lazy" decoding="async" />` : `<span class="empty-copy">${t("notRecorded")}</span>`;
+    };
+    const rows = pair.fields.map((field) => `<div class="version-compare-row${field.changed ? " changed" : ""}"><strong>${escapeHtml(t(`versionCompareField_${field.key}`))}</strong><span>${field.before ? escapeHtml(field.before) : `<em>${t("notRecorded")}</em>`}</span><span>${field.after ? escapeHtml(field.after) : `<em>${t("notRecorded")}</em>`}</span></div>`).join("");
+    return `<div class="version-compare-controls"><label><span>${t("versionCompareBase")}</span><select data-version-compare-base>${optionMarkup(pair.base.id)}</select></label><label><span>${t("versionCompareTarget")}</span><select data-version-compare-target>${optionMarkup(pair.target.id)}</select></label></div><div class="version-compare-media"><div>${mediaMarkup(pair.base)}</div><div>${mediaMarkup(pair.target)}</div></div><div class="version-compare-grid"><div class="version-compare-head"><span></span><strong>${escapeHtml(versionOptionLabel(pair.base, false))}</strong><strong>${escapeHtml(versionOptionLabel(pair.target, false))}</strong></div>${rows}</div>`;
   }
 
   // Phase 4B：版本选择器——原生 <select>（无自制 popover/listbox/菜单、无第三方 Select、
@@ -714,5 +728,5 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     </section>`;
   }
 
-  return { fileDimensionsText, fileFormatText, fileSizeText, fileAspectRatioText, formatFileSize, fileFactRowMarkup, fileFactTagMarkup, detailFavoriteButtonMarkup, detailFileSectionMarkup, detailPromptSectionMarkup, promptReferencesMarkup, editRecipeFieldsMarkup, detailSourceSectionMarkup, detailVersionSectionMarkup, versionPickerMarkup, versionOptionLabel, detailVersionSummaryMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, detailMoreSectionMarkup, versionHistoryMarkup, generationHistoryMarkup, recipeHistoryDisclosureMarkup, referenceRightsSummary, recipeHistoryMarkup, categoryOptions, buildSourceRows, sourceName, sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup, stackInspectorMarkup };
+  return { fileDimensionsText, fileFormatText, fileSizeText, fileAspectRatioText, formatFileSize, fileFactRowMarkup, fileFactTagMarkup, detailFavoriteButtonMarkup, detailFileSectionMarkup, detailPromptSectionMarkup, promptReferencesMarkup, editRecipeFieldsMarkup, detailSourceSectionMarkup, detailVersionSectionMarkup, versionPickerMarkup, versionCompareMarkup, versionOptionLabel, detailVersionSummaryMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, detailMoreSectionMarkup, versionHistoryMarkup, generationHistoryMarkup, recipeHistoryDisclosureMarkup, referenceRightsSummary, recipeHistoryMarkup, categoryOptions, buildSourceRows, sourceName, sourceCopyValue, isVideoAsset, assetMediaPreviewMarkup, stackInspectorMarkup };
 }

@@ -32,6 +32,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 - The sidebar can save the current gallery query, scope, media type, facets, and sort order as a named project-local filter preset, then restore the complete view semantics with one action.
 - Saved filters are bounded local UI preferences rather than asset metadata: they do not modify Prompts, provenance, groups, or generation records, and deleting a preset never changes library content.
+- Inspector version history now includes a two-version comparison view for stored media and persisted Prompt/style/theme/ratio/group/category/tag/change-summary fields. It compares existing records only and does not infer missing generation facts.
 
 ## 0.2.1-rc.14 — 2026-09-16 / Release Candidate
 

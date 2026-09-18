@@ -109,7 +109,9 @@ test("6-10. picker five-state model", async () => {
 
 // 11. Load errors keep the picker (disabled, current version). 12. One request
 // per load. 13. Generation + selection guards stay. 14. Picker and history
-// regions update in the same response.
+// regions update in the same response. The comparison region is part of the
+// same version-history payload and must share those guards rather than issuing
+// a second request.
 test("11-14. async region updates stay guarded and paired", async () => {
   const app = await readApp();
   const loader = functionSlice(app, "loadVersionHistory");
@@ -128,9 +130,9 @@ test("11-14. async region updates stay guarded and paired", async () => {
   assert.equal(count(loader, "requestId !== versionHistoryRequestSequence"), 2, "request generation guard on both paths");
   assert.equal(count(loader, "`${state.project}\\u0000${state.selectedId}` !== selectedKey"), 2, "selection guard on both paths");
 
-  // 14. Success and error responses update picker and history regions together.
-  assert.match(loader, /renderVersionPickerRegion\(result\.history, asset\.id\);\s*\n\s*renderVersionHistoryRegion\(result\.history, asset\.id\);/, "picker and history update in the same success response");
-  assert.match(loader, /renderVersionPickerRegion\(null, asset\.id, error\);\s*\n\s*renderVersionHistoryRegion\(null, asset\.id, error\);/, "picker and history update in the same error response");
+  // 14. Success and error responses update picker, comparison, and history regions together.
+  assert.match(loader, /renderVersionPickerRegion\(result\.history, asset\.id\);\s*\n\s*renderVersionCompareRegion\(result\.history, asset\.id\);\s*\n\s*renderVersionHistoryRegion\(result\.history, asset\.id\);/, "version regions update in the same success response");
+  assert.match(loader, /renderVersionPickerRegion\(null, asset\.id, error\);\s*\n\s*renderVersionCompareRegion\(null, asset\.id, error\);\s*\n\s*renderVersionHistoryRegion\(null, asset\.id, error\);/, "version regions update in the same error response");
 
   // Region re-renders stay local — they never rebuild the whole detail panel.
   assert.doesNotMatch(pickerRegion, /renderDetail\(/, "picker region update never rebuilds the detail panel");
