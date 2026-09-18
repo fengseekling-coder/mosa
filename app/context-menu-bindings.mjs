@@ -80,6 +80,11 @@ export function bindContextMenuEvents(options = {}) {
 
   window.addEventListener("mosa:refresh-assets", (event) => {
     const detail = event.detail || {};
+    // Context-menu actions may finish after the user has navigated to another
+    // project. A scoped local refresh belongs only to the project that was
+    // mutated; its persisted journal/SSE event remains authoritative for any
+    // other open view.
+    if (detail.projectId && detail.projectId !== state.project) return;
     // 增量同步：事件携带受影响实体时只 reconcile 这些实体（O(affected)），
     // 普通库变更永远不再触发已加载窗口的全量重拉。
     const changes = [];

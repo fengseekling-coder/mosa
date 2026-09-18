@@ -511,6 +511,11 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/></svg>',
           danger: true,
           action: async () => {
+            // Freeze the source project before the first await. The user may
+            // navigate while a confirmation dialog or a large multi-batch Trash
+            // operation is in flight; the mutation must keep targeting the
+            // Stack that opened this menu instead of following later UI state.
+            const projectId = state.project;
             const confirmed = await requestConfirmation({
               title: t("stackTrashTitle"),
               description: t("stackTrashDescription", { count: stackCount }),
@@ -522,28 +527,51 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               // Trash reuses the ordinary per-asset trash mutation: members
               // keep their stack membership while trashed, so restoring them
               // rebuilds the stack without any extra bookkeeping.
-              const memberIds = await fetchStackMemberIds(stackId);
+              const memberIds = await fetchStackMemberIds(stackId, projectId);
               if (!memberIds.length) return;
-              const assets = mutationAssetsForIds(memberIds, state.project);
+              const assets = mutationAssetsForIds(memberIds, projectId);
               if (!await confirmSelectedAssetMutation(assets)) return;
               let failed = 0;
+              let processed = 0;
+              let interrupted = null;
               const trashedIds = [];
               for (let index = 0; index < memberIds.length; index += MAX_STACK_TRASH_BATCH) {
                 const chunk = memberIds.slice(index, index + MAX_STACK_TRASH_BATCH);
-                const response = await apiFetch("/api/assets/batch", {
-                  method: "POST",
-                  body: { action: "trash", projectId: state.project, assetIds: chunk },
-                });
-                const outcome = reconcileBatchMutation(chunk.map((id) => ({ id, project_id: state.project })), response);
-                failed += outcome.failed.length;
-                trashedIds.push(...outcome.succeeded.map((entry) => entry.id));
-                commitSelectedAssetMutation(outcome.succeeded);
+                try {
+                  const response = await apiFetch("/api/assets/batch", {
+                    method: "POST",
+                    body: { action: "trash", projectId, assetIds: chunk },
+                  });
+                  const outcome = reconcileBatchMutation(chunk.map((id) => ({ id, project_id: projectId })), response);
+                  processed += chunk.length;
+                  failed += outcome.failed.length;
+                  trashedIds.push(...outcome.succeeded.map((entry) => entry.id));
+                  commitSelectedAssetMutation(outcome.succeeded);
+                } catch (error) {
+                  // A thrown request is different from a 207 response: the
+                  // current chunk may have committed server-side before the
+                  // client lost the response, so its outcome is unknown rather
+                  // than safely retryable. Stop here and report the known and
+                  // unresolved counts without claiming all-or-nothing failure.
+                  interrupted = error;
+                  break;
+                }
+              }
+              if (trashedIds.length) {
+                window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+                  detail: { projectId, removedAssetIds: trashedIds },
+                }));
+              }
+              if (interrupted) {
+                showToast(t("stackTrashInterrupted", {
+                  succeeded: trashedIds.length,
+                  failed,
+                  unresolved: Math.max(0, memberIds.length - processed),
+                }), "error");
+                return;
               }
               if (failed) showToast(t("batchPartialResult", { succeeded: memberIds.length - failed, failed }), "error");
               else showToast(t("stackMovedToTrash", { count: memberIds.length }), "success");
-              window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
-                detail: { removedAssetIds: trashedIds },
-              }));
             });
           },
         },

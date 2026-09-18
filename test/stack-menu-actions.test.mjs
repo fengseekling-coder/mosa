@@ -28,6 +28,7 @@ function createHarness(t, { batchResponses = [], stackMembers = [] } = {}) {
       const response = batchResponses[Math.min(batchCallIndex, batchResponses.length - 1)];
       batchCallIndex += 1;
       if (!response) throw new Error(`unexpected extra batch call #${batchCallIndex}`);
+      if (response instanceof Error) throw response;
       return response;
     }
     throw new Error(`unexpected fetch: ${method} ${url}`);
@@ -126,6 +127,30 @@ test("stack trash chunks member batches at the server's 1000-id cap", async (t) 
   assert.equal(batchCalls[0].body.assetIds.length, 1000);
   assert.deepEqual(batchCalls[1].body.assetIds, ["asset-1000"]);
   assert.deepEqual(harness.toasts, [{ message: PARAMETERIZED_T("stackMovedToTrash", { count: 1001 }), tone: "success" }]);
+});
+
+test("stack trash preserves confirmed progress when a later batch request becomes unresolved", async (t) => {
+  const members = Array.from({ length: 1001 }, (_, index) => ({ id: `asset-${index}` }));
+  const firstChunk = members.slice(0, 1000).map((member) => member.id);
+  const harness = createHarness(t, {
+    stackMembers: members,
+    batchResponses: [
+      { results: firstChunk.map((id) => ({ id, trashed: true })) },
+      new Error("connection reset after request write"),
+    ],
+  });
+
+  await moveToTrashItem(harness.stackMenu()).action();
+
+  const batchCalls = harness.calls.filter((call) => call.url === "/api/assets/batch");
+  assert.equal(batchCalls.length, 2);
+  assert.deepEqual(harness.toasts, [{
+    message: PARAMETERIZED_T("stackTrashInterrupted", { succeeded: 1000, failed: 0, unresolved: 1 }),
+    tone: "error",
+  }]);
+  assert.deepEqual(refreshEvents(harness.dispatched).at(-1)?.detail?.removedAssetIds, firstChunk,
+    "already-confirmed mutations are reconciled even when a later request outcome is unknown");
+  assert.equal(refreshEvents(harness.dispatched).at(-1)?.detail?.projectId, "default");
 });
 
 test("a failed member fetch surfaces the error and dispatches no refresh", async (t) => {

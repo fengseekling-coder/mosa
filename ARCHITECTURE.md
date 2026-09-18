@@ -230,6 +230,10 @@ SQLite 数据库路径为 `$HOME/MOSA Library/mosa.db`（也可由
   轻量记录；不保存图片、Prompt 或原始 URL。
 - `migration_issues`、`library_meta`、`schema_migrations`：迁移和 schema 状态。
 - `asset_fts`：SQLite FTS5 trigram 全文索引，用于资产文本搜索。
+- `asset_short_terms`：短 Unicode 搜索辅助索引。它为资产搜索文本维护 1–2 个 Unicode
+  code point 的非 ASCII 子串候选，用于避免中文等短词退化为全库 `LIKE` 扫描；
+  最终筛选与排序语义仍由普通资产查询负责。该索引是本地派生数据，不是 embedding
+  或语义搜索索引，可由资产元数据重新构建。
 
 ### 5.2 文件与衍生物
 
