@@ -19,6 +19,7 @@ import { finalizeCopiedSqliteLibrary } from "../lib/library-relocation.mjs";
 import { getBuildIdentity } from "../lib/build-identity.mjs";
 import { MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
 import { downloadWindowsUpdate, launchWindowsUpdateHelper, resolveWindowsUpdateReadyFile } from "./windows-updater.mjs";
+import { createVisualModelManager } from "./visual-model-manager.mjs";
 
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
 const startupShellPath = fileURLToPath(new URL("./startup.html", import.meta.url));
@@ -39,6 +40,7 @@ const expectedServiceIdentity = Object.freeze({
 // never touches. Dev (`npx electron`) reads the name from package.json
 // ("mosa"); the packaged app carries the forge packagerConfig name ("MOSA").
 const desktopDataDir = app.getPath("userData");
+const visualModelManager = createVisualModelManager({ userDataDir: desktopDataDir, runtimeAvailable: false });
 const productionDefaultUserData = join(app.getPath("appData"), app.name);
 const importStagingRoot = importStagingDir(desktopDataDir);
 const desktopPort = process.env.MOSA_DESKTOP_PORT || DEFAULT_MOSA_DESKTOP_PORT;
@@ -476,6 +478,20 @@ function registerIPC() {
     currentLocale = locale;
     buildMenu();
     return true;
+  });
+
+  ipcMain.handle("visual-model-state", async (event, refresh = false) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return { mode: "mosa-local", state: "unavailable", installed: false, enabled: false };
+    }
+    return visualModelManager.state({ refresh: refresh === true });
+  });
+
+  ipcMain.handle("visual-model-set-enabled", async (event, enabled) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return { mode: "mosa-local", state: "unavailable", installed: false, enabled: false };
+    }
+    return visualModelManager.setEnabled(enabled === true);
   });
 
   ipcMain.handle("renderer-ready", async (event) => {

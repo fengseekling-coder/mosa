@@ -44,6 +44,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - Added the model-neutral visual relationship engine foundation: a versioned userData-side embedding index, exact image-neighbor lookup, stable visual API contracts, safe derived-index cleanup, and advisory near-duplicate/version/Stack candidate classification. No candidate mutates library organization or provenance automatically.
 - Added the model-neutral background embedding worker contract with incremental current/stale checks, pause/resume/stop behavior, per-asset failure isolation, and stale-vector pruning so a future local model can backfill the library without blocking normal MOSA use.
 - Added a validated image/text embedding-provider boundary and text-to-image visual search API. Provider model id/revision/dimension must match the indexed vector space exactly, startup is lazy, runtime shutdown closes the provider, and MOSA can now expose visual text search without coupling product APIs to a specific model runtime.
+- Made MOSA-local the explicit desktop visual-model path: Electron now discovers and verifies optional model packs under userData, persists local enablement/selection, and exposes a Settings status surface without an Ollama dependency. Installed-model and compatible-runtime readiness remain separate so unsupported builds fail closed.
 
 ## 0.2.1-rc.14 — 2026-09-16 / Release Candidate
 

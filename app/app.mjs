@@ -99,6 +99,7 @@ const state = {
   updatePublishedAt: "",
   updateCanInstallInApp: false,
   updateDownloadPercent: 0,
+  visualModelStatus: null,
   darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null,
   sidebarSmartCollapsed: safeStorageGet("mosa.sidebar-smart-collapsed") === "true",
   sidebarSavedCollapsed: safeStorageGet("mosa.sidebar-saved-collapsed") === "true",
@@ -1145,6 +1146,39 @@ function captureActivityMarkup() {
   return `<div class="capture-task-head"><div><strong>${escapeHtml(queueSummary)}</strong>${stale ? `<span class="capture-task-stale">${escapeHtml(t("captureExtensionStale"))}</span>` : ""}</div>${retry}</div>${queueItems ? `<ol class="capture-task-list">${queueItems}</ol>` : ""}<div class="capture-task-recent-title">${escapeHtml(t("captureRecentRuntime"))}</div><ol class="capture-task-list">${recent}</ol>`;
 }
 
+function visualModelStatusMarkup() {
+  const visual = state.visualModelStatus;
+  if (!visual) return `<span class="settings-static-value">${escapeHtml(t("visualModelChecking"))}</span>`;
+  const stateKey = visual.state === "ready"
+    ? "visualModelReady"
+    : visual.state === "runtime-unavailable"
+      ? "visualModelRuntimeUnavailable"
+      : visual.state === "disabled"
+        ? "visualModelDisabled"
+        : visual.state === "not-installed"
+          ? "visualModelNotInstalled"
+          : "visualModelUnavailable";
+  const pack = visual.active_pack;
+  const bytes = Number(pack?.total_bytes || 0);
+  const sizeLabel = bytes > 0 ? ` · ${(bytes / (1024 * 1024)).toFixed(bytes >= 100 * 1024 * 1024 ? 0 : 1)} MB` : "";
+  const modelLabel = pack ? `${pack.id} · ${pack.revision}${sizeLabel}` : "";
+  const action = visual.installed && window.electronAPI?.setVisualModelEnabled
+    ? `<button class="settings-text-action" type="button" data-visual-model-toggle>${escapeHtml(t(visual.enabled ? "visualModelDisable" : "visualModelEnable"))}</button>`
+    : "";
+  return `<div class="visual-model-status"><strong>${escapeHtml(t(stateKey))}</strong>${modelLabel ? `<span>${escapeHtml(modelLabel)}</span>` : ""}${action}</div>`;
+}
+
+async function refreshVisualModelStatus({ force = false } = {}) {
+  if (!window.electronAPI?.getVisualModelState) return null;
+  try {
+    state.visualModelStatus = await window.electronAPI.getVisualModelState(force === true);
+  } catch {
+    state.visualModelStatus = { mode: "mosa-local", state: "unavailable", installed: false, enabled: false };
+  }
+  syncSettingsMenuView();
+  return state.visualModelStatus;
+}
+
 function syncSettingsMenuView() {
   const menu = els.settingsMenu;
   if (!menu?.querySelector(".settings-modal-card")) return;
@@ -1169,6 +1203,8 @@ function syncSettingsMenuView() {
   if (versionNode) versionNode.textContent = updateVersionSummary();
   const captureNode = menu.querySelector("[data-settings-capture-status]");
   if (captureNode) captureNode.innerHTML = captureActivityMarkup();
+  const visualNode = menu.querySelector("[data-settings-visual-model]");
+  if (visualNode) visualNode.innerHTML = visualModelStatusMarkup();
   const updateAction = menu.querySelector("[data-settings-update-action]");
   if (updateAction) {
     const markup = updateVersionControlMarkup();
@@ -1219,9 +1255,16 @@ function renderSettingsMenu({ force = false } = {}) {
     row(settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6"), t("storageEngine"), "", `<span class="settings-static-value" data-settings-storage-engine>${escapeHtml(storageLabel)}</span>`),
   ].join("");
   const captureRows = `<div class="capture-task-panel" data-settings-capture-status>${captureActivityMarkup()}</div>`;
+  const visualRows = row(
+    settingIcon("M5 7h14M7 4v6M17 4v6M6 14h12M8 11v6M16 11v6M5 20h14"),
+    t("visualModelTitle"),
+    t("visualModelDescription"),
+    `<div data-settings-visual-model>${visualModelStatusMarkup()}</div>`,
+    "settings-visual-model-row",
+  );
   const aboutRow = row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), `<span data-settings-version>${escapeHtml(updateVersionSummary())}</span>`, `<div data-settings-update-action>${updateVersionControlMarkup()}</div>`, "settings-about-row");
 
-  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" tabindex="-1"><header class="settings-modal-header"><h2 id="settingsModalTitle">${t("settings")}</h2><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${section(t("appearance"), appearanceRows)}${section(t("storageDataSection"), storageRows)}${section(t("captureActivitySection"), captureRows)}${section(t("aboutSection"), aboutRow, "settings-about-block")}</div></div>`;
+  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" tabindex="-1"><header class="settings-modal-header"><h2 id="settingsModalTitle">${t("settings")}</h2><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${section(t("appearance"), appearanceRows)}${section(t("storageDataSection"), storageRows)}${section(t("visualModelSection"), visualRows)}${section(t("captureActivitySection"), captureRows)}${section(t("aboutSection"), aboutRow, "settings-about-block")}</div></div>`;
   syncSettingsMenuView();
   if (refreshingVisibleDialog) requestAnimationFrame(() => els.settingsMenu?.removeAttribute("data-refreshing"));
 }
@@ -2064,6 +2107,22 @@ function bindEvents() {
           syncSettingsMenuView();
         }
       })();
+      return;
+    }
+    const visualToggleButton = event.target.closest("[data-visual-model-toggle]");
+    if (visualToggleButton && window.electronAPI?.setVisualModelEnabled) {
+      visualToggleButton.disabled = true;
+      void runAction(async () => {
+        try {
+          const nextEnabled = state.visualModelStatus?.enabled !== true;
+          state.visualModelStatus = await window.electronAPI.setVisualModelEnabled(nextEnabled);
+          syncSettingsMenuView();
+          showToast(t(nextEnabled ? "visualModelEnabledToast" : "visualModelDisabledToast"), "success");
+        } catch (error) {
+          showToast(error?.message || t("visualModelUnavailable"), "error");
+          await refreshVisualModelStatus({ force: true });
+        }
+      });
       return;
     }
     const checkUpdatesButton = event.target.closest("[data-check-updates]");
@@ -4575,6 +4634,7 @@ function openSettingsModal() {
   // Settings is rendered on demand so library path/stat changes that landed
   // after startup are always reflected when the user opens this single panel.
   renderSettingsMenu();
+  void refreshVisualModelStatus({ force: true });
   els.settingsMenu.hidden = false;
   els.settingsToggle?.setAttribute("aria-expanded", "true");
   void refreshBridgeStatus();
