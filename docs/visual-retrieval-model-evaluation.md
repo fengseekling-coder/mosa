@@ -139,6 +139,8 @@ Candidates return their similarity score, explicit provisional thresholds, and w
 
 Runtime API contracts are stable even without a model pack: `/api/visual/status` reports the feature as unavailable, while model-dependent relationship requests fail explicitly instead of altering normal library behavior.
 
+The embedding build path is also model-neutral. A background worker accepts any provider exposing `encodeImage`, skips embeddings that are already current for the pinned model/content hash, records only derived vectors, contains per-asset failures, and supports pause/resume/stop semantics. Deleted or otherwise stale asset ids can be pruned from the derived index without touching the source library. This keeps the future model runtime isolated from MOSA's source-of-truth asset store.
+
 ## Offline model-pack verification
 
 Candidate weights that already exist locally can be arranged as a MOSA visual model pack and verified without network access:
