@@ -1153,11 +1153,15 @@ function visualModelStatusMarkup() {
     ? "visualModelReady"
     : visual.state === "runtime-unavailable"
       ? "visualModelRuntimeUnavailable"
-      : visual.state === "disabled"
-        ? "visualModelDisabled"
-        : visual.state === "not-installed"
-          ? "visualModelNotInstalled"
-          : "visualModelUnavailable";
+      : visual.state === "loading"
+        ? "visualModelLoading"
+        : visual.state === "error"
+          ? "visualModelError"
+          : visual.state === "disabled"
+            ? "visualModelDisabled"
+            : visual.state === "not-installed"
+              ? "visualModelNotInstalled"
+              : "visualModelUnavailable";
   const pack = visual.active_pack;
   const bytes = Number(pack?.total_bytes || 0);
   const sizeLabel = bytes > 0 ? ` · ${(bytes / (1024 * 1024)).toFixed(bytes >= 100 * 1024 * 1024 ? 0 : 1)} MB` : "";

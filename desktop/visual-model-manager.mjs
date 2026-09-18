@@ -8,12 +8,43 @@ const SETTINGS_SCHEMA = "mosa.visual-model-settings/1";
 export function createVisualModelManager({
   userDataDir,
   runtimeAvailable = false,
+  probeRuntime = null,
   discoverPacks = discoverVisualModelPacks,
 } = {}) {
   const baseDir = String(userDataDir || "").trim();
   if (!baseDir) throw new Error("Visual model manager requires Electron userData.");
   const settingsPath = join(baseDir, "visual-model-settings.json");
   let cache = null;
+  // Probe results are cached per pack identity so Settings refreshes do not
+  // repeatedly spawn the inference runtime. In-flight probes are shared.
+  let probeCache = null; // { key, promise?, result? }
+  let probeInFlight = null;
+
+  async function runProbe(activePack) {
+    const key = activePack ? `${activePack.id}@${activePack.revision}` : "";
+    if (probeCache && probeCache.key === key && probeCache.result) return probeCache.result;
+    if (probeInFlight) return probeInFlight;
+    const probePromise = (async () => {
+      if (typeof probeRuntime === "function") {
+        try {
+          return await probeRuntime();
+        } catch (error) {
+          return { ok: false, reason: "runtime-unavailable", message: error?.message || "Visual runtime probe failed." };
+        }
+      }
+      return { ok: runtimeAvailable === true, reason: "runtime-unavailable" };
+    })();
+    probeInFlight = probePromise;
+    try {
+      const result = await probePromise;
+      // Failed probes are not cached permanently: the next forced refresh may
+      // retry after the user fixes the environment.
+      if (result?.ok) probeCache = { key, result };
+      return result;
+    } finally {
+      probeInFlight = null;
+    }
+  }
 
   async function refresh() {
     const [discovery, settings] = await Promise.all([
@@ -24,22 +55,36 @@ export function createVisualModelManager({
       pack.id === settings.active_pack_id && pack.revision === settings.active_revision);
     const active = selected || discovery.packs[0] || null;
     const enabled = settings.enabled === true && Boolean(active);
+    let state;
+    let probe = null;
+    if (!active) {
+      state = "not-installed";
+    } else if (!enabled) {
+      state = "disabled";
+    } else if (typeof probeRuntime === "function" || runtimeAvailable === true) {
+      state = "loading";
+      probe = await runProbe(active);
+      if (probe?.ok) {
+        state = "ready";
+      } else if (probe?.reason === "error") {
+        state = "error";
+      } else {
+        state = "runtime-unavailable";
+      }
+    } else {
+      state = "runtime-unavailable";
+    }
     cache = {
       mode: "mosa-local",
-      state: !active
-        ? "not-installed"
-        : !enabled
-          ? "disabled"
-          : runtimeAvailable
-            ? "ready"
-            : "runtime-unavailable",
+      state,
       installed: discovery.packs.length > 0,
       enabled,
-      runtime_available: runtimeAvailable === true,
+      runtime_available: state === "ready",
       active_pack: active ? summarizePack(active) : null,
       packs: discovery.packs.map(summarizePack),
       invalid_packs: discovery.invalid,
       model_pack_root: discovery.root,
+      probe: probe ? { ok: probe.ok === true, reason: probe.reason || null, message: probe.message || null } : null,
     };
     return structuredClone(cache);
   }
@@ -80,6 +125,20 @@ export function createVisualModelManager({
       settings.active_revision = selected.revision;
       await writeSettings(settingsPath, settings);
       return refresh();
+    },
+
+    // Settings snapshot consumed by the service runtime for the same host.
+    async runtimeConfig() {
+      const settings = await readSettings(settingsPath);
+      const discovery = await discoverPacks({ userDataDir: baseDir });
+      const selected = discovery.packs.find((pack) =>
+        pack.id === settings.active_pack_id && pack.revision === settings.active_revision);
+      const active = selected || discovery.packs[0] || null;
+      return {
+        enabled: settings.enabled === true && Boolean(active),
+        active_pack_id: active ? active.id : "",
+        active_revision: active ? active.revision : "",
+      };
     },
   };
 }

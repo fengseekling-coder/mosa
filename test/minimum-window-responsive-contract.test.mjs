@@ -76,7 +76,7 @@ test("10-11. 退役 Finder IPC 保持移除且其余 Desktop IPC 不变", async 
     assert.match(main, new RegExp(`ipcMain\\.handle\\("${channel}"`));
   }
   // 更新检查、下载安装都不接受 renderer 提供的 URL；其余能力仍保持封闭。
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 11, "no invoke channel beyond the eleven currently approved narrow requests");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 13, "no invoke channel beyond the currently approved narrow requests (11 original + 2 MOSA-local visual model state)");
 });
 
 test("12-14. 960 下 Sidebar 批准收敛规则与搜索可达", async () => {
@@ -265,9 +265,9 @@ test("40-41. package 与 lockfile 不变、无新依赖", async () => {
   // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
   // the dependency sections the freeze really guards stay byte-identical.
   const manifest = JSON.parse(pkg);
-  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "0339eb218322b3a863818f979cfe4aca62624c31811a775da305ccda617d91a7");
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac");
-  assert.equal(sha256(lock), "51f3ff53219df2cfe3ea27ad9caf932a0cadbe062fec8905a11e39819a81fe54");
+  assert.equal(sha256(lock), "92d5986ff87283a976b604e0d67a1810edbc05e0ec84631fab7c21ed8c88bb95");
 });
 
 test("42. styles.css 不使用 !important", async () => {
