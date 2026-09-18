@@ -20,6 +20,13 @@ import { getBuildIdentity } from "../lib/build-identity.mjs";
 import { MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
 import { downloadWindowsUpdate, launchWindowsUpdateHelper, resolveWindowsUpdateReadyFile } from "./windows-updater.mjs";
 import { createVisualModelManager } from "./visual-model-manager.mjs";
+import {
+  checkForVisualPackRelease,
+  cleanupVisualPackStaging,
+  installVisualPack,
+  removeVisualPack,
+  visualPackTarget,
+} from "./visual-pack-installer.mjs";
 import { createVisualInferenceClient } from "../lib/visual-inference-client.mjs";
 
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
@@ -150,7 +157,12 @@ let usageReportPromise = null;
 let usageReportTimer = null;
 let serviceManagerModulePromise = null;
 let serviceStartPromise = null;
+let visualPackReleaseCache = null;
+let visualPackInstallPromise = null;
+let visualPackInstallController = null;
+let visualPackProgress = null;
 const USAGE_REPORT_RECHECK_MS = 15 * 60 * 1000;
+const VISUAL_PACK_RELEASE_CACHE_MS = 15 * 60 * 1000;
 const WINDOWS_UPDATE_STAGING_ROOT = join(desktopDataDir, "updates", "windows");
 const windowsUpdateReadyFile = resolveWindowsUpdateReadyFile(process.argv, WINDOWS_UPDATE_STAGING_ROOT);
 const rendererConsoleErrors = new Set();
@@ -169,9 +181,15 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    await cleanupVisualPackStaging({ userDataDir: desktopDataDir }).catch((error) => {
+      console.warn(`[MOSA] visual pack staging recovery failed: ${error?.message || error}`);
+    });
     // First paint wins the startup race. Telemetry and every other non-visual
     // lifecycle task wait until MOSA has at least presented a window.
     await openMainWindow();
+    void visualModelManager.cleanupInactivePacks().catch((error) => {
+      console.warn(`[MOSA] visual pack cleanup failed: ${error?.message || error}`);
+    });
     startAnonymousUsageLifecycle();
     cleanupStaleWindowsUpdateTransactions();
   }).catch(reportStartupFailure);
@@ -400,6 +418,82 @@ function cleanupStaleWindowsUpdateTransactions() {
   })();
 }
 
+async function visualPackDistributionState({ forceRelease = false } = {}) {
+  const target = visualPackTarget();
+  if (!target) return { supported: false, release: null, action: "unsupported", progress: visualPackProgress, error: null };
+  if (isolationContext.qaRun) {
+    return { supported: true, release: null, action: "offline", progress: visualPackProgress, error: null };
+  }
+  const now = Date.now();
+  if (!forceRelease && visualPackReleaseCache && now - visualPackReleaseCache.checked_at < VISUAL_PACK_RELEASE_CACHE_MS) {
+    return structuredClone({ ...visualPackReleaseCache, progress: visualPackProgress });
+  }
+  try {
+    const checked = await checkForVisualPackRelease();
+    visualPackReleaseCache = {
+      supported: checked.supported === true,
+      release: checked.release || null,
+      action: checked.release ? "available" : "unavailable",
+      error: null,
+      checked_at: now,
+    };
+  } catch (error) {
+    visualPackReleaseCache = {
+      supported: true,
+      release: null,
+      action: "unavailable",
+      error: error?.message || "Visual Pack release check failed.",
+      checked_at: now,
+    };
+  }
+  return structuredClone({ ...visualPackReleaseCache, progress: visualPackProgress });
+}
+
+async function visualModelStateSnapshot({ refreshLocal = false, forceRelease = false } = {}) {
+  const [local, distribution] = await Promise.all([
+    visualModelManager.state({ refresh: refreshLocal }),
+    visualPackDistributionState({ forceRelease }),
+  ]);
+  const release = distribution.release;
+  let action = distribution.action;
+  if (visualPackInstallPromise) {
+    action = "installing";
+  } else if (release) {
+    const exact = local.packs.some((pack) => pack.id === release.id && pack.revision === release.revision);
+    const sameModel = local.packs.some((pack) => pack.id === release.id);
+    action = exact ? "installed" : (sameModel ? "update" : "install");
+  }
+  return {
+    ...local,
+    distribution: {
+      ...distribution,
+      action,
+      progress: visualPackProgress,
+    },
+  };
+}
+
+function publishVisualPackProgress(progress) {
+  visualPackProgress = progress ? { ...progress } : null;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("visual-pack-progress", visualPackProgress);
+  }
+}
+
+function scheduleVisualPackRestart() {
+  const timer = setTimeout(() => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    stopBridgeNotificationPoll();
+    stopAnonymousUsageLifecycle();
+    void stopOwnedRuntime().catch(console.error).finally(() => {
+      app.relaunch();
+      app.exit(0);
+    });
+  }, 350);
+  timer.unref?.();
+}
+
 function registerIPC() {
   if (ipcRegistered) return;
   ipcRegistered = true;
@@ -500,14 +594,103 @@ function registerIPC() {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
       return { mode: "mosa-local", state: "unavailable", installed: false, enabled: false };
     }
-    return visualModelManager.state({ refresh: refresh === true });
+    return visualModelStateSnapshot({ refreshLocal: refresh === true });
   });
 
   ipcMain.handle("visual-model-set-enabled", async (event, enabled) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
       return { mode: "mosa-local", state: "unavailable", installed: false, enabled: false };
     }
-    return visualModelManager.setEnabled(enabled === true);
+    if (service && service.mode !== "owned") {
+      throw new Error("Local visual settings cannot change while MOSA Desktop is attached to an external runtime. Close that runtime and reopen MOSA.");
+    }
+    await visualModelManager.setEnabled(enabled === true);
+    const state = await visualModelStateSnapshot({ refreshLocal: true });
+    scheduleVisualPackRestart();
+    return { ...state, restarting: true };
+  });
+
+  ipcMain.handle("visual-pack-install", async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return { ok: false, reason: "unavailable" };
+    }
+    if (service && service.mode !== "owned") {
+      throw new Error("Visual Pack installation requires the runtime owned by MOSA Desktop. Close the external MOSA runtime and reopen the app.");
+    }
+    if (visualPackInstallPromise) return visualPackInstallPromise;
+    visualPackInstallController = new AbortController();
+    visualPackInstallPromise = (async () => {
+      try {
+        const distribution = await visualPackDistributionState({ forceRelease: true });
+        if (!distribution.release) throw new Error("No compatible MOSA Visual Pack is currently published for this platform.");
+        publishVisualPackProgress({ phase: "preparing", receivedBytes: 0, totalBytes: distribution.release.total_size, percent: 0 });
+        const installed = await installVisualPack({
+          userDataDir: desktopDataDir,
+          release: distribution.release,
+          signal: visualPackInstallController.signal,
+          onProgress: publishVisualPackProgress,
+        });
+        await visualModelManager.selectPack(installed.id, installed.revision);
+        await visualModelManager.setEnabled(true);
+        visualPackReleaseCache = null;
+        publishVisualPackProgress({ phase: "complete", receivedBytes: installed.total_bytes, totalBytes: installed.total_bytes, percent: 100 });
+        const state = await visualModelStateSnapshot({ refreshLocal: true });
+        scheduleVisualPackRestart();
+        return { ok: true, restarting: true, state };
+      } catch (error) {
+        publishVisualPackProgress({ phase: "error", message: error?.message || "Visual Pack installation failed." });
+        throw error;
+      } finally {
+        visualPackInstallController = null;
+        visualPackInstallPromise = null;
+      }
+    })();
+    return visualPackInstallPromise;
+  });
+
+  ipcMain.handle("visual-pack-cancel", async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false };
+    if (!visualPackInstallController || visualPackInstallController.signal.aborted) return { ok: false };
+    visualPackInstallController.abort(new Error("Visual Pack download cancelled by the user."));
+    return { ok: true };
+  });
+
+  ipcMain.handle("visual-pack-remove", async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false };
+    if (service && service.mode !== "owned") {
+      throw new Error("Visual Pack removal requires the runtime owned by MOSA Desktop. Close the external MOSA runtime and reopen the app.");
+    }
+    if (visualPackInstallPromise) return { ok: false, reason: "busy" };
+    const current = await visualModelManager.state({ refresh: true });
+    const activeId = current.active_pack?.id || current.packs?.[0]?.id || "";
+    if (!activeId) return { ok: true, removed: 0 };
+    const confirmation = await dialog.showMessageBox(mainWindow, {
+      type: "warning",
+      title: "MOSA",
+      message: currentLocale === "en" ? "Remove the local Visual Pack?" : "删除本地视觉能力包？",
+      detail: currentLocale === "en"
+        ? "This removes the optional model, runtime, and derived visual index. Your original assets and Prompt/provenance data are not changed."
+        : "这会删除可选模型、推理运行时和派生视觉索引，不会修改你的原始素材、Prompt 或溯源数据。",
+      buttons: currentLocale === "en" ? ["Cancel", "Remove"] : ["取消", "删除"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (confirmation.response !== 1) return { ok: false, cancelled: true };
+
+    await visualModelManager.setEnabled(false);
+    if (service?.mode === "owned") {
+      await service.stop();
+      service = null;
+      shutdownPromise = null;
+      stopBridgeNotificationPoll();
+    }
+    const removed = await removeVisualPack({ userDataDir: desktopDataDir, id: activeId });
+    await rm(join(desktopDataDir, "visual-relationship-indexes"), { recursive: true, force: true });
+    visualPackReleaseCache = null;
+    publishVisualPackProgress(null);
+    scheduleVisualPackRestart();
+    return { ok: true, restarting: true, removed: removed.removed };
   });
 
   ipcMain.handle("renderer-ready", async (event) => {

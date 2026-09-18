@@ -223,6 +223,47 @@ Use `--runtime-target win32-x64` for the Windows pack. `--model-only` remains a
 development/evaluation escape hatch; a production packaged MOSA build requires
 the runtime-bearing pack before visual search can become ready.
 
+Packaged MOSA also supports an explicit one-click Settings flow. The renderer
+cannot supply a URL or filesystem destination. The main process reads the same
+first-party release feed used by application updates, selects only the entry
+matching the current platform/architecture, and downloads files only from:
+
+`https://mosa.azhuilab.com/downloads/visual-packs/<id>/<revision>/<target>/...`
+
+The release feed pins `model-pack.json` by byte size and SHA-256. After that
+manifest is verified, each model/runtime file is downloaded into a private
+`userData` staging directory and checked against the manifest's own byte size
+and SHA-256 before installation. Installation checks free disk space first,
+uses an atomic directory swap for the selected revision, preserves the previous
+working revision on failure, and selects the new revision only after
+`verifyVisualModelPack()` passes. MOSA restarts after a successful install so
+the library runtime starts against one coherent model identity. Older revisions
+of the same model are cleaned after the new process has started. Removing the
+pack first disables/stops visual inference, removes the optional pack and the
+derived visual relationship index, and never touches source assets, Prompt, or
+provenance records.
+
+The release-feed fragment for a platform is intentionally small and contains
+no arbitrary download URL:
+
+```json
+{
+  "visualPacks": {
+    "darwin-arm64": {
+      "id": "siglip2-base-patch16-224",
+      "revision": "<pinned-upstream-revision>",
+      "totalSize": 0,
+      "manifest": { "size": 0, "sha256": "<64-hex>" },
+      "license": { "id": "apache-2.0", "source": "https://..." }
+    }
+  }
+}
+```
+
+`scripts/build-visual-model-pack.mjs` prints the exact
+`release_manifest_patch` for the pack it produced, so release publishing does
+not require hand-calculating sizes or hashes.
+
 After a restart, Settings reports the real runtime state machine:
 `not-installed`, `disabled`, `loading`, `ready`, `runtime-unavailable`, or
 `error`. Runtime availability is measured by starting the active verified pack

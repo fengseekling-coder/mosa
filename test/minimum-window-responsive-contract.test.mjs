@@ -76,7 +76,7 @@ test("10-11. 退役 Finder IPC 保持移除且其余 Desktop IPC 不变", async 
     assert.match(main, new RegExp(`ipcMain\\.handle\\("${channel}"`));
   }
   // 更新检查、下载安装都不接受 renderer 提供的 URL；其余能力仍保持封闭。
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 13, "no invoke channel beyond the currently approved narrow requests (11 original + 2 MOSA-local visual model state)");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 16, "no invoke channel beyond the currently approved narrow requests, including the Visual Pack lifecycle");
 });
 
 test("12-14. 960 下 Sidebar 批准收敛规则与搜索可达", async () => {

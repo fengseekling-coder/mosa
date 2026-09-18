@@ -52,6 +52,12 @@ MOSA does not attach library contents, asset counts, Prompt text, filenames, loc
 
 The website can also retain a short campaign label such as `ref=reddit_codex` on a download URL so aggregate download traffic can be attributed to the page or creator that referred it. MOSA does not require a login for attribution.
 
+## Optional Visual Pack download
+
+Local visual search is optional. When you explicitly choose Install or Update in Settings, MOSA reads the first-party release manifest at `https://mosa.azhuilab.com/releases/latest.json` and downloads the published platform-specific Visual Pack only from `https://mosa.azhuilab.com/downloads/visual-packs/`. These requests necessarily reach the download server, but MOSA does not attach your images, videos, Prompts, provenance records, library paths, search queries, or derived visual embeddings to the request. Pack files are verified and stored locally under Electron `userData`; they are not placed in or uploaded from `MOSA Library`.
+
+Removing the Visual Pack deletes the local optional model/runtime and derived visual relationship index. It does not delete or modify original library assets, Prompt text, or provenance records.
+
 ## Web Capture Chrome Extension
 
 The optional extension:

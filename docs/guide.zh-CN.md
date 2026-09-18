@@ -18,7 +18,7 @@ MOSA 采用 [PolyForm Noncommercial License 1.0.0](../LICENSE)，属于源码可
 - **网页生图扩展**可选，用于把 ChatGPT、Gemini、Flow 和 Google AI Studio 的网页成图及其可用上下文发送到本机 MOSA。
 - **MOSA** 负责自动收集、归档、检索和版本管理。
 
-MOSA 当前是绑定 `127.0.0.1` 的本地 Web 应用，也提供共享同一套 UI/Runtime 的 Electron 桌面壳。macOS arm64 是现有桌面开发目标，Windows 10/11 x64 已进入 Preview/Testing；仓库尚未发布正式签名安装器。它不是云服务，不包含额外 AI 模型、Embedding 搜索或远程同步，也不调用 Grok API，也不应通过公网或反向代理暴露。
+MOSA 当前是绑定 `127.0.0.1` 的本地 Web 应用，也提供共享同一套 UI/Runtime 的 Electron 桌面壳。macOS arm64 是现有桌面开发目标，Windows 10/11 x64 已进入 Preview/Testing；仓库尚未发布正式签名安装器。它不是云服务，也不调用 Grok API，不应通过公网或反向代理暴露。Desktop 可选安装一个完全本地运行的 Visual Pack，用于文字搜图、相似图检索和视觉关系候选；未安装时核心素材库功能保持不变。
 
 ## 环境要求
 
@@ -33,6 +33,14 @@ MOSA 当前是绑定 `127.0.0.1` 的本地 Web 应用，也提供共享同一套
 当前 Windows 真机已经验证：`MOSA.exe` 启动、本地 SQLite、Sharp 原生图像处理、素材库/资产检视器，以及 Codex 素材自动收录。Windows 使用原生标题栏，但隐藏 Electron 默认菜单栏；菜单 accelerator 仍保留。
 
 Windows 上的 Grok/Cowart 来源目录尚未完成真机验证，暂不把推测路径写成正式默认值。当前打包版已经支持在应用内读取官方 release manifest、下载对应版本的 portable ZIP、校验文件大小与 SHA-256，并在退出本地 Runtime、释放文件锁后通过独立更新辅助进程原位替换应用目录；替换失败时会回滚旧目录。Windows 安装器和代码签名仍属于发布阶段工作，因此当前 Windows 构建仍应视为测试版，而不是正式签名发行版。
+
+### 可选本地视觉搜索
+
+Desktop 的“设置 → 本地视觉能力”可以安装、更新、停用或删除 Visual Pack。Visual Pack 包含经固定版本和 SHA-256 校验的 SigLIP2 本地模型、ONNX Runtime 与 tokenizer；它存放在 Electron `userData`，不进入 `MOSA Library`，也不依赖 Ollama、Python 或外部常驻服务。
+
+安装或更新时，MOSA 只从官方 `mosa.azhuilab.com` 发布信息与固定 Visual Pack 下载目录读取文件。下载前会检查可用磁盘空间，下载过程中显示进度，完成后再次逐文件校验大小和 SHA-256；只有完整验证通过后才切换到新版本。失败时保留上一份可用版本。安装成功、启用/停用或删除后，Desktop 会自动重启本地 Runtime，使模型状态与当前素材库保持一致。
+
+删除 Visual Pack 会一并删除本机派生的视觉关系索引，但不会删除或修改原始素材、Prompt、版本记录或溯源数据。
 
 ## 本地启动
 

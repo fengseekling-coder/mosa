@@ -8,6 +8,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setLocale: (locale) => ipcRenderer.invoke("set-locale", locale),
   getVisualModelState: (refresh = false) => ipcRenderer.invoke("visual-model-state", refresh === true),
   setVisualModelEnabled: (enabled) => ipcRenderer.invoke("visual-model-set-enabled", enabled === true),
+  installVisualPack: () => ipcRenderer.invoke("visual-pack-install"),
+  cancelVisualPackInstall: () => ipcRenderer.invoke("visual-pack-cancel"),
+  removeVisualPack: () => ipcRenderer.invoke("visual-pack-remove"),
+  onVisualPackProgress: (callback) =>
+    ipcRenderer.on("visual-pack-progress", (_event, progress) => callback(progress)),
   checkForUpdates: (notify = false) =>
     ipcRenderer.invoke("check-for-updates", notify === true),
   downloadAndInstallUpdate: () => ipcRenderer.invoke("download-and-install-update"),

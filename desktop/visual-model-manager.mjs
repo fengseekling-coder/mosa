@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { discoverVisualModelPacks } from "../lib/visual-model-pack.mjs";
@@ -139,6 +139,23 @@ export function createVisualModelManager({
         active_pack_id: active ? active.id : "",
         active_revision: active ? active.revision : "",
       };
+    },
+
+    async cleanupInactivePacks() {
+      const settings = await readSettings(settingsPath);
+      const discovery = await discoverPacks({ userDataDir: baseDir });
+      const selected = discovery.packs.find((pack) =>
+        pack.id === settings.active_pack_id && pack.revision === settings.active_revision);
+      const active = selected || discovery.packs[0] || null;
+      if (!active) return { removed: [] };
+      const removed = [];
+      for (const pack of discovery.packs) {
+        if (pack.pack_dir === active.pack_dir || pack.id !== active.id) continue;
+        await rm(pack.pack_dir, { recursive: true, force: true });
+        removed.push(pack.pack_dir);
+      }
+      if (removed.length) cache = null;
+      return { removed };
     },
   };
 }
