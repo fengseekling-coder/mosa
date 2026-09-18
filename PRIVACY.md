@@ -52,6 +52,10 @@ MOSA does not attach library contents, asset counts, Prompt text, filenames, loc
 
 The website can also retain a short campaign label such as `ref=reddit_codex` on a download URL so aggregate download traffic can be attributed to the page or creator that referred it. MOSA does not require a login for attribution.
 
+## Desktop application updates
+
+When you check for or install an application update, packaged MOSA reads `https://mosa.azhuilab.com/releases/latest.json`. If you explicitly choose **Download and install**, macOS and Windows builds download only the platform-specific update artifact advertised by that manifest from `https://mosa.azhuilab.com/downloads/`. MOSA does not attach your library contents, images, videos, Prompts, provenance records, search queries, library paths, or Visual Pack embeddings to the update download. Update files are staged locally under Electron `userData`, verified by declared byte size and SHA-256, and used only to replace the application itself; `MOSA Library` and its original assets remain outside the application replacement transaction.
+
 ## Optional Visual Pack download
 
 Local visual search is optional. When you explicitly choose Install or Update in Settings, MOSA reads the first-party release manifest at `https://mosa.azhuilab.com/releases/latest.json` and downloads the published platform-specific Visual Pack only from `https://mosa.azhuilab.com/downloads/visual-packs/`. These requests necessarily reach the download server, but MOSA does not attach your images, videos, Prompts, provenance records, library paths, search queries, or derived visual embeddings to the request. Pack files are verified and stored locally under Electron `userData`; they are not placed in or uploaded from `MOSA Library`.
