@@ -16,6 +16,12 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - Collapsed gallery paging now uses a dedicated no-filter fast path and Stack annotations aggregate only the Stacks relevant to returned rows instead of scanning every active Stack member.
 - The 50k performance gate now separately covers cold search, short CJK search, and a mixed library with 2,000 five-member Stacks.
 
+### Web Capture activity / 网页收录状态
+
+- Settings now shows the browser extension's bounded pending/retrying queue summary together with recent Runtime ingest outcomes and Prompt-availability status.
+- The extension reports only redacted queue diagnostics to the authenticated loopback Runtime; raw Prompt text, page/media URLs, and media bytes are excluded from this status channel.
+- A Settings retry action requests the extension to drain its existing durable queue; MOSA does not create a second delivery queue or blindly duplicate failed captures.
+
 ## 0.2.1-rc.14 — 2026-09-16 / Release Candidate
 
 ### Drag & drop import / 拖放导入
