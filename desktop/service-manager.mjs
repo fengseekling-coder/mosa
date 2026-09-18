@@ -124,7 +124,22 @@ export async function startMosaService(options = {}) {
   for (const { candidatePort, initial } of initialProbes) {
     if (initial.state === "attached") {
       const identityConflict = serviceIdentityConflict(initial, options.expectedIdentity);
-      if (!identityConflict) return attachedService(initial, options.clientToken);
+      if (!identityConflict) {
+        if (options.preferOwnedRuntime === true && candidatePort === port) {
+          const retireService = options.retireVerifiedService || retireVerifiedMosaService;
+          const retired = await retireService(initial, {
+            host,
+            expectedIdentity: options.expectedIdentity,
+            fetchImpl: options.fetchImpl,
+            probeTimeoutMs: options.probeTimeoutMs,
+          });
+          if (retired) {
+            availablePorts.push(candidatePort);
+            continue;
+          }
+        }
+        return attachedService(initial, options.clientToken);
+      }
       lastConflict = identityConflict;
       identityMismatch = identityConflict;
       continue;
@@ -359,6 +374,63 @@ export async function retireOlderMosaService(conflict, options = {}) {
       // Never continue polling or signal a second process in that case.
       if (!sameReportedServiceIdentity(status, service)) return false;
     }
+    if (check + 1 < maxChecks) await sleepImpl(pollMs);
+  }
+  return false;
+}
+
+/**
+ * An explicit packaged desktop startup handoff may prefer owning the primary
+ * local runtime instead of attaching to a verified KeepAlive/source runtime
+ * that reports the exact same build identity. The live service, library lock,
+ * PID/start identity, and requested build must all agree before one SIGTERM is
+ * sent. Never escalate to SIGKILL.
+ */
+export async function retireVerifiedMosaService(service, options = {}) {
+  if (!service || !Number.isInteger(service.port) || typeof service.libraryDir !== "string") return false;
+  if (options.expectedIdentity && serviceIdentityConflict(service, options.expectedIdentity)) return false;
+
+  const readFileImpl = options.readFileImpl || readFile;
+  const lockPath = join(service.libraryDir, RUNTIME_LOCK_FILE_NAME);
+  const owner = await readRuntimeLockOwner(lockPath, readFileImpl);
+  if (!owner || owner.pid === process.pid) return false;
+
+  const probeImpl = options.probeImpl || probeMosaService;
+  const probeOptions = {
+    host: options.host || DEFAULT_HOST,
+    port: service.port,
+    libraryDir: service.libraryDir,
+    fetchImpl: options.fetchImpl,
+    timeoutMs: options.probeTimeoutMs,
+  };
+  const current = await probeImpl(probeOptions);
+  if (current.state !== "attached" || !sameReportedServiceIdentity(current, service)) return false;
+  if (options.expectedIdentity && serviceIdentityConflict(current, options.expectedIdentity)) return false;
+
+  const isProcessAlive = options.isProcessAlive || defaultIsProcessAlive;
+  if (!isProcessAlive(owner.pid)) return false;
+  const verifyProcessIdentity = options.verifyProcessIdentity || verifyMosaRuntimeLockProcessIdentity;
+  if (await verifyProcessIdentity(owner) !== true) return false;
+  const terminateProcess = options.terminateProcess || ((pid) => process.kill(pid, "SIGTERM"));
+  try {
+    terminateProcess(owner.pid);
+  } catch {
+    return false;
+  }
+
+  const timeoutMs = positiveInteger(options.timeoutMs, DEFAULT_UPGRADE_STOP_TIMEOUT_MS);
+  const pollMs = positiveInteger(options.pollMs, DEFAULT_UPGRADE_STOP_POLL_MS);
+  const maxChecks = Math.max(1, Math.ceil(timeoutMs / pollMs));
+  const sleepImpl = options.sleepImpl || ((delayMs) => new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs)));
+  for (let check = 0; check < maxChecks; check += 1) {
+    const alive = isProcessAlive(owner.pid);
+    const status = await probeImpl(probeOptions);
+    if (!alive && (status.state === "unavailable" || (status.state === "conflict" && status.retryable === true))) return true;
+    if (status.state === "attached") {
+      if (options.expectedIdentity && !serviceIdentityConflict(status, options.expectedIdentity)) return true;
+      if (!sameReportedServiceIdentity(status, service)) return false;
+    }
+    if (status.state === "conflict" && status.retryable !== true) return false;
     if (check + 1 < maxChecks) await sleepImpl(pollMs);
   }
   return false;

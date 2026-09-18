@@ -28,6 +28,7 @@ import {
   visualPackTarget,
 } from "./visual-pack-installer.mjs";
 import { createVisualInferenceClient } from "../lib/visual-inference-client.mjs";
+import { createMosaDesktopStartupHandoff } from "../lib/runtime-handoff.mjs";
 
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
 const startupShellPath = fileURLToPath(new URL("./startup.html", import.meta.url));
@@ -107,6 +108,10 @@ const isolationContext = {
   argv: process.argv,
   runtimeKind: "electron",
 };
+const desktopStartupHandoffEnabled = process.platform === "darwin"
+  && app.isPackaged
+  && !isolationContext.qaRun
+  && !process.env.MOSA_DESKTOP_PORT;
 
 // ---- Runtime isolation guard: fail closed before any production write ----
 const guard = validateRuntimeIsolation({
@@ -161,6 +166,9 @@ let visualPackReleaseCache = null;
 let visualPackInstallPromise = null;
 let visualPackInstallController = null;
 let visualPackProgress = null;
+let desktopStartupHandoffPromise = null;
+let desktopStartupHandoffLease = null;
+let desktopStartupHandoffError = null;
 const USAGE_REPORT_RECHECK_MS = 15 * 60 * 1000;
 const VISUAL_PACK_RELEASE_CACHE_MS = 15 * 60 * 1000;
 const WINDOWS_UPDATE_STAGING_ROOT = join(desktopDataDir, "updates", "windows");
@@ -171,6 +179,18 @@ const MAX_RENDERER_CONSOLE_ERRORS = 32;
 if (!app.requestSingleInstanceLock()) {
   app.exit(0);
 } else {
+  desktopStartupHandoffPromise = desktopStartupHandoffEnabled
+    ? createMosaDesktopStartupHandoff({ libraryDir })
+      .then((lease) => {
+        desktopStartupHandoffLease = lease;
+        return lease;
+      })
+      .catch((error) => {
+        desktopStartupHandoffError = error;
+        return null;
+      })
+    : Promise.resolve(null);
+
   app.on("second-instance", () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
       void openMainWindow().catch(reportStartupFailure);
@@ -181,6 +201,8 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    await desktopStartupHandoffPromise;
+    if (desktopStartupHandoffError) throw desktopStartupHandoffError;
     await cleanupVisualPackStaging({ userDataDir: desktopDataDir }).catch((error) => {
       console.warn(`[MOSA] visual pack staging recovery failed: ${error?.message || error}`);
     });
@@ -215,7 +237,10 @@ if (!app.requestSingleInstanceLock()) {
     shuttingDown = true;
     stopBridgeNotificationPoll();
     stopAnonymousUsageLifecycle();
-    void stopOwnedRuntime().catch(console.error).finally(() => app.exit(0));
+    void Promise.allSettled([
+      stopOwnedRuntime(),
+      releaseDesktopStartupHandoff(),
+    ]).finally(() => app.exit(0));
   });
 
   // A newer packaged MOSA may ask this process to yield the shared local
@@ -1096,10 +1121,14 @@ async function ensureDesktopService() {
   serviceStartPromise = (async () => {
     serviceManagerModulePromise ||= import("./service-manager.mjs");
     const {
+      probeMosaService,
       shouldAllowSameVersionServiceReplacement,
       shouldAllowStaleServiceUpgrade,
       startMosaService,
     } = await serviceManagerModulePromise;
+    await desktopStartupHandoffPromise;
+    if (desktopStartupHandoffError) throw desktopStartupHandoffError;
+    await waitForSupervisorHandoffYield({ probeMosaService });
     const clientToken = process.env.MOSA_CLIENT_TOKEN
       || await loadOrCreateMosaClientToken(desktopDataDir);
     const webCaptureToken = process.env.MOSA_WEB_CAPTURE_TOKEN
@@ -1109,6 +1138,7 @@ async function ensureDesktopService() {
     const nextService = await startMosaService({
       port: desktopPort,
       libraryDir,
+      preferOwnedRuntime: process.platform === "darwin" && app.isPackaged && Boolean(desktopStartupHandoffLease),
       allowPortFallback: !process.env.MOSA_DESKTOP_PORT,
       failOnPrimaryLibraryMismatch: true,
       allowStaleServiceUpgrade: shouldAllowStaleServiceUpgrade({
@@ -1151,11 +1181,38 @@ async function ensureDesktopService() {
       throw new Error("MOSA startup was cancelled during shutdown.");
     }
     service = nextService;
+    await releaseDesktopStartupHandoff();
     return service;
   })().finally(() => {
     serviceStartPromise = null;
   });
   return serviceStartPromise;
+}
+
+async function waitForSupervisorHandoffYield({ probeMosaService, timeoutMs = 2_000, pollMs = 100 } = {}) {
+  if (process.platform !== "darwin" || !desktopStartupHandoffLease || typeof probeMosaService !== "function") return;
+  const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+  while (Date.now() < deadline) {
+    const status = await probeMosaService({
+      port: desktopPort,
+      libraryDir,
+      timeoutMs: Math.min(500, Math.max(100, Number(pollMs) || 100)),
+    });
+    if (status.state !== "attached") return;
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, Math.max(25, Number(pollMs) || 100)));
+  }
+}
+
+async function releaseDesktopStartupHandoff() {
+  const lease = desktopStartupHandoffLease;
+  desktopStartupHandoffLease = null;
+  if (!lease) return false;
+  try {
+    return await lease.release();
+  } catch (error) {
+    console.warn(`[MOSA] failed to release desktop startup handoff marker: ${error?.message || error}`);
+    return false;
+  }
 }
 
 function denyBrowserPermissions() {
@@ -1291,5 +1348,8 @@ function reportStartupFailure(error) {
   dialog.showErrorBox(getDesktopText("startupErrorTitle", currentLocale), message);
   shuttingDown = true;
   stopBridgeNotificationPoll();
-  void stopOwnedRuntime().catch(console.error).finally(() => app.exit(1));
+  void Promise.allSettled([
+    stopOwnedRuntime(),
+    releaseDesktopStartupHandoff(),
+  ]).finally(() => app.exit(1));
 }

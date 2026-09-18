@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DEFAULT_MOSA_DESKTOP_PORT, normalizeMosaPort } from "../lib/runtime-defaults.mjs";
+import { probeMosaDesktopStartupHandoff } from "../lib/runtime-handoff.mjs";
 import { verifyMosaRuntimeLockProcessIdentity } from "../lib/runtime-lock.js";
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -18,6 +19,7 @@ const DEFAULT_CONTROLLED_TAKEOVER_GRACE_MS = 30_000;
 const DEFAULT_TAKEOVER_POLL_MS = 250;
 const DEFAULT_PROBE_TIMEOUT_MS = 1200;
 const DEFAULT_SOURCE_CHANGE_SETTLE_MS = 750;
+const DEFAULT_HANDOFF_POLL_MS = 250;
 
 export function watchOwnedRuntimeSources({
   watchImpl = watch,
@@ -75,9 +77,12 @@ export async function probeMosaOwner({
   fetchImpl = globalThis.fetch,
   timeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
   leaseProbe = () => probeRuntimeLease({ libraryDir }),
+  handoffProbe = () => probeMosaDesktopStartupHandoff({ libraryDir }),
 } = {}) {
   const normalizedPort = normalizeMosaPort(port, { label: "MOSA supervisor port" });
   const expectedLibraryDir = resolve(libraryDir);
+  const handoff = await handoffProbe().catch(() => ({ state: "unavailable" }));
+  if (handoff.state === "handoff") return handoff;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(100, Number(timeoutMs) || DEFAULT_PROBE_TIMEOUT_MS));
   try {
@@ -129,6 +134,47 @@ export async function probeRuntimeLease({
   }
 }
 
+export function watchDesktopStartupHandoff({
+  probe = () => probeMosaDesktopStartupHandoff({
+    libraryDir: process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"),
+  }),
+  pollMs = DEFAULT_HANDOFF_POLL_MS,
+} = {}) {
+  let closed = false;
+  let timer = null;
+  let resolveWatch;
+  const promise = new Promise((resolvePromise) => { resolveWatch = resolvePromise; });
+
+  const schedule = () => {
+    if (closed) return;
+    timer = setTimeout(check, Math.max(25, Number(pollMs) || DEFAULT_HANDOFF_POLL_MS));
+  };
+  const check = async () => {
+    if (closed) return;
+    try {
+      const status = await probe();
+      if (status.state === "handoff") {
+        closed = true;
+        timer = null;
+        resolveWatch(status);
+        return;
+      }
+    } catch {}
+    schedule();
+  };
+  void check();
+
+  return {
+    promise,
+    close() {
+      if (closed) return;
+      closed = true;
+      if (timer) clearTimeout(timer);
+      timer = null;
+    },
+  };
+}
+
 export async function waitForReplacementOwner({
   probe = probeMosaOwner,
   sleep = (delayMs) => new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs)),
@@ -152,6 +198,7 @@ export async function runSupervisor({
     stdio: "inherit",
   }),
   watchSources = () => watchOwnedRuntimeSources(),
+  watchHandoff = () => watchDesktopStartupHandoff(),
   sleep = (delayMs) => new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs)),
   idlePollMs = DEFAULT_IDLE_POLL_MS,
   takeoverGraceMs = DEFAULT_TAKEOVER_GRACE_MS,
@@ -174,11 +221,13 @@ export async function runSupervisor({
   try {
     while (!stopping) {
       const current = await probe();
-      if (current.state === "attached" || current.state === "starting") {
+      if (current.state === "attached" || current.state === "starting" || current.state === "handoff") {
         if (lastIdleReason !== current.state) {
           logger.info?.(current.state === "attached"
             ? "[MOSA supervisor] another verified MOSA runtime owns this library; standing by."
-            : "[MOSA supervisor] another active MOSA runtime owns the library lock and is starting; standing by.");
+            : current.state === "starting"
+              ? "[MOSA supervisor] another active MOSA runtime owns the library lock and is starting; standing by."
+              : "[MOSA supervisor] MOSA Desktop is starting and has requested runtime handoff; standing by.");
         }
         lastIdleReason = current.state;
         await sleep(idlePollMs);
@@ -196,12 +245,26 @@ export async function runSupervisor({
       child = spawnRuntime();
       logger.info?.(`[MOSA supervisor] started background runtime PID ${child.pid || "unknown"}.`);
       const sourceWatch = watchSources();
+      const handoffWatch = watchHandoff();
       const exitPromise = waitForChildExit(child).then((exit) => ({ type: "exit", exit }));
       const outcome = await Promise.race([
         exitPromise,
         sourceWatch.promise.then(() => ({ type: "source-change" })),
+        handoffWatch.promise.then((handoff) => ({ type: "desktop-handoff", handoff })),
       ]);
       sourceWatch.close?.();
+      handoffWatch.close?.();
+
+      if (outcome.type === "desktop-handoff") {
+        if (!stopping && child.exitCode == null && child.signalCode == null) {
+          logger.info?.(`[MOSA supervisor] desktop startup handoff detected for PID ${outcome.handoff?.owner?.pid || "unknown"}; yielding background runtime.`);
+          child.kill("SIGTERM");
+        }
+        await exitPromise;
+        child = null;
+        if (stopping) break;
+        continue;
+      }
 
       if (outcome.type === "source-change") {
         if (!stopping && child.exitCode == null && child.signalCode == null) {

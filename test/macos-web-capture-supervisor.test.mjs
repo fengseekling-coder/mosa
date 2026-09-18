@@ -5,9 +5,24 @@ import {
   probeMosaOwner,
   probeRuntimeLease,
   runSupervisor,
+  watchDesktopStartupHandoff,
   watchOwnedRuntimeSources,
   waitForReplacementOwner,
 } from "../scripts/macos-web-capture-supervisor.mjs";
+
+test("supervisor gives a verified desktop startup handoff priority over port probing", async () => {
+  let fetchCalls = 0;
+  const status = await probeMosaOwner({
+    libraryDir: "/tmp/mosa-library",
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      throw new Error("should not probe HTTP while desktop handoff is active");
+    },
+    handoffProbe: async () => ({ state: "handoff", owner: { pid: 777 } }),
+  });
+  assert.deepEqual(status, { state: "handoff", owner: { pid: 777 } });
+  assert.equal(fetchCalls, 0);
+});
 
 test("supervisor recognizes a verified MOSA owner for the same library", async () => {
   const status = await probeMosaOwner({
@@ -130,6 +145,43 @@ test("supervisor stands by while desktop owns the library and starts service aft
   assert.ok(probeCount >= 3);
 });
 
+test("supervisor resumes background fallback after a desktop handoff marker expires", async () => {
+  const signalTarget = new EventEmitter();
+  let probeCount = 0;
+  let spawnCount = 0;
+  const child = new EventEmitter();
+  child.pid = 4343;
+  child.exitCode = null;
+  child.signalCode = null;
+  child.kill = (signal) => {
+    child.signalCode = signal;
+    queueMicrotask(() => child.emit("exit", null, signal));
+    return true;
+  };
+
+  await runSupervisor({
+    signalTarget,
+    probe: async () => {
+      probeCount += 1;
+      if (probeCount <= 2) return { state: "handoff", owner: { pid: 777 } };
+      return { state: "unavailable" };
+    },
+    spawnRuntime: () => {
+      spawnCount += 1;
+      queueMicrotask(() => signalTarget.emit("SIGTERM"));
+      return child;
+    },
+    sleep: async () => {},
+    idlePollMs: 1,
+    takeoverGraceMs: 1,
+    takeoverPollMs: 1,
+    logger: { info() {}, warn() {} },
+  });
+
+  assert.equal(spawnCount, 1);
+  assert.ok(probeCount >= 3);
+});
+
 test("source watcher resolves once and closes every watched handle", async () => {
   const callbacks = [];
   const handles = [];
@@ -206,4 +258,52 @@ test("supervisor restarts an owned background runtime when source changes", asyn
   assert.equal(spawnCount, 2);
   assert.equal(children[0].signalCode, "SIGTERM");
   assert.equal(children[1].signalCode, "SIGTERM");
+});
+
+test("handoff watcher resolves when a desktop marker becomes active", async () => {
+  let probes = 0;
+  const watcher = watchDesktopStartupHandoff({
+    pollMs: 1,
+    probe: async () => {
+      probes += 1;
+      return probes < 2 ? { state: "unavailable" } : { state: "handoff", owner: { pid: 777 } };
+    },
+  });
+  assert.deepEqual(await watcher.promise, { state: "handoff", owner: { pid: 777 } });
+  watcher.close();
+  assert.equal(probes, 2);
+});
+
+test("running supervisor runtime yields immediately when desktop startup handoff appears", async () => {
+  const signalTarget = new EventEmitter();
+  const child = new EventEmitter();
+  child.pid = 5151;
+  child.exitCode = null;
+  child.signalCode = null;
+  const killed = [];
+  child.kill = (signal) => {
+    killed.push(signal);
+    child.signalCode = signal;
+    queueMicrotask(() => {
+      child.emit("exit", null, signal);
+      signalTarget.emit("SIGTERM");
+    });
+    return true;
+  };
+
+  await runSupervisor({
+    signalTarget,
+    probe: async () => ({ state: "unavailable" }),
+    spawnRuntime: () => child,
+    watchSources: () => ({ promise: new Promise(() => {}), close() {} }),
+    watchHandoff: () => ({
+      promise: Promise.resolve({ state: "handoff", owner: { pid: 777 } }),
+      close() {},
+    }),
+    sleep: async () => {},
+    takeoverGraceMs: 1,
+    takeoverPollMs: 1,
+    logger: { info() {}, warn() {} },
+  });
+  assert.deepEqual(killed, ["SIGTERM"]);
 });
