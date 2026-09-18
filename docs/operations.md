@@ -124,6 +124,8 @@ The fixture uses synthetic designer-library assets and realistic search phrasing
 
 The current conversational planner is intentionally conservative: it only activates on recognizable Chinese search phrasing, removes scaffolding, then keeps CJK terms that are already present in the library's short-term index. Ordinary keyword queries retain their original semantics. Cross-language paraphrase or visual-content misses are evidence for evaluating local text/image embeddings, provided their latency, disk, privacy, and migration costs are measured separately.
 
+Before introducing a text-embedding runtime, MOSA also applies a small audited design-vocabulary layer when at least two independent vocabulary signals are present. It covers high-value designer terminology such as `negative space` → `留白`, `eco friendly` → `可持续`, and common key-visual/packaging/portrait phrasing. A single ordinary keyword hit is never rewritten, which keeps searches such as `editorial portrait` on the existing lexical path. These mappings are a controlled product vocabulary, not a claim of general semantic understanding; the semantic acceptance tier therefore remains diagnostic until the fixture is substantially broader.
+
 ## Codex Hard-Link Reclaim
 
 Migration re-imports each record from the legacy library file rather than from the Codex path, so a library that was hard-linked before migrating holds a second copy of every Codex asset. Reclaim that space once the migration has been verified:

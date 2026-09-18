@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   conversationalAssetSearchPlan,
+  designVocabularySearchPlan,
   finalizeConversationalSearchPlan,
 } from "../lib/asset-search-query-plan.mjs";
 
@@ -34,4 +35,21 @@ test("query planner preserves short design abbreviations next to Chinese intent"
   assert.ok(plan.asciiTerms.includes("kv"));
   const final = finalizeConversationalSearchPlan(plan, new Set(["适合", "继续", "品牌"]));
   assert.equal(final.query, "适合 继续 品牌 kv");
+});
+
+test("design vocabulary normalizes common cross-language designer terms without an embedding model", () => {
+  assert.equal(
+    designVocabularySearchPlan("clean portrait with lots of negative space").query,
+    "极简 人物 留白",
+  );
+  assert.equal(
+    designVocabularySearchPlan("eco friendly product box").query,
+    "可持续 产品 包装",
+  );
+  assert.equal(
+    designVocabularySearchPlan("高端科技城市主视觉").query,
+    "城市 主视觉",
+  );
+  assert.equal(designVocabularySearchPlan("editorial portrait"), null,
+    "ordinary lexical queries are not rewritten unless a vocabulary rule materially changes them");
 });
