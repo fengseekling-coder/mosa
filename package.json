@@ -34,6 +34,8 @@
     "pack:web-capture-store": "npm run check:web-capture-store && node scripts/pack-web-capture-store.mjs",
     "audit": "npm audit --omit=dev",
     "test:performance": "node scripts/run-performance.mjs",
+    "benchmark:vector-search": "node scripts/benchmark-vector-search.mjs",
+    "qa:visual-retrieval-candidate": "node scripts/evaluate-visual-retrieval-candidate.mjs",
     "verify:codex": "node scripts/verify-codex-asset.mjs",
     "check:desktop-node": "node scripts/check-desktop-package-node.mjs",
     "premaintenance:pixel-hashes": "npm run build",
