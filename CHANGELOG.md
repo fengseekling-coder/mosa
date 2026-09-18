@@ -41,6 +41,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - Expanded visual-retrieval diagnostics to use real generated pixel fixtures with composition facts withheld from searchable metadata, so future image-model experiments cannot accidentally pass by reading Prompt text.
 - Added a model-candidate gate for local visual retrieval covering product-use licensing, optional model-pack footprint, memory, cold start, query/index latency, exact vector-search latency, and pixel-grounded retrieval quality. Also added a 50k × 512 exact-vector benchmark so an ANN dependency is introduced only if measured scale requires it.
 - Added an offline visual-model-pack manifest/verifier and CLI command. Packs pin embedding dimension, preprocessing metadata, license/product-use declaration, byte sizes, and SHA-256 for every file; verification rejects traversal, symlinks, tampering, and oversized packs before any runtime integration.
+- Added the model-neutral visual relationship engine foundation: a versioned userData-side embedding index, exact image-neighbor lookup, stable visual API contracts, safe derived-index cleanup, and advisory near-duplicate/version/Stack candidate classification. No candidate mutates library organization or provenance automatically.
 
 ## 0.2.1-rc.14 — 2026-09-16 / Release Candidate
 
