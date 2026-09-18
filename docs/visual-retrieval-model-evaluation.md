@@ -124,6 +124,21 @@ MOSA_VECTOR_BENCH_ASSETS=100000 MOSA_VECTOR_BENCH_DIMENSION=768 npm run benchmar
 
 Do not implement automatic model downloads until licensing, checksum verification, disk-space handling, and explicit user consent are part of the same change.
 
+## Visual relationship engine boundary
+
+The product integration is model-neutral. Visual embeddings are derived cache data stored under Electron `userData`, namespaced by library path and pinned model id/revision/dimension. They do not live in `MOSA Library` and are not part of normal library backup.
+
+The first relationship surfaces are intentionally advisory:
+
+- image-to-image visual neighbors;
+- near-duplicate candidates;
+- version candidates;
+- Stack candidates.
+
+Candidates return their similarity score, explicit provisional thresholds, and whether MOSA already knows a direct version relation. They never automatically merge assets, create a Stack, or modify version lineage. The current provisional similarity thresholds are `0.985` for near-duplicate candidates, `0.94` for version candidates, and `0.90` for Stack candidates. These values must be recalibrated on the eventual production model and a broader evaluation corpus before release.
+
+Runtime API contracts are stable even without a model pack: `/api/visual/status` reports the feature as unavailable, while model-dependent relationship requests fail explicitly instead of altering normal library behavior.
+
 ## Offline model-pack verification
 
 Candidate weights that already exist locally can be arranged as a MOSA visual model pack and verified without network access:
