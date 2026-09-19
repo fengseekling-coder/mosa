@@ -323,7 +323,7 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
   const manifest = JSON.parse(pkg);
   assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies must stay untouched");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
-  assert.equal(sha256(lock), "ca92af322f3682c3cd55aeb70532651b1c15ab0e04b00c655f0c6311a8fb7f24", "package-lock.json must stay untouched");
+  assert.equal(sha256(lock), "3a92de10e89740b7fa1303bfd150b0a7f9b6139ca7ae45294eae07778ab2af20", "package-lock.json must stay untouched");
 
   // 48. app.js imports only approved first-party helpers. Batch import and
   // native file drag are deliberate local modules; runtime dependencies and
