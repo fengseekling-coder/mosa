@@ -354,8 +354,12 @@ test("25-28. tags section renders prompt-derived chips and add action (D3)", asy
   assert.match(tagsSection, /class="detail-tag"/);
   assert.match(tagsSection, /data-action="add-tag"/);
   assert.match(tagsSection, /t\("addTag"\)/);
+  assert.doesNotMatch(tagsSection, /asset-curation|curationMarkup|toggle-curated|copy-context-package|export-context-package/,
+    "curation and context-package controls stay out of the asset inspector");
   const css = await readCss();
   assert.match(css, /\.detail-tags-row \{[^}]*max-height: 56px/);
+  assert.doesNotMatch(css, /asset-curation|context-package-actions/,
+    "retired curation/context-package layout styles stay removed");
   assert.match(i18n, /addTag: "添加标签"/);
 });
 
@@ -506,7 +510,7 @@ test("48-51. hygiene: no !important, no undefined tokens, manifest and dependenc
 
   // 51. app.js imports only approved first-party helpers (no new runtime dependencies).
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./batch-import.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./context-package.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./library-reconciliation.mjs", "./native-asset-drag.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
+    ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./batch-import.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./library-reconciliation.mjs", "./native-asset-drag.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
 });
 
 // i18n symmetry: every new Phase 4A key ships in both languages, and no

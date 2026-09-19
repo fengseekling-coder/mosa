@@ -21,7 +21,6 @@ import { createAssetStackController } from "./asset-stacks.mjs";
 import { createLibraryReconciler } from "./library-reconciliation.mjs";
 import { collectDroppedFiles, createBatchImporter, dropErrorMessage } from "./batch-import.mjs";
 import { createNativeAssetDrag } from "./native-asset-drag.mjs";
-import { buildContextPackage, contextPackageFileName, contextPackageText } from "./context-package.mjs";
 import {
   captureSavedFilterSnapshot,
   normalizeSavedFilterSnapshot,
@@ -850,7 +849,7 @@ const { resetImageZoom, zoomImage, panImagePreview, setupImageZoomPan,
 // ===== Inspector markup（检视器区块 markup helper，已提取至 inspector-markup.mjs，R1 批次 4）=====
 const inspectorMarkup = createInspectorMarkup({ state, t, referenceRightsMarkup });
 const { detailFileSectionMarkup, detailPromptSectionMarkup, detailSourceSectionMarkup,
-  detailVersionSectionMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup, curationMarkup,
+  detailVersionSectionMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup,
   detailMoreSectionMarkup, versionPickerMarkup, versionCompareMarkup, versionHistoryMarkup,
   generationHistoryMarkup, recipeHistoryMarkup, sourceCopyValue, isVideoAsset,
   assetMediaPreviewMarkup, stackInspectorMarkup, promptReferencesMarkup } = inspectorMarkup;
@@ -1454,7 +1453,7 @@ function isDetailEditorActive() {
   });
   return state.detailDirty
     || generationDraft
-    || (active instanceof HTMLElement && Boolean(els.detailPanel?.contains(active) && active.closest("[data-edit], [data-version-change], [data-recipe-change], [data-tag-editor], [data-generation-composer], [data-curation-note]")));
+    || (active instanceof HTMLElement && Boolean(els.detailPanel?.contains(active) && active.closest("[data-edit], [data-version-change], [data-recipe-change], [data-tag-editor], [data-generation-composer]")));
 }
 
 function latestAssetSnapshot(projectId, assetId, fallback = null) {
@@ -4513,12 +4512,12 @@ async function confirmDetailNavigation() {
   return flushInspectorSave();
 }
 
-// 手动保存作用域（version=另存为新版本的变更说明，tags=标签编辑器输入，curation=精选备注）的未提交
+// 手动保存作用域（version=另存为新版本的变更说明，tags=标签编辑器输入）的未提交
 // 草稿。recipe/reference 由自动保存冲刷兜底，不在此弹确认。
 function hasManualSaveDraft() {
   const panel = els.detailPanel;
   if (!panel?.isConnected || !state.detailOpen) return false;
-  return Boolean(panel.querySelector('[data-detail-dirty="true"][data-detail-dirty-scope="version"], [data-detail-dirty="true"][data-detail-dirty-scope="tags"], [data-detail-dirty="true"][data-detail-dirty-scope="curation"]'));
+  return Boolean(panel.querySelector('[data-detail-dirty="true"][data-detail-dirty-scope="version"], [data-detail-dirty="true"][data-detail-dirty-scope="tags"]'));
 }
 
 function discardDetailDraft() {
@@ -5707,114 +5706,7 @@ function bindDetailEvents(asset, renderId) {
   }));
   panel.querySelector('[data-action="save-recipe"]')?.addEventListener("click", () => runAction(() => flushInspectorSave()));
 
-  bindCurationEvents(panel, asset, renderId);
   bindReferenceRightsEvents(panel);
-}
-
-function bindCurationEvents(panel, asset, renderId) {
-  const note = panel?.querySelector("[data-curation-note]");
-  note?.addEventListener("input", () => {
-    note.dataset.detailDirty = "true";
-    note.dataset.detailDirtyScope = "curation";
-    state.detailDirty = true;
-  });
-  panel?.querySelector('[data-action="toggle-curated"]')?.addEventListener("click", (event) => {
-    const next = event.currentTarget.getAttribute("aria-pressed") !== "true";
-    void runAction(() => saveAssetCuration(asset, renderId, { curated: next }));
-  });
-  panel?.querySelector('[data-action="save-curation"]')?.addEventListener("click", () => {
-    void runAction(() => saveAssetCuration(asset, renderId));
-  });
-  panel?.querySelector('[data-action="copy-context-package"]')?.addEventListener("click", () => {
-    void runAction(async () => {
-      const pkg = await resolveContextPackage(asset, renderId);
-      if (!pkg) return;
-      await writeClipboardText(contextPackageText(pkg));
-      showToast(t("contextPackageCopied"), "success");
-    });
-  });
-  panel?.querySelector('[data-action="export-context-package"]')?.addEventListener("click", () => {
-    void runAction(async () => {
-      const pkg = await resolveContextPackage(asset, renderId);
-      if (!pkg) return;
-      downloadContextPackage(pkg, asset);
-      showToast(t("contextPackageExported"), "success");
-    });
-  });
-}
-
-async function resolveContextPackage(asset, renderId) {
-  const latest = latestAssetSnapshot(asset.project_id, asset.id, asset);
-  let recipeHistory = recipeHistoryForAsset(latest) || recipeHistoryFromAsset(latest);
-  let versionHistory = versionHistoryForAsset(latest);
-  let generationHistory = generationHistoryForAsset(latest);
-  const requests = [];
-  if (!recipeHistory) {
-    requests.push(apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/recipes`)
-      .then((result) => { recipeHistory = result.history || null; }));
-  }
-  if (!versionHistory) {
-    requests.push(apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/versions`)
-      .then((result) => { versionHistory = result.history || null; }));
-  }
-  if (!generationHistory) {
-    requests.push(apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/generation-history`)
-      .then((result) => { generationHistory = result.history || null; }));
-  }
-  // The core package remains useful when an optional history surface is
-  // unavailable. Do not turn a failed lineage lookup into a failed Prompt/path
-  // export, and do not silently replace missing evidence with guesses.
-  if (requests.length) await Promise.allSettled(requests);
-  if (!isCurrentDetailAction(renderId, asset.project_id, asset.id)) return null;
-  return buildContextPackage(latestAssetSnapshot(asset.project_id, asset.id, latest), {
-    recipeHistory,
-    versionHistory,
-    generationHistory,
-  });
-}
-
-function downloadContextPackage(pkg, asset) {
-  const blob = new Blob([`${JSON.stringify(pkg, null, 2)}\n`], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = contextPackageFileName(asset);
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
-async function saveAssetCuration(asset, renderId, overrides = {}) {
-  if (!isCurrentDetailAction(renderId, asset.project_id, asset.id)) return;
-  const region = els.detailPanel?.querySelector("[data-curation-region]");
-  const note = region?.querySelector("[data-curation-note]");
-  const toggle = region?.querySelector('[data-action="toggle-curated"]');
-  const curated = Object.hasOwn(overrides, "curated")
-    ? overrides.curated === true
-    : toggle?.getAttribute("aria-pressed") === "true";
-  const body = { curated, curation_note: String(note?.value || "") };
-  region?.setAttribute("aria-busy", "true");
-  try {
-    const result = await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}/curation`, { method: "PATCH", body });
-    if (!isCurrentDetailAction(renderId, asset.project_id, asset.id)) return;
-    state.detailAsset = result.asset;
-    const index = state.assets.findIndex((item) => item.id === asset.id && item.project_id === asset.project_id);
-    if (index >= 0) state.assets[index] = result.asset;
-    renderCurationRegion(result.asset, renderId);
-    state.detailDirty = Boolean(els.detailPanel?.querySelector('[data-detail-dirty="true"], [data-reference-rights-section][data-reference-dirty="true"]'));
-    window.dispatchEvent(new CustomEvent("mosa:refresh-assets", { detail: { updatedAssetIds: [asset.id] } }));
-    showToast(t("curationSaved"), "success");
-  } finally {
-    region?.removeAttribute("aria-busy");
-  }
-}
-
-function renderCurationRegion(asset, renderId) {
-  const region = els.detailPanel?.querySelector("[data-curation-region]");
-  if (!region || !isCurrentDetailAction(renderId, asset.project_id, asset.id)) return;
-  region.innerHTML = curationMarkup(asset);
-  bindCurationEvents(els.detailPanel, asset, renderId);
 }
 
 const USE_PERMISSION_CYCLE = { undeclared: "allowed", allowed: "forbidden", forbidden: "undeclared" };

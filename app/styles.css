@@ -1401,21 +1401,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .version-compare-row > strong { font-size: 11px; color: var(--color-text-tertiary); }
 .mosa-v2 .version-compare-row > span { white-space: pre-wrap; font-size: 11px; line-height: 1.45; color: var(--color-text-secondary); }
 .mosa-v2 .version-compare-row.changed > span { color: var(--color-text-primary); }
-.mosa-v2 .asset-curation-region { display: grid; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-border-subtle); }
-.mosa-v2 .asset-curation-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-.mosa-v2 .asset-curation-head > div { display: grid; gap: 2px; min-width: 0; }
-.mosa-v2 .asset-curation-head strong { color: var(--color-text-primary); font-size: 12px; }
-.mosa-v2 .asset-curation-head span { color: var(--color-text-tertiary); font-size: 11px; line-height: 1.4; }
-.mosa-v2 .asset-curation-toggle.active { color: var(--color-text-primary); border-color: var(--color-text-secondary); }
-.mosa-v2 .asset-curation-note { display: grid; gap: 5px; color: var(--color-text-tertiary); font-size: 11px; }
-.mosa-v2 .asset-curation-note textarea { box-sizing: border-box; width: 100%; min-height: 78px; resize: vertical; border: 1px solid var(--color-border-subtle); border-radius: 7px; padding: 8px 9px; color: var(--color-text-primary); background: var(--app-card); font: inherit; line-height: 1.45; }
-.mosa-v2 .asset-curation-note textarea:focus { border-color: var(--color-text-secondary); outline: none; }
-.mosa-v2 .asset-curation-actions { display: flex; justify-content: flex-end; }
-.mosa-v2 .context-package-actions { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--color-border-subtle); }
-.mosa-v2 .context-package-actions > div:first-child { display: grid; gap: 2px; }
-.mosa-v2 .context-package-actions > div:first-child strong { color: var(--color-text-primary); font-size: 12px; }
-.mosa-v2 .context-package-actions > div:first-child span { color: var(--color-text-tertiary); font-size: 11px; line-height: 1.4; }
-.mosa-v2 .context-package-actions > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 
 @media (hover: hover) and (pointer: fine) {
   .mosa-v2 .sidebar-section-toggle:hover { color: var(--color-text-primary); }
