@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   createMosaDesktopStartupHandoff,
+  createMosaMacosUpdateHelperHandoff,
   mosaDesktopStartupHandoffPath,
   probeMosaDesktopStartupHandoff,
 } from "../lib/runtime-handoff.mjs";
@@ -80,4 +81,28 @@ test("PID reuse cannot keep a handoff alive when process start identity changes"
   });
   assert.deepEqual(status, { state: "unavailable" });
   await assert.rejects(access(mosaDesktopStartupHandoffPath(libraryDir)));
+});
+
+test("macOS update helper handoff reuses the existing supervisor marker for backward compatibility", async () => {
+  const libraryDir = await mkdtemp(join(tmpdir(), "mosa-update-handoff-"));
+  deferTestPathRemoval(libraryDir, { recursive: true, force: true });
+  const nowMs = Date.parse("2026-09-19T18:30:00.000Z");
+  await createMosaMacosUpdateHelperHandoff({
+    libraryDir,
+    pid: 5151,
+    now: () => nowMs,
+    readProcessIdentity: async () => "unix-start:update-helper",
+    randomUUIDImpl: () => "update-helper-token",
+  });
+  const marker = JSON.parse(await readFile(mosaDesktopStartupHandoffPath(libraryDir), "utf8"));
+  assert.equal(marker.pid, 5151);
+  assert.equal(Date.parse(marker.expiresAt) - Date.parse(marker.createdAt), 90_000);
+  const updateStatus = await probeMosaDesktopStartupHandoff({
+    libraryDir,
+    now: () => nowMs + 45_000,
+    isProcessAlive: () => true,
+    verifyProcessIdentity: async () => true,
+  });
+  assert.equal(updateStatus.state, "handoff");
+  assert.equal(updateStatus.owner.pid, 5151);
 });

@@ -5,6 +5,10 @@ import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import {
+  createMosaMacosUpdateHelperHandoff,
+  mosaDesktopStartupHandoffPath,
+} from "../lib/runtime-handoff.mjs";
 
 export const MOSA_MACOS_DOWNLOAD_BASE_URL = "https://mosa.azhuilab.com/downloads/";
 const MAX_MACOS_UPDATE_BYTES = 1_500_000_000;
@@ -162,6 +166,7 @@ INSTALL_APP="$3"
 EXPECTED_VERSION="$4"
 LOG_PATH="$5"
 READY_FILE="$6"
+HANDOFF_FILE="$7"
 
 PARENT_DIR="$(dirname "$INSTALL_APP")"
 TRANSACTION_ROOT="$PARENT_DIR/.MOSA-update-$(date +%s)-$$"
@@ -173,6 +178,7 @@ MOVED_ORIGINAL=0
 NEW_PID=""
 
 rollback() {
+  rm -f "$HANDOFF_FILE" 2>/dev/null || true
   if [ -n "$NEW_PID" ] && kill -0 "$NEW_PID" 2>/dev/null; then
     kill -TERM "$NEW_PID" 2>/dev/null || true
     i=0
@@ -211,6 +217,7 @@ i=0
 while [ "$i" -lt 180 ]; do
   if [ -f "$READY_FILE" ]; then
     trap - HUP INT TERM EXIT
+    rm -f "$HANDOFF_FILE" 2>/dev/null || true
     rm -rf "$TRANSACTION_ROOT"
     exit 0
   fi
@@ -231,15 +238,18 @@ export async function launchMacosUpdateHelper({
   installAppPath,
   version,
   processId,
+  libraryDir,
   spawnImpl = spawn,
+  createUpdateHandoff = createMosaMacosUpdateHelperHandoff,
 } = {}) {
-  if (!zipPath || !installAppPath || !safeVersion(version) || !Number.isSafeInteger(processId) || processId <= 0) {
+  if (!zipPath || !installAppPath || !safeVersion(version) || !Number.isSafeInteger(processId) || processId <= 0 || !libraryDir) {
     throw new Error("Invalid macOS update helper arguments.");
   }
   const stagingDir = dirname(zipPath);
   const scriptPath = join(stagingDir, "apply-update.sh");
   const logPath = join(stagingDir, "apply-update-error.log");
   const readyFile = join(stagingDir, "update-ready.json");
+  const handoffFile = mosaDesktopStartupHandoffPath(libraryDir);
   await writeFile(scriptPath, macosUpdateHelperScript(), { encoding: "utf8", mode: 0o700 });
   const child = spawnImpl("/bin/sh", [
     scriptPath,
@@ -249,6 +259,7 @@ export async function launchMacosUpdateHelper({
     safeVersion(version),
     logPath,
     readyFile,
+    handoffFile,
   ], {
     detached: true,
     stdio: "ignore",
@@ -257,8 +268,18 @@ export async function launchMacosUpdateHelper({
     child.once("spawn", resolveSpawn);
     child.once("error", rejectSpawn);
   });
+  if (!Number.isSafeInteger(child.pid) || child.pid <= 0) {
+    child.kill?.("SIGTERM");
+    throw new Error("macOS update helper did not expose a valid process id.");
+  }
+  try {
+    await createUpdateHandoff({ libraryDir, pid: child.pid });
+  } catch (error) {
+    child.kill?.("SIGTERM");
+    throw error;
+  }
   child.unref?.();
-  return { scriptPath, logPath, readyFile };
+  return { scriptPath, logPath, readyFile, handoffFile, helperPid: child.pid };
 }
 
 function readableBody(body) {
