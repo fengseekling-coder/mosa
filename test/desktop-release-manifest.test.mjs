@@ -64,6 +64,7 @@ test("release manifest includes Windows only when a same-version real artifact i
       macArtifactPath: files.mac,
       windowsArtifactPath: files.windows,
       publishedAt: "2026-09-19T01:00:00Z",
+      notes: { zh: "rc.16 中文说明", en: "rc.16 English notes" },
     });
     const parsed = parseUpdateManifest(result);
     assert.equal(parsed.macArtifact.file, `MOSA-darwin-arm64-${version}.zip`);
@@ -83,6 +84,48 @@ test("release manifest refuses stale artifact versions instead of publishing a m
         publishedAt: "2026-09-19T01:00:00Z",
       }),
       /filename must be MOSA-darwin-arm64-0\.2\.1-rc\.16\.zip/,
+    );
+  } finally {
+    await removeTestPath(files.root, { recursive: true, force: true });
+  }
+});
+
+test("release manifest requires explicit bilingual notes and never inherits previous release notes", async () => {
+  const version = "0.2.1-rc.16";
+  const files = await fixtureArtifacts(version);
+  const previousManifest = {
+    version: "0.2.1-rc.15",
+    notes: { zh: "旧版中文说明", en: "Previous English notes" },
+  };
+  try {
+    await assert.rejects(
+      prepareDesktopReleaseManifest({
+        version,
+        macArtifactPath: files.mac,
+        previousManifest,
+        publishedAt: "2026-09-19T01:00:00Z",
+      }),
+      /notes\.zh and notes\.en must both be non-empty/,
+    );
+    await assert.rejects(
+      prepareDesktopReleaseManifest({
+        version,
+        macArtifactPath: files.mac,
+        previousManifest,
+        publishedAt: "2026-09-19T01:00:00Z",
+        notes: { zh: "新版本中文说明", en: "   " },
+      }),
+      /notes\.zh and notes\.en must both be non-empty/,
+    );
+    await assert.rejects(
+      prepareDesktopReleaseManifest({
+        version,
+        macArtifactPath: files.mac,
+        previousManifest,
+        publishedAt: "2026-09-19T01:00:00Z",
+        notes: { zh: "   ", en: "New release English notes" },
+      }),
+      /notes\.zh and notes\.en must both be non-empty/,
     );
   } finally {
     await removeTestPath(files.root, { recursive: true, force: true });
