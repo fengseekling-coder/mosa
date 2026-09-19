@@ -194,6 +194,12 @@ test("settings dialog uses the compact unified geometry", async () => {
     "the modal scrim uses grid-aligned padding and a restrained material blur");
   assert.match(css, /\.mosa-v2 \.settings-modal-card \{[\s\S]*?width: min\(520px, 100%\);[\s\S]*?max-height: min\(560px, calc\(100dvh - 48px\)\);[\s\S]*?border-radius: 20px;/,
     "the dialog is compact, single-column, and viewport constrained");
+  assert.match(css, /\.mosa-v2 \.settings-modal-card \{[^}]*display: flex;[^}]*flex-direction: column;[^}]*overflow: hidden;/,
+    "the settings card owns the height constraint and lays out header plus scroll body vertically");
+  assert.match(css, /\.mosa-v2 \.settings-modal-body \{[^}]*min-height: 0;[^}]*flex: 1 1 auto;[^}]*overflow-y: auto;/,
+    "the settings body scrolls within the card so the final About and update controls remain reachable");
+  assert.doesNotMatch(css, /\.mosa-v2 \.settings-modal-body \{[^}]*max-height:/,
+    "the settings body never uses a viewport height larger than the clipped card");
   assert.match(css, /\.mosa-v2 \.settings-modal-row \{[^}]*grid-template-columns: 24px minmax\(0, 1fr\) 164px;[^}]*min-height: 52px;[^}]*padding: 8px 0;/,
     "setting rows use one stable three-column alignment grid");
   assert.match(css, /\.mosa-v2 \.settings-block \+ \.settings-block \{[^}]*padding-top: 18px;[^}]*border-top: 1px solid var\(--color-border-subtle\);/,
