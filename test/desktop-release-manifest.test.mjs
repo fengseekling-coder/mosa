@@ -1,0 +1,90 @@
+import assert from "node:assert/strict";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+import { parseUpdateManifest } from "../desktop/update-service.mjs";
+import { prepareDesktopReleaseManifest } from "../scripts/prepare-desktop-release-manifest.mjs";
+import { removeTestPath } from "./test-cleanup.mjs";
+
+async function fixtureArtifacts(version) {
+  const root = await mkdtemp(join(tmpdir(), "mosa-release-manifest-"));
+  const mac = join(root, `MOSA-darwin-arm64-${version}.zip`);
+  const windows = join(root, `MOSA-win32-x64-${version}.zip`);
+  await writeFile(mac, `mac-${version}`);
+  await writeFile(windows, `windows-${version}`);
+  return { root, mac, windows };
+}
+
+test("release manifest emits only unified platforms schema and preserves Visual Packs", async () => {
+  const version = "0.2.1-rc.16";
+  const files = await fixtureArtifacts(version);
+  try {
+    const visualPacks = {
+      "darwin-arm64": {
+        id: "siglip2-base-patch16-224",
+        revision: "model-revision",
+        totalSize: 123,
+        manifest: { size: 42, sha256: "a".repeat(64) },
+        license: { id: "apache-2.0", source: "https://example.com/license" },
+      },
+    };
+    const result = await prepareDesktopReleaseManifest({
+      version,
+      macArtifactPath: files.mac,
+      previousManifest: {
+        version: "0.2.1-rc.15",
+        artifacts: { mac: { url: "legacy" }, windows: { url: "legacy" } },
+        platforms: { windows: { file: "MOSA-win32-x64-0.2.1-rc.15.zip" } },
+        visualPacks,
+      },
+      publishedAt: "2026-09-19T01:00:00Z",
+      notes: { zh: "rc.16", en: "rc.16" },
+    });
+    assert.equal(result.version, version);
+    assert.deepEqual(Object.keys(result.platforms), ["macos"]);
+    assert.equal("artifacts" in result, false);
+    assert.deepEqual(result.visualPacks, visualPacks);
+    assert.equal(result.platforms.macos.file, `MOSA-darwin-arm64-${version}.zip`);
+    const parsed = parseUpdateManifest(result);
+    assert.equal(parsed.macArtifact.file, result.platforms.macos.file);
+    assert.equal(parsed.windowsArtifact, null);
+  } finally {
+    await removeTestPath(files.root, { recursive: true, force: true });
+  }
+});
+
+test("release manifest includes Windows only when a same-version real artifact is supplied", async () => {
+  const version = "0.2.1-rc.16";
+  const files = await fixtureArtifacts(version);
+  try {
+    const result = await prepareDesktopReleaseManifest({
+      version,
+      macArtifactPath: files.mac,
+      windowsArtifactPath: files.windows,
+      publishedAt: "2026-09-19T01:00:00Z",
+    });
+    const parsed = parseUpdateManifest(result);
+    assert.equal(parsed.macArtifact.file, `MOSA-darwin-arm64-${version}.zip`);
+    assert.equal(parsed.windowsArtifact.file, `MOSA-win32-x64-${version}.zip`);
+  } finally {
+    await removeTestPath(files.root, { recursive: true, force: true });
+  }
+});
+
+test("release manifest refuses stale artifact versions instead of publishing a mixed-version feed", async () => {
+  const files = await fixtureArtifacts("0.2.1-rc.15");
+  try {
+    await assert.rejects(
+      prepareDesktopReleaseManifest({
+        version: "0.2.1-rc.16",
+        macArtifactPath: files.mac,
+        publishedAt: "2026-09-19T01:00:00Z",
+      }),
+      /filename must be MOSA-darwin-arm64-0\.2\.1-rc\.16\.zip/,
+    );
+  } finally {
+    await removeTestPath(files.root, { recursive: true, force: true });
+  }
+});

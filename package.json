@@ -50,6 +50,7 @@
     "predesktop:package": "npm run check:desktop-node && npm run build",
     "desktop:package": "electron-forge package --platform darwin --arch arm64 && npm run verify:desktop:package && npm run qa:packaged:smoke",
     "desktop:update-artifact:macos": "node scripts/make-macos-update-zip.mjs",
+    "desktop:release-manifest": "node scripts/prepare-desktop-release-manifest.mjs",
     "predesktop:package:windows": "npm run check:desktop-node && npm run build",
     "desktop:package:windows": "electron-forge package --platform win32 --arch x64 && npm run verify:desktop:package:windows && npm run qa:packaged:smoke",
     "desktop:make": "npm run desktop:package && node scripts/make-macos-update-zip.mjs && node scripts/make-macos-dmg.mjs",
