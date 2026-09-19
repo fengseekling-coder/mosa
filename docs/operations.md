@@ -73,7 +73,7 @@ Packaged macOS arm64 builds use the same Settings update control. The trusted ma
 
 Publishing a macOS in-app update therefore requires uploading the generated update ZIP to `/downloads/<filename>` and adding the builder's generated object under `platforms.macos` in `releases/latest.json`. Increment the semantic/prerelease version for every published build; update availability is version-based rather than Git-SHA-based.
 
-The release monitor must not construct `latest.json` with its own schema. Use `scripts/prepare-desktop-release-manifest.mjs` as the canonical manifest writer. It computes artifact byte sizes/SHA-256 from the real files, requires macOS/Windows artifact filenames to contain the exact top-level release version, emits only `platforms.macos` / `platforms.windows`, deliberately drops the legacy `artifacts.*` block, and carries forward an existing `visualPacks` object unchanged. If a same-version Windows artifact does not exist, omit `--windows`; the generated feed then omits `platforms.windows` rather than publishing stale or invented metadata. The generated manifest is passed through the Desktop client's own `parseUpdateManifest()` before it is written, so a future reader/writer schema drift fails the publish step instead of silently breaking updates.
+The release monitor must not construct `latest.json` with its own schema. Use `scripts/prepare-desktop-release-manifest.mjs` as the canonical manifest writer. It computes artifact byte sizes/SHA-256 from the real files, requires macOS/Windows artifact filenames to contain the exact top-level release version, emits only `platforms.macos` / `platforms.windows`, deliberately drops the legacy `artifacts.*` block, and carries forward an existing `visualPacks` object unchanged. Every new manifest must provide explicit, non-empty Chinese and English release notes with `--notes-zh` and `--notes-en`; the writer never inherits notes from the previous release. If a same-version Windows artifact does not exist, omit `--windows`; the generated feed then omits `platforms.windows` rather than publishing stale or invented metadata. The generated manifest is passed through the Desktop client's own `parseUpdateManifest()` before it is written, so a future reader/writer schema drift fails the publish step instead of silently breaking updates.
 
 Example for a macOS-only rc release while preserving the current Visual Pack declaration:
 
@@ -82,6 +82,8 @@ node scripts/prepare-desktop-release-manifest.mjs \
   --version 0.2.1-rc.16 \
   --previous /path/to/current/latest.json \
   --mac out/make/update/darwin/arm64/MOSA-darwin-arm64-0.2.1-rc.16.zip \
+  --notes-zh "<最终中文发布说明>" \
+  --notes-en "<final English release notes>" \
   --output /path/to/staging/latest.json
 ```
 

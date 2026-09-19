@@ -41,10 +41,11 @@ export async function prepareDesktopReleaseManifest({
   const previous = previousManifest && typeof previousManifest === "object" && !Array.isArray(previousManifest)
     ? previousManifest
     : {};
+  const normalizedNotes = normalizeRequiredNotes(notes);
   const manifest = {
     version: cleanVersion,
     publishedAt: normalizePublishedAt(publishedAt),
-    notes: normalizeNotes(notes ?? previous.notes),
+    notes: normalizedNotes,
     platforms: {
       ...(macos ? { macos } : {}),
       ...(windows ? { windows } : {}),
@@ -89,15 +90,13 @@ function normalizePublishedAt(value) {
   return new Date(parsed).toISOString();
 }
 
-function normalizeNotes(value) {
-  if (typeof value === "string") {
-    const text = value.trim().slice(0, 1200);
-    return { zh: text, en: text };
+function normalizeRequiredNotes(value) {
+  const zh = typeof value?.zh === "string" ? value.zh.trim().slice(0, 1200) : "";
+  const en = typeof value?.en === "string" ? value.en.trim().slice(0, 1200) : "";
+  if (!zh || !en) {
+    throw new Error("Release notes are required: notes.zh and notes.en must both be non-empty.");
   }
-  return {
-    zh: typeof value?.zh === "string" ? value.zh.trim().slice(0, 1200) : "",
-    en: typeof value?.en === "string" ? value.en.trim().slice(0, 1200) : "",
-  };
+  return { zh, en };
 }
 
 function validVisualPacks(value) {
@@ -127,9 +126,7 @@ async function main() {
     windowsArtifactPath: args.windows || "",
     previousManifest,
     publishedAt: args["published-at"] || new Date().toISOString(),
-    notes: args["notes-zh"] || args["notes-en"]
-      ? { zh: args["notes-zh"] || "", en: args["notes-en"] || "" }
-      : null,
+    notes: { zh: args["notes-zh"] || "", en: args["notes-en"] || "" },
   });
   const output = resolve(args.output);
   await writeFile(output, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
