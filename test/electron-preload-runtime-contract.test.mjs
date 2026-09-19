@@ -42,7 +42,7 @@ const EXPECTED_API_KEYS = [
 // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
 // qa:packaged launcher scripts to package.json, so only its dependency
 // sections stay hash-pinned (see the dependency assertions below).
-const LOCKFILE_SHA256 = "3a92de10e89740b7fa1303bfd150b0a7f9b6139ca7ae45294eae07778ab2af20";
+const LOCKFILE_SHA256 = "0a1554b9a344a398b513b6ad1198888f502218b1825e3d702739394cf78fa418";
 
 const read = (relativePath) => readFile(resolve(root, relativePath), "utf8");
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
