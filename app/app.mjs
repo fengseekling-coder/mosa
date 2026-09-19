@@ -761,8 +761,9 @@ function setupKeyboardShortcuts() {
         event.preventDefault();
         return;
       }
-      if (state.viewMode === "library" && state.detailOpen && isInspectorDocked()) {
-        if (state.activeStackId) { event.preventDefault(); void assetStacks.exitStack(); }
+      if (state.viewMode === "library" && state.detailOpen && isInspectorDocked() && state.activeStackId) {
+        event.preventDefault();
+        void assetStacks.exitStack();
         return;
       }
       if (state.viewMode === "asset" || state.detailOpen) { event.preventDefault(); void closeDetailSurface(); return; }
@@ -961,10 +962,10 @@ async function init() {
     setupKeyboardShortcuts();
     setupImageZoomPan();
     renderGrid();
-    // Desktop V2 keeps the Inspector as a permanent third column. Calling the
-    // existing state transition before data loading also prevents a visible
-    // two-column -> three-column jump during startup; mobile still resolves to
-    // the closed state because isInspectorDocked() is false there.
+    // Desktop V2 starts with the Inspector as the third column. Calling the
+    // existing state transition before data loading prevents a visible
+    // two-column -> three-column jump during startup; an explicit close action
+    // can still collapse it afterwards. Mobile starts closed.
     setDetailOpen(false);
     try {
       // Build identity is the readiness gate for the renderer. Do not let
@@ -4531,7 +4532,7 @@ async function closeDetailSurface() {
   discardDetailDraft();
   if (state.viewMode === "asset") returnToLibrary();
   else {
-    setDetailOpen(false);
+    setDetailOpen(false, { allowDockedClose: true });
     if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId && asset.project_id === state.project)) clearDetailSelection();
   }
   return true;
@@ -4558,10 +4559,10 @@ function updateSelectedCard() {
   }
   lastSelectedCardId = state.selectedId || null;
 }
-function setDetailOpen(open) {
+function setDetailOpen(open, { allowDockedClose = false } = {}) {
   const wasOpen = state.detailOpen;
   state.detailOpen = Boolean(open);
-  if (!state.detailOpen && isInspectorDocked()) state.detailOpen = true;
+  if (!state.detailOpen && isInspectorDocked() && !allowDockedClose) state.detailOpen = true;
   els.appShell?.classList.toggle("details-open", state.detailOpen); document.body.classList.toggle("detail-open", state.detailOpen); els.detailPanel?.setAttribute("aria-hidden", String(!state.detailOpen));
   // The inspector shell is persistent while browsing assets. Scope the materialize
   // animation to a real closed -> open transition so changing the selected asset
@@ -5678,7 +5679,6 @@ function bindDetailEvents(asset, renderId) {
     field.addEventListener("input", markDirty);
     field.addEventListener("change", markDirty);
   });
-  panel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => { void closeDetailSurface(); });
   // Phase 4A 区块 2：Detail 内收藏——复用既有 toggleFavorite（同一收藏 API），不切换
   // 素材、不返回 Library；loadAssets 后 renderDetail 重渲染按 asset.favorite 重绘本按钮。
   panel.querySelector('[data-action="toggle-favorite"]')?.addEventListener("click", (event) => toggleFavorite(asset.id, event));
