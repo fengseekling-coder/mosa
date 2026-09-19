@@ -160,6 +160,10 @@ test("settings uses one compact surface instead of category navigation", async (
     "appearance controls render directly in the unified surface");
   assert.match(app, /section\(t\("storageDataSection"\), storageRows\)/,
     "storage controls render directly in the unified surface");
+  assert.doesNotMatch(app, /section\(t\("captureActivitySection"\)/,
+    "Settings does not expose web-capture runtime activity");
+  assert.doesNotMatch(app, /captureActivityMarkup|captureTaskRowMarkup|capture-task-panel/,
+    "the capture activity log renderer is removed from the Settings surface");
   assert.match(app, /section\(t\("aboutSection"\), aboutRow, "settings-about-block"\)/,
     "about information renders directly in the unified surface");
   assert.match(app, /const aboutRow = row\([\s\S]*?t\("version"\)/,

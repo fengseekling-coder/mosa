@@ -1100,52 +1100,6 @@ async function checkForUpdates({ notify = false, silent = false } = {}) {
   }
 }
 
-function captureTaskRowMarkup(item = {}) {
-  const status = String(item.status || "queued");
-  const statusKey = status === "imported"
-    ? "captureImported"
-    : status === "failed"
-      ? "captureFailed"
-      : status === "queued"
-        ? "captureQueued"
-        : "captureSkipped";
-  const provider = String(item.provider || "").trim();
-  const mediaKind = item.mediaKind === "video" ? "Video" : "Image";
-  const promptStatus = String(item.promptStatus || "not-available");
-  const promptLabel = promptStatus && promptStatus !== "not-available" ? t("capturePromptReady") : t("capturePromptMissing");
-  const reason = String(item.lastError || item.reason || "").trim();
-  const rawAt = typeof item.at === "number" ? item.at : Date.parse(String(item.at || ""));
-  const at = Number.isFinite(rawAt) && rawAt > 0
-    ? new Date(rawAt).toLocaleTimeString(state.locale === "en" ? "en-US" : "zh-CN", { hour: "2-digit", minute: "2-digit" })
-    : "";
-  return `<li class="capture-task-item" data-state="${escapeHtml(status)}"><span class="capture-task-dot" aria-hidden="true"></span><span class="capture-task-copy"><strong>${escapeHtml(t(statusKey))}</strong><small>${escapeHtml([provider || "Web", mediaKind, promptLabel, at].filter(Boolean).join(" · "))}</small>${reason ? `<em title="${escapeHtml(reason)}">${escapeHtml(reason)}</em>` : ""}</span></li>`;
-}
-
-function captureActivityMarkup() {
-  const capture = state.webCaptureStatus;
-  if (!capture) return `<p class="capture-task-empty">${escapeHtml(t("captureStatusUnavailable"))}</p>`;
-  const queue = capture.queue && typeof capture.queue === "object" ? capture.queue : {};
-  const pending = Math.max(0, Number(queue.pending || 0));
-  const failed = Math.max(0, Number(queue.failed || 0));
-  const reportedAt = Date.parse(String(queue.reportedAt || ""));
-  const stale = Number.isFinite(reportedAt) && Date.now() - reportedAt > 2 * 60 * 1000;
-  const queueSummary = pending
-    ? `${t("captureQueuePending", { pending })}${failed ? t("captureQueueFailed", { failed }) : ""}`
-    : t("captureQueueReady");
-  const retry = pending
-    ? `<button class="settings-text-action capture-retry-action" type="button" data-capture-retry>${escapeHtml(t("captureRetry"))}</button>`
-    : "";
-  const queueItems = (Array.isArray(queue.items) ? queue.items : []).slice(0, 5).map((item) => captureTaskRowMarkup({
-    ...item,
-    status: item?.lastError ? "failed" : "queued",
-    at: item?.updatedAt || item?.createdAt || 0,
-  })).join("");
-  const recentItems = (Array.isArray(capture.recentActivity) ? capture.recentActivity : []).slice(0, 5)
-    .map((item) => captureTaskRowMarkup(item)).join("");
-  const recent = recentItems || `<li class="capture-task-empty">${escapeHtml(t("captureNoRecentActivity"))}</li>`;
-  return `<div class="capture-task-head"><div><strong>${escapeHtml(queueSummary)}</strong>${stale ? `<span class="capture-task-stale">${escapeHtml(t("captureExtensionStale"))}</span>` : ""}</div>${retry}</div>${queueItems ? `<ol class="capture-task-list">${queueItems}</ol>` : ""}<div class="capture-task-recent-title">${escapeHtml(t("captureRecentRuntime"))}</div><ol class="capture-task-list">${recent}</ol>`;
-}
-
 function visualModelStatusMarkup() {
   const visual = state.visualModelStatus;
   if (!visual) return `<span class="settings-static-value">${escapeHtml(t("visualModelChecking"))}</span>`;
@@ -1228,8 +1182,6 @@ function syncSettingsMenuView() {
   if (storageNode) storageNode.textContent = state.storageKind === "sqlite" ? t("storageEngineValue") : (state.storageKind && state.storageKind !== "unknown" ? state.storageKind : "—");
   const versionNode = menu.querySelector("[data-settings-version]");
   if (versionNode) versionNode.textContent = updateVersionSummary();
-  const captureNode = menu.querySelector("[data-settings-capture-status]");
-  if (captureNode) captureNode.innerHTML = captureActivityMarkup();
   const visualNode = menu.querySelector("[data-settings-visual-model]");
   if (visualNode) visualNode.innerHTML = visualModelStatusMarkup();
   const updateAction = menu.querySelector("[data-settings-update-action]");
@@ -1281,7 +1233,6 @@ function renderSettingsMenu({ force = false } = {}) {
     row(settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("libraryPath"), `<span class="settings-path" data-settings-library-path title="${path}">${path}</span>`, changeLibraryControl, "settings-library-row"),
     row(settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6"), t("storageEngine"), "", `<span class="settings-static-value" data-settings-storage-engine>${escapeHtml(storageLabel)}</span>`),
   ].join("");
-  const captureRows = `<div class="capture-task-panel" data-settings-capture-status>${captureActivityMarkup()}</div>`;
   const visualRows = row(
     settingIcon("M5 7h14M7 4v6M17 4v6M6 14h12M8 11v6M16 11v6M5 20h14"),
     t("visualModelTitle"),
@@ -1291,7 +1242,7 @@ function renderSettingsMenu({ force = false } = {}) {
   );
   const aboutRow = row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), `<span data-settings-version>${escapeHtml(updateVersionSummary())}</span>`, `<div data-settings-update-action>${updateVersionControlMarkup()}</div>`, "settings-about-row");
 
-  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" tabindex="-1"><header class="settings-modal-header"><h2 id="settingsModalTitle">${t("settings")}</h2><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${section(t("appearance"), appearanceRows)}${section(t("storageDataSection"), storageRows)}${section(t("visualModelSection"), visualRows)}${section(t("captureActivitySection"), captureRows)}${section(t("aboutSection"), aboutRow, "settings-about-block")}</div></div>`;
+  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" tabindex="-1"><header class="settings-modal-header"><h2 id="settingsModalTitle">${t("settings")}</h2><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${section(t("appearance"), appearanceRows)}${section(t("storageDataSection"), storageRows)}${section(t("visualModelSection"), visualRows)}${section(t("aboutSection"), aboutRow, "settings-about-block")}</div></div>`;
   syncSettingsMenuView();
   if (refreshingVisibleDialog) requestAnimationFrame(() => els.settingsMenu?.removeAttribute("data-refreshing"));
 }
@@ -2191,18 +2142,6 @@ function bindEvents() {
     }
     const checkUpdatesButton = event.target.closest("[data-check-updates]");
     if (checkUpdatesButton) { void checkForUpdates(); return; }
-    const captureRetryButton = event.target.closest("[data-capture-retry]");
-    if (captureRetryButton) {
-      captureRetryButton.disabled = true;
-      void runAction(async () => {
-        await apiFetch("/api/web-capture/retry", { method: "POST", body: {} });
-        showToast(t("captureRetryRequested"), "success");
-        const status = await apiFetch("/api/web-capture");
-        state.webCaptureStatus = status?.bridge || state.webCaptureStatus;
-        syncSettingsMenuView();
-      });
-      return;
-    }
     const cancelUpdateButton = event.target.closest("[data-cancel-update]");
     if (cancelUpdateButton && window.electronAPI?.cancelUpdateDownload) {
       cancelUpdateButton.disabled = true;
