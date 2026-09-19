@@ -73,6 +73,18 @@ Packaged macOS arm64 builds use the same Settings update control. The trusted ma
 
 Publishing a macOS in-app update therefore requires uploading the generated update ZIP to `/downloads/<filename>` and adding the builder's generated object under `platforms.macos` in `releases/latest.json`. Increment the semantic/prerelease version for every published build; update availability is version-based rather than Git-SHA-based.
 
+The release monitor must not construct `latest.json` with its own schema. Use `scripts/prepare-desktop-release-manifest.mjs` as the canonical manifest writer. It computes artifact byte sizes/SHA-256 from the real files, requires macOS/Windows artifact filenames to contain the exact top-level release version, emits only `platforms.macos` / `platforms.windows`, deliberately drops the legacy `artifacts.*` block, and carries forward an existing `visualPacks` object unchanged. If a same-version Windows artifact does not exist, omit `--windows`; the generated feed then omits `platforms.windows` rather than publishing stale or invented metadata. The generated manifest is passed through the Desktop client's own `parseUpdateManifest()` before it is written, so a future reader/writer schema drift fails the publish step instead of silently breaking updates.
+
+Example for a macOS-only rc release while preserving the current Visual Pack declaration:
+
+```bash
+node scripts/prepare-desktop-release-manifest.mjs \
+  --version 0.2.1-rc.16 \
+  --previous /path/to/current/latest.json \
+  --mac out/make/update/darwin/arm64/MOSA-darwin-arm64-0.2.1-rc.16.zip \
+  --output /path/to/staging/latest.json
+```
+
 ### Optional Visual Pack publishing
 
 Visual search model/runtime bytes are not shipped inside the core desktop package. Build one platform-specific pack per supported target and publish its directory tree under the fixed first-party origin:
