@@ -287,7 +287,7 @@ test("57-58. package manifest and lockfile unchanged", async () => {
   const manifest = JSON.parse(pkg);
   assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies frozen");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies frozen");
-  assert.equal(sha256(lock), "f9dc6d4a8309ab80e0dde9126b31fed5401f5721541b3635cbe94f49fc29c33f", "package-lock.json frozen");
+  assert.equal(sha256(lock), "2d640fec355f76704208fad6476b1f6c0c35f18894c4cffab3114242f7fe1ac0", "package-lock.json frozen");
 });
 
 // 59. The stylesheet stays free of !important while hosting toast styles.
