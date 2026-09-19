@@ -194,8 +194,11 @@ export function createBatchImporter({
   function enqueue(files, { metadata = {}, projectId = state.project } = {}) {
     const list = Array.from(files || []).filter(Boolean);
     if (!list.length) return Promise.resolve({ imported: 0, failed: 0, skipped: 0 });
+    const metadataSnapshot = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? { ...metadata }
+      : {};
     const promise = new Promise((resolve, reject) => {
-      queue.push({ files: list, metadata, projectId, resolve, reject, errors: [] });
+      queue.push({ files: list, metadata: metadataSnapshot, projectId, resolve, reject, errors: [] });
     });
     showToast?.(t("batchImportQueued", { count: list.length }), "info");
     if (!workerPromise) workerPromise = drain();

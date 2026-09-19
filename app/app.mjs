@@ -465,6 +465,11 @@ async function prepareImportFile(file, { openModal = true } = {}) {
 }
 
 // ===== Drag & Drop =====
+function currentDropImportMetadata() {
+  const group = String(state.facets.group || "").trim();
+  return group ? { group } : {};
+}
+
 function setupDragDrop() {
   const library = els.assetGrid?.closest(".library");
   if (!library) return;
@@ -524,7 +529,7 @@ function setupDragDrop() {
       if (unsupported) showToast(t("errorPathUnsupported"), "error");
       return;
     }
-    void batchImporter.enqueue(files);
+    void batchImporter.enqueue(files, { metadata: currentDropImportMetadata() });
   });
 }
 
