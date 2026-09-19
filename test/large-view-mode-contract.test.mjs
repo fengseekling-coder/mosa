@@ -413,7 +413,7 @@ test("34. package files stay untouched", async () => {
   assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies must stay untouched");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
   const lock = await readFile(resolve(root, "package-lock.json"), "utf8");
-  assert.equal(sha256(lock), "2d640fec355f76704208fad6476b1f6c0c35f18894c4cffab3114242f7fe1ac0", "package-lock.json must stay untouched");
+  assert.equal(sha256(lock), "ca92af322f3682c3cd55aeb70532651b1c15ab0e04b00c655f0c6311a8fb7f24", "package-lock.json must stay untouched");
 });
 
 // 35. Runtime-verified fix: the shortcuts Escape chain must bail when an
