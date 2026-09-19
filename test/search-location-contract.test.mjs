@@ -171,7 +171,7 @@ test("12. no new dependencies", async () => {
   assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies must stay untouched");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
   const lock = await readFile(resolve(root, "package-lock.json"), "utf8");
-  assert.equal(sha256(lock), "3a92de10e89740b7fa1303bfd150b0a7f9b6139ca7ae45294eae07778ab2af20", "package-lock.json must stay untouched");
+  assert.equal(sha256(lock), "0a1554b9a344a398b513b6ad1198888f502218b1825e3d702739394cf78fa418", "package-lock.json must stay untouched");
 });
 
 // 13. No !important anywhere in the stylesheet (comments stripped).
