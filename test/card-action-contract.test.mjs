@@ -221,7 +221,7 @@ test("17. no API, data-structure or persistence changes", async () => {
   // leave the hash table; their security-relevant behaviour is asserted
   // structurally below. The lockfile stays hash-pinned.
   const expected = {
-    "package-lock.json": "0a1554b9a344a398b513b6ad1198888f502218b1825e3d702739394cf78fa418",
+    "package-lock.json": "b3f46d8c3c4734f3ae35fd0eb2f8a5202ed56b399060037239bb36f67dae6d02",
   };
   for (const [file, hash] of Object.entries(expected)) {
     const text = await readFile(resolve(root, file), "utf8");

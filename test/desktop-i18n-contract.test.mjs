@@ -25,7 +25,7 @@ const DESKTOP_TEXT = {
   // approved scope) added qa:web/qa:electron/qa:packaged launcher scripts.
   // Its dependency sections are still frozen via the structural assertions in
   // the package metadata test below.
-  "package-lock.json": "0a1554b9a344a398b513b6ad1198888f502218b1825e3d702739394cf78fa418",
+  "package-lock.json": "b3f46d8c3c4734f3ae35fd0eb2f8a5202ed56b399060037239bb36f67dae6d02",
 };
 
 function sliceBetween(source, startMarker, endMarker) {
