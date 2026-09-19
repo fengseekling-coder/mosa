@@ -98,9 +98,17 @@ test("macOS apply helper waits for MOSA, verifies the replacement, rolls back, a
       installAppPath: "/Applications/MOSA.app",
       version: "0.3.0",
       processId: 1234,
+      libraryDir: "/tmp/mosa-library",
+      createUpdateHandoff: async ({ libraryDir, pid }) => {
+        assert.equal(libraryDir, "/tmp/mosa-library");
+        assert.equal(pid, 4321);
+        return { markerPath: "/tmp/mosa-library/.mosa-desktop-starting.json" };
+      },
       spawnImpl: (command, args, options) => {
         invocation = { command, args, options };
         const child = new EventEmitter();
+        child.pid = 4321;
+        child.kill = () => true;
         child.unref = () => {};
         queueMicrotask(() => child.emit("spawn"));
         return child;
@@ -109,10 +117,18 @@ test("macOS apply helper waits for MOSA, verifies the replacement, rolls back, a
     assert.equal(invocation.command, "/bin/sh");
     assert.equal(invocation.options.detached, true);
     assert.equal(invocation.args.includes("/Applications/MOSA.app"), true);
+    assert.equal(invocation.args.includes("/tmp/mosa-library/.mosa-desktop-starting.json"), true);
     assert.match(await readFile(join(root, "apply-update.sh"), "utf8"), /ditto -x -k/);
   } finally {
     await removeTestPath(root, { recursive: true, force: true });
   }
+});
+
+test("macOS apply helper keeps supervisor handoff active until readiness and clears it before rollback relaunch", () => {
+  const script = macosUpdateHelperScript();
+  assert.match(script, /HANDOFF_FILE="\$7"/);
+  assert.match(script, /rollback\(\) \{\n  rm -f "\$HANDOFF_FILE"/);
+  assert.match(script, /if \[ -f "\$READY_FILE" \]; then\n    trap - HUP INT TERM EXIT\n    rm -f "\$HANDOFF_FILE"/);
 });
 
 test("macOS updater resolves only the MOSA.app that contains the running executable", () => {

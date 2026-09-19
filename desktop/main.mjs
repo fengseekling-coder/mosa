@@ -114,9 +114,13 @@ const isolationContext = {
   argv: process.argv,
   runtimeKind: "electron",
 };
+const launchedFromMacosUpdate = Boolean(
+  resolveMacosUpdateReadyFile(process.argv, join(desktopDataDir, "updates", "macos")),
+);
 const desktopStartupHandoffEnabled = process.platform === "darwin"
   && app.isPackaged
   && !isolationContext.qaRun
+  && !launchedFromMacosUpdate
   && !process.env.MOSA_DESKTOP_PORT;
 
 // ---- Runtime isolation guard: fail closed before any production write ----
@@ -789,6 +793,7 @@ function registerIPC() {
             installAppPath,
             version: release.latestVersion,
             processId: process.pid,
+            libraryDir,
           });
           shuttingDown = true;
           stopBridgeNotificationPoll();
@@ -1203,7 +1208,7 @@ async function ensureDesktopService() {
     const nextService = await startMosaService({
       port: desktopPort,
       libraryDir,
-      preferOwnedRuntime: process.platform === "darwin" && app.isPackaged && Boolean(desktopStartupHandoffLease),
+      preferOwnedRuntime: process.platform === "darwin" && app.isPackaged && Boolean(desktopStartupHandoffLease || macosUpdateReadyFile),
       allowPortFallback: !process.env.MOSA_DESKTOP_PORT,
       failOnPrimaryLibraryMismatch: true,
       allowStaleServiceUpgrade: shouldAllowStaleServiceUpgrade({
@@ -1255,7 +1260,7 @@ async function ensureDesktopService() {
 }
 
 async function waitForSupervisorHandoffYield({ probeMosaService, timeoutMs = 2_000, pollMs = 100 } = {}) {
-  if (process.platform !== "darwin" || !desktopStartupHandoffLease || typeof probeMosaService !== "function") return;
+  if (process.platform !== "darwin" || (!desktopStartupHandoffLease && !macosUpdateReadyFile) || typeof probeMosaService !== "function") return;
   const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
   while (Date.now() < deadline) {
     const status = await probeMosaService({
