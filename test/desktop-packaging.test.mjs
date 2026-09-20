@@ -137,12 +137,12 @@ test("Windows Forge config omits mac signing and selects Windows native runtime 
 
 test("Windows release packaging fails closed without explicit signing configuration", () => {
   assert.throws(
-    () => windowsReleasePackagingConfig({ MOSA_RELEASE_BUILD: "1" }),
+    () => windowsReleasePackagingConfig({ MOSA_RELEASE_DISTRIBUTION: "production" }),
     /MOSA_WINDOWS_SIGNER_THUMBPRINT/,
   );
   assert.throws(
     () => windowsReleasePackagingConfig({
-      MOSA_RELEASE_BUILD: "1",
+      MOSA_RELEASE_DISTRIBUTION: "production",
       MOSA_WINDOWS_SIGNER_THUMBPRINT: "A".repeat(40),
     }),
     /requires a signing source/,
@@ -151,7 +151,7 @@ test("Windows release packaging fails closed without explicit signing configurat
 
 test("Windows release packaging enables SHA-256 Authenticode signing", () => {
   const config = windowsReleasePackagingConfig({
-    MOSA_RELEASE_BUILD: "1",
+    MOSA_RELEASE_DISTRIBUTION: "production",
     MOSA_WINDOWS_SIGNER_THUMBPRINT: "A".repeat(40),
     WINDOWS_CERTIFICATE_FILE: "C:\\secrets\\mosa.pfx",
     WINDOWS_CERTIFICATE_PASSWORD: "secret",
@@ -187,12 +187,12 @@ test("desktop icon source generates valid macOS and Windows icon containers", as
 
 test("release packaging fails closed when Apple signing credentials are incomplete", () => {
   assert.throws(
-    () => macReleasePackagingConfig({ MOSA_RELEASE_BUILD: "1" }),
+    () => macReleasePackagingConfig({ MOSA_RELEASE_DISTRIBUTION: "production" }),
     /MOSA release build requires: MOSA_MACOS_SIGN_IDENTITY, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID/,
   );
   assert.throws(
     () => macReleasePackagingConfig({
-      MOSA_RELEASE_BUILD: "1",
+      MOSA_RELEASE_DISTRIBUTION: "production",
       MOSA_MACOS_SIGN_IDENTITY: "Developer ID Application: Example",
       APPLE_ID: "release@example.com",
       APPLE_TEAM_ID: "TEAM123456",
@@ -203,7 +203,7 @@ test("release packaging fails closed when Apple signing credentials are incomple
 
 test("release packaging enables Developer ID hardened signing and notarization", () => {
   const config = macReleasePackagingConfig({
-    MOSA_RELEASE_BUILD: "1",
+    MOSA_RELEASE_DISTRIBUTION: "production",
     MOSA_MACOS_SIGN_IDENTITY: "Developer ID Application: Example (TEAM123456)",
     APPLE_ID: "release@example.com",
     APPLE_APP_SPECIFIC_PASSWORD: "app-specific-password",
@@ -222,6 +222,14 @@ test("release packaging enables Developer ID hardened signing and notarization",
     teamId: "TEAM123456",
   });
   assert.equal("tool" in config.osxNotarize, false, "Forge uses the current notarization credential shape");
+});
+
+test("preview packaging never requires platform signing credentials", () => {
+  const mac = macReleasePackagingConfig({ MOSA_RELEASE_DISTRIBUTION: "preview" });
+  assert.equal(mac.osxSign.identity, "-");
+  assert.equal(mac.osxSign.identityValidation, false);
+  assert.equal("osxNotarize" in mac, false);
+  assert.deepEqual(windowsReleasePackagingConfig({ MOSA_RELEASE_DISTRIBUTION: "preview" }), {});
 });
 
 test("desktop package excludes every non-runtime project surface", () => {

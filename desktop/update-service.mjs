@@ -1,4 +1,5 @@
 import { verifyReleaseManifestSignature } from "../lib/release-manifest-signature.mjs";
+import { normalizeDesktopDistribution } from "../lib/release-distribution.mjs";
 
 export const MOSA_UPDATE_FEED_URL = "https://mosa.azhuilab.com/releases/latest.json";
 export const MOSA_DOWNLOAD_PAGE_URL = "https://mosa.azhuilab.com/";
@@ -53,6 +54,14 @@ export function compareVersions(leftVersion, rightVersion) {
   return comparePrerelease(left.prerelease, right.prerelease);
 }
 
+export function canUpdateDistribution(currentDistribution, targetDistribution) {
+  if (!currentDistribution) return true;
+  const current = normalizeDesktopDistribution(currentDistribution);
+  const target = normalizeDesktopDistribution(targetDistribution, { defaultValue: "preview", releaseOnly: true });
+  if (current === target) return true;
+  return current === "development" && target === "preview";
+}
+
 function cleanNote(value) {
   return typeof value === "string" ? value.trim().slice(0, 1200) : "";
 }
@@ -63,10 +72,11 @@ function parseBuildIdentity(value) {
   const gitSha = typeof value.gitSha === "string" ? value.gitSha.trim().toLowerCase() : "";
   const uiFingerprint = typeof value.uiFingerprint === "string" ? value.uiFingerprint.trim().toLowerCase() : "";
   const runtimeFingerprint = typeof value.runtimeFingerprint === "string" ? value.runtimeFingerprint.trim().toLowerCase() : "";
+  const distribution = normalizeDesktopDistribution(value.distribution, { defaultValue: "preview", releaseOnly: true });
   if (!GIT_SHA_PATTERN.test(gitSha)) throw new Error("Invalid release git SHA.");
   if (!SHA256_PATTERN.test(uiFingerprint)) throw new Error("Invalid release UI fingerprint.");
   if (!SHA256_PATTERN.test(runtimeFingerprint)) throw new Error("Invalid release runtime fingerprint.");
-  return { gitSha, uiFingerprint, runtimeFingerprint };
+  return { gitSha, uiFingerprint, runtimeFingerprint, distribution };
 }
 
 function parseWindowsArtifact(value, version) {
@@ -189,6 +199,7 @@ export async function reportAnonymousUsage({ anonymousUsage, fetchImpl = globalT
 
 export async function checkForMosaUpdate({
   currentVersion,
+  currentDistribution = null,
   anonymousUsage = null,
   releaseManifestTrust = null,
   fetchImpl = globalThis.fetch,
@@ -216,10 +227,13 @@ export async function checkForMosaUpdate({
     const document = JSON.parse(text);
     if (releaseManifestTrust) verifyReleaseManifestSignature(document, releaseManifestTrust);
     const release = parseUpdateManifest(document);
+    const distributionAllowed = !release.buildIdentity
+      || canUpdateDistribution(currentDistribution, release.buildIdentity.distribution);
     return {
       currentVersion: current.version,
       latestVersion: release.version,
-      updateAvailable: compareVersions(release.version, current.version) > 0,
+      updateAvailable: compareVersions(release.version, current.version) > 0 && distributionAllowed,
+      distributionAllowed,
       publishedAt: release.publishedAt,
       notes: release.notes,
       buildIdentity: release.buildIdentity,

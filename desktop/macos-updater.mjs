@@ -9,6 +9,7 @@ import {
   createMosaMacosUpdateHelperHandoff,
   mosaDesktopStartupHandoffPath,
 } from "../lib/runtime-handoff.mjs";
+import { normalizeDesktopDistribution } from "../lib/release-distribution.mjs";
 
 export const MOSA_MACOS_DOWNLOAD_BASE_URL = "https://mosa.azhuilab.com/downloads/";
 const MAX_MACOS_UPDATE_BYTES = 1_500_000_000;
@@ -27,10 +28,11 @@ function safeBuildIdentity(value) {
   const gitSha = String(value.gitSha || "").trim().toLowerCase();
   const uiFingerprint = String(value.uiFingerprint || "").trim().toLowerCase();
   const runtimeFingerprint = String(value.runtimeFingerprint || "").trim().toLowerCase();
+  const distribution = normalizeDesktopDistribution(value.distribution, { defaultValue: "preview", releaseOnly: true });
   if (!GIT_SHA_PATTERN.test(gitSha) || !SHA256_PATTERN.test(uiFingerprint) || !SHA256_PATTERN.test(runtimeFingerprint)) {
     throw new Error("macOS update build identity is invalid.");
   }
-  return { gitSha, uiFingerprint, runtimeFingerprint };
+  return { gitSha, uiFingerprint, runtimeFingerprint, distribution };
 }
 
 export function validateMacosUpdateArtifact(input, version) {
@@ -183,6 +185,7 @@ LOG_PATH="$8"
 READY_FILE="$9"
 shift 9
 HANDOFF_FILE="$1"
+EXPECTED_DISTRIBUTION="$2"
 
 PARENT_DIR="$(dirname "$INSTALL_APP")"
 TRANSACTION_ROOT="$PARENT_DIR/.MOSA-update-$(date +%s)-$$"
@@ -216,18 +219,22 @@ mkdir -p "$EXTRACT_DIR"
 PAYLOAD_APP="$EXTRACT_DIR/MOSA.app"
 test -x "$PAYLOAD_APP/Contents/MacOS/MOSA"
 
-OLD_TEAM=$(/usr/bin/codesign -dv --verbose=4 "$INSTALL_APP" 2>&1 | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -n 1)
-test -n "$OLD_TEAM"
 BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PAYLOAD_APP/Contents/Info.plist")
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PAYLOAD_APP/Contents/Info.plist")
 [ "$BUNDLE_ID" = "com.azhuilab.mosa" ]
 [ "$VERSION" = "$EXPECTED_VERSION" ]
 /usr/bin/codesign --verify --deep --strict "$PAYLOAD_APP"
 PAYLOAD_CODESIGN=$(/usr/bin/codesign -dv --verbose=4 "$PAYLOAD_APP" 2>&1)
-NEW_TEAM=$(printf '%s\n' "$PAYLOAD_CODESIGN" | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -n 1)
-[ "$NEW_TEAM" = "$OLD_TEAM" ]
-printf '%s\n' "$PAYLOAD_CODESIGN" | /usr/bin/grep -q 'flags=.*runtime'
-/usr/sbin/spctl -a -vv --type execute "$PAYLOAD_APP"
+if [ "$EXPECTED_DISTRIBUTION" = "production" ]; then
+  OLD_TEAM=$(/usr/bin/codesign -dv --verbose=4 "$INSTALL_APP" 2>&1 | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -n 1)
+  test -n "$OLD_TEAM"
+  NEW_TEAM=$(printf '%s\n' "$PAYLOAD_CODESIGN" | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -n 1)
+  [ "$NEW_TEAM" = "$OLD_TEAM" ]
+  printf '%s\n' "$PAYLOAD_CODESIGN" | /usr/bin/grep -q 'flags=.*runtime'
+  /usr/sbin/spctl -a -vv --type execute "$PAYLOAD_APP"
+else
+  [ "$EXPECTED_DISTRIBUTION" = "preview" ]
+fi
 
 /usr/bin/ditto "$PAYLOAD_APP" "$REPLACEMENT_APP"
 mv "$INSTALL_APP" "$BACKUP_APP"
@@ -243,10 +250,12 @@ while [ "$i" -lt 180 ]; do
     READY_GIT_SHA=$(/usr/bin/plutil -extract gitSha raw -o - "$READY_FILE")
     READY_UI_FINGERPRINT=$(/usr/bin/plutil -extract uiFingerprint raw -o - "$READY_FILE")
     READY_RUNTIME_FINGERPRINT=$(/usr/bin/plutil -extract runtimeFingerprint raw -o - "$READY_FILE")
+    READY_DISTRIBUTION=$(/usr/bin/plutil -extract distribution raw -o - "$READY_FILE")
     [ "$READY_VERSION" = "$EXPECTED_VERSION" ]
     [ "$READY_GIT_SHA" = "$EXPECTED_GIT_SHA" ]
     [ "$READY_UI_FINGERPRINT" = "$EXPECTED_UI_FINGERPRINT" ]
     [ "$READY_RUNTIME_FINGERPRINT" = "$EXPECTED_RUNTIME_FINGERPRINT" ]
+    [ "$READY_DISTRIBUTION" = "$EXPECTED_DISTRIBUTION" ]
     trap - HUP INT TERM EXIT
     rm -f "$HANDOFF_FILE" 2>/dev/null || true
     rm -rf "$TRANSACTION_ROOT"
@@ -296,6 +305,7 @@ export async function launchMacosUpdateHelper({
     logPath,
     readyFile,
     handoffFile,
+    identity.distribution,
   ], {
     detached: true,
     stdio: "ignore",

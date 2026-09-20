@@ -32,6 +32,7 @@ const EXPECTED_IDENTITY = Object.freeze({
   gitSha: "a".repeat(40),
   uiFingerprint: "b".repeat(64),
   runtimeFingerprint: "c".repeat(64),
+  distribution: "preview",
 });
 
 test("macOS update artifacts are pinned to the official filename and HTTPS download origin", () => {
@@ -93,6 +94,8 @@ test("macOS apply helper waits for MOSA, verifies the replacement, rolls back, a
   assert.match(script, /\[ "\$NEW_TEAM" = "\$OLD_TEAM" \]/);
   assert.match(script, /flags=.*runtime/);
   assert.match(script, /spctl -a -vv --type execute/);
+  assert.match(script, /\[ "\$EXPECTED_DISTRIBUTION" = "production" \]/);
+  assert.match(script, /\[ "\$EXPECTED_DISTRIBUTION" = "preview" \]/);
   assert.match(script, /mv \"\$INSTALL_APP\" \"\$BACKUP_APP\"/);
   assert.match(script, /mv \"\$BACKUP_APP\" \"\$INSTALL_APP\"/);
   assert.match(script, /--mosa-update-ready-file=/);
@@ -100,6 +103,7 @@ test("macOS apply helper waits for MOSA, verifies the replacement, rolls back, a
   assert.match(script, /READY_GIT_SHA=.*gitSha/);
   assert.match(script, /READY_UI_FINGERPRINT=.*uiFingerprint/);
   assert.match(script, /READY_RUNTIME_FINGERPRINT=.*runtimeFingerprint/);
+  assert.match(script, /READY_DISTRIBUTION=.*distribution/);
   assert.match(script, /exit 32/);
 
   const root = await mkdtemp(join(tmpdir(), "mosa-mac-helper-"));
@@ -134,6 +138,7 @@ test("macOS apply helper waits for MOSA, verifies the replacement, rolls back, a
     assert.equal(invocation.args.includes(EXPECTED_IDENTITY.gitSha), true);
     assert.equal(invocation.args.includes(EXPECTED_IDENTITY.uiFingerprint), true);
     assert.equal(invocation.args.includes(EXPECTED_IDENTITY.runtimeFingerprint), true);
+    assert.equal(invocation.args.includes(EXPECTED_IDENTITY.distribution), true);
     assert.equal(invocation.args.includes("/tmp/mosa-library/.mosa-desktop-starting.json"), true);
     assert.match(await readFile(join(root, "apply-update.sh"), "utf8"), /ditto -x -k/);
   } finally {
@@ -145,7 +150,7 @@ test("macOS apply helper keeps supervisor handoff active until readiness and cle
   const script = macosUpdateHelperScript();
   assert.match(script, /shift 9\nHANDOFF_FILE="\$1"/);
   assert.match(script, /rollback\(\) \{\n  rm -f "\$HANDOFF_FILE"/);
-  assert.match(script, /\[ "\$READY_RUNTIME_FINGERPRINT" = "\$EXPECTED_RUNTIME_FINGERPRINT" \]\n    trap - HUP INT TERM EXIT\n    rm -f "\$HANDOFF_FILE"/);
+  assert.match(script, /\[ "\$READY_RUNTIME_FINGERPRINT" = "\$EXPECTED_RUNTIME_FINGERPRINT" \]\n    \[ "\$READY_DISTRIBUTION" = "\$EXPECTED_DISTRIBUTION" \]\n    trap - HUP INT TERM EXIT\n    rm -f "\$HANDOFF_FILE"/);
 });
 
 test("macOS updater resolves only the MOSA.app that contains the running executable", () => {

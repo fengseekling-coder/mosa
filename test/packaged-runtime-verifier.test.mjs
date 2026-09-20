@@ -124,11 +124,20 @@ test("packaged runtime verifier rejects source/package build identity drift", as
 
 test("desktop packaging scripts cannot bypass structural verification and packaged smoke", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-  for (const scriptName of ["desktop:package", "desktop:package:windows", "desktop:release"]) {
+  for (const scriptName of [
+    "desktop:package",
+    "desktop:package:windows",
+    "desktop:release:preview",
+    "desktop:release:production",
+    "desktop:release:windows:preview",
+    "desktop:release:windows:production",
+  ]) {
     const script = String(manifest.scripts?.[scriptName] || "");
     assert.match(script, /verify:desktop:package/);
     assert.match(script, /qa:packaged:smoke/);
   }
+  assert.match(String(manifest.scripts?.["desktop:release"] || ""), /desktop:release:preview/);
+  assert.match(String(manifest.scripts?.["desktop:release:windows"] || ""), /desktop:release:windows:preview/);
   assert.match(String(manifest.scripts?.["desktop:make"] || ""), /npm run desktop:package/);
   assert.match(String(manifest.scripts?.["desktop:make:windows"] || ""), /npm run desktop:package:windows/);
   assert.match(String(manifest.scripts?.["desktop:make:windows"] || ""), /--skip-package/);

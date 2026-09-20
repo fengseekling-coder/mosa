@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { desktopDistributionFromEnvironment, normalizeDesktopDistribution, requiresPlatformSigning } from "../lib/release-distribution.mjs";
 
 export const MOSA_RELEASE_BUNDLE_ID = "com.azhuilab.mosa";
 
@@ -57,6 +58,14 @@ export function assertMacosReleaseSignature(details, { teamId, identity } = {}) 
   return true;
 }
 
+export function assertMacosPreviewSignature(details) {
+  if (!details || typeof details !== "object") throw new Error("macOS preview signature details are missing.");
+  if (details.Identifier !== MOSA_RELEASE_BUNDLE_ID) {
+    throw new Error(`macOS preview bundle identifier ${details.Identifier || "(missing)"} does not match ${MOSA_RELEASE_BUNDLE_ID}.`);
+  }
+  return true;
+}
+
 export function runCommand(command, args, { cwd = process.cwd() } = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(command, args, { cwd, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
@@ -80,25 +89,32 @@ export async function verifyMacosReleaseApp({
   env = process.env,
   runner = runCommand,
   staple = false,
+  distribution = desktopDistributionFromEnvironment(env, { defaultValue: "production", releaseOnly: true }),
 } = {}) {
   const resolvedAppPath = resolve(String(appPath || ""));
   if (!appPath) throw new Error("macOS release app path is required.");
   await access(resolvedAppPath);
-  const teamId = nonEmpty(env.APPLE_TEAM_ID);
-  const identity = nonEmpty(env.MOSA_MACOS_SIGN_IDENTITY);
-  if (!teamId || !identity) {
-    throw new Error("macOS release verification requires APPLE_TEAM_ID and MOSA_MACOS_SIGN_IDENTITY.");
-  }
+  const normalizedDistribution = normalizeDesktopDistribution(distribution, { releaseOnly: true });
 
   await runner("/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=2", resolvedAppPath]);
   const detailsResult = await runner("/usr/bin/codesign", ["-dv", "--verbose=4", resolvedAppPath]);
   const details = parseCodesignDetails(`${detailsResult.stdout || ""}\n${detailsResult.stderr || ""}`);
+  if (!requiresPlatformSigning(normalizedDistribution)) {
+    assertMacosPreviewSignature(details);
+    return { appPath: resolvedAppPath, distribution: normalizedDistribution, bundleId: details.Identifier };
+  }
+
+  const teamId = nonEmpty(env.APPLE_TEAM_ID);
+  const identity = nonEmpty(env.MOSA_MACOS_SIGN_IDENTITY);
+  if (!teamId || !identity) {
+    throw new Error("macOS production verification requires APPLE_TEAM_ID and MOSA_MACOS_SIGN_IDENTITY.");
+  }
   assertMacosReleaseSignature(details, { teamId, identity });
 
   if (staple) await runner("/usr/bin/xcrun", ["stapler", "staple", resolvedAppPath]);
   await runner("/usr/bin/xcrun", ["stapler", "validate", resolvedAppPath]);
   await runner("/usr/sbin/spctl", ["-a", "-vv", "--type", "execute", resolvedAppPath]);
-  return { appPath: resolvedAppPath, teamId, identity, bundleId: details.Identifier };
+  return { appPath: resolvedAppPath, distribution: normalizedDistribution, teamId, identity, bundleId: details.Identifier };
 }
 
 function cliOption(argv, name) {
@@ -114,7 +130,7 @@ async function main() {
   const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
   const appPath = cliOption(process.argv.slice(2), "app") || resolve(root, "out", "MOSA-darwin-arm64", "MOSA.app");
   const result = await verifyMacosReleaseApp({ appPath, staple: process.argv.includes("--staple") });
-  console.log(`[MOSA] macOS release app verified: ${result.bundleId}; team ${result.teamId}`);
+  console.log(`[MOSA] macOS ${result.distribution} app verified: ${result.bundleId}${result.teamId ? `; team ${result.teamId}` : ""}`);
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";

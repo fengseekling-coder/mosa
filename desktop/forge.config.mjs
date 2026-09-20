@@ -2,6 +2,7 @@ import { MakerZIP } from "@electron-forge/maker-zip";
 import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
 import { access, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { desktopDistributionFromEnvironment, requiresPlatformSigning } from "../lib/release-distribution.mjs";
 import {
   desktopIconBasePath,
   desktopIconOutputDir,
@@ -107,7 +108,8 @@ const AD_HOC_SIGN_CONFIG = {
 };
 
 export function macReleasePackagingConfig(env = process.env) {
-  if (env.MOSA_RELEASE_BUILD !== "1") return { osxSign: AD_HOC_SIGN_CONFIG };
+  const distribution = desktopDistributionFromEnvironment(env);
+  if (!requiresPlatformSigning(distribution)) return { osxSign: AD_HOC_SIGN_CONFIG };
 
   const identity = String(env.MOSA_MACOS_SIGN_IDENTITY || "").trim();
   const appleId = String(env.APPLE_ID || "").trim();
@@ -141,7 +143,8 @@ export function macReleasePackagingConfig(env = process.env) {
 }
 
 export function windowsReleasePackagingConfig(env = process.env) {
-  if (env.MOSA_RELEASE_BUILD !== "1") return {};
+  const distribution = desktopDistributionFromEnvironment(env);
+  if (!requiresPlatformSigning(distribution)) return {};
 
   const signerThumbprint = String(env.MOSA_WINDOWS_SIGNER_THUMBPRINT || "").replace(/\s+/g, "").toUpperCase();
   if (!/^[0-9A-F]{40,64}$/.test(signerThumbprint)) {

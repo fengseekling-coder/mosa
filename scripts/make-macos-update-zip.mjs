@@ -6,6 +6,7 @@ import { createReadStream } from "node:fs";
 import { access, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { desktopDistributionFromEnvironment, normalizeDesktopDistribution, requiresPlatformSigning } from "../lib/release-distribution.mjs";
 import { verifyMacosReleaseApp } from "./verify-macos-release.mjs";
 
 export const MOSA_MAC_UPDATE_ARCH = "arm64";
@@ -27,7 +28,7 @@ export async function makeMacosUpdateZip({
   rootDir = process.cwd(),
   outDir = process.env.MOSA_FORGE_OUT_DIR || "out",
   arch = MOSA_MAC_UPDATE_ARCH,
-  release = process.env.MOSA_RELEASE_BUILD === "1",
+  distribution = desktopDistributionFromEnvironment(process.env),
   env = process.env,
   runner = runCommand,
 } = {}) {
@@ -38,7 +39,10 @@ export async function makeMacosUpdateZip({
   await access(join(appPath, "Contents", "MacOS", "MOSA")).catch(() => {
     throw new Error(`Packaged macOS app not found: ${appPath}. Run desktop:package first.`);
   });
-  if (release) await verifyMacosReleaseApp({ appPath, env, runner, staple: false });
+  const normalizedDistribution = normalizeDesktopDistribution(distribution);
+  if (normalizedDistribution !== "development") {
+    await verifyMacosReleaseApp({ appPath, env, runner, staple: false, distribution: normalizedDistribution });
+  }
 
   const output = macosUpdateArtifactPath({ rootDir, outDir, version, arch });
   await mkdir(dirname(output), { recursive: true });
@@ -51,6 +55,7 @@ export async function makeMacosUpdateZip({
     version,
     platform: "macOS",
     arch,
+    distribution: normalizedDistribution,
     size: metadata.size,
     sha256: metadata.sha256,
     release_manifest_patch: {
