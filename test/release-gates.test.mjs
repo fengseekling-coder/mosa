@@ -28,10 +28,12 @@ test("release provenance requires clean, tagged, remotely reachable immutable so
       gitSha: SHA,
       uiFingerprint: "b".repeat(64),
       runtimeFingerprint: "c".repeat(64),
+      distribution: "preview",
       releaseManifestTrust: RELEASE_TRUST,
     },
   };
   assert.equal(assertReleaseProvenance(base).tag, "v0.2.1-rc.22");
+  assert.equal(assertReleaseProvenance(base).distribution, "preview");
   assert.throws(() => assertReleaseProvenance({ ...base, status: " M app/app.mjs" }), /clean Git worktree/);
   assert.throws(() => assertReleaseProvenance({ ...base, tags: [] }), /immutable tag/);
   assert.throws(() => assertReleaseProvenance({ ...base, remoteBranches: [] }), /push it before building/);
@@ -85,6 +87,26 @@ test("macOS release verification staples first, then validates notarization and 
     ["/usr/bin/xcrun", "stapler", "validate"],
     ["/usr/sbin/spctl", "-a", "-vv"],
   ]);
+});
+
+test("macOS preview verification requires only a valid packaged code signature", async () => {
+  const calls = [];
+  const runner = async (command, args) => {
+    calls.push([command, ...args]);
+    if (command === "/usr/bin/codesign" && args[0] === "-dv") {
+      return { stdout: "", stderr: "Identifier=com.azhuilab.mosa\nSignature=adhoc\n" };
+    }
+    return { stdout: "", stderr: "" };
+  };
+  const result = await verifyMacosReleaseApp({
+    appPath: ".",
+    env: {},
+    runner,
+    distribution: "preview",
+  });
+  assert.equal(result.distribution, "preview");
+  assert.equal(result.bundleId, "com.azhuilab.mosa");
+  assert.deepEqual(calls.map((call) => call[0]), ["/usr/bin/codesign", "/usr/bin/codesign"]);
 });
 
 test("Windows release signature requires a valid Authenticode signer pinned by thumbprint", () => {

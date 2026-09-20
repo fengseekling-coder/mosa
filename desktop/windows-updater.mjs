@@ -5,6 +5,7 @@ import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, win32 } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { normalizeDesktopDistribution } from "../lib/release-distribution.mjs";
 
 export const MOSA_WINDOWS_DOWNLOAD_BASE_URL = "https://mosa.azhuilab.com/downloads/";
 const MAX_WINDOWS_UPDATE_BYTES = 1_500_000_000;
@@ -25,10 +26,11 @@ function safeBuildIdentity(value) {
   const gitSha = String(value.gitSha || "").trim().toLowerCase();
   const uiFingerprint = String(value.uiFingerprint || "").trim().toLowerCase();
   const runtimeFingerprint = String(value.runtimeFingerprint || "").trim().toLowerCase();
+  const distribution = normalizeDesktopDistribution(value.distribution, { defaultValue: "preview", releaseOnly: true });
   if (!GIT_SHA_PATTERN.test(gitSha) || !SHA256_PATTERN.test(uiFingerprint) || !SHA256_PATTERN.test(runtimeFingerprint)) {
     throw new Error("Windows update build identity is invalid.");
   }
-  return { gitSha, uiFingerprint, runtimeFingerprint };
+  return { gitSha, uiFingerprint, runtimeFingerprint, distribution };
 }
 
 export function validateWindowsUpdateArtifact(input, version) {
@@ -203,6 +205,7 @@ export function windowsUpdateHelperScript() {
   [Parameter(Mandatory=$true)][string]$ExpectedGitSha,
   [Parameter(Mandatory=$true)][string]$ExpectedUiFingerprint,
   [Parameter(Mandatory=$true)][string]$ExpectedRuntimeFingerprint,
+  [Parameter(Mandatory=$true)][ValidateSet('preview','production')][string]$ExpectedDistribution,
   [Parameter(Mandatory=$true)][string]$LogPath,
   [Parameter(Mandatory=$true)][string]$ReadyFile
 )
@@ -218,11 +221,14 @@ $newProcess = $null
 $movedOriginal = $false
 
 try {
-  $oldSignature = Get-AuthenticodeSignature -LiteralPath $oldExe
-  if ($oldSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or -not $oldSignature.SignerCertificate) {
-    throw "Installed MOSA does not have a valid Authenticode signature."
+  $expectedSignerThumbprint = $null
+  if ($ExpectedDistribution -eq 'production') {
+    $oldSignature = Get-AuthenticodeSignature -LiteralPath $oldExe
+    if ($oldSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or -not $oldSignature.SignerCertificate) {
+      throw "Installed MOSA does not have a valid Authenticode signature."
+    }
+    $expectedSignerThumbprint = $oldSignature.SignerCertificate.Thumbprint
   }
-  $expectedSignerThumbprint = $oldSignature.SignerCertificate.Thumbprint
   Wait-Process -Id $TargetPid -ErrorAction SilentlyContinue
   New-Item -ItemType Directory -Path $transactionRoot -Force | Out-Null
   Expand-Archive -LiteralPath $ZipPath -DestinationPath $extractDir -Force
@@ -230,17 +236,19 @@ try {
   if (-not (Test-Path -LiteralPath $payloadExe -PathType Leaf)) {
     throw "Downloaded MOSA package does not contain the expected executable."
   }
-  $signableFiles = @(Get-ChildItem -LiteralPath $payloadDir -Recurse -File | Where-Object { $_.Extension -in @('.exe', '.dll', '.node') })
-  if ($signableFiles.Count -eq 0) {
-    throw "Downloaded MOSA package contains no signable executable payload."
-  }
-  foreach ($file in $signableFiles) {
-    $payloadSignature = Get-AuthenticodeSignature -LiteralPath $file.FullName
-    if ($payloadSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or -not $payloadSignature.SignerCertificate) {
-      throw "Downloaded MOSA payload contains an invalid Authenticode signature: $($file.FullName)"
+  if ($ExpectedDistribution -eq 'production') {
+    $signableFiles = @(Get-ChildItem -LiteralPath $payloadDir -Recurse -File | Where-Object { $_.Extension -in @('.exe', '.dll', '.node') })
+    if ($signableFiles.Count -eq 0) {
+      throw "Downloaded MOSA package contains no signable executable payload."
     }
-    if ($payloadSignature.SignerCertificate.Thumbprint -ne $expectedSignerThumbprint) {
-      throw "Downloaded MOSA payload is signed by a different publisher: $($file.FullName)"
+    foreach ($file in $signableFiles) {
+      $payloadSignature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+      if ($payloadSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or -not $payloadSignature.SignerCertificate) {
+        throw "Downloaded MOSA payload contains an invalid Authenticode signature: $($file.FullName)"
+      }
+      if ($payloadSignature.SignerCertificate.Thumbprint -ne $expectedSignerThumbprint) {
+        throw "Downloaded MOSA payload is signed by a different publisher: $($file.FullName)"
+      }
     }
   }
 
@@ -270,6 +278,9 @@ try {
         [string]$ready.uiFingerprint -ne $ExpectedUiFingerprint -or
         [string]$ready.runtimeFingerprint -ne $ExpectedRuntimeFingerprint) {
       throw "Updated MOSA readiness identity does not match the release manifest."
+    }
+    if ([string]$ready.distribution -ne $ExpectedDistribution) {
+      throw "Updated MOSA distribution does not match the release manifest."
     }
     # Keep $backupDir parked inside $transactionRoot. The updated app sweeps
     # stale .MOSA-update-* directories on a later boot, so a crash shortly
@@ -334,6 +345,7 @@ export async function launchWindowsUpdateHelper({
     "-ExpectedGitSha", identity.gitSha,
     "-ExpectedUiFingerprint", identity.uiFingerprint,
     "-ExpectedRuntimeFingerprint", identity.runtimeFingerprint,
+    "-ExpectedDistribution", identity.distribution,
     "-LogPath", logPath,
     "-ReadyFile", readyFile,
   ], {

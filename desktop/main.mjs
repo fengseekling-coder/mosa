@@ -746,6 +746,7 @@ function registerIPC() {
           gitSha: expectedServiceIdentity.gitSha,
           uiFingerprint: expectedServiceIdentity.uiFingerprint,
           runtimeFingerprint: expectedServiceIdentity.runtimeFingerprint,
+          distribution: expectedServiceIdentity.distribution,
           readyAt: new Date().toISOString(),
           port: service.port,
         }), "utf8");
@@ -779,6 +780,7 @@ function registerIPC() {
         try {
           const release = await checkForMosaUpdate({
             currentVersion: app.getVersion(),
+            currentDistribution: expectedServiceIdentity.distribution,
             releaseManifestTrust: expectedServiceIdentity.releaseManifestTrust,
           });
           if (!release.updateAvailable) return { status: "current", currentVersion: release.currentVersion };
@@ -835,6 +837,7 @@ function registerIPC() {
       // accepting a renderer-supplied URL, filename or digest.
       const release = await checkForMosaUpdate({
         currentVersion: app.getVersion(),
+        currentDistribution: expectedServiceIdentity.distribution,
         releaseManifestTrust: expectedServiceIdentity.releaseManifestTrust,
       });
       if (!release.updateAvailable) return { status: "current", currentVersion: release.currentVersion };
@@ -1056,6 +1059,7 @@ function runUpdateCheck({ notify = false } = {}) {
   if (updateCheckPromise) return updateCheckPromise;
   updateCheckPromise = checkForMosaUpdate({
     currentVersion,
+    currentDistribution: expectedServiceIdentity.distribution,
     releaseManifestTrust: expectedServiceIdentity.releaseManifestTrust,
   })
     .then((result) => {

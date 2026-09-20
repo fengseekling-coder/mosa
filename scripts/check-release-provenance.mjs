@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { normalizeReleaseManifestTrust } from "../lib/release-manifest-signature.mjs";
+import { normalizeDesktopDistribution } from "../lib/release-distribution.mjs";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
@@ -52,8 +53,9 @@ export function assertReleaseProvenance({
       throw new Error(`Build identity ${field} is missing or invalid.`);
     }
   }
+  const distribution = normalizeDesktopDistribution(buildIdentity.distribution, { releaseOnly: true });
   normalizeReleaseManifestTrust(buildIdentity.releaseManifestTrust);
-  return { version: cleanVersion, head: cleanHead, tag: expectedTag, remoteBranches: normalizedRemoteBranches };
+  return { version: cleanVersion, head: cleanHead, tag: expectedTag, remoteBranches: normalizedRemoteBranches, distribution };
 }
 
 function gitLines(args, cwd = rootDir) {

@@ -7,6 +7,7 @@ import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { parseUpdateManifest } from "../desktop/update-service.mjs";
+import { normalizeDesktopDistribution } from "../lib/release-distribution.mjs";
 import {
   normalizeReleaseManifestTrust,
   releaseManifestPrivateKeyFromEnvironment,
@@ -125,13 +126,14 @@ function normalizeBuildIdentity(value, version) {
   const gitSha = String(value.gitSha || "").trim().toLowerCase();
   const uiFingerprint = String(value.uiFingerprint || "").trim().toLowerCase();
   const runtimeFingerprint = String(value.runtimeFingerprint || "").trim().toLowerCase();
+  const distribution = normalizeDesktopDistribution(value.distribution, { releaseOnly: true });
   if (productVersion !== version) {
     throw new Error(`Release build identity version ${productVersion || "(missing)"} does not match ${version}.`);
   }
   if (!/^[0-9a-f]{40}$/.test(gitSha)) throw new Error("Release build identity gitSha is invalid.");
   if (!/^[0-9a-f]{64}$/.test(uiFingerprint)) throw new Error("Release build identity uiFingerprint is invalid.");
   if (!/^[0-9a-f]{64}$/.test(runtimeFingerprint)) throw new Error("Release build identity runtimeFingerprint is invalid.");
-  return { gitSha, uiFingerprint, runtimeFingerprint };
+  return { gitSha, uiFingerprint, runtimeFingerprint, distribution };
 }
 
 function validVisualPacks(value) {

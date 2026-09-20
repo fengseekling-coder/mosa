@@ -6,6 +6,7 @@ import {
   MOSA_DOWNLOAD_PAGE_URL,
   MOSA_UPDATE_FEED_URL,
   buildUpdateFeedUrl,
+  canUpdateDistribution,
   checkForMosaUpdate,
   compareVersions,
   parseUpdateManifest,
@@ -120,6 +121,7 @@ test("update check compares the fixed HTTPS feed against the installed version",
             gitSha: "c".repeat(40),
             uiFingerprint: "d".repeat(64),
             runtimeFingerprint: "e".repeat(64),
+            distribution: "preview",
           },
           platforms: {
             macos: {
@@ -155,6 +157,7 @@ test("update check compares the fixed HTTPS feed against the installed version",
     gitSha: "c".repeat(40),
     uiFingerprint: "d".repeat(64),
     runtimeFingerprint: "e".repeat(64),
+    distribution: "preview",
   });
   assert.deepEqual(result.macArtifact, {
     platform: "macOS",
@@ -221,6 +224,7 @@ test("trusted update checks reject a release feed whose signed metadata was chan
       gitSha: "a".repeat(40),
       uiFingerprint: "b".repeat(64),
       runtimeFingerprint: "c".repeat(64),
+      distribution: "preview",
     },
     platforms: {
       macos: {
@@ -252,4 +256,12 @@ test("trusted update checks reject a release feed whose signed metadata was chan
     }),
     /signature verification failed/,
   );
+});
+
+test("distribution tracks stay isolated after legacy builds join preview", () => {
+  assert.equal(canUpdateDistribution("development", "preview"), true);
+  assert.equal(canUpdateDistribution("preview", "preview"), true);
+  assert.equal(canUpdateDistribution("production", "production"), true);
+  assert.equal(canUpdateDistribution("preview", "production"), false);
+  assert.equal(canUpdateDistribution("production", "preview"), false);
 });

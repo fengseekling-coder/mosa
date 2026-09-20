@@ -31,6 +31,7 @@ const EXPECTED_IDENTITY = Object.freeze({
   gitSha: "a".repeat(40),
   uiFingerprint: "b".repeat(64),
   runtimeFingerprint: "c".repeat(64),
+  distribution: "preview",
 });
 
 test("Windows update artifacts are pinned to the official filename and HTTPS download origin", () => {
@@ -86,6 +87,7 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   assert.match(script, /Wait-Process -Id \$TargetPid/);
   assert.match(script, /\$transactionRoot = Join-Path \$parentDir/);
   assert.match(script, /Get-AuthenticodeSignature -LiteralPath \$oldExe/);
+  assert.match(script, /if \(\$ExpectedDistribution -eq 'production'\)/);
   assert.match(script, /\$signableFiles = @\(Get-ChildItem -LiteralPath \$payloadDir -Recurse -File/);
   assert.match(script, /foreach \(\$file in \$signableFiles\)/);
   assert.match(script, /Get-AuthenticodeSignature -LiteralPath \$file\.FullName/);
@@ -96,6 +98,7 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   assert.match(script, /Test-Path -LiteralPath \$ReadyFile/);
   assert.match(script, /did not report readiness before the rollback deadline/);
   assert.match(script, /readiness identity does not match the release manifest/);
+  assert.match(script, /distribution does not match the release manifest/);
   // The destructive rollback removal must be explicitly scoped to runs where
   // the original directory is verifiably parked in the backup location.
   assert.match(script, /\$movedOriginal = \$true/);
@@ -132,6 +135,7 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
     assert.equal(invocation.args.includes(EXPECTED_IDENTITY.gitSha), true);
     assert.equal(invocation.args.includes(EXPECTED_IDENTITY.uiFingerprint), true);
     assert.equal(invocation.args.includes(EXPECTED_IDENTITY.runtimeFingerprint), true);
+    assert.equal(invocation.args.includes(EXPECTED_IDENTITY.distribution), true);
     assert.match(await readFile(join(root, "apply-update.ps1"), "utf8"), /Expand-Archive/);
   } finally {
     await removeTestPath(root, { recursive: true, force: true });

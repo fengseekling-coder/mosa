@@ -6,10 +6,11 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ### Release integrity / 发布完整性
 
+- Split desktop publishing into explicit Preview and Production tracks. Preview/RC keeps immutable Git provenance, signed release manifests, artifact hashes, exact build identity, and updater rollback without requiring Apple Developer or Windows Authenticode credentials; Production adds those platform trust chains as a deliberate stronger gate.
 - Release builds now fail closed unless their source commit is clean, tagged, remotely reachable, and the exact release tag has been pushed. Build identity is carried into the release manifest and verified again after an in-place update reports readiness.
 - `releases/latest.json` is now signed with a release-only Ed25519 key whose public key is pinned into the packaged build. Desktop updates and Visual Pack discovery verify that signature before trusting artifact hashes or model-pack metadata, separating release trust from the website/CDN that serves the files.
-- macOS release packaging rejects ad-hoc/non-hardened/wrong-team bundles, requires notarization and Gatekeeper acceptance, and the in-place updater checks the replacement against the installed Developer ID team plus Gatekeeper before replacement.
-- Windows release packaging now has an explicit Authenticode path. Release verification pins the expected signer, and in-place updates require every executable/native payload (`.exe`, `.dll`, `.node`) to have a valid signature from the installed publisher before the application directory is replaced.
+- macOS Production packaging rejects ad-hoc/non-hardened/wrong-team bundles, requires notarization and Gatekeeper acceptance, and Production in-place updates check the replacement against the installed Developer ID team plus Gatekeeper before replacement.
+- Windows Production packaging has an explicit Authenticode path. Production verification pins the expected signer, and Production in-place updates require every executable/native payload (`.exe`, `.dll`, `.node`) to have a valid signature from the installed publisher before the application directory is replaced.
 - SQLite schema upgrades create a verified pre-upgrade snapshot before the first mutation and run integrity plus foreign-key verification after migration, retaining the snapshot path in any upgrade failure for deterministic recovery.
 - Removed the retired Inspector curation/reuse-context UI strings and the now-unreferenced context-package implementation instead of leaving hidden product surfaces behind.
 

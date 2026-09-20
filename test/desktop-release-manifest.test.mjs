@@ -28,6 +28,7 @@ function buildIdentity(version) {
     gitSha: "a".repeat(40),
     uiFingerprint: "b".repeat(64),
     runtimeFingerprint: "c".repeat(64),
+    distribution: "preview",
     releaseManifestTrust: RELEASE_TRUST,
   };
 }
@@ -70,6 +71,7 @@ test("release manifest emits only unified platforms schema and preserves Visual 
       gitSha: "a".repeat(40),
       uiFingerprint: "b".repeat(64),
       runtimeFingerprint: "c".repeat(64),
+      distribution: "preview",
     });
     assert.equal(verifyReleaseManifestSignature(result, RELEASE_TRUST), true);
     assert.deepEqual(Object.keys(result.platforms), ["macos"]);
