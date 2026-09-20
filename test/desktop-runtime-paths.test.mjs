@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import test from "node:test";
-import { electronExecutablePath, packagedExecutablePath } from "../scripts/desktop-runtime-paths.mjs";
+import { electronExecutablePath, ensureElectronExecutablePath, packagedExecutablePath } from "../scripts/desktop-runtime-paths.mjs";
 
 const rootDir = join("workspace", "mosa");
 
@@ -30,4 +30,18 @@ test("desktop runtime paths resolve Windows x64 executables", () => {
 test("packaged runtime paths reject unapproved targets", () => {
   assert.throws(() => packagedExecutablePath({ rootDir, platform: "win32", arch: "arm64" }), /Unsupported packaged MOSA target/);
   assert.throws(() => electronExecutablePath({ rootDir, platform: "freebsd" }), /Unsupported Electron QA platform/);
+});
+
+test("Electron QA preflight resolves the package executable and rejects path drift", () => {
+  const expected = electronExecutablePath({ rootDir, platform: "darwin" });
+  assert.equal(ensureElectronExecutablePath({
+    rootDir,
+    platform: "darwin",
+    loadElectron: () => expected,
+  }), expected);
+  assert.throws(() => ensureElectronExecutablePath({
+    rootDir,
+    platform: "darwin",
+    loadElectron: () => join(process.cwd(), "unexpected", "Electron"),
+  }), /path mismatch/);
 });

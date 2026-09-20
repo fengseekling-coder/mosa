@@ -13,6 +13,7 @@ import {
   visualModelPackRoot,
 } from "../lib/visual-model-pack.mjs";
 import { MOSA_UPDATE_FEED_URL } from "./update-service.mjs";
+import { verifyReleaseManifestSignature } from "../lib/release-manifest-signature.mjs";
 
 export const MOSA_VISUAL_PACK_DOWNLOAD_BASE_URL = "https://mosa.azhuilab.com/downloads/visual-packs/";
 
@@ -68,6 +69,7 @@ export function parseVisualPackReleaseManifest(input, { platform = process.platf
 export async function checkForVisualPackRelease({
   platform = process.platform,
   arch = process.arch,
+  releaseManifestTrust = null,
   fetchImpl = globalThis.fetch,
   timeoutMs = 8_000,
 } = {}) {
@@ -87,7 +89,9 @@ export async function checkForVisualPackRelease({
     if (!response?.ok) throw visualPackError("FETCH_FAILED", `Visual Pack release check returned HTTP ${response?.status || 0}.`);
     const text = await response.text();
     if (Buffer.byteLength(text, "utf8") > RELEASE_MANIFEST_MAX_BYTES) throw visualPackError("RELEASE_INVALID", "MOSA release manifest is too large.");
-    return { supported: true, release: parseVisualPackReleaseManifest(JSON.parse(text), { platform, arch }) };
+    const document = JSON.parse(text);
+    if (releaseManifestTrust) verifyReleaseManifestSignature(document, releaseManifestTrust);
+    return { supported: true, release: parseVisualPackReleaseManifest(document, { platform, arch }) };
   } finally {
     clearTimeout(timeout);
   }

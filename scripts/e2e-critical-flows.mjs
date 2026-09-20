@@ -10,18 +10,18 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { importStagingDir } from "../lib/import-staging.mjs";
 import { launchDesktopGui } from "./desktop-gui-launcher.mjs";
-import { electronExecutablePath } from "./desktop-runtime-paths.mjs";
+import { ensureElectronExecutablePath } from "./desktop-runtime-paths.mjs";
 import { createCriticalUiFlowSource } from "./e2e-ui-flow.mjs";
 import { signalProcessTree } from "./process-tree.mjs";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const electronBinary = electronExecutablePath({ rootDir });
+const electronBinary = ensureElectronExecutablePath({ rootDir });
 const webDriver = join(rootDir, "scripts", "e2e-web-driver.mjs");
 const DISABLED_BRIDGES = "cowart,cowartDiscovery,codex,grok";
 const ELECTRON_QA_FLAGS = process.platform === "win32" ? ["--disable-gpu"] : [];
 const QA_CLIENT_TOKEN = "mosa_e2e_client_token_0123456789abcdefghijklmnop";
 
-if (!existsSync(electronBinary)) throw new Error(`Electron binary not found: ${electronBinary}`);
+if (!existsSync(electronBinary)) throw new Error(`Electron binary was not installed correctly: ${electronBinary}`);
 
 const root = await mkdtemp(join(tmpdir(), "mosa-critical-e2e-"));
 const libraryDir = join(root, "library");

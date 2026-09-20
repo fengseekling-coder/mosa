@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdtemp, mkdir, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +15,7 @@ import {
   visualPackTarget,
 } from "../desktop/visual-pack-installer.mjs";
 import { MOSA_UPDATE_FEED_URL } from "../desktop/update-service.mjs";
+import { createReleaseManifestTrust, signReleaseManifest } from "../lib/release-manifest-signature.mjs";
 import { discoverVisualModelPacks } from "../lib/visual-model-pack.mjs";
 import { deferTestPathRemoval } from "./test-cleanup.mjs";
 
@@ -134,21 +135,44 @@ test("Visual Pack release metadata is platform-bound and uses the fixed first-pa
 
 test("Visual Pack release checks use only the fixed first-party release feed", { skip: !target }, async () => {
   const pack = makePack();
+  const keys = generateKeyPairSync("ed25519");
+  const trust = createReleaseManifestTrust(keys.publicKey);
+  const signedRelease = signReleaseManifest(releaseDocument(pack), {
+    privateKey: keys.privateKey,
+    expectedTrust: trust,
+  });
   let requestedUrl = "";
   let requestedOptions = null;
   const result = await checkForVisualPackRelease({
     platform: pack.release.platform,
     arch: pack.release.arch,
+    releaseManifestTrust: trust,
     fetchImpl: async (url, options) => {
       requestedUrl = String(url);
       requestedOptions = options;
-      return new Response(JSON.stringify(releaseDocument(pack)), { status: 200 });
+      return new Response(JSON.stringify(signedRelease), { status: 200 });
     },
   });
   assert.equal(requestedUrl, MOSA_UPDATE_FEED_URL);
   assert.equal(requestedOptions.redirect, "error");
   assert.equal(result.release.id, pack.release.id);
   assert.equal(result.release.license.id, "apache-2.0");
+
+  await assert.rejects(
+    checkForVisualPackRelease({
+      platform: pack.release.platform,
+      arch: pack.release.arch,
+      releaseManifestTrust: trust,
+      fetchImpl: async () => new Response(JSON.stringify({
+        ...signedRelease,
+        visualPacks: {
+          ...signedRelease.visualPacks,
+          [target]: { ...signedRelease.visualPacks[target], revision: "tampered" },
+        },
+      }), { status: 200 }),
+    }),
+    /signature verification failed/,
+  );
 });
 
 test("Visual Pack installer downloads pinned files, verifies them, installs atomically, and removes by model id", { skip: !target }, async (t) => {

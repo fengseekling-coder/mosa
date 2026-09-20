@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
+import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
@@ -297,14 +298,8 @@ test("out-of-scope files stay locked and the Phase 1C card contract is stable", 
   // server.mjs (ERR_ISOLATION_GUARD fail-closed handler) and package.json
   // (qa:web/qa:electron/qa:packaged launcher scripts), so those two files
   // leave the hash table; their security-relevant behaviour is asserted
-  // structurally below. The lockfile stays hash-pinned.
-  const expected = {
-    "package-lock.json": "62bd0e547f01d506e39d41b696b8d1a7e290d128a1676640873ecf47e75b0e3f",
-  };
-  for (const [file, hash] of Object.entries(expected)) {
-    const text = await readFile(resolve(root, file), "utf8");
-    assert.equal(sha256(text), hash, `${file} must stay untouched`);
-  }
+  // structurally below. Lockfile integrity is checked as dependency identity,
+  // not as a whole-file hash that would make release version bumps illegal.
   // server.mjs must still fail closed when the isolation guard rejects a run.
   const server = await readFile(resolve(root, "server.mjs"), "utf8");
   assert.match(server, /ERR_ISOLATION_GUARD/, "server.mjs must fail closed on isolation guard rejection");
@@ -313,6 +308,7 @@ test("out-of-scope files stay locked and the Phase 1C card contract is stable", 
   const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
   assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies must stay untouched");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
+  assertPackageLockMatchesManifest(await readFile(resolve(root, "package-lock.json"), "utf8"), manifest);
   // The Phase 1C/1C.1 card quick-action contract rules are locked verbatim against drift.
   // Phase 1C.1 re-locks: child-button disclosure granularity, 28px click area (Phase 1B
   // compatible IconButton floor), and the batch-disabled suppression variants.
