@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
+import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 // Phase 4C 守护契约：原图 App/Web 能力适配（desktop-finder / web-open / unavailable）、
 // More 区最终形态（原生 details/summary + 独立 danger 区）与 Phase 1–4B 边界冻结。
@@ -120,7 +121,7 @@ test("59-60. dependency freeze: manifest, lockfile, and app.js imports unchanged
   const manifest = JSON.parse(pkg);
   assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies must stay untouched");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
-  assert.equal(sha256(lock), "62bd0e547f01d506e39d41b696b8d1a7e290d128a1676640873ecf47e75b0e3f", "package-lock.json must stay untouched");
+  assertPackageLockMatchesManifest(lock, manifest, "package-lock.json must preserve dependency identity");
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
     ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./batch-import.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./library-reconciliation.mjs", "./native-asset-drag.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
 });

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import { parseUpdateManifest } from "../desktop/update-service.mjs";
+import { createReleaseManifestTrust, verifyReleaseManifestSignature } from "../lib/release-manifest-signature.mjs";
 import { prepareDesktopReleaseManifest } from "../scripts/prepare-desktop-release-manifest.mjs";
 import { removeTestPath } from "./test-cleanup.mjs";
 
@@ -15,6 +17,26 @@ async function fixtureArtifacts(version) {
   await writeFile(mac, `mac-${version}`);
   await writeFile(windows, `windows-${version}`);
   return { root, mac, windows };
+}
+
+const RELEASE_KEYS = generateKeyPairSync("ed25519");
+const RELEASE_TRUST = createReleaseManifestTrust(RELEASE_KEYS.publicKey);
+
+function buildIdentity(version) {
+  return {
+    productVersion: version,
+    gitSha: "a".repeat(40),
+    uiFingerprint: "b".repeat(64),
+    runtimeFingerprint: "c".repeat(64),
+    releaseManifestTrust: RELEASE_TRUST,
+  };
+}
+
+function signingOptions(version) {
+  return {
+    buildIdentity: buildIdentity(version),
+    signingPrivateKey: RELEASE_KEYS.privateKey,
+  };
 }
 
 test("release manifest emits only unified platforms schema and preserves Visual Packs", async () => {
@@ -33,6 +55,7 @@ test("release manifest emits only unified platforms schema and preserves Visual 
     const result = await prepareDesktopReleaseManifest({
       version,
       macArtifactPath: files.mac,
+      ...signingOptions(version),
       previousManifest: {
         version: "0.2.1-rc.15",
         artifacts: { mac: { url: "legacy" }, windows: { url: "legacy" } },
@@ -43,6 +66,12 @@ test("release manifest emits only unified platforms schema and preserves Visual 
       notes: { zh: "rc.16", en: "rc.16" },
     });
     assert.equal(result.version, version);
+    assert.deepEqual(result.build, {
+      gitSha: "a".repeat(40),
+      uiFingerprint: "b".repeat(64),
+      runtimeFingerprint: "c".repeat(64),
+    });
+    assert.equal(verifyReleaseManifestSignature(result, RELEASE_TRUST), true);
     assert.deepEqual(Object.keys(result.platforms), ["macos"]);
     assert.equal("artifacts" in result, false);
     assert.deepEqual(result.visualPacks, visualPacks);
@@ -63,6 +92,7 @@ test("release manifest includes Windows only when a same-version real artifact i
       version,
       macArtifactPath: files.mac,
       windowsArtifactPath: files.windows,
+      ...signingOptions(version),
       publishedAt: "2026-09-19T01:00:00Z",
       notes: { zh: "rc.16 中文说明", en: "rc.16 English notes" },
     });
@@ -81,6 +111,7 @@ test("release manifest refuses stale artifact versions instead of publishing a m
       prepareDesktopReleaseManifest({
         version: "0.2.1-rc.16",
         macArtifactPath: files.mac,
+        ...signingOptions("0.2.1-rc.16"),
         publishedAt: "2026-09-19T01:00:00Z",
       }),
       /filename must be MOSA-darwin-arm64-0\.2\.1-rc\.16\.zip/,
@@ -102,6 +133,7 @@ test("release manifest requires explicit bilingual notes and never inherits prev
       prepareDesktopReleaseManifest({
         version,
         macArtifactPath: files.mac,
+        ...signingOptions(version),
         previousManifest,
         publishedAt: "2026-09-19T01:00:00Z",
       }),
@@ -111,6 +143,7 @@ test("release manifest requires explicit bilingual notes and never inherits prev
       prepareDesktopReleaseManifest({
         version,
         macArtifactPath: files.mac,
+        ...signingOptions(version),
         previousManifest,
         publishedAt: "2026-09-19T01:00:00Z",
         notes: { zh: "新版本中文说明", en: "   " },
@@ -121,11 +154,40 @@ test("release manifest requires explicit bilingual notes and never inherits prev
       prepareDesktopReleaseManifest({
         version,
         macArtifactPath: files.mac,
+        ...signingOptions(version),
         previousManifest,
         publishedAt: "2026-09-19T01:00:00Z",
         notes: { zh: "   ", en: "New release English notes" },
       }),
       /notes\.zh and notes\.en must both be non-empty/,
+    );
+  } finally {
+    await removeTestPath(files.root, { recursive: true, force: true });
+  }
+});
+
+test("release manifest refuses missing or mismatched build identity", async () => {
+  const version = "0.2.1-rc.16";
+  const files = await fixtureArtifacts(version);
+  try {
+    await assert.rejects(
+      prepareDesktopReleaseManifest({
+        version,
+        macArtifactPath: files.mac,
+        publishedAt: "2026-09-19T01:00:00Z",
+        notes: { zh: "说明", en: "Notes" },
+      }),
+      /build identity is required/,
+    );
+    await assert.rejects(
+      prepareDesktopReleaseManifest({
+        version,
+        macArtifactPath: files.mac,
+        ...signingOptions("0.2.1-rc.15"),
+        publishedAt: "2026-09-19T01:00:00Z",
+        notes: { zh: "说明", en: "Notes" },
+      }),
+      /does not match/,
     );
   } finally {
     await removeTestPath(files.root, { recursive: true, force: true });

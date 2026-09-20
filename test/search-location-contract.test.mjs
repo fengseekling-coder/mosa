@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
+import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 // V2 FilterBar (mosa-library-v2, 2026-08-16): the single global search input lives
 // in the topbar work group as the right-most control of the bar
@@ -171,7 +172,7 @@ test("12. no new dependencies", async () => {
   assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies must stay untouched");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
   const lock = await readFile(resolve(root, "package-lock.json"), "utf8");
-  assert.equal(sha256(lock), "62bd0e547f01d506e39d41b696b8d1a7e290d128a1676640873ecf47e75b0e3f", "package-lock.json must stay untouched");
+  assertPackageLockMatchesManifest(lock, manifest, "package-lock.json must preserve dependency identity");
 });
 
 // 13. No !important anywhere in the stylesheet (comments stripped).

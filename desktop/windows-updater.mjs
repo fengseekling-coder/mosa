@@ -10,6 +10,7 @@ export const MOSA_WINDOWS_DOWNLOAD_BASE_URL = "https://mosa.azhuilab.com/downloa
 const MAX_WINDOWS_UPDATE_BYTES = 1_500_000_000;
 const DEFAULT_WINDOWS_UPDATE_IDLE_TIMEOUT_MS = 30_000;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
+const GIT_SHA_PATTERN = /^[0-9a-f]{40}$/i;
 
 function safeVersion(value) {
   const version = String(value || "").trim().replace(/^v/i, "");
@@ -17,6 +18,17 @@ function safeVersion(value) {
     throw new Error("Invalid Windows update version.");
   }
   return version;
+}
+
+function safeBuildIdentity(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Windows update build identity is missing.");
+  const gitSha = String(value.gitSha || "").trim().toLowerCase();
+  const uiFingerprint = String(value.uiFingerprint || "").trim().toLowerCase();
+  const runtimeFingerprint = String(value.runtimeFingerprint || "").trim().toLowerCase();
+  if (!GIT_SHA_PATTERN.test(gitSha) || !SHA256_PATTERN.test(uiFingerprint) || !SHA256_PATTERN.test(runtimeFingerprint)) {
+    throw new Error("Windows update build identity is invalid.");
+  }
+  return { gitSha, uiFingerprint, runtimeFingerprint };
 }
 
 export function validateWindowsUpdateArtifact(input, version) {
@@ -187,6 +199,10 @@ export function windowsUpdateHelperScript() {
   [Parameter(Mandatory=$true)][string]$ZipPath,
   [Parameter(Mandatory=$true)][string]$InstallDir,
   [Parameter(Mandatory=$true)][string]$ExeName,
+  [Parameter(Mandatory=$true)][string]$ExpectedVersion,
+  [Parameter(Mandatory=$true)][string]$ExpectedGitSha,
+  [Parameter(Mandatory=$true)][string]$ExpectedUiFingerprint,
+  [Parameter(Mandatory=$true)][string]$ExpectedRuntimeFingerprint,
   [Parameter(Mandatory=$true)][string]$LogPath,
   [Parameter(Mandatory=$true)][string]$ReadyFile
 )
@@ -202,12 +218,30 @@ $newProcess = $null
 $movedOriginal = $false
 
 try {
+  $oldSignature = Get-AuthenticodeSignature -LiteralPath $oldExe
+  if ($oldSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or -not $oldSignature.SignerCertificate) {
+    throw "Installed MOSA does not have a valid Authenticode signature."
+  }
+  $expectedSignerThumbprint = $oldSignature.SignerCertificate.Thumbprint
   Wait-Process -Id $TargetPid -ErrorAction SilentlyContinue
   New-Item -ItemType Directory -Path $transactionRoot -Force | Out-Null
   Expand-Archive -LiteralPath $ZipPath -DestinationPath $extractDir -Force
   $payloadExe = Join-Path $payloadDir $ExeName
   if (-not (Test-Path -LiteralPath $payloadExe -PathType Leaf)) {
     throw "Downloaded MOSA package does not contain the expected executable."
+  }
+  $signableFiles = @(Get-ChildItem -LiteralPath $payloadDir -Recurse -File | Where-Object { $_.Extension -in @('.exe', '.dll', '.node') })
+  if ($signableFiles.Count -eq 0) {
+    throw "Downloaded MOSA package contains no signable executable payload."
+  }
+  foreach ($file in $signableFiles) {
+    $payloadSignature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+    if ($payloadSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or -not $payloadSignature.SignerCertificate) {
+      throw "Downloaded MOSA payload contains an invalid Authenticode signature: $($file.FullName)"
+    }
+    if ($payloadSignature.SignerCertificate.Thumbprint -ne $expectedSignerThumbprint) {
+      throw "Downloaded MOSA payload is signed by a different publisher: $($file.FullName)"
+    }
   }
 
   Move-Item -LiteralPath $InstallDir -Destination $backupDir
@@ -229,6 +263,13 @@ try {
     }
     if (-not (Test-Path -LiteralPath $ReadyFile -PathType Leaf)) {
       throw "Updated MOSA did not report readiness before the rollback deadline."
+    }
+    $ready = Get-Content -LiteralPath $ReadyFile -Raw | ConvertFrom-Json
+    if ([string]$ready.version -ne $ExpectedVersion -or
+        [string]$ready.gitSha -ne $ExpectedGitSha -or
+        [string]$ready.uiFingerprint -ne $ExpectedUiFingerprint -or
+        [string]$ready.runtimeFingerprint -ne $ExpectedRuntimeFingerprint) {
+      throw "Updated MOSA readiness identity does not match the release manifest."
     }
     # Keep $backupDir parked inside $transactionRoot. The updated app sweeps
     # stale .MOSA-update-* directories on a later boot, so a crash shortly
@@ -265,9 +306,13 @@ export async function launchWindowsUpdateHelper({
   zipPath,
   installDir,
   exeName,
+  version,
+  expectedIdentity,
   processId,
   spawnImpl = spawn,
 } = {}) {
+  const identity = safeBuildIdentity(expectedIdentity);
+  const normalizedVersion = safeVersion(version);
   if (!zipPath || !installDir || !exeName || !Number.isSafeInteger(processId) || processId <= 0) {
     throw new Error("Invalid Windows update helper arguments.");
   }
@@ -285,6 +330,10 @@ export async function launchWindowsUpdateHelper({
     "-ZipPath", zipPath,
     "-InstallDir", installDir,
     "-ExeName", exeName,
+    "-ExpectedVersion", normalizedVersion,
+    "-ExpectedGitSha", identity.gitSha,
+    "-ExpectedUiFingerprint", identity.uiFingerprint,
+    "-ExpectedRuntimeFingerprint", identity.runtimeFingerprint,
     "-LogPath", logPath,
     "-ReadyFile", readyFile,
   ], {

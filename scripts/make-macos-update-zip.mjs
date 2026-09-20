@@ -6,6 +6,7 @@ import { createReadStream } from "node:fs";
 import { access, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { verifyMacosReleaseApp } from "./verify-macos-release.mjs";
 
 export const MOSA_MAC_UPDATE_ARCH = "arm64";
 
@@ -26,6 +27,8 @@ export async function makeMacosUpdateZip({
   rootDir = process.cwd(),
   outDir = process.env.MOSA_FORGE_OUT_DIR || "out",
   arch = MOSA_MAC_UPDATE_ARCH,
+  release = process.env.MOSA_RELEASE_BUILD === "1",
+  env = process.env,
   runner = runCommand,
 } = {}) {
   const packageJson = JSON.parse(await readFile(join(rootDir, "package.json"), "utf8"));
@@ -35,6 +38,7 @@ export async function makeMacosUpdateZip({
   await access(join(appPath, "Contents", "MacOS", "MOSA")).catch(() => {
     throw new Error(`Packaged macOS app not found: ${appPath}. Run desktop:package first.`);
   });
+  if (release) await verifyMacosReleaseApp({ appPath, env, runner, staple: false });
 
   const output = macosUpdateArtifactPath({ rootDir, outDir, version, arch });
   await mkdir(dirname(output), { recursive: true });
@@ -80,12 +84,15 @@ async function fileMetadata(path) {
 export function runCommand(command, args, { cwd = process.cwd() } = {}) {
   return new Promise((resolveRun, rejectRun) => {
     const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
     let stderr = "";
+    child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.once("error", rejectRun);
     child.once("close", (code, signal) => {
-      if (code === 0) return resolveRun();
+      if (code === 0) return resolveRun({ stdout, stderr });
       rejectRun(new Error(`${command} failed: ${stderr.trim() || `exit ${code ?? "?"}${signal ? ` (${signal})` : ""}`}`));
     });
   });

@@ -140,6 +140,43 @@ export function macReleasePackagingConfig(env = process.env) {
   };
 }
 
+export function windowsReleasePackagingConfig(env = process.env) {
+  if (env.MOSA_RELEASE_BUILD !== "1") return {};
+
+  const signerThumbprint = String(env.MOSA_WINDOWS_SIGNER_THUMBPRINT || "").replace(/\s+/g, "").toUpperCase();
+  if (!/^[0-9A-F]{40,64}$/.test(signerThumbprint)) {
+    throw new Error("MOSA Windows release build requires MOSA_WINDOWS_SIGNER_THUMBPRINT.");
+  }
+
+  const certificateFile = String(env.WINDOWS_CERTIFICATE_FILE || "").trim();
+  const certificatePassword = String(env.WINDOWS_CERTIFICATE_PASSWORD || "").trim();
+  const signToolPath = String(env.WINDOWS_SIGNTOOL_PATH || "").trim();
+  const signWithParams = String(env.WINDOWS_SIGN_WITH_PARAMS || "").trim();
+  const hookModulePath = String(env.WINDOWS_SIGN_HOOK_MODULE_PATH || "").trim();
+  const certificateMode = Boolean(certificateFile && certificatePassword);
+  const customMode = Boolean(signWithParams || hookModulePath);
+  if (!certificateMode && !customMode) {
+    throw new Error(
+      "MOSA Windows release build requires a signing source: WINDOWS_CERTIFICATE_FILE + WINDOWS_CERTIFICATE_PASSWORD, "
+      + "WINDOWS_SIGN_WITH_PARAMS, or WINDOWS_SIGN_HOOK_MODULE_PATH.",
+    );
+  }
+
+  return {
+    windowsSign: {
+      continueOnError: false,
+      hashes: ["sha256"],
+      description: "MOSA",
+      website: "https://mosa.azhuilab.com/",
+      ...(certificateFile ? { certificateFile } : {}),
+      ...(certificatePassword ? { certificatePassword } : {}),
+      ...(signToolPath ? { signToolPath } : {}),
+      ...(signWithParams ? { signWithParams } : {}),
+      ...(hookModulePath ? { hookModulePath } : {}),
+    },
+  };
+}
+
 function buildOnlyRuntimePaths(target) {
   return [
     ...COMMON_BUILD_ONLY_RUNTIME_PATHS,
@@ -214,6 +251,7 @@ export const packageIgnorePatterns = packageIgnorePatternsForTarget(activeTarget
 
 export function createForgeConfig({ target = activeTarget, env = process.env } = {}) {
   const macPackaging = target.platform === "darwin" ? macReleasePackagingConfig(env) : {};
+  const windowsPackaging = target.platform === "win32" ? windowsReleasePackagingConfig(env) : {};
   const ignore = packageIgnorePatternsForTarget(target);
   const outDir = env.MOSA_FORGE_OUT_DIR || "out";
   const iconOutputDir = desktopIconOutputDir({ outDir });
@@ -227,6 +265,7 @@ export function createForgeConfig({ target = activeTarget, env = process.env } =
     icon,
     ...(target.platform === "darwin" ? { appBundleId: "com.azhuilab.mosa" } : {}),
     ...macPackaging,
+    ...windowsPackaging,
     ignore,
     asar: {
       // Sharp's target package contains native siblings that must stay outside

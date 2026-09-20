@@ -11,6 +11,7 @@ import forgeConfig, {
   packageIgnorePatternsForTarget,
   preparePackagedRuntime,
   resolveDesktopPackagingTarget,
+  windowsReleasePackagingConfig,
 } from "../desktop/forge.config.mjs";
 import {
   DESKTOP_ICON_SOURCE_PATH,
@@ -115,10 +116,11 @@ test("desktop packaging target resolution supports only the approved macOS and W
 
 test("Windows Forge config omits mac signing and selects Windows native runtime packages", () => {
   const target = resolveDesktopPackagingTarget({ platform: "win32", arch: "x64", env: {}, argv: [] });
-  const config = createForgeConfig({ target, env: { MOSA_RELEASE_BUILD: "1" } });
+  const config = createForgeConfig({ target, env: {} });
   assert.equal("appBundleId" in config.packagerConfig, false);
   assert.equal("osxSign" in config.packagerConfig, false);
   assert.equal("osxNotarize" in config.packagerConfig, false);
+  assert.equal("windowsSign" in config.packagerConfig, false);
   assert.equal(config.packagerConfig.icon, desktopIconBasePath({ outDir: "out" }));
   assert.equal(config.packagerConfig.asar.unpackDir, "node_modules/@img/sharp-win32-x64");
   assert.equal(config.makers.some((maker) => maker.name === "zip" && maker.platforms.includes("win32")), true);
@@ -131,6 +133,33 @@ test("Windows Forge config omits mac signing and selects Windows native runtime 
   assert.equal(ignored("/node_modules/onnxruntime-node/dist/index.js"), true);
   assert.equal(ignored("/node_modules/onnxruntime-common/dist/cjs/index.js"), true);
   assert.equal(ignored("/node_modules/@huggingface/tokenizers/dist/tokenizers.mjs"), true);
+});
+
+test("Windows release packaging fails closed without explicit signing configuration", () => {
+  assert.throws(
+    () => windowsReleasePackagingConfig({ MOSA_RELEASE_BUILD: "1" }),
+    /MOSA_WINDOWS_SIGNER_THUMBPRINT/,
+  );
+  assert.throws(
+    () => windowsReleasePackagingConfig({
+      MOSA_RELEASE_BUILD: "1",
+      MOSA_WINDOWS_SIGNER_THUMBPRINT: "A".repeat(40),
+    }),
+    /requires a signing source/,
+  );
+});
+
+test("Windows release packaging enables SHA-256 Authenticode signing", () => {
+  const config = windowsReleasePackagingConfig({
+    MOSA_RELEASE_BUILD: "1",
+    MOSA_WINDOWS_SIGNER_THUMBPRINT: "A".repeat(40),
+    WINDOWS_CERTIFICATE_FILE: "C:\\secrets\\mosa.pfx",
+    WINDOWS_CERTIFICATE_PASSWORD: "secret",
+  });
+  assert.equal(config.windowsSign.continueOnError, false);
+  assert.deepEqual(config.windowsSign.hashes, ["sha256"]);
+  assert.equal(config.windowsSign.certificateFile, "C:\\secrets\\mosa.pfx");
+  assert.equal(config.windowsSign.certificatePassword, "secret");
 });
 
 test("desktop icon source generates valid macOS and Windows icon containers", async (t) => {

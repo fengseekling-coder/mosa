@@ -4,6 +4,15 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+### Release integrity / 发布完整性
+
+- Release builds now fail closed unless their source commit is clean, tagged, remotely reachable, and the exact release tag has been pushed. Build identity is carried into the release manifest and verified again after an in-place update reports readiness.
+- `releases/latest.json` is now signed with a release-only Ed25519 key whose public key is pinned into the packaged build. Desktop updates and Visual Pack discovery verify that signature before trusting artifact hashes or model-pack metadata, separating release trust from the website/CDN that serves the files.
+- macOS release packaging rejects ad-hoc/non-hardened/wrong-team bundles, requires notarization and Gatekeeper acceptance, and the in-place updater checks the replacement against the installed Developer ID team plus Gatekeeper before replacement.
+- Windows release packaging now has an explicit Authenticode path. Release verification pins the expected signer, and in-place updates require every executable/native payload (`.exe`, `.dll`, `.node`) to have a valid signature from the installed publisher before the application directory is replaced.
+- SQLite schema upgrades create a verified pre-upgrade snapshot before the first mutation and run integrity plus foreign-key verification after migration, retaining the snapshot path in any upgrade failure for deterministic recovery.
+- Removed the retired Inspector curation/reuse-context UI strings and the now-unreferenced context-package implementation instead of leaving hidden product surfaces behind.
+
 ### Local visual search / 本地视觉搜索
 
 - Wired the first real MOSA-local image-text embedding runtime: a verified SigLIP2 Base int8 visual pack now powers `/api/visual/search`, image-to-image similarity, and near-duplicate/version/Stack candidates through a dedicated fail-closed inference worker process. No Ollama, Python, or network access is required at inference time.
@@ -45,8 +54,6 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - The sidebar can save the current gallery query, scope, media type, facets, and sort order as a named project-local filter preset, then restore the complete view semantics with one action.
 - Saved filters are bounded local UI preferences rather than asset metadata: they do not modify Prompts, provenance, groups, or generation records, and deleting a preset never changes library content.
 - Inspector version history now includes a two-version comparison view for stored media and persisted Prompt/style/theme/ratio/group/category/tag/change-summary fields. It compares existing records only and does not infer missing generation facts.
-- Assets can now be explicitly marked as curated and given a user-authored experience note. Curation is asset metadata, not generation evidence or a Recipe change, and note text participates in local search.
-- Inspector can copy or export an auditable local reuse-context package. The package allowlists recorded Prompt/Recipe/provenance/version/reference fields, references existing local media instead of duplicating or uploading it, and explicitly leaves unavailable facts unknown.
 - Added a reproducible retrieval acceptance baseline with enforced lexical cases plus diagnostic conversational, semantic, cross-language, and visual-content probes. This makes the case for any future embedding layer measurable instead of assuming that a model is required.
 - Added conservative Chinese conversational query planning: recognizable phrases such as “找一下之前做过的…” are reduced to design terms that actually exist in the local short-term index before entering the existing strict search path. The acceptance set now guards these supported conversational queries while leaving semantic and visual probes diagnostic.
 - Added an audited design-vocabulary normalization layer for multi-signal paraphrases and cross-language designer terminology. On the current synthetic acceptance probes it closes the measured text-semantic gap without adding a model runtime; visual-content probes remain intentionally unsolved and separate.

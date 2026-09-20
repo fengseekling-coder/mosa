@@ -468,7 +468,9 @@ async function visualPackDistributionState({ forceRelease = false } = {}) {
     return structuredClone({ ...visualPackReleaseCache, progress: visualPackProgress });
   }
   try {
-    const checked = await checkForVisualPackRelease();
+    const checked = await checkForVisualPackRelease({
+      releaseManifestTrust: expectedServiceIdentity.releaseManifestTrust,
+    });
     visualPackReleaseCache = {
       supported: checked.supported === true,
       release: checked.release || null,
@@ -741,6 +743,9 @@ function registerIPC() {
         mkdirSync(dirname(readyFile), { recursive: true });
         writeFileSync(readyFile, JSON.stringify({
           version: app.getVersion(),
+          gitSha: expectedServiceIdentity.gitSha,
+          uiFingerprint: expectedServiceIdentity.uiFingerprint,
+          runtimeFingerprint: expectedServiceIdentity.runtimeFingerprint,
           readyAt: new Date().toISOString(),
           port: service.port,
         }), "utf8");
@@ -772,7 +777,10 @@ function registerIPC() {
         const controller = new AbortController();
         macosUpdateDownloadController = controller;
         try {
-          const release = await checkForMosaUpdate({ currentVersion: app.getVersion() });
+          const release = await checkForMosaUpdate({
+            currentVersion: app.getVersion(),
+            releaseManifestTrust: expectedServiceIdentity.releaseManifestTrust,
+          });
           if (!release.updateAvailable) return { status: "current", currentVersion: release.currentVersion };
           if (!release.macArtifact) return { status: "unavailable", currentVersion: release.currentVersion };
           const installAppPath = resolveMacosInstallAppPath(process.execPath);
@@ -792,6 +800,7 @@ function registerIPC() {
             zipPath: download.zipPath,
             installAppPath,
             version: release.latestVersion,
+            expectedIdentity: release.buildIdentity,
             processId: process.pid,
             libraryDir,
           });
@@ -824,7 +833,10 @@ function registerIPC() {
       try {
       // Re-read the first-party manifest in the trusted main process instead of
       // accepting a renderer-supplied URL, filename or digest.
-      const release = await checkForMosaUpdate({ currentVersion: app.getVersion() });
+      const release = await checkForMosaUpdate({
+        currentVersion: app.getVersion(),
+        releaseManifestTrust: expectedServiceIdentity.releaseManifestTrust,
+      });
       if (!release.updateAvailable) return { status: "current", currentVersion: release.currentVersion };
       if (!release.windowsArtifact) return { status: "unavailable", currentVersion: release.currentVersion };
       const download = await downloadWindowsUpdate({
@@ -842,6 +854,8 @@ function registerIPC() {
         zipPath: download.zipPath,
         installDir: dirname(process.execPath),
         exeName: "MOSA.exe",
+        version: release.latestVersion,
+        expectedIdentity: release.buildIdentity,
         processId: process.pid,
       });
 
@@ -1040,7 +1054,10 @@ function runUpdateCheck({ notify = false } = {}) {
   const currentVersion = app.getVersion();
   if (isolationContext.qaRun) return Promise.resolve({ status: "disabled", currentVersion });
   if (updateCheckPromise) return updateCheckPromise;
-  updateCheckPromise = checkForMosaUpdate({ currentVersion })
+  updateCheckPromise = checkForMosaUpdate({
+    currentVersion,
+    releaseManifestTrust: expectedServiceIdentity.releaseManifestTrust,
+  })
     .then((result) => {
       if (notify && result.updateAvailable && Notification.isSupported()) {
         const copy = getUpdateNotificationText(result.latestVersion, currentLocale);

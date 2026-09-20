@@ -7,6 +7,12 @@ import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { parseUpdateManifest } from "../desktop/update-service.mjs";
+import {
+  normalizeReleaseManifestTrust,
+  releaseManifestPrivateKeyFromEnvironment,
+  signReleaseManifest,
+  verifyReleaseManifestSignature,
+} from "../lib/release-manifest-signature.mjs";
 
 const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
@@ -14,12 +20,15 @@ export async function prepareDesktopReleaseManifest({
   version,
   macArtifactPath = "",
   windowsArtifactPath = "",
+  buildIdentity = null,
+  signingPrivateKey = null,
   previousManifest = null,
   publishedAt = new Date().toISOString(),
   notes = null,
 } = {}) {
   const cleanVersion = String(version || "").trim();
   if (!VERSION_PATTERN.test(cleanVersion)) throw new Error("Invalid MOSA release version.");
+  const normalizedBuildIdentity = normalizeBuildIdentity(buildIdentity, cleanVersion);
 
   const macos = macArtifactPath
     ? await artifactMetadata({
@@ -42,8 +51,9 @@ export async function prepareDesktopReleaseManifest({
     ? previousManifest
     : {};
   const normalizedNotes = normalizeRequiredNotes(notes);
-  const manifest = {
+  const unsignedManifest = {
     version: cleanVersion,
+    build: normalizedBuildIdentity,
     publishedAt: normalizePublishedAt(publishedAt),
     notes: normalizedNotes,
     platforms: {
@@ -53,9 +63,17 @@ export async function prepareDesktopReleaseManifest({
     ...(validVisualPacks(previous.visualPacks) ? { visualPacks: structuredClone(previous.visualPacks) } : {}),
   };
 
+  const trust = normalizeReleaseManifestTrust(buildIdentity?.releaseManifestTrust);
+  if (!signingPrivateKey) throw new Error("Release manifest signing private key is required.");
+  const manifest = signReleaseManifest(unsignedManifest, {
+    privateKey: signingPrivateKey,
+    expectedTrust: trust,
+  });
+
   // The release writer and Desktop reader share the exact same parser. This
   // deliberately fails the publishing step if schema/filename/version rules
   // ever drift apart again.
+  verifyReleaseManifestSignature(manifest, trust);
   parseUpdateManifest(manifest);
   return manifest;
 }
@@ -99,6 +117,23 @@ function normalizeRequiredNotes(value) {
   return { zh, en };
 }
 
+function normalizeBuildIdentity(value, version) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Release build identity is required.");
+  }
+  const productVersion = String(value.productVersion || "").trim();
+  const gitSha = String(value.gitSha || "").trim().toLowerCase();
+  const uiFingerprint = String(value.uiFingerprint || "").trim().toLowerCase();
+  const runtimeFingerprint = String(value.runtimeFingerprint || "").trim().toLowerCase();
+  if (productVersion !== version) {
+    throw new Error(`Release build identity version ${productVersion || "(missing)"} does not match ${version}.`);
+  }
+  if (!/^[0-9a-f]{40}$/.test(gitSha)) throw new Error("Release build identity gitSha is invalid.");
+  if (!/^[0-9a-f]{64}$/.test(uiFingerprint)) throw new Error("Release build identity uiFingerprint is invalid.");
+  if (!/^[0-9a-f]{64}$/.test(runtimeFingerprint)) throw new Error("Release build identity runtimeFingerprint is invalid.");
+  return { gitSha, uiFingerprint, runtimeFingerprint };
+}
+
 function validVisualPacks(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -120,10 +155,14 @@ async function main() {
     throw new Error("Usage: prepare-desktop-release-manifest.mjs --version <version> --output <latest.json> [--previous <latest.json>] [--mac <zip>] [--windows <zip>] [--published-at <ISO>] [--notes-zh <text>] [--notes-en <text>]");
   }
   const previousManifest = args.previous ? JSON.parse(await readFile(resolve(args.previous), "utf8")) : null;
+  const buildIdentity = JSON.parse(await readFile(resolve("app", "build-identity.json"), "utf8"));
+  const signingPrivateKey = releaseManifestPrivateKeyFromEnvironment(process.env);
   const manifest = await prepareDesktopReleaseManifest({
     version: args.version,
     macArtifactPath: args.mac || "",
     windowsArtifactPath: args.windows || "",
+    buildIdentity,
+    signingPrivateKey,
     previousManifest,
     publishedAt: args["published-at"] || new Date().toISOString(),
     notes: { zh: args["notes-zh"] || "", en: args["notes-en"] || "" },

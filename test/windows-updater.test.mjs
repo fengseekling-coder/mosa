@@ -27,6 +27,12 @@ function artifactFor(bytes, version = "0.3.0") {
   };
 }
 
+const EXPECTED_IDENTITY = Object.freeze({
+  gitSha: "a".repeat(40),
+  uiFingerprint: "b".repeat(64),
+  runtimeFingerprint: "c".repeat(64),
+});
+
 test("Windows update artifacts are pinned to the official filename and HTTPS download origin", () => {
   const artifact = artifactFor(Buffer.from("zip"));
   assert.deepEqual(validateWindowsUpdateArtifact(artifact, "0.3.0"), artifact);
@@ -79,11 +85,17 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   const script = windowsUpdateHelperScript();
   assert.match(script, /Wait-Process -Id \$TargetPid/);
   assert.match(script, /\$transactionRoot = Join-Path \$parentDir/);
+  assert.match(script, /Get-AuthenticodeSignature -LiteralPath \$oldExe/);
+  assert.match(script, /\$signableFiles = @\(Get-ChildItem -LiteralPath \$payloadDir -Recurse -File/);
+  assert.match(script, /foreach \(\$file in \$signableFiles\)/);
+  assert.match(script, /Get-AuthenticodeSignature -LiteralPath \$file\.FullName/);
+  assert.match(script, /signed by a different publisher/);
   assert.match(script, /Move-Item -LiteralPath \$InstallDir -Destination \$backupDir/);
   assert.match(script, /Move-Item -LiteralPath \$backupDir -Destination \$InstallDir/);
   assert.match(script, /--mosa-update-ready-file=/);
   assert.match(script, /Test-Path -LiteralPath \$ReadyFile/);
   assert.match(script, /did not report readiness before the rollback deadline/);
+  assert.match(script, /readiness identity does not match the release manifest/);
   // The destructive rollback removal must be explicitly scoped to runs where
   // the original directory is verifiably parked in the backup location.
   assert.match(script, /\$movedOriginal = \$true/);
@@ -102,6 +114,8 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
       zipPath,
       installDir: "C:\\Users\\Example\\MOSA-win32-x64",
       exeName: "MOSA.exe",
+      version: "0.3.0",
+      expectedIdentity: EXPECTED_IDENTITY,
       processId: 1234,
       spawnImpl: (command, args, options) => {
         invocation = { command, args, options };
@@ -115,6 +129,9 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
     assert.equal(invocation.options.detached, true);
     assert.equal(invocation.args.includes("-ExecutionPolicy"), true);
     assert.equal(invocation.args.includes("Bypass"), true);
+    assert.equal(invocation.args.includes(EXPECTED_IDENTITY.gitSha), true);
+    assert.equal(invocation.args.includes(EXPECTED_IDENTITY.uiFingerprint), true);
+    assert.equal(invocation.args.includes(EXPECTED_IDENTITY.runtimeFingerprint), true);
     assert.match(await readFile(join(root, "apply-update.ps1"), "utf8"), /Expand-Archive/);
   } finally {
     await removeTestPath(root, { recursive: true, force: true });
@@ -128,6 +145,8 @@ test("Windows update helper rejects when PowerShell cannot spawn", async () => {
       zipPath: join(root, "MOSA-win32-x64-0.3.0.zip"),
       installDir: "C:\\Users\\Example\\MOSA-win32-x64",
       exeName: "MOSA.exe",
+      version: "0.3.0",
+      expectedIdentity: EXPECTED_IDENTITY,
       processId: 1234,
       spawnImpl: () => {
         const child = new EventEmitter();

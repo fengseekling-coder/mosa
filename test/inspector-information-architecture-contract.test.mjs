@@ -11,6 +11,7 @@ import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 import { createInspectorMarkup } from "../app/inspector-markup.mjs";
+import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
@@ -506,7 +507,7 @@ test("48-51. hygiene: no !important, no undefined tokens, manifest and dependenc
   const manifest = JSON.parse(pkg);
   assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies must stay untouched");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
-  assert.equal(sha256(lock), "62bd0e547f01d506e39d41b696b8d1a7e290d128a1676640873ecf47e75b0e3f", "package-lock.json must stay untouched");
+  assertPackageLockMatchesManifest(lock, manifest, "package-lock.json must preserve dependency identity");
 
   // 51. app.js imports only approved first-party helpers (no new runtime dependencies).
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),

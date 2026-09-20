@@ -5,6 +5,7 @@ import { access, lstat, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/pr
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { verifyMacosReleaseApp } from "./verify-macos-release.mjs";
 
 export const MOSA_MAC_APP_NAME = "MOSA";
 export const MOSA_MAC_BUNDLE_ID = "com.azhuilab.mosa";
@@ -158,7 +159,7 @@ export async function makeMacosDmg({
   let credentials = null;
   if (release) {
     credentials = macDmgReleaseCredentials(env);
-    await runner("/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath]);
+    await verifyMacosReleaseApp({ appPath, env, runner, staple: false });
   }
 
   const dmgPath = macDmgOutputPath({ rootDir, outDir, version, arch });

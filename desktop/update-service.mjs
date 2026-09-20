@@ -1,3 +1,5 @@
+import { verifyReleaseManifestSignature } from "../lib/release-manifest-signature.mjs";
+
 export const MOSA_UPDATE_FEED_URL = "https://mosa.azhuilab.com/releases/latest.json";
 export const MOSA_DOWNLOAD_PAGE_URL = "https://mosa.azhuilab.com/";
 
@@ -7,6 +9,8 @@ const INSTALLATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-
 const USAGE_EVENTS = new Set(["first_launch", "daily_active"]);
 const USAGE_PLATFORMS = new Set(["macos", "windows", "other"]);
 const USAGE_TELEMETRY_VERSION = 2;
+const GIT_SHA_PATTERN = /^[0-9a-f]{40}$/i;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
 
 function parseVersion(value) {
   const match = VERSION_PATTERN.exec(String(value || "").trim());
@@ -51,6 +55,18 @@ export function compareVersions(leftVersion, rightVersion) {
 
 function cleanNote(value) {
   return typeof value === "string" ? value.trim().slice(0, 1200) : "";
+}
+
+function parseBuildIdentity(value) {
+  if (value == null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid release build identity.");
+  const gitSha = typeof value.gitSha === "string" ? value.gitSha.trim().toLowerCase() : "";
+  const uiFingerprint = typeof value.uiFingerprint === "string" ? value.uiFingerprint.trim().toLowerCase() : "";
+  const runtimeFingerprint = typeof value.runtimeFingerprint === "string" ? value.runtimeFingerprint.trim().toLowerCase() : "";
+  if (!GIT_SHA_PATTERN.test(gitSha)) throw new Error("Invalid release git SHA.");
+  if (!SHA256_PATTERN.test(uiFingerprint)) throw new Error("Invalid release UI fingerprint.");
+  if (!SHA256_PATTERN.test(runtimeFingerprint)) throw new Error("Invalid release runtime fingerprint.");
+  return { gitSha, uiFingerprint, runtimeFingerprint };
 }
 
 function parseWindowsArtifact(value, version) {
@@ -100,12 +116,19 @@ export function parseUpdateManifest(input) {
         zh: cleanNote(input.notes?.zh),
         en: cleanNote(input.notes?.en),
       };
+  const macArtifact = parseMacArtifact(input.platforms?.macos, parsedVersion.version);
+  const windowsArtifact = parseWindowsArtifact(input.platforms?.windows, parsedVersion.version);
+  const buildIdentity = parseBuildIdentity(input.build);
+  if ((macArtifact || windowsArtifact) && !buildIdentity) {
+    throw new Error("Update artifacts require release build identity.");
+  }
   return {
     version: parsedVersion.version,
     publishedAt,
     notes,
-    macArtifact: parseMacArtifact(input.platforms?.macos, parsedVersion.version),
-    windowsArtifact: parseWindowsArtifact(input.platforms?.windows, parsedVersion.version),
+    buildIdentity,
+    macArtifact,
+    windowsArtifact,
   };
 }
 
@@ -164,7 +187,13 @@ export async function reportAnonymousUsage({ anonymousUsage, fetchImpl = globalT
   }
 }
 
-export async function checkForMosaUpdate({ currentVersion, anonymousUsage = null, fetchImpl = globalThis.fetch, timeoutMs = 8_000 } = {}) {
+export async function checkForMosaUpdate({
+  currentVersion,
+  anonymousUsage = null,
+  releaseManifestTrust = null,
+  fetchImpl = globalThis.fetch,
+  timeoutMs = 8_000,
+} = {}) {
   const current = parseVersion(currentVersion);
   if (!current) throw new Error("Invalid current MOSA version.");
   if (typeof fetchImpl !== "function") throw new Error("Update fetch is unavailable.");
@@ -184,13 +213,16 @@ export async function checkForMosaUpdate({ currentVersion, anonymousUsage = null
     if (!response?.ok) throw new Error(`Update feed returned HTTP ${response?.status || 0}.`);
     const text = await response.text();
     if (Buffer.byteLength(text, "utf8") > UPDATE_MANIFEST_MAX_BYTES) throw new Error("Update manifest is too large.");
-    const release = parseUpdateManifest(JSON.parse(text));
+    const document = JSON.parse(text);
+    if (releaseManifestTrust) verifyReleaseManifestSignature(document, releaseManifestTrust);
+    const release = parseUpdateManifest(document);
     return {
       currentVersion: current.version,
       latestVersion: release.version,
       updateAvailable: compareVersions(release.version, current.version) > 0,
       publishedAt: release.publishedAt,
       notes: release.notes,
+      buildIdentity: release.buildIdentity,
       macArtifact: release.macArtifact,
       windowsArtifact: release.windowsArtifact,
     };

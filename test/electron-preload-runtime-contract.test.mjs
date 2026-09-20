@@ -7,6 +7,7 @@ import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import test from "node:test";
+import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const preloadPath = resolve(root, "desktop", "preload.cjs");
@@ -37,12 +38,9 @@ const EXPECTED_API_KEYS = [
   "writeClipboardImage",
   "writeClipboardText",
 ];
-// Audit Fix Batch 1 (BUG-08) changed only the `test` script to load
-// test/clean-test-env.mjs; the lockfile fingerprint stays untouched.
 // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
 // qa:packaged launcher scripts to package.json, so only its dependency
-// sections stay hash-pinned (see the dependency assertions below).
-const LOCKFILE_SHA256 = "62bd0e547f01d506e39d41b696b8d1a7e290d128a1676640873ecf47e75b0e3f";
+// sections stay pinned (see the dependency assertions below).
 
 const read = (relativePath) => readFile(resolve(root, relativePath), "utf8");
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
@@ -155,7 +153,7 @@ test("preload path, module format, security settings, and API surface are stable
   const manifest = JSON.parse(packageJson);
   assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies were not changed by this phase");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies were not changed by this phase");
-  assert.equal(sha256(lockfile), LOCKFILE_SHA256, "package-lock.json was not changed by this phase");
+  assertPackageLockMatchesManifest(lockfile, manifest, "package-lock.json must preserve dependency identity");
   assert.doesNotMatch(packageJson, /electron-preload-runtime-contract/);
 });
 

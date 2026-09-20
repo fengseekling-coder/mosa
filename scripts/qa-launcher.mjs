@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { launchDesktopGui } from "./desktop-gui-launcher.mjs";
-import { electronExecutablePath, packagedExecutablePath } from "./desktop-runtime-paths.mjs";
+import { ensureElectronExecutablePath, packagedExecutablePath } from "./desktop-runtime-paths.mjs";
 import { signalProcessTree } from "./process-tree.mjs";
 
 const __dirname = resolve(fileURLToPath(new URL(".", import.meta.url)));
@@ -288,9 +288,9 @@ async function launchElectron(rootDir, libraryDir, userData, servicePort, cdpPor
   }
 
   console.log(`Launching Electron QA (servicePort ${servicePort}, libraryDir ${libraryDir}, userData ${userData})`);
-  const executable = electronExecutablePath({ rootDir: REPO_ROOT });
+  const executable = ensureElectronExecutablePath({ rootDir: REPO_ROOT });
   if (!existsSync(executable)) {
-    throw new Error(`Electron binary not found at ${executable}. Run \`npm install\` first.`);
+    throw new Error(`Electron binary was not installed correctly at ${executable}.`);
   }
   const healthUrl = `http://127.0.0.1:${servicePort}/api/health`;
   const gui = await launchGuiProcess(rootDir, executable, electronArgs, env, healthUrl);

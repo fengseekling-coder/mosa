@@ -14,11 +14,23 @@ export const MOSA_MACOS_DOWNLOAD_BASE_URL = "https://mosa.azhuilab.com/downloads
 const MAX_MACOS_UPDATE_BYTES = 1_500_000_000;
 const DEFAULT_MACOS_UPDATE_IDLE_TIMEOUT_MS = 30_000;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
+const GIT_SHA_PATTERN = /^[0-9a-f]{40}$/i;
 
 function safeVersion(value) {
   const version = String(value || "").trim().replace(/^v/i, "");
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error("Invalid macOS update version.");
   return version;
+}
+
+function safeBuildIdentity(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("macOS update build identity is missing.");
+  const gitSha = String(value.gitSha || "").trim().toLowerCase();
+  const uiFingerprint = String(value.uiFingerprint || "").trim().toLowerCase();
+  const runtimeFingerprint = String(value.runtimeFingerprint || "").trim().toLowerCase();
+  if (!GIT_SHA_PATTERN.test(gitSha) || !SHA256_PATTERN.test(uiFingerprint) || !SHA256_PATTERN.test(runtimeFingerprint)) {
+    throw new Error("macOS update build identity is invalid.");
+  }
+  return { gitSha, uiFingerprint, runtimeFingerprint };
 }
 
 export function validateMacosUpdateArtifact(input, version) {
@@ -164,9 +176,13 @@ TARGET_PID="$1"
 ZIP_PATH="$2"
 INSTALL_APP="$3"
 EXPECTED_VERSION="$4"
-LOG_PATH="$5"
-READY_FILE="$6"
-HANDOFF_FILE="$7"
+EXPECTED_GIT_SHA="$5"
+EXPECTED_UI_FINGERPRINT="$6"
+EXPECTED_RUNTIME_FINGERPRINT="$7"
+LOG_PATH="$8"
+READY_FILE="$9"
+shift 9
+HANDOFF_FILE="$1"
 
 PARENT_DIR="$(dirname "$INSTALL_APP")"
 TRANSACTION_ROOT="$PARENT_DIR/.MOSA-update-$(date +%s)-$$"
@@ -200,11 +216,18 @@ mkdir -p "$EXTRACT_DIR"
 PAYLOAD_APP="$EXTRACT_DIR/MOSA.app"
 test -x "$PAYLOAD_APP/Contents/MacOS/MOSA"
 
+OLD_TEAM=$(/usr/bin/codesign -dv --verbose=4 "$INSTALL_APP" 2>&1 | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -n 1)
+test -n "$OLD_TEAM"
 BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PAYLOAD_APP/Contents/Info.plist")
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PAYLOAD_APP/Contents/Info.plist")
 [ "$BUNDLE_ID" = "com.azhuilab.mosa" ]
 [ "$VERSION" = "$EXPECTED_VERSION" ]
 /usr/bin/codesign --verify --deep --strict "$PAYLOAD_APP"
+PAYLOAD_CODESIGN=$(/usr/bin/codesign -dv --verbose=4 "$PAYLOAD_APP" 2>&1)
+NEW_TEAM=$(printf '%s\n' "$PAYLOAD_CODESIGN" | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -n 1)
+[ "$NEW_TEAM" = "$OLD_TEAM" ]
+printf '%s\n' "$PAYLOAD_CODESIGN" | /usr/bin/grep -q 'flags=.*runtime'
+/usr/sbin/spctl -a -vv --type execute "$PAYLOAD_APP"
 
 /usr/bin/ditto "$PAYLOAD_APP" "$REPLACEMENT_APP"
 mv "$INSTALL_APP" "$BACKUP_APP"
@@ -216,6 +239,14 @@ rm -f "$READY_FILE"
 i=0
 while [ "$i" -lt 180 ]; do
   if [ -f "$READY_FILE" ]; then
+    READY_VERSION=$(/usr/bin/plutil -extract version raw -o - "$READY_FILE")
+    READY_GIT_SHA=$(/usr/bin/plutil -extract gitSha raw -o - "$READY_FILE")
+    READY_UI_FINGERPRINT=$(/usr/bin/plutil -extract uiFingerprint raw -o - "$READY_FILE")
+    READY_RUNTIME_FINGERPRINT=$(/usr/bin/plutil -extract runtimeFingerprint raw -o - "$READY_FILE")
+    [ "$READY_VERSION" = "$EXPECTED_VERSION" ]
+    [ "$READY_GIT_SHA" = "$EXPECTED_GIT_SHA" ]
+    [ "$READY_UI_FINGERPRINT" = "$EXPECTED_UI_FINGERPRINT" ]
+    [ "$READY_RUNTIME_FINGERPRINT" = "$EXPECTED_RUNTIME_FINGERPRINT" ]
     trap - HUP INT TERM EXIT
     rm -f "$HANDOFF_FILE" 2>/dev/null || true
     rm -rf "$TRANSACTION_ROOT"
@@ -237,11 +268,13 @@ export async function launchMacosUpdateHelper({
   zipPath,
   installAppPath,
   version,
+  expectedIdentity,
   processId,
   libraryDir,
   spawnImpl = spawn,
   createUpdateHandoff = createMosaMacosUpdateHelperHandoff,
 } = {}) {
+  const identity = safeBuildIdentity(expectedIdentity);
   if (!zipPath || !installAppPath || !safeVersion(version) || !Number.isSafeInteger(processId) || processId <= 0 || !libraryDir) {
     throw new Error("Invalid macOS update helper arguments.");
   }
@@ -257,6 +290,9 @@ export async function launchMacosUpdateHelper({
     zipPath,
     installAppPath,
     safeVersion(version),
+    identity.gitSha,
+    identity.uiFingerprint,
+    identity.runtimeFingerprint,
     logPath,
     readyFile,
     handoffFile,
