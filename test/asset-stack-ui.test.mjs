@@ -79,6 +79,8 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
     "mouse and keyboard selection share the same Stack-aware node semantics");
   assert.match(app, /async function selectStackNode\(asset, shouldScroll = false\)[\s\S]*?state\.detailStack = \{[\s\S]*?loading: true/,
     "Stack inspection owns an explicit detail state");
+  assert.match(app, /state\.generationHistory = null;[\s\S]*?if \(!state\.detailManuallyClosed\) setDetailOpen\(true\);[\s\S]*?if \(state\.detailManuallyClosed\) return true;/,
+    "Stack selection also respects the manual-close Inspector lock");
   assert.match(app, /async function loadStackInspectorMembers\(stackId, coverAssetId[\s\S]*?\/api\/asset-stacks\/\$\{encodeURIComponent\(stackId\)\}\/assets/,
     "Stack inspection loads the complete member list through one reusable refresh path");
   assert.match(app, /const stackDetail = state\.detailStack\?\.coverAssetId === state\.selectedId \? state\.detailStack : null/,

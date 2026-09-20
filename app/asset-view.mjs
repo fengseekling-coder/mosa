@@ -134,7 +134,7 @@ export function createAssetViewer({
     renderAssetView();
     updateAssetViewNav();
     preloadAssetViewNeighbors();
-    setDetailOpen(true);
+    if (!state.detailManuallyClosed) setDetailOpen(true);
     updateSelectedCard();
     // 返回是查看模式的主操作：进入后焦点落在返回按钮（同步聚焦——rAF 在隐藏窗口不执行）。
     els.assetViewBack?.focus();
@@ -172,7 +172,7 @@ export function createAssetViewer({
       updateViewTitle();
       assetViewGalleryDirty = false;
     }
-    setDetailOpen(false);
+    setDetailOpen(false, { allowDockedClose: state.detailManuallyClosed });
     announceGalleryStatus(t("returnedToLibrary"));
     if (!snapshot || !els.assetGrid) return;
     if (snapshot.requestKey !== assetRequestKey(currentAssetRequest())) {

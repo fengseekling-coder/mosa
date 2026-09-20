@@ -72,7 +72,7 @@ function isInspectorDocked() {
 }
 
 const state = {
-  project: "default", assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, loadedAssetCount: 0, selectedId: null, selectedIds: new Set(), selectedStackNodes: new Map(), selectionProject: "default", selectionRequestKey: "", detailAsset: null, detailStack: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
+  project: "default", assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, loadedAssetCount: 0, selectedId: null, selectedIds: new Set(), selectedStackNodes: new Map(), selectionProject: "default", selectionRequestKey: "", detailAsset: null, detailStack: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailManuallyClosed: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
   groups: { total: 0, favorites: 0, unorganized: 0, trash: 0, sourceTypes: [], groups: [] },
@@ -130,7 +130,7 @@ const els = {
   typeFilters: document.querySelector(".topbar-type-filters"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
   sortSelect: document.querySelector("#sortSelect"),
-  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), stackRenameModal: document.querySelector("#stackRenameModal"), stackRenameModalTitle: document.querySelector("#stackRenameModalTitle"), stackRenameModalInput: document.querySelector("#stackRenameInput"), stackRenameModalClose: document.querySelector("#stackRenameModalClose"), cancelStackRenameBtn: document.querySelector("#cancelStackRenameBtn"), saveStackRenameBtn: document.querySelector("#saveStackRenameBtn"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
+  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), openInspectorBtn: document.querySelector("#openInspectorBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), stackRenameModal: document.querySelector("#stackRenameModal"), stackRenameModalTitle: document.querySelector("#stackRenameModalTitle"), stackRenameModalInput: document.querySelector("#stackRenameInput"), stackRenameModalClose: document.querySelector("#stackRenameModalClose"), cancelStackRenameBtn: document.querySelector("#cancelStackRenameBtn"), saveStackRenameBtn: document.querySelector("#saveStackRenameBtn"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
   viewTitle: document.querySelector("#viewTitle"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
 
@@ -1802,6 +1802,7 @@ function bindEvents() {
       await Promise.all([loadStats(), loadAssets()]);
     });
   });
+  els.openInspectorBtn?.addEventListener("click", openDetailSurfaceManually);
   // Topbar import action retired: drag/drop and empty-state import remain the supported entry points.
   els.browseFileBtn?.addEventListener("click", () => {
     if (state.importSaving) return;
@@ -4099,9 +4100,10 @@ function renderErrorState(error, requestId = null, request = null) {
 
 async function selectAsset(id, shouldScroll = false) {
   if (!id) return;
-  if (id === state.selectedId && state.detailOpen) {
+  if (id === state.selectedId) {
     updateSelectedCard();
     if (shouldScroll) els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (!state.detailManuallyClosed && !state.detailOpen) setDetailOpen(true);
     return;
   }
   const originProjectId = state.project;
@@ -4110,7 +4112,9 @@ async function selectAsset(id, shouldScroll = false) {
   // Phase 5B context guard：确认期间 Detail 选择已变化时安全取消，旧确认结果不操作新素材。
   if (originAssetId !== null && !isCurrentDetailSelection(originProjectId, originAssetId)) return;
   discardDetailDraft();
-  state.selectedId = id; state.detailAsset = null; state.detailStack = null; state.versionHistory = null; state.recipeHistory = null; state.generationHistory = null; setDetailOpen(true); updateSelectedCard();
+  state.selectedId = id; state.detailAsset = null; state.detailStack = null; state.versionHistory = null; state.recipeHistory = null; state.generationHistory = null;
+  if (!state.detailManuallyClosed) setDetailOpen(true);
+  updateSelectedCard();
   if (shouldScroll) els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
@@ -4201,9 +4205,10 @@ async function selectStackNode(asset, shouldScroll = false) {
   state.versionHistory = null;
   state.recipeHistory = null;
   state.generationHistory = null;
-  setDetailOpen(true);
+  if (!state.detailManuallyClosed) setDetailOpen(true);
   updateSelectedCard();
   if (shouldScroll) els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(coverAssetId)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (state.detailManuallyClosed) return true;
   renderDetail();
   return loadStackInspectorMembers(stackId, coverAssetId, { showLoading: false });
 }
@@ -4369,10 +4374,20 @@ async function closeDetailSurface() {
   discardDetailDraft();
   if (state.viewMode === "asset") returnToLibrary();
   else {
+    state.detailManuallyClosed = true;
     setDetailOpen(false, { allowDockedClose: true });
     if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId && asset.project_id === state.project)) clearDetailSelection();
   }
   return true;
+}
+
+function openDetailSurfaceManually() {
+  state.detailManuallyClosed = false;
+  setDetailOpen(true);
+  const stackDetail = state.detailStack?.coverAssetId === state.selectedId ? state.detailStack : null;
+  if (stackDetail?.loading && stackDetail.id && state.selectedId) {
+    void loadStackInspectorMembers(stackDetail.id, state.selectedId, { showLoading: false });
+  }
 }
 
 function selectedAsset() {
@@ -4401,6 +4416,7 @@ function setDetailOpen(open, { allowDockedClose = false } = {}) {
   state.detailOpen = Boolean(open);
   if (!state.detailOpen && isInspectorDocked() && !allowDockedClose) state.detailOpen = true;
   els.appShell?.classList.toggle("details-open", state.detailOpen); document.body.classList.toggle("detail-open", state.detailOpen); els.detailPanel?.setAttribute("aria-hidden", String(!state.detailOpen));
+  if (els.openInspectorBtn) els.openInspectorBtn.hidden = state.detailOpen;
   // The inspector shell is persistent while browsing assets. Scope the materialize
   // animation to a real closed -> open transition so changing the selected asset
   // never replays a full-panel fade/translate animation.

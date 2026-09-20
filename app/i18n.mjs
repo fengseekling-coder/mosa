@@ -148,6 +148,7 @@ export default {
     saveAsset: "保存素材",
     assetList: "素材列表",
     assetInspector: "资产检视器",
+    openAssetInspector: "打开资产监视器",
     noAssets: "还没有素材",
     noAssetsHint: "导入第一张图片，开始建立可复用的创作资产库。",
     // F-08 gallery empty states（真实空库复用 onboard* 引导文案；recent 指
@@ -740,6 +741,7 @@ export default {
     saveAsset: "Save asset",
     assetList: "Asset list",
     assetInspector: "Asset inspector",
+    openAssetInspector: "Open asset monitor",
     noAssets: "No assets yet",
     noAssetsHint: "Import your first image to start a reusable creative library.",
     // F-08 gallery empty states (the true empty library reuses the onboard*
