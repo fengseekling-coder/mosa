@@ -129,8 +129,8 @@ test("9. search algorithm, API and i18n behaviour stay locked", async () => {
     "search must flush the Inspector draft and reject stale navigation intents before committing");
   assert.match(app, /async function authorizeNavigationIntent\(intent\) \{\s+if \(!isNavigationIntentCurrent\(intent\)\) return false;\s+if \(!await confirmDetailNavigation\(null\)\) return false;\s+return isNavigationIntentCurrent\(intent\);\s+\}/,
     "all async result-set navigation shares one stale-intent guard");
-  assert.match(app, /state\.query = nextQuery;\s+state\.nextCursor = null;[\s\S]*?clearDetailSelection\(\);\s+renderSavedFilters\(\);\s+await loadAssets\(\);\s+\}, 180\);/,
-    "the 180ms committed query → saved-filter decoration → loadAssets pipeline must remain intact");
+  assert.match(app, /state\.query = nextQuery;\s+state\.nextCursor = null;[\s\S]*?clearDetailSelection\(\);\s+await loadAssets\(\);\s+\}, 180\);/,
+    "the 180ms committed query → loadAssets pipeline must remain intact");
   assert.match(apiClient, /const params = new URLSearchParams\(\{ project: request\.project, q: request\.query \}\)/,
     "the /api/assets query construction must stay unchanged");
   assert.match(apiClient, /Number\(options\.limit\) \|\| GALLERY_PAGE_SIZE/, "gallery paging must default to the shared performance-tuned page size");

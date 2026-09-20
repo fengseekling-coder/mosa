@@ -1359,10 +1359,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .sidebar-section-chevron { flex: 0 0 auto; color: var(--color-text-tertiary); transition: transform .14s var(--ease-standard); }
 .mosa-v2 .sidebar-section-toggle[aria-expanded="false"] .sidebar-section-chevron { transform: rotate(-90deg); }
 .mosa-v2 .sidebar-group-heading .add-group-button { display: inline-flex; width: 24px; min-width: 24px; height: 24px; min-height: 24px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 5px; color: var(--color-text-secondary); background: transparent; cursor: pointer; }
-.mosa-v2 .saved-filter-list > li { display: flex; min-width: 0; align-items: center; }
-.mosa-v2 .saved-filter-list .nav-item { min-width: 0; flex: 1 1 auto; }
-.mosa-v2 .saved-filter-delete { display: inline-flex; width: 28px; min-width: 28px; height: 28px; align-items: center; justify-content: center; margin-right: 6px; padding: 0; border: 0; border-radius: 5px; color: var(--color-text-tertiary); background: transparent; cursor: pointer; }
-.mosa-v2 .saved-filter-delete:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
 .mosa-v2 .sidebar-group-editor { display: flex; min-width: 0; height: 32px; align-items: center; margin: 0 8px; padding: 0 8px; }
 .mosa-v2 .sidebar-group-editor-dot { width: 8px; height: 8px; flex: 0 0 auto; margin-right: 10px; border-radius: 50%; background: var(--group-color); }
 

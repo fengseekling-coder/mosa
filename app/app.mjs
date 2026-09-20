@@ -21,14 +21,6 @@ import { createAssetStackController } from "./asset-stacks.mjs";
 import { createLibraryReconciler } from "./library-reconciliation.mjs";
 import { collectDroppedFiles, createBatchImporter, dropErrorMessage } from "./batch-import.mjs";
 import { createNativeAssetDrag } from "./native-asset-drag.mjs";
-import {
-  captureSavedFilterSnapshot,
-  normalizeSavedFilterSnapshot,
-  parseSavedFilters,
-  savedFilterSnapshotEquals,
-  savedFilterStorageKey,
-  upsertSavedFilter,
-} from "./saved-filters.mjs";
 let statusAnnouncementTimer = null;
 let statusTextWriteTimer = null;
 let statusAnnouncementSequence = 0;
@@ -44,7 +36,6 @@ function trashRemainingDays(deletedAt) {
 let libraryEventSource = null;
 let persistentStatus = { value: "", stateName: "neutral" };
 let sidebarGroupEdit = null;
-let savedFilterEdit = null;
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 // Clear and repopulate the shared status node in separate DOM mutations. This
@@ -101,7 +92,6 @@ const state = {
   visualModelStatus: null,
   darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null,
   sidebarSmartCollapsed: safeStorageGet("mosa.sidebar-smart-collapsed") === "true",
-  sidebarSavedCollapsed: safeStorageGet("mosa.sidebar-saved-collapsed") === "true",
   sidebarManualCollapsed: safeStorageGet("mosa.sidebar-manual-collapsed") === "true",
   detailReturnFocusAssetId: null, previewReturnFocusAssetId: null,
   imageZoom: 1, imagePanX: 0, imagePanY: 0,
@@ -140,7 +130,7 @@ const els = {
   typeFilters: document.querySelector(".topbar-type-filters"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
   sortSelect: document.querySelector("#sortSelect"),
-  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), savedFilterList: document.querySelector("#savedFilterList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), savedFiltersToggle: document.querySelector("#savedFiltersToggle"), saveCurrentFilterBtn: document.querySelector("#saveCurrentFilterBtn"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), stackRenameModal: document.querySelector("#stackRenameModal"), stackRenameModalTitle: document.querySelector("#stackRenameModalTitle"), stackRenameModalInput: document.querySelector("#stackRenameInput"), stackRenameModalClose: document.querySelector("#stackRenameModalClose"), cancelStackRenameBtn: document.querySelector("#cancelStackRenameBtn"), saveStackRenameBtn: document.querySelector("#saveStackRenameBtn"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
+  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), newAssetTopBtn: document.querySelector("#newAssetTopBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), stackRenameModal: document.querySelector("#stackRenameModal"), stackRenameModalTitle: document.querySelector("#stackRenameModalTitle"), stackRenameModalInput: document.querySelector("#stackRenameInput"), stackRenameModalClose: document.querySelector("#stackRenameModalClose"), cancelStackRenameBtn: document.querySelector("#cancelStackRenameBtn"), saveStackRenameBtn: document.querySelector("#saveStackRenameBtn"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
   viewTitle: document.querySelector("#viewTitle"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
 
@@ -1695,7 +1685,6 @@ function bindEvents() {
     // Phase 3A：结果集语义已变化，退出查看模式（快照 requestKey 随之失效，恢复自动降级）。
     if (state.viewMode === "asset") returnToLibrary();
     clearDetailSelection();
-    renderSavedFilters();
     await loadAssets();
   }, 180);
   els.searchInput?.addEventListener("input", () => {
@@ -1720,7 +1709,6 @@ function bindEvents() {
     // Phase 3A：结果集语义已变化，退出查看模式。
     if (state.viewMode === "asset") returnToLibrary();
     clearDetailSelection();
-    renderSavedFilters();
     void loadAssets();
   });
   els.detailPanel?.addEventListener("click", handleReferenceRightsOpen);
@@ -1872,7 +1860,6 @@ function bindEvents() {
   });
   els.quickFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) void setFilter(button.dataset.filter); });
   els.smartGroupsToggle?.addEventListener("click", () => setSidebarSectionCollapsed("smart", !state.sidebarSmartCollapsed));
-  els.savedFiltersToggle?.addEventListener("click", () => setSidebarSectionCollapsed("saved", !state.sidebarSavedCollapsed));
   els.assetCategoriesToggle?.addEventListener("click", () => setSidebarSectionCollapsed("manual", !state.sidebarManualCollapsed));
   els.sidebarGroupList?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-filter]"); if (button) void setFilter(button.dataset.filter, button.dataset.value);
@@ -1880,43 +1867,6 @@ function bindEvents() {
   els.addGroupBtn?.addEventListener("click", (event) => {
     event.preventDefault();
     startSidebarGroupCreate();
-  });
-  els.saveCurrentFilterBtn?.addEventListener("click", (event) => {
-    event.preventDefault();
-    startSavedFilterCreate();
-  });
-  els.savedFilterList?.addEventListener("click", (event) => {
-    const deleteButton = event.target.closest('[data-action="delete-saved-filter"][data-saved-filter-id]');
-    if (deleteButton) {
-      event.preventDefault();
-      event.stopPropagation();
-      deleteSavedFilter(deleteButton.dataset.savedFilterId);
-      return;
-    }
-    if (event.target.closest("[data-saved-filter-editor]")) return;
-    const button = event.target.closest("[data-saved-filter-id]");
-    if (button) void applySavedFilterById(button.dataset.savedFilterId);
-  });
-  els.savedFilterList?.addEventListener("input", (event) => {
-    const input = event.target.closest("[data-saved-filter-input]");
-    if (input && savedFilterEdit) savedFilterEdit.name = input.value;
-  });
-  els.savedFilterList?.addEventListener("keydown", (event) => {
-    if (!event.target.closest("[data-saved-filter-input]")) return;
-    if (event.key === "Enter") {
-      event.preventDefault();
-      void commitSavedFilterEdit();
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      cancelSavedFilterEdit();
-    }
-  });
-  els.savedFilterList?.addEventListener("focusout", (event) => {
-    if (!event.target.closest("[data-saved-filter-input]")) return;
-    queueMicrotask(() => {
-      if (savedFilterEdit && !els.savedFilterList?.contains(document.activeElement)) void commitSavedFilterEdit();
-    });
   });
   let manualGroupClickTimer = null;
   els.sidebarManualGroupList?.addEventListener("click", (event) => {
@@ -2622,7 +2572,6 @@ function renderSidebarGroups() {
     return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="source" data-value="${escapeHtml(sourceType)}" type="button" aria-pressed="${active}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(label)}">${escapeHtml(label)}</span><span class="nav-count">${count}</span></button></li>`;
   }).join("");
   els.sidebarGroupList.innerHTML = items;
-  renderSavedFilters();
 
   if (!els.sidebarManualGroupList) return;
   const manualItems = (Array.isArray(state.groups.groups) ? state.groups.groups : []).map((group) => {
@@ -2649,7 +2598,6 @@ function syncSidebarSectionVisibility() {
     if (toggle) toggle.setAttribute("aria-expanded", String(!collapsed));
   };
   sync(els.smartGroupsToggle, els.sidebarGroupList, state.sidebarSmartCollapsed);
-  sync(els.savedFiltersToggle, els.savedFilterList, state.sidebarSavedCollapsed);
   sync(els.assetCategoriesToggle, els.sidebarManualGroupList, state.sidebarManualCollapsed);
 }
 
@@ -2657,9 +2605,6 @@ function setSidebarSectionCollapsed(section, collapsed) {
   if (section === "smart") {
     state.sidebarSmartCollapsed = Boolean(collapsed);
     safeStorageSet("mosa.sidebar-smart-collapsed", String(state.sidebarSmartCollapsed));
-  } else if (section === "saved") {
-    state.sidebarSavedCollapsed = Boolean(collapsed);
-    safeStorageSet("mosa.sidebar-saved-collapsed", String(state.sidebarSavedCollapsed));
   } else if (section === "manual") {
     state.sidebarManualCollapsed = Boolean(collapsed);
     safeStorageSet("mosa.sidebar-manual-collapsed", String(state.sidebarManualCollapsed));
@@ -2667,116 +2612,6 @@ function setSidebarSectionCollapsed(section, collapsed) {
     return;
   }
   syncSidebarSectionVisibility();
-}
-
-function readSavedFilters() {
-  return parseSavedFilters(safeStorageGet(savedFilterStorageKey(state.project)));
-}
-
-function writeSavedFilters(entries) {
-  safeStorageSet(savedFilterStorageKey(state.project), JSON.stringify(entries));
-}
-
-function renderSavedFilters() {
-  if (!els.savedFilterList) return;
-  const current = captureSavedFilterSnapshot(state);
-  const items = readSavedFilters().map((entry) => {
-    const active = !state.activeStackId && savedFilterSnapshotEquals(entry.snapshot, current);
-    return '<li><button class="nav-item nav-group-item' + (active ? ' active' : '') + '" data-saved-filter-id="' + escapeHtml(entry.id) + '" type="button" aria-pressed="' + active + '"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 5h16l-6 7v5l-4 2v-7L4 5Z"/></svg><span class="nav-item-text" title="' + escapeHtml(entry.name) + '">' + escapeHtml(entry.name) + '</span></button><button class="saved-filter-delete" type="button" data-action="delete-saved-filter" data-saved-filter-id="' + escapeHtml(entry.id) + '" aria-label="' + escapeHtml(t("deleteSavedFilter")) + '" title="' + escapeHtml(t("deleteSavedFilter")) + '"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></li>';
-  }).join("");
-  const editor = savedFilterEdit
-    ? '<li class="sidebar-group-editor saved-filter-editor" data-saved-filter-editor><input class="sidebar-group-editor-input" data-saved-filter-input type="text" maxlength="80" value="' + escapeHtml(savedFilterEdit.name || "") + '" placeholder="' + escapeHtml(t("savedFilterDefaultName")) + '" aria-label="' + escapeHtml(t("saveCurrentFilterTitle")) + '" /></li>'
-    : "";
-  els.savedFilterList.innerHTML = editor + items;
-  if (els.saveCurrentFilterBtn) {
-    els.saveCurrentFilterBtn.disabled = Boolean(state.activeStackId);
-    els.saveCurrentFilterBtn.setAttribute("aria-disabled", String(Boolean(state.activeStackId)));
-  }
-  if (savedFilterEdit) requestAnimationFrame(focusSavedFilterEditor);
-}
-
-function focusSavedFilterEditor() {
-  const input = els.savedFilterList?.querySelector("[data-saved-filter-input]");
-  if (!(input instanceof HTMLInputElement)) return;
-  input.focus();
-  input.select();
-}
-
-function startSavedFilterCreate() {
-  if (state.activeStackId) return;
-  setSidebarSectionCollapsed("saved", false);
-  if (savedFilterEdit) return focusSavedFilterEditor();
-  savedFilterEdit = { name: "", saving: false };
-  renderSavedFilters();
-}
-
-function cancelSavedFilterEdit() {
-  if (!savedFilterEdit || savedFilterEdit.saving) return;
-  savedFilterEdit = null;
-  renderSavedFilters();
-}
-
-async function commitSavedFilterEdit() {
-  const draft = savedFilterEdit;
-  if (!draft || draft.saving) return;
-  const input = els.savedFilterList?.querySelector("[data-saved-filter-input]");
-  const name = String(input?.value ?? draft.name ?? "").trim().replace(/\s+/gu, " ").slice(0, 80);
-  if (!name) {
-    showToast(t("savedFilterNameRequired"), "error");
-    focusSavedFilterEditor();
-    return;
-  }
-  draft.saving = true;
-  if (input instanceof HTMLInputElement) input.disabled = true;
-  try {
-    const result = upsertSavedFilter(readSavedFilters(), {
-      id: globalThis.crypto?.randomUUID?.() || "saved-filter-" + Date.now(),
-      name,
-      snapshot: captureSavedFilterSnapshot(state),
-    });
-    writeSavedFilters(result.entries);
-    savedFilterEdit = null;
-    renderSavedFilters();
-    showToast(t(result.updated ? "savedFilterUpdated" : "savedFilterSaved"), "success");
-  } catch (error) {
-    draft.saving = false;
-    if (input instanceof HTMLInputElement) input.disabled = false;
-    showToast(error?.message === "SAVED_FILTER_NAME_REQUIRED" ? t("savedFilterNameRequired") : String(error?.message || error), "error");
-    focusSavedFilterEditor();
-  }
-}
-
-function deleteSavedFilter(id) {
-  const entries = readSavedFilters();
-  const next = entries.filter((entry) => entry.id !== String(id || ""));
-  if (next.length === entries.length) return;
-  writeSavedFilters(next);
-  renderSavedFilters();
-  showToast(t("savedFilterDeleted"), "success");
-}
-
-async function applySavedFilterById(id) {
-  const entry = readSavedFilters().find((item) => item.id === String(id || ""));
-  if (!entry) return;
-  const intent = beginNavigationIntent();
-  if (!await authorizeNavigationIntent(intent)) return;
-  discardDetailDraft();
-  if (state.activeStackId) assetStacks.abandonStackContext();
-  const snapshot = normalizeSavedFilterSnapshot(entry.snapshot);
-  state.query = snapshot.query;
-  state.scope = snapshot.scope;
-  state.mediaKind = snapshot.mediaKind;
-  state.sort = snapshot.sort;
-  for (const key of FACET_KEYS) state.facets[key] = snapshot.facets[key];
-  if (els.searchInput) els.searchInput.value = state.query;
-  if (els.sortSelect) els.sortSelect.value = state.sort;
-  safeStorageSet("mosa.asset-sort", state.sort);
-  state.nextCursor = null;
-  if (state.viewMode === "asset") returnToLibrary();
-  clearDetailSelection();
-  renderQuickFilters();
-  renderTypeFilters();
-  await loadAssets();
 }
 
 function sidebarGroupEditorMarkup(originalName, value = "", color = GROUP_COLORS[0]) {
