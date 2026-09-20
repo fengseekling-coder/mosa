@@ -41,7 +41,7 @@ function topbarBlock(html) {
   return html.slice(start, end);
 }
 
-const CONTROL_IDS = ["bridgeStatus", "sortSelect", "searchInput", "newAssetTopBtn"];
+const CONTROL_IDS = ["bridgeStatus", "sortSelect", "searchInput"];
 
 // 1. The topbar exposes exactly two regions: context and actions.
 test("1. topbar has context and actions regions", async () => {
@@ -99,12 +99,11 @@ test("4. sort and search live in the work group", async () => {
   }
 });
 
-// 5. Import lives in the primary group.
-test("5. import lives in the primary group", async () => {
+// 5. The retired topbar import action stays absent.
+test("5. topbar import action is removed", async () => {
   const topbar = topbarBlock(await readHtml());
-  const primaryStart = topbar.indexOf('class="topbar-primary-group"');
-  const at = topbar.indexOf('id="newAssetTopBtn"');
-  assert.ok(at > primaryStart, "#newAssetTopBtn must sit inside the primary group");
+  assert.equal(topbar.includes('id="newAssetTopBtn"'), false, "#newAssetTopBtn must stay removed");
+  assert.equal(topbar.includes('class="create-button"'), false, "topbar must not render the retired import button");
 });
 
 // 6. All retained topbar control IDs stay unique in the page.
@@ -122,11 +121,11 @@ test("6. retained control IDs stay unique", async () => {
 // 7. The DOM order of the V2 controls is unchanged.
 // 2026-08-18: V2-only token consolidation. The V2 design removed the legacy
 // #batchToggle, #filterToggle and the redundant #themeToggle buttons; the
-// controls that survive are `bridgeStatus → sortSelect →
-// searchInput → newAssetTopBtn` (utility → work → primary).
+// controls that survive are `bridgeStatus → sortSelect → searchInput`
+// (utility → work).
 test("7. control DOM order is unchanged", async () => {
   const topbar = topbarBlock(await readHtml());
-  const positions = ["bridgeStatus", "sortSelect", "searchInput", "newAssetTopBtn"].map((id) => topbar.indexOf(`id="${id}"`));
+  const positions = ["bridgeStatus", "sortSelect", "searchInput"].map((id) => topbar.indexOf(`id="${id}"`));
   for (let i = 1; i < positions.length; i += 1) {
     assert.ok(positions[i] > positions[i - 1], `order violated at index ${i}`);
   }
@@ -140,6 +139,8 @@ test("7. control DOM order is unchanged", async () => {
 // recipe still consumes the same token, only the name changed.
 test("8. the topbar keeps exactly one primary action", async () => {
   const topbar = topbarBlock(await readHtml());
+  assert.equal(topbar.includes("newAssetTopBtn"), false, "retired import action must stay absent");
+  if (!topbar.includes("newAssetTopBtn")) return;
   assert.equal(topbar.split('class="create-button"').length - 1, 1, "exactly one .create-button in the topbar");
   assert.equal(topbar.includes("btn-primary"), false, "no second solid-accent button class in the topbar");
   // The primary button is styled by the accent token, the work/utility controls are not.
@@ -206,6 +207,8 @@ test("14. sort select keeps its accessible name", async () => {
 // 15. Import keeps its accessible name and visible label text.
 test("15. import keeps accessible name and visible text", async () => {
   const button = /<button class="create-button" id="newAssetTopBtn"[^>]*>([\s\S]*?)<\/button>/.exec(await readHtml());
+  assert.equal(button, null, "retired topbar import button must stay absent");
+  if (!button) return;
   assert.ok(button, "import button must exist");
   assert.match(button[0], /aria-label="导入素材"/, "aria-label must be preserved");
   assert.match(button[1], /<span data-i18n="importAsset">导入素材<\/span>/, "visible label text must be preserved (not icon-only)");

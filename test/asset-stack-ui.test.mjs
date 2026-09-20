@@ -69,7 +69,7 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
   );
   const doubleClick = app.slice(
     app.indexOf('els.assetGrid?.addEventListener("dblclick"'),
-    app.indexOf('els.newAssetTopBtn?.addEventListener'),
+    app.indexOf('els.browseFileBtn?.addEventListener'),
   );
   assert.doesNotMatch(singleClick, /assetStacks\.enterStack/,
     "collapsed Stack single-click must not navigate");
