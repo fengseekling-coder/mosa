@@ -4,6 +4,8 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+## 0.2.1-rc.25 — 2026-09-20 / Release Candidate
+
 ### Release integrity / 发布完整性
 
 - Split desktop publishing into explicit Preview and Production tracks. Preview/RC keeps immutable Git provenance, signed release manifests, artifact hashes, exact build identity, and updater rollback without requiring Apple Developer or Windows Authenticode credentials; Production adds those platform trust chains as a deliberate stronger gate.
@@ -50,11 +52,18 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - Backups are published only after MOSA integrity checks pass and a SHA-256 manifest has been written; verification detects missing or modified files before restore.
 - Restore requires an explicit empty destination and rebases managed absolute paths into that destination before running the normal library verifier. Large media hashes are streamed instead of loaded into memory as one buffer.
 
-### Saved filters / 已保存筛选
+### Gallery import & navigation / 图库导入与导航
 
-- The sidebar can save the current gallery query, scope, media type, facets, and sort order as a named project-local filter preset, then restore the complete view semantics with one action.
-- Saved filters are bounded local UI preferences rather than asset metadata: they do not modify Prompts, provenance, groups, or generation records, and deleting a preset never changes library content.
+- Dropped or picked assets now import into the currently active stack instead of landing as ungrouped library items.
+- Removed the sidebar saved-filter presets. Existing project-local filter names are no longer restored into the gallery.
+- Sidebar navigation now clears hidden facets, so switching primary view, source, or group does not keep leftover hidden filters.
+
+### Inspector / 检视器
+-
 - Inspector version history now includes a two-version comparison view for stored media and persisted Prompt/style/theme/ratio/group/category/tag/change-summary fields. It compares existing records only and does not infer missing generation facts.
+
+### Retrieval foundation / 检索基础
+-
 - Added a reproducible retrieval acceptance baseline with enforced lexical cases plus diagnostic conversational, semantic, cross-language, and visual-content probes. This makes the case for any future embedding layer measurable instead of assuming that a model is required.
 - Added conservative Chinese conversational query planning: recognizable phrases such as “找一下之前做过的…” are reduced to design terms that actually exist in the local short-term index before entering the existing strict search path. The acceptance set now guards these supported conversational queries while leaving semantic and visual probes diagnostic.
 - Added an audited design-vocabulary normalization layer for multi-signal paraphrases and cross-language designer terminology. On the current synthetic acceptance probes it closes the measured text-semantic gap without adding a model runtime; visual-content probes remain intentionally unsolved and separate.
