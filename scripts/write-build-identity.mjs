@@ -15,6 +15,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { computeRuntimeFingerprint, computeUiFingerprint } from "../lib/build-identity.mjs";
+import { desktopDistributionFromEnvironment } from "../lib/release-distribution.mjs";
+import { releaseManifestTrustFromEnvironment } from "../lib/release-manifest-signature.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
@@ -46,7 +48,16 @@ if (runtimeFingerprint === "unknown") {
 }
 
 // --- Write -----------------------------------------------------------
-const identity = { productVersion, gitSha, uiFingerprint, runtimeFingerprint };
+const releaseManifestTrust = releaseManifestTrustFromEnvironment(process.env);
+const distribution = desktopDistributionFromEnvironment(process.env);
+const identity = {
+  productVersion,
+  gitSha,
+  uiFingerprint,
+  runtimeFingerprint,
+  distribution,
+  ...(releaseManifestTrust ? { releaseManifestTrust } : {}),
+};
 const outPath = join(appDir, "build-identity.json");
 writeFileSync(outPath, JSON.stringify(identity, null, 2) + "\n");
 console.log(`Build identity written to ${outPath}`);

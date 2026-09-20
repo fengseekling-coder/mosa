@@ -7,6 +7,7 @@ import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import test from "node:test";
+import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const preloadPath = resolve(root, "desktop", "preload.cjs");
@@ -17,26 +18,29 @@ const electronPath = process.platform === "darwin"
     : resolve(root, "node_modules", "electron", "dist", "electron");
 const EXPECTED_API_KEYS = [
   "cancelUpdateDownload",
+  "cancelVisualPackInstall",
   "changeLibraryLocation",
   "checkForUpdates",
   "downloadAndInstallUpdate",
+  "getVisualModelState",
+  "installVisualPack",
   "onMenuImport",
   "onMenuSearch",
   "onUpdateDownloadProgress",
+  "onVisualPackProgress",
   "openDownloadPage",
   "pasteImage",
+  "removeVisualPack",
   "reportRendererReady",
   "setLocale",
+  "setVisualModelEnabled",
   "startNativeDrag",
   "writeClipboardImage",
   "writeClipboardText",
 ];
-// Audit Fix Batch 1 (BUG-08) changed only the `test` script to load
-// test/clean-test-env.mjs; the lockfile fingerprint stays untouched.
 // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
 // qa:packaged launcher scripts to package.json, so only its dependency
-// sections stay hash-pinned (see the dependency assertions below).
-const LOCKFILE_SHA256 = "51f3ff53219df2cfe3ea27ad9caf932a0cadbe062fec8905a11e39819a81fe54";
+// sections stay pinned (see the dependency assertions below).
 
 const read = (relativePath) => readFile(resolve(root, relativePath), "utf8");
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
@@ -77,7 +81,7 @@ test("preload path, module format, security settings, and API surface are stable
   assert.doesNotMatch(preload, /openExternal|sendSync|\.send\(/, "generic IPC is not exposed");
   // The preload exposes only narrow, named request channels. Update actions
   // accept no URL from the renderer; the main process owns the fixed website.
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 11, "only the eleven approved invoke channels remain");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 16, "only the sixteen approved invoke channels remain");
   assert.deepEqual(sortedApiKeys(preload), EXPECTED_API_KEYS);
   assert.match(preload, /startNativeDrag: \(paths\) => ipcRenderer\.invoke\("start-native-file-drag", paths\)/);
   assert.match(preload, /writeClipboardImage: \(path\) => ipcRenderer\.invoke\("write-clipboard-image", path\)/);
@@ -89,6 +93,12 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(preload, /onUpdateDownloadProgress: \(callback\) =>[\s\S]*?ipcRenderer\.on\("update-download-progress"/);
   assert.match(preload, /openDownloadPage: \(\) => ipcRenderer\.invoke\("open-download-page"\)/);
   assert.match(preload, /changeLibraryLocation: \(\) => ipcRenderer\.invoke\("change-library-location"\)/);
+  assert.match(preload, /getVisualModelState: \(refresh = false\) => ipcRenderer\.invoke\("visual-model-state", refresh === true\)/);
+  assert.match(preload, /setVisualModelEnabled: \(enabled\) => ipcRenderer\.invoke\("visual-model-set-enabled", enabled === true\)/);
+  assert.match(preload, /installVisualPack: \(\) => ipcRenderer\.invoke\("visual-pack-install"\)/);
+  assert.match(preload, /cancelVisualPackInstall: \(\) => ipcRenderer\.invoke\("visual-pack-cancel"\)/);
+  assert.match(preload, /removeVisualPack: \(\) => ipcRenderer\.invoke\("visual-pack-remove"\)/);
+  assert.match(preload, /onVisualPackProgress: \(callback\) =>[\s\S]*?ipcRenderer\.on\("visual-pack-progress"/);
   assert.doesNotMatch(preload, /openDownloadPage:\s*\([^)]*url/i, "renderer cannot choose an update destination");
   assert.match(main, /MOSA_DOWNLOAD_PAGE_URL/);
   assert.match(main, /ipcMain\.handle\("check-for-updates"/);
@@ -97,6 +107,11 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(main, /ipcMain\.handle\("download-and-install-update"/);
   assert.match(main, /ipcMain\.handle\("open-download-page"/);
   assert.match(main, /ipcMain\.handle\("change-library-location"/);
+  assert.match(main, /ipcMain\.handle\("visual-model-state"/);
+  assert.match(main, /ipcMain\.handle\("visual-model-set-enabled"/);
+  assert.match(main, /ipcMain\.handle\("visual-pack-install"/);
+  assert.match(main, /ipcMain\.handle\("visual-pack-cancel"/);
+  assert.match(main, /ipcMain\.handle\("visual-pack-remove"/);
   const relocationHandler = main.slice(main.indexOf('ipcMain.handle("change-library-location"'), main.indexOf('\n\n  // Phase 4C', main.indexOf('ipcMain.handle("change-library-location"')));
   assert.match(relocationHandler, /event\.sender !== mainWindow\.webContents/, "library relocation validates the sender");
   assert.match(relocationHandler, /process\.env\.MOSA_LIBRARY_DIR/, "an explicit environment-managed library cannot be overridden in-app");
@@ -136,9 +151,9 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(main, /minWidth: 960,/);
   assert.match(main, /minHeight: 640,/);
   const manifest = JSON.parse(packageJson);
-  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "0339eb218322b3a863818f979cfe4aca62624c31811a775da305ccda617d91a7", "package.json dependencies were not changed by this phase");
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies were not changed by this phase");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies were not changed by this phase");
-  assert.equal(sha256(lockfile), LOCKFILE_SHA256, "package-lock.json was not changed by this phase");
+  assertPackageLockMatchesManifest(lockfile, manifest, "package-lock.json must preserve dependency identity");
   assert.doesNotMatch(packageJson, /electron-preload-runtime-contract/);
 });
 

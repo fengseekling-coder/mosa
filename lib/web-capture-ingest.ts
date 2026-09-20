@@ -85,7 +85,7 @@ interface Store {
 }
 interface WebCaptureInput { provider?: string; mediaKind?: string; media_kind?: string; mimeType?: string; mime_type?: string; imageBase64?: string; image_base64?: string; imageBytes?: Buffer | Uint8Array; mediaBase64?: string; media_base64?: string; mediaBytes?: Buffer | Uint8Array; width?: number; height?: number; durationSeconds?: number; duration_seconds?: number; prompt?: string; prompt_status?: string; promptStatus?: string; prompt_source?: string; promptSource?: string; prompt_priority?: number; promptPriority?: number; prompt_scope?: string; promptScope?: string; generation_status?: string; generationStatus?: string; user_message?: string; userMessage?: string; pageUrl?: string; page_url?: string; sourceMediaUrl?: string; source_media_url?: string; finalMediaUrl?: string; final_media_url?: string; conversationId?: string; conversation_id?: string; messageId?: string; message_id?: string; generationContextId?: string; generation_context_id?: string; providerToolCallId?: string; provider_tool_call_id?: string; providerGenerationCallId?: string; provider_generation_call_id?: string; providerResponseId?: string; provider_response_id?: string; providerAssetId?: string; provider_asset_id?: string; model?: string; capturedAt?: string; captured_at?: string; captureMode?: string; capture_mode?: string; assetId?: string; is_reference?: boolean; isReference?: boolean; extensionVersion?: string; extension_version?: string; }
 interface IngestResult { status: string; reason?: string; asset?: StoredAsset; attachment?: ReferenceAttachment; contentHash: string; upgraded?: boolean; recipeMerged?: boolean; replacedAssetId?: string; }
-interface WebCaptureIngest { ingest(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; ingestFile(input: WebCaptureInput, mediaFilePath: string, authToken?: string): Promise<IngestResult>; upgradeMetadata(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; status(): Record<string, unknown>; assertToken(provided: string): void; readReference(projectId: string, fileName: string): Promise<{ stream: NodeJS.ReadableStream; fileName: string }>; pruneReferences(projectId: string, referencedIds: Iterable<string>): Promise<{ removed: number; retained: number; failed: number }>; tempRoot: string; token: string; }
+interface WebCaptureIngest { ingest(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; ingestFile(input: WebCaptureInput, mediaFilePath: string, authToken?: string): Promise<IngestResult>; upgradeMetadata(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; status(): Record<string, unknown>; updateClientStatus(input: Metadata, authToken?: string): Record<string, unknown>; requestRetry(): Record<string, unknown>; assertToken(provided: string): void; readReference(projectId: string, fileName: string): Promise<{ stream: NodeJS.ReadableStream; fileName: string }>; pruneReferences(projectId: string, referencedIds: Iterable<string>): Promise<{ removed: number; retained: number; failed: number }>; tempRoot: string; token: string; }
 
 const logicalCaptureLocks = new Map<string, Promise<unknown>>();
 
@@ -145,7 +145,66 @@ export function createWebCaptureIngest(options: { store?: Store; libraryDir?: st
     activeIngests = Math.max(0, activeIngests - 1);
   }
   const state: { enabled: boolean; providers: string[]; lastIngestAt: string | null; lastImportCount: number; totalImported: number; totalSkipped: number; lastError: string | null; lastSkippedReason: string | null } = { enabled: Boolean(token) && allowedOriginCount > 0, providers: Object.keys(PROVIDER_CONFIG), lastIngestAt: null, lastImportCount: 0, totalImported: 0, totalSkipped: 0, lastError: null, lastSkippedReason: null };
-  function status(): Record<string, unknown> { return { ...state, tokenConfigured: Boolean(token), originConfigured: allowedOriginCount > 0, allowedOriginCount }; }
+  const recentActivity: Metadata[] = [];
+  let retryRequestId = 0;
+  let clientQueue: Metadata = { reportedAt: null, pending: 0, failed: 0, items: [] };
+  function pushActivity(input: WebCaptureInput, result: IngestResult | null, error: unknown = null): void {
+    const provider = String(input.provider || "").trim().toLowerCase();
+    const asset = result?.asset;
+    const promptStatus = String(asset?.source?.prompt_status || input.prompt_status || input.promptStatus || "not-available");
+    recentActivity.unshift({
+      at: new Date().toISOString(),
+      provider: ALLOWED_PROVIDERS.has(provider) ? provider : "unknown",
+      mediaKind: String(input.mediaKind || input.media_kind || "image") === "video" ? "video" : "image",
+      status: error ? "failed" : String(result?.status || "unknown"),
+      reason: error ? (error instanceof Error ? error.message : String(error)).slice(0, 240) : String(result?.reason || ""),
+      assetId: String(asset?.id || result?.replacedAssetId || ""),
+      promptStatus,
+      upgraded: Boolean(result?.upgraded || result?.recipeMerged),
+    });
+    if (recentActivity.length > 20) recentActivity.length = 20;
+  }
+  function status(): Record<string, unknown> {
+    return {
+      ...state,
+      tokenConfigured: Boolean(token),
+      originConfigured: allowedOriginCount > 0,
+      allowedOriginCount,
+      queue: clientQueue,
+      recentActivity: recentActivity.map((entry) => ({ ...entry })),
+      retryRequestId,
+    };
+  }
+  function updateClientStatus(input: Metadata = {}, authToken = ""): Record<string, unknown> {
+    assertToken(authToken);
+    const rawItems = Array.isArray(input.items) ? input.items.slice(0, 20) : [];
+    const items = rawItems.map((entry) => {
+      const value = entry && typeof entry === "object" && !Array.isArray(entry) ? entry as Metadata : {};
+      const provider = String(value.provider || "").trim().toLowerCase();
+      return {
+        id: String(value.id || "").slice(0, 160),
+        provider: ALLOWED_PROVIDERS.has(provider) ? provider : "unknown",
+        mediaKind: String(value.mediaKind || "") === "video" ? "video" : "image",
+        promptStatus: String(value.promptStatus || "not-available").slice(0, 80),
+        generationStatus: String(value.generationStatus || "unknown").slice(0, 80),
+        createdAt: Math.max(0, Number(value.createdAt || 0) || 0),
+        updatedAt: Math.max(0, Number(value.updatedAt || 0) || 0),
+        attempts: Math.max(0, Math.min(100, Math.trunc(Number(value.attempts || 0) || 0))),
+        lastError: String(value.lastError || "").slice(0, 240),
+      };
+    });
+    clientQueue = {
+      reportedAt: new Date().toISOString(),
+      pending: Math.max(0, Math.min(256, Math.trunc(Number(input.pending ?? items.length) || 0))),
+      failed: Math.max(0, Math.min(256, Math.trunc(Number(input.failed || 0) || 0))),
+      items,
+    };
+    return { ok: true, retryRequestId };
+  }
+  function requestRetry(): Record<string, unknown> {
+    retryRequestId += 1;
+    return { ok: true, retryRequestId };
+  }
   function assertToken(provided: string): void {
     if (!token) { const e = new Error("Web capture is disabled until MOSA_WEB_CAPTURE_TOKEN is configured.") as Error & { statusCode: number; code: string; expose: boolean }; e.statusCode = 503; e.code = "WEB_CAPTURE_DISABLED"; e.expose = true; throw e; }
     if (!safeTokenEqual(String(provided || "").trim(), token)) { const e = new Error("Unauthorized web capture token.") as Error & { statusCode: number; code: string }; e.statusCode = 401; e.code = "WEB_CAPTURE_UNAUTHORIZED"; throw e; }
@@ -169,9 +228,11 @@ export function createWebCaptureIngest(options: { store?: Store; libraryDir?: st
       if (result.status === "imported" || result.upgraded || result.recipeMerged) {
         await options.onLibraryChange?.(projectId, result);
       }
+      pushActivity(input, result);
       return result;
     } catch (error) {
       state.lastError = error instanceof Error ? error.message : String(error);
+      pushActivity(input, null, error);
       throw error;
     } finally {
       releaseIngestSlot();
@@ -189,11 +250,17 @@ export function createWebCaptureIngest(options: { store?: Store; libraryDir?: st
   }
   async function upgradeMetadata(input: WebCaptureInput = {}, authToken = ""): Promise<IngestResult> {
     assertToken(authToken);
-    const result = await upgradeWebCaptureMetadata({ store, projectId, input });
-    if (result.upgraded || result.recipeMerged) await options.onLibraryChange?.(projectId, result);
-    return result;
+    try {
+      const result = await upgradeWebCaptureMetadata({ store, projectId, input });
+      if (result.upgraded || result.recipeMerged) await options.onLibraryChange?.(projectId, result);
+      pushActivity(input, result);
+      return result;
+    } catch (error) {
+      pushActivity(input, null, error);
+      throw error;
+    }
   }
-  return { ingest, ingestFile, upgradeMetadata, status, assertToken, readReference: referenceStore.read, pruneReferences: referenceStore.pruneUnused, tempRoot, token };
+  return { ingest, ingestFile, upgradeMetadata, status, updateClientStatus, requestRetry, assertToken, readReference: referenceStore.read, pruneReferences: referenceStore.pruneUnused, tempRoot, token };
 }
 
 async function upgradeWebCaptureMetadata({ store, projectId, input }: { store: Store; projectId: string; input: WebCaptureInput }): Promise<IngestResult> {

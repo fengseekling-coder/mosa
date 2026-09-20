@@ -1329,6 +1329,65 @@ test("web capture token gate rejects bad credentials", async () => {
   }
 });
 
+test("web capture status bridge exposes only bounded queue diagnostics and retry requests", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-status-"));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  try {
+    await store.ensureProject("default");
+    const ingest = createWebCaptureIngest({
+      store,
+      libraryDir,
+      token: "status-secret",
+      allowedOrigins: ["chrome-extension://approved"],
+    });
+    assert.throws(
+      () => ingest.updateClientStatus({ pending: 1 }, "wrong"),
+      /Unauthorized/,
+    );
+    const reported = ingest.updateClientStatus({
+      pending: 1,
+      failed: 1,
+      items: [{
+        id: "capture-1",
+        provider: "chatgpt",
+        mediaKind: "image",
+        promptStatus: "not-available",
+        generationStatus: "completed",
+        createdAt: 123,
+        updatedAt: 456,
+        attempts: 2,
+        lastError: "MOSA temporarily unavailable",
+        prompt: "must not cross the status bridge",
+        pageUrl: "https://example.invalid/private",
+      }],
+    }, "status-secret");
+    assert.deepEqual(reported, { ok: true, retryRequestId: 0 });
+    const bridgeStatus = ingest.status();
+    assert.equal(bridgeStatus.queue.pending, 1);
+    assert.equal(bridgeStatus.queue.failed, 1);
+    assert.deepEqual(bridgeStatus.queue.items[0], {
+      id: "capture-1",
+      provider: "chatgpt",
+      mediaKind: "image",
+      promptStatus: "not-available",
+      generationStatus: "completed",
+      createdAt: 123,
+      updatedAt: 456,
+      attempts: 2,
+      lastError: "MOSA temporarily unavailable",
+    });
+    assert.equal(JSON.stringify(bridgeStatus.queue).includes("must not cross"), false);
+    assert.equal(JSON.stringify(bridgeStatus.queue).includes("example.invalid"), false);
+    assert.deepEqual(ingest.requestRetry(), { ok: true, retryRequestId: 1 });
+    assert.equal(ingest.status().retryRequestId, 1);
+  } finally {
+    store.close?.();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("validates decoded image bytes, declared MIME, size, and pixel limits", async () => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-image-validation-"));
   const libraryDir = join(root, "library");

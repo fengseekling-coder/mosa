@@ -110,6 +110,7 @@ export interface SqliteAssetStore {
   getAsset(projectId: string, assetId: string): Promise<StoredAsset | null>;
   createAsset(params: Record<string, unknown>, options?: Record<string, unknown>): Promise<StoredAsset>;
   updateMetadata(projectId: string, assetId: string, metadata: Record<string, unknown>): Promise<StoredAsset>;
+  updateCuration(projectId: string, assetId: string, input: Record<string, unknown>): Promise<StoredAsset>;
   replaceAssetMedia(projectId: string, assetId: string, input: Record<string, unknown>, options?: Record<string, unknown>): Promise<StoredAsset>;
   toggleFavorite(projectId: string, assetId: string): Promise<StoredAsset>;
   assetFileInfo(projectId: string, fileName: string): Promise<{ size: number }>;

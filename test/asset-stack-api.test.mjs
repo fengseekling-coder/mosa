@@ -9,12 +9,16 @@ import { startMosaRuntime } from "../lib/mosa-runtime.mjs";
 
 const ONE_PIXEL_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+1CBR3wAAAABJRU5ErkJggg==", "base64");
 
+function mutationHeaders(runtime) {
+  return { "content-type": "application/json", "x-mosa-client-token": runtime.clientToken };
+}
+
 async function startStackRuntime(t) {
   const root = await mkdtemp(join(tmpdir(), "mosa-stack-api-"));
   deferTestPathRemoval(root, { recursive: true, force: true });
   const generated = join(root, "generated-images");
   await mkdir(generated, { recursive: true });
-  for (const id of ["a", "b", "c"]) await writeFile(join(generated, `${id}.png`), ONE_PIXEL_PNG);
+  for (const id of ["a", "b", "c", "d"]) await writeFile(join(generated, `${id}.png`), ONE_PIXEL_PNG);
 
   const runtime = await startMosaRuntime({
     port: 0,
@@ -33,7 +37,7 @@ async function startStackRuntime(t) {
   const create = async (id, extra = {}) => {
     const response = await fetch(`${runtime.url}/api/assets/create`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: mutationHeaders(runtime),
       body: JSON.stringify({
         projectId: "default",
         assetId: id,
@@ -45,7 +49,7 @@ async function startStackRuntime(t) {
     assert.equal(response.status, 200);
     return (await response.json()).asset;
   };
-  return { runtime, create };
+  return { runtime, create, generated };
 }
 
 test("Stack API keeps raw assets complete while gallery view collapses to one logical node", async (t) => {
@@ -56,7 +60,7 @@ test("Stack API keeps raw assets complete while gallery view collapses to one lo
 
   const stacked = await fetch(`${runtime.url}/api/asset-stacks`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: mutationHeaders(runtime),
     body: JSON.stringify({ projectId: "default", assetIds: ["a", "b"], coverAssetId: "a" }),
   });
   assert.equal(stacked.status, 201);
@@ -95,13 +99,55 @@ test("Stack API keeps raw assets complete while gallery view collapses to one lo
 
   const dissolved = await fetch(`${runtime.url}/api/asset-stacks/${encodeURIComponent(stack.id)}`, {
     method: "DELETE",
-    headers: { "content-type": "application/json" },
+    headers: mutationHeaders(runtime),
     body: JSON.stringify({ projectId: "default" }),
   });
   assert.equal(dissolved.status, 200);
   assert.deepEqual((await dissolved.json()).assetIds, ["a", "b"]);
   const afterDissolve = await (await fetch(`${runtime.url}/api/assets?project=default&view=gallery&limit=100`)).json();
   assert.deepEqual(afterDissolve.assets.map((asset) => asset.id).sort(), ["a", "b", "c"]);
+});
+
+test("manual imports can target the currently open Stack", async (t) => {
+  const { runtime, create, generated } = await startStackRuntime(t);
+  await create("a");
+  await create("b");
+
+  const stacked = await fetch(`${runtime.url}/api/asset-stacks`, {
+    method: "POST",
+    headers: mutationHeaders(runtime),
+    body: JSON.stringify({ projectId: "default", assetIds: ["a", "b"], coverAssetId: "a" }),
+  });
+  const stack = (await stacked.json()).stack;
+
+  const single = await fetch(`${runtime.url}/api/assets/create`, {
+    method: "POST",
+    headers: mutationHeaders(runtime),
+    body: JSON.stringify({
+      projectId: "default",
+      stackId: stack.id,
+      assetId: "c",
+      imagePath: join(generated, "c.png"),
+    }),
+  });
+  assert.equal(single.status, 200);
+
+  const batch = await fetch(`${runtime.url}/api/assets/import-batch`, {
+    method: "POST",
+    headers: mutationHeaders(runtime),
+    body: JSON.stringify({
+      projectId: "default",
+      stackId: stack.id,
+      items: [{ assetId: "d", imagePath: join(generated, "d.png"), fileName: "d.png" }],
+    }),
+  });
+  assert.equal(batch.status, 200);
+  assert.equal((await batch.json()).imported, 1);
+
+  const inside = await (await fetch(
+    `${runtime.url}/api/asset-stacks/${encodeURIComponent(stack.id)}/assets?project=default&limit=100`,
+  )).json();
+  assert.deepEqual(inside.assets.map((asset) => asset.id), ["a", "b", "c", "d"]);
 });
 
 test("Stack rename PATCH persists a display name and surfaces it on gallery nodes", async (t) => {
@@ -111,14 +157,14 @@ test("Stack rename PATCH persists a display name and surfaces it on gallery node
 
   const stacked = await fetch(`${runtime.url}/api/asset-stacks`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: mutationHeaders(runtime),
     body: JSON.stringify({ projectId: "default", assetIds: ["a", "b"], coverAssetId: "a" }),
   });
   const stack = (await stacked.json()).stack;
 
   const renamed = await fetch(`${runtime.url}/api/asset-stacks/${encodeURIComponent(stack.id)}`, {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: mutationHeaders(runtime),
     body: JSON.stringify({ projectId: "default", name: "  Mood board  " }),
   });
   assert.equal(renamed.status, 200);
@@ -132,7 +178,7 @@ test("Stack rename PATCH persists a display name and surfaces it on gallery node
 
   const empty = await fetch(`${runtime.url}/api/asset-stacks/${encodeURIComponent(stack.id)}`, {
     method: "PATCH",
-    headers: { "content-type": "application/json" },
+    headers: mutationHeaders(runtime),
     body: JSON.stringify({ projectId: "default", name: "   " }),
   });
   assert.equal(empty.status, 400);

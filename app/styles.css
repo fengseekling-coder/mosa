@@ -1254,9 +1254,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail-inspector-header { min-height: 56px; padding: 0 16px; border-bottom: 0; color: var(--color-text-primary); background: transparent; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
 .mosa-v2 .detail-inspector-header .detail-close { display: flex; width: 32px; height: 32px; min-height: 32px; flex: 0 0 32px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 10px; color: #6e6e73; background: rgb(242 242 247 / .92); cursor: pointer; transition: background 200ms var(--ease-standard), color 200ms var(--ease-standard); }
 .mosa-v2 .detail-inspector-header .detail-close svg { width: 16px; height: 16px; }
-@media (min-width: 701px) {
-  .mosa-v2 .detail-close { display: none; }
-}
 .mosa-v2 .detail .detail-overview { box-sizing: border-box; display: flex; min-height: 0; height: auto; flex-direction: column; gap: 12px; padding: 16px 16px 0; border-top: 0; overflow: visible; }
 .mosa-v2 .detail .detail-overview-heading { display: flex; height: 18px; min-width: 0; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; }
 .mosa-v2 .detail .detail-overview-heading h3 { flex: 0 0 auto; margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 600; line-height: 18px; }
@@ -1387,6 +1384,19 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 #groupStatsTitle { display: inline-flex; align-items: center; gap: 8px; }
 .mosa-v2 .sidebar-group-editor-input { width: 100%; min-width: 0; height: 26px; padding: 0 6px; border: 1px solid var(--color-border-subtle); border-radius: 5px; outline: none; color: var(--color-text-primary); background: var(--app-card); font: inherit; font-size: 13px; }
 .mosa-v2 .sidebar-group-editor-input:focus { border-color: var(--color-text-secondary); }
+.mosa-v2 .version-compare-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-bottom: 10px; }
+.mosa-v2 .version-compare-controls label { display: grid; gap: 4px; min-width: 0; color: var(--color-text-tertiary); font-size: 11px; }
+.mosa-v2 .version-compare-controls select { min-width: 0; width: 100%; height: 30px; border: 1px solid var(--color-border-subtle); border-radius: 6px; color: var(--color-text-primary); background: var(--app-card); }
+.mosa-v2 .version-compare-media { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.mosa-v2 .version-compare-media > div { display: grid; min-height: 88px; place-items: center; overflow: hidden; border-radius: 7px; background: var(--app-hover); }
+.mosa-v2 .version-compare-media img { width: 100%; height: 120px; object-fit: contain; }
+.mosa-v2 .version-compare-grid { display: grid; gap: 1px; overflow: hidden; border: 1px solid var(--color-border-subtle); border-radius: 7px; background: var(--color-border-subtle); }
+.mosa-v2 .version-compare-head, .mosa-v2 .version-compare-row { display: grid; grid-template-columns: minmax(70px, .7fr) minmax(0, 1fr) minmax(0, 1fr); gap: 1px; }
+.mosa-v2 .version-compare-head > *, .mosa-v2 .version-compare-row > * { min-width: 0; padding: 7px 8px; overflow-wrap: anywhere; background: var(--app-card); }
+.mosa-v2 .version-compare-head strong { font-size: 11px; color: var(--color-text-secondary); }
+.mosa-v2 .version-compare-row > strong { font-size: 11px; color: var(--color-text-tertiary); }
+.mosa-v2 .version-compare-row > span { white-space: pre-wrap; font-size: 11px; line-height: 1.45; color: var(--color-text-secondary); }
+.mosa-v2 .version-compare-row.changed > span { color: var(--color-text-primary); }
 
 @media (hover: hover) and (pointer: fine) {
   .mosa-v2 .sidebar-section-toggle:hover { color: var(--color-text-primary); }
@@ -1468,6 +1478,8 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .settings-menu[hidden] { display: none; opacity: 0; pointer-events: none; }
 .mosa-v2 .settings-modal-card {
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   width: min(520px, 100%);
   max-height: min(560px, calc(100vh - 48px));
   max-height: min(560px, calc(100dvh - 48px));
@@ -1516,7 +1528,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 }
 .mosa-v2 .settings-modal-close:active { transform: scale(.94); }
 .mosa-v2 .settings-modal-close svg { display: block; flex-shrink: 0; }
-.mosa-v2 .settings-modal-body { max-height: calc(100dvh - 104px); overflow-y: auto; overscroll-behavior: contain; padding: 0 24px 20px; scrollbar-gutter: stable; }
+.mosa-v2 .settings-modal-body { min-height: 0; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; padding: 0 24px 20px; scrollbar-gutter: stable; }
 .mosa-v2 .settings-block { position: relative; }
 .mosa-v2 .settings-block + .settings-block { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--color-border-subtle); }
 .mosa-v2 .settings-block > h3 {
@@ -1549,6 +1561,13 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .settings-row-control { display: flex; width: 164px; min-width: 0; align-items: center; justify-content: flex-end; }
 .mosa-v2 .settings-inline-actions { display: flex; width: 100%; align-items: center; justify-content: flex-end; gap: 2px; }
 .mosa-v2 .settings-static-value { width: 100%; color: var(--color-text-secondary); font-size: 11px; line-height: 16px; text-align: right; }
+.mosa-v2 .visual-model-status { display: grid; justify-items: end; gap: 3px; min-width: 180px; text-align: right; }
+.mosa-v2 .visual-model-status strong { color: var(--color-text-secondary); font-size: 11px; font-weight: 600; }
+.mosa-v2 .visual-model-status span { max-width: 240px; overflow: hidden; color: var(--color-text-tertiary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .visual-model-status .settings-text-action { margin-top: 2px; }
+.mosa-v2 .visual-model-status .visual-model-progress { color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+.mosa-v2 .visual-model-status .visual-model-error { max-width: 260px; white-space: normal; }
+.mosa-v2 .visual-model-status .settings-text-action-danger { color: var(--color-danger, #b42318); }
 .mosa-v2 .settings-menu .segmented { position: relative; display: grid; width: 164px; height: 30px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; padding: 2px; border: 1px solid var(--color-border-subtle); border-radius: 999px; background: rgb(0 0 0 / .035); isolation: isolate; }
 .mosa-v2 .settings-menu .segmented-thumb { position: absolute; z-index: 0; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px) / 2); border-radius: 999px; background: var(--color-accent-subtle); box-shadow: inset 0 0 0 1px rgb(83 83 255 / .06); transform: translateX(0); transition: transform 180ms cubic-bezier(.22, 1, .36, 1), background 140ms ease-out; pointer-events: none; }
 .mosa-v2 .settings-menu .segmented[data-active-index="1"] .segmented-thumb { transform: translateX(100%); }
@@ -1573,7 +1592,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .settings-menu { padding: 16px; }
   .mosa-v2 .settings-modal-card { width: 100%; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); }
   .mosa-v2 .settings-modal-header { padding: 18px 20px 10px; }
-  .mosa-v2 .settings-modal-body { max-height: calc(100dvh - 96px); padding: 0 20px 18px; }
+  .mosa-v2 .settings-modal-body { padding: 0 20px 18px; }
 }
 @media (max-width: 480px) {
   .mosa-v2 .settings-menu { padding: 12px; }

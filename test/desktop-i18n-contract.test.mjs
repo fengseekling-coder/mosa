@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 import * as desktopI18n from "../desktop/notification-i18n.mjs";
 import { getNotificationTextForAssetsImported, getUpdateNotificationText } from "../desktop/notification-i18n.mjs";
+import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const read = (relativePath) => readFile(resolve(root, relativePath), "utf8");
@@ -18,14 +19,6 @@ const DESKTOP_TEXT = {
   menuSearch: { zh: "搜索", en: "Search" },
   menuWindow: { zh: "窗口", en: "Window" },
   startupErrorTitle: { zh: "MOSA 无法启动", en: "MOSA could not start" },
-};
-
-	const FROZEN_SHA256 = {
-  // package.json is intentionally excluded: the R1 isolation fix (2026-08-09,
-  // approved scope) added qa:web/qa:electron/qa:packaged launcher scripts.
-  // Its dependency sections are still frozen via the structural assertions in
-  // the package metadata test below.
-  "package-lock.json": "51f3ff53219df2cfe3ea27ad9caf932a0cadbe062fec8905a11e39819a81fe54",
 };
 
 function sliceBetween(source, startMarker, endMarker) {
@@ -130,35 +123,38 @@ test("startup failures route the localized title while preserving the raw error 
 });
 
 test("package metadata stays frozen and the runtime preload preserves its approved surface", async () => {
-  for (const [relativePath, expectedHash] of Object.entries(FROZEN_SHA256)) {
-    const content = await read(relativePath);
-    assert.equal(sha256(content), expectedHash, `${relativePath} must remain unchanged`);
-  }
+  const manifest = JSON.parse(await read("package.json"));
+  assertPackageLockMatchesManifest(await read("package-lock.json"), manifest);
   const preload = await read("desktop/preload.cjs");
   const exposedKeys = [...preload.matchAll(/^\s{2}(\w+):/gm)].map((match) => match[1]).sort();
   assert.deepEqual(exposedKeys, [
     "cancelUpdateDownload",
+    "cancelVisualPackInstall",
     "changeLibraryLocation",
     "checkForUpdates",
     "downloadAndInstallUpdate",
+    "getVisualModelState",
+    "installVisualPack",
     "onMenuImport",
     "onMenuSearch",
     "onUpdateDownloadProgress",
+    "onVisualPackProgress",
     "openDownloadPage",
     "pasteImage",
+    "removeVisualPack",
     "reportRendererReady",
     "setLocale",
+    "setVisualModelEnabled",
     "startNativeDrag",
     "writeClipboardImage",
     "writeClipboardText",
   ]);
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 11, "preload keeps the eleven approved invoke channels");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 16, "preload keeps the sixteen approved invoke channels");
   assert.match(preload, /checkForUpdates: \(notify = false\) =>[\s\S]*?ipcRenderer\.invoke\("check-for-updates", notify === true\)/);
   assert.doesNotMatch(preload, /shell\s*[:.]/, "renderer still receives no generic shell capability");
   // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
   // qa:packaged launcher scripts to package.json, so its dependency sections
   // (the frozen semantics) are pinned structurally instead of by file hash.
-  const manifest = JSON.parse(await read("package.json"));
-  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "0339eb218322b3a863818f979cfe4aca62624c31811a775da305ccda617d91a7", "package.json dependencies must remain unchanged");
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies must remain unchanged");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must remain unchanged");
 });

@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import test from "node:test";
 
 import {
   MOSA_DOWNLOAD_PAGE_URL,
   MOSA_UPDATE_FEED_URL,
   buildUpdateFeedUrl,
+  canUpdateDistribution,
   checkForMosaUpdate,
   compareVersions,
   parseUpdateManifest,
   reportAnonymousUsage,
 } from "../desktop/update-service.mjs";
+import { createReleaseManifestTrust, signReleaseManifest } from "../lib/release-manifest-signature.mjs";
 
 test("version comparison follows semver ordering for MOSA releases", () => {
   assert.equal(compareVersions("0.2.1", "0.2.0"), 1);
@@ -29,6 +32,8 @@ test("update manifest keeps only bounded release metadata", () => {
     version: "0.3.0",
     publishedAt: "2026-09-01T10:00:00Z",
     notes: { zh: "新版", en: "New release" },
+    buildIdentity: null,
+    macArtifact: null,
     windowsArtifact: null,
   });
   assert.equal(MOSA_UPDATE_FEED_URL, "https://mosa.azhuilab.com/releases/latest.json");
@@ -112,7 +117,20 @@ test("update check compares the fixed HTTPS feed against the installed version",
           version: "0.2.1",
           publishedAt: "2026-09-01T10:00:00Z",
           notes: { zh: "修复问题", en: "Fixes" },
+          build: {
+            gitSha: "c".repeat(40),
+            uiFingerprint: "d".repeat(64),
+            runtimeFingerprint: "e".repeat(64),
+            distribution: "preview",
+          },
           platforms: {
+            macos: {
+              platform: "macOS",
+              arch: "arm64",
+              file: "MOSA-darwin-arm64-0.2.1.zip",
+              size: 654321,
+              sha256: "b".repeat(64),
+            },
             windows: {
               platform: "Windows",
               arch: "x64",
@@ -135,6 +153,19 @@ test("update check compares the fixed HTTPS feed against the installed version",
   assert.equal(result.currentVersion, "0.2.0");
   assert.equal(result.latestVersion, "0.2.1");
   assert.equal(result.updateAvailable, true);
+  assert.deepEqual(result.buildIdentity, {
+    gitSha: "c".repeat(40),
+    uiFingerprint: "d".repeat(64),
+    runtimeFingerprint: "e".repeat(64),
+    distribution: "preview",
+  });
+  assert.deepEqual(result.macArtifact, {
+    platform: "macOS",
+    arch: "arm64",
+    file: "MOSA-darwin-arm64-0.2.1.zip",
+    size: 654321,
+    sha256: "b".repeat(64),
+  });
   assert.deepEqual(result.windowsArtifact, {
     platform: "Windows",
     arch: "x64",
@@ -159,6 +190,21 @@ test("update manifest rejects a Windows artifact that is not bound to the releas
   }), /artifact identity/);
 });
 
+test("update manifest rejects a macOS artifact that is not bound to the release version", () => {
+  assert.throws(() => parseUpdateManifest({
+    version: "0.3.0",
+    platforms: {
+      macos: {
+        platform: "macOS",
+        arch: "arm64",
+        file: "MOSA-darwin-arm64-0.2.9.zip",
+        size: 123,
+        sha256: "b".repeat(64),
+      },
+    },
+  }), /artifact identity/);
+});
+
 test("same or older website versions never report an update", async () => {
   for (const version of ["0.2.0", "0.1.9"]) {
     const result = await checkForMosaUpdate({
@@ -167,4 +213,55 @@ test("same or older website versions never report an update", async () => {
     });
     assert.equal(result.updateAvailable, false, version);
   }
+});
+
+test("trusted update checks reject a release feed whose signed metadata was changed", async () => {
+  const keys = generateKeyPairSync("ed25519");
+  const trust = createReleaseManifestTrust(keys.publicKey);
+  const signed = signReleaseManifest({
+    version: "0.3.0",
+    build: {
+      gitSha: "a".repeat(40),
+      uiFingerprint: "b".repeat(64),
+      runtimeFingerprint: "c".repeat(64),
+      distribution: "preview",
+    },
+    platforms: {
+      macos: {
+        platform: "macOS",
+        arch: "arm64",
+        file: "MOSA-darwin-arm64-0.3.0.zip",
+        size: 123,
+        sha256: "d".repeat(64),
+      },
+    },
+  }, { privateKey: keys.privateKey, expectedTrust: trust });
+
+  const accepted = await checkForMosaUpdate({
+    currentVersion: "0.2.0",
+    releaseManifestTrust: trust,
+    fetchImpl: async () => ({ ok: true, status: 200, text: async () => JSON.stringify(signed) }),
+  });
+  assert.equal(accepted.latestVersion, "0.3.0");
+
+  await assert.rejects(
+    checkForMosaUpdate({
+      currentVersion: "0.2.0",
+      releaseManifestTrust: trust,
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ ...signed, version: "0.3.1" }),
+      }),
+    }),
+    /signature verification failed/,
+  );
+});
+
+test("distribution tracks stay isolated after legacy builds join preview", () => {
+  assert.equal(canUpdateDistribution("development", "preview"), true);
+  assert.equal(canUpdateDistribution("preview", "preview"), true);
+  assert.equal(canUpdateDistribution("production", "production"), true);
+  assert.equal(canUpdateDistribution("preview", "production"), false);
+  assert.equal(canUpdateDistribution("production", "preview"), false);
 });

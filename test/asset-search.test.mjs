@@ -137,3 +137,33 @@ test("short ASCII search terms keep page count consistent with results", async (
   assert.equal(result.page.total, 1,
     "the reported total must agree with the page instead of falling back to an FTS MATCH that cannot index 2-character terms");
 });
+
+test("short Unicode search index follows prompt edits and group renames", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-search-short-unicode-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const projectRoot = join(root, "project");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, ONE_PIXEL_PNG);
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir: join(root, "library") });
+  t.after(() => store.close());
+
+  await store.createAsset({
+    assetId: "unicode-short",
+    imagePath: sourcePath,
+    prompt: "机械结构研究",
+    group: "春季",
+  });
+  assert.deepEqual((await store.listAssetPage({ projectId: "default", query: "机械" })).assets.map((asset) => asset.id), ["unicode-short"]);
+  assert.deepEqual((await store.listAssetPage({ projectId: "default", query: "春季" })).assets.map((asset) => asset.id), ["unicode-short"]);
+
+  await store.updateMetadata("default", "unicode-short", { prompt: "未来城市研究" });
+  assert.deepEqual((await store.listAssetPage({ projectId: "default", query: "机械" })).assets, [],
+    "stale prompt bigrams are removed after metadata edits");
+  assert.deepEqual((await store.listAssetPage({ projectId: "default", query: "未来" })).assets.map((asset) => asset.id), ["unicode-short"]);
+
+  await store.renameGroup("default", "春季", "秋季");
+  assert.deepEqual((await store.listAssetPage({ projectId: "default", query: "春季" })).assets, [],
+    "stale group bigrams are removed after a group rename");
+  assert.deepEqual((await store.listAssetPage({ projectId: "default", query: "秋季" })).assets.map((asset) => asset.id), ["unicode-short"]);
+});

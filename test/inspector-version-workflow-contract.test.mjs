@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
+import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
@@ -109,7 +110,9 @@ test("6-10. picker five-state model", async () => {
 
 // 11. Load errors keep the picker (disabled, current version). 12. One request
 // per load. 13. Generation + selection guards stay. 14. Picker and history
-// regions update in the same response.
+// regions update in the same response. The comparison region is part of the
+// same version-history payload and must share those guards rather than issuing
+// a second request.
 test("11-14. async region updates stay guarded and paired", async () => {
   const app = await readApp();
   const loader = functionSlice(app, "loadVersionHistory");
@@ -128,9 +131,9 @@ test("11-14. async region updates stay guarded and paired", async () => {
   assert.equal(count(loader, "requestId !== versionHistoryRequestSequence"), 2, "request generation guard on both paths");
   assert.equal(count(loader, "`${state.project}\\u0000${state.selectedId}` !== selectedKey"), 2, "selection guard on both paths");
 
-  // 14. Success and error responses update picker and history regions together.
-  assert.match(loader, /renderVersionPickerRegion\(result\.history, asset\.id\);\s*\n\s*renderVersionHistoryRegion\(result\.history, asset\.id\);/, "picker and history update in the same success response");
-  assert.match(loader, /renderVersionPickerRegion\(null, asset\.id, error\);\s*\n\s*renderVersionHistoryRegion\(null, asset\.id, error\);/, "picker and history update in the same error response");
+  // 14. Success and error responses update picker, comparison, and history regions together.
+  assert.match(loader, /renderVersionPickerRegion\(result\.history, asset\.id\);\s*\n\s*renderVersionCompareRegion\(result\.history, asset\.id\);\s*\n\s*renderVersionHistoryRegion\(result\.history, asset\.id\);/, "version regions update in the same success response");
+  assert.match(loader, /renderVersionPickerRegion\(null, asset\.id, error\);\s*\n\s*renderVersionCompareRegion\(null, asset\.id, error\);\s*\n\s*renderVersionHistoryRegion\(null, asset\.id, error\);/, "version regions update in the same error response");
 
   // Region re-renders stay local — they never rebuild the whole detail panel.
   assert.doesNotMatch(pickerRegion, /renderDetail\(/, "picker region update never rebuilds the detail panel");
@@ -319,9 +322,9 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
   // qa:packaged launcher scripts, so the whole-manifest hash no longer holds;
   // the dependency sections the freeze really guards stay byte-identical.
   const manifest = JSON.parse(pkg);
-  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "0339eb218322b3a863818f979cfe4aca62624c31811a775da305ccda617d91a7", "package.json dependencies must stay untouched");
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies must stay untouched");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
-  assert.equal(sha256(lock), "51f3ff53219df2cfe3ea27ad9caf932a0cadbe062fec8905a11e39819a81fe54", "package-lock.json must stay untouched");
+  assertPackageLockMatchesManifest(lock, manifest, "package-lock.json must preserve dependency identity");
 
   // 48. app.js imports only approved first-party helpers. Batch import and
   // native file drag are deliberate local modules; runtime dependencies and

@@ -993,6 +993,22 @@ test("background limits generated video capture to Flow and Google AI Studio", (
   assert.doesNotMatch(backgroundSource, /provider:\s*"chatgpt"/);
 });
 
+test("background reports only bounded retry-queue diagnostics to the local task center", () => {
+  const start = backgroundSource.indexOf("async function captureQueueStatusSnapshot()");
+  const end = backgroundSource.indexOf("function reportCaptureQueueStatus()", start);
+  assert.ok(start >= 0 && end > start);
+  const snapshot = backgroundSource.slice(start, end);
+  assert.match(snapshot, /queue\.slice\(0, 20\)/);
+  assert.match(snapshot, /attempts:/);
+  assert.match(snapshot, /lastError:/);
+  assert.match(snapshot, /promptStatus:/);
+  assert.doesNotMatch(snapshot, /\bprompt:/, "raw Prompt text must not be copied into queue diagnostics");
+  assert.doesNotMatch(snapshot, /pageUrl|imageUrl|mediaUrl/, "provider/page media URLs must stay out of queue diagnostics");
+  assert.match(backgroundSource, /\/api\/ingest\/web-capture-status/);
+  assert.match(backgroundSource, /authorization: `Bearer \$\{token\}`/);
+  assert.match(backgroundSource, /lastSeenRetryRequestId/);
+});
+
 test("ChatGPT page bridge rejects messages outside the current document channel", () => {
   assert.match(hookSource, /mosaPageHookChannel = bridgeChannel/);
   assert.match(hookSource, /data\.channel !== bridgeChannel/);

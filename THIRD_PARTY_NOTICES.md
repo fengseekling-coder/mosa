@@ -20,3 +20,27 @@ MOSA does not vendor, bundle, execute, or depend on APSAL Open source code. No A
 APSAL contains substantially broader authoring, protocol, registry, packaging, and Studio functionality. This notice should not be read as claiming those systems are part of MOSA.
 
 The upstream Apache License 2.0 text is available in APSAL Open's tagged source at <https://github.com/henyjone/apsal-open/blob/v0.14.0/LICENSE>.
+
+## ONNX Runtime (onnxruntime-node)
+
+The optional MOSA Visual Pack executes its verified model through **onnxruntime-node**, the official Node.js binding for ONNX Runtime. This dependency is distributed with the optional visual pack rather than the core `MOSA.app` bundle.
+
+- Project: `microsoft/onnxruntime`
+- Dependency: `onnxruntime-node` (^1.30.0)
+- Upstream license: MIT License
+- Source: <https://github.com/microsoft/onnxruntime/tree/main/js/node>
+- Runtime role: loads the pinned ONNX graph from the verified model pack under Electron `userData` and runs CPU inference inside a dedicated child process.
+
+The MIT license text is available in the upstream repository at <https://github.com/microsoft/onnxruntime/blob/main/LICENSE>.
+
+## Hugging Face Tokenizers (@huggingface/tokenizers)
+
+SigLIP2 SentencePiece tokenization inside the optional visual inference worker uses **@huggingface/tokenizers**, the JavaScript tokenizer package published by Hugging Face. This dependency is distributed with the optional visual pack rather than the core `MOSA.app` bundle.
+
+- Project: `huggingface/tokenizers` (JavaScript distribution)
+- Dependency: `@huggingface/tokenizers` (^0.2.0)
+- Upstream license: Apache License 2.0
+- Source: <https://github.com/huggingface/tokenizers>
+- Runtime role: consumes the tokenizer files pinned in the model pack manifest to produce the fixed-length token ids the visual model expects.
+
+The Apache License 2.0 text is available in the upstream repository at <https://github.com/huggingface/tokenizers/blob/main/LICENSE>.

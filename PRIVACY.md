@@ -52,6 +52,16 @@ MOSA does not attach library contents, asset counts, Prompt text, filenames, loc
 
 The website can also retain a short campaign label such as `ref=reddit_codex` on a download URL so aggregate download traffic can be attributed to the page or creator that referred it. MOSA does not require a login for attribution.
 
+## Desktop application updates
+
+When you check for or install an application update, packaged MOSA reads `https://mosa.azhuilab.com/releases/latest.json`. If you explicitly choose **Download and install**, macOS and Windows builds download only the platform-specific update artifact advertised by that manifest from `https://mosa.azhuilab.com/downloads/`. MOSA does not attach your library contents, images, videos, Prompts, provenance records, search queries, library paths, or Visual Pack embeddings to the update download. Update files are staged locally under Electron `userData`, verified by declared byte size and SHA-256, and used only to replace the application itself; `MOSA Library` and its original assets remain outside the application replacement transaction.
+
+## Optional Visual Pack download
+
+Local visual search is optional. When you explicitly choose Install or Update in Settings, MOSA reads the first-party release manifest at `https://mosa.azhuilab.com/releases/latest.json` and downloads the published platform-specific Visual Pack only from `https://mosa.azhuilab.com/downloads/visual-packs/`. These requests necessarily reach the download server, but MOSA does not attach your images, videos, Prompts, provenance records, library paths, search queries, or derived visual embeddings to the request. Pack files are verified and stored locally under Electron `userData`; they are not placed in or uploaded from `MOSA Library`.
+
+Removing the Visual Pack deletes the local optional model/runtime and derived visual relationship index. It does not delete or modify original library assets, Prompt text, or provenance records.
+
 ## Web Capture Chrome Extension
 
 The optional extension:
@@ -64,6 +74,8 @@ The optional extension:
 - sends captured data only to the configured loopback MOSA address;
 - receives its Web Capture Token only through an explicit pairing request that MOSA Desktop confirms with a native dialog in front of the user; headless CLI runtimes deny pairing by default, so the token is never handed to a requester without out-of-band consent;
 - stores the MOSA address, Web Capture Token, auto-capture preference, and a bounded retry queue for unresolved capture jobs in `chrome.storage.local`, not synchronized storage. The queue is retried by a Chrome alarm and is removed after MOSA acknowledges the capture or after its bounded retention period. Later terminal status or higher-quality Prompt metadata updates the existing queued job rather than creating an independent stale replay;
+- reports a bounded retry-queue diagnostic snapshot to the paired loopback MOSA runtime so the desktop Settings view can show pending/retrying capture work. This snapshot contains at most 20 queue entries and is limited to a local capture key, provider, media kind, Prompt-status label (not Prompt text), generation-status label, queue timestamps, retry-attempt count, and the bounded local error message. It does not include Prompt/user-message text, page URLs, media URLs, cookies, account identifiers, or captured media bytes. The runtime keeps this diagnostic state in memory; it is refreshed by the extension and is not a second delivery queue;
+- accepts a local retry-request counter from MOSA Desktop. The counter does not contain capture content and does not move ownership of queued jobs into the desktop runtime; the extension remains the only component that replays its durable queue;
 - temporarily stores page-local `blob:`/Base64 media needed by queued jobs in the extension's local IndexedDB. Image media is stored as a Blob referenced by the retry queue; large page-local videos are stored as bounded ordered Blob chunks rather than one in-memory object. These records are deleted after MOSA acknowledges the capture, when the user/extension aborts the transfer, or when the associated bounded retry job expires or is evicted;
 - transfers large page-local generated videos to the extension worker in bounded chunks and later sends the queued chunks to MOSA through its local upload-session endpoints rather than one whole Base64 JSON message. Remote HTTPS videos continue to stream directly to the MOSA upload session without being retained as one whole video in extension memory.
 

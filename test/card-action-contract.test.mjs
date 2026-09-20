@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
+import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
@@ -219,22 +220,18 @@ test("17. no API, data-structure or persistence changes", async () => {
   // server.mjs (ERR_ISOLATION_GUARD fail-closed handler) and package.json
   // (qa:web/qa:electron/qa:packaged launcher scripts), so those two files
   // leave the hash table; their security-relevant behaviour is asserted
-  // structurally below. The lockfile stays hash-pinned.
-  const expected = {
-    "package-lock.json": "51f3ff53219df2cfe3ea27ad9caf932a0cadbe062fec8905a11e39819a81fe54",
-  };
-  for (const [file, hash] of Object.entries(expected)) {
-    const text = await readFile(resolve(root, file), "utf8");
-    assert.equal(sha256(text), hash, `${file} must stay untouched in Phase 1C`);
-  }
+  // structurally below. The lockfile is checked against the manifest dependency
+  // graph instead of a whole-file hash so legitimate version bumps do not break
+  // an unrelated UI contract.
   // server.mjs must still fail closed when the isolation guard rejects a run.
   const server = await readFile(resolve(root, "server.mjs"), "utf8");
   assert.match(server, /ERR_ISOLATION_GUARD/, "server.mjs must fail closed on isolation guard rejection");
   assert.match(server, /process\.exit\(1\)/, "server.mjs must exit non-zero on isolation guard rejection");
   // package.json dependency sections stay frozen.
   const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
-  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "0339eb218322b3a863818f979cfe4aca62624c31811a775da305ccda617d91a7", "package.json dependencies must stay untouched in Phase 1C");
+  assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843", "package.json dependencies must stay untouched in Phase 1C");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched in Phase 1C");
+  assertPackageLockMatchesManifest(await readFile(resolve(root, "package-lock.json"), "utf8"), manifest);
   const app = await readApp();
   // The favorite flow still posts to the same endpoint; renderGrid stays free of API calls.
   assert.match(app, /const projectId = state\.project;[\s\S]*?apiFetch\(`\/api\/assets\/\$\{encodeURIComponent\(projectId\)\}\/\$\{encodeURIComponent\(id\)\}\/favorite`, \{ method: "POST" \}\)/,

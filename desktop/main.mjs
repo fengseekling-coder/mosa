@@ -19,6 +19,22 @@ import { finalizeCopiedSqliteLibrary } from "../lib/library-relocation.mjs";
 import { getBuildIdentity } from "../lib/build-identity.mjs";
 import { MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
 import { downloadWindowsUpdate, launchWindowsUpdateHelper, resolveWindowsUpdateReadyFile } from "./windows-updater.mjs";
+import {
+  downloadMacosUpdate,
+  launchMacosUpdateHelper,
+  resolveMacosInstallAppPath,
+  resolveMacosUpdateReadyFile,
+} from "./macos-updater.mjs";
+import { createVisualModelManager } from "./visual-model-manager.mjs";
+import {
+  checkForVisualPackRelease,
+  cleanupVisualPackStaging,
+  installVisualPack,
+  removeVisualPack,
+  visualPackTarget,
+} from "./visual-pack-installer.mjs";
+import { createVisualInferenceClient } from "../lib/visual-inference-client.mjs";
+import { createMosaDesktopStartupHandoff } from "../lib/runtime-handoff.mjs";
 
 const preloadPath = fileURLToPath(new URL("./preload.cjs", import.meta.url));
 const startupShellPath = fileURLToPath(new URL("./startup.html", import.meta.url));
@@ -39,6 +55,22 @@ const expectedServiceIdentity = Object.freeze({
 // never touches. Dev (`npx electron`) reads the name from package.json
 // ("mosa"); the packaged app carries the forge packagerConfig name ("MOSA").
 const desktopDataDir = app.getPath("userData");
+// Runtime availability is measured against the active verified Visual Pack.
+// The pack owns its optional ONNX/tokenizer runtime, so MOSA.app itself does
+// not need to carry that heavy dependency when visual search is unused.
+async function probeVisualRuntime(pack) {
+  const model = pack ? { id: pack.id, revision: pack.revision, dimension: pack.embedding_dimension } : null;
+  const client = createVisualInferenceClient({ pack, model, initTimeoutMs: 30_000 });
+  try {
+    await client.start();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: "runtime-unavailable", message: error?.message || "Local inference runtime failed to start." };
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+const visualModelManager = createVisualModelManager({ userDataDir: desktopDataDir, probeRuntime: probeVisualRuntime });
 const productionDefaultUserData = join(app.getPath("appData"), app.name);
 const importStagingRoot = importStagingDir(desktopDataDir);
 const desktopPort = process.env.MOSA_DESKTOP_PORT || DEFAULT_MOSA_DESKTOP_PORT;
@@ -82,6 +114,14 @@ const isolationContext = {
   argv: process.argv,
   runtimeKind: "electron",
 };
+const launchedFromMacosUpdate = Boolean(
+  resolveMacosUpdateReadyFile(process.argv, join(desktopDataDir, "updates", "macos")),
+);
+const desktopStartupHandoffEnabled = process.platform === "darwin"
+  && app.isPackaged
+  && !isolationContext.qaRun
+  && !launchedFromMacosUpdate
+  && !process.env.MOSA_DESKTOP_PORT;
 
 // ---- Runtime isolation guard: fail closed before any production write ----
 const guard = validateRuntimeIsolation({
@@ -126,14 +166,26 @@ let windowOpenRequested = false;
 let ipcRegistered = false;
 let currentLocale = "zh"; // safe default matching original Chinese-only notifications
 let updateCheckPromise = null;
+let macosUpdateInstallPromise = null;
+let macosUpdateDownloadController = null;
 let windowsUpdateInstallPromise = null;
 let windowsUpdateDownloadController = null;
 let usageReportPromise = null;
 let usageReportTimer = null;
 let serviceManagerModulePromise = null;
 let serviceStartPromise = null;
+let visualPackReleaseCache = null;
+let visualPackInstallPromise = null;
+let visualPackInstallController = null;
+let visualPackProgress = null;
+let desktopStartupHandoffPromise = null;
+let desktopStartupHandoffLease = null;
+let desktopStartupHandoffError = null;
 const USAGE_REPORT_RECHECK_MS = 15 * 60 * 1000;
+const VISUAL_PACK_RELEASE_CACHE_MS = 15 * 60 * 1000;
+const MACOS_UPDATE_STAGING_ROOT = join(desktopDataDir, "updates", "macos");
 const WINDOWS_UPDATE_STAGING_ROOT = join(desktopDataDir, "updates", "windows");
+const macosUpdateReadyFile = resolveMacosUpdateReadyFile(process.argv, MACOS_UPDATE_STAGING_ROOT);
 const windowsUpdateReadyFile = resolveWindowsUpdateReadyFile(process.argv, WINDOWS_UPDATE_STAGING_ROOT);
 const rendererConsoleErrors = new Set();
 const MAX_RENDERER_CONSOLE_ERRORS = 32;
@@ -141,6 +193,18 @@ const MAX_RENDERER_CONSOLE_ERRORS = 32;
 if (!app.requestSingleInstanceLock()) {
   app.exit(0);
 } else {
+  desktopStartupHandoffPromise = desktopStartupHandoffEnabled
+    ? createMosaDesktopStartupHandoff({ libraryDir })
+      .then((lease) => {
+        desktopStartupHandoffLease = lease;
+        return lease;
+      })
+      .catch((error) => {
+        desktopStartupHandoffError = error;
+        return null;
+      })
+    : Promise.resolve(null);
+
   app.on("second-instance", () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
       void openMainWindow().catch(reportStartupFailure);
@@ -151,9 +215,17 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    await desktopStartupHandoffPromise;
+    if (desktopStartupHandoffError) throw desktopStartupHandoffError;
+    await cleanupVisualPackStaging({ userDataDir: desktopDataDir }).catch((error) => {
+      console.warn(`[MOSA] visual pack staging recovery failed: ${error?.message || error}`);
+    });
     // First paint wins the startup race. Telemetry and every other non-visual
     // lifecycle task wait until MOSA has at least presented a window.
     await openMainWindow();
+    void visualModelManager.cleanupInactivePacks().catch((error) => {
+      console.warn(`[MOSA] visual pack cleanup failed: ${error?.message || error}`);
+    });
     startAnonymousUsageLifecycle();
     cleanupStaleWindowsUpdateTransactions();
   }).catch(reportStartupFailure);
@@ -179,7 +251,10 @@ if (!app.requestSingleInstanceLock()) {
     shuttingDown = true;
     stopBridgeNotificationPoll();
     stopAnonymousUsageLifecycle();
-    void stopOwnedRuntime().catch(console.error).finally(() => app.exit(0));
+    void Promise.allSettled([
+      stopOwnedRuntime(),
+      releaseDesktopStartupHandoff(),
+    ]).finally(() => app.exit(0));
   });
 
   // A newer packaged MOSA may ask this process to yield the shared local
@@ -382,6 +457,84 @@ function cleanupStaleWindowsUpdateTransactions() {
   })();
 }
 
+async function visualPackDistributionState({ forceRelease = false } = {}) {
+  const target = visualPackTarget();
+  if (!target) return { supported: false, release: null, action: "unsupported", progress: visualPackProgress, error: null };
+  if (isolationContext.qaRun) {
+    return { supported: true, release: null, action: "offline", progress: visualPackProgress, error: null };
+  }
+  const now = Date.now();
+  if (!forceRelease && visualPackReleaseCache && now - visualPackReleaseCache.checked_at < VISUAL_PACK_RELEASE_CACHE_MS) {
+    return structuredClone({ ...visualPackReleaseCache, progress: visualPackProgress });
+  }
+  try {
+    const checked = await checkForVisualPackRelease({
+      releaseManifestTrust: expectedServiceIdentity.releaseManifestTrust,
+    });
+    visualPackReleaseCache = {
+      supported: checked.supported === true,
+      release: checked.release || null,
+      action: checked.release ? "available" : "unavailable",
+      error: null,
+      checked_at: now,
+    };
+  } catch (error) {
+    visualPackReleaseCache = {
+      supported: true,
+      release: null,
+      action: "unavailable",
+      error: error?.message || "Visual Pack release check failed.",
+      checked_at: now,
+    };
+  }
+  return structuredClone({ ...visualPackReleaseCache, progress: visualPackProgress });
+}
+
+async function visualModelStateSnapshot({ refreshLocal = false, forceRelease = false } = {}) {
+  const [local, distribution] = await Promise.all([
+    visualModelManager.state({ refresh: refreshLocal }),
+    visualPackDistributionState({ forceRelease }),
+  ]);
+  const release = distribution.release;
+  let action = distribution.action;
+  if (visualPackInstallPromise) {
+    action = "installing";
+  } else if (release) {
+    const exact = local.packs.some((pack) => pack.id === release.id && pack.revision === release.revision);
+    const sameModel = local.packs.some((pack) => pack.id === release.id);
+    action = exact ? "installed" : (sameModel ? "update" : "install");
+  }
+  return {
+    ...local,
+    distribution: {
+      ...distribution,
+      action,
+      progress: visualPackProgress,
+    },
+  };
+}
+
+function publishVisualPackProgress(progress) {
+  visualPackProgress = progress ? { ...progress } : null;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("visual-pack-progress", visualPackProgress);
+  }
+}
+
+function scheduleVisualPackRestart() {
+  const timer = setTimeout(() => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    stopBridgeNotificationPoll();
+    stopAnonymousUsageLifecycle();
+    void stopOwnedRuntime().catch(console.error).finally(() => {
+      app.relaunch();
+      app.exit(0);
+    });
+  }, 350);
+  timer.unref?.();
+}
+
 function registerIPC() {
   if (ipcRegistered) return;
   ipcRegistered = true;
@@ -478,14 +631,122 @@ function registerIPC() {
     return true;
   });
 
+  ipcMain.handle("visual-model-state", async (event, refresh = false) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return { mode: "mosa-local", state: "unavailable", installed: false, enabled: false };
+    }
+    return visualModelStateSnapshot({ refreshLocal: refresh === true });
+  });
+
+  ipcMain.handle("visual-model-set-enabled", async (event, enabled) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return { mode: "mosa-local", state: "unavailable", installed: false, enabled: false };
+    }
+    if (service && service.mode !== "owned") {
+      throw new Error("Local visual settings cannot change while MOSA Desktop is attached to an external runtime. Close that runtime and reopen MOSA.");
+    }
+    await visualModelManager.setEnabled(enabled === true);
+    const state = await visualModelStateSnapshot({ refreshLocal: true });
+    scheduleVisualPackRestart();
+    return { ...state, restarting: true };
+  });
+
+  ipcMain.handle("visual-pack-install", async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return { ok: false, reason: "unavailable" };
+    }
+    if (service && service.mode !== "owned") {
+      throw new Error("Visual Pack installation requires the runtime owned by MOSA Desktop. Close the external MOSA runtime and reopen the app.");
+    }
+    if (visualPackInstallPromise) return visualPackInstallPromise;
+    visualPackInstallController = new AbortController();
+    visualPackInstallPromise = (async () => {
+      try {
+        const distribution = await visualPackDistributionState({ forceRelease: true });
+        if (!distribution.release) throw new Error("No compatible MOSA Visual Pack is currently published for this platform.");
+        publishVisualPackProgress({ phase: "preparing", receivedBytes: 0, totalBytes: distribution.release.total_size, percent: 0 });
+        const installed = await installVisualPack({
+          userDataDir: desktopDataDir,
+          release: distribution.release,
+          signal: visualPackInstallController.signal,
+          onProgress: publishVisualPackProgress,
+        });
+        await visualModelManager.selectPack(installed.id, installed.revision);
+        await visualModelManager.setEnabled(true);
+        visualPackReleaseCache = null;
+        publishVisualPackProgress({ phase: "complete", receivedBytes: installed.total_bytes, totalBytes: installed.total_bytes, percent: 100 });
+        const state = await visualModelStateSnapshot({ refreshLocal: true });
+        scheduleVisualPackRestart();
+        return { ok: true, restarting: true, state };
+      } catch (error) {
+        publishVisualPackProgress({ phase: "error", message: error?.message || "Visual Pack installation failed." });
+        throw error;
+      } finally {
+        visualPackInstallController = null;
+        visualPackInstallPromise = null;
+      }
+    })();
+    return visualPackInstallPromise;
+  });
+
+  ipcMain.handle("visual-pack-cancel", async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false };
+    if (!visualPackInstallController || visualPackInstallController.signal.aborted) return { ok: false };
+    visualPackInstallController.abort(new Error("Visual Pack download cancelled by the user."));
+    return { ok: true };
+  });
+
+  ipcMain.handle("visual-pack-remove", async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false };
+    if (service && service.mode !== "owned") {
+      throw new Error("Visual Pack removal requires the runtime owned by MOSA Desktop. Close the external MOSA runtime and reopen the app.");
+    }
+    if (visualPackInstallPromise) return { ok: false, reason: "busy" };
+    const current = await visualModelManager.state({ refresh: true });
+    const activeId = current.active_pack?.id || current.packs?.[0]?.id || "";
+    if (!activeId) return { ok: true, removed: 0 };
+    const confirmation = await dialog.showMessageBox(mainWindow, {
+      type: "warning",
+      title: "MOSA",
+      message: currentLocale === "en" ? "Remove the local Visual Pack?" : "删除本地视觉能力包？",
+      detail: currentLocale === "en"
+        ? "This removes the optional model, runtime, and derived visual index. Your original assets and Prompt/provenance data are not changed."
+        : "这会删除可选模型、推理运行时和派生视觉索引，不会修改你的原始素材、Prompt 或溯源数据。",
+      buttons: currentLocale === "en" ? ["Cancel", "Remove"] : ["取消", "删除"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (confirmation.response !== 1) return { ok: false, cancelled: true };
+
+    await visualModelManager.setEnabled(false);
+    if (service?.mode === "owned") {
+      await service.stop();
+      service = null;
+      shutdownPromise = null;
+      stopBridgeNotificationPoll();
+    }
+    const removed = await removeVisualPack({ userDataDir: desktopDataDir, id: activeId });
+    await rm(join(desktopDataDir, "visual-relationship-indexes"), { recursive: true, force: true });
+    visualPackReleaseCache = null;
+    publishVisualPackProgress(null);
+    scheduleVisualPackRestart();
+    return { ok: true, restarting: true, removed: removed.removed };
+  });
+
   ipcMain.handle("renderer-ready", async (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return false;
     if (!service) return false;
-    if (windowsUpdateReadyFile) {
+    const updateReadyFiles = [macosUpdateReadyFile, windowsUpdateReadyFile].filter(Boolean);
+    for (const readyFile of updateReadyFiles) {
       try {
-        mkdirSync(dirname(windowsUpdateReadyFile), { recursive: true });
-        writeFileSync(windowsUpdateReadyFile, JSON.stringify({
+        mkdirSync(dirname(readyFile), { recursive: true });
+        writeFileSync(readyFile, JSON.stringify({
           version: app.getVersion(),
+          gitSha: expectedServiceIdentity.gitSha,
+          uiFingerprint: expectedServiceIdentity.uiFingerprint,
+          runtimeFingerprint: expectedServiceIdentity.runtimeFingerprint,
+          distribution: expectedServiceIdentity.distribution,
           readyAt: new Date().toISOString(),
           port: service.port,
         }), "utf8");
@@ -508,7 +769,63 @@ function registerIPC() {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
       return { status: "unavailable", currentVersion: app.getVersion() };
     }
-    if (process.platform !== "win32" || !app.isPackaged || isolationContext.qaRun) {
+    if (!app.isPackaged || isolationContext.qaRun) {
+      return { status: "unsupported", currentVersion: app.getVersion() };
+    }
+    if (process.platform === "darwin") {
+      if (macosUpdateInstallPromise) return macosUpdateInstallPromise;
+      macosUpdateInstallPromise = (async () => {
+        const controller = new AbortController();
+        macosUpdateDownloadController = controller;
+        try {
+          const release = await checkForMosaUpdate({
+            currentVersion: app.getVersion(),
+            currentDistribution: expectedServiceIdentity.distribution,
+            releaseManifestTrust: expectedServiceIdentity.releaseManifestTrust,
+          });
+          if (!release.updateAvailable) return { status: "current", currentVersion: release.currentVersion };
+          if (!release.macArtifact) return { status: "unavailable", currentVersion: release.currentVersion };
+          const installAppPath = resolveMacosInstallAppPath(process.execPath);
+          if (!installAppPath) return { status: "unsupported", currentVersion: release.currentVersion };
+          const download = await downloadMacosUpdate({
+            artifact: release.macArtifact,
+            version: release.latestVersion,
+            stagingRoot: MACOS_UPDATE_STAGING_ROOT,
+            signal: controller.signal,
+            onProgress: (progress) => {
+              if (!mainWindow || mainWindow.isDestroyed()) return;
+              mainWindow.webContents.send("update-download-progress", progress);
+            },
+          });
+          if (macosUpdateDownloadController === controller) macosUpdateDownloadController = null;
+          await launchMacosUpdateHelper({
+            zipPath: download.zipPath,
+            installAppPath,
+            version: release.latestVersion,
+            expectedIdentity: release.buildIdentity,
+            processId: process.pid,
+            libraryDir,
+          });
+          shuttingDown = true;
+          stopBridgeNotificationPoll();
+          stopAnonymousUsageLifecycle();
+          await stopOwnedRuntime();
+          await releaseDesktopStartupHandoff();
+          app.exit(0);
+          return { status: "installing", latestVersion: release.latestVersion };
+        } catch (error) {
+          if (controller.signal.aborted) {
+            return { status: "cancelled", currentVersion: app.getVersion() };
+          }
+          console.warn(`[MOSA] macOS update failed: ${error?.message || error}`);
+          return { status: "error", currentVersion: app.getVersion(), code: "MACOS_UPDATE_FAILED" };
+        } finally {
+          if (macosUpdateDownloadController === controller) macosUpdateDownloadController = null;
+        }
+      })().finally(() => { macosUpdateInstallPromise = null; });
+      return macosUpdateInstallPromise;
+    }
+    if (process.platform !== "win32") {
       return { status: "unsupported", currentVersion: app.getVersion() };
     }
     if (windowsUpdateInstallPromise) return windowsUpdateInstallPromise;
@@ -518,7 +835,11 @@ function registerIPC() {
       try {
       // Re-read the first-party manifest in the trusted main process instead of
       // accepting a renderer-supplied URL, filename or digest.
-      const release = await checkForMosaUpdate({ currentVersion: app.getVersion() });
+      const release = await checkForMosaUpdate({
+        currentVersion: app.getVersion(),
+        currentDistribution: expectedServiceIdentity.distribution,
+        releaseManifestTrust: expectedServiceIdentity.releaseManifestTrust,
+      });
       if (!release.updateAvailable) return { status: "current", currentVersion: release.currentVersion };
       if (!release.windowsArtifact) return { status: "unavailable", currentVersion: release.currentVersion };
       const download = await downloadWindowsUpdate({
@@ -536,6 +857,8 @@ function registerIPC() {
         zipPath: download.zipPath,
         installDir: dirname(process.execPath),
         exeName: "MOSA.exe",
+        version: release.latestVersion,
+        expectedIdentity: release.buildIdentity,
         processId: process.pid,
       });
 
@@ -562,8 +885,9 @@ function registerIPC() {
 
   ipcMain.handle("cancel-update-download", async (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false };
-    if (!windowsUpdateDownloadController || windowsUpdateDownloadController.signal.aborted) return { ok: false };
-    windowsUpdateDownloadController.abort(new Error("Windows update download cancelled by the user."));
+    const controller = process.platform === "darwin" ? macosUpdateDownloadController : windowsUpdateDownloadController;
+    if (!controller || controller.signal.aborted) return { ok: false };
+    controller.abort(new Error("MOSA update download cancelled by the user."));
     return { ok: true };
   });
 
@@ -733,7 +1057,11 @@ function runUpdateCheck({ notify = false } = {}) {
   const currentVersion = app.getVersion();
   if (isolationContext.qaRun) return Promise.resolve({ status: "disabled", currentVersion });
   if (updateCheckPromise) return updateCheckPromise;
-  updateCheckPromise = checkForMosaUpdate({ currentVersion })
+  updateCheckPromise = checkForMosaUpdate({
+    currentVersion,
+    currentDistribution: expectedServiceIdentity.distribution,
+    releaseManifestTrust: expectedServiceIdentity.releaseManifestTrust,
+  })
     .then((result) => {
       if (notify && result.updateAvailable && Notification.isSupported()) {
         const copy = getUpdateNotificationText(result.latestVersion, currentLocale);
@@ -750,7 +1078,10 @@ function runUpdateCheck({ notify = false } = {}) {
       return {
         status: "ok",
         ...result,
-        canInstallInApp: process.platform === "win32" && app.isPackaged && Boolean(result.windowsArtifact),
+        canInstallInApp: app.isPackaged && (
+          (process.platform === "win32" && Boolean(result.windowsArtifact))
+          || (process.platform === "darwin" && Boolean(result.macArtifact) && Boolean(resolveMacosInstallAppPath(process.execPath)))
+        ),
       };
     })
     .catch((error) => {
@@ -881,10 +1212,14 @@ async function ensureDesktopService() {
   serviceStartPromise = (async () => {
     serviceManagerModulePromise ||= import("./service-manager.mjs");
     const {
+      probeMosaService,
       shouldAllowSameVersionServiceReplacement,
       shouldAllowStaleServiceUpgrade,
       startMosaService,
     } = await serviceManagerModulePromise;
+    await desktopStartupHandoffPromise;
+    if (desktopStartupHandoffError) throw desktopStartupHandoffError;
+    await waitForSupervisorHandoffYield({ probeMosaService });
     const clientToken = process.env.MOSA_CLIENT_TOKEN
       || await loadOrCreateMosaClientToken(desktopDataDir);
     const webCaptureToken = process.env.MOSA_WEB_CAPTURE_TOKEN
@@ -894,6 +1229,7 @@ async function ensureDesktopService() {
     const nextService = await startMosaService({
       port: desktopPort,
       libraryDir,
+      preferOwnedRuntime: process.platform === "darwin" && app.isPackaged && Boolean(desktopStartupHandoffLease || macosUpdateReadyFile),
       allowPortFallback: !process.env.MOSA_DESKTOP_PORT,
       failOnPrimaryLibraryMismatch: true,
       allowStaleServiceUpgrade: shouldAllowStaleServiceUpgrade({
@@ -917,6 +1253,10 @@ async function ensureDesktopService() {
         projectRoot: appRoot,
         managerDir: appRoot,
         cowartProjectDir: desktopDataDir,
+        visualModel: {
+          userDataDir: desktopDataDir,
+          settings: await visualModelManager.runtimeConfig(),
+        },
         appDir: join(appRoot, "app"),
         assetsRoot: join(libraryDir, "assets"),
         generatedImagesDir: join(libraryDir, "imports"),
@@ -932,11 +1272,38 @@ async function ensureDesktopService() {
       throw new Error("MOSA startup was cancelled during shutdown.");
     }
     service = nextService;
+    await releaseDesktopStartupHandoff();
     return service;
   })().finally(() => {
     serviceStartPromise = null;
   });
   return serviceStartPromise;
+}
+
+async function waitForSupervisorHandoffYield({ probeMosaService, timeoutMs = 2_000, pollMs = 100 } = {}) {
+  if (process.platform !== "darwin" || (!desktopStartupHandoffLease && !macosUpdateReadyFile) || typeof probeMosaService !== "function") return;
+  const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+  while (Date.now() < deadline) {
+    const status = await probeMosaService({
+      port: desktopPort,
+      libraryDir,
+      timeoutMs: Math.min(500, Math.max(100, Number(pollMs) || 100)),
+    });
+    if (status.state !== "attached") return;
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, Math.max(25, Number(pollMs) || 100)));
+  }
+}
+
+async function releaseDesktopStartupHandoff() {
+  const lease = desktopStartupHandoffLease;
+  desktopStartupHandoffLease = null;
+  if (!lease) return false;
+  try {
+    return await lease.release();
+  } catch (error) {
+    console.warn(`[MOSA] failed to release desktop startup handoff marker: ${error?.message || error}`);
+    return false;
+  }
 }
 
 function denyBrowserPermissions() {
@@ -1072,5 +1439,8 @@ function reportStartupFailure(error) {
   dialog.showErrorBox(getDesktopText("startupErrorTitle", currentLocale), message);
   shuttingDown = true;
   stopBridgeNotificationPoll();
-  void stopOwnedRuntime().catch(console.error).finally(() => app.exit(1));
+  void Promise.allSettled([
+    stopOwnedRuntime(),
+    releaseDesktopStartupHandoff(),
+  ]).finally(() => app.exit(1));
 }

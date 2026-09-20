@@ -83,11 +83,13 @@ const state = {
   stagingInProgress: false, // P1-3: Prevent concurrent staging requests
   stagingCanceled: false, // A close during staging invalidates the late result and cleans it up
   productVersion: "",
+  webCaptureStatus: null,
   updateStatus: "idle",
   latestVersion: "",
   updatePublishedAt: "",
   updateCanInstallInApp: false,
   updateDownloadPercent: 0,
+  visualModelStatus: null,
   darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null,
   sidebarSmartCollapsed: safeStorageGet("mosa.sidebar-smart-collapsed") === "true",
   sidebarManualCollapsed: safeStorageGet("mosa.sidebar-manual-collapsed") === "true",
@@ -452,6 +454,11 @@ async function prepareImportFile(file, { openModal = true } = {}) {
 }
 
 // ===== Drag & Drop =====
+function currentDropImportMetadata() {
+  const group = String(state.facets.group || "").trim();
+  return group ? { group } : {};
+}
+
 function setupDragDrop() {
   const library = els.assetGrid?.closest(".library");
   if (!library) return;
@@ -511,7 +518,7 @@ function setupDragDrop() {
       if (unsupported) showToast(t("errorPathUnsupported"), "error");
       return;
     }
-    void batchImporter.enqueue(files);
+    void batchImporter.enqueue(files, { metadata: currentDropImportMetadata() });
   });
 }
 
@@ -748,8 +755,9 @@ function setupKeyboardShortcuts() {
         event.preventDefault();
         return;
       }
-      if (state.viewMode === "library" && state.detailOpen && isInspectorDocked()) {
-        if (state.activeStackId) { event.preventDefault(); void assetStacks.exitStack(); }
+      if (state.viewMode === "library" && state.detailOpen && isInspectorDocked() && state.activeStackId) {
+        event.preventDefault();
+        void assetStacks.exitStack();
         return;
       }
       if (state.viewMode === "asset" || state.detailOpen) { event.preventDefault(); void closeDetailSurface(); return; }
@@ -832,7 +840,7 @@ const { resetImageZoom, zoomImage, panImagePreview, setupImageZoomPan,
 const inspectorMarkup = createInspectorMarkup({ state, t, referenceRightsMarkup });
 const { detailFileSectionMarkup, detailPromptSectionMarkup, detailSourceSectionMarkup,
   detailVersionSectionMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup,
-  detailMoreSectionMarkup, versionPickerMarkup, versionHistoryMarkup,
+  detailMoreSectionMarkup, versionPickerMarkup, versionCompareMarkup, versionHistoryMarkup,
   generationHistoryMarkup, recipeHistoryMarkup, sourceCopyValue, isVideoAsset,
   assetMediaPreviewMarkup, stackInspectorMarkup, promptReferencesMarkup } = inspectorMarkup;
 
@@ -948,10 +956,10 @@ async function init() {
     setupKeyboardShortcuts();
     setupImageZoomPan();
     renderGrid();
-    // Desktop V2 keeps the Inspector as a permanent third column. Calling the
-    // existing state transition before data loading also prevents a visible
-    // two-column -> three-column jump during startup; mobile still resolves to
-    // the closed state because isInspectorDocked() is false there.
+    // Desktop V2 starts with the Inspector as the third column. Calling the
+    // existing state transition before data loading prevents a visible
+    // two-column -> three-column jump during startup; an explicit close action
+    // can still collapse it afterwards. Mobile starts closed.
     setDetailOpen(false);
     try {
       // Build identity is the readiness gate for the renderer. Do not let
@@ -1087,6 +1095,66 @@ async function checkForUpdates({ notify = false, silent = false } = {}) {
   }
 }
 
+function visualModelStatusMarkup() {
+  const visual = state.visualModelStatus;
+  if (!visual) return `<span class="settings-static-value">${escapeHtml(t("visualModelChecking"))}</span>`;
+  const stateKey = visual.state === "ready"
+    ? "visualModelReady"
+    : visual.state === "runtime-unavailable"
+      ? "visualModelRuntimeUnavailable"
+      : visual.state === "loading"
+        ? "visualModelLoading"
+        : visual.state === "error"
+          ? "visualModelError"
+          : visual.state === "disabled"
+            ? "visualModelDisabled"
+            : visual.state === "not-installed"
+              ? "visualModelNotInstalled"
+              : "visualModelUnavailable";
+  const pack = visual.active_pack;
+  const bytes = Number(pack?.total_bytes || 0);
+  const sizeLabel = bytes > 0 ? ` · ${(bytes / (1024 * 1024)).toFixed(bytes >= 100 * 1024 * 1024 ? 0 : 1)} MB` : "";
+  const modelLabel = pack ? `${pack.id} · ${pack.revision}${sizeLabel}` : "";
+  const distribution = visual.distribution || {};
+  const progress = distribution.progress || null;
+  const progressPercent = Math.max(0, Math.min(100, Math.round(Number(progress?.percent) || 0)));
+  const releaseBytes = Number(distribution.release?.total_size || 0);
+  const releaseSize = releaseBytes > 0 ? ` · ${(releaseBytes / (1024 * 1024)).toFixed(0)} MB` : "";
+  const releaseLabel = !pack && distribution.release
+    ? `${distribution.release.id} · ${distribution.release.license?.id || ""}${releaseSize}`
+    : "";
+  const actions = [];
+  if (progress && ["preparing", "downloading", "verifying", "installing"].includes(progress.phase)) {
+    actions.push(`<span class="visual-model-progress">${escapeHtml(t(progress.phase === "verifying" ? "visualPackVerifying" : progress.phase === "installing" ? "visualPackInstalling" : "visualPackDownloading"))} ${progressPercent}%</span>`);
+    if (window.electronAPI?.cancelVisualPackInstall) actions.push(`<button class="settings-text-action" type="button" data-visual-pack-cancel>${escapeHtml(t("visualPackCancel"))}</button>`);
+  } else if ((distribution.action === "install" || distribution.action === "update") && window.electronAPI?.installVisualPack) {
+    actions.push(`<button class="settings-text-action" type="button" data-visual-pack-install>${escapeHtml(t(distribution.action === "update" ? "visualPackUpdate" : "visualPackInstall"))}</button>`);
+  }
+  if (visual.installed && window.electronAPI?.setVisualModelEnabled) {
+    actions.push(`<button class="settings-text-action" type="button" data-visual-model-toggle>${escapeHtml(t(visual.enabled ? "visualModelDisable" : "visualModelEnable"))}</button>`);
+  }
+  if (visual.installed && window.electronAPI?.removeVisualPack) {
+    actions.push(`<button class="settings-text-action settings-text-action-danger" type="button" data-visual-pack-remove>${escapeHtml(t("visualPackRemove"))}</button>`);
+  }
+  const releaseNote = distribution.error
+    ? `<span class="visual-model-error">${escapeHtml(t("visualPackReleaseUnavailable"))}</span>`
+    : (!visual.installed && distribution.action === "unavailable")
+      ? `<span class="visual-model-error">${escapeHtml(t("visualPackNotPublished"))}</span>`
+      : "";
+  return `<div class="visual-model-status"><strong>${escapeHtml(t(stateKey))}</strong>${modelLabel ? `<span>${escapeHtml(modelLabel)}</span>` : ""}${releaseLabel ? `<span>${escapeHtml(releaseLabel)}</span>` : ""}${releaseNote}${actions.join("")}</div>`;
+}
+
+async function refreshVisualModelStatus({ force = false } = {}) {
+  if (!window.electronAPI?.getVisualModelState) return null;
+  try {
+    state.visualModelStatus = await window.electronAPI.getVisualModelState(force === true);
+  } catch {
+    state.visualModelStatus = { mode: "mosa-local", state: "unavailable", installed: false, enabled: false };
+  }
+  syncSettingsMenuView();
+  return state.visualModelStatus;
+}
+
 function syncSettingsMenuView() {
   const menu = els.settingsMenu;
   if (!menu?.querySelector(".settings-modal-card")) return;
@@ -1109,6 +1177,8 @@ function syncSettingsMenuView() {
   if (storageNode) storageNode.textContent = state.storageKind === "sqlite" ? t("storageEngineValue") : (state.storageKind && state.storageKind !== "unknown" ? state.storageKind : "—");
   const versionNode = menu.querySelector("[data-settings-version]");
   if (versionNode) versionNode.textContent = updateVersionSummary();
+  const visualNode = menu.querySelector("[data-settings-visual-model]");
+  if (visualNode) visualNode.innerHTML = visualModelStatusMarkup();
   const updateAction = menu.querySelector("[data-settings-update-action]");
   if (updateAction) {
     const markup = updateVersionControlMarkup();
@@ -1158,9 +1228,16 @@ function renderSettingsMenu({ force = false } = {}) {
     row(settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("libraryPath"), `<span class="settings-path" data-settings-library-path title="${path}">${path}</span>`, changeLibraryControl, "settings-library-row"),
     row(settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6"), t("storageEngine"), "", `<span class="settings-static-value" data-settings-storage-engine>${escapeHtml(storageLabel)}</span>`),
   ].join("");
+  const visualRows = row(
+    settingIcon("M5 7h14M7 4v6M17 4v6M6 14h12M8 11v6M16 11v6M5 20h14"),
+    t("visualModelTitle"),
+    t("visualModelDescription"),
+    `<div data-settings-visual-model>${visualModelStatusMarkup()}</div>`,
+    "settings-visual-model-row",
+  );
   const aboutRow = row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), `<span data-settings-version>${escapeHtml(updateVersionSummary())}</span>`, `<div data-settings-update-action>${updateVersionControlMarkup()}</div>`, "settings-about-row");
 
-  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" tabindex="-1"><header class="settings-modal-header"><h2 id="settingsModalTitle">${t("settings")}</h2><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${section(t("appearance"), appearanceRows)}${section(t("storageDataSection"), storageRows)}${section(t("aboutSection"), aboutRow, "settings-about-block")}</div></div>`;
+  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" tabindex="-1"><header class="settings-modal-header"><h2 id="settingsModalTitle">${t("settings")}</h2><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${section(t("appearance"), appearanceRows)}${section(t("storageDataSection"), storageRows)}${section(t("visualModelSection"), visualRows)}${section(t("aboutSection"), aboutRow, "settings-about-block")}</div></div>`;
   syncSettingsMenuView();
   if (refreshingVisibleDialog) requestAnimationFrame(() => els.settingsMenu?.removeAttribute("data-refreshing"));
 }
@@ -1465,7 +1542,9 @@ function startLibraryEventStream() {
   });
 }
 
-function applyBridgeStatus({ codex, grok, cowart } = {}) {
+function applyBridgeStatus({ codex, grok, cowart, webCapture } = {}) {
+    state.webCaptureStatus = webCapture || null;
+    syncSettingsMenuView();
     // Required bridges only: a Grok-only failure must not force global error status.
     const hasError = codex?.lastError || cowart?.lastError;
     const codexOn = Boolean(codex?.enabled);
@@ -1963,6 +2042,59 @@ function bindEvents() {
       })();
       return;
     }
+    const visualToggleButton = event.target.closest("[data-visual-model-toggle]");
+    if (visualToggleButton && window.electronAPI?.setVisualModelEnabled) {
+      visualToggleButton.disabled = true;
+      void runAction(async () => {
+        try {
+          const nextEnabled = state.visualModelStatus?.enabled !== true;
+          state.visualModelStatus = await window.electronAPI.setVisualModelEnabled(nextEnabled);
+          syncSettingsMenuView();
+          showToast(t(nextEnabled ? "visualModelEnabledToast" : "visualModelDisabledToast"), "success");
+        } catch (error) {
+          showToast(error?.message || t("visualModelUnavailable"), "error");
+          await refreshVisualModelStatus({ force: true });
+        }
+      });
+      return;
+    }
+    const visualPackInstallButton = event.target.closest("[data-visual-pack-install]");
+    if (visualPackInstallButton && window.electronAPI?.installVisualPack) {
+      visualPackInstallButton.disabled = true;
+      void runAction(async () => {
+        try {
+          const result = await window.electronAPI.installVisualPack();
+          if (result?.state) state.visualModelStatus = result.state;
+          syncSettingsMenuView();
+          if (result?.ok) showToast(t("visualPackInstalledToast"), "success");
+        } catch (error) {
+          showToast(error?.message || t("visualPackInstallFailed"), "error");
+          await refreshVisualModelStatus({ force: true });
+        }
+      });
+      return;
+    }
+    const visualPackCancelButton = event.target.closest("[data-visual-pack-cancel]");
+    if (visualPackCancelButton && window.electronAPI?.cancelVisualPackInstall) {
+      visualPackCancelButton.disabled = true;
+      void window.electronAPI.cancelVisualPackInstall();
+      return;
+    }
+    const visualPackRemoveButton = event.target.closest("[data-visual-pack-remove]");
+    if (visualPackRemoveButton && window.electronAPI?.removeVisualPack) {
+      visualPackRemoveButton.disabled = true;
+      void runAction(async () => {
+        try {
+          const result = await window.electronAPI.removeVisualPack();
+          if (result?.cancelled) return;
+          if (result?.ok) showToast(t("visualPackRemovedToast"), "success");
+        } catch (error) {
+          showToast(error?.message || t("visualPackRemoveFailed"), "error");
+          await refreshVisualModelStatus({ force: true });
+        }
+      });
+      return;
+    }
     const checkUpdatesButton = event.target.closest("[data-check-updates]");
     if (checkUpdatesButton) { void checkForUpdates(); return; }
     const cancelUpdateButton = event.target.closest("[data-cancel-update]");
@@ -2141,6 +2273,15 @@ function bindDesktopIntegration() {
     if (state.updateStatus !== "downloading") state.updateStatus = "downloading";
     syncSettingsMenuView();
   });
+  api.onVisualPackProgress?.((progress) => {
+    if (!state.visualModelStatus) return;
+    state.visualModelStatus.distribution ||= {};
+    state.visualModelStatus.distribution.progress = progress || null;
+    if (progress && ["preparing", "downloading", "verifying", "installing"].includes(progress.phase)) {
+      state.visualModelStatus.distribution.action = "installing";
+    }
+    syncSettingsMenuView();
+  });
 }
 
 async function pasteClipboardImage() {
@@ -2224,16 +2365,14 @@ function setSidebarNavigationState(type, value = "") {
 
   if (SCOPES.includes(navType)) {
     state.scope = navType;
-    state.facets.source = "";
-    state.facets.group = "";
+    clearFacets();
     return true;
   }
 
   if (navType === "source" || navType === "group") {
     const wasActive = isSidebarNavigationActive(navType, navValue);
     state.scope = "all";
-    state.facets.source = "";
-    state.facets.group = "";
+    clearFacets();
     if (!wasActive) state.facets[navType] = navValue;
     return true;
   }
@@ -2370,6 +2509,7 @@ async function saveAsset() {
     catch { showImportError("businessFields", t("errorInvalidJson")); return; }
   }
   const originProjectId = state.project;
+  const originStackId = state.activeStackId || "";
   const originAssetId = state.selectedId;
   const hadDetailDraft = state.detailDirty;
   // 防重窗口必须先于 confirmDetailNavigation 的网络级冲刷打开（PATCH + 两次
@@ -2378,7 +2518,7 @@ async function saveAsset() {
   setImportBusy(true);
   try {
     if (hadDetailDraft && !await confirmDetailNavigation(null)) return;
-    const result = await apiFetch("/api/assets/create", { method: "POST", body: { projectId: originProjectId, imagePath: els.imagePathInput.value, prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, ratio: els.ratioInput.value, theme: els.themeInput.value, group: els.groupInput.value, category: els.categoryInput.value, tags: uniqueTags([...(derivePromptTags({ prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, theme: els.themeInput.value, category: els.categoryInput.value }))]), business_fields: businessFields } });
+    const result = await apiFetch("/api/assets/create", { method: "POST", body: { projectId: originProjectId, ...(originStackId ? { stackId: originStackId } : {}), imagePath: els.imagePathInput.value, prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, ratio: els.ratioInput.value, theme: els.themeInput.value, group: els.groupInput.value, category: els.categoryInput.value, tags: uniqueTags([...(derivePromptTags({ prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, theme: els.themeInput.value, category: els.categoryInput.value }))]), business_fields: businessFields } });
     if (hadDetailDraft && originProjectId === state.project && originAssetId === state.selectedId) discardDetailDraft();
     state.selectedId = result.asset.id;
     clearImportForm(); closeImportModal({ force: true }); showToast(`${t("savedAsset")} · ${result.asset.id}`, "success");
@@ -4230,7 +4370,7 @@ async function closeDetailSurface() {
   discardDetailDraft();
   if (state.viewMode === "asset") returnToLibrary();
   else {
-    setDetailOpen(false);
+    setDetailOpen(false, { allowDockedClose: true });
     if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId && asset.project_id === state.project)) clearDetailSelection();
   }
   return true;
@@ -4257,10 +4397,10 @@ function updateSelectedCard() {
   }
   lastSelectedCardId = state.selectedId || null;
 }
-function setDetailOpen(open) {
+function setDetailOpen(open, { allowDockedClose = false } = {}) {
   const wasOpen = state.detailOpen;
   state.detailOpen = Boolean(open);
-  if (!state.detailOpen && isInspectorDocked()) state.detailOpen = true;
+  if (!state.detailOpen && isInspectorDocked() && !allowDockedClose) state.detailOpen = true;
   els.appShell?.classList.toggle("details-open", state.detailOpen); document.body.classList.toggle("detail-open", state.detailOpen); els.detailPanel?.setAttribute("aria-hidden", String(!state.detailOpen));
   // The inspector shell is persistent while browsing assets. Scope the materialize
   // animation to a real closed -> open transition so changing the selected asset
@@ -4345,8 +4485,10 @@ function openSettingsModal() {
   // Settings is rendered on demand so library path/stat changes that landed
   // after startup are always reflected when the user opens this single panel.
   renderSettingsMenu();
+  void refreshVisualModelStatus({ force: true });
   els.settingsMenu.hidden = false;
   els.settingsToggle?.setAttribute("aria-expanded", "true");
+  void refreshBridgeStatus();
   requestAnimationFrame(() => els.settingsMenu?.querySelector(".settings-modal-card")?.focus());
 }
 function closeSettingsModal({ restoreFocus = true } = {}) {
@@ -5174,10 +5316,12 @@ async function loadVersionHistory(asset) {
     if (requestId !== versionHistoryRequestSequence || `${state.project}\u0000${state.selectedId}` !== selectedKey) return;
     state.versionHistory = result.history;
     renderVersionPickerRegion(result.history, asset.id);
+    renderVersionCompareRegion(result.history, asset.id);
     renderVersionHistoryRegion(result.history, asset.id);
   } catch (error) {
     if (requestId !== versionHistoryRequestSequence || `${state.project}\u0000${state.selectedId}` !== selectedKey) return;
     renderVersionPickerRegion(null, asset.id, error);
+    renderVersionCompareRegion(null, asset.id, error);
     renderVersionHistoryRegion(null, asset.id, error);
   }
 }
@@ -5197,6 +5341,28 @@ function bindVersionPickerEvents() {
   const select = els.detailPanel?.querySelector("[data-version-select]");
   if (!select) return;
   select.addEventListener("change", () => selectDetailVersion(select.value));
+}
+function renderVersionCompareRegion(history, selectedId, error = null, baseId = "", targetId = "") {
+  const region = els.detailPanel?.querySelector("[data-version-compare]");
+  if (!region || state.selectedId !== selectedId) return;
+  region.innerHTML = error
+    ? `<p class="version-history-status error" role="status">${escapeHtml(t("versionLoadFailed"))}: ${escapeHtml(error.message)}</p>`
+    : versionCompareMarkup(history, selectedId, baseId, targetId);
+  bindVersionCompareEvents(history, selectedId);
+}
+function bindVersionCompareEvents(history, selectedId) {
+  if (!history) return;
+  const base = els.detailPanel?.querySelector("[data-version-compare-base]");
+  const target = els.detailPanel?.querySelector("[data-version-compare-target]");
+  if (!base || !target) return;
+  const rerender = (focusTarget) => {
+    const baseId = base.value;
+    const targetId = target.value;
+    renderVersionCompareRegion(history, selectedId, null, baseId, targetId);
+    requestAnimationFrame(() => els.detailPanel?.querySelector(focusTarget)?.focus({ preventScroll: true }));
+  };
+  base.addEventListener("change", () => rerender("[data-version-compare-base]"));
+  target.addEventListener("change", () => rerender("[data-version-compare-target]"));
 }
 function renderVersionHistoryRegion(history, selectedId, error = null) {
   const region = els.detailPanel?.querySelector("[data-version-history]");
@@ -5351,7 +5517,6 @@ function bindDetailEvents(asset, renderId) {
     field.addEventListener("input", markDirty);
     field.addEventListener("change", markDirty);
   });
-  panel.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => { void closeDetailSurface(); });
   // Phase 4A 区块 2：Detail 内收藏——复用既有 toggleFavorite（同一收藏 API），不切换
   // 素材、不返回 Library；loadAssets 后 renderDetail 重渲染按 asset.favorite 重绘本按钮。
   panel.querySelector('[data-action="toggle-favorite"]')?.addEventListener("click", (event) => toggleFavorite(asset.id, event));

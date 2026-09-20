@@ -5,6 +5,8 @@ import { access, lstat, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/pr
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { desktopDistributionFromEnvironment, normalizeDesktopDistribution, requiresPlatformSigning } from "../lib/release-distribution.mjs";
+import { verifyMacosReleaseApp } from "./verify-macos-release.mjs";
 
 export const MOSA_MAC_APP_NAME = "MOSA";
 export const MOSA_MAC_BUNDLE_ID = "com.azhuilab.mosa";
@@ -136,7 +138,7 @@ export async function makeMacosDmg({
   rootDir = process.cwd(),
   outDir = process.env.MOSA_FORGE_OUT_DIR || "out",
   arch = MOSA_MAC_ARCH,
-  release = process.env.MOSA_RELEASE_BUILD === "1",
+  distribution = desktopDistributionFromEnvironment(process.env),
   platform = process.platform,
   env = process.env,
   runner = runCommand,
@@ -155,11 +157,13 @@ export async function makeMacosDmg({
   const metadata = await readMacAppMetadata(appPath, runner);
   assertMacAppMetadata(metadata, version);
 
+  const normalizedDistribution = normalizeDesktopDistribution(distribution);
+  const production = requiresPlatformSigning(normalizedDistribution);
   let credentials = null;
-  if (release) {
-    credentials = macDmgReleaseCredentials(env);
-    await runner("/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath]);
+  if (normalizedDistribution !== "development") {
+    await verifyMacosReleaseApp({ appPath, env, runner, staple: false, distribution: normalizedDistribution });
   }
+  if (production) credentials = macDmgReleaseCredentials(env);
 
   const dmgPath = macDmgOutputPath({ rootDir, outDir, version, arch });
   await mkdir(dirname(dmgPath), { recursive: true });
@@ -197,9 +201,9 @@ export async function makeMacosDmg({
     await runner("/usr/bin/hdiutil", ["detach", mountPath]);
     mounted = false;
 
-    if (release) await signAndNotarizeDmg({ dmgPath, credentials, runner });
+    if (production) await signAndNotarizeDmg({ dmgPath, credentials, runner });
     await access(dmgPath);
-    return { dmgPath, appPath, version, bundleId: metadata.bundleId, release };
+    return { dmgPath, appPath, version, bundleId: metadata.bundleId, distribution: normalizedDistribution };
   } finally {
     if (mounted) {
       await runner("/usr/bin/hdiutil", ["detach", mountPath, "-force"]).catch(() => {});

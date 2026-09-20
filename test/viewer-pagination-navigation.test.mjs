@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
+import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const readApp = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
@@ -367,5 +368,6 @@ test("26. transform resets on switch", async () => {
 // 27. The lockfile is untouched by Batch 2A.
 test("27. package-lock unchanged", async () => {
   const lock = await readLock();
-  assert.equal(sha256(lock), "51f3ff53219df2cfe3ea27ad9caf932a0cadbe062fec8905a11e39819a81fe54", "package-lock.json must not change in Batch 2A");
+  const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
+  assertPackageLockMatchesManifest(lock, manifest, "package-lock.json must preserve dependency identity");
 });

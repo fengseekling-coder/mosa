@@ -153,6 +153,33 @@ test("root search maps hidden member matches back to one stack cover node", asyn
   assert.deepEqual(inside.assets.map((asset) => asset.id), ["b", "c"]);
 });
 
+test("root search finds a collapsed Stack by its custom name without changing member-search semantics", async (t) => {
+  const store = await createFixtureStore(t);
+  await store.updateMetadata("default", "b", { group: "Campaign" });
+  const stack = await store.createAssetStack("default", ["a", "b", "c"], { coverAssetId: "a" });
+  await store.renameAssetStack("default", stack.id, "Autumn Launch Visuals");
+
+  const page = await store.listAssetPage({ projectId: "default", query: "autumn launch", limit: 100, collapseStacks: true });
+  assert.equal(page.page.total, 1);
+  assert.deepEqual(page.assets.map((asset) => asset.id), ["a"]);
+  assert.deepEqual(page.assets[0].stack, { id: stack.id, count: 3, name: "Autumn Launch Visuals" });
+
+  const filtered = await store.listAssetPage({
+    projectId: "default",
+    query: "autumn launch",
+    group: "Campaign",
+    limit: 100,
+    collapseStacks: true,
+  });
+  assert.deepEqual(filtered.assets.map((asset) => asset.id), ["a"], "the Stack name match still respects member facets");
+  assert.equal(filtered.assets[0].stack.match_count, 1);
+
+  const inside = await store.listAssetStackAssets("default", stack.id, { query: "autumn launch" });
+  assert.deepEqual(inside.assets, [], "Stack-interior search continues to match member metadata, not the container name");
+  const raw = await store.listAssetPage({ projectId: "default", query: "autumn launch", limit: 100 });
+  assert.deepEqual(raw.assets, [], "raw asset queries do not manufacture asset matches from the Stack label");
+});
+
 test("root and Stack-interior searches share the same asset-kind intent semantics", async (t) => {
   const store = await createFixtureStore(t);
   await store.updateMetadata("default", "b", { prompt: "logo mark exploration" });

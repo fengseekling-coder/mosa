@@ -208,10 +208,10 @@ test("sidebar primary, smart-source, and manual-group navigation stay mutually e
   const rendering = sliceBetween(app, "function renderQuickFilters()", "function syncSidebarSectionVisibility()");
 
   assert.match(navigation, /function setSidebarNavigationState\(type, value = ""\)/);
-  assert.match(navigation, /state\.facets\.source = "";\s*state\.facets\.group = "";/,
-    "switching sidebar zones clears the other group/source selection");
-  assert.match(navigation, /state\.scope = "all";\s*state\.facets\.source = "";\s*state\.facets\.group = "";\s*if \(!wasActive\) state\.facets\[navType\] = navValue;/,
-    "smart/manual group navigation replaces the primary scope instead of intersecting it");
+  assert.match(navigation, /if \(SCOPES\.includes\(navType\)\) \{\s*state\.scope = navType;\s*clearFacets\(\);/,
+    "primary sidebar navigation clears source-specific hidden facets");
+  assert.match(navigation, /state\.scope = "all";\s*clearFacets\(\);\s*if \(!wasActive\) state\.facets\[navType\] = navValue;/,
+    "smart/manual group navigation starts from a clean facet state instead of intersecting hidden conversation or batch filters");
   assert.match(rendering, /isSidebarNavigationActive\(button\.dataset\.filter\)/,
     "primary navigation active styling uses the shared exclusive selection");
   assert.match(rendering, /isSidebarNavigationActive\("source", sourceType\)/,

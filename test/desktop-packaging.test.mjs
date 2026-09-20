@@ -11,6 +11,7 @@ import forgeConfig, {
   packageIgnorePatternsForTarget,
   preparePackagedRuntime,
   resolveDesktopPackagingTarget,
+  windowsReleasePackagingConfig,
 } from "../desktop/forge.config.mjs";
 import {
   DESKTOP_ICON_SOURCE_PATH,
@@ -115,10 +116,11 @@ test("desktop packaging target resolution supports only the approved macOS and W
 
 test("Windows Forge config omits mac signing and selects Windows native runtime packages", () => {
   const target = resolveDesktopPackagingTarget({ platform: "win32", arch: "x64", env: {}, argv: [] });
-  const config = createForgeConfig({ target, env: { MOSA_RELEASE_BUILD: "1" } });
+  const config = createForgeConfig({ target, env: {} });
   assert.equal("appBundleId" in config.packagerConfig, false);
   assert.equal("osxSign" in config.packagerConfig, false);
   assert.equal("osxNotarize" in config.packagerConfig, false);
+  assert.equal("windowsSign" in config.packagerConfig, false);
   assert.equal(config.packagerConfig.icon, desktopIconBasePath({ outDir: "out" }));
   assert.equal(config.packagerConfig.asar.unpackDir, "node_modules/@img/sharp-win32-x64");
   assert.equal(config.makers.some((maker) => maker.name === "zip" && maker.platforms.includes("win32")), true);
@@ -128,6 +130,36 @@ test("Windows Forge config omits mac signing and selects Windows native runtime 
   assert.equal(ignored("/node_modules/@img/sharp-win32-x64/package.json"), false);
   assert.equal(ignored("/node_modules/@img/sharp-darwin-arm64/package.json"), true);
   assert.equal(ignored("/node_modules/better-sqlite3/prebuilds/win32-x64.node"), false);
+  assert.equal(ignored("/node_modules/onnxruntime-node/dist/index.js"), true);
+  assert.equal(ignored("/node_modules/onnxruntime-common/dist/cjs/index.js"), true);
+  assert.equal(ignored("/node_modules/@huggingface/tokenizers/dist/tokenizers.mjs"), true);
+});
+
+test("Windows release packaging fails closed without explicit signing configuration", () => {
+  assert.throws(
+    () => windowsReleasePackagingConfig({ MOSA_RELEASE_DISTRIBUTION: "production" }),
+    /MOSA_WINDOWS_SIGNER_THUMBPRINT/,
+  );
+  assert.throws(
+    () => windowsReleasePackagingConfig({
+      MOSA_RELEASE_DISTRIBUTION: "production",
+      MOSA_WINDOWS_SIGNER_THUMBPRINT: "A".repeat(40),
+    }),
+    /requires a signing source/,
+  );
+});
+
+test("Windows release packaging enables SHA-256 Authenticode signing", () => {
+  const config = windowsReleasePackagingConfig({
+    MOSA_RELEASE_DISTRIBUTION: "production",
+    MOSA_WINDOWS_SIGNER_THUMBPRINT: "A".repeat(40),
+    WINDOWS_CERTIFICATE_FILE: "C:\\secrets\\mosa.pfx",
+    WINDOWS_CERTIFICATE_PASSWORD: "secret",
+  });
+  assert.equal(config.windowsSign.continueOnError, false);
+  assert.deepEqual(config.windowsSign.hashes, ["sha256"]);
+  assert.equal(config.windowsSign.certificateFile, "C:\\secrets\\mosa.pfx");
+  assert.equal(config.windowsSign.certificatePassword, "secret");
 });
 
 test("desktop icon source generates valid macOS and Windows icon containers", async (t) => {
@@ -155,12 +187,12 @@ test("desktop icon source generates valid macOS and Windows icon containers", as
 
 test("release packaging fails closed when Apple signing credentials are incomplete", () => {
   assert.throws(
-    () => macReleasePackagingConfig({ MOSA_RELEASE_BUILD: "1" }),
+    () => macReleasePackagingConfig({ MOSA_RELEASE_DISTRIBUTION: "production" }),
     /MOSA release build requires: MOSA_MACOS_SIGN_IDENTITY, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID/,
   );
   assert.throws(
     () => macReleasePackagingConfig({
-      MOSA_RELEASE_BUILD: "1",
+      MOSA_RELEASE_DISTRIBUTION: "production",
       MOSA_MACOS_SIGN_IDENTITY: "Developer ID Application: Example",
       APPLE_ID: "release@example.com",
       APPLE_TEAM_ID: "TEAM123456",
@@ -171,7 +203,7 @@ test("release packaging fails closed when Apple signing credentials are incomple
 
 test("release packaging enables Developer ID hardened signing and notarization", () => {
   const config = macReleasePackagingConfig({
-    MOSA_RELEASE_BUILD: "1",
+    MOSA_RELEASE_DISTRIBUTION: "production",
     MOSA_MACOS_SIGN_IDENTITY: "Developer ID Application: Example (TEAM123456)",
     APPLE_ID: "release@example.com",
     APPLE_APP_SPECIFIC_PASSWORD: "app-specific-password",
@@ -190,6 +222,14 @@ test("release packaging enables Developer ID hardened signing and notarization",
     teamId: "TEAM123456",
   });
   assert.equal("tool" in config.osxNotarize, false, "Forge uses the current notarization credential shape");
+});
+
+test("preview packaging never requires platform signing credentials", () => {
+  const mac = macReleasePackagingConfig({ MOSA_RELEASE_DISTRIBUTION: "preview" });
+  assert.equal(mac.osxSign.identity, "-");
+  assert.equal(mac.osxSign.identityValidation, false);
+  assert.equal("osxNotarize" in mac, false);
+  assert.deepEqual(windowsReleasePackagingConfig({ MOSA_RELEASE_DISTRIBUTION: "preview" }), {});
 });
 
 test("desktop package excludes every non-runtime project surface", () => {
@@ -215,7 +255,10 @@ test("desktop package excludes every non-runtime project surface", () => {
     "/node_modules/.package-lock.json",
     "/node_modules/@electron/asar/lib/asar.js",
     "/node_modules/@img/sharp-darwin-x64/package.json",
+    "/node_modules/@huggingface/tokenizers/dist/tokenizers.mjs",
     "/node_modules/eslint/lib/api.js",
+    "/node_modules/onnxruntime-common/dist/cjs/index.js",
+    "/node_modules/onnxruntime-node/dist/index.js",
     "/out/MOSA-darwin-arm64/MOSA.app/Contents/Info.plist",
     "/package-lock.json",
     "/README.md",
@@ -300,7 +343,7 @@ test("reduces the packaged dependency tree to arm64 runtime files", async (t) =>
       scripts: { test: "node --test" },
       bin: { mosa: "bin/mosa.mjs" },
       engines: { node: ">=22" },
-      dependencies: { "better-sqlite3": "1", sharp: "1" },
+      dependencies: { "@huggingface/tokenizers": "1", "better-sqlite3": "1", "onnxruntime-node": "1", sharp: "1" },
       devDependencies: { electron: "1" },
     }),
   );
@@ -488,7 +531,7 @@ test("retired show-in-folder IPC stays removed without expanding renderer author
   assert.doesNotMatch(preload, /stage-dropped-file/, "stage-dropped-file IPC was removed as dead code");
   assert.doesNotMatch(preload, /openFileDialog:/, "unused open-file dialog IPC was removed");
   assert.doesNotMatch(main, /ipcMain\.handle\("open-file-dialog"/, "unused open-file dialog handler was removed");
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 11, "no invoke channel beyond the eleven currently approved narrow requests");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 16, "no invoke channel beyond the currently approved narrow requests (Visual Pack lifecycle remains named and URL-free)");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "shell is never exposed to the renderer");
   assert.doesNotMatch(preload, /exec\(|spawn\(|execFile\(/, "no arbitrary command execution");
 

@@ -55,17 +55,51 @@ For reproducible native packaging, build macOS on macOS and Windows on Windows (
 
 The desktop shell defaults to `~/MOSA Library` on `127.0.0.1:43517`, the same local service used by browser capture. A user can move an owned desktop library from **Settings → Storage & data → Change location**; the selected empty directory is persisted in the desktop user-data area and becomes the library root after MOSA copies the existing library and restarts. Override the port with `MOSA_DESKTOP_PORT` only when a separate runtime is intentional, and the library with `MOSA_LIBRARY_DIR`. An explicit `MOSA_LIBRARY_DIR` always takes precedence over the saved desktop location and disables in-app relocation.
 
-At startup, the desktop shell verifies the service identity and library path. If they match, it attaches without taking ownership; quitting the app leaves that external service running. If no service is listening, the app starts an owned runtime. On macOS, closing the last window keeps the runtime available so the app can be reopened from the Dock; an explicit application quit stops an owned runtime and releases its library lock. On Windows, closing the last window quits the app because MOSA does not expose a tray re-entry point; an owned runtime is stopped through the same graceful shutdown path. A foreign listener or a MOSA service using another library is reported as a conflict and is never terminated.
+At startup, the desktop shell verifies the service identity and library path. Ordinarily, an already-running matching external service can be attached without taking ownership, while an empty port starts an owned runtime. Packaged macOS startup has one deliberate exception for the Web Capture KeepAlive handoff: as soon as the Desktop process wins Electron's single-instance lock it writes a 30-second `.mosa-desktop-starting.json` marker into the selected library. The marker is bound to the Desktop PID plus process-start identity and is ignored/removed when expired, dead, or PID-recycled. The macOS Web Capture supervisor checks that marker before spawning and while its child runtime is active; an active child receives one graceful `SIGTERM` and the supervisor enters its existing takeover grace. macOS self-update reuses the same marker protocol for compatibility with an already-loaded supervisor: after spawning the detached update helper, the old Desktop binds a 90-second handoff marker to the helper PID/start identity before releasing its runtime. The helper keeps that marker across old-app exit, extraction, replacement, relaunch, and the unchanged 45-second readiness window; the relaunched app therefore prefers an owned runtime without trying to create a competing marker. On success the helper clears the marker only after readiness is reported; on rollback it clears the marker before restoring the previous app. Packaged Desktop also has a narrow verified-owner retirement fallback so an older matching primary runtime can be retired only after re-verifying the live service, library lock owner, PID/start identity, and requested build. It never escalates to `SIGKILL`. If a marker owner dies or the marker expires, the supervisor resumes normal background fallback automatically. A foreign listener or a MOSA service using another library remains a conflict and is never terminated.
 
-Forge writes the macOS application under `out/MOSA-darwin-arm64/` and the Windows package directory under `out/MOSA-win32-x64/` with `MOSA.exe` at its root. `desktop:make` packages the macOS app and then creates `out/make/dmg/darwin/arm64/MOSA-darwin-arm64-<version>.dmg`. The DMG contains exactly `MOSA.app` plus an `Applications` symlink, and the build verifies the mounted image before returning success. The app name and bundle identifier (`com.azhuilab.mosa`) are stable across versions, so dragging a newer build onto `/Applications/MOSA.app` follows Finder's normal **Replace** flow instead of intentionally creating a second app. MOSA Library data and Electron user-data live outside the application bundle and are not replaced with the app.
+On macOS, closing the last window keeps the Desktop-owned runtime available so the app can be reopened from the Dock; an explicit application quit stops an owned runtime and releases its library lock. On Windows, closing the last window quits the app because MOSA does not expose a tray re-entry point; an owned runtime is stopped through the same graceful shutdown path.
 
-`desktop:release` uses the same DMG path but fails closed unless Developer ID signing and Apple notarization credentials are present. Forge signs/notarizes the `.app`; the DMG step then verifies that signature, signs the disk image, submits the DMG to `notarytool`, staples the ticket, and validates it. `desktop:make:windows` continues to produce the Windows portable ZIP through the configured Forge maker.
+Forge writes the macOS application under `out/MOSA-darwin-arm64/` and the Windows package directory under `out/MOSA-win32-x64/` with `MOSA.exe` at its root. `desktop:make` packages the macOS app, creates `out/make/update/darwin/arm64/MOSA-darwin-arm64-<version>.zip` for in-app updates, and then creates `out/make/dmg/darwin/arm64/MOSA-darwin-arm64-<version>.dmg` for first install/manual replacement. The update-ZIP builder prints its exact byte size, SHA-256, and `platforms.macos` release-manifest patch. The DMG contains exactly `MOSA.app` plus an `Applications` symlink, and the build verifies the mounted image before returning success. The app name and bundle identifier (`com.azhuilab.mosa`) are stable across versions. MOSA Library data and Electron user-data live outside the application bundle and are not replaced by either update path.
+
+Desktop publishing has two explicit distribution tracks. `desktop:release` is an alias for the macOS **Preview/RC** path: it still requires clean/tagged/remote Git provenance, a pinned Ed25519 release-manifest trust root, structural package verification, packaged smoke, and a valid macOS code signature, but ad-hoc signing is allowed and Apple Developer/notarization credentials are not required. `desktop:release:production` is the separate production path; it requires Developer ID signing, Hardened Runtime, notarization, stapling, and Gatekeeper acceptance before the update ZIP or DMG is accepted. On Windows, `desktop:release:windows` is the unsigned-capable Preview portable-ZIP path, while `desktop:release:windows:production` requires Authenticode configuration and verifies every executable/native payload signer. `desktop:make*` remains the ordinary local-development packaging path.
 
 Windows 10/11 x64 is currently a **Preview / testing** target. A real Windows-machine smoke cycle has verified application startup, SQLite, Sharp, the shared library/Inspector UI, and automatic Codex collection. The Windows shell keeps the native title bar but hides Electron's visible application menu row; the underlying menu remains installed so keyboard accelerators continue to work. Grok and Cowart Windows source discovery remain unverified until their real local source layouts are confirmed.
 
-Windows development builds are unsigned and SmartScreen may warn about an unknown publisher. macOS local DMGs use the existing local/ad-hoc app signing path and are not release-notarized; `desktop:release` is the release-grade signed/notarized DMG path. A Windows installer, Windows code signing, and background login launch are separate release work.
+Windows Preview builds may remain unsigned and SmartScreen may warn about an unknown publisher. Production builds require `MOSA_WINDOWS_SIGNER_THUMBPRINT` plus a supported signing source (`WINDOWS_CERTIFICATE_FILE` + `WINDOWS_CERTIFICATE_PASSWORD`, `WINDOWS_SIGN_WITH_PARAMS`, or `WINDOWS_SIGN_HOOK_MODULE_PATH`). macOS Preview DMGs use the ad-hoc signing path and are not notarized; only `desktop:release:production` requires Apple Developer credentials. A conventional Windows installer and background login launch remain separate release work.
 
-Packaged Windows builds do support an explicit in-app update flow for portable ZIP releases. The main process re-reads the first-party release manifest, requires the artifact platform/architecture/filename to match the advertised release, downloads only from the fixed MOSA download origin, verifies the declared byte size and SHA-256 digest, then starts a detached PowerShell helper. MOSA stops any runtime it owns and releases SQLite/runtime locks before exiting. The helper expands the ZIP, moves the current application directory to a temporary backup, installs the new payload, launches the replacement `MOSA.exe`, and removes the backup only after the new executable is present. If replacement fails, it restores the previous directory and attempts to relaunch the old executable. The updater keeps only its own latest staging directory so old 150 MB-class ZIPs do not accumulate.
+Packaged Windows builds support an explicit in-app update flow for portable ZIP releases. Release builds pin an Ed25519 release-manifest public key in their build identity, so the main process verifies `latest.json` before trusting any artifact hash or distribution mode. It then requires the artifact platform/architecture/filename to match the advertised release, downloads only from the fixed MOSA origin, and verifies the declared byte size/SHA-256. Preview updates rely on that signed manifest plus post-launch build-identity verification; Production updates additionally require the installed publisher and every `.exe`, `.dll`, and `.node` in the replacement payload to have matching valid Authenticode signatures. The relaunched app must report the exact expected version, Git SHA, UI fingerprint, runtime fingerprint, and distribution before the transaction is accepted; otherwise rollback restores the previous directory.
+
+Packaged macOS arm64 builds use the same Settings update control and signed release-manifest trust root. The trusted main process accepts only `platforms.macos` entries whose identity is exactly `macOS` / `arm64` / `MOSA-darwin-arm64-<version>.zip`, downloads only from `https://mosa.azhuilab.com/downloads/`, rejects redirects, verifies declared size/SHA-256, and stages the ZIP under Electron `userData`. Preview replacements must have the expected bundle/version and pass `codesign --verify`, but do not require Developer ID or Gatekeeper acceptance. Production replacements additionally require the same Developer ID TeamIdentifier as the installed app, Hardened Runtime, and Gatekeeper acceptance. The relaunched app must report the exact signed-manifest version, Git SHA, fingerprints, and distribution. Missing readiness, identity drift, an early crash, or any replacement failure restores the previous app and relaunches it automatically.
+
+Publishing a macOS in-app update therefore requires uploading the generated update ZIP to `/downloads/<filename>` and adding the builder's generated object under `platforms.macos` in `releases/latest.json`. Increment the semantic/prerelease version for every published build; update availability is version-based rather than Git-SHA-based.
+
+The release monitor must not construct `latest.json` with its own schema. Use `scripts/prepare-desktop-release-manifest.mjs` as the canonical manifest writer. Release builds must be created with `MOSA_RELEASE_MANIFEST_PUBLIC_KEY` (or `_FILE`) so the public Ed25519 key and key id are pinned into `app/build-identity.json`; manifest publishing separately requires `MOSA_RELEASE_MANIFEST_PRIVATE_KEY` (or `_FILE`). Keep the private key outside the repository and deployment web root. `MOSA_RELEASE_DISTRIBUTION=preview|production` is also bound into build identity and the signed manifest, so the updater cannot silently cross from Preview to Production or downgrade Production to Preview. The writer computes artifact byte sizes/SHA-256 from the real files, binds Git/UI/runtime/distribution identity, preserves the current `visualPacks` declaration, signs the complete manifest, verifies its own signature with the packaged public key, and then passes it through the production parser. Every release must also come from a clean commit carrying `v<version>`, reachable from a remote branch, with the exact tag already pushed to `origin`.
+
+Example for a macOS-only rc release while preserving the current Visual Pack declaration:
+
+```bash
+node scripts/prepare-desktop-release-manifest.mjs \
+  --version 0.2.1-rc.16 \
+  --previous /path/to/current/latest.json \
+  --mac out/make/update/darwin/arm64/MOSA-darwin-arm64-0.2.1-rc.16.zip \
+  --notes-zh "<最终中文发布说明>" \
+  --notes-en "<final English release notes>" \
+  --output /path/to/staging/latest.json
+```
+
+### Optional Visual Pack publishing
+
+Visual search model/runtime bytes are not shipped inside the core desktop package. Build one platform-specific pack per supported target and publish its directory tree under the fixed first-party origin:
+
+```bash
+node scripts/build-visual-model-pack.mjs --source <candidate-source> \
+  --runtime-target darwin-arm64 \
+  --output <release-root>/siglip2-base-patch16-224/<revision>/darwin-arm64
+```
+
+Use `--runtime-target win32-x64` for the Windows pack. The command prints a `release_manifest_patch.visualPacks.<target>` object containing the exact pack id/revision, total payload bytes, `model-pack.json` byte size and SHA-256, and license metadata. Upload the output directory byte-for-byte to `/downloads/visual-packs/<id>/<revision>/<target>/`, then merge that generated entry into the official `releases/latest.json`.
+
+Do not publish the release-feed entry until every referenced file is already present at the fixed download origin. The desktop installer rejects arbitrary renderer-provided URLs, redirects, unsupported targets, mismatched runtime architecture, insufficient disk space, manifest/file size drift, SHA-256 drift, and packs that fail final `verifyVisualModelPack()` validation. Updates download beside the working revision and select the new revision only after verification, so a failed update does not destroy the last known-good pack.
 
 ## Library Migration
 
@@ -83,6 +117,50 @@ npm exec mosa -- verify --library /absolute/path/to/library
 ```
 
 Migration checks JSON records, original files, hashes, and empty groups before marking the SQLite library completed. The migration creates a `legacy-json-backup` directory. Do not delete the original JSON source, the backup, or `mosa.db` during migration or recovery.
+
+## Library Backup and Restore
+
+For a completed SQLite library, create a point-in-time backup in a separate directory:
+
+```bash
+npm exec mosa -- backup --library /absolute/path/to/library --to /absolute/path/to/backup
+```
+
+The destination must be empty or absent and must not be inside the live library (or contain it). MOSA first takes a SQLite online backup, then copies the managed media tree and reference attachments. It verifies the copied library before publishing `backup-manifest.json`; that manifest is the completion marker and records every backed-up file's size and SHA-256 digest.
+
+Verify a backup before relying on it or moving it to another disk:
+
+```bash
+npm exec mosa -- backup-verify --from /absolute/path/to/backup
+```
+
+Restore only into an explicit empty directory:
+
+```bash
+npm exec mosa -- restore --from /absolute/path/to/backup --to /absolute/path/to/restored-library
+```
+
+Restore verifies the manifest first, copies through a private staging directory, rebases managed absolute paths into the new library root, and then runs the normal SQLite/library integrity verifier. If verification fails, the incomplete destination is removed instead of being left as a usable library.
+
+Backups are local snapshots, not synchronization. Stop or pause heavy capture/import activity when practical. The SQLite snapshot itself is consistent under concurrent writes, and reference-attachment writes are guarded, but a concurrently deleted media file can intentionally make the backup fail closed so that MOSA never publishes a snapshot whose database references missing bytes.
+
+## Retrieval Acceptance Baseline
+
+Before adding embeddings or another search model, run the reproducible retrieval acceptance set:
+
+```bash
+node scripts/evaluate-retrieval-baseline.mjs
+node scripts/evaluate-retrieval-baseline.mjs --json
+node scripts/evaluate-retrieval-baseline.mjs --enforce
+```
+
+The fixture uses synthetic designer-library assets and realistic search phrasing, never a user's private library. `lexical` and supported `conversational` cases are release guards and must keep an expected asset in the top five. `semantic` and `visual` cases stay diagnostic: they measure the gap between recorded text search and paraphrase/image-content retrieval without claiming MOSA already provides semantic search.
+
+The current conversational planner is intentionally conservative: it only activates on recognizable Chinese search phrasing, removes scaffolding, then keeps CJK terms that are already present in the library's short-term index. Ordinary keyword queries retain their original semantics. Cross-language paraphrase or visual-content misses are evidence for evaluating local text/image embeddings, provided their latency, disk, privacy, and migration costs are measured separately.
+
+Before introducing a text-embedding runtime, MOSA also applies a small audited design-vocabulary layer when at least two independent vocabulary signals are present. It covers high-value designer terminology such as `negative space` → `留白`, `eco friendly` → `可持续`, and common key-visual/packaging/portrait phrasing. A single ordinary keyword hit is never rewritten, which keeps searches such as `editorial portrait` on the existing lexical path. These mappings are a controlled product vocabulary, not a claim of general semantic understanding; the semantic acceptance tier therefore remains diagnostic until the fixture is substantially broader.
+
+Visual probes use generated pixel fixtures whose decisive composition facts are intentionally absent from Prompt, tags, category, group, style, and theme. The set includes spatial/color cases such as a blue portrait subject on the right, a red circle on the left, a centered green box, and a black subject under large white negative space. Text search is expected to miss these. Any future image-embedding or captioning candidate must be evaluated against the pixels themselves; passing by adding those answers to metadata would invalidate the benchmark.
 
 ## Codex Hard-Link Reclaim
 

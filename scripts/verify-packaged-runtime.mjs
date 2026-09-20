@@ -111,6 +111,18 @@ export async function verifyPackagedRuntime({
       `Sharp native runtime @img/${packageName}`,
     );
   }
+  const forbiddenVisualRuntimePrefixes = [
+    "node_modules/onnxruntime-node/",
+    "node_modules/onnxruntime-common/",
+    "node_modules/@huggingface/tokenizers/",
+  ];
+  const bundledVisualRuntime = files.find(({ path }) => forbiddenVisualRuntimePrefixes.some((prefix) => path.startsWith(prefix)));
+  if (bundledVisualRuntime) {
+    throw new Error(`Optional visual runtime must stay out of MOSA.app: ${bundledVisualRuntime.path}`);
+  }
+  const unpackedOnnxDir = join(unpackedRoot, "node_modules", "onnxruntime-node");
+  const unpackedOnnx = await stat(unpackedOnnxDir).catch(() => null);
+  if (unpackedOnnx) throw new Error("Optional ONNX Runtime must stay out of MOSA.app unpacked resources.");
 
   const sourceIdentity = JSON.parse(await readFile(resolve(projectRoot, "app", "build-identity.json"), "utf8"));
   const packagedIdentity = parseJsonBuffer(extractFile(asarPath, "app/build-identity.json"), "packaged build identity");

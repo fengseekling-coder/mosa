@@ -66,10 +66,12 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
   assert.match(config, /export const SOURCE_LABEL_KEYS = \{/);
   assert.match(config, /"cowart-generated": "sourceCowart"/);
   assert.match(config, /"grok-generated": "sourceGrok"/);
-  assert.match(app, /function setDetailOpen\(open\)/);
+  assert.match(app, /function setDetailOpen\(open, \{ allowDockedClose = false \} = \{\}\)/);
   assert.match(app, /state\.detailOpen = Boolean\(open\)/);
-  assert.match(app, /if \(!state\.detailOpen && isInspectorDocked\(\)\) state\.detailOpen = true;/,
-    "desktop inspector remains docked even when legacy close paths request false");
+  assert.match(app, /if \(!state\.detailOpen && isInspectorDocked\(\) && !allowDockedClose\) state\.detailOpen = true;/,
+    "desktop inspector starts docked but can honor an explicit close action");
+  assert.match(app, /setDetailOpen\(false, \{ allowDockedClose: true \}\)/,
+    "the explicit inspector close path can collapse the desktop third column");
   assert.match(app, /function updateSelectedCard\(\)/);
   assert.match(app, /updateSelectedCard\(\);/);
   assert.match(inspector, /function isVideoAsset\(/);
@@ -235,10 +237,16 @@ test("provides an accessible single-column detail panel", async () => {
   assert.match(i18n, /assetInspector: "Asset inspector"/);
   assert.match(app, /<div class="detail-inspector"><div class="detail-inspector-header">/);
   assert.match(app, /<div class="detail-inspector-scroll">/);
-  assert.match(css, /@media \(min-width: 701px\) \{[\s\S]*?\.mosa-v2 \.detail-close \{ display: none; \}/,
-    "desktop docked inspector must not expose a non-functional close control");
+  assert.doesNotMatch(css, /\.mosa-v2 \.detail-close \{ display: none; \}/,
+    "the desktop inspector close control remains visible because it is functional");
   assert.match(inspector, /<h3 id="detailTitle" tabindex="-1"/);
   assert.match(app, /data-action="close-detail" aria-label="\$\{t\("close"\)\}"/);
+  assert.match(app, /inspector\?\.querySelector\('\[data-action="close-detail"\]'\)\?\.addEventListener\("click", \(\) => \{ void closeDetailSurface\(\); \}\);/,
+    "the persistent inspector shell owns exactly one close-button listener");
+  const bindDetailEventsStart = app.indexOf("function bindDetailEvents(");
+  const bindDetailEventsEnd = app.indexOf("\nfunction ", bindDetailEventsStart + 1);
+  assert.doesNotMatch(app.slice(bindDetailEventsStart, bindDetailEventsEnd), /data-action="close-detail"/,
+    "detail re-renders must not accumulate duplicate close listeners");
   assert.match(inspector, /data-action="toggle-favorite" aria-pressed="\$\{favorite\}"/);
   assert.match(inspector, /class="detail-facts" role="group" aria-label=/);
   assert.match(inspector, /<details class="detail-disclosure"><summary>\$\{t\("versionHistory"\)\}<\/summary>/);
@@ -263,7 +271,7 @@ test("supports Escape to close detail panel and focus return", async () => {
   assert.match(app, /if \(returnEl instanceof HTMLElement && returnEl\.isConnected\) returnEl\.focus\(\{ preventScroll: true \}\)/);
   assert.match(app, /detailReturnFocusAssetId[\s\S]*?\.asset-card\[data-id=/,
     "a replaced gallery card is re-queried by asset id before falling back to the grid");
-  assert.match(app, /function setDetailOpen\(open\)/);
+  assert.match(app, /function setDetailOpen\(open, \{ allowDockedClose = false \} = \{\}\)/);
   // 关闭路径不再重置 detailTab（Phase 4B 已将该死状态整体移除）。
   assert.doesNotMatch(app, /state\.detailTab/);
   // Focus must move on the closed -> open transition only, and must not be

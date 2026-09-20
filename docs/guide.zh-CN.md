@@ -18,7 +18,7 @@ MOSA 采用 [PolyForm Noncommercial License 1.0.0](../LICENSE)，属于源码可
 - **网页生图扩展**可选，用于把 ChatGPT、Gemini、Flow 和 Google AI Studio 的网页成图及其可用上下文发送到本机 MOSA。
 - **MOSA** 负责自动收集、归档、检索和版本管理。
 
-MOSA 当前是绑定 `127.0.0.1` 的本地 Web 应用，也提供共享同一套 UI/Runtime 的 Electron 桌面壳。macOS arm64 是现有桌面开发目标，Windows 10/11 x64 已进入 Preview/Testing；仓库尚未发布正式签名安装器。它不是云服务，不包含额外 AI 模型、Embedding 搜索或远程同步，也不调用 Grok API，也不应通过公网或反向代理暴露。
+MOSA 当前是绑定 `127.0.0.1` 的本地 Web 应用，也提供共享同一套 UI/Runtime 的 Electron 桌面壳。macOS arm64 是现有桌面开发目标，Windows 10/11 x64 已进入 Preview/Testing；仓库尚未发布正式签名安装器。它不是云服务，也不调用 Grok API，不应通过公网或反向代理暴露。Desktop 可选安装一个完全本地运行的 Visual Pack，用于文字搜图、相似图检索和视觉关系候选；未安装时核心素材库功能保持不变。
 
 ## 环境要求
 
@@ -33,6 +33,16 @@ MOSA 当前是绑定 `127.0.0.1` 的本地 Web 应用，也提供共享同一套
 当前 Windows 真机已经验证：`MOSA.exe` 启动、本地 SQLite、Sharp 原生图像处理、素材库/资产检视器，以及 Codex 素材自动收录。Windows 使用原生标题栏，但隐藏 Electron 默认菜单栏；菜单 accelerator 仍保留。
 
 Windows 上的 Grok/Cowart 来源目录尚未完成真机验证，暂不把推测路径写成正式默认值。当前打包版已经支持在应用内读取官方 release manifest、下载对应版本的 portable ZIP、校验文件大小与 SHA-256，并在退出本地 Runtime、释放文件锁后通过独立更新辅助进程原位替换应用目录；替换失败时会回滚旧目录。Windows 安装器和代码签名仍属于发布阶段工作，因此当前 Windows 构建仍应视为测试版，而不是正式签名发行版。
+
+macOS Desktop 与 Web Capture 的后台监督服务共用同一资料库和本地端口。新版 Desktop 启动时会先发布一个最多 30 秒有效、绑定当前 PID 与进程启动身份的接管标记；监督服务看到后会停止自己拉起的后台 Runtime 并让 Desktop 接管。若 Desktop 启动失败，标记会自动过期，后台服务恢复。这样覆盖安装/重启 MOSA 时不应再需要手动结束仓库里的 `server.mjs`。外部非 MOSA 服务、不同资料库的 MOSA Runtime 仍不会被自动终止。
+
+### 可选本地视觉搜索
+
+Desktop 的“设置 → 本地视觉能力”可以安装、更新、停用或删除 Visual Pack。Visual Pack 包含经固定版本和 SHA-256 校验的 SigLIP2 本地模型、ONNX Runtime 与 tokenizer；它存放在 Electron `userData`，不进入 `MOSA Library`，也不依赖 Ollama、Python 或外部常驻服务。
+
+安装或更新时，MOSA 只从官方 `mosa.azhuilab.com` 发布信息与固定 Visual Pack 下载目录读取文件。下载前会检查可用磁盘空间，下载过程中显示进度，完成后再次逐文件校验大小和 SHA-256；只有完整验证通过后才切换到新版本。失败时保留上一份可用版本。安装成功、启用/停用或删除后，Desktop 会自动重启本地 Runtime，使模型状态与当前素材库保持一致。
+
+删除 Visual Pack 会一并删除本机派生的视觉关系索引，但不会删除或修改原始素材、Prompt、版本记录或溯源数据。
 
 ## 本地启动
 
@@ -76,6 +86,25 @@ npm exec mosa -- thumbnails rebuild --library /absolute/path/to/library
 ```
 
 迁移会校验 JSON、原图、哈希和空分组。未完成或失败时不会激活 SQLite；完成后 SQLite 是唯一运行期权威，JSON 只保留为备份和兼容回退，不做双写。
+
+### 素材库备份与恢复
+
+SQLite 迁移完成后，可以把整个 MOSA 素材库备份到另一个空目录：
+
+```bash
+npm exec mosa -- backup --library /absolute/path/to/library --to /absolute/path/to/backup
+npm exec mosa -- backup-verify --from /absolute/path/to/backup
+```
+
+备份包含 SQLite 快照、受 MOSA 管理的原图/派生文件、参考图附件和迁移完成标记。只有在库校验通过并写出带文件大小与 SHA-256 的 `backup-manifest.json` 后，这个目录才被视为完整备份。
+
+恢复必须显式指定一个空目录，不会覆盖现有素材库：
+
+```bash
+npm exec mosa -- restore --from /absolute/path/to/backup --to /absolute/path/to/restored-library
+```
+
+恢复前会先校验备份清单和文件哈希，恢复后会把受管理的绝对路径重定位到新目录并再次执行素材库完整性校验。建议备份时尽量暂停大批量导入/网页捕获；若备份过程中素材文件被并发永久删除，MOSA 会让本次备份失败，而不是发布一个数据库仍引用缺失文件的快照。
 
 ## 自动归档
 
@@ -126,6 +155,10 @@ Cowart 快照可提供画布说明与来源，但不保证具有完整生图 Pro
 ## 检索与版本
 
 - 图库使用缩略图，详情使用预览图，原图保持可访问。
+- 侧栏的“已保存筛选”可以把当前搜索词、范围、图片/视频类型、来源/分组等筛选条件和排序保存为一个命名预设；点击预设即可恢复完整检索状态。预设按项目保存在本机 UI 偏好中，不会写入素材 Prompt、来源或版本记录，删除预设也不会删除任何素材。
+- Inspector 的“版本对比”可以任选同一版本家族中的两个版本并排查看媒体，同时比较已经持久化的 Prompt、风格、主题、比例、分组、分类、标签和变更说明。缺失字段保持“未记录”，MOSA 不会为了对比而推测生成事实。
+- 标签区下方的“精选与经验”可把当前素材标记为精选，并保存用户自己填写的经验备注。备注会进入本地文本检索，但不会改写原始 Prompt、Recipe 或生成证据；“精选”也与“收藏”保持为两个不同概念。
+- 同一区域的“复用上下文”可以复制一份面向本地 AI 工具的文本上下文，或导出结构化 JSON。上下文只包含白名单中的素材本地路径、已记录 Prompt/Recipe、参考附件标识与路径、版本和来源证据；不会自动复制/上传图片，也不会把来源对象里的令牌、签名 URL 等任意字段带出去。缺失信息明确保持未知，不会为了复用而补猜。
 - 多选素材可以创建 Stack。图库中的折叠 Stack 是一个逻辑节点：单击选择 Stack，
   右侧 Inspector 显示成员；双击进入 Stack。键盘方向键与鼠标使用相同的选择
   语义，不会把封面素材误当成整个 Stack。离开 Stack 时会恢复进入前已经加载

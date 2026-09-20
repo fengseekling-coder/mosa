@@ -4,6 +4,77 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+## 0.2.1-rc.25 — 2026-09-20 / Release Candidate
+
+### Release integrity / 发布完整性
+
+- Split desktop publishing into explicit Preview and Production tracks. Preview/RC keeps immutable Git provenance, signed release manifests, artifact hashes, exact build identity, and updater rollback without requiring Apple Developer or Windows Authenticode credentials; Production adds those platform trust chains as a deliberate stronger gate.
+- Release builds now fail closed unless their source commit is clean, tagged, remotely reachable, and the exact release tag has been pushed. Build identity is carried into the release manifest and verified again after an in-place update reports readiness.
+- `releases/latest.json` is now signed with a release-only Ed25519 key whose public key is pinned into the packaged build. Desktop updates and Visual Pack discovery verify that signature before trusting artifact hashes or model-pack metadata, separating release trust from the website/CDN that serves the files.
+- macOS Production packaging rejects ad-hoc/non-hardened/wrong-team bundles, requires notarization and Gatekeeper acceptance, and Production in-place updates check the replacement against the installed Developer ID team plus Gatekeeper before replacement.
+- Windows Production packaging has an explicit Authenticode path. Production verification pins the expected signer, and Production in-place updates require every executable/native payload (`.exe`, `.dll`, `.node`) to have a valid signature from the installed publisher before the application directory is replaced.
+- SQLite schema upgrades create a verified pre-upgrade snapshot before the first mutation and run integrity plus foreign-key verification after migration, retaining the snapshot path in any upgrade failure for deterministic recovery.
+- Removed the retired Inspector curation/reuse-context UI strings and the now-unreferenced context-package implementation instead of leaving hidden product surfaces behind.
+
+### Local visual search / 本地视觉搜索
+
+- Wired the first real MOSA-local image-text embedding runtime: a verified SigLIP2 Base int8 visual pack now powers `/api/visual/search`, image-to-image similarity, and near-duplicate/version/Stack candidates through a dedicated fail-closed inference worker process. No Ollama, Python, or network access is required at inference time.
+- Moved ONNX Runtime and the tokenizer runtime out of the core desktop bundle and into the optional, platform-specific Visual Pack. The macOS arm64 pack remains below the 512 MiB gate while `MOSA.app` actively rejects accidental rebundling of those visual-only dependencies.
+- Added an optional packaged visual smoke that proves the built `MOSA.app` can load the external verified pack, start its real ONNX worker, build embeddings, run text-to-image search, and return image-to-image neighbors.
+- Settings can now install, update, cancel, and remove the optional Visual Pack without exposing model paths or download URLs to the renderer. Downloads come only from MOSA's fixed first-party origin, are staged with disk-space checks, pin the pack manifest from the release feed, verify every file by size and SHA-256, preserve the previous revision on failure, and restart MOSA only after a verified install/removal.
+- Fixed the macOS Desktop/Web Capture KeepAlive races around startup and in-place self-update. Normal Desktop startup publishes a short-lived PID/start-identity handoff marker before runtime startup. During self-update, the detached helper takes ownership of that same backward-compatible marker before the old Desktop releases port 43517 and keeps it through replacement/readiness, so an already-loaded supervisor cannot reclaim the production runtime during the gap. The supervisor stands down before spawning or gracefully yields an already-running child, while stale markers and PID reuse fail open to normal background recovery.
+- Added macOS in-app self-update support. Packaged MOSA can consume a version-bound arm64 ZIP from the existing first-party release manifest, download it to private userData staging with exact size/SHA-256 verification, stop its owned runtime, replace `MOSA.app` through a detached helper, relaunch the new build, require renderer/runtime readiness, and roll back automatically if replacement or relaunch fails. The release build now emits the matching update ZIP plus manifest metadata alongside the DMG.
+- Added a canonical desktop release-manifest writer for release automation. It emits the same `platforms.*` schema consumed by Desktop, hashes real artifacts, refuses mixed-version macOS/Windows entries, removes legacy `artifacts.*`, preserves `visualPacks`, and validates the result with the production update parser before publishing.
+- Settings now measures real runtime availability instead of reporting a placeholder: states are `not-installed`, `disabled`, `loading`, `ready`, `runtime-unavailable`, and `error`.
+- Background embedding indexes assets incrementally with content-hash staleness detection; deleted assets are pruned from the derived index and a crash of the inference worker degrades to explicit unavailability rather than wrong results.
+
+### Search & Stack reliability / 搜索与堆叠稳定性
+
+- Custom Stack names are now searchable from the collapsed gallery while raw asset and Stack-interior searches keep their existing member-level semantics.
+- Whole-Stack Trash operations now preserve and reconcile confirmed progress when a later batch request is interrupted; outcomes without a response are reported as unresolved instead of being mislabeled as failures or retried blindly.
+- Local context-menu refresh events are scoped to the project that was mutated so a long-running operation cannot reconcile its result into a different project after navigation.
+
+### Performance / 性能
+
+- Added an indexed short-Unicode candidate table for one- and two-character non-ASCII search terms, with schema backfill and write-path synchronization, avoiding full-library `LIKE` scans for common short CJK queries.
+- Collapsed gallery paging now uses a dedicated no-filter fast path and Stack annotations aggregate only the Stacks relevant to returned rows instead of scanning every active Stack member.
+- The 50k performance gate now separately covers cold search, short CJK search, and a mixed library with 2,000 five-member Stacks.
+
+### Web Capture activity / 网页收录状态
+
+- Settings now shows the browser extension's bounded pending/retrying queue summary together with recent Runtime ingest outcomes and Prompt-availability status.
+- The extension reports only redacted queue diagnostics to the authenticated loopback Runtime; raw Prompt text, page/media URLs, and media bytes are excluded from this status channel.
+- A Settings retry action requests the extension to drain its existing durable queue; MOSA does not create a second delivery queue or blindly duplicate failed captures.
+
+### Library backup & restore / 素材库备份与恢复
+
+- Added explicit CLI backup, backup verification, and restore commands for completed SQLite libraries. A backup includes the SQLite snapshot, managed originals/derivatives, reference attachments, and the migration-completion marker.
+- Backups are published only after MOSA integrity checks pass and a SHA-256 manifest has been written; verification detects missing or modified files before restore.
+- Restore requires an explicit empty destination and rebases managed absolute paths into that destination before running the normal library verifier. Large media hashes are streamed instead of loaded into memory as one buffer.
+
+### Gallery import & navigation / 图库导入与导航
+
+- Dropped or picked assets now import into the currently active stack instead of landing as ungrouped library items.
+- Removed the sidebar saved-filter presets. Existing project-local filter names are no longer restored into the gallery.
+- Sidebar navigation now clears hidden facets, so switching primary view, source, or group does not keep leftover hidden filters.
+
+### Inspector / 检视器
+-
+- Inspector version history now includes a two-version comparison view for stored media and persisted Prompt/style/theme/ratio/group/category/tag/change-summary fields. It compares existing records only and does not infer missing generation facts.
+
+### Retrieval foundation / 检索基础
+-
+- Added a reproducible retrieval acceptance baseline with enforced lexical cases plus diagnostic conversational, semantic, cross-language, and visual-content probes. This makes the case for any future embedding layer measurable instead of assuming that a model is required.
+- Added conservative Chinese conversational query planning: recognizable phrases such as “找一下之前做过的…” are reduced to design terms that actually exist in the local short-term index before entering the existing strict search path. The acceptance set now guards these supported conversational queries while leaving semantic and visual probes diagnostic.
+- Added an audited design-vocabulary normalization layer for multi-signal paraphrases and cross-language designer terminology. On the current synthetic acceptance probes it closes the measured text-semantic gap without adding a model runtime; visual-content probes remain intentionally unsolved and separate.
+- Expanded visual-retrieval diagnostics to use real generated pixel fixtures with composition facts withheld from searchable metadata, so future image-model experiments cannot accidentally pass by reading Prompt text.
+- Added a model-candidate gate for local visual retrieval covering product-use licensing, optional model-pack footprint, memory, cold start, query/index latency, exact vector-search latency, and pixel-grounded retrieval quality. Also added a 50k × 512 exact-vector benchmark so an ANN dependency is introduced only if measured scale requires it.
+- Added an offline visual-model-pack manifest/verifier and CLI command. Packs pin embedding dimension, preprocessing metadata, license/product-use declaration, byte sizes, and SHA-256 for every file; verification rejects traversal, symlinks, tampering, and oversized packs before any runtime integration.
+- Added the model-neutral visual relationship engine foundation: a versioned userData-side embedding index, exact image-neighbor lookup, stable visual API contracts, safe derived-index cleanup, and advisory near-duplicate/version/Stack candidate classification. No candidate mutates library organization or provenance automatically.
+- Added the model-neutral background embedding worker contract with incremental current/stale checks, pause/resume/stop behavior, per-asset failure isolation, and stale-vector pruning so a future local model can backfill the library without blocking normal MOSA use.
+- Added a validated image/text embedding-provider boundary and text-to-image visual search API. Provider model id/revision/dimension must match the indexed vector space exactly, startup is lazy, runtime shutdown closes the provider, and MOSA can now expose visual text search without coupling product APIs to a specific model runtime.
+- Made MOSA-local the explicit desktop visual-model path: Electron now discovers and verifies optional model packs under userData, persists local enablement/selection, and exposes a Settings status surface without an Ollama dependency. Installed-model and compatible-runtime readiness remain separate so unsupported builds fail closed.
+
 ## 0.2.1-rc.14 — 2026-09-16 / Release Candidate
 
 ### Drag & drop import / 拖放导入

@@ -44,6 +44,7 @@ test("getBuildIdentity reads productVersion, Git, UI, and runtime fingerprints f
     gitSha: "abc123def456",
     uiFingerprint: "fingerprint-hash",
     runtimeFingerprint: "runtime-hash",
+    distribution: "preview",
   }));
   resetBuildIdentityCache();
   const identity = getBuildIdentity(tempAppDir);
@@ -51,6 +52,7 @@ test("getBuildIdentity reads productVersion, Git, UI, and runtime fingerprints f
   assert.equal(identity.gitSha, "abc123def456");
   assert.equal(identity.uiFingerprint, "fingerprint-hash");
   assert.equal(identity.runtimeFingerprint, "runtime-hash");
+  assert.equal(identity.distribution, "preview");
   resetBuildIdentityCache();
 });
 
@@ -61,6 +63,7 @@ test("getBuildIdentity returns unknown for all fields when build-identity.json i
   assert.equal(identity.gitSha, "unknown");
   assert.equal(identity.uiFingerprint, "unknown");
   assert.equal(identity.runtimeFingerprint, "unknown");
+  assert.equal(identity.distribution, "development");
   resetBuildIdentityCache();
 });
 
@@ -79,6 +82,7 @@ test("getBuildIdentity returns unknown for fields that are not strings", async (
   assert.equal(identity.gitSha, "unknown");
   assert.equal(identity.uiFingerprint, "unknown");
   assert.equal(identity.runtimeFingerprint, "unknown");
+  assert.equal(identity.distribution, "development");
   resetBuildIdentityCache();
 });
 
@@ -179,6 +183,7 @@ test("/api/health returns product, protocol, MCP, Git, UI, and runtime build ide
   assert.equal(health.gitSha, identity.gitSha);
   assert.equal(health.uiFingerprint, identity.uiFingerprint);
   assert.equal(health.runtimeFingerprint, identity.runtimeFingerprint);
+  assert.equal(health.distribution, identity.distribution);
   resetBuildIdentityCache();
 });
 

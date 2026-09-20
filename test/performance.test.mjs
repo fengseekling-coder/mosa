@@ -38,10 +38,11 @@ test("50k SQLite library uses indexed filters, starts under 3s, and keeps search
     )
   `);
   const insertFts = database.prepare("INSERT INTO asset_fts (project_id, asset_id, content) VALUES ('default', ?, ?)");
+  const insertShortTerm = database.prepare("INSERT INTO asset_short_terms (project_id, asset_id, term) VALUES ('default', ?, ?)");
   database.transaction(() => {
     for (let index = 0; index < 50_000; index += 1) {
       const id = `asset-${index}`;
-      const content = `red mechanical future city variant ${index}`;
+      const content = `red mechanical future city 机械 未来 variant ${index}`;
       insertAsset.run({
         project_id: "default",
         id,
@@ -62,6 +63,8 @@ test("50k SQLite library uses indexed filters, starts under 3s, and keeps search
         sort_name: id,
       });
       insertFts.run(id, content);
+      insertShortTerm.run(id, "机械");
+      insertShortTerm.run(id, "未来");
     }
   })();
   const planDetails = (sql, ...params) => database.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params).map((row) => row.detail).join("\n");
@@ -102,6 +105,24 @@ test("50k SQLite library uses indexed filters, starts under 3s, and keeps search
   }
   samples.sort((a, b) => a - b);
   const p95 = samples[Math.ceil(samples.length * 0.95) - 1];
+  const coldSearchSamples = [];
+  for (let index = 0; index < 10; index += 1) {
+    const started = performance.now();
+    const result = await reopened.listAssetPage({ projectId: "default", query: `mechanical variant ${1000 + index}`, limit: 100 });
+    coldSearchSamples.push(performance.now() - started);
+    assert.ok(result.assets.length > 0);
+  }
+  coldSearchSamples.sort((a, b) => a - b);
+  const coldSearchP95 = coldSearchSamples[Math.ceil(coldSearchSamples.length * 0.95) - 1];
+  const shortCjkSamples = [];
+  for (let index = 0; index < 10; index += 1) {
+    const started = performance.now();
+    const result = await reopened.listAssetPage({ projectId: "default", query: index % 2 ? "机械" : "未来", limit: 100 });
+    shortCjkSamples.push(performance.now() - started);
+    assert.equal(result.page.total, 50_000);
+  }
+  shortCjkSamples.sort((a, b) => a - b);
+  const shortCjkP95 = shortCjkSamples[Math.ceil(shortCjkSamples.length * 0.95) - 1];
   const filterCases = [
     ["conversation", { conversation: "conversation-7" }],
     ["conversation+batch", { conversation: "conversation-7", generationBatch: "batch-7" }],
@@ -131,12 +152,54 @@ test("50k SQLite library uses indexed filters, starts under 3s, and keeps search
     t.diagnostic(`indexed filter ${name} P95=${caseP95.toFixed(1)}ms samples=${caseSamples.map((value) => value.toFixed(1)).join(",")}`);
   }
   const slowestFilter = [...filterP95ByCase.entries()].sort((left, right) => right[1] - left[1])[0];
-  const stack = await reopened.createAssetStack("default", ["asset-0", "asset-1"], { coverAssetId: "asset-0" });
   const fullList = await reopened.listAssets({ projectId: "default" });
   assert.equal(fullList.length, 50_000, "full 50k listings must not exceed SQLite's bound-variable limit");
-  assert.deepEqual(fullList.find((asset) => asset.id === "asset-0")?.stack, { id: stack.id, count: 2, name: "" });
+
+  // Add a realistic Stack distribution only after the ordinary search/filter
+  // baseline. This keeps those budgets comparable to previous releases while
+  // still exercising the distinct collapsed-gallery query shape at 50k scale.
+  const stackDatabase = new Database(join(libraryDir, "mosa.db"));
+  const insertStack = stackDatabase.prepare(`
+    INSERT INTO asset_stacks (project_id, id, created_at, updated_at, sort_created_at, sort_name, name)
+    VALUES ('default', ?, ?, ?, ?, ?, ?)
+  `);
+  const insertStackMember = stackDatabase.prepare(`
+    INSERT INTO asset_stack_members (project_id, stack_id, asset_id, position, added_at)
+    VALUES ('default', ?, ?, ?, ?)
+  `);
+  stackDatabase.transaction(() => {
+    for (let stackIndex = 0; stackIndex < 2_000; stackIndex += 1) {
+      const stackId = `benchmark-stack-${stackIndex}`;
+      const name = `Benchmark Stack ${stackIndex}`;
+      insertStack.run(stackId, timestamp, timestamp, timestamp, name.toLowerCase(), name);
+      for (let position = 0; position < 5; position += 1) {
+        insertStackMember.run(stackId, `asset-${stackIndex * 5 + position}`, position, timestamp);
+      }
+    }
+  })();
+  stackDatabase.close();
+
+  const collapsedSamples = [];
+  for (let index = 0; index < 3; index += 1) {
+    const started = performance.now();
+    const result = await reopened.listAssetPage({ projectId: "default", collapseStacks: true, limit: 100, sort: "newest" });
+    collapsedSamples.push(performance.now() - started);
+    assert.equal(result.page.total, 42_000);
+    assert.equal(result.assets.length, 100);
+  }
+  collapsedSamples.sort((a, b) => a - b);
+  const collapsedP95 = collapsedSamples[Math.ceil(collapsedSamples.length * 0.95) - 1];
+  const stackNameSearch = await reopened.listAssetPage({ projectId: "default", collapseStacks: true, query: "benchmark stack 1999", limit: 100 });
+  assert.equal(stackNameSearch.page.total, 1);
+  assert.equal(stackNameSearch.assets[0]?.stack?.name, "Benchmark Stack 1999");
+  t.diagnostic(`cold search P95=${coldSearchP95.toFixed(1)}ms samples=${coldSearchSamples.map((value) => value.toFixed(1)).join(",")}`);
+  t.diagnostic(`short CJK search P95=${shortCjkP95.toFixed(1)}ms samples=${shortCjkSamples.map((value) => value.toFixed(1)).join(",")}`);
+  t.diagnostic(`collapsed gallery P95=${collapsedP95.toFixed(1)}ms samples=${collapsedSamples.map((value) => value.toFixed(1)).join(",")}`);
   assert.ok(startupMs < 3000, `startup ${startupMs.toFixed(1)}ms exceeded 3000ms`);
   assert.ok(p95 < 100, `search P95 ${p95.toFixed(1)}ms exceeded 100ms`);
+  assert.ok(coldSearchP95 < 150, `cold search P95 ${coldSearchP95.toFixed(1)}ms exceeded 150ms`);
+  assert.ok(shortCjkP95 < 150, `short CJK search P95 ${shortCjkP95.toFixed(1)}ms exceeded 150ms`);
+  assert.ok(collapsedP95 < 500, `collapsed gallery P95 ${collapsedP95.toFixed(1)}ms exceeded 500ms`);
   assert.ok(slowestFilter[1] < 50,
     `indexed-filter ${slowestFilter[0]} P95 ${slowestFilter[1].toFixed(1)}ms exceeded 50ms; ${[...filterP95ByCase.entries()].map(([name, value]) => `${name}=${value.toFixed(1)}ms`).join(", ")}`);
 });

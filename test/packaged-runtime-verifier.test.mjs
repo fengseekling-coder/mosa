@@ -33,17 +33,14 @@ async function createFixture(t, { platform, arch, packedNatives = false }) {
   await writeFixtureFile(runtimeRoot, "app/build-identity.json", `${JSON.stringify(IDENTITY, null, 2)}\n`);
   await writeFixtureFile(runtimeRoot, "package.json", `${JSON.stringify(manifest, null, 2)}\n`);
 
-  let unpackDir;
   if (platform === "darwin") {
     await writeFixtureFile(runtimeRoot, "node_modules/better-sqlite3/prebuilds/darwin-arm64.node", "sqlite-native");
     await writeFixtureFile(runtimeRoot, "node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64.node", "sharp-native");
     await writeFixtureFile(runtimeRoot, "node_modules/@img/sharp-libvips-darwin-arm64/lib/libvips.8.dylib", "libvips-native");
-    unpackDir = "node_modules/@img/sharp-libvips-darwin-arm64";
   } else {
     await writeFixtureFile(runtimeRoot, "node_modules/better-sqlite3/prebuilds/win32-x64.node", "sqlite-native");
     await writeFixtureFile(runtimeRoot, "node_modules/@img/sharp-win32-x64/lib/sharp-win32-x64.node", "sharp-native");
     await writeFixtureFile(runtimeRoot, "node_modules/@img/sharp-win32-x64/lib/libvips.dll", "libvips-native");
-    unpackDir = "node_modules/@img/sharp-win32-x64";
   }
 
   const asarPath = packagedAsarPath({ projectRoot, platform, arch });
@@ -53,7 +50,7 @@ async function createFixture(t, { platform, arch, packedNatives = false }) {
   } else {
     await createPackageWithOptions(runtimeRoot, asarPath, {
       unpack: "*.node",
-      unpackDir,
+      unpackDir: platform === "darwin" ? "node_modules/@img/sharp-libvips-darwin-arm64" : "node_modules/@img/sharp-win32-x64",
     });
   }
   return { projectRoot, asarPath };
@@ -88,6 +85,31 @@ test("packaged runtime verifier applies the same native gate to Windows packages
   assert.equal(result.nativeBinaries.length, 3);
 });
 
+test("packaged runtime verifier rejects optional visual runtime bundled into MOSA.app", async (t) => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "mosa-package-verifier-visual-bundle-"));
+  deferTestPathRemoval(projectRoot, { recursive: true, force: true });
+  const runtimeRoot = join(projectRoot, "runtime");
+  const manifest = { name: "mosa", version: IDENTITY.productVersion };
+  await writeFixtureFile(projectRoot, "app/build-identity.json", `${JSON.stringify(IDENTITY, null, 2)}\n`);
+  await writeFixtureFile(projectRoot, "package.json", `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeFixtureFile(runtimeRoot, "app/build-identity.json", `${JSON.stringify(IDENTITY, null, 2)}\n`);
+  await writeFixtureFile(runtimeRoot, "package.json", `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeFixtureFile(runtimeRoot, "node_modules/better-sqlite3/prebuilds/darwin-arm64.node", "sqlite-native");
+  await writeFixtureFile(runtimeRoot, "node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64.node", "sharp-native");
+  await writeFixtureFile(runtimeRoot, "node_modules/@img/sharp-libvips-darwin-arm64/lib/libvips.8.dylib", "libvips-native");
+  await writeFixtureFile(runtimeRoot, "node_modules/onnxruntime-node/dist/index.js", "module.exports = {};\n");
+  const asarPath = packagedAsarPath({ projectRoot, platform: "darwin", arch: "arm64" });
+  await mkdir(dirname(asarPath), { recursive: true });
+  await createPackageWithOptions(runtimeRoot, asarPath, {
+    unpack: "*.node",
+    unpackDir: "node_modules/@img/sharp-libvips-darwin-arm64",
+  });
+  await assert.rejects(
+    verifyPackagedRuntime({ projectRoot, platform: "darwin", arch: "arm64" }),
+    /Optional visual runtime must stay out of MOSA\.app/,
+  );
+});
+
 test("packaged runtime verifier rejects source/package build identity drift", async (t) => {
   const { projectRoot } = await createFixture(t, { platform: "darwin", arch: "arm64" });
   await writeFixtureFile(projectRoot, "app/build-identity.json", `${JSON.stringify({
@@ -102,11 +124,20 @@ test("packaged runtime verifier rejects source/package build identity drift", as
 
 test("desktop packaging scripts cannot bypass structural verification and packaged smoke", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-  for (const scriptName of ["desktop:package", "desktop:package:windows", "desktop:release"]) {
+  for (const scriptName of [
+    "desktop:package",
+    "desktop:package:windows",
+    "desktop:release:preview",
+    "desktop:release:production",
+    "desktop:release:windows:preview",
+    "desktop:release:windows:production",
+  ]) {
     const script = String(manifest.scripts?.[scriptName] || "");
     assert.match(script, /verify:desktop:package/);
     assert.match(script, /qa:packaged:smoke/);
   }
+  assert.match(String(manifest.scripts?.["desktop:release"] || ""), /desktop:release:preview/);
+  assert.match(String(manifest.scripts?.["desktop:release:windows"] || ""), /desktop:release:windows:preview/);
   assert.match(String(manifest.scripts?.["desktop:make"] || ""), /npm run desktop:package/);
   assert.match(String(manifest.scripts?.["desktop:make:windows"] || ""), /npm run desktop:package:windows/);
   assert.match(String(manifest.scripts?.["desktop:make:windows"] || ""), /--skip-package/);
