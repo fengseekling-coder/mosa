@@ -2365,16 +2365,14 @@ function setSidebarNavigationState(type, value = "") {
 
   if (SCOPES.includes(navType)) {
     state.scope = navType;
-    state.facets.source = "";
-    state.facets.group = "";
+    clearFacets();
     return true;
   }
 
   if (navType === "source" || navType === "group") {
     const wasActive = isSidebarNavigationActive(navType, navValue);
     state.scope = "all";
-    state.facets.source = "";
-    state.facets.group = "";
+    clearFacets();
     if (!wasActive) state.facets[navType] = navValue;
     return true;
   }
