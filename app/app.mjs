@@ -2561,6 +2561,7 @@ async function saveAsset() {
     catch { showImportError("businessFields", t("errorInvalidJson")); return; }
   }
   const originProjectId = state.project;
+  const originStackId = state.activeStackId || "";
   const originAssetId = state.selectedId;
   const hadDetailDraft = state.detailDirty;
   // 防重窗口必须先于 confirmDetailNavigation 的网络级冲刷打开（PATCH + 两次
@@ -2569,7 +2570,7 @@ async function saveAsset() {
   setImportBusy(true);
   try {
     if (hadDetailDraft && !await confirmDetailNavigation(null)) return;
-    const result = await apiFetch("/api/assets/create", { method: "POST", body: { projectId: originProjectId, imagePath: els.imagePathInput.value, prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, ratio: els.ratioInput.value, theme: els.themeInput.value, group: els.groupInput.value, category: els.categoryInput.value, tags: uniqueTags([...(derivePromptTags({ prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, theme: els.themeInput.value, category: els.categoryInput.value }))]), business_fields: businessFields } });
+    const result = await apiFetch("/api/assets/create", { method: "POST", body: { projectId: originProjectId, ...(originStackId ? { stackId: originStackId } : {}), imagePath: els.imagePathInput.value, prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, ratio: els.ratioInput.value, theme: els.themeInput.value, group: els.groupInput.value, category: els.categoryInput.value, tags: uniqueTags([...(derivePromptTags({ prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, theme: els.themeInput.value, category: els.categoryInput.value }))]), business_fields: businessFields } });
     if (hadDetailDraft && originProjectId === state.project && originAssetId === state.selectedId) discardDetailDraft();
     state.selectedId = result.asset.id;
     clearImportForm(); closeImportModal({ force: true }); showToast(`${t("savedAsset")} · ${result.asset.id}`, "success");

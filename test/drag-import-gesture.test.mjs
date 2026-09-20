@@ -78,6 +78,32 @@ test("batch importer snapshots drop metadata onto every created asset", async ()
   assert.deepEqual(requestBodies[0].items.map((item) => item.group), ["Mid Autumn", "Mid Autumn"]);
 });
 
+test("batch importer snapshots the active Stack when queued", async () => {
+  const requestBodies = [];
+  const state = { project: "default", activeStackId: "stack-a" };
+  const importer = createBatchImporter({
+    state,
+    isSupportedFile: (file) => file.name.endsWith(".png"),
+    stageFile: async (file) => `/stage/${file.name}`,
+    cleanupStagedFile: async () => {},
+    apiFetch: async (_path, options) => {
+      requestBodies.push(options.body);
+      return { imported: options.body.items.length, failed: 0, results: [] };
+    },
+    announce: () => {},
+    showToast: () => {},
+    refreshLibrary: async () => {},
+    t: (key, values = {}) => `${key}:${JSON.stringify(values)}`,
+  });
+
+  const pending = importer.enqueue([{ name: "a.png" }]);
+  state.activeStackId = "stack-b";
+  await pending;
+
+  assert.equal(requestBodies.length, 1);
+  assert.equal(requestBodies[0].stackId, "stack-a");
+});
+
 function fileEntry(name) {
   return { isFile: true, isDirectory: false, name, file: (resolve) => resolve({ name }) };
 }
