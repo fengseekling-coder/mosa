@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, win32 } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -10,6 +10,7 @@ import { normalizeDesktopDistribution } from "../lib/release-distribution.mjs";
 export const MOSA_WINDOWS_DOWNLOAD_BASE_URL = "https://mosa.azhuilab.com/downloads/";
 const MAX_WINDOWS_UPDATE_BYTES = 1_500_000_000;
 const DEFAULT_WINDOWS_UPDATE_IDLE_TIMEOUT_MS = 30_000;
+const DEFAULT_WINDOWS_HELPER_START_TIMEOUT_MS = 5_000;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
 const GIT_SHA_PATTERN = /^[0-9a-f]{40}$/i;
 
@@ -207,6 +208,7 @@ export function windowsUpdateHelperScript() {
   [Parameter(Mandatory=$true)][string]$ExpectedRuntimeFingerprint,
   [Parameter(Mandatory=$true)][ValidateSet('preview','production')][string]$ExpectedDistribution,
   [Parameter(Mandatory=$true)][string]$LogPath,
+  [Parameter(Mandatory=$true)][string]$StartedFile,
   [Parameter(Mandatory=$true)][string]$ReadyFile
 )
 
@@ -221,6 +223,7 @@ $newProcess = $null
 $movedOriginal = $false
 
 try {
+  [string]$PID | Set-Content -LiteralPath $StartedFile -Encoding ASCII
   $expectedSignerThumbprint = $null
   if ($ExpectedDistribution -eq 'production') {
     $oldSignature = Get-AuthenticodeSignature -LiteralPath $oldExe
@@ -313,6 +316,37 @@ try {
 `;
 }
 
+async function waitForWindowsUpdateHelperStarted({
+  child,
+  startedFile,
+  timeoutMs = DEFAULT_WINDOWS_HELPER_START_TIMEOUT_MS,
+} = {}) {
+  const deadline = Date.now() + Math.max(250, Number(timeoutMs) || DEFAULT_WINDOWS_HELPER_START_TIMEOUT_MS);
+  let childExit = null;
+  const onExit = (code, signal) => {
+    childExit = { code, signal };
+  };
+  child.once?.("exit", onExit);
+  try {
+    while (Date.now() < deadline) {
+      const marker = await readFile(startedFile, "utf8").catch((error) => {
+        if (error?.code === "ENOENT") return "";
+        throw error;
+      });
+      if (String(marker || "").trim()) return true;
+      if (childExit) {
+        throw new Error(
+          `Windows update helper exited before startup handoff (code=${childExit.code ?? "null"}, signal=${childExit.signal ?? "none"}).`,
+        );
+      }
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+    }
+    throw new Error("Windows update helper did not start before the handoff deadline.");
+  } finally {
+    child.off?.("exit", onExit);
+  }
+}
+
 export async function launchWindowsUpdateHelper({
   zipPath,
   installDir,
@@ -321,6 +355,7 @@ export async function launchWindowsUpdateHelper({
   expectedIdentity,
   processId,
   spawnImpl = spawn,
+  helperStartTimeoutMs = DEFAULT_WINDOWS_HELPER_START_TIMEOUT_MS,
 } = {}) {
   const identity = safeBuildIdentity(expectedIdentity);
   const normalizedVersion = safeVersion(version);
@@ -330,7 +365,9 @@ export async function launchWindowsUpdateHelper({
   const stagingDir = dirname(zipPath);
   const scriptPath = join(stagingDir, "apply-update.ps1");
   const logPath = join(stagingDir, "apply-update-error.log");
+  const startedFile = join(stagingDir, "helper-started.txt");
   const readyFile = join(stagingDir, "update-ready.json");
+  await rm(startedFile, { force: true });
   await writeFile(scriptPath, windowsUpdateHelperScript(), "utf8");
   const child = spawnImpl("powershell.exe", [
     "-NoProfile",
@@ -347,6 +384,7 @@ export async function launchWindowsUpdateHelper({
     "-ExpectedRuntimeFingerprint", identity.runtimeFingerprint,
     "-ExpectedDistribution", identity.distribution,
     "-LogPath", logPath,
+    "-StartedFile", startedFile,
     "-ReadyFile", readyFile,
   ], {
     detached: true,
@@ -357,6 +395,16 @@ export async function launchWindowsUpdateHelper({
     child.once("spawn", resolveSpawn);
     child.once("error", rejectSpawn);
   });
+  try {
+    await waitForWindowsUpdateHelperStarted({
+      child,
+      startedFile,
+      timeoutMs: helperStartTimeoutMs,
+    });
+  } catch (error) {
+    child.kill?.();
+    throw error;
+  }
   child.unref?.();
-  return { scriptPath, logPath, readyFile };
+  return { scriptPath, logPath, startedFile, readyFile };
 }
