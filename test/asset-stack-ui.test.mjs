@@ -150,8 +150,14 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
     "sidebar drops snapshot their target before visual drag state is cleared");
   assert.ok(endPointer.indexOf("const groupTarget = dropGroupTarget;") < endPointer.indexOf("removeGhost();"),
     "sidebar drop target must survive removeGhost/clearDropTarget until the mutation is scheduled");
-  assert.match(endPointer, /if \(groupTarget\)[\s\S]*?finishGroupDrop\(drag\.assetIds, value\)/,
-    "the preserved sidebar target drives the group mutation");
+  assert.match(endPointer, /if \(groupTarget\)[\s\S]*?drag\.stackId[\s\S]*?finishStackGroupDrop\(drag\.stackId, value\)[\s\S]*?finishGroupDrop\(drag\.assetIds, value\)/,
+    "the preserved sidebar target routes Stack nodes and ordinary assets to distinct group mutations");
+  assert.match(stackController, /const draggedStackId = !state\.activeStackId \? String\(draggedAsset\?\.stack\?\.id \|\| ""\) : "";/,
+    "collapsed Stack drags carry their logical stack id");
+  assert.match(stackController, /if \(pointer\.stackId\) return;[\s\S]*?const target = targetCardAt/,
+    "a collapsed Stack can target sidebar groups but never falls through to Stack-on-Stack merge");
+  assert.match(stackController, /async function finishStackGroupDrop\(stackId, groupName\)[\s\S]*?\/api\/asset-stacks\/\$\{encodeURIComponent\(stackId\)\}\/group/,
+    "Stack sidebar drops use the Stack-level navigation-group endpoint");
   assert.match(stackController, /lostpointercapture/);
   assert.match(stackController, /window\.addEventListener\("blur"/);
   assert.match(stackController, /moveBlockRelative\(currentIds, drag\.assetIds, targetId, placement\)/);
@@ -169,6 +175,10 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
   assert.match(contextActions, /mosa:open-stack/);
   assert.match(contextActions, /openStackRenameModal\(\{/,
     "the Stack menu routes rename through the shared rename modal collector");
+  assert.match(contextActions, /applyStackGroupMutation\(projectId, stackId, groupName\)/,
+    "the collapsed Stack context menu can move the whole Stack to a navigation group");
+  assert.match(contextActions, /stackMovedToGroup/,
+    "Stack group moves report Stack-level feedback instead of pretending only the cover moved");
   assert.match(contextActions, /method: "PATCH"/,
     "renaming a stack persists through the stack PATCH route");
   assert.match(contextActions, /dissolveStack/);

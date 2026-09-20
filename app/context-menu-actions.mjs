@@ -101,6 +101,13 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     });
   }
 
+  async function applyStackGroupMutation(projectId, stackId, group) {
+    return apiFetch(`/api/asset-stacks/${encodeURIComponent(stackId)}/group`, {
+      method: "POST",
+      body: { projectId, group },
+    });
+  }
+
   function selectionHasGroupedAsset(asset, selectedAssets = [], options = {}) {
     const count = logicalSelectionCount(selectedAssets, options);
     if (count > 1) {
@@ -442,6 +449,20 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     if (options.stackNode && asset?.stack?.id && logicalSelectionCount(selectedAssets, options) === 1) {
       const stackId = asset.stack.id;
       const stackCount = Math.max(0, Number(asset.stack.count || 0));
+      const moveStackToGroup = (groupName) => async () => {
+        const projectId = state.project;
+        await runAction(async () => {
+          const response = await applyStackGroupMutation(projectId, stackId, groupName);
+          const assetIds = Array.isArray(response?.stack?.assetIds) ? response.stack.assetIds : [];
+          showToast(
+            groupName ? t("stackMovedToGroup", { group: groupName }) : t("stackRemovedFromGroup"),
+            "success",
+          );
+          window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+            detail: { projectId, updatedAssetIds: assetIds, groupChanged: true },
+          }));
+        });
+      };
       return [
         {
           label: t("openStack"),
@@ -477,6 +498,40 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               },
             });
           },
+        },
+        {
+          label: t("moveToGroup"),
+          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
+          submenu: [
+            {
+              label: t("createGroupWithSelection"),
+              action: async () => {
+                const projectId = state.project;
+                openGroupModal?.({
+                  onCreated: async (groupName) => {
+                    if (projectId !== state.project) return;
+                    const response = await applyStackGroupMutation(projectId, stackId, groupName);
+                    const assetIds = Array.isArray(response?.stack?.assetIds) ? response.stack.assetIds : [];
+                    showToast(t("stackMovedToGroup", { group: groupName }), "success");
+                    window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+                      detail: { projectId, updatedAssetIds: assetIds, groupChanged: true },
+                    }));
+                  },
+                });
+              },
+            },
+            {
+              label: t("removeFromGroup"),
+              icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="m9 12 6 0"/></svg>',
+              action: moveStackToGroup(""),
+            },
+            { separator: true },
+            ...(Array.isArray(state.groups.groups) ? state.groups.groups : []).map((group) => ({
+              label: group.name,
+              icon: `<svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="${resolveGroupColor(group.name)}"/></svg>`,
+              action: moveStackToGroup(group.name),
+            })),
+          ],
         },
         { separator: true },
         {

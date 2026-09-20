@@ -388,13 +388,14 @@ export function createAssetStackController({
     // falling through to gallery marquee selection. dragIdsForCard() still
     // preserves an existing multi-selection when the pressed card belongs to it.
     const candidateIds = dragIdsForCard(state, assetId);
+    const draggedAsset = state.assets.find((asset) => asset.id === assetId);
+    const draggedStackId = !state.activeStackId ? String(draggedAsset?.stack?.id || "") : "";
     if (state.activeStackId) {
       if (!stackViewIsUnfiltered(state)) return;
     } else {
-      // A collapsed Stack is a logical node, not a draggable member asset.
-      // Let users drag ordinary assets *into* a Stack, but never drag a Stack
-      // itself into another Stack or accidentally mutate only its cover.
-      if (candidateIds.some((id) => state.assets.find((asset) => asset.id === id)?.stack?.id)) return;
+      // A collapsed Stack is a logical node. It may be dragged to a sidebar
+      // navigation group, but never into another Stack or as only its cover.
+      if (!draggedStackId && candidateIds.some((id) => state.assets.find((asset) => asset.id === id)?.stack?.id)) return;
     }
     pointer = {
       id: event.pointerId,
@@ -404,10 +405,11 @@ export function createAssetStackController({
       lastY: event.clientY,
       assetId,
       assetIds: candidateIds,
+      stackId: draggedStackId,
       dragging: false,
     };
     state.assetStackDragCandidate = true;
-    nativeAssetDrag?.begin?.(pointer);
+    if (!pointer.stackId) nativeAssetDrag?.begin?.(pointer);
   }
 
   function targetCardAt(clientX, clientY) {
@@ -442,6 +444,7 @@ export function createAssetStackController({
       return;
     }
     if (dropGroupTarget) clearDropTarget();
+    if (pointer.stackId) return;
     const target = targetCardAt(clientX, clientY);
     if (target !== dropTarget) clearDropTarget();
     if (!target) return;
@@ -468,7 +471,7 @@ export function createAssetStackController({
     pointer.lastY = event.clientY;
     if (!pointer.dragging) {
       if (Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) < STACK_DRAG_THRESHOLD_PX) return;
-      if (nativeAssetDrag?.startIfOutside?.(event)) {
+      if (!pointer.stackId && nativeAssetDrag?.startIfOutside?.(event)) {
         suppressSyntheticClick();
         event.preventDefault();
         cancelPointerGesture();
@@ -478,7 +481,7 @@ export function createAssetStackController({
       try { els.assetGrid?.setPointerCapture(event.pointerId); } catch { /* Window-level listeners keep the gesture alive. */ }
       document.body.classList.add("asset-stack-dragging");
     }
-    if (nativeAssetDrag?.startIfOutside?.(event)) {
+    if (!pointer.stackId && nativeAssetDrag?.startIfOutside?.(event)) {
       suppressSyntheticClick();
       event.preventDefault();
       cancelPointerGesture();
@@ -589,7 +592,9 @@ export function createAssetStackController({
       const item = groupTarget;
       const filter = item.dataset.filter;
       const value = filter === "group" ? item.dataset.value : "";
-      void runStackMutation(() => finishGroupDrop(drag.assetIds, value));
+      void runStackMutation(() => drag.stackId
+        ? finishStackGroupDrop(drag.stackId, value)
+        : finishGroupDrop(drag.assetIds, value));
       return;
     }
     if (!targetId) return;
@@ -616,6 +621,29 @@ export function createAssetStackController({
     showToast(groupName
       ? t("moveToGroupCount", { count: assetIds.length, group: groupName })
       : t("removeFromGroupCount", { count: assetIds.length }), "success");
+    return true;
+  }
+
+  async function finishStackGroupDrop(stackId, groupName) {
+    if (!stackId) return false;
+    const response = await apiFetch(`/api/asset-stacks/${encodeURIComponent(stackId)}/group`, {
+      method: "POST",
+      body: { projectId: state.project, group: groupName },
+    });
+    const assetIds = Array.isArray(response?.stack?.assetIds) ? response.stack.assetIds : [];
+    gallerySelection.clear();
+    if (assetIds.length) {
+      await librarySync.applyLocalChanges([{
+        kind: "assets-updated",
+        entityType: "asset-batch",
+        entityId: "group-assignment",
+        assetIds,
+        flags: ["group"],
+      }]);
+    }
+    showToast(groupName
+      ? t("stackMovedToGroup", { group: groupName })
+      : t("stackRemovedFromGroup"), "success");
     return true;
   }
 

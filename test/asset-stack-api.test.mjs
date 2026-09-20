@@ -184,3 +184,73 @@ test("Stack rename PATCH persists a display name and surfaces it on gallery node
   assert.equal(empty.status, 400);
   assert.equal((await empty.json()).code, "STACK_NAME_EMPTY");
 });
+
+test("Stack navigation-group assignment moves the whole logical Stack and survives hidden-member restore", async (t) => {
+  const { runtime, create } = await startStackRuntime(t);
+  await create("a");
+  await create("b");
+  await create("c");
+
+  for (const name of ["Big A", "Big B"]) {
+    const created = await fetch(`${runtime.url}/api/groups`, {
+      method: "POST",
+      headers: mutationHeaders(runtime),
+      body: JSON.stringify({ projectId: "default", name }),
+    });
+    assert.equal(created.status, 201);
+  }
+
+  const stacked = await fetch(`${runtime.url}/api/asset-stacks`, {
+    method: "POST",
+    headers: mutationHeaders(runtime),
+    body: JSON.stringify({ projectId: "default", assetIds: ["a", "b"], coverAssetId: "a" }),
+  });
+  const stack = (await stacked.json()).stack;
+
+  const assignedA = await fetch(`${runtime.url}/api/asset-stacks/${encodeURIComponent(stack.id)}/group`, {
+    method: "POST",
+    headers: mutationHeaders(runtime),
+    body: JSON.stringify({ projectId: "default", group: "Big A" }),
+  });
+  assert.equal(assignedA.status, 200);
+  assert.deepEqual((await assignedA.json()).stack.assetIds, ["a", "b"]);
+
+  const galleryA = await (await fetch(
+    `${runtime.url}/api/assets?project=default&view=gallery&group=${encodeURIComponent("Big A")}&limit=100`,
+  )).json();
+  assert.deepEqual(galleryA.assets.map((asset) => asset.id), ["a"]);
+  assert.equal(galleryA.assets[0].stack.id, stack.id);
+  assert.equal(galleryA.assets[0].stack.count, 2);
+
+  const trashed = await fetch(`${runtime.url}/api/assets/batch`, {
+    method: "POST",
+    headers: mutationHeaders(runtime),
+    body: JSON.stringify({ action: "trash", projectId: "default", assetIds: ["b"] }),
+  });
+  assert.equal(trashed.status, 200);
+
+  const assignedB = await fetch(`${runtime.url}/api/asset-stacks/${encodeURIComponent(stack.id)}/group`, {
+    method: "POST",
+    headers: mutationHeaders(runtime),
+    body: JSON.stringify({ projectId: "default", group: "Big B" }),
+  });
+  assert.equal(assignedB.status, 200);
+  assert.deepEqual((await assignedB.json()).stack.assetIds, ["a", "b"]);
+
+  const restored = await fetch(`${runtime.url}/api/assets/default/b/restore`, {
+    method: "POST",
+    headers: mutationHeaders(runtime),
+  });
+  assert.equal(restored.status, 200);
+
+  const raw = await (await fetch(`${runtime.url}/api/assets?project=default&limit=100`)).json();
+  assert.equal(raw.assets.find((asset) => asset.id === "a").group, "Big B");
+  assert.equal(raw.assets.find((asset) => asset.id === "b").group, "Big B");
+
+  const galleryB = await (await fetch(
+    `${runtime.url}/api/assets?project=default&view=gallery&group=${encodeURIComponent("Big B")}&limit=100`,
+  )).json();
+  assert.deepEqual(galleryB.assets.map((asset) => asset.id), ["a"]);
+  assert.equal(galleryB.assets[0].stack.id, stack.id);
+  assert.equal(galleryB.assets[0].stack.count, 2);
+});
