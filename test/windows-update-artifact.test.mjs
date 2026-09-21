@@ -34,6 +34,8 @@ test("Windows update ZIP commands preserve the MOSA-win32-x64 root directory", (
   });
   assert.equal(windows.command, "powershell.exe");
   assert.match(windows.args.at(-1), /\$rootName \+ '\/'/);
+  assert.match(windows.args.at(-1), /\$relative\.Replace\(\[char\]92, \[char\]47\)/);
+  assert.doesNotMatch(windows.args.at(-1), /-replace/);
   assert.match(windows.args.at(-1), /CreateEntryFromFile/);
   assert.match(windows.options.env.MOSA_WINDOWS_UPDATE_SOURCE, /MOSA-win32-x64$/);
 });
