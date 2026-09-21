@@ -87,13 +87,13 @@ export function createCriticalUiFlowSource({ mode, fixturePath, searchTerm, reci
   }
 
   await waitFor(
-    () => document.querySelector('#newAssetTopBtn')
-      && document.querySelector('#assetGrid')?.getAttribute('aria-busy') === 'false',
+    () => document.querySelector('#assetGrid')?.getAttribute('aria-busy') === 'false',
     'initialized MOSA application shell',
   );
 
   if (config.mode === 'exercise') {
-    click('#newAssetTopBtn');
+    await waitFor(() => document.querySelector('[data-action="empty-import"]'), 'empty-state import action');
+    click('[data-action="empty-import"]');
     await waitFor(() => document.querySelector('#importModal')?.classList.contains('open'), 'import modal');
     setValue('#imagePathInput', config.fixturePath);
     setValue('#promptInput', config.searchTerm);
