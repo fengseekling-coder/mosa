@@ -43,7 +43,7 @@ export function windowsUpdateZipCommand({ packageDir, output, platform = process
       "    Get-ChildItem -LiteralPath $source -Recurse -File | ForEach-Object {",
       "      $relative = $_.FullName.Substring($source.Length)",
       "      while ($relative.StartsWith('\\') -or $relative.StartsWith('/')) { $relative = $relative.Substring(1) }",
-      "      $entryName = $rootName + '/' + ($relative -replace '\\', '/')",
+      "      $entryName = $rootName + '/' + $relative.Replace([char]92, [char]47)",
       "      [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $_.FullName, $entryName, [IO.Compression.CompressionLevel]::Optimal) | Out-Null",
       "    }",
       "  } finally { $archive.Dispose() }",
