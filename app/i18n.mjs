@@ -148,6 +148,7 @@ export default {
     saveAsset: "保存素材",
     assetList: "素材列表",
     assetInspector: "资产检视器",
+    openAssetInspector: "打开资产监视器",
     noAssets: "还没有素材",
     noAssetsHint: "导入第一张图片，开始建立可复用的创作资产库。",
     // F-08 gallery empty states（真实空库复用 onboard* 引导文案；recent 指
@@ -537,6 +538,8 @@ export default {
     stackCreated: "已堆叠 {count} 项素材",
     stackAssetsAdded: "已向堆叠加入 {count} 项素材",
     stackAssetsRemoved: "已从堆叠移出 {count} 项素材",
+    stackMovedToGroup: "堆叠已移动到「{group}」",
+    stackRemovedFromGroup: "堆叠已移出分组",
     stackOrderChanged: "堆叠内容已发生变化，已刷新，请重新拖动排序",
     stackDissolved: "堆叠已自动解散",
     dissolveStack: "解散堆叠",
@@ -740,6 +743,7 @@ export default {
     saveAsset: "Save asset",
     assetList: "Asset list",
     assetInspector: "Asset inspector",
+    openAssetInspector: "Open asset monitor",
     noAssets: "No assets yet",
     noAssetsHint: "Import your first image to start a reusable creative library.",
     // F-08 gallery empty states (the true empty library reuses the onboard*
@@ -1129,6 +1133,8 @@ export default {
     stackCreated: "Stacked {count} assets",
     stackAssetsAdded: "Added {count} assets",
     stackAssetsRemoved: "Moved out {count} assets",
+    stackMovedToGroup: "Stack moved to “{group}”",
+    stackRemovedFromGroup: "Stack removed from group",
     stackOrderChanged: "The stack changed while you were reordering it. It has been refreshed; drag again.",
     stackDissolved: "Stack dissolved automatically",
     dissolveStack: "Dissolve stack",

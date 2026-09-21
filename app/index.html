@@ -205,7 +205,7 @@
         <section class="library-view" id="libraryView">
         <!-- V2 FilterBar 顶栏：左=.topbar-context（范围标题+类型筛选），右=.topbar-actions
              work 组只保留排序与搜索框；
-             utility 组只保留不可见的桥接状态语义；主题切换统一收敛到设置面板，primary 组保留唯一主操作导入素材。
+             utility 组只保留不可见的桥接状态语义；主题切换统一收敛到设置面板，primary 组提供按需显示的资产监视器入口。
              顶栏不再重复提供主题按钮；无隐藏复制控件、无溢出菜单。#bridgeStatusMeta 全档位
              visually-hidden（降噪）：不占可见布局但保留辅助技术语义；
              #statusText 独立于被隐藏的 utility 组，持续保留 aria-live 播报。 -->
@@ -222,7 +222,7 @@
             </div>
             <div class="topbar-primary-group">
               <button class="toolbar-filter trash-empty-button" id="emptyTrashBtn" type="button" hidden data-i18n="emptyTrash">清空回收站</button>
-              <button class="create-button" id="newAssetTopBtn" type="button" data-i18n-aria-label="importAsset" aria-label="导入素材"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="importAsset">导入素材</span></button>
+              <button class="toolbar-icon inspector-open-button" id="openInspectorBtn" type="button" hidden data-i18n-aria-label="openAssetInspector" aria-label="打开资产监视器"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="M15 4v16"/><path d="m11 9-3 3 3 3"/></svg></button>
             </div>
           </div>
         </header>

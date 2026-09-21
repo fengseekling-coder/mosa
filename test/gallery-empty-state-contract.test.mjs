@@ -154,7 +154,7 @@ test("20-32. resetLibraryRefinements is the single clear path with focus recover
   // filter-chip toolbar no longer keeps a second clear-all wrapper alive.
   assert.equal(count(app, "resetLibraryRefinements();"), 1, "only the empty-state reset entry remains");
   assert.doesNotMatch(app, /function clearAllFilters\(|renderActiveFilters|removeFilterChip/);
-  const delegation = sliceBetween(app, 'els.assetGrid?.addEventListener("click"', 'els.newAssetTopBtn?.addEventListener("click", openImportModal);');
+  const delegation = sliceBetween(app, 'els.assetGrid?.addEventListener("click"', 'els.browseFileBtn?.addEventListener("click", () => {');
   assert.match(delegation, /resetLibraryRefinements\(\); return;/, "the empty-state clear/view-all actions share the same helper");
   // 29. The search input DOM stays in sync.
   assert.match(reset, /els\.searchInput\) els\.searchInput\.value = "";/, "the search input is cleared");
@@ -169,7 +169,7 @@ test("20-32. resetLibraryRefinements is the single clear path with focus recover
 
 test("33-36. import reuses the existing modal; retry and pagination failures stay honest", async () => {
   const [app, apiClient] = await Promise.all([readApp(), readApiClient()]);
-  const delegation = sliceBetween(app, 'els.assetGrid?.addEventListener("click"', 'els.newAssetTopBtn?.addEventListener("click", openImportModal);');
+  const delegation = sliceBetween(app, 'els.assetGrid?.addEventListener("click"', 'els.browseFileBtn?.addEventListener("click", () => {');
 
   // 33-34. Import reuses the one existing modal; there is no second one.
   assert.match(delegation, /\[data-action="empty-import"\]'\)\) \{ openImportModal\(\); return; \}/, "the empty-state import opens the existing modal");

@@ -147,7 +147,7 @@ test("9. compact 960–1120 keeps three columns (no detail drop)", async () => {
 // logical node: single-click selects it without navigating or leaking its cover
 // into the Inspector, while double-click opens the Stack member view.
 test("10. single click inspects, double click views, and Stack double click enters it", async () => {
-  const app = await readApp();
+  const [app, assetView] = await Promise.all([readApp(), readAssetView()]);
   const cards = sliceBetween(app, 'const selectButton = event.target.closest(".asset-card-select")', 'const loadMoreButton = event.target.closest');
   assert.match(cards, /const id = selectButton\.closest\("\.asset-card"\)\?\.dataset\.id;/,
     "card click resolves the asset id");
@@ -157,11 +157,22 @@ test("10. single click inspects, double click views, and Stack double click ente
     "card click clears batch selection before entering the shared logical-node selection path");
   assert.match(app, /async function selectGalleryNode\(id, shouldScroll = false\)[\s\S]*?if \(!state\.activeStackId && asset\?\.stack\?\.id\) return selectStackNode\(asset, shouldScroll\);[\s\S]*?return selectAsset\(id, shouldScroll\);/,
     "the shared selector sends ordinary assets to the V2 inspector and collapsed Stacks to Stack Inspector");
+  assert.match(app, /detailManuallyClosed: false/, "Inspector manual-close state is explicit and session-scoped");
+  assert.match(app, /state\.selectedId = id;[\s\S]*?if \(!state\.detailManuallyClosed\) setDetailOpen\(true\);[\s\S]*?updateSelectedCard\(\);/,
+    "single-click updates selection without reopening a manually closed Inspector");
+  assert.match(app, /state\.detailManuallyClosed = true;[\s\S]*?setDetailOpen\(false, \{ allowDockedClose: true \}\);/,
+    "closing the Inspector suppresses automatic reopen on docked desktop layouts");
+  assert.match(app, /function openDetailSurfaceManually\(\) \{[\s\S]*?state\.detailManuallyClosed = false;[\s\S]*?setDetailOpen\(true\);/,
+    "the dedicated manual opener is the explicit way to restore the Inspector");
+  assert.match(assetView, /if \(!state\.detailManuallyClosed\) setDetailOpen\(true\);/,
+    "entering Viewer cannot reopen a manually closed Inspector");
+  assert.match(assetView, /setDetailOpen\(false, \{ allowDockedClose: state\.detailManuallyClosed \}\);/,
+    "returning from Viewer preserves the manual-close lock on docked layouts");
   assert.doesNotMatch(cards, /assetStacks\.enterStack/,
     "single-click must not enter a collapsed Stack");
   assert.doesNotMatch(cards, /openAssetView/, "single-click must not enter the dedicated Viewer");
 
-  const doubleClick = sliceBetween(app, 'els.assetGrid?.addEventListener("dblclick"', 'els.newAssetTopBtn?.addEventListener');
+  const doubleClick = sliceBetween(app, 'els.assetGrid?.addEventListener("dblclick"', 'els.browseFileBtn?.addEventListener');
   assert.match(doubleClick, /if \(!state\.activeStackId && \(card\?\.dataset\.stackId \|\| asset\?\.stack\?\.id\)\)/,
     "only a collapsed Stack intercepts double-click; members inside an active Stack fall through to Viewer");
   assert.match(doubleClick, /assetStacks\.enterStack\(asset\.stack\.id, asset\.stack\)/,
@@ -350,7 +361,7 @@ test("29. topbar hierarchy intact, single toolbar per mode", async () => {
     assert.equal(html.match(new RegExp(`class="${group}"`, "g")).length, 1, `${group} appears exactly once`);
   }
   // V2 removed batchToggle and filterToggle
-  for (const id of ["bridgeStatus", "sortSelect", "newAssetTopBtn"]) {
+  for (const id of ["bridgeStatus", "sortSelect"]) {
     assert.equal(html.match(new RegExp(`id="${id}"`, "g"))?.length || 0, 1, `#${id} must stay unique`);
   }
   assert.doesNotMatch(html, /id="themeToggle"/, "theme switching belongs to settings, not the gallery topbar");

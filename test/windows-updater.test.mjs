@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -124,7 +124,9 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
         invocation = { command, args, options };
         const child = new EventEmitter();
         child.unref = () => {};
+        child.kill = () => {};
         queueMicrotask(() => child.emit("spawn"));
+        queueMicrotask(() => writeFile(join(root, "helper-started.txt"), "4321\n"));
         return child;
       },
     });
@@ -136,7 +138,9 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
     assert.equal(invocation.args.includes(EXPECTED_IDENTITY.uiFingerprint), true);
     assert.equal(invocation.args.includes(EXPECTED_IDENTITY.runtimeFingerprint), true);
     assert.equal(invocation.args.includes(EXPECTED_IDENTITY.distribution), true);
+    assert.equal(invocation.args.includes("-StartedFile"), true);
     assert.match(await readFile(join(root, "apply-update.ps1"), "utf8"), /Expand-Archive/);
+    assert.match(await readFile(join(root, "apply-update.ps1"), "utf8"), /Set-Content -LiteralPath \$StartedFile/);
   } finally {
     await removeTestPath(root, { recursive: true, force: true });
   }
@@ -159,6 +163,32 @@ test("Windows update helper rejects when PowerShell cannot spawn", async () => {
         return child;
       },
     }), /ENOENT/);
+  } finally {
+    await removeTestPath(root, { recursive: true, force: true });
+  }
+});
+
+test("Windows update helper handoff fails closed when PowerShell spawns but the script never starts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-win-helper-no-handoff-"));
+  let killed = false;
+  try {
+    await assert.rejects(launchWindowsUpdateHelper({
+      zipPath: join(root, "MOSA-win32-x64-0.3.0.zip"),
+      installDir: "C:\\Users\\Example\\MOSA-win32-x64",
+      exeName: "MOSA.exe",
+      version: "0.3.0",
+      expectedIdentity: EXPECTED_IDENTITY,
+      processId: 1234,
+      helperStartTimeoutMs: 100,
+      spawnImpl: () => {
+        const child = new EventEmitter();
+        child.unref = () => {};
+        child.kill = () => { killed = true; };
+        queueMicrotask(() => child.emit("spawn"));
+        return child;
+      },
+    }), /did not start before the handoff deadline/);
+    assert.equal(killed, true);
   } finally {
     await removeTestPath(root, { recursive: true, force: true });
   }

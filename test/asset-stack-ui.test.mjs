@@ -69,7 +69,7 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
   );
   const doubleClick = app.slice(
     app.indexOf('els.assetGrid?.addEventListener("dblclick"'),
-    app.indexOf('els.newAssetTopBtn?.addEventListener'),
+    app.indexOf('els.browseFileBtn?.addEventListener'),
   );
   assert.doesNotMatch(singleClick, /assetStacks\.enterStack/,
     "collapsed Stack single-click must not navigate");
@@ -79,6 +79,8 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
     "mouse and keyboard selection share the same Stack-aware node semantics");
   assert.match(app, /async function selectStackNode\(asset, shouldScroll = false\)[\s\S]*?state\.detailStack = \{[\s\S]*?loading: true/,
     "Stack inspection owns an explicit detail state");
+  assert.match(app, /state\.generationHistory = null;[\s\S]*?if \(!state\.detailManuallyClosed\) setDetailOpen\(true\);[\s\S]*?if \(state\.detailManuallyClosed\) return true;/,
+    "Stack selection also respects the manual-close Inspector lock");
   assert.match(app, /async function loadStackInspectorMembers\(stackId, coverAssetId[\s\S]*?\/api\/asset-stacks\/\$\{encodeURIComponent\(stackId\)\}\/assets/,
     "Stack inspection loads the complete member list through one reusable refresh path");
   assert.match(app, /const stackDetail = state\.detailStack\?\.coverAssetId === state\.selectedId \? state\.detailStack : null/,
@@ -148,8 +150,14 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
     "sidebar drops snapshot their target before visual drag state is cleared");
   assert.ok(endPointer.indexOf("const groupTarget = dropGroupTarget;") < endPointer.indexOf("removeGhost();"),
     "sidebar drop target must survive removeGhost/clearDropTarget until the mutation is scheduled");
-  assert.match(endPointer, /if \(groupTarget\)[\s\S]*?finishGroupDrop\(drag\.assetIds, value\)/,
-    "the preserved sidebar target drives the group mutation");
+  assert.match(endPointer, /if \(groupTarget\)[\s\S]*?drag\.stackId[\s\S]*?finishStackGroupDrop\(drag\.stackId, value\)[\s\S]*?finishGroupDrop\(drag\.assetIds, value\)/,
+    "the preserved sidebar target routes Stack nodes and ordinary assets to distinct group mutations");
+  assert.match(stackController, /const draggedStackId = !state\.activeStackId \? String\(draggedAsset\?\.stack\?\.id \|\| ""\) : "";/,
+    "collapsed Stack drags carry their logical stack id");
+  assert.match(stackController, /if \(pointer\.stackId\) return;[\s\S]*?const target = targetCardAt/,
+    "a collapsed Stack can target sidebar groups but never falls through to Stack-on-Stack merge");
+  assert.match(stackController, /async function finishStackGroupDrop\(stackId, groupName\)[\s\S]*?\/api\/asset-stacks\/\$\{encodeURIComponent\(stackId\)\}\/group/,
+    "Stack sidebar drops use the Stack-level navigation-group endpoint");
   assert.match(stackController, /lostpointercapture/);
   assert.match(stackController, /window\.addEventListener\("blur"/);
   assert.match(stackController, /moveBlockRelative\(currentIds, drag\.assetIds, targetId, placement\)/);
@@ -167,6 +175,10 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
   assert.match(contextActions, /mosa:open-stack/);
   assert.match(contextActions, /openStackRenameModal\(\{/,
     "the Stack menu routes rename through the shared rename modal collector");
+  assert.match(contextActions, /applyStackGroupMutation\(projectId, stackId, groupName\)/,
+    "the collapsed Stack context menu can move the whole Stack to a navigation group");
+  assert.match(contextActions, /stackMovedToGroup/,
+    "Stack group moves report Stack-level feedback instead of pretending only the cover moved");
   assert.match(contextActions, /method: "PATCH"/,
     "renaming a stack persists through the stack PATCH route");
   assert.match(contextActions, /dissolveStack/);

@@ -41,7 +41,7 @@ function topbarBlock(html) {
   return html.slice(start, end);
 }
 
-const CONTROL_IDS = ["bridgeStatus", "sortSelect", "searchInput", "newAssetTopBtn"];
+const CONTROL_IDS = ["bridgeStatus", "sortSelect", "searchInput", "openInspectorBtn"];
 
 // 1. The topbar exposes exactly two regions: context and actions.
 test("1. topbar has context and actions regions", async () => {
@@ -99,12 +99,15 @@ test("4. sort and search live in the work group", async () => {
   }
 });
 
-// 5. Import lives in the primary group.
-test("5. import lives in the primary group", async () => {
+// 5. The retired topbar import action stays absent.
+test("5. topbar import action is removed and inspector opener lives in the primary group", async () => {
   const topbar = topbarBlock(await readHtml());
+  assert.equal(topbar.includes('id="newAssetTopBtn"'), false, "#newAssetTopBtn must stay removed");
+  assert.equal(topbar.includes('class="create-button"'), false, "topbar must not render the retired import button");
   const primaryStart = topbar.indexOf('class="topbar-primary-group"');
-  const at = topbar.indexOf('id="newAssetTopBtn"');
-  assert.ok(at > primaryStart, "#newAssetTopBtn must sit inside the primary group");
+  const inspectorAt = topbar.indexOf('id="openInspectorBtn"');
+  assert.ok(inspectorAt > primaryStart, "#openInspectorBtn must sit inside the primary group");
+  assert.match(topbar, /id="openInspectorBtn"[^>]*data-i18n-aria-label="openAssetInspector"[^>]*aria-label="打开资产监视器"/);
 });
 
 // 6. All retained topbar control IDs stay unique in the page.
@@ -122,11 +125,11 @@ test("6. retained control IDs stay unique", async () => {
 // 7. The DOM order of the V2 controls is unchanged.
 // 2026-08-18: V2-only token consolidation. The V2 design removed the legacy
 // #batchToggle, #filterToggle and the redundant #themeToggle buttons; the
-// controls that survive are `bridgeStatus → sortSelect →
-// searchInput → newAssetTopBtn` (utility → work → primary).
+// controls that survive are bridgeStatus → sortSelect → searchInput → openInspectorBtn
+// (utility → work → primary).
 test("7. control DOM order is unchanged", async () => {
   const topbar = topbarBlock(await readHtml());
-  const positions = ["bridgeStatus", "sortSelect", "searchInput", "newAssetTopBtn"].map((id) => topbar.indexOf(`id="${id}"`));
+  const positions = ["bridgeStatus", "sortSelect", "searchInput", "openInspectorBtn"].map((id) => topbar.indexOf(`id="${id}"`));
   for (let i = 1; i < positions.length; i += 1) {
     assert.ok(positions[i] > positions[i - 1], `order violated at index ${i}`);
   }
@@ -134,18 +137,12 @@ test("7. control DOM order is unchanged", async () => {
   assert.ok(topbar.indexOf('id="statusText"') < topbar.indexOf('id="bridgeStatus"'), "#statusText stays before #bridgeStatus");
 });
 
-// 8. The topbar keeps exactly one primary action (Import).
-// 2026-08-18: V2-only token consolidation. The V2 design renamed the
-// primary accent alias from `--accent` to `--color-accent`; the create-button
-// recipe still consumes the same token, only the name changed.
-test("8. the topbar keeps exactly one primary action", async () => {
+// 8. The retired import CTA is replaced by a quiet icon-only inspector opener.
+test("8. the topbar primary action is the quiet inspector opener", async () => {
   const topbar = topbarBlock(await readHtml());
-  assert.equal(topbar.split('class="create-button"').length - 1, 1, "exactly one .create-button in the topbar");
-  assert.equal(topbar.includes("btn-primary"), false, "no second solid-accent button class in the topbar");
-  // The primary button is styled by the accent token, the work/utility controls are not.
-  const css = await readCss();
-  const { block } = extractBlock(css, ".create-button {");
-  assert.match(block, /background: var\(--color-accent\)/, "the single primary action keeps the solid accent background");
+  assert.equal(topbar.includes("newAssetTopBtn"), false, "retired import action must stay absent");
+  assert.equal(topbar.split('class="create-button"').length - 1, 0, "no solid import CTA remains");
+  assert.match(topbar, /class="toolbar-icon inspector-open-button" id="openInspectorBtn"/);
 });
 
 // 9. Bridge meta no longer occupies visible topbar layout (visually-hidden, not display:none).
@@ -203,14 +200,14 @@ test("14. sort select keeps its accessible name", async () => {
   }
 });
 
-// 15. Import keeps its accessible name and visible label text.
-test("15. import keeps accessible name and visible text", async () => {
-  const button = /<button class="create-button" id="newAssetTopBtn"[^>]*>([\s\S]*?)<\/button>/.exec(await readHtml());
-  assert.ok(button, "import button must exist");
-  assert.match(button[0], /aria-label="导入素材"/, "aria-label must be preserved");
-  assert.match(button[1], /<span data-i18n="importAsset">导入素材<\/span>/, "visible label text must be preserved (not icon-only)");
+// 15. Inspector opener is icon-only but remains accessibly named and wired.
+test("15. inspector opener keeps an accessible name and manual-open behavior", async () => {
+  const button = /<button class="toolbar-icon inspector-open-button" id="openInspectorBtn"[^>]*>[\s\S]*?<\/button>/.exec(await readHtml());
+  assert.ok(button, "inspector opener must exist");
+  assert.match(button[0], /aria-label="打开资产监视器"/, "icon button keeps an explicit accessible name");
   const app = await readApp();
-  assert.match(app, /els\.newAssetTopBtn\?\.addEventListener\("click", openImportModal\);/, "import still opens the existing modal");
+  assert.match(app, /els\.openInspectorBtn\?\.addEventListener\("click", openDetailSurfaceManually\);/);
+  assert.match(app, /if \(els\.openInspectorBtn\) els\.openInspectorBtn\.hidden = state\.detailOpen;/);
 });
 
 // 16. The retired 1179px filter-only tier leaves no no-op CSS behind.

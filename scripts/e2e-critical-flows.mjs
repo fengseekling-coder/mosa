@@ -25,12 +25,16 @@ if (!existsSync(electronBinary)) throw new Error(`Electron binary was not instal
 
 const root = await mkdtemp(join(tmpdir(), "mosa-critical-e2e-"));
 const libraryDir = join(root, "library");
+const desktopLibraryDir = join(root, "desktop-library");
+const stackLibraryDir = join(root, "stack-library");
 const generatedDir = join(root, "generated-images");
 const webUserData = join(root, "web-user-data");
 const desktopUserData = join(root, "desktop-user-data");
+const stackUserData = join(root, "stack-user-data");
 const webFixturePath = join(generatedDir, "critical-flow.png");
 const desktopStagingRoot = importStagingDir(desktopUserData);
 const desktopFixturePath = join(desktopStagingRoot, "critical-flow.png");
+const stackFixturePath = join(generatedDir, "stack-flow.png");
 const stamp = Date.now().toString(36);
 const webSearchTerm = `MOSA E2E WEB ${stamp}`;
 const webRecipeChange = `web-recipe-${stamp}`;
@@ -39,14 +43,18 @@ const desktopRecipeChange = `electron-recipe-${stamp}`;
 
 await Promise.all([
   mkdir(libraryDir, { recursive: true }),
+  mkdir(desktopLibraryDir, { recursive: true }),
+  mkdir(stackLibraryDir, { recursive: true }),
   mkdir(generatedDir, { recursive: true }),
   mkdir(webUserData, { recursive: true }),
   mkdir(desktopUserData, { recursive: true }),
+  mkdir(stackUserData, { recursive: true }),
   mkdir(desktopStagingRoot, { recursive: true }),
 ]);
 await Promise.all([
   sharp({ create: { width: 32, height: 24, channels: 4, background: { r: 33, g: 77, b: 121, alpha: 1 } } }).png().toFile(webFixturePath),
   sharp({ create: { width: 32, height: 24, channels: 4, background: { r: 67, g: 102, b: 138, alpha: 1 } } }).png().toFile(desktopFixturePath),
+  sharp({ create: { width: 32, height: 24, channels: 4, background: { r: 121, g: 77, b: 33, alpha: 1 } } }).png().toFile(stackFixturePath),
 ]);
 
 try {
@@ -110,20 +118,22 @@ async function runWebStackRound() {
     env: qaEnvironment({
       portVariable: "MOSA_PORT",
       port,
-      userData: webUserData,
+      userData: stackUserData,
+      library: stackLibraryDir,
     }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   const stderr = collect(child.stderr);
   try {
     const health = await waitForHealth(`http://127.0.0.1:${port}/api/health`, child);
-    assertHealth(health);
+    assertHealth(health, stackLibraryDir);
+    await seedStackAssets(port);
     const output = await runCommand(electronBinary, [...ELECTRON_QA_FLAGS, webDriver], {
       cwd: rootDir,
       env: {
         ...process.env,
         MOSA_E2E_WEB_TARGET_URL: `http://127.0.0.1:${port}/`,
-        MOSA_E2E_WEB_USER_DATA: webUserData,
+        MOSA_E2E_WEB_USER_DATA: stackUserData,
         MOSA_E2E_WEB_FLOW: "stack",
       },
     });
@@ -141,6 +151,26 @@ async function runWebStackRound() {
   }
 }
 
+async function seedStackAssets(port) {
+  const origin = `http://127.0.0.1:${port}`;
+  for (const [imagePath, prompt] of [
+    [webFixturePath, "stack flow first"],
+    [stackFixturePath, "stack flow second"],
+  ]) {
+    const response = await fetch(`${origin}/api/assets/create`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-mosa-client-token": QA_CLIENT_TOKEN,
+      },
+      body: JSON.stringify({ projectId: "default", imagePath, prompt }),
+    });
+    if (!response.ok) throw new Error(`Stack E2E seed failed (${response.status}): ${await response.text()}`);
+    const body = await response.json();
+    if (!body.asset?.id) throw new Error("Stack E2E seed returned no asset id.");
+  }
+}
+
 async function runElectronRound(mode, searchTerm, recipeChange) {
   const servicePort = await freePort();
   const cdpPort = await freePort();
@@ -153,6 +183,7 @@ async function runElectronRound(mode, searchTerm, recipeChange) {
     portVariable: "MOSA_DESKTOP_PORT",
     port: servicePort,
     userData: desktopUserData,
+    library: desktopLibraryDir,
   });
   const launched = await launchDesktopGui({
     platform: process.platform,
@@ -171,7 +202,7 @@ async function runElectronRound(mode, searchTerm, recipeChange) {
   try {
     pid = launched.pid || await waitForPid(pidFile);
     const health = await waitForHealthFile(healthFile);
-    assertHealth(health);
+    assertHealth(health, desktopLibraryDir);
     const cdp = await connectCdp(cdpPort, `http://127.0.0.1:${servicePort}`);
     try {
       await waitForRendererReady(cdp);
@@ -191,13 +222,13 @@ async function runElectronRound(mode, searchTerm, recipeChange) {
   }
 }
 
-function qaEnvironment({ portVariable, port, userData }) {
+function qaEnvironment({ portVariable, port, userData, library = libraryDir }) {
   return {
     ...process.env,
     MOSA_RUNTIME_MODE: "qa",
     MOSA_QA_RUN: "1",
     MOSA_CLIENT_TOKEN: QA_CLIENT_TOKEN,
-    MOSA_LIBRARY_DIR: libraryDir,
+    MOSA_LIBRARY_DIR: library,
     MOSA_USER_DATA: userData,
     MOSA_DISABLE_BRIDGES: DISABLED_BRIDGES,
     MOSA_PROJECT_DIR: root,
@@ -210,9 +241,9 @@ function qaEnvironment({ portVariable, port, userData }) {
   };
 }
 
-function assertHealth(health) {
+function assertHealth(health, expectedLibraryDir = libraryDir) {
   if (health?.product !== "mosa") throw new Error("E2E runtime is not MOSA.");
-  if (resolve(health.libraryDir) !== resolve(libraryDir)) throw new Error("E2E library isolation failed.");
+  if (resolve(health.libraryDir) !== resolve(expectedLibraryDir)) throw new Error("E2E library isolation failed.");
   if (health.storage !== "sqlite") throw new Error(`E2E expected SQLite storage, got ${health.storage}`);
 }
 
