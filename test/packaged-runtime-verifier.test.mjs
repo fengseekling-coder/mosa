@@ -140,5 +140,9 @@ test("desktop packaging scripts cannot bypass structural verification and packag
   assert.match(String(manifest.scripts?.["desktop:release:windows"] || ""), /desktop:release:windows:preview/);
   assert.match(String(manifest.scripts?.["desktop:make"] || ""), /npm run desktop:package/);
   assert.match(String(manifest.scripts?.["desktop:make:windows"] || ""), /npm run desktop:package:windows/);
-  assert.match(String(manifest.scripts?.["desktop:make:windows"] || ""), /--skip-package/);
+  assert.match(String(manifest.scripts?.["desktop:make:windows"] || ""), /desktop:update-artifact:windows/);
+  assert.doesNotMatch(String(manifest.scripts?.["desktop:make:windows"] || ""), /electron-forge make/);
+  for (const scriptName of ["desktop:release:windows:preview", "desktop:release:windows:production"]) {
+    assert.match(String(manifest.scripts?.[scriptName] || ""), /desktop:update-artifact:windows/);
+  }
 });
