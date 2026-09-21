@@ -216,7 +216,7 @@ $ErrorActionPreference = "Stop"
 $parentDir = Split-Path -Parent $InstallDir
 $transactionRoot = Join-Path $parentDir (".MOSA-update-" + [Guid]::NewGuid().ToString("N"))
 $extractDir = Join-Path $transactionRoot "extracted"
-$payloadDir = Join-Path $extractDir "MOSA-win32-x64"
+$payloadDir = $null
 $backupDir = Join-Path $transactionRoot "previous"
 $oldExe = Join-Path $InstallDir $ExeName
 $newProcess = $null
@@ -235,8 +235,16 @@ try {
   Wait-Process -Id $TargetPid -ErrorAction SilentlyContinue
   New-Item -ItemType Directory -Path $transactionRoot -Force | Out-Null
   Expand-Archive -LiteralPath $ZipPath -DestinationPath $extractDir -Force
-  $payloadExe = Join-Path $payloadDir $ExeName
-  if (-not (Test-Path -LiteralPath $payloadExe -PathType Leaf)) {
+  $flatPayloadExe = Join-Path $extractDir $ExeName
+  $nestedPayloadDir = Join-Path $extractDir "MOSA-win32-x64"
+  $nestedPayloadExe = Join-Path $nestedPayloadDir $ExeName
+  if (Test-Path -LiteralPath $flatPayloadExe -PathType Leaf) {
+    $payloadDir = $extractDir
+    $payloadExe = $flatPayloadExe
+  } elseif (Test-Path -LiteralPath $nestedPayloadExe -PathType Leaf) {
+    $payloadDir = $nestedPayloadDir
+    $payloadExe = $nestedPayloadExe
+  } else {
     throw "Downloaded MOSA package does not contain the expected executable."
   }
   if ($ExpectedDistribution -eq 'production') {
@@ -334,7 +342,7 @@ async function waitForWindowsUpdateHelperStarted({
         throw error;
       });
       if (String(marker || "").trim()) return true;
-      if (childExit) {
+      if (childExit && (childExit.signal || childExit.code !== 0)) {
         throw new Error(
           `Windows update helper exited before startup handoff (code=${childExit.code ?? "null"}, signal=${childExit.signal ?? "none"}).`,
         );
@@ -345,6 +353,61 @@ async function waitForWindowsUpdateHelperStarted({
   } finally {
     child.off?.("exit", onExit);
   }
+}
+
+function powershellLiteral(value) {
+  return `'${String(value ?? "").replaceAll("'", "''")}'`;
+}
+
+function encodePowerShellCommand(command) {
+  return Buffer.from(String(command || ""), "utf16le").toString("base64");
+}
+
+export function windowsUpdateDetachedLauncherCommand({
+  scriptPath,
+  processId,
+  zipPath,
+  installDir,
+  exeName,
+  version,
+  expectedIdentity,
+  logPath,
+  startedFile,
+  readyFile,
+  launcherLogPath,
+} = {}) {
+  const identity = safeBuildIdentity(expectedIdentity);
+  const normalizedVersion = safeVersion(version);
+  const helperCommand = [
+    `& ${powershellLiteral(scriptPath)}`,
+    `-TargetPid ${Number(processId)}`,
+    `-ZipPath ${powershellLiteral(zipPath)}`,
+    `-InstallDir ${powershellLiteral(installDir)}`,
+    `-ExeName ${powershellLiteral(exeName)}`,
+    `-ExpectedVersion ${powershellLiteral(normalizedVersion)}`,
+    `-ExpectedGitSha ${powershellLiteral(identity.gitSha)}`,
+    `-ExpectedUiFingerprint ${powershellLiteral(identity.uiFingerprint)}`,
+    `-ExpectedRuntimeFingerprint ${powershellLiteral(identity.runtimeFingerprint)}`,
+    `-ExpectedDistribution ${powershellLiteral(identity.distribution)}`,
+    `-LogPath ${powershellLiteral(logPath)}`,
+    `-StartedFile ${powershellLiteral(startedFile)}`,
+    `-ReadyFile ${powershellLiteral(readyFile)}`,
+  ].join(" ");
+  const helperEncoded = encodePowerShellCommand(helperCommand);
+  const detachedCommandLine = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${helperEncoded}`;
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    "try {",
+    `  $commandLine = ${powershellLiteral(detachedCommandLine)}`,
+    "  $result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $commandLine } -ErrorAction Stop",
+    "  if (-not $result -or [int]$result.ReturnValue -ne 0) {",
+    "    throw ('Win32_Process.Create failed with return value ' + [string]$result.ReturnValue)",
+    "  }",
+    "} catch {",
+    `  ($_ | Out-String) | Set-Content -LiteralPath ${powershellLiteral(launcherLogPath)} -Encoding UTF8`,
+    "  exit 1",
+    "}",
+  ].join("; ");
 }
 
 export async function launchWindowsUpdateHelper({
@@ -365,29 +428,33 @@ export async function launchWindowsUpdateHelper({
   const stagingDir = dirname(zipPath);
   const scriptPath = join(stagingDir, "apply-update.ps1");
   const logPath = join(stagingDir, "apply-update-error.log");
+  const launcherLogPath = join(stagingDir, "helper-launch-error.log");
   const startedFile = join(stagingDir, "helper-started.txt");
   const readyFile = join(stagingDir, "update-ready.json");
-  await rm(startedFile, { force: true });
+  await Promise.all([
+    rm(startedFile, { force: true }),
+    rm(launcherLogPath, { force: true }),
+  ]);
   await writeFile(scriptPath, windowsUpdateHelperScript(), "utf8");
+  const launcherCommand = windowsUpdateDetachedLauncherCommand({
+    scriptPath,
+    processId,
+    zipPath,
+    installDir,
+    exeName,
+    version: normalizedVersion,
+    expectedIdentity: identity,
+    logPath,
+    startedFile,
+    readyFile,
+    launcherLogPath,
+  });
   const child = spawnImpl("powershell.exe", [
     "-NoProfile",
     "-NonInteractive",
     "-ExecutionPolicy", "Bypass",
-    "-File", scriptPath,
-    "-TargetPid", String(processId),
-    "-ZipPath", zipPath,
-    "-InstallDir", installDir,
-    "-ExeName", exeName,
-    "-ExpectedVersion", normalizedVersion,
-    "-ExpectedGitSha", identity.gitSha,
-    "-ExpectedUiFingerprint", identity.uiFingerprint,
-    "-ExpectedRuntimeFingerprint", identity.runtimeFingerprint,
-    "-ExpectedDistribution", identity.distribution,
-    "-LogPath", logPath,
-    "-StartedFile", startedFile,
-    "-ReadyFile", readyFile,
+    "-EncodedCommand", encodePowerShellCommand(launcherCommand),
   ], {
-    detached: true,
     stdio: "ignore",
     windowsHide: true,
   });
@@ -406,5 +473,5 @@ export async function launchWindowsUpdateHelper({
     throw error;
   }
   child.unref?.();
-  return { scriptPath, logPath, startedFile, readyFile };
+  return { scriptPath, logPath, launcherLogPath, startedFile, readyFile };
 }
