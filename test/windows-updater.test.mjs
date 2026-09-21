@@ -12,6 +12,7 @@ import {
   launchWindowsUpdateHelper,
   resolveWindowsUpdateReadyFile,
   validateWindowsUpdateArtifact,
+  windowsUpdateDetachedLauncherCommand,
   windowsUpdateDownloadUrl,
   windowsUpdateHelperScript,
 } from "../desktop/windows-updater.mjs";
@@ -86,6 +87,10 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   const script = windowsUpdateHelperScript();
   assert.match(script, /Wait-Process -Id \$TargetPid/);
   assert.match(script, /\$transactionRoot = Join-Path \$parentDir/);
+  assert.match(script, /\$flatPayloadExe = Join-Path \$extractDir \$ExeName/);
+  assert.match(script, /\$nestedPayloadDir = Join-Path \$extractDir "MOSA-win32-x64"/);
+  assert.match(script, /if \(Test-Path -LiteralPath \$flatPayloadExe -PathType Leaf\)/);
+  assert.match(script, /elseif \(Test-Path -LiteralPath \$nestedPayloadExe -PathType Leaf\)/);
   assert.match(script, /Get-AuthenticodeSignature -LiteralPath \$oldExe/);
   assert.match(script, /if \(\$ExpectedDistribution -eq 'production'\)/);
   assert.match(script, /\$signableFiles = @\(Get-ChildItem -LiteralPath \$payloadDir -Recurse -File/);
@@ -131,14 +136,10 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
       },
     });
     assert.equal(invocation.command, "powershell.exe");
-    assert.equal(invocation.options.detached, true);
+    assert.equal(invocation.options.detached, undefined);
     assert.equal(invocation.args.includes("-ExecutionPolicy"), true);
     assert.equal(invocation.args.includes("Bypass"), true);
-    assert.equal(invocation.args.includes(EXPECTED_IDENTITY.gitSha), true);
-    assert.equal(invocation.args.includes(EXPECTED_IDENTITY.uiFingerprint), true);
-    assert.equal(invocation.args.includes(EXPECTED_IDENTITY.runtimeFingerprint), true);
-    assert.equal(invocation.args.includes(EXPECTED_IDENTITY.distribution), true);
-    assert.equal(invocation.args.includes("-StartedFile"), true);
+    assert.equal(invocation.args.includes("-EncodedCommand"), true);
     assert.match(await readFile(join(root, "apply-update.ps1"), "utf8"), /Expand-Archive/);
     assert.match(await readFile(join(root, "apply-update.ps1"), "utf8"), /Set-Content -LiteralPath \$StartedFile/);
   } finally {
@@ -189,6 +190,53 @@ test("Windows update helper handoff fails closed when PowerShell spawns but the 
       },
     }), /did not start before the handoff deadline/);
     assert.equal(killed, true);
+  } finally {
+    await removeTestPath(root, { recursive: true, force: true });
+  }
+});
+
+test("Windows detached launcher creates the real updater through Win32_Process", () => {
+  const command = windowsUpdateDetachedLauncherCommand({
+    scriptPath: "C:\\Users\\Example\\AppData\\Roaming\\mosa\\updates\\windows\\0.3.0\\apply-update.ps1",
+    processId: 1234,
+    zipPath: "C:\\Users\\Example\\AppData\\Roaming\\mosa\\updates\\windows\\0.3.0\\MOSA-win32-x64-0.3.0.zip",
+    installDir: "C:\\Users\\Example\\MOSA-win32-x64",
+    exeName: "MOSA.exe",
+    version: "0.3.0",
+    expectedIdentity: EXPECTED_IDENTITY,
+    logPath: "C:\\Users\\Example\\AppData\\Roaming\\mosa\\updates\\windows\\0.3.0\\apply-update-error.log",
+    startedFile: "C:\\Users\\Example\\AppData\\Roaming\\mosa\\updates\\windows\\0.3.0\\helper-started.txt",
+    readyFile: "C:\\Users\\Example\\AppData\\Roaming\\mosa\\updates\\windows\\0.3.0\\update-ready.json",
+    launcherLogPath: "C:\\Users\\Example\\AppData\\Roaming\\mosa\\updates\\windows\\0.3.0\\helper-launch-error.log",
+  });
+  assert.match(command, /Invoke-CimMethod -ClassName Win32_Process -MethodName Create/);
+  assert.match(command, /Win32_Process\.Create failed with return value/);
+  assert.match(command, /helper-launch-error\.log/);
+  assert.match(command, /powershell\.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand/);
+  assert.doesNotMatch(command, /Start-Process/);
+});
+
+test("Windows helper handoff tolerates bootstrap exit zero while waiting for detached helper marker", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-win-helper-bootstrap-exit-"));
+  try {
+    await launchWindowsUpdateHelper({
+      zipPath: join(root, "MOSA-win32-x64-0.3.0.zip"),
+      installDir: "C:\\Users\\Example\\MOSA-win32-x64",
+      exeName: "MOSA.exe",
+      version: "0.3.0",
+      expectedIdentity: EXPECTED_IDENTITY,
+      processId: 1234,
+      helperStartTimeoutMs: 500,
+      spawnImpl: () => {
+        const child = new EventEmitter();
+        child.unref = () => {};
+        child.kill = () => {};
+        queueMicrotask(() => child.emit("spawn"));
+        setTimeout(() => child.emit("exit", 0, null), 5);
+        setTimeout(() => writeFile(join(root, "helper-started.txt"), "9876\n"), 30);
+        return child;
+      },
+    });
   } finally {
     await removeTestPath(root, { recursive: true, force: true });
   }
