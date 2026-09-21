@@ -212,7 +212,7 @@ test("Windows detached launcher creates the real updater through Win32_Process",
   assert.match(command, /Invoke-CimMethod -ClassName Win32_Process -MethodName Create/);
   assert.match(command, /Win32_Process\.Create failed with return value/);
   assert.match(command, /helper-launch-error\.log/);
-  assert.match(command, /powershell\.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand/);
+  assert.match(command, /powershell\.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand/);
   assert.doesNotMatch(command, /Start-Process/);
 });
 
