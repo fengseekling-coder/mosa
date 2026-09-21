@@ -394,7 +394,7 @@ export function windowsUpdateDetachedLauncherCommand({
     `-ReadyFile ${powershellLiteral(readyFile)}`,
   ].join(" ");
   const helperEncoded = encodePowerShellCommand(helperCommand);
-  const detachedCommandLine = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${helperEncoded}`;
+  const detachedCommandLine = `powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${helperEncoded}`;
   return [
     "$ErrorActionPreference = 'Stop'",
     "try {",
