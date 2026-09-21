@@ -1,0 +1,110 @@
+name: RC26 Windows Preview Artifact
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/rc26-windows-preview-artifact.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-preview:
+    name: Build rc.26 Preview ZIP on windows-2022
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout frozen rc.26 tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/v0.2.1-rc.26
+          fetch-depth: 0
+
+      - name: Assert frozen release provenance
+        run: |
+          $expectedSha = 'fff6f2235d28daa3d1c1e4526de7070e3ede4895'
+          $actualSha = (git rev-parse HEAD).Trim()
+          if ($actualSha -ne $expectedSha) { throw "Unexpected HEAD: $actualSha" }
+
+          $tag = (git describe --tags --exact-match HEAD).Trim()
+          if ($tag -ne 'v0.2.1-rc.26') { throw "HEAD is not exactly v0.2.1-rc.26: $tag" }
+
+          $peeledTagSha = (git rev-parse 'v0.2.1-rc.26^{}').Trim()
+          if ($peeledTagSha -ne $expectedSha) { throw "Unexpected peeled tag SHA: $peeledTagSha" }
+
+          if (git status --porcelain) { throw 'Frozen tag checkout is not clean.' }
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install immutable dependencies
+        run: npm ci
+
+      - name: Build final Windows Preview ZIP
+        env:
+          MOSA_RELEASE_DISTRIBUTION: preview
+          MOSA_RELEASE_MANIFEST_PUBLIC_KEY: ${{ vars.MOSA_RC24_RELEASE_MANIFEST_PUBLIC_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:MOSA_RELEASE_MANIFEST_PUBLIC_KEY)) {
+            throw 'MOSA release-manifest public key variable is missing.'
+          }
+          npm run desktop:release:windows
+
+      - name: Verify final ZIP identity and Preview signing state
+        run: |
+          $expected = @{
+            productVersion = '0.2.1-rc.26'
+            gitSha = 'fff6f2235d28daa3d1c1e4526de7070e3ede4895'
+            distribution = 'preview'
+            uiFingerprint = 'be37d34947d5d4b1942f8c9257ebb4241c94b6d2156285e0cd25a37e8ae458a0'
+            runtimeFingerprint = 'e730978e7dc4b549c3da6cecf2282e404dde6be00d6b51c704b05232f0f04641'
+            keyId = '235d3651f80176bed99098cab6a4c6fe0581d0206e23f691af2c8bf88aa9839f'
+          }
+          $zip = 'out/make/zip/win32/x64/MOSA-win32-x64-0.2.1-rc.26.zip'
+          if (-not (Test-Path -LiteralPath $zip -PathType Leaf)) { throw "Final ZIP is missing: $zip" }
+
+          $inspect = Join-Path $env:RUNNER_TEMP 'mosa-rc26-windows-preview-inspect'
+          Expand-Archive -LiteralPath $zip -DestinationPath $inspect -Force
+          $asarFiles = @(Get-ChildItem -LiteralPath $inspect -Recurse -File -Filter app.asar)
+          if ($asarFiles.Count -ne 1) { throw "Expected exactly one app.asar, got $($asarFiles.Count)." }
+
+          $identityScript = @'
+          const asar = require('@electron/asar');
+          const identity = JSON.parse(asar.extractFile(process.argv[1], 'app/build-identity.json').toString('utf8'));
+          const expected = JSON.parse(process.argv[2]);
+          for (const [key, value] of Object.entries(expected)) {
+            const actual = key === 'keyId' ? identity.releaseManifestTrust?.keyId : identity[key];
+            if (actual !== value) throw new Error(`Unexpected ${key}: ${actual || '(missing)'}`);
+          }
+          console.log(JSON.stringify({
+            productVersion: identity.productVersion,
+            gitSha: identity.gitSha,
+            distribution: identity.distribution,
+            uiFingerprint: identity.uiFingerprint,
+            runtimeFingerprint: identity.runtimeFingerprint,
+            keyId: identity.releaseManifestTrust?.keyId,
+          }));
+          '@
+          node -e $identityScript $asarFiles[0].FullName ($expected | ConvertTo-Json -Compress)
+
+          $mosaExe = Get-ChildItem -LiteralPath $inspect -Recurse -File -Filter MOSA.exe | Select-Object -First 1
+          if ($null -eq $mosaExe) { throw 'MOSA.exe is missing from the final ZIP.' }
+          $authenticode = Get-AuthenticodeSignature -FilePath $mosaExe.FullName
+          if ($authenticode.Status -ne 'NotSigned') { throw "Preview executable expected NotSigned, got $($authenticode.Status)." }
+
+          $sha256 = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha256 *MOSA-win32-x64-0.2.1-rc.26.zip" | Set-Content -NoNewline -Encoding ascii SHA256SUMS.txt
+
+      - name: Upload final Windows Preview artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mosa-0.2.1-rc.26-windows-preview-x64
+          if-no-files-found: error
+          path: |
+            out/make/zip/win32/x64/MOSA-win32-x64-0.2.1-rc.26.zip
+            SHA256SUMS.txt
