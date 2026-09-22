@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import test from "node:test";
+import { promisify } from "node:util";
 
 import {
   downloadWindowsUpdate,
@@ -15,8 +17,20 @@ import {
   windowsUpdateDetachedLauncherCommand,
   windowsUpdateDownloadUrl,
   windowsUpdateHelperScript,
+  windowsMoveDirectoryRetryScript,
+  windowsUpdateTransactionParentDir,
 } from "../desktop/windows-updater.mjs";
 import { removeTestPath } from "./test-cleanup.mjs";
+
+const execFileAsync = promisify(execFile);
+
+function encodePowerShellCommand(command) {
+  return Buffer.from(String(command || ""), "utf16le").toString("base64");
+}
+
+function powershellLiteral(value) {
+  return `'${String(value ?? "").replaceAll("'", "''")}'`;
+}
 
 function artifactFor(bytes, version = "0.3.0") {
   return {
@@ -97,8 +111,16 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   assert.match(script, /foreach \(\$file in \$signableFiles\)/);
   assert.match(script, /Get-AuthenticodeSignature -LiteralPath \$file\.FullName/);
   assert.match(script, /signed by a different publisher/);
-  assert.match(script, /Move-Item -LiteralPath \$InstallDir -Destination \$backupDir/);
-  assert.match(script, /Move-Item -LiteralPath \$backupDir -Destination \$InstallDir/);
+  assert.match(script, /Move-MosaDirectoryWithRetry -LiteralPath \$InstallDir -Destination \$backupDir/);
+  assert.match(script, /Move-MosaDirectoryWithRetry -LiteralPath \$payloadDir -Destination \$InstallDir/);
+  assert.match(script, /Move-MosaDirectoryWithRetry -LiteralPath \$backupDir -Destination \$InstallDir/);
+  assert.match(script, /\[int\]\$MaxAttempts = 6/);
+  assert.match(script, /\$retryDelaysMs = @\(250, 500, 750, 1000, 1500\)/);
+  assert.match(script, /\$exception -is \[System\.IO\.IOException\]/);
+  assert.match(script, /\$exception -is \[System\.UnauthorizedAccessException\]/);
+  assert.match(script, /hresult=\$hresultHex/);
+  assert.match(script, /nativeCode=\$nativeCode/);
+  assert.match(script, /errorId=\$errorId/);
   assert.match(script, /--mosa-update-ready-file=/);
   assert.match(script, /Test-Path -LiteralPath \$ReadyFile/);
   assert.match(script, /did not report readiness before the rollback deadline/);
@@ -145,6 +167,75 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   } finally {
     await removeTestPath(root, { recursive: true, force: true });
   }
+});
+
+test("Windows directory move retries a transient exclusive file lock", { skip: process.platform !== "win32" }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-win-move-retry-"));
+  const sourceDir = join(root, "source");
+  const destinationDir = join(root, "destination");
+  const lockedFile = join(sourceDir, "payload.bin");
+  const markerFile = join(root, "lock-held.txt");
+  await mkdir(sourceDir, { recursive: true });
+  await writeFile(lockedFile, "locked payload", "utf8");
+
+  const lockerCommand = [
+    `$stream = [System.IO.File]::Open(${powershellLiteral(lockedFile)}, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)`,
+    "try {",
+    `  'locked' | Set-Content -LiteralPath ${powershellLiteral(markerFile)} -Encoding ASCII`,
+    "  Start-Sleep -Milliseconds 1100",
+    "} finally {",
+    "  $stream.Dispose()",
+    "}",
+  ].join("\n");
+  const locker = spawn("powershell.exe", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy", "Bypass",
+    "-EncodedCommand", encodePowerShellCommand(lockerCommand),
+  ], { stdio: "ignore", windowsHide: true });
+  const lockerExit = new Promise((resolveExit) => locker.once("exit", resolveExit));
+
+  try {
+    let locked = false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (await readFile(markerFile, "utf8").then(() => true).catch(() => false)) {
+        locked = true;
+        break;
+      }
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 20));
+    }
+    assert.equal(locked, true, "exclusive lock holder must report readiness");
+
+    const moveCommand = [
+      windowsMoveDirectoryRetryScript(),
+      `Move-MosaDirectoryWithRetry -LiteralPath ${powershellLiteral(sourceDir)} -Destination ${powershellLiteral(destinationDir)}`,
+    ].join("\n");
+    await execFileAsync("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy", "Bypass",
+      "-EncodedCommand", encodePowerShellCommand(moveCommand),
+    ], { windowsHide: true, timeout: 10_000 });
+
+    assert.equal(await readFile(join(destinationDir, "payload.bin"), "utf8"), "locked payload");
+    await lockerExit;
+  } finally {
+    if (locker.exitCode === null) locker.kill();
+    await removeTestPath(root, { recursive: true, force: true });
+  }
+});
+
+test("Windows update transaction cleanup targets the helper transaction parent", () => {
+  assert.equal(
+    windowsUpdateTransactionParentDir("C:\\Users\\Example\\Downloads\\MOSA-win32-x64-0.2.1-rc.30\\MOSA-win32-x64\\MOSA.exe"),
+    "C:\\Users\\Example\\Downloads\\MOSA-win32-x64-0.2.1-rc.30",
+  );
+});
+
+test("desktop stale transaction cleanup scans the updater transaction parent", async () => {
+  const main = await readFile(new URL("../desktop/main.mjs", import.meta.url), "utf8");
+  assert.match(main, /const parentDir = windowsUpdateTransactionParentDir\(process\.execPath\);/);
+  assert.doesNotMatch(main, /const parentDir = dirname\(process\.execPath\);/);
 });
 
 test("Windows update helper rejects when PowerShell cannot spawn", async () => {
