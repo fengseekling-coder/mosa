@@ -18,7 +18,12 @@ import { isPathInsideOrEqual, isUrlLikePath, pathsEqual } from "../lib/path-safe
 import { finalizeCopiedSqliteLibrary } from "../lib/library-relocation.mjs";
 import { getBuildIdentity } from "../lib/build-identity.mjs";
 import { MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
-import { downloadWindowsUpdate, launchWindowsUpdateHelper, resolveWindowsUpdateReadyFile } from "./windows-updater.mjs";
+import {
+  downloadWindowsUpdate,
+  launchWindowsUpdateHelper,
+  resolveWindowsUpdateReadyFile,
+  windowsUpdateTransactionParentDir,
+} from "./windows-updater.mjs";
 import {
   downloadMacosUpdate,
   launchMacosUpdateHelper,
@@ -430,16 +435,17 @@ function confirmWebCapturePairing(origin) {
 }
 
 // The Windows update helper parks the previous installation under
-// .MOSA-update-*/previous next to the executable and deliberately leaves that
-// recovery data in place after a successful apply. A running, packaged
-// Windows app can safely sweep those directories once they are old enough
-// that no in-flight update transaction can still own them.
+// .MOSA-update-*/previous beside the portable install directory and deliberately
+// leaves that recovery data in place after a successful apply. A running,
+// packaged Windows app can safely sweep those directories once they are old
+// enough that no in-flight update transaction can still own them.
 const WINDOWS_UPDATE_TRANSACTION_PREFIX = ".MOSA-update-";
 const WINDOWS_UPDATE_TRANSACTION_MIN_AGE_MS = 10 * 60 * 1000;
 
 function cleanupStaleWindowsUpdateTransactions() {
   if (process.platform !== "win32" || !app.isPackaged) return;
-  const parentDir = dirname(process.execPath);
+  const parentDir = windowsUpdateTransactionParentDir(process.execPath);
+  if (!parentDir) return;
   void (async () => {
     try {
       const entries = await readdir(parentDir, { withFileTypes: true });

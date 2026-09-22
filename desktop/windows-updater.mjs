@@ -196,6 +196,49 @@ export function resolveWindowsUpdateReadyFile(argv = process.argv, stagingRoot =
   return candidate;
 }
 
+export function windowsUpdateTransactionParentDir(execPath) {
+  const value = String(execPath || "").trim();
+  if (!value) return "";
+  return win32.dirname(win32.dirname(value));
+}
+
+export function windowsMoveDirectoryRetryScript() {
+  return String.raw`function Move-MosaDirectoryWithRetry {
+  param(
+    [Parameter(Mandatory=$true)][string]$LiteralPath,
+    [Parameter(Mandatory=$true)][string]$Destination,
+    [int]$MaxAttempts = 6
+  )
+
+  $retryDelaysMs = @(250, 500, 750, 1000, 1500)
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    try {
+      Move-Item -LiteralPath $LiteralPath -Destination $Destination -ErrorAction Stop
+      return
+    } catch {
+      $errorRecord = $_
+      $exception = $errorRecord.Exception
+      $retryable = ($exception -is [System.IO.IOException]) -or ($exception -is [System.UnauthorizedAccessException])
+      if (-not $retryable -or $attempt -ge $MaxAttempts) {
+        $exceptionType = if ($exception) { $exception.GetType().FullName } else { "unknown" }
+        $hresultHex = if ($exception) { "0x" + $exception.HResult.ToString("X8") } else { "unknown" }
+        $nativeCode = if ($exception) { $exception.HResult -band 0xffff } else { "unknown" }
+        $errorId = [string]$errorRecord.FullyQualifiedErrorId
+        $moveDiagnostic = "MOSA directory move failed: source=$LiteralPath; destination=$Destination; attempt=$attempt/$MaxAttempts; exceptionType=$exceptionType; hresult=$hresultHex; nativeCode=$nativeCode; errorId=$errorId"
+        if ($script:MosaLastMoveDiagnostic) {
+          $script:MosaLastMoveDiagnostic += [Environment]::NewLine + $moveDiagnostic
+        } else {
+          $script:MosaLastMoveDiagnostic = $moveDiagnostic
+        }
+        throw
+      }
+      $delayIndex = [Math]::Min($attempt - 1, $retryDelaysMs.Count - 1)
+      Start-Sleep -Milliseconds $retryDelaysMs[$delayIndex]
+    }
+  }
+}`;
+}
+
 export function windowsUpdateHelperScript() {
   return String.raw`param(
   [Parameter(Mandatory=$true)][int]$TargetPid,
@@ -212,7 +255,10 @@ export function windowsUpdateHelperScript() {
   [Parameter(Mandatory=$true)][string]$ReadyFile
 )
 
+${windowsMoveDirectoryRetryScript()}
+
 $ErrorActionPreference = "Stop"
+$script:MosaLastMoveDiagnostic = $null
 $parentDir = Split-Path -Parent $InstallDir
 $transactionRoot = Join-Path $parentDir (".MOSA-update-" + [Guid]::NewGuid().ToString("N"))
 $extractDir = Join-Path $transactionRoot "extracted"
@@ -263,10 +309,10 @@ try {
     }
   }
 
-  Move-Item -LiteralPath $InstallDir -Destination $backupDir
+  Move-MosaDirectoryWithRetry -LiteralPath $InstallDir -Destination $backupDir
   $movedOriginal = $true
   try {
-    Move-Item -LiteralPath $payloadDir -Destination $InstallDir
+    Move-MosaDirectoryWithRetry -LiteralPath $payloadDir -Destination $InstallDir
     $newExe = Join-Path $InstallDir $ExeName
     if (-not (Test-Path -LiteralPath $newExe -PathType Leaf)) {
       throw "Updated MOSA executable is missing after replacement."
@@ -310,7 +356,7 @@ try {
       if (Test-Path -LiteralPath $InstallDir) {
         Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
       }
-      Move-Item -LiteralPath $backupDir -Destination $InstallDir
+      Move-MosaDirectoryWithRetry -LiteralPath $backupDir -Destination $InstallDir
     }
     throw
   }
@@ -318,7 +364,11 @@ try {
   if (Test-Path -LiteralPath $oldExe -PathType Leaf) {
     Start-Process -FilePath $oldExe -WorkingDirectory $InstallDir -ErrorAction SilentlyContinue
   }
-  ($_ | Out-String) | Set-Content -LiteralPath $LogPath -Encoding UTF8
+  $errorText = ($_ | Out-String)
+  if ($script:MosaLastMoveDiagnostic) {
+    $errorText += [Environment]::NewLine + $script:MosaLastMoveDiagnostic + [Environment]::NewLine
+  }
+  $errorText | Set-Content -LiteralPath $LogPath -Encoding UTF8
   exit 1
 }
 `;
