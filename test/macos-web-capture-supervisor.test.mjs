@@ -134,7 +134,7 @@ test("supervisor stands by while desktop owns the library and starts service aft
       queueMicrotask(() => signalTarget.emit("SIGTERM"));
       return child;
     },
-    sleep: async () => {},
+    sleep: async (delayMs) => new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs)),
     idlePollMs: 1,
     takeoverGraceMs: 1,
     takeoverPollMs: 1,
@@ -171,7 +171,7 @@ test("supervisor resumes background fallback after a desktop handoff marker expi
       queueMicrotask(() => signalTarget.emit("SIGTERM"));
       return child;
     },
-    sleep: async () => {},
+    sleep: async (delayMs) => new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs)),
     idlePollMs: 1,
     takeoverGraceMs: 1,
     takeoverPollMs: 1,
@@ -249,7 +249,7 @@ test("supervisor restarts an owned background runtime when source changes", asyn
         close() {},
       };
     },
-    sleep: async () => {},
+    sleep: async (delayMs) => new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs)),
     takeoverGraceMs: 1,
     takeoverPollMs: 1,
     logger: { info() {}, warn() {} },
@@ -300,10 +300,102 @@ test("running supervisor runtime yields immediately when desktop startup handoff
       promise: Promise.resolve({ state: "handoff", owner: { pid: 777 } }),
       close() {},
     }),
-    sleep: async () => {},
+    sleep: async (delayMs) => new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs)),
     takeoverGraceMs: 1,
     takeoverPollMs: 1,
     logger: { info() {}, warn() {} },
   });
   assert.deepEqual(killed, ["SIGTERM"]);
+});
+
+test("handoff yield does not respawn a background runtime before desktop acquires the lock", async () => {
+  const signalTarget = new EventEmitter();
+  const child = new EventEmitter();
+  child.pid = 5151;
+  child.exitCode = null;
+  child.signalCode = null;
+  const killed = [];
+  let spawnCount = 0;
+  let probeCount = 0;
+  child.kill = (signal) => {
+    killed.push(signal);
+    child.signalCode = signal;
+    queueMicrotask(() => child.emit("exit", null, signal));
+    return true;
+  };
+
+  let sleepCalls = 0;
+  const supervised = runSupervisor({
+    signalTarget,
+    probe: async () => {
+      probeCount += 1;
+      return probeCount === 1 ? { state: "unavailable" } : { state: "handoff", owner: { pid: 777 } };
+    },
+    spawnRuntime: () => {
+      spawnCount += 1;
+      return child;
+    },
+    watchSources: () => ({ promise: new Promise(() => {}), close() {} }),
+    watchHandoff: () => ({
+      promise: Promise.resolve({ state: "handoff", owner: { pid: 777 } }),
+      close() {},
+    }),
+    sleep: async (delayMs) => {
+      sleepCalls += 1;
+      if (sleepCalls === 2) signalTarget.emit("SIGTERM");
+      await new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs));
+    },
+    takeoverGraceMs: 1,
+    controlledTakeoverGraceMs: 1,
+    takeoverPollMs: 1,
+    idlePollMs: 5,
+    logger: { info() {}, warn() {} },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await supervised;
+
+  assert.equal(spawnCount, 1);
+  assert.deepEqual(killed, ["SIGTERM"]);
+  assert.ok(probeCount >= 2);
+});
+
+test("handoff cooldown keeps refreshing while the verified desktop marker remains alive", async () => {
+  const signalTarget = new EventEmitter();
+  const child = new EventEmitter();
+  child.pid = 5152;
+  child.exitCode = null;
+  child.signalCode = null;
+  child.kill = (signal) => {
+    child.signalCode = signal;
+    queueMicrotask(() => child.emit("exit", null, signal));
+    return true;
+  };
+  let spawnCount = 0;
+  let probeCount = 0;
+
+  const supervised = runSupervisor({
+    signalTarget,
+    probe: async () => {
+      probeCount += 1;
+      return { state: "handoff", owner: { pid: 778 } };
+    },
+    spawnRuntime: () => {
+      spawnCount += 1;
+      return child;
+    },
+    watchSources: () => ({ promise: new Promise(() => {}), close() {} }),
+    watchHandoff: () => ({ promise: new Promise(() => {}), close() {} }),
+    sleep: async (delayMs) => new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs)),
+    idlePollMs: 5,
+    takeoverGraceMs: 1,
+    controlledTakeoverGraceMs: 1,
+    takeoverPollMs: 1,
+    logger: { info() {}, warn() {} },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  signalTarget.emit("SIGTERM");
+  await supervised;
+
+  assert.equal(spawnCount, 0);
+  assert.ok(probeCount >= 2);
 });

@@ -355,6 +355,33 @@ test("bridge caches the session index but refreshes metadata after a matching se
   assert.equal(asset.prompt, revisedPrompt);
 });
 
+test("runtime handoff drains the current Codex import without starting the remaining backlog", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-codex-handoff-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const imagesDir = join(root, "images");
+  await mkdir(imagesDir);
+  for (let index = 0; index < 3; index += 1) await writeFile(join(imagesDir, `${index}.png`), pngFixture(40 + index, 30));
+  const store = createAssetStore({ projectRoot: join(root, "project"), managerDir: join(root, "manager"), codexImagesDir: imagesDir });
+  const controller = new AbortController();
+  const originalCreate = store.createAsset.bind(store);
+  let started = 0;
+  let completed = 0;
+  store.createAsset = async (...args) => {
+    started += 1;
+    controller.abort();
+    const asset = await originalCreate(...args);
+    completed += 1;
+    return asset;
+  };
+  const bridge = createCodexImageBridge({ store, imagesDir, sessionsDir: join(root, "sessions"), signal: controller.signal });
+  t.after(() => bridge.stop());
+  await bridge.start();
+  await bridge.stop();
+  assert.equal(started, 1);
+  assert.equal(completed, 1, "the in-flight write is drained before shutdown");
+  assert.equal((await store.listAssets({ projectId: "default" })).length, 1);
+});
+
 function pngFixture(width, height) {
   const image = Buffer.alloc(24);
   image.write("\x89PNG\r\n\x1a\n", 0, "binary");

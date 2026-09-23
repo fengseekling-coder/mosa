@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain, clipboard, nativeImage, screen, session, shell, Notification } from "electron";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
-import { cp, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { access, cp, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { dirname, join, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1225,7 +1225,7 @@ async function ensureDesktopService() {
     } = await serviceManagerModulePromise;
     await desktopStartupHandoffPromise;
     if (desktopStartupHandoffError) throw desktopStartupHandoffError;
-    await waitForSupervisorHandoffYield({ probeMosaService });
+    await waitForSupervisorHandoffYield({ probeMosaService, timeoutMs: 30_000 });
     const clientToken = process.env.MOSA_CLIENT_TOKEN
       || await loadOrCreateMosaClientToken(desktopDataDir);
     const webCaptureToken = process.env.MOSA_WEB_CAPTURE_TOKEN
@@ -1295,8 +1295,17 @@ async function waitForSupervisorHandoffYield({ probeMosaService, timeoutMs = 2_0
       libraryDir,
       timeoutMs: Math.min(500, Math.max(100, Number(pollMs) || 100)),
     });
-    if (status.state !== "attached") return;
+    if (status.state !== "attached" && (!desktopStartupHandoffLease || await runtimeLockIsReleased())) return;
     await new Promise((resolveSleep) => setTimeout(resolveSleep, Math.max(25, Number(pollMs) || 100)));
+  }
+}
+
+async function runtimeLockIsReleased() {
+  try {
+    await access(join(libraryDir, ".mosa-runtime.lock"));
+    return false;
+  } catch (error) {
+    return error?.code === "ENOENT";
   }
 }
 

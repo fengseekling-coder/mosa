@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { createConnection } from "node:net";
+import { once } from "node:events";
 import { access, mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -212,6 +214,26 @@ test("runtime shutdown closes active library event streams before waiting for HT
   ]);
   const final = await reader.read();
   assert.equal(final.done, true);
+});
+
+test("requests on an existing connection receive 503 while runtime ownership drains", async (t) => {
+  const root = await makeTemporaryRoot(t, "mosa-runtime-draining-request-");
+  const runtime = await startMosaRuntime(runtimeOptions(root));
+  t.after(() => runtime.stop());
+  const socket = createConnection({ host: "127.0.0.1", port: runtime.port });
+  t.after(() => socket.destroy());
+  await once(socket, "connect");
+  socket.write(`GET /api/health HTTP/1.1\r\nHost: 127.0.0.1:${runtime.port}\r\n`);
+  await new Promise((done) => setTimeout(done, 10));
+  let response = "";
+  socket.on("data", (chunk) => { response += chunk.toString(); });
+  const ended = once(socket, "end");
+  const stopped = runtime.stop();
+  socket.end("\r\n");
+  await ended;
+  await stopped;
+  assert.match(response, /^HTTP\/1\.1 503/);
+  assert.match(response, /MOSA runtime is shutting down/);
 });
 
 test("an explicit runtime libraryDir keeps detected legacy JSON assets in place", async (t) => {

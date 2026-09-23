@@ -3345,10 +3345,16 @@ function reflowPlacedMasonryColumns(grid, cards) {
 function layoutMasonry(cards = null) {
   const grid = els.assetGrid;
   if (!grid) return;
+  // Reset and replace horizontal placement in the same synchronous pass.
+  // Clearing starts in ResizeObserver leaves fixed-row items on auto columns,
+  // and virtual hydration can restore old column indices before the next rAF.
+  if (!cards) resetMasonryColumnsForResize(grid);
   const gridStyles = getComputedStyle(grid);
   const galleryGap = Number.parseFloat(gridStyles.getPropertyValue("--gallery-gap")) || Number.parseFloat(gridStyles.columnGap) || 0;
   const virtualColumnWidth = galleryCardColumnWidth(gridStyles);
+  const columnWidthChanged = Math.abs(virtualColumnWidth - galleryCardVirtualColumnWidth) >= 0.5;
   galleryCardVirtualColumnWidth = virtualColumnWidth;
+  if (columnWidthChanged) galleryCardVirtualSpanCache.clear();
   const targets = cards ? [...cards] : [...grid.querySelectorAll(".asset-card")];
   const measureTargets = [];
   const measurements = [];
@@ -3363,7 +3369,17 @@ function layoutMasonry(cards = null) {
       allTargetsPlaced = false;
     }
     else allTargetsUnplaced = false;
-    if (card.classList.contains("asset-card-virtual-placeholder")) return;
+    if (card.classList.contains("asset-card-virtual-placeholder")) {
+      if (columnWidthChanged) {
+        const entry = galleryCardVirtualEntries.get(card.dataset.id || "");
+        if (entry) {
+          const span = estimatedGalleryCardSpan(entry.asset);
+          card.dataset.virtualSpan = String(span);
+          card.style.gridRowEnd = `span ${span}`;
+        }
+      }
+      return;
+    }
     // Keep the existing grid span pinned while measuring. Removing grid-row-end
     // forces a temporary one-row topology and can make Chromium's scroll anchor
     // react to an intermediate layout that is never meant to be painted.
@@ -3498,6 +3514,18 @@ function scheduleMasonryLayout(card = null) {
     masonryPendingCards.clear();
   });
 }
+
+function resetMasonryColumnsForResize(grid) {
+  // Fixed rows plus auto columns can themselves create implicit tracks: five
+  // cards anchored to row 1 cannot auto-place into a new three-column grid.
+  // Temporarily overlap cards in the first explicit column to measure their
+  // true responsive width. Preserve row spans/scroll height and finish placing
+  // every card before returning, so this measuring state is never painted.
+  grid.querySelectorAll(":scope > .asset-card").forEach((card) => {
+    card.style.gridColumnStart = "1";
+  });
+}
+
 function setupMasonryLayout(options = {}) {
   const grid = els.assetGrid; if (!grid) return;
   const requestedCards = Array.isArray(options.cards) ? options.cards.filter(Boolean) : null;
@@ -3541,14 +3569,6 @@ function setupMasonryLayout(options = {}) {
       const width = entries[0]?.contentRect?.width ?? grid.clientWidth;
       if (Math.abs(width - masonryObservedWidth) < 0.5) return;
       masonryObservedWidth = width;
-      galleryCardVirtualSpanCache.clear();
-      grid.querySelectorAll(":scope > .asset-card-virtual-placeholder").forEach((card) => {
-        const entry = galleryCardVirtualEntries.get(card.dataset.id || "");
-        if (!entry) return;
-        const span = estimatedGalleryCardSpan(entry.asset);
-        card.dataset.virtualSpan = String(span);
-        card.style.gridRowEnd = `span ${span}`;
-      });
       scheduleMasonryLayout();
     });
     masonryResizeObserver.observe(grid);

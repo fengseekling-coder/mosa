@@ -447,6 +447,13 @@ test("masonry image loads only repair their own card instead of remeasuring the 
   assert.match(masonry, /const card = media\.closest\("\.asset-card"\);\s*if \(card\) scheduleMasonryLayout\(card\);/, "an image settle schedules only its containing card");
   assert.doesNotMatch(masonry, /addEventListener\("load",\s*schedule/, "media load must not schedule a full-grid layout");
   assert.match(masonry, /Math\.abs\(width - masonryObservedWidth\) < 0\.5/, "ResizeObserver ignores height-only churn from masonry itself");
+  assert.match(masonry, /function resetMasonryColumnsForResize\(grid\)[\s\S]*?card\.style\.gridColumnStart = "1"/,
+    "measurement pins fixed-row cards to an explicit column instead of allowing implicit auto columns");
+  assert.match(masonry, /if \(!cards\) resetMasonryColumnsForResize\(grid\);\s*const gridStyles = getComputedStyle\(grid\)/,
+    "a full layout resets placement before reading responsive track widths in the same pass");
+  const resizeObserver = masonry.slice(masonry.indexOf("masonryResizeObserver = new ResizeObserver"), masonry.indexOf("masonryResizeObserver.observe(grid)"));
+  assert.doesNotMatch(resizeObserver, /resetMasonryColumnsForResize|estimatedGalleryCardSpan/,
+    "resize observation cannot measure polluted tracks or leave an intermediate placement between frames");
   assert.match(masonry, /card\.classList\.remove\("masonry-content-virtualized"\);[\s\S]*?galleryCardIntrinsicHeight\(card\)[\s\S]*?card\.classList\.add\("masonry-content-virtualized"\)/,
     "offscreen content virtualization is enabled only after the real masonry height is measured");
   assert.match(css, /\.asset-card\.masonry-content-virtualized\s*\{[^}]*content-visibility:\s*auto;/,

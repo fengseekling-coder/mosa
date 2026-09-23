@@ -210,6 +210,7 @@ export async function runSupervisor({
   let stopping = false;
   let child = null;
   let lastIdleReason = "";
+  let lastHandoffAt = 0;
 
   const stop = () => {
     stopping = true;
@@ -222,6 +223,7 @@ export async function runSupervisor({
     while (!stopping) {
       const current = await probe();
       if (current.state === "attached" || current.state === "starting" || current.state === "handoff") {
+        if (current.state === "handoff") lastHandoffAt = Date.now();
         if (lastIdleReason !== current.state) {
           logger.info?.(current.state === "attached"
             ? "[MOSA supervisor] another verified MOSA runtime owns this library; standing by."
@@ -242,6 +244,22 @@ export async function runSupervisor({
       }
 
       lastIdleReason = "";
+      const handoffCooldownMs = lastHandoffAt + Math.max(0, Number(controlledTakeoverGraceMs) || 0) - Date.now();
+      if (handoffCooldownMs > 0) {
+        const handoff = await probe().catch(() => ({ state: "unavailable" }));
+        if (handoff.state === "handoff") {
+          lastHandoffAt = Date.now();
+          lastIdleReason = "handoff";
+          await sleep(idlePollMs);
+          continue;
+        }
+        if (lastIdleReason !== "desktop-handoff-cooldown") {
+          logger.info?.("[MOSA supervisor] waiting for the desktop startup handoff to acquire the library lock.");
+          lastIdleReason = "desktop-handoff-cooldown";
+        }
+        await sleep(handoffCooldownMs);
+        continue;
+      }
       child = spawnRuntime();
       logger.info?.(`[MOSA supervisor] started background runtime PID ${child.pid || "unknown"}.`);
       const sourceWatch = watchSources();
@@ -263,6 +281,7 @@ export async function runSupervisor({
         await exitPromise;
         child = null;
         if (stopping) break;
+        lastHandoffAt = Date.now();
         continue;
       }
 

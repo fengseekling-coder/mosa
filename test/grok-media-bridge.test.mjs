@@ -131,6 +131,32 @@ async function createGrokSessionFixture(root, {
   return { sessionsDir, sessionPath, mediaPath, imagesDir, videosDir };
 }
 
+test("runtime handoff drains the current Grok import without starting the remaining backlog", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-grok-handoff-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const fixture = await createGrokSessionFixture(root);
+  await writeFile(join(fixture.imagesDir, "2.png"), pngFixture(40, 30));
+  const store = createAssetStore({ projectRoot: join(root, "project"), managerDir: join(root, "manager") });
+  const controller = new AbortController();
+  const originalCreate = store.createAsset.bind(store);
+  let started = 0;
+  let completed = 0;
+  store.createAsset = async (...args) => {
+    started += 1;
+    controller.abort();
+    const asset = await originalCreate(...args);
+    completed += 1;
+    return asset;
+  };
+  const bridge = createGrokMediaBridge({ store, sessionsDir: fixture.sessionsDir, signal: controller.signal });
+  t.after(() => bridge.stop());
+  await bridge.start();
+  await bridge.stop();
+  assert.equal(started, 1);
+  assert.equal(completed, 1);
+  assert.equal((await store.listAssets({ projectId: "default" })).length, 1);
+});
+
 test("passes automatic ingest mode and continues after a suppressed Grok media item", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-grok-suppressed-"));
   deferTestPathRemoval(root, { recursive: true, force: true });
