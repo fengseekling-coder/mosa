@@ -1997,6 +1997,7 @@ test("serializes concurrent reference attachment index updates", async (t) => {
   assert.equal(second.created, true);
   assert.deepEqual(new Set((await referenceStore.list("default")).map((item) => item.id)), new Set([first.attachment.id, second.attachment.id]));
 });
+
 test("reference attachment pruning keeps reachable shared references and removes unreachable files", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-reference-prune-"));
   deferTestPathRemoval(root, { recursive: true, force: true });
