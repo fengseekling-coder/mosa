@@ -4,6 +4,8 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+- MOSA Desktop now pairs the fixed allowlisted MOSA browser extensions automatically in the background. Installing/opening the app and loading the official extension no longer requires a native pairing confirmation dialog or manual Token entry; source/headless runtimes remain opt-in.
+
 ## 0.2.1-rc.25 — 2026-09-20 / Release Candidate
 
 ### Release integrity / 发布完整性

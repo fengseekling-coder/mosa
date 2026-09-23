@@ -20,11 +20,10 @@ try {
   runtime = await startMosaRuntime({
     ...(disabledBridges.length > 0 ? { disabledBridges } : {}),
     isolationContext,
-    // A CLI server has no surface to ask the user, so pairing stays
-    // denied by default. Automation that owns the process opts in
-    // explicitly with MOSA_WEB_CAPTURE_PAIR=auto.
+    // Source/headless runtimes keep pairing disabled by default. Automation
+    // that owns the process can explicitly opt into the same silent flow.
     ...(process.env.MOSA_WEB_CAPTURE_PAIR === "auto"
-      ? { webCapturePairingConfirm: async () => true }
+      ? { webCapturePairingEnabled: true }
       : {}),
   });
 } catch (err) {

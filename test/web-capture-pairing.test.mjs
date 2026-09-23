@@ -31,6 +31,16 @@ test("desktop Web Capture pairing accepts both development and Chrome Web Store 
   assert.equal(MOSA_WEB_CAPTURE_DEFAULT_ORIGINS, MOSA_WEB_CAPTURE_EXTENSION_ORIGINS.join(","));
 });
 
+test("desktop enables silent Web Capture pairing without a native confirmation flow", async () => {
+  const [mainSource, notificationSource] = await Promise.all([
+    readFile(new URL("../desktop/main.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../desktop/notification-i18n.mjs", import.meta.url), "utf8"),
+  ]);
+  assert.match(mainSource, /webCapturePairingEnabled:\s*true/);
+  assert.doesNotMatch(mainSource, /confirmWebCapturePairing|WEB_CAPTURE_PAIR_CONFIRM_TIMEOUT_MS|pairConfirm/);
+  assert.doesNotMatch(notificationSource, /pairConfirm/);
+});
+
 test("desktop creates one private persistent Web Capture token", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-pairing-"));
   deferTestPathRemoval(root, { recursive: true, force: true });
