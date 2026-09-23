@@ -456,7 +456,7 @@ export function createLibraryReconciler({
     // 选择剪枝：只移除真正被删除的 id，多选保留其余（四十五）。
     for (const assetId of classified.deletedAssetIds) {
       if (state.selectedIds instanceof Set && state.selectedIds.has(assetId)) {
-        gallerySelection?.toggle?.(assetId, { announce: false });
+        gallerySelection?.removeIds?.([assetId], { announce: false });
       }
     }
     if (state.selectedId && classified.deletedAssetIds.has(state.selectedId)) {

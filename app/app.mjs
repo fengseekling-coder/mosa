@@ -228,7 +228,7 @@ function gallerySelectionRects() {
   const styles = getComputedStyle(grid);
   const paddingLeft = Number.parseFloat(styles.paddingLeft) || 0;
   const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
-  const gap = Number.parseFloat(styles.columnGap) || 0;
+  const gap = Number.parseFloat(styles.getPropertyValue("--gallery-gap")) || Number.parseFloat(styles.columnGap) || 0;
   const columnWidth = galleryCardVirtualColumnWidth || galleryCardColumnWidth(styles);
   const result = [];
   for (const geometry of galleryCardVirtualGeometryById.values()) {
@@ -259,6 +259,9 @@ const gallerySelection = createGallerySelection({
   apiFetch,
   showToast,
   getCardSelectionRects: gallerySelectionRects,
+  getCardSelectionGeometryVersion: () => galleryCardVirtualGeometryRevision,
+  getSelectionAsset: (id) => galleryCardVirtualEntries.get(id)?.asset || null,
+  getRenderedSelectionCard: (id) => galleryCardVirtualNode(els.assetGrid, id),
 });
 
 const batchImporter = createBatchImporter({
@@ -2722,6 +2725,7 @@ const galleryCardVirtualSpanCache = new Map();
 let galleryCardVirtualColumnWidth = 180;
 let galleryCardVirtualGeometryColumns = [];
 const galleryCardVirtualGeometryById = new Map();
+let galleryCardVirtualGeometryRevision = 0;
 const GALLERY_CARD_VIRTUAL_THRESHOLD = 40;
 const GALLERY_CARD_INITIAL_HYDRATE = 40;
 const GALLERY_CARD_DOM_WINDOW_THRESHOLD = 240;
@@ -2729,6 +2733,14 @@ const GALLERY_CARD_DOM_PRELOAD = 1800;
 
 function galleryVirtualSpanKey(assetId, columnWidth = galleryCardVirtualColumnWidth) {
   return `${state.galleryDensity}\u001f${Math.round(columnWidth)}\u001f${assetId}`;
+}
+
+function pruneGalleryVirtualSpanCache(activeIds) {
+  const currentPrefix = `${state.galleryDensity}\u001f${Math.round(galleryCardVirtualColumnWidth)}\u001f`;
+  for (const key of galleryCardVirtualSpanCache.keys()) {
+    const assetId = key.slice(key.lastIndexOf("\u001f") + 1);
+    if (!key.startsWith(currentPrefix) || !activeIds.has(assetId)) galleryCardVirtualSpanCache.delete(key);
+  }
 }
 
 function galleryCardColumnWidth(styles = null) {
@@ -3087,6 +3099,7 @@ function setupGalleryCardVirtualization(roots = null) {
     galleryCardVirtualWindowFrame = null;
     galleryCardVirtualGeometryColumns = [];
     galleryCardVirtualGeometryById.clear();
+    galleryCardVirtualGeometryRevision += 1;
     return;
   }
   if ("IntersectionObserver" in window) {
@@ -3319,6 +3332,7 @@ function reflowPlacedMasonryColumns(grid, cards) {
     }
   }
 
+  galleryCardVirtualGeometryRevision += 1;
   invalidateCardGeometryCache();
   syncGalleryVirtualExtent();
   if (state.assets.length >= GALLERY_CARD_VIRTUAL_THRESHOLD) {
@@ -3410,6 +3424,7 @@ function layoutMasonry(cards = null) {
       galleryCardVirtualGeometryById.set(id, geometry);
       columnEnds[columnIndex] += span;
     });
+    galleryCardVirtualGeometryRevision += 1;
     invalidateCardGeometryCache();
     syncGalleryVirtualExtent();
     if (state.assets.length >= GALLERY_CARD_VIRTUAL_THRESHOLD) {
@@ -3456,6 +3471,7 @@ function placeMasonryCards(grid, gridStyles) {
     columnEnds[columnIndex] += span;
   });
   galleryCardVirtualGeometryColumns = nextGeometryColumns;
+  galleryCardVirtualGeometryRevision += 1;
   invalidateCardGeometryCache();
   syncGalleryVirtualExtent();
   if (state.assets.length >= GALLERY_CARD_VIRTUAL_THRESHOLD) {
@@ -3833,6 +3849,7 @@ function renderGrid() {
   if (!canAppendFast) {
     galleryCardVirtualEntries.clear();
     const currentIds = new Set(state.assets.map((asset) => asset.id));
+    pruneGalleryVirtualSpanCache(currentIds);
     for (const id of galleryCardVirtualHydratedIds) {
       if (!currentIds.has(id)) galleryCardVirtualHydratedIds.delete(id);
     }

@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 import { collectDroppedFiles, createBatchImporter, dropErrorMessage } from "../app/batch-import.mjs";
-import { dragGestureOwner, dragIdsForCard, pointOutsideWindow } from "../app/drag-gesture.mjs";
+import { dragGhostCount, dragGestureOwner, dragIdsForCard, pointOutsideWindow } from "../app/drag-gesture.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 
@@ -18,6 +18,9 @@ test("drag gesture ownership stays natural and promotes only after leaving the w
   assert.equal(pointOutsideWindow({ screenX: 920, screenY: 220 }, metrics), true);
   assert.deepEqual(dragIdsForCard({ selectedIds: new Set(["a", "b"]) }, "a"), ["a", "b"]);
   assert.deepEqual(dragIdsForCard({ selectedIds: new Set(["a", "b"]) }, "c"), ["c"]);
+  assert.equal(dragGhostCount({ assetId: "a", assetIds: ["a", "b"] }), 2);
+  assert.equal(dragGhostCount({ assetId: "a", assetIds: ["a", "b", "c"], stackId: "stack-1" }), 1,
+    "collapsed Stack drag feedback represents one logical node, not the surrounding batch size");
 });
 
 test("batch importer stages concurrently, creates in batches, and refreshes once", async () => {

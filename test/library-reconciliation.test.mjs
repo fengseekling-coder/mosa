@@ -89,9 +89,11 @@ function createHarness({
     performFullReconciliation: async () => { calls.fullReloads += 1; return true; },
     commitGalleryChanges: (outcome) => { calls.commits.push(outcome); },
     gallerySelection: {
-      toggle: (id) => {
-        state.selectedIds.delete(id);
-        calls.prunedSelectionIds.push(id);
+      removeIds: (ids) => {
+        for (const id of ids || []) {
+          state.selectedIds.delete(id);
+          calls.prunedSelectionIds.push(id);
+        }
       },
     },
     renderDetail: () => {},

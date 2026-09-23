@@ -1,4 +1,4 @@
-import { dragIdsForCard } from "./drag-gesture.mjs";
+import { dragGhostCount, dragIdsForCard } from "./drag-gesture.mjs";
 
 const STACK_DRAG_THRESHOLD_PX = 8;
 
@@ -101,7 +101,9 @@ export function createAssetStackController({
 
   function createGhost(drag) {
     if (ghost?.isConnected) return ghost;
-    const count = drag?.assetIds?.length || 1;
+    // A collapsed Stack is one logical draggable node even when its cover is
+    // part of a larger batch selection. Sidebar drop moves the Stack as a unit.
+    const count = dragGhostCount(drag);
     const sourceCard = drag?.assetId
       ? els.assetGrid?.querySelector(`:scope > .asset-card[data-id="${CSS.escape(drag.assetId)}"]`)
       : null;
@@ -185,6 +187,11 @@ export function createAssetStackController({
   async function enterStack(stackId, initialSummary = null) {
     if (!stackId || state.activeStackId) return false;
     if (typeof closeDetailSurface === "function" && !await closeDetailSurface()) return false;
+    const selectionSnapshot = gallerySelection.snapshotSelection?.() || {
+      selectedIds: [...(state.selectedIds instanceof Set ? state.selectedIds : new Set())],
+      stackNodes: [...(state.selectedStackNodes instanceof Map ? state.selectedStackNodes : new Map())],
+      anchorId: "",
+    };
     // Root gallery 快照：请求语义之外的整个已加载数据窗口（含数组引用、
     // 分页状态与 revision 时刻）原内存保留。逗留期间库同步把累计 delta 应用到
     // 快照（数据）并在退出时回放，root 窗口不再重新下载（二十二）。
@@ -196,8 +203,9 @@ export function createAssetStackController({
       mediaKind: state.mediaKind,
       scrollTop: els.assetGrid?.scrollTop || 0,
       selectedId: state.selectedId || "",
-      selectedIds: [...(state.selectedIds instanceof Set ? state.selectedIds : new Set())],
-      selectedStackNodes: [...(state.selectedStackNodes instanceof Map ? state.selectedStackNodes : new Map())],
+      selectedIds: [...selectionSnapshot.selectedIds],
+      selectedStackNodes: [...selectionSnapshot.stackNodes],
+      selectionAnchorId: selectionSnapshot.anchorId || "",
       loadedPageCount: Math.max(1, Number(state.loadedPageCount) || 1),
       loadedAssetCount: Math.max(0, Number(state.loadedAssetCount) || 0),
       stackId,
@@ -294,12 +302,11 @@ export function createAssetStackController({
         const returnCard = stackCard || fallbackCard;
         if (returnCard?.dataset.id) state.selectedId = returnCard.dataset.id;
         const visibleIds = new Set((state.assets || []).map((asset) => asset.id));
-        state.selectedIds = new Set((snapshot.selectedIds || []).filter((id) => visibleIds.has(id)));
-        state.selectedStackNodes = new Map((snapshot.selectedStackNodes || []).filter(([id]) => visibleIds.has(id)));
-        els.assetGrid.querySelectorAll(":scope > .asset-card").forEach((card) => {
-          card.classList.toggle("selected", Boolean(state.selectedId && card.dataset.id === state.selectedId));
-        });
-        gallerySelection.syncRenderedSelection({ prune: false });
+        gallerySelection.restoreSelection({
+          selectedIds: snapshot.selectedIds || [],
+          stackNodes: snapshot.selectedStackNodes || [],
+          anchorId: snapshot.selectionAnchorId || "",
+        }, { allowedIds: visibleIds });
         returnCard?.querySelector(".asset-card-select")?.focus({ preventScroll: true });
         if (!returnCard) els.assetGrid.focus({ preventScroll: true });
       });
