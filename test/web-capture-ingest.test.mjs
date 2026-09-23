@@ -1782,7 +1782,7 @@ test("HTTP ingest endpoint accepts chrome-extension origin with token", async (t
   assert.ok(bridgeBody.webCapture?.providers?.includes("chatgpt"));
 });
 
-test("pairing is denied by default on a headless CLI runtime", async (t) => {
+test("pairing is disabled by default on a headless CLI runtime", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-pair-"));
   const sessionsDir = join(root, "sessions");
   const libraryDir = join(root, "library");
@@ -1793,7 +1793,8 @@ test("pairing is denied by default on a headless CLI runtime", async (t) => {
   await seeded.setMigrationState("completed", { test: true });
   seeded.close();
 
-  // No MOSA_WEB_CAPTURE_PAIR here: a CLI runtime has no user to ask.
+  // No MOSA_WEB_CAPTURE_PAIR here: a CLI runtime does not silently pair unless
+  // the process owner explicitly opts in.
   const server = spawn(process.execPath, ["server.mjs"], {
     cwd: process.cwd(),
     env: {
@@ -1831,14 +1832,14 @@ test("pairing is denied by default on a headless CLI runtime", async (t) => {
   await waitForServer(port, server);
 
   // Even a perfectly formed extension Origin must not receive the long-lived
-  // ingest token without out-of-band user consent.
+  // ingest token from a source/headless runtime unless its owner opted in.
   const pairAttempt = await fetch(`http://127.0.0.1:${port}/api/web-capture/pair`, {
     method: "POST",
     headers: { origin: "chrome-extension://abc123", "content-type": "application/json" },
     body: "{}",
   });
   assert.equal(pairAttempt.status, 503);
-  assert.equal((await pairAttempt.json()).code, "WEB_CAPTURE_PAIRING_CONFIRMATION_UNAVAILABLE");
+  assert.equal((await pairAttempt.json()).code, "WEB_CAPTURE_PAIRING_DISABLED");
 });
 
 async function waitForServerPort(server) {
@@ -1996,7 +1997,6 @@ test("serializes concurrent reference attachment index updates", async (t) => {
   assert.equal(second.created, true);
   assert.deepEqual(new Set((await referenceStore.list("default")).map((item) => item.id)), new Set([first.attachment.id, second.attachment.id]));
 });
-
 test("reference attachment pruning keeps reachable shared references and removes unreachable files", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-reference-prune-"));
   deferTestPathRemoval(root, { recursive: true, force: true });

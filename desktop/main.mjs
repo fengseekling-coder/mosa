@@ -408,32 +408,6 @@ function buildMenu() {
   }
 }
 
-// Native, out-of-band consent for handing the long-lived web-capture ingest
-// token to a requester that proved nothing beyond a forgeable Origin header.
-// Denial is the default: timeout, missing window, or any dialog failure.
-const WEB_CAPTURE_PAIR_CONFIRM_TIMEOUT_MS = 120_000;
-
-function confirmWebCapturePairing(origin) {
-  if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve(false);
-  const dialogPromise = dialog.showMessageBox(mainWindow, {
-    type: "question",
-    buttons: [
-      getDesktopText("pairConfirmAllow", currentLocale),
-      getDesktopText("pairConfirmDeny", currentLocale),
-    ],
-    defaultId: 1,
-    cancelId: 1,
-    title: getDesktopText("pairConfirmTitle", currentLocale),
-    message: getDesktopText("pairConfirmMessage", currentLocale),
-    detail: origin ? getDesktopText("pairConfirmDetail", currentLocale).replaceAll("{origin}", origin) : "",
-  }).then((result) => result.response === 0).catch(() => false);
-  let expiry;
-  const timeoutPromise = new Promise((resolveTimeout) => {
-    expiry = setTimeout(() => resolveTimeout(false), WEB_CAPTURE_PAIR_CONFIRM_TIMEOUT_MS);
-  });
-  return Promise.race([dialogPromise, timeoutPromise]).finally(() => clearTimeout(expiry));
-}
-
 // The Windows update helper parks the previous installation under
 // .MOSA-update-*/previous beside the portable install directory and deliberately
 // leaves that recovery data in place after a successful apply. A running,
@@ -1268,7 +1242,7 @@ async function ensureDesktopService() {
         generatedImagesDir: join(libraryDir, "imports"),
         webCaptureToken,
         webCaptureOrigins,
-        webCapturePairingConfirm: ({ origin } = {}) => confirmWebCapturePairing(origin),
+        webCapturePairingEnabled: true,
         clientToken,
         disabledBridges: parseDisabledBridges({ env: process.env }),
       },
