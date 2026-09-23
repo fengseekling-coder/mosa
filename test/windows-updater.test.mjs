@@ -114,8 +114,8 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   assert.match(script, /Move-MosaDirectoryWithRetry -LiteralPath \$InstallDir -Destination \$backupDir/);
   assert.match(script, /Move-MosaDirectoryWithRetry -LiteralPath \$payloadDir -Destination \$InstallDir/);
   assert.match(script, /Move-MosaDirectoryWithRetry -LiteralPath \$backupDir -Destination \$InstallDir/);
-  assert.match(script, /\[int\]\$MaxAttempts = 6/);
-  assert.match(script, /\$retryDelaysMs = @\(250, 500, 750, 1000, 1500\)/);
+  assert.match(script, /\[int\]\$MaxAttempts = 10/);
+  assert.match(script, /\$retryDelaysMs = @\(250, 500, 1000, 2000, 3000, 4000, 5000, 5000, 5000\)/);
   assert.match(script, /\$exception -is \[System\.IO\.IOException\]/);
   assert.match(script, /\$exception -is \[System\.UnauthorizedAccessException\]/);
   assert.match(script, /hresult=\$hresultHex/);
@@ -182,7 +182,7 @@ test("Windows directory move retries a transient exclusive file lock", { skip: p
     `$stream = [System.IO.File]::Open(${powershellLiteral(lockedFile)}, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)`,
     "try {",
     `  'locked' | Set-Content -LiteralPath ${powershellLiteral(markerFile)} -Encoding ASCII`,
-    "  Start-Sleep -Milliseconds 1100",
+    "  Start-Sleep -Milliseconds 6500",
     "} finally {",
     "  $stream.Dispose()",
     "}",
@@ -215,7 +215,7 @@ test("Windows directory move retries a transient exclusive file lock", { skip: p
       "-NonInteractive",
       "-ExecutionPolicy", "Bypass",
       "-EncodedCommand", encodePowerShellCommand(moveCommand),
-    ], { windowsHide: true, timeout: 10_000 });
+    ], { windowsHide: true, timeout: 35_000 });
 
     assert.equal(await readFile(join(destinationDir, "payload.bin"), "utf8"), "locked payload");
     await lockerExit;
@@ -304,6 +304,10 @@ test("Windows detached launcher creates the real updater through Win32_Process",
   assert.match(command, /Win32_Process\.Create failed with return value/);
   assert.match(command, /helper-launch-error\.log/);
   assert.match(command, /powershell\.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand/);
+  assert.match(command, /New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly/);
+  assert.match(command, /\$startup\.CreateFlags = \[uint32\]0x08000000/);
+  assert.match(command, /\$startup\.ShowWindow = 0/);
+  assert.match(command, /ProcessStartupInformation = \$startup/);
   assert.doesNotMatch(command, /Start-Process/);
 });
 
