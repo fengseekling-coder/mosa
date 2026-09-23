@@ -207,10 +207,13 @@ export function windowsMoveDirectoryRetryScript() {
   param(
     [Parameter(Mandatory=$true)][string]$LiteralPath,
     [Parameter(Mandatory=$true)][string]$Destination,
-    [int]$MaxAttempts = 6
+    [int]$MaxAttempts = 10
   )
 
-  $retryDelaysMs = @(250, 500, 750, 1000, 1500)
+  # Windows antivirus/indexing filters can retain handles to a freshly
+  # extracted portable app for several seconds. Keep the update bounded, but
+  # tolerate a materially longer transient-contention window before rollback.
+  $retryDelaysMs = @(250, 500, 1000, 2000, 3000, 4000, 5000, 5000, 5000)
   for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
     try {
       Move-Item -LiteralPath $LiteralPath -Destination $Destination -ErrorAction Stop
@@ -449,7 +452,10 @@ export function windowsUpdateDetachedLauncherCommand({
     "$ErrorActionPreference = 'Stop'",
     "try {",
     `  $commandLine = ${powershellLiteral(detachedCommandLine)}`,
-    "  $result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $commandLine } -ErrorAction Stop",
+    "  $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -ErrorAction Stop",
+    "  $startup.CreateFlags = [uint32]0x08000000", // CREATE_NO_WINDOW
+    "  $startup.ShowWindow = 0", // SW_HIDE; defensive alongside CREATE_NO_WINDOW
+    "  $result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $commandLine; ProcessStartupInformation = $startup } -ErrorAction Stop",
     "  if (-not $result -or [int]$result.ReturnValue -ne 0) {",
     "    throw ('Win32_Process.Create failed with return value ' + [string]$result.ReturnValue)",
     "  }",
