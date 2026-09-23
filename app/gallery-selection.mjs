@@ -2,6 +2,7 @@ export const MARQUEE_DRAG_THRESHOLD_PX = 3;
 const AUTO_SCROLL_EDGE_PX = 36;
 const AUTO_SCROLL_MAX_PX = 18;
 const MARQUEE_GEOMETRY_BAND_PX = 512;
+const STACK_SELECTION_RESOLVE_CONCURRENCY = 4;
 
 export function rectFromPoints(x1, y1, x2, y2) {
   const left = Math.min(x1, x2);
@@ -55,6 +56,9 @@ export function createGallerySelection({
   apiFetch,
   showToast,
   getCardSelectionRects,
+  getCardSelectionGeometryVersion,
+  getSelectionAsset,
+  getRenderedSelectionCard,
 }) {
   let pointer = null;
   let selectionBox = null;
@@ -130,6 +134,12 @@ export function createGallerySelection({
     return !state.activeStackId && Boolean(asset?.stack?.id);
   }
 
+  function selectionAssetById(id) {
+    if (!id) return null;
+    if (typeof getSelectionAsset === "function") return getSelectionAsset(id) || null;
+    return (state.assets || []).find((asset) => asset?.id === id) || null;
+  }
+
   function currentDetailSelectionId() {
     const id = String(state.selectedId || "");
     if (!id) return "";
@@ -143,10 +153,21 @@ export function createGallerySelection({
     return next;
   }
 
-  function reconcileStackSelection(nextSelection, explicitStackNodes = null) {
+  function reconcileStackSelection(nextSelection, explicitStackNodes = null, changedIds = null) {
     const nextStacks = explicitStackNodes instanceof Map
       ? new Map([...explicitStackNodes].filter(([id]) => nextSelection.has(id)))
       : new Map([...ensureStackSelectionMap()].filter(([id]) => nextSelection.has(id)));
+    if (explicitStackNodes instanceof Map) return nextStacks;
+    if (changedIds instanceof Set) {
+      for (const id of changedIds) {
+        if (!nextSelection.has(id)) continue;
+        const asset = selectionAssetById(id);
+        if (!asset) continue;
+        if (isStackNode(asset)) nextStacks.set(asset.id, asset.stack.id);
+        else nextStacks.delete(asset.id);
+      }
+      return nextStacks;
+    }
     for (const asset of state.assets || []) {
       if (!nextSelection.has(asset.id)) continue;
       if (isStackNode(asset)) nextStacks.set(asset.id, asset.stack.id);
@@ -167,25 +188,34 @@ export function createGallerySelection({
 
   function syncCardSelectionState(id, selectedIds) {
     if (!id || !els.assetGrid) return;
-    const card = els.assetGrid.querySelector(`:scope > .asset-card[data-id="${CSS.escape(id)}"]`);
+    const card = typeof getRenderedSelectionCard === "function"
+      ? getRenderedSelectionCard(id)
+      : els.assetGrid.querySelector(`:scope > .asset-card[data-id="${CSS.escape(id)}"]`);
     applyCardSelectionState(card, selectedIds);
   }
 
-  function syncRenderedSelection({ prune = true, changedIds = null } = {}) {
+  function syncRenderedSelection({ prune = true, changedIds = null, stackNodes = null } = {}) {
     const selectedIds = ensureSelectionSet();
     // Selection may span unloaded cursor pages. Query/project changes clear it
     // via ensureSelectionSet(), so never prune valid off-DOM IDs merely because
     // the gallery currently renders only a window of the result set.
     void prune;
-    const stackNodes = ensureStackSelectionMap();
-    for (const asset of state.assets || []) {
-      if (!selectedIds.has(asset.id)) continue;
-      if (isStackNode(asset)) stackNodes.set(asset.id, asset.stack.id);
-      else stackNodes.delete(asset.id);
-    }
+    state.selectedStackNodes = reconcileStackSelection(selectedIds, stackNodes, changedIds);
 
     if (changedIds instanceof Set) {
-      for (const id of changedIds) syncCardSelectionState(id, selectedIds);
+      // Large selection changes (notably Select All) can contain thousands of
+      // off-DOM IDs while virtualization keeps only a few hundred cards
+      // mounted. In that case, scan mounted cards once instead of running one
+      // selector lookup per changed ID. Small deltas stay O(changedIds) and can
+      // use the renderer's id -> node cache through getRenderedSelectionCard.
+      const mountedUpperBound = Math.max(0, Number(els.assetGrid?.childElementCount) || 0);
+      if (els.assetGrid && changedIds.size > mountedUpperBound) {
+        els.assetGrid.querySelectorAll(":scope > .asset-card").forEach((card) => {
+          if (changedIds.has(card.dataset.id || "")) applyCardSelectionState(card, selectedIds);
+        });
+      } else {
+        for (const id of changedIds) syncCardSelectionState(id, selectedIds);
+      }
     } else {
       els.assetGrid?.querySelectorAll(":scope > .asset-card").forEach((card) => {
         applyCardSelectionState(card, selectedIds);
@@ -219,10 +249,9 @@ export function createGallerySelection({
     for (const id of nextSelection) if (!current.has(id)) changedIds.add(id);
     if (batchModeChanged && state.selectedId) changedIds.add(state.selectedId);
     if (!sameIds(current, nextSelection)) state.selectedIds = new Set(nextSelection);
-    state.selectedStackNodes = reconcileStackSelection(nextSelection, stackNodes);
     if (anchorId !== null) selectionAnchorId = anchorId;
     selectionRevision += 1;
-    syncRenderedSelection({ prune: false, changedIds });
+    syncRenderedSelection({ prune: false, changedIds, stackNodes });
     if (announce) announceSelection();
   }
 
@@ -241,6 +270,47 @@ export function createGallerySelection({
     else next.add(id);
     commitSelection(next, { announce, anchorId: id });
     return true;
+  }
+
+  function removeIds(ids, { announce = false } = {}) {
+    const current = ensureSelectionSet();
+    const remove = ids instanceof Set ? ids : new Set(ids || []);
+    if (!remove.size) return false;
+    const next = new Set(current);
+    let changed = false;
+    for (const id of remove) {
+      if (next.delete(id)) changed = true;
+    }
+    if (!changed) return false;
+    commitSelection(next, {
+      announce,
+      anchorId: remove.has(selectionAnchorId) ? "" : null,
+    });
+    return true;
+  }
+
+  function snapshotSelection() {
+    return {
+      selectedIds: [...ensureSelectionSet()],
+      stackNodes: [...ensureStackSelectionMap()],
+      anchorId: selectionAnchorId,
+    };
+  }
+
+  function restoreSelection(snapshot = {}, { allowedIds = null, announce = false } = {}) {
+    const allow = allowedIds instanceof Set ? allowedIds : null;
+    const selectedIds = new Set((snapshot.selectedIds || []).filter((id) => !allow || allow.has(id)));
+    const stackNodes = new Map((snapshot.stackNodes || []).filter(([id]) => selectedIds.has(id)));
+    commitSelection(selectedIds, {
+      announce,
+      stackNodes,
+      anchorId: selectedIds.has(snapshot.anchorId) ? snapshot.anchorId : "",
+    });
+    // Snapshot stack metadata can age while the user is inside a Stack. A
+    // one-time full reconciliation on restore corrects loaded nodes that were
+    // dissolved/recovered meanwhile while preserving off-page snapshot nodes.
+    syncRenderedSelection({ prune: false });
+    return selectedIds.size;
   }
 
   function selectRange(id, { additive = false, announce = true } = {}) {
@@ -301,24 +371,42 @@ export function createGallerySelection({
     if (typeof apiFetch !== "function") {
       return { projectId: context.projectId, ids: [...selected].filter((id) => !stackNodes.has(id)) };
     }
-    for (const [coverId, stackId] of stackNodes) {
-      selected.delete(coverId);
-      const seenCursors = new Set();
-      let cursor = "";
-      while (true) {
-        if (cursor) {
-          if (seenCursors.has(cursor)) throw new Error("Stack selection pagination stalled.");
-          seenCursors.add(cursor);
+    const entries = [...stackNodes];
+    let nextEntryIndex = 0;
+    let stale = false;
+    async function resolveNextStack() {
+      while (nextEntryIndex < entries.length && !stale) {
+        const entryIndex = nextEntryIndex;
+        nextEntryIndex += 1;
+        const [coverId, stackId] = entries[entryIndex];
+        const memberIds = [];
+        const seenCursors = new Set();
+        let cursor = "";
+        while (true) {
+          if (cursor) {
+            if (seenCursors.has(cursor)) throw new Error("Stack selection pagination stalled.");
+            seenCursors.add(cursor);
+          }
+          const params = new URLSearchParams({ project: context.projectId, limit: "250", includeTotal: "0" });
+          if (cursor) params.set("cursor", cursor);
+          const page = await apiFetch(`/api/asset-stacks/${encodeURIComponent(stackId)}/assets?${params}`);
+          if (!isActionContextCurrent(context)) {
+            stale = true;
+            return;
+          }
+          for (const asset of page.assets || []) if (asset?.id) memberIds.push(asset.id);
+          cursor = page.page?.nextCursor || "";
+          if (!cursor) break;
         }
-        const params = new URLSearchParams({ project: context.projectId, limit: "250", includeTotal: "0" });
-        if (cursor) params.set("cursor", cursor);
-        const page = await apiFetch(`/api/asset-stacks/${encodeURIComponent(stackId)}/assets?${params}`);
-        if (!isActionContextCurrent(context)) return null;
-        for (const asset of page.assets || []) if (asset?.id) selected.add(asset.id);
-        cursor = page.page?.nextCursor || "";
-        if (!cursor) break;
+        selected.delete(coverId);
+        memberIds.forEach((id) => selected.add(id));
       }
     }
+    await Promise.all(Array.from(
+      { length: Math.min(STACK_SELECTION_RESOLVE_CONCURRENCY, entries.length) },
+      () => resolveNextStack(),
+    ));
+    if (stale || !isActionContextCurrent(context)) return null;
     return { projectId: context.projectId, ids: [...selected] };
   }
 
@@ -365,15 +453,11 @@ export function createGallerySelection({
     return 0;
   }
 
-  function captureDragGeometry() {
+  function refreshDragGeometrySnapshot() {
     if (!pointer || !els.assetGrid) return;
     const bounds = els.assetGrid.getBoundingClientRect();
     const scrollLeft = els.assetGrid.scrollLeft;
     const scrollTop = els.assetGrid.scrollTop;
-    const startX = clamp(pointer.startX, bounds.left, bounds.right);
-    const startY = clamp(pointer.startY, bounds.top, bounds.bottom);
-    pointer.startContentX = startX - bounds.left + scrollLeft;
-    pointer.startContentY = startY - bounds.top + scrollTop;
     // Cache card geometry once per gesture in scroll-content coordinates.
     // Large galleries prune offscreen card DOM while marquee auto-scroll is
     // active, so prefer the masonry geometry provider: it represents the whole
@@ -404,10 +488,32 @@ export function createGallerySelection({
         pointer.cardRectBands.get(band).push(entry);
       }
     }
+    pointer.geometryVersion = typeof getCardSelectionGeometryVersion === "function"
+      ? getCardSelectionGeometryVersion()
+      : null;
+  }
+
+  function captureDragGeometry() {
+    if (!pointer || !els.assetGrid) return;
+    const bounds = els.assetGrid.getBoundingClientRect();
+    const scrollLeft = els.assetGrid.scrollLeft;
+    const scrollTop = els.assetGrid.scrollTop;
+    const startX = clamp(pointer.startX, bounds.left, bounds.right);
+    const startY = clamp(pointer.startY, bounds.top, bounds.bottom);
+    pointer.startContentX = startX - bounds.left + scrollLeft;
+    pointer.startContentY = startY - bounds.top + scrollTop;
+    refreshDragGeometrySnapshot();
   }
 
   function updateDragSelection(clientX, clientY) {
     if (!pointer?.dragging || !els.assetGrid) return;
+    if (typeof getCardSelectionGeometryVersion === "function"
+      && pointer.geometryVersion !== getCardSelectionGeometryVersion()) {
+      // Infinite-scroll append and incremental masonry reflow can extend or
+      // shift loaded geometry while the same marquee remains active. Preserve
+      // the original content-space origin, but refresh the candidate snapshot.
+      refreshDragGeometrySnapshot();
+    }
     const bounds = els.assetGrid.getBoundingClientRect();
     const x = clamp(clientX, bounds.left, bounds.right);
     const y = clamp(clientY, bounds.top, bounds.bottom);
@@ -472,6 +578,10 @@ export function createGallerySelection({
   }
 
   function beginPointer(event) {
+    // A completed marquee normally consumes the synthetic click generated by
+    // that same gesture. If no click was dispatched, the next pointerdown is a
+    // new gesture boundary and must invalidate the stale suppression flag.
+    suppressNextGridClick = false;
     if (!els.assetGrid || state.viewMode !== "library" || !state.assets?.length) return;
     if (event.button !== 0 || event.isPrimary === false || event.pointerType === "touch") return;
     if (state.assetStackDragCandidate) return;
@@ -538,7 +648,6 @@ export function createGallerySelection({
     }
     else if (completedDrag) {
       announceSelection();
-      window.setTimeout(() => { suppressNextGridClick = false; }, 0);
     }
   }
 
@@ -597,12 +706,15 @@ export function createGallerySelection({
     bind,
     clear,
     toggle,
+    removeIds,
     replaceWith,
     selectAll,
     selectRange,
     captureActionContext,
     isActionContextCurrent,
     resolveSelectedAssetIds,
+    snapshotSelection,
+    restoreSelection,
     hasSelectedStacks: () => ensureStackSelectionMap().size > 0,
     syncRenderedSelection,
     handleGridClick,

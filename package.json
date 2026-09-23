@@ -72,7 +72,8 @@
     "qa:packaged": "node scripts/qa-launcher.mjs --type packaged --no-build",
     "qa:packaged:smoke": "node scripts/packaged-smoke.mjs",
     "qa:packaged:visual-smoke": "node scripts/packaged-visual-smoke.mjs",
-    "qa:gallery:performance": "node scripts/qa-gallery-virtualization.mjs"
+    "qa:gallery:performance": "node scripts/qa-gallery-virtualization.mjs",
+    "qa:gallery:resize": "node scripts/qa-gallery-resize.mjs"
   },
   "dependencies": {
     "@huggingface/tokenizers": "^0.2.0",

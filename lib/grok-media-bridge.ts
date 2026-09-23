@@ -28,7 +28,7 @@ interface ReconcileResult { imported: unknown[]; skipped: Array<{ path: string; 
 interface Bridge { start(): Promise<BridgeStatus>; stop(): Promise<void>; reconcile(): Promise<ReconcileResult>; scheduleReconcile(): void; status(): BridgeStatus; }
 interface MediaPromptCall { toolName: string; prompt: string; contextUserPrompt: string; aspectRatio: string | null; model: string; callId: string; }
 
-export function createGrokMediaBridge(options: { store?: Store; sessionsDir?: string; projectId?: string; debounceMs?: number; pollIntervalMs?: number; } = {}): Bridge {
+export function createGrokMediaBridge(options: { store?: Store; sessionsDir?: string; projectId?: string; debounceMs?: number; pollIntervalMs?: number; signal?: AbortSignal; } = {}): Bridge {
   const store = options.store;
   if (!store || typeof store.createAsset !== "function" || typeof store.listAssets !== "function") throw new Error("Grok media bridge requires a MOSA store.");
   const { grokSessionsDir: sessionsDir } = resolveSourceLocations({
@@ -49,7 +49,7 @@ export function createGrokMediaBridge(options: { store?: Store; sessionsDir?: st
     if (reconciling) { reconcileAgain = true; return { imported: [], skipped: [], updated: [], queued: true, candidates: 0, warnings: [] }; }
     reconciling = true;
     const run = (async (): Promise<ReconcileResult> => {
-      try { const result = await reconcileGrokMedia({ store: store!, sessionsDir, projectId, processedSignatures, sessionMetadataCache }); state.lastScanAt = new Date().toISOString(); state.lastImportCount = result.imported.length; state.lastSkippedCount = result.skipped.length; state.totalImported += result.imported.length; state.lastError = null; state.lastWarning = result.warnings?.length ? result.warnings.slice(0, 5).join("; ") : null; if (result.imported.length > 0) state.lastImportedAt = state.lastScanAt; return result; } catch (error) { state.lastScanAt = new Date().toISOString(); state.lastError = error instanceof Error ? error.message : String(error); throw error; } finally { reconciling = false; activeReconcile = null; if (reconcileAgain && enabled) { reconcileAgain = false; scheduleReconcile(); } else reconcileAgain = false; }
+      try { const result = await reconcileGrokMedia({ store: store!, sessionsDir, projectId, processedSignatures, sessionMetadataCache, shouldContinue: () => enabled && !options.signal?.aborted }); state.lastScanAt = new Date().toISOString(); state.lastImportCount = result.imported.length; state.lastSkippedCount = result.skipped.length; state.totalImported += result.imported.length; state.lastError = null; state.lastWarning = result.warnings?.length ? result.warnings.slice(0, 5).join("; ") : null; if (result.imported.length > 0) state.lastImportedAt = state.lastScanAt; return result; } catch (error) { state.lastScanAt = new Date().toISOString(); state.lastError = error instanceof Error ? error.message : String(error); throw error; } finally { reconciling = false; activeReconcile = null; if (reconcileAgain && enabled) { reconcileAgain = false; scheduleReconcile(); } else reconcileAgain = false; }
     })();
     activeReconcile = run;
     return run;
@@ -61,7 +61,7 @@ export function createGrokMediaBridge(options: { store?: Store; sessionsDir?: st
   return { start, stop, reconcile, scheduleReconcile, status: apiStatus };
 }
 
-export async function reconcileGrokMedia(options: { store: Store; sessionsDir: string; projectId?: string; knownHashes?: Set<string> | null; processedSignatures?: Map<string, string> | null; sessionMetadataCache?: Map<string, CachedSessionMetadata> | null; sha256FileImpl?: typeof sha256File; }): Promise<ReconcileResult> {
+export async function reconcileGrokMedia(options: { store: Store; sessionsDir: string; projectId?: string; knownHashes?: Set<string> | null; processedSignatures?: Map<string, string> | null; sessionMetadataCache?: Map<string, CachedSessionMetadata> | null; sha256FileImpl?: typeof sha256File; shouldContinue?: () => boolean; }): Promise<ReconcileResult> {
   const { store, sessionsDir, projectId = DEFAULT_PROJECT_ID, knownHashes: knownHashesOpt, processedSignatures = null, sessionMetadataCache = null, sha256FileImpl = sha256File } = options;
   const root = resolve(sessionsDir); let rootReal: string;
   try { rootReal = await realpath(root); } catch (error: unknown) { if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return { imported: [], skipped: [], updated: [], candidates: 0, warnings: [] }; throw error; }
@@ -84,6 +84,7 @@ export async function reconcileGrokMedia(options: { store: Store; sessionsDir: s
   const imported: unknown[] = []; const skipped: Array<{ path: string; reason: string; error?: string }> = [...discoverySkipped]; const updated: string[] = [];
 
   for (const candidate of candidates) {
+    if (options.shouldContinue?.() === false) break;
     if (!(await isCanonicalChildPath(rootReal, candidate.mediaPath))) { skipped.push({ path: candidate.mediaPath, reason: "out-of-root" }); continue; }
     const generation = metadataForCandidate(sessionMetadata.get(candidate.sessionId), candidate);
     const signature = candidateSignature(candidate, generation);

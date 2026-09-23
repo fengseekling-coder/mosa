@@ -427,7 +427,8 @@ export async function retireVerifiedMosaService(service, options = {}) {
     const status = await probeImpl(probeOptions);
     if (!alive && (status.state === "unavailable" || (status.state === "conflict" && status.retryable === true))) return true;
     if (status.state === "attached") {
-      if (options.expectedIdentity && !serviceIdentityConflict(status, options.expectedIdentity)) return true;
+      // The original owner can still answer health while draining. Matching
+      // build identity does not mean its library lock has been released.
       if (!sameReportedServiceIdentity(status, service)) return false;
     }
     if (status.state === "conflict" && status.retryable !== true) return false;

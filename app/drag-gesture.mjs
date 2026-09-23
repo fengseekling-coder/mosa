@@ -4,6 +4,11 @@ export function dragIdsForCard(state, assetId) {
   return assetId ? [assetId] : [];
 }
 
+export function dragGhostCount(drag) {
+  if (drag?.stackId) return 1;
+  return Math.max(1, Array.isArray(drag?.assetIds) ? drag.assetIds.length : 0);
+}
+
 export function dragGestureOwner(event, { startsOnCard = false } = {}) {
   if (!startsOnCard) return "marquee";
   if (event?.shiftKey) return "marquee";

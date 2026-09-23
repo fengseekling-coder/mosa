@@ -617,6 +617,24 @@ test("desktop handoff retirement signals an exact matching verified owner once",
   assert.deepEqual(signals, [{ pid: 4242, signal: "SIGTERM" }]);
 });
 
+test("handoff retirement does not report success while the original healthy owner is still draining", async () => {
+  const service = { state: "attached", port: 43517, libraryDir: resolve("/tmp/mosa-draining-handoff"), productVersion: "0.2.1", gitSha: "same-sha", uiFingerprint: "same-ui", runtimeFingerprint: "same-runtime" };
+  let probes = 0;
+  const retired = await retireVerifiedMosaService(service, {
+    expectedIdentity: service,
+    readFileImpl: async () => JSON.stringify({ token: "draining-owner", pid: 4242, processIdentity: "same-process" }),
+    probeImpl: async () => { probes += 1; return service; },
+    isProcessAlive: () => true,
+    verifyProcessIdentity: async () => true,
+    terminateProcess: () => {},
+    sleepImpl: async () => {},
+    timeoutMs: 300,
+    pollMs: 100,
+  });
+  assert.equal(retired, false);
+  assert.equal(probes, 4, "waits for actual retirement instead of accepting the first health response");
+});
+
 test("controlled retirement never signals a recycled PID with a different process identity", async () => {
   const libraryDir = resolve("/tmp/mosa-recycled-pid-upgrade-library");
   const service = {

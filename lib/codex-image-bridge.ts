@@ -39,7 +39,7 @@ interface BridgeStatus { imagesDir: string; sessionsDir: string; enabled: boolea
 interface ReconcileResult { imported: unknown[]; skipped: Array<{ path: string; reason: string; error?: string }>; updated?: string[]; candidates: number; sessionBytesRead?: number; queued?: boolean; }
 interface Bridge { start(): Promise<BridgeStatus>; stop(): Promise<void>; reconcile(): Promise<ReconcileResult>; scheduleReconcile(): void; status(): BridgeStatus; }
 
-export function createCodexImageBridge(options: { store?: Store; imagesDir?: string; sessionsDir?: string; projectId?: string; debounceMs?: number; pollIntervalMs?: number; } = {}): Bridge {
+export function createCodexImageBridge(options: { store?: Store; imagesDir?: string; sessionsDir?: string; projectId?: string; debounceMs?: number; pollIntervalMs?: number; signal?: AbortSignal; } = {}): Bridge {
   const store = options.store;
   if (!store || typeof store.createAsset !== "function" || typeof store.listAssets !== "function") throw new Error("Codex image bridge requires a MOSA store.");
   const imagesDir = resolve(options.imagesDir || store.codexImagesDir);
@@ -83,6 +83,7 @@ export function createCodexImageBridge(options: { store?: Store; imagesDir?: str
           projectId,
           processedSignatures,
           sessionIndex,
+          shouldContinue: () => enabled && !options.signal?.aborted,
         });
         state.pendingSessionResults = sessionIndex.pendingResults().length;
         state.lastSessionBytesRead = Number(result.sessionBytesRead || 0);
@@ -187,9 +188,13 @@ async function reconcileCodexSources(options: {
   processedSignatures: Map<string, string>;
   sessionIndex: CodexSessionIndex;
   knownHashes?: Set<string>;
+  shouldContinue?: () => boolean;
 }): Promise<ReconcileResult> {
   const { store, imagesDir, projectId, processedSignatures, sessionIndex } = options;
+  const shouldContinue = options.shouldContinue || (() => true);
+  if (!shouldContinue()) return { imported: [], skipped: [], updated: [], candidates: 0 };
   const sessionScan = await sessionIndex.scan();
+  if (!shouldContinue()) return { imported: [], skipped: [], updated: [], candidates: 0, sessionBytesRead: sessionScan.bytesRead };
   const candidates = await readCodexImageCandidates(imagesDir);
   pruneProcessedSignatures(processedSignatures, candidates.map((candidate) => candidate.imagePath));
   const lookup = createBridgeAssetLookup(store, projectId);
@@ -199,6 +204,7 @@ async function reconcileCodexSources(options: {
   const updated: string[] = [];
 
   for (const candidate of candidates) {
+    if (!shouldContinue()) break;
     const task = sessionIndex.metadataForTask(candidate.taskId || "");
     const generation = metadataForIndexedCandidate(task, candidate);
     await ingestFilesystemCandidate({
@@ -225,6 +231,7 @@ async function reconcileCodexSources(options: {
     contentHashes,
     imported,
     skipped,
+    shouldContinue,
   });
 
   return {
@@ -376,6 +383,7 @@ async function ingestSessionResultCandidates({
   contentHashes,
   imported,
   skipped,
+  shouldContinue,
 }: {
   store: Store;
   projectId: string;
@@ -385,8 +393,10 @@ async function ingestSessionResultCandidates({
   contentHashes: Set<string>;
   imported: unknown[];
   skipped: Array<{ path: string; reason: string; error?: string }>;
+  shouldContinue: () => boolean;
 }): Promise<void> {
   for (const event of sessionIndex.pendingResults()) {
+    if (!shouldContinue()) break;
     const sourceLabel = event.savedPath || event.sessionPath;
     if (event.savedPath && isSafeChildPath(imagesRoot, event.savedPath)) {
       const existingPath = await lookup.bySourcePath(event.savedPath);

@@ -128,6 +128,8 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
     "drag feedback resolves the actual source card media");
   assert.match(createGhost, /sourceMedia\.cloneNode\(true\)/,
     "drag feedback previews the dragged asset instead of an empty rectangle");
+  assert.match(createGhost, /const count = dragGhostCount\(drag\)/,
+    "collapsed Stack drag feedback counts the logical Stack node rather than the surrounding batch selection");
   assert.match(createGhost, /if \(count > 1\)[\s\S]*?asset-stack-drag-count/,
     "multi-asset drags add a count badge on top of the media preview");
   assert.match(stackController, /marker\.style\.transform = `translate3d\(\$\{clientX \+ 14\}px, \$\{clientY \+ 14\}px, 0\)`/,
@@ -158,6 +160,10 @@ test("visual stack behavior is wired into the shared web and desktop renderer", 
     "a collapsed Stack can target sidebar groups but never falls through to Stack-on-Stack merge");
   assert.match(stackController, /async function finishStackGroupDrop\(stackId, groupName\)[\s\S]*?\/api\/asset-stacks\/\$\{encodeURIComponent\(stackId\)\}\/group/,
     "Stack sidebar drops use the Stack-level navigation-group endpoint");
+  assert.match(stackController, /gallerySelection\.snapshotSelection\?\.\(\)/,
+    "Stack entry snapshots selection through the selection state machine");
+  assert.match(stackController, /gallerySelection\.restoreSelection\(\{[\s\S]*?allowedIds: visibleIds/,
+    "Stack exit restores batch selection through the selection state machine instead of assigning internal state directly");
   assert.match(stackController, /lostpointercapture/);
   assert.match(stackController, /window\.addEventListener\("blur"/);
   assert.match(stackController, /moveBlockRelative\(currentIds, drag\.assetIds, targetId, placement\)/);
