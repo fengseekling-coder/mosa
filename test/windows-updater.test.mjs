@@ -135,6 +135,11 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   assert.doesNotMatch(script, /Remove-Item -LiteralPath \$backupDir/);
   assert.doesNotMatch(script, /Remove-Item -LiteralPath \$transactionRoot/);
   assert.match(script, /Remove-Item -LiteralPath \$extractDir -Recurse -Force/);
+  // The success path must explicitly exit 0 to ensure the helper terminates
+  // cleanly and does not keep the updated MOSA process waiting.
+  assert.match(script, /Remove-Item -LiteralPath \$extractDir[^\n]*\n\s*exit 0/);
+  // The rollback path exits 1 to signal failure.
+  assert.match(script, /exit 1/);
 
   const root = await mkdtemp(join(tmpdir(), "mosa-win-helper-"));
   const zipPath = join(root, "MOSA-win32-x64-0.3.0.zip");

@@ -346,6 +346,7 @@ try {
     # stale .MOSA-update-* directories on a later boot, so a crash shortly
     # after this point remains recoverable from the parked previous copy.
     Remove-Item -LiteralPath $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+    exit 0
   } catch {
     if ($newProcess -and -not $newProcess.HasExited) {
       Stop-Process -Id $newProcess.Id -Force -ErrorAction SilentlyContinue
