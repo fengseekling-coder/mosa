@@ -36,6 +36,11 @@ export const LIVE_REGION_WRITE_DELAY = 32;
 // check only as a recovery path for dropped/unsupported SSE connections; a
 // foreground/visibility resume also performs an immediate check.
 export const LIBRARY_REFRESH_INTERVAL = 30000;
+// Settings status updates from Visual Pack install / remove / state ticks used
+// to re-parse the hidden Settings dialog's innerHTML on every event. Bump the
+// trailing-edge debounce here to keep bursts from causing layout churn while
+// still surfacing the latest state by the time the user opens Settings.
+export const SETTINGS_SYNC_DEBOUNCE_MS = 250;
 export const SOURCE_LABEL_KEYS = {
   "codex-generated": "sourceCodex",
   "cowart-generated": "sourceCowart",
