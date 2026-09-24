@@ -1,0 +1,125 @@
+name: Temporary RC34 Windows Preview Rebuild
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/rc34-windows-preview-rebuild.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-preview:
+    name: Build rc.34 Preview ZIP on windows-2022
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout frozen rc.34 source
+        uses: actions/checkout@v4
+        with:
+          ref: b2b14cbcfaefc072ce0c0dbbcf74934fa2184800
+          fetch-depth: 0
+
+      - name: Assert frozen source provenance
+        run: |
+          $expectedSha = 'b2b14cbcfaefc072ce0c0dbbcf74934fa2184800'
+          $actualSha = (git rev-parse HEAD).Trim()
+          if ($actualSha -ne $expectedSha) { throw "Unexpected HEAD: $actualSha" }
+
+          git fetch origin main --no-tags
+          git merge-base --is-ancestor $expectedSha origin/main
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen source is not reachable from origin/main.' }
+
+          $packageVersion = node -p "require('./package.json').version"
+          $lockVersion = node -p "require('./package-lock.json').version"
+          $lockRootVersion = node -p "require('./package-lock.json').packages[''].version"
+          if ($packageVersion -ne '0.2.1-rc.34') { throw "Unexpected package version: $packageVersion" }
+          if ($lockVersion -ne $packageVersion -or $lockRootVersion -ne $packageVersion) {
+            throw "package-lock version mismatch: $lockVersion / $lockRootVersion"
+          }
+          if (git status --porcelain) { throw 'Frozen source checkout is not clean.' }
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install immutable dependencies
+        run: npm ci
+
+      - name: Build Windows Preview ZIP
+        env:
+          MOSA_RELEASE_DISTRIBUTION: preview
+          MOSA_RELEASE_MANIFEST_PUBLIC_KEY: ${{ vars.MOSA_RC24_RELEASE_MANIFEST_PUBLIC_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:MOSA_RELEASE_MANIFEST_PUBLIC_KEY)) {
+            throw 'MOSA release-manifest public key variable is missing.'
+          }
+          npm run desktop:make:windows
+
+      - name: Verify Preview identity, layout, and hash
+        run: |
+          $expected = @{
+            productVersion = '0.2.1-rc.34'
+            gitSha = 'b2b14cbcfaefc072ce0c0dbbcf74934fa2184800'
+            distribution = 'preview'
+            keyId = '235d3651f80176bed99098cab6a4c6fe0581d0206e23f691af2c8bf88aa9839f'
+          }
+          $zip = 'out/make/zip/win32/x64/MOSA-win32-x64-0.2.1-rc.34.zip'
+          if (-not (Test-Path -LiteralPath $zip -PathType Leaf)) { throw "Final ZIP is missing: $zip" }
+
+          $inspect = Join-Path $env:RUNNER_TEMP 'mosa-rc34-windows-preview-inspect'
+          Expand-Archive -LiteralPath $zip -DestinationPath $inspect -Force
+          $asarFiles = @(Get-ChildItem -LiteralPath $inspect -Recurse -File -Filter app.asar)
+          if ($asarFiles.Count -ne 1) { throw "Expected exactly one app.asar, got $($asarFiles.Count)." }
+
+          $identityScript = @'
+          const asar = require('@electron/asar');
+          const identity = JSON.parse(asar.extractFile(process.argv[1], 'app/build-identity.json').toString('utf8'));
+          const expected = JSON.parse(process.argv[2]);
+          for (const [key, value] of Object.entries(expected)) {
+            const actual = key === 'keyId' ? identity.releaseManifestTrust?.keyId : identity[key];
+            if (actual !== value) throw new Error(`Unexpected ${key}: ${actual || '(missing)'}`);
+          }
+          if (identity.releaseManifestTrust?.algorithm !== 'ed25519') {
+            throw new Error(`Unexpected trust algorithm: ${identity.releaseManifestTrust?.algorithm || '(missing)'}`);
+          }
+          for (const field of ['uiFingerprint', 'runtimeFingerprint']) {
+            if (!/^[0-9a-f]{64}$/i.test(identity[field] || '')) throw new Error(`Invalid ${field}.`);
+          }
+          console.log(JSON.stringify({
+            productVersion: identity.productVersion,
+            gitSha: identity.gitSha,
+            distribution: identity.distribution,
+            uiFingerprint: identity.uiFingerprint,
+            runtimeFingerprint: identity.runtimeFingerprint,
+            keyId: identity.releaseManifestTrust?.keyId,
+          }));
+          '@
+          node -e $identityScript $asarFiles[0].FullName ($expected | ConvertTo-Json -Compress)
+
+          $expectedExe = Join-Path $inspect 'MOSA-win32-x64/MOSA.exe'
+          if (-not (Test-Path -LiteralPath $expectedExe -PathType Leaf)) { throw 'Expected MOSA.exe layout is missing.' }
+          $authenticode = Get-AuthenticodeSignature -FilePath $expectedExe
+          if ($authenticode.Status -ne 'NotSigned') { throw "Preview executable expected NotSigned, got $($authenticode.Status)." }
+
+          $sha256 = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $size = (Get-Item -LiteralPath $zip).Length
+          "$sha256 *MOSA-win32-x64-0.2.1-rc.34.zip" | Set-Content -NoNewline -Encoding ascii SHA256SUMS.txt
+          @{ file = 'MOSA-win32-x64-0.2.1-rc.34.zip'; size = $size; sha256 = $sha256; distribution = 'preview'; gitSha = $expected.gitSha; keyId = $expected.keyId } |
+            ConvertTo-Json | Set-Content -Encoding utf8 build-manifest.json
+
+      - name: Upload verified Windows Preview candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: mosa-0.2.1-rc.34-windows-preview-x64
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            out/make/zip/win32/x64/MOSA-win32-x64-0.2.1-rc.34.zip
+            SHA256SUMS.txt
+            build-manifest.json
