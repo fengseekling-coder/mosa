@@ -1,7 +1,7 @@
 import { createLanguageApplier, createT, resolveLocale } from "./i18n-runtime.mjs";
 import { createBridgeStatusPoller } from "./bridge-status-poller.mjs";
 import {
-  FACET_KEYS, LIBRARY_REFRESH_INTERVAL, LIVE_REGION_WRITE_DELAY, SCOPES, SIDEBAR_SOURCE_TYPES, SKELETON_TILE_COUNT, SOURCE_LABEL_KEYS, STATUS_ANNOUNCEMENT_DURATION,
+  FACET_KEYS, LIBRARY_REFRESH_INTERVAL, LIVE_REGION_WRITE_DELAY, SCOPES, SETTINGS_SYNC_DEBOUNCE_MS, SIDEBAR_SOURCE_TYPES, SKELETON_TILE_COUNT, SOURCE_LABEL_KEYS, STATUS_ANNOUNCEMENT_DURATION,
 } from "./config.mjs";
 import {
   cardShortTitle, debounce, displayAssetTitle, escapeHtml, formatDate, normalizeDensity, normalizeSort, safeStorageGet, safeStorageSet,
@@ -26,6 +26,8 @@ let statusTextWriteTimer = null;
 let statusAnnouncementSequence = 0;
 let statusAnnouncementActive = false;
 let libraryRefreshTimer = null;
+let settingsSyncTimer = null;
+let settingsSyncScheduled = false;
 const TRASH_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
 function trashRemainingDays(deletedAt) {
@@ -1149,18 +1151,39 @@ function visualModelStatusMarkup() {
 
 async function refreshVisualModelStatus({ force = false } = {}) {
   if (!window.electronAPI?.getVisualModelState) return null;
+  // refreshVisualModelStatus fires on every Visual Pack install / remove / state
+  // tick and used to call syncSettingsMenuView unconditionally. That made the
+  // hidden Settings panel re-parse its innerHTML on every status update. Burst
+  // events are now collapsed into one trailing sync, and the sync is skipped
+  // while Settings is hidden — the dialog open path forces a fresh render.
+  const runNow = force === true;
   try {
-    state.visualModelStatus = await window.electronAPI.getVisualModelState(force === true);
+    state.visualModelStatus = await window.electronAPI.getVisualModelState(runNow);
   } catch {
     state.visualModelStatus = { mode: "mosa-local", state: "unavailable", installed: false, enabled: false };
   }
-  syncSettingsMenuView();
+  if (runNow) syncSettingsMenuView();
+  else scheduleSettingsMenuSync();
   return state.visualModelStatus;
+}
+
+function scheduleSettingsMenuSync() {
+  if (settingsSyncScheduled) return;
+  settingsSyncScheduled = true;
+  settingsSyncTimer = setTimeout(() => {
+    settingsSyncScheduled = false;
+    settingsSyncTimer = null;
+    syncSettingsMenuView();
+  }, SETTINGS_SYNC_DEBOUNCE_MS);
 }
 
 function syncSettingsMenuView() {
   const menu = els.settingsMenu;
   if (!menu?.querySelector(".settings-modal-card")) return;
+  // Hidden Settings panels must not re-parse innerHTML on every library refresh
+  // or Visual Pack state tick — the dialog open path calls renderSettingsMenu()
+  // which already forces a fresh render from current state.
+  if (menu.hidden) return;
   const setRadioState = (selector, selectedValue) => {
     menu.querySelectorAll(selector).forEach((button) => {
       button.classList.toggle("active", button.value === selectedValue || button.dataset.appearanceOpt === selectedValue || button.dataset.densityOpt === selectedValue || button.dataset.locale === selectedValue);
@@ -4536,6 +4559,13 @@ function openSettingsModal() {
   state.settingsReturnFocus = document.activeElement;
   // Settings is rendered on demand so library path/stat changes that landed
   // after startup are always reflected when the user opens this single panel.
+  // A pending debounced sync (from a burst of Visual Pack status ticks) is
+  // flushed here so the freshly opened dialog is always up to date.
+  if (settingsSyncTimer) {
+    clearTimeout(settingsSyncTimer);
+    settingsSyncTimer = null;
+    settingsSyncScheduled = false;
+  }
   renderSettingsMenu();
   void refreshVisualModelStatus({ force: true });
   els.settingsMenu.hidden = false;
@@ -4547,6 +4577,13 @@ function closeSettingsModal({ restoreFocus = true } = {}) {
   if (!els.settingsMenu || els.settingsMenu.hidden) return;
   els.settingsMenu.hidden = true;
   els.settingsToggle?.setAttribute("aria-expanded", "false");
+  // Cancel any pending debounced Settings sync: the dialog is hidden, so the
+  // scheduled innerHTML rebuild has no UI effect and only spends CPU cycles.
+  if (settingsSyncTimer) {
+    clearTimeout(settingsSyncTimer);
+    settingsSyncTimer = null;
+    settingsSyncScheduled = false;
+  }
   if (restoreFocus && state.settingsReturnFocus instanceof HTMLElement && state.settingsReturnFocus.isConnected) state.settingsReturnFocus.focus();
   state.settingsReturnFocus = null;
 }

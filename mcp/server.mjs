@@ -14,10 +14,31 @@ const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || process.cwd());
 const explicitLibraryDir = process.env.MOSA_LIBRARY_DIR ? resolve(process.env.MOSA_LIBRARY_DIR) : null;
 const libraryDir = explicitLibraryDir || resolve(join(homedir(), "MOSA Library"));
 const store = createAssetStore({ projectRoot, managerDir, libraryDir, explicitLibraryDir });
-// SQLite uses WAL plus insert-only managed filenames for safe App+MCP
-// coexistence. The legacy JSON backend has no cross-process metadata
-// transaction, so it must share the runtime's exclusive lease instead of
-// allowing two writers to race over JSON files.
+// SQLite uses WAL plus insert-only managed filenames for safe App+MCP coexistence.
+//
+// SQLite WAL mode lets one writer and many readers operate concurrently against
+// the same database file. Each connection holds an independent WAL snapshot,
+// so the App (HTTP UI) and the MCP stdio server can be running at the same time
+// without blocking each other. The store is configured with:
+//   journal_mode = WAL
+//   busy_timeout = 5000   (5s wait for the writer lock before failing)
+//   cache_size = -20000   (20 MB page cache)
+//   temp_store = MEMORY   (temp tables never touch disk)
+//   foreign_keys = ON
+// A writer commit waits at most 5 s for any active reader snapshot, which is
+// well below the typical interactive request budget.
+//
+// Originals are managed as insert-only content-hash filenames inside the
+// library directory, so the filesystem never mutates a file in place. The
+// SQLite store is therefore authoritative for metadata; concurrent writers
+// from MCP and App only ever produce additive metadata rows. That is what
+// makes the JSON fallback (which has no cross-process transaction support)
+// unable to share the same contract.
+//
+// The legacy JSON backend has no cross-process metadata transaction, so it
+// must share the runtime's exclusive lease instead of allowing two writers
+// to race over JSON files. JSON mode therefore *cannot* coexist with an
+// active App or another MCP writer; the lock below makes that explicit.
 const directStoreLease = store.storageKind === "json"
   ? await acquireMosaRuntimeLock({ libraryDir })
   : null;
