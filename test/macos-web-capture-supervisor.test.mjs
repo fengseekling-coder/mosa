@@ -174,6 +174,7 @@ test("supervisor resumes background fallback after a desktop handoff marker expi
     sleep: async (delayMs) => new Promise((resolveSleep) => setTimeout(resolveSleep, delayMs)),
     idlePollMs: 1,
     takeoverGraceMs: 1,
+    controlledTakeoverGraceMs: 1,
     takeoverPollMs: 1,
     logger: { info() {}, warn() {} },
   });

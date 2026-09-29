@@ -96,8 +96,8 @@ function createHookHarness(payload, conversationId = "conversation-test", option
     events,
     requestedUrls,
     requestedInits,
-    async harvest(init) {
-      await window.fetch("https://chatgpt.com/backend-api/conversation/test", init);
+    async harvest(init, url = "https://chatgpt.com/backend-api/conversation/test") {
+      await window.fetch(url, init);
       await setImmediate();
     },
     async socketFrame(data) {
@@ -145,14 +145,15 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.15.4");
+  assert.equal(manifest.version, "0.15.18");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
-    ["https://gemini.google.com/*", "https://labs.google/*", "https://aistudio.google.com/*"],
+    ["https://gemini.google.com/*", "https://labs.google/*", "https://flow.google.com/*", "https://aistudio.google.com/*"],
   );
   for (const host of [
     "https://gemini.google.com/*",
     "https://labs.google/*",
+    "https://flow.google.com/*",
     "https://aistudio.google.com/*",
     "https://*.googleusercontent.com/*",
     "https://storage.googleapis.com/*",
@@ -160,6 +161,7 @@ test("declares the supported Google media sites and provider content script", ()
   ]) assert.ok(manifest.host_permissions.includes(host), `missing ${host}`);
   assert.match(providerPolicySource, /host === "gemini\.google\.com"/);
   assert.match(providerPolicySource, /host === "labs\.google"/);
+  assert.match(providerPolicySource, /host === "flow\.google\.com"/);
   assert.match(providerPolicySource, /host === "aistudio\.google\.com"/);
 });
 
@@ -174,6 +176,11 @@ test("Google adapters capture visible images and supported Flow / AI Studio vide
   assert.match(providerSource, /function captureFlowMediaThumbnail\(img\)/);
   assert.match(providerSource, /if \(!mediaId \|\| !isVisibleFlowMediaThumbnail\(img\)\) return false;/,
     "Flow media capture must not require Prompt text to render before the media");
+  assert.match(providerSource, /function isCaptureEligibleImage\(provider, img\)/,
+    "Flow thumbnail Prompt association must use the thumbnail floor, not the 512px generic-image floor");
+  assert.match(providerSource, /FLOW_PROBE_BACKOFF_DELAYS = \[15_000, 60_000, 300_000\]/,
+    "failed Flow media probes must back off instead of re-firing every scan");
+  assert.match(providerSource, /flowProbeFailures\.clear\(\)/);
   assert.match(providerSource, /type: "mosa\.probeFlowMedia"/);
   assert.match(providerSource, /probe\.mediaKind === "video"/);
   assert.match(providerSource, /function isVisibleGeneratedVideo\(video\)/);
@@ -254,7 +261,10 @@ test("Google adapters read only eligible page-local bytes and keep CDN URLs remo
   assert.match(providerSource, /src\.startsWith\("blob:"\)/);
   assert.match(providerSource, /url\.origin !== location\.origin/);
   assert.match(providerSource, /isAllowedLocalImageUrl/);
-  assert.match(providerSource, /FLOW_MEDIA_REDIRECT_PATH = "\/fx\/api\/trpc\/media\.getMediaUrlRedirect"/);
+  assert.match(providerSource, /providerPolicy\.isFlowMediaRedirectUrl\(url\.href\)/);
+  assert.match(providerPolicySource, /isFlowMediaRedirectUrl/);
+  assert.match(providerPolicySource, /"\/fx\/api\/trpc\/media\.getMediaUrlRedirect"/);
+  assert.match(providerPolicySource, /"\/api\/trpc\/media\.getMediaUrlRedirect"/);
   assert.match(providerSource, /credentials: "same-origin"/);
   assert.match(providerSource, /const bytes = video \? await bytesFromVisibleVideo\(source, media\) : await bytesFromVisibleImage\(source, media\)/);
   assert.match(providerSource, /payload\.imageBase64 = bytes\.imageBase64/);
@@ -327,6 +337,39 @@ test("uses safe local extension settings without a public Token default", () => 
   assert.match(optionsHtml, /type="password"/);
 });
 
+test("surfaces MOSA's own ingest error when pairing repair keeps the same connection", async () => {
+  // The failed body used to be drained before the repair attempt and read
+  // again afterwards, so users saw "body stream already read" instead.
+  const functionSource = (name) => new RegExp(`(?:async )?function ${name}\\([\\s\\S]*?\\n}\\n`).exec(backgroundSource)?.[0];
+  const source = ["ingestToMosa", "ingestResponseError", "mosaUnavailableError", "normalizeBaseUrl"].map(functionSource);
+  assert.ok(source.every(Boolean));
+  const connection = { baseUrl: "http://127.0.0.1:43519", token: "token-test" };
+
+  for (const [status, error] of [[401, "Web Capture Token 无效"], [404, "Web Capture 路由不存在"], [500, "MOSA 内部错误"]]) {
+    let requests = 0;
+    const context = {
+      URL,
+      DEFAULTS: { mosaBaseUrl: connection.baseUrl },
+      WEB_IMAGE_PROVIDERS: new Set(["chatgpt"]),
+      WEB_VIDEO_PROVIDERS: new Set(),
+      getSettings: async () => ({ mosaBaseUrl: connection.baseUrl, mosaToken: connection.token }),
+      repairPairing: async () => ({ ...connection }),
+      captureRequestPayload: (payload) => ({ ...payload }),
+      fetchWithTimeout: async () => {
+        requests += 1;
+        return new Response(JSON.stringify({ error }), { status, headers: { "content-type": "application/json" } });
+      },
+    };
+    vm.runInNewContext(`${source.join("\n")}\nthis.ingestToMosa = ingestToMosa;`, context, { filename: "background-ingest.js" });
+
+    await assert.rejects(
+      context.ingestToMosa({ provider: "chatgpt", imageBase64: "aW1hZ2U=" }),
+      (thrown) => thrown.message === error && thrown.status === status,
+    );
+    assert.equal(requests, 1, "an unchanged pairing must not resend the capture");
+  }
+});
+
 test("defaults capture off and keeps Chrome permissions minimal", () => {
   assert.deepEqual(manifest.permissions, ["storage", "contextMenus", "alarms"]);
   assert.equal(manifest.permissions.includes("activeTab"), false);
@@ -380,9 +423,38 @@ test("ChatGPT startup and SPA conversation changes proactively recover missed ge
   const boot = contentSource.slice(bootStart, intervalStart);
   assert.ok(bootStart >= 0 && intervalStart > bootStart);
   assert.match(boot, /requestCurrentConversationRefresh\(null\);[\s\S]*scheduleScan\(true\);/);
-  assert.match(contentSource, /if \(autoCapture && nextConversationId\) requestCurrentConversationRefresh\(null\);/);
+  assert.match(contentSource, /const previousConversationId = activeConversationId;/);
+  assert.match(contentSource, /adoptConversationId\(nextConversationId\);/);
+  assert.match(contentSource, /nextConversationId !== previousConversationId\) requestCurrentConversationRefresh\(null\);/);
   assert.match(contentSource, /function scheduleGenerationEvidenceRecovery\(candidate\)/);
   assert.match(contentSource, /enqueueDomFallback\(candidate\)/);
+});
+
+test("new-chat conversation identity is adopted without clearing live-only generation state", () => {
+  const functions = ["conversationIdFromUrl", "currentConversationId", "adoptConversationId"]
+    .map((name) => new RegExp(`\\n {2}function ${name}\\([\\s\\S]*?\\n {2}\\}`).exec(contentSource)?.[0])
+    .filter(Boolean)
+    .join("\n");
+  let resets = 0;
+  const context = {
+    location: { pathname: "/", href: "https://chatgpt.com/" },
+    activeConversationId: "",
+    resetConversationTransientState() { resets += 1; },
+  };
+  vm.runInNewContext(`${functions}\nthis.adopt = adoptConversationId; this.current = currentConversationId;`, context);
+
+  assert.equal(context.current(), "");
+  assert.equal(context.adopt("conversation-new"), "conversation-new");
+  assert.equal(resets, 0, "transport identity enrichment must preserve live-only evidence");
+  context.location.pathname = "/c/conversation-new";
+  assert.equal(context.adopt("conversation-new"), "conversation-new");
+  assert.equal(resets, 0, "URL assignment for the same conversation must not reset state");
+
+  assert.equal(context.adopt("conversation-stale"), "", "stale transport events must lose to the named URL conversation");
+  assert.equal(resets, 0);
+  context.location.pathname = "/c/conversation-other";
+  assert.equal(context.adopt("conversation-other"), "conversation-other");
+  assert.equal(resets, 1, "a real conversation switch must clear transient state once");
 });
 
 test("ChatGPT DOM hook reacts to both src and srcset changes", () => {
@@ -549,9 +621,10 @@ test("captures an explicit provider generation-call id without promoting a gener
 });
 
 test("preserves event-scoped conversation and generation-call identity through extension ingest", () => {
-  assert.match(contentSource, /conversationId: String\(item\.conversationId \|\| item\.conversation_id \|\| ""\)/);
+  assert.match(contentSource, /const transportConversationId = String\(item\.conversationId \|\| item\.conversation_id \|\| ""\)/);
+  assert.match(contentSource, /conversationId: transportConversationId \|\| currentConversationId\(\)/);
   assert.match(contentSource, /providerGenerationCallId: String\(item\.providerGenerationCallId \|\| item\.provider_generation_call_id \|\| ""\)/);
-  assert.match(contentSource, /conversationId: resolved\.conversationId \|\| conversationIdFromUrl\(\)/);
+  assert.match(contentSource, /conversationId: resolved\.conversationId \|\| currentConversationId\(\)/);
   assert.match(contentSource, /providerGenerationCallId: resolved\.providerGenerationCallId \|\| ""/);
   assert.match(backgroundSource, /providerGenerationCallId: payload\.providerGenerationCallId \|\| ""/);
 });
@@ -708,6 +781,74 @@ test("keeps revised prompt provenance in generic non-message response objects", 
   assert.equal(generation?.payload.prompt, prompt);
   assert.equal(generation?.payload.promptStatus, "generation-tool-prompt");
   assert.equal(generation?.payload.isGeneration, true);
+});
+
+test("reads a structured prompt from a generic realtime object", async () => {
+  const prompt = "A precise editorial still life with black stone, chrome type, and narrow hard light.";
+  const harness = createHookHarness({
+    message_id: "message-generic-structured",
+    generation_call_id: "generation-generic-structured",
+    generation_prompt: {
+      content: [{ type: "text", text: prompt }],
+    },
+  }, "conversation-generic-structured");
+
+  await harness.harvest();
+  const event = harness.events.find((item) => (
+    item.type === "generation-meta"
+      && item.payload?.providerGenerationCallId === "generation-generic-structured"
+      && item.payload?.prompt
+  ));
+  assert.ok(event);
+  assert.equal(event.payload.prompt, prompt);
+  assert.equal(event.payload.promptStatus, "generation-tool-prompt");
+  assert.equal(event.payload.promptScope, "attempt");
+  assert.equal(event.payload.isGeneration, true);
+});
+
+test("uses a trusted generation.gen_id to bind a prompt-only realtime frame", async () => {
+  const prompt = "A cinematic monochrome product portrait with etched metal type and a narrow beam of light.";
+  const harness = createHookHarness({
+    generation: {
+      gen_id: "generation-nested-frame",
+      prompt,
+    },
+  }, "conversation-nested-frame");
+
+  await harness.harvest();
+  const event = harness.events.find((item) => (
+    item.type === "generation-meta"
+      && item.payload?.providerGenerationCallId === "generation-nested-frame"
+      && item.payload?.prompt
+  ));
+  assert.ok(event);
+  assert.equal(event.payload.prompt, prompt);
+  assert.equal(event.payload.promptStatus, "generation-tool-prompt");
+  assert.equal(event.payload.promptScope, "attempt");
+  assert.equal(event.payload.isGeneration, true);
+});
+
+test("generation registry can bind a prompt-only frame to a promptless output by one message identity", () => {
+  const registry = createGenerationRegistryHarness();
+  registry.remember({
+    assetId: "file-message-only-binding",
+    conversationId: "conversation-message-binding",
+    messageId: "message-message-binding",
+    isGeneration: true,
+  });
+  registry.remember({
+    prompt: "A provider prompt delivered in a separate frame.",
+    promptStatus: "generation-tool-prompt",
+    promptPriority: 700,
+    promptScope: "message",
+    conversationId: "conversation-message-binding",
+    messageId: "message-message-binding",
+  });
+
+  const resolved = registry.resolvedForImage("", { assetId: "file-message-only-binding" });
+  assert.equal(resolved?.prompt, "A provider prompt delivered in a separate frame.");
+  assert.equal(resolved?.promptScope, "message");
+  assert.equal(resolved?.isGeneration, true);
 });
 
 test("generation registry binds late prompts by stable context and never downgrades the best provider prompt", () => {
@@ -896,6 +1037,59 @@ test("attempt-scoped late prompts fan out to every saved output without collapsi
   assert.equal(registry.debugSnapshot()[0].outputs.length, 3);
 });
 
+test("generation registry enriches a provisional ChatGPT context without splitting the attempt", () => {
+  const registry = createGenerationRegistryHarness();
+  registry.remember({
+    assetId: "file-context-enrichment",
+    providerGenerationCallId: "generation-context-enrichment",
+    generationContextId: "chatgpt:generation-context-enrichment",
+    messageId: "output-before-route",
+    prompt: "Model caption: a clean editorial image with soft light and bold type.",
+    promptStatus: "visible-caption",
+    promptPriority: 425,
+    isGeneration: true,
+  });
+  registry.remember({
+    assetId: "file-context-enrichment",
+    providerGenerationCallId: "generation-context-enrichment",
+    generationContextId: "chatgpt:conversation-assigned:generation-context-enrichment",
+    conversationId: "conversation-assigned",
+    messageId: "output-after-route",
+    isGeneration: true,
+  });
+
+  const snapshot = registry.debugSnapshot();
+  assert.equal(snapshot.length, 1);
+  assert.equal(snapshot[0].generationContextId, "chatgpt:conversation-assigned:generation-context-enrichment");
+  assert.equal(snapshot[0].outputs.length, 1);
+  assert.equal(registry.resolvedForImage("", { assetId: "file-context-enrichment" }).promptStatus, "visible-caption");
+});
+
+test("multi-message DOM wrappers bind only when every message resolves to one generation attempt", () => {
+  const registry = createGenerationRegistryHarness();
+  const shared = {
+    assetId: "file-shared-wrapper",
+    providerGenerationCallId: "generation-shared-wrapper",
+    conversationId: "conversation-wrapper",
+    isGeneration: true,
+  };
+  registry.remember({ ...shared, messageId: "display-message" });
+  registry.remember({ ...shared, messageId: "commentary-message", prompt: "Model caption: one silver object on a black field.", promptStatus: "visible-caption", promptPriority: 425 });
+
+  const resolved = registry.resolvedForMessages("conversation-wrapper", ["display-message", "commentary-message"]);
+  assert.ok(resolved);
+  assert.equal(resolved.providerGenerationCallId, "generation-shared-wrapper");
+
+  registry.remember({
+    assetId: "file-retry-wrapper",
+    providerGenerationCallId: "generation-retry-wrapper",
+    conversationId: "conversation-wrapper",
+    messageId: "retry-message",
+    isGeneration: true,
+  });
+  assert.equal(registry.resolvedForMessages("conversation-wrapper", ["display-message", "retry-message"]), null);
+});
+
 test("content capture uses stable generation context instead of time-window prompt guessing", () => {
   assert.match(contentSource, /function generationRegistryForPage\(\)/);
   assert.match(contentSource, /resolvedForImage/);
@@ -913,7 +1107,7 @@ test("content capture waits for generation stability and upgrades every output i
   assert.match(contentSource, /readiness\.forceTerminalRefresh/);
   assert.match(contentSource, /resolvedOutputsForEntry\?\.\(meta\)/);
   assert.match(contentSource, /for \(const resolvedMeta of targets\)/);
-  assert.match(contentSource, /resolvedForMessage\?\.\(conversationIdFromUrl\(\), domMessageId\)/);
+  assert.match(contentSource, /resolvedForMessages\?\.\(currentConversationId\(\), domMessageIds\)/);
 });
 
 test("websocket image identifiers are treated as interesting generation metadata", async () => {
@@ -933,6 +1127,20 @@ test("websocket image identifiers are treated as interesting generation metadata
   ));
   assert.ok(generation, "image_id-only socket frames should reach the generation parser");
   assert.equal(generation.payload.isGeneration, true);
+});
+
+test("websocket ingress recognizes conversation message structure without relying on tool keywords", () => {
+  const fn = /function hasConversationMessageShape\(text\) \{[\s\S]*?\n  \}/.exec(hookSource)?.[0] || "";
+  assert.ok(fn, "hasConversationMessageShape should be extractable");
+  const context = {};
+  vm.runInNewContext(`${fn}\nthis.hasShape = hasConversationMessageShape;`, context);
+  assert.equal(context.hasShape(JSON.stringify({
+    type: "opaque-provider-event",
+    payload: { update_content: { messages: [{ content: { parts: ["hello"] } }] } },
+  })), true);
+  assert.equal(context.hasShape(JSON.stringify({ type: "token-delta", payload: { text: "hello" } })), false);
+  assert.match(hookSource, /WS_INTEREST\.test\(text\) \|\| hasConversationMessageShape\(text\)/);
+  assert.match(hookSource, /WS_INTEREST\.test\(decoded\) \|\| hasConversationMessageShape\(decoded\)/);
 });
 
 test("does not treat an unrelated tool image as generated artwork", async () => {
@@ -1208,7 +1416,14 @@ test("provider policy classifies only supported top-level product URLs", () => {
   assert.equal(policy.providerForPageUrl("https://gemini.google.com/app/abc"), "gemini");
   assert.equal(policy.providerForPageUrl("https://aistudio.google.com/generate-video"), "google-ai-studio");
   assert.equal(policy.providerForPageUrl("https://labs.google/fx/en/tools/flow/project/abc"), "flow");
+  assert.equal(policy.providerForPageUrl("https://flow.google.com/project/abc"), "flow");
   assert.equal(policy.providerForPageUrl("https://labs.google/search"), "");
+  assert.equal(policy.isFlowMediaRedirectUrl("https://labs.google/fx/api/trpc/media.getMediaUrlRedirect?name=abc"), true);
+  assert.equal(policy.isFlowMediaRedirectUrl("https://flow.google.com/api/trpc/media.getMediaUrlRedirect?name=abc"), true);
+  assert.equal(policy.isFlowMediaRedirectUrl("https://flow.google.com/fx/api/trpc/media.getMediaUrlRedirect?name=abc"), true);
+  assert.equal(policy.isFlowMediaRedirectUrl("https://flow.google.com/api/trpc/media.getMediaUrlRedirect"), false);
+  assert.equal(policy.isFlowMediaRedirectUrl("https://evil.example/api/trpc/media.getMediaUrlRedirect?name=abc"), false);
+  assert.equal(policy.isFlowMediaRedirectUrl("https://flow.google.com/api/trpc/media.getSomethingElse?name=abc"), false);
   assert.equal(policy.providerForPageUrl("http://gemini.google.com/app/abc"), "");
   assert.equal(policy.providerForPageUrl("https://evil.example/?next=https://gemini.google.com"), "");
   assert.equal(policy.supportsVideo("flow"), true);
@@ -1533,11 +1748,646 @@ test("binds prompt and asset when one image call splits them across nested reque
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.15.4");
+  assert.equal(manifest.version, "0.15.18");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
   assert.match(contentSource, /via: "dom-message-caption"/);
+});
+
+function currentChatGptConversation(prompt = "", role = "tool") {
+  return {
+    conversation_id: "conversation-test",
+    messages: [{
+      id: "output-message",
+      author: { role, name: "opaque_namespace.opaque_tool" },
+      status: "finished_successfully",
+      metadata: { image_gen_title: "Generated image" },
+      content: { content_type: "multimodal_text", parts: [{
+        content_type: "image_asset_pointer",
+        asset_pointer: "sediment://file-current-output",
+        metadata: { dalle: { gen_id: "generation-output", prompt } },
+      }] },
+    }],
+  };
+}
+
+test("reads the plural conversation response and recognizes an opaque image tool", async () => {
+  const prompt = "Create a red poster with metallic typography and soft lighting.";
+  const harness = createHookHarness(currentChatGptConversation(prompt));
+  await harness.harvest(undefined, "https://chatgpt.com/backend-api/conversations/conversation-test?limit=20");
+  const output = generationEvents(harness).find((event) => event.payload.assetId === "file-current-output")?.payload;
+  assert.ok(output);
+  assert.equal(output.prompt, prompt);
+  assert.equal(output.promptStatus, "generation-tool-prompt");
+  assert.equal(output.messageId, "output-message");
+  assert.equal(output.providerGenerationCallId, "generation-output");
+  assert.equal(output.isGeneration, true);
+});
+
+test("harvests generation metadata from the bare ChatGPT conversation stream endpoint", async () => {
+  const prompt = "Create a cobalt poster with chrome lettering and hard rim lighting.";
+  const harness = createHookHarness(currentChatGptConversation(prompt));
+  await harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/conversation");
+  const output = generationEvents(harness).find((event) => event.payload.assetId === "file-current-output")?.payload;
+  assert.ok(output, "the live conversation stream must be harvested before metadata disappears from later conversation reads");
+  assert.equal(output.prompt, prompt);
+  assert.equal(output.promptStatus, "generation-tool-prompt");
+  assert.equal(output.messageId, "output-message");
+  assert.equal(output.providerGenerationCallId, "generation-output");
+  assert.equal(output.isGeneration, true);
+});
+
+test("reads a generation prompt encoded inside tool arguments JSON", async () => {
+  const prompt = "Create a black editorial poster with silver type and a hard spotlight.";
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    message: {
+      id: "message-json-args",
+      author: { role: "tool", name: "opaque_tool" },
+      metadata: { image_gen_title: "Generated image" },
+      content: {
+        parts: [{
+          content_type: "image_asset_pointer",
+          asset_pointer: "sediment://file-json-args",
+        }],
+      },
+      tool_call_id: "tool-json-args",
+      arguments: JSON.stringify({ revised_prompt: prompt }),
+    },
+  });
+  await harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/conversation");
+  const output = generationEvents(harness).find((event) => event.payload.assetId === "file-json-args")?.payload;
+  assert.ok(output);
+  assert.equal(output.prompt, prompt);
+  assert.equal(output.promptStatus, "generation-tool-prompt");
+  assert.equal(output.isGeneration, true);
+});
+
+test("recognizes image_gen_title plus image asset pointer without a legacy tool name", async () => {
+  const prompt = "Create a minimal green poster with embossed sans serif typography and studio light.";
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    message: {
+      id: "message-title-marker",
+      author: { role: "assistant", name: "opaque_tool" },
+      metadata: { image_gen_title: "Generated image", revised_prompt: prompt },
+      content: { parts: [{ content_type: "image_asset_pointer", asset_pointer: "sediment://file-title-marker" }] },
+    },
+  });
+  await harness.harvest();
+  const output = generationEvents(harness).find((event) => event.payload.assetId === "file-title-marker")?.payload;
+  assert.ok(output);
+  assert.equal(output.prompt, prompt);
+  assert.equal(output.isGeneration, true);
+});
+
+test("capture diagnostics never include the prompt text", async () => {
+  const secretPrompt = "SECRET_DIAGNOSTIC_PROMPT_SHOULD_NOT_LEAK";
+  const harness = createHookHarness(currentChatGptConversation(secretPrompt));
+  await harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/conversation");
+  const diagnostics = harness.events.filter((event) => event.type === "capture-debug");
+  assert.ok(diagnostics.length > 0);
+  assert.equal(JSON.stringify(diagnostics).includes(secretPrompt), false);
+});
+
+test("keeps a Skill's instructions in the same turn out of the image prompt", async () => {
+  // Real 2026-09 shape: a Skill resource is read in the same turn, the image
+  // tool is called with prompt: null, and the image message has no caption.
+  const turn = { turn_exchange_id: "turn-skill", working_turn_id: "working-skill" };
+  const skillText = "# Poster skill\nBefore calling the image tool, choose the style, composition, lighting, palette, and layout. "
+    + "Keep the typography bold, the background clean, and the scene cinematic. ".repeat(12);
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    messages: [
+      {
+        id: "skill-resource",
+        author: { role: "tool", name: "api_tool.read_resource" },
+        content: { content_type: "text", parts: [skillText] },
+        metadata: { ...turn, skill_name: "poster-skill" },
+      },
+      {
+        id: "image-call",
+        author: { role: "assistant" },
+        recipient: "t2uay3k.sj1i4kz",
+        channel: "commentary",
+        content: {
+          content_type: "code",
+          text: JSON.stringify({ size: "1024x1536", n: 1, referenced_image_ids: [], prompt: null }),
+        },
+        metadata: { ...turn },
+      },
+      {
+        id: "image-output",
+        author: { role: "tool", name: "t2uay3k.sj1i4kz" },
+        content: {
+          content_type: "multimodal_text",
+          parts: [{
+            content_type: "image_asset_pointer",
+            asset_pointer: "sediment://file-skill-output",
+            metadata: { dalle: { gen_id: "generation-skill-output", prompt: "" } },
+          }],
+        },
+        metadata: { ...turn, parent_id: "image-call", image_gen_title: "Generated image" },
+      },
+    ],
+  });
+
+  await harness.harvest(undefined, "https://chatgpt.com/backend-api/conversations/conversation-test");
+
+  assert.equal(generationEvents(harness).some((event) => event.payload.prompt === skillText.trim()), false);
+  const registry = createGenerationRegistryHarness();
+  for (const event of harness.events.filter((item) => item.type === "generation-meta")) registry.remember(event.payload);
+  const resolved = registry.resolvedForImage("", { assetId: "file-skill-output" });
+  assert.ok(resolved, "the generated image must still be archived");
+  assert.equal(resolved.isGeneration, true);
+  assert.equal(resolved.prompt, "");
+});
+
+test("binds the live image tool caption to the displayed image message", async () => {
+  // Real 2026-09 stream: the displayed "final" tool message holds only the
+  // image; a live-only "commentary" copy of the same generation carries the
+  // Model caption; then a tool status text follows. Only the caption counts.
+  const caption = "Model caption: A clean, flat, cute vector cartoon illustration on a pale cream background: a single gray tabby cat centered in the frame, soft lighting, simple layered shapes.";
+  const statusText = "Generated images from the last `image_gen.text2im` call were saved at:\n- /mnt/data/generated/a_clean_flat_vector_illustration_style_scene_1.png (wxh = 1254 x 1254)\n\nYou can visually inspect the generated image directly in the tool result above.";
+  const turn = { turn_exchange_id: "turn-live", working_turn_id: "working-live" };
+  const imagePart = {
+    content_type: "image_asset_pointer",
+    asset_pointer: "sediment://file-live-cat",
+    width: 1254,
+    height: 1254,
+    metadata: {
+      dalle: { gen_id: "generation-live-cat", prompt: "", serialization_title: "DALL-E generation metadata" },
+      generation: { gen_id: "generation-live-cat", gen_size: "smimage", serialization_title: "Image Generation metadata" },
+    },
+  };
+  const update = (message) => JSON.stringify({
+    type: "conversation-update",
+    payload: { conversation_id: "conversation-test", update_type: "add-messages", update_content: { messages: [message] } },
+  });
+  const toolMessage = (id, channel, parts) => ({
+    id,
+    author: { role: "tool", name: "t2uay3k.sj1i4kz", metadata: {} },
+    recipient: "all",
+    channel,
+    content: { content_type: "multimodal_text", parts },
+    status: "finished_successfully",
+    metadata: { ...turn, image_gen_title: "灰色虎斑猫插画" },
+  });
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} });
+
+  await harness.socketFrame(update(toolMessage("displayed-output", "final", [imagePart])));
+  await harness.socketFrame(update(toolMessage("live-caption-copy", "commentary", [imagePart, caption])));
+  await harness.socketFrame(update({
+    ...toolMessage("tool-status", "commentary", [statusText]),
+    content: { content_type: "text", parts: [statusText] },
+  }));
+  await harness.socketFrame(update(toolMessage("displayed-output", "final", [imagePart])));
+
+  const metas = harness.events.filter((event) => event.type === "generation-meta").map((event) => event.payload);
+  assert.equal(metas.some((meta) => meta.prompt === statusText), false);
+  const captionEvent = metas.find((meta) => meta.prompt === caption);
+  assert.ok(captionEvent);
+  assert.equal(captionEvent.promptStatus, "visible-caption");
+  assert.equal(captionEvent.promptScope, "output");
+  assert.equal(captionEvent.assetId, "file-live-cat");
+
+  const registry = createGenerationRegistryHarness();
+  for (const meta of metas) registry.remember(meta);
+  for (const resolved of [
+    registry.resolvedForMessage("conversation-test", "displayed-output"),
+    registry.resolvedForImage("", { assetId: "file-live-cat" }),
+  ]) {
+    assert.ok(resolved);
+    assert.equal(resolved.prompt, caption);
+    assert.equal(resolved.promptStatus, "visible-caption");
+    assert.equal(resolved.isGeneration, true);
+  }
+});
+
+function liveImageTurnFrames({ turn = "turn-request", calls = [], outputs = [] } = {}) {
+  const update = (message) => JSON.stringify({
+    type: "conversation-update",
+    payload: { conversation_id: "conversation-test", update_type: "add-messages", update_content: { messages: [message] } },
+  });
+  const callFrames = calls.map(({ id, prompt, recipient = "t2uay3k.sj1i4kz" }) => update({
+    id,
+    author: { role: "assistant", name: null, metadata: {} },
+    recipient,
+    channel: "commentary",
+    content: {
+      content_type: "code",
+      language: "json",
+      text: JSON.stringify({ prompt, reference_image_paths: [], aspect_ratio: "1:1", transparent_background: false }),
+    },
+    status: "finished_successfully",
+    metadata: { turn_exchange_id: turn },
+  }));
+  const outputFrames = outputs.map(({ id, channel = "final", assetId, genId, parentId = "", caption = "" }) => update({
+    id,
+    author: { role: "tool", name: "t2uay3k.sj1i4kz", metadata: {} },
+    recipient: "all",
+    channel,
+    content: {
+      content_type: "multimodal_text",
+      parts: [{
+        content_type: "image_asset_pointer",
+        asset_pointer: `sediment://${assetId}`,
+        metadata: { dalle: { gen_id: genId, prompt: "" }, generation: { gen_id: genId } },
+      }, ...(caption ? [caption] : [])],
+    },
+    status: "finished_successfully",
+    metadata: { turn_exchange_id: turn, parent_id: parentId, image_gen_title: "Generated image" },
+  }));
+  return { callFrames, outputFrames };
+}
+
+test("keeps the live image tool request Prompt beside the caption", async () => {
+  const requestPrompt = "Create a new image in the same visual style as Image A. Generate a simple flat illustration of a gray tabby cat.";
+  const caption = "Model caption: A clean, flat, cute vector cartoon illustration on a pale cream background: a single gray tabby cat, soft lighting.";
+  const { callFrames, outputFrames } = liveImageTurnFrames({
+    calls: [{ id: "call-cat", prompt: requestPrompt }],
+    outputs: [
+      { id: "displayed-cat", assetId: "file-request-cat", genId: "generation-request-cat", parentId: "user-message" },
+      { id: "caption-cat", channel: "commentary", assetId: "file-request-cat", genId: "generation-request-cat", parentId: "call-cat", caption },
+    ],
+  });
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} });
+  for (const frame of [...callFrames, ...outputFrames]) await harness.socketFrame(frame);
+
+  const metas = harness.events.filter((event) => event.type === "generation-meta").map((event) => event.payload);
+  const outputs = metas.filter((meta) => meta.assetId === "file-request-cat");
+  assert.equal(outputs.length, 2);
+  assert.ok(outputs.every((meta) => meta.generationRequestPrompt === requestPrompt));
+  assert.equal(metas.some((meta) => meta.prompt === requestPrompt), false, "the request Prompt never becomes the caption Prompt");
+
+  const registry = createGenerationRegistryHarness();
+  for (const meta of metas) registry.remember(meta);
+  const resolved = registry.resolvedForMessage("conversation-test", "displayed-cat");
+  assert.equal(resolved.prompt, caption);
+  assert.equal(resolved.generationRequestPrompt, requestPrompt);
+  assert.match(backgroundSource, /generation_request_prompt: payload\.generationRequestPrompt/);
+  assert.match(contentSource, /generationRequestPrompt: resolved\.generationRequestPrompt/);
+});
+
+test("binds request Prompts in a multi-call turn only by parent_id", async () => {
+  const { callFrames, outputFrames } = liveImageTurnFrames({
+    calls: [
+      { id: "call-red", prompt: "Draw a red paper lantern on a dark background with warm light." },
+      { id: "call-blue", prompt: "Draw a blue paper lantern on a dark background with cool light." },
+    ],
+    outputs: [
+      { id: "unlinked-red", assetId: "file-red", genId: "generation-red", parentId: "user-message" },
+      { id: "linked-blue", channel: "commentary", assetId: "file-blue", genId: "generation-blue", parentId: "call-blue" },
+    ],
+  });
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} });
+  for (const frame of [...callFrames, ...outputFrames]) await harness.socketFrame(frame);
+
+  const byAsset = new Map(harness.events
+    .filter((event) => event.type === "generation-meta" && event.payload?.assetId)
+    .map((event) => [event.payload.assetId, event.payload.generationRequestPrompt]));
+  assert.equal(byAsset.get("file-red"), "", "two calls in one turn are ambiguous without parent_id");
+  assert.equal(byAsset.get("file-blue"), "Draw a blue paper lantern on a dark background with cool light.");
+});
+
+test("does not borrow a request Prompt from a call to another tool", async () => {
+  const { callFrames, outputFrames } = liveImageTurnFrames({
+    calls: [{ id: "call-video", prompt: "A slow pan across a rainy neon street.", recipient: "video_gen.create" }],
+    outputs: [{ id: "image-out", assetId: "file-other-tool", genId: "generation-other-tool", parentId: "call-video" }],
+  });
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} });
+  for (const frame of [...callFrames, ...outputFrames]) await harness.socketFrame(frame);
+
+  const output = harness.events.find((event) => event.type === "generation-meta" && event.payload?.assetId === "file-other-tool");
+  assert.ok(output);
+  assert.equal(output.payload.generationRequestPrompt, "");
+});
+
+test("does not treat a pasted Model caption in a user message as a generation caption", async () => {
+  // Users paste earlier captions back into the composer next to a reference
+  // upload; only provider output may supply a visible caption.
+  const pasted = "Model caption: Cute pastel kawaii illustration scene with a soft pink background, rounded characters, gentle lighting and a clean poster layout.";
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    messages: [{
+      id: "user-upload",
+      author: { role: "user" },
+      content: {
+        content_type: "multimodal_text",
+        parts: [{ content_type: "image_asset_pointer", asset_pointer: "sediment://file-user-upload" }, pasted],
+      },
+      metadata: { attachments: [{ id: "file-user-upload" }] },
+    }],
+  });
+
+  await harness.harvest(undefined, "https://chatgpt.com/backend-api/conversations/conversation-test");
+
+  assert.equal(harness.events.some((event) => (
+    event.type === "generation-meta"
+    && (event.payload?.promptStatus === "visible-caption" || event.payload?.isGeneration === true)
+  )), false);
+});
+
+test("does not promote an ordinary assistant long reply through turn identity alone", async () => {
+  const prose = "This is a long assistant explanation about image workflows, composition choices, lighting references, typography, layout, style systems, and general creative direction. It is intentionally long enough to resemble a descriptive paragraph, but it is still ordinary assistant prose rather than a provider-owned image generation caption.";
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-assistant-turn");
+
+  await harness.socketFrame(JSON.stringify({
+    type: "image_generation.update",
+    payload: {
+      update_content: {
+        messages: [{
+          id: "assistant-long-reply",
+          author: { role: "assistant", name: "assistant" },
+          content: { content_type: "text", parts: [prose] },
+          metadata: { turn_exchange_id: "turn-assistant-only" },
+        }],
+      },
+    },
+    metadata: {},
+  }));
+
+  assert.equal(
+    harness.events.some((event) => event.type === "generation-meta" && event.payload?.prompt === prose),
+    false,
+  );
+});
+
+test("parses a JSON async_source without exposing its raw text", async () => {
+  const prompt = "Create a glossy black packaging render with silver foil type and a single hard key light.";
+  const asyncSource = JSON.stringify({
+    generation: {
+      gen_id: "generation-async-json",
+      prompt,
+    },
+  });
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    message: {
+      id: "message-async-json",
+      author: { role: "tool", name: "opaque_tool" },
+      metadata: {
+        image_gen_title: "Generated image",
+        async_source: asyncSource,
+      },
+      content: {
+        parts: [{
+          content_type: "image_asset_pointer",
+          asset_pointer: "sediment://file-async-json",
+          metadata: {
+            generation: { gen_id: "generation-async-json" },
+            dalle: { gen_id: "generation-async-json", prompt: "" },
+          },
+        }],
+      },
+    },
+  });
+  await harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/conversation");
+  const output = generationEvents(harness).find((event) => event.payload.assetId === "file-async-json")?.payload;
+  assert.ok(output);
+  assert.equal(output.prompt, prompt);
+  assert.equal(output.promptStatus, "generation-tool-prompt");
+  assert.equal(output.providerGenerationCallId, "generation-async-json");
+  const diagnostics = harness.events.filter((event) => event.type === "capture-debug");
+  assert.equal(JSON.stringify(diagnostics).includes(prompt), false);
+  assert.equal(JSON.stringify(diagnostics).includes(asyncSource), false);
+  const messageDebug = diagnostics.find((event) => event.payload?.stage === "message")?.payload;
+  assert.deepEqual(messageDebug?.opaqueSources?.[0]?.rootKeys, ["generation"]);
+  assert.equal(messageDebug?.opaqueSources?.[0]?.kind, "json");
+});
+
+test("classifies an async_source URI without exposing query values", async () => {
+  const secretValue = "SECRET_ASYNC_TASK_VALUE";
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    message: {
+      id: "message-async-uri",
+      author: { role: "tool", name: "opaque_tool" },
+      metadata: {
+        image_gen_title: "Generated image",
+        async_source: `openai-async://image/task?id=${secretValue}&generation_id=gen-uri`,
+      },
+      content: {
+        parts: [{
+          content_type: "image_asset_pointer",
+          asset_pointer: "sediment://file-async-uri",
+          metadata: { generation: { gen_id: "gen-uri" } },
+        }],
+      },
+    },
+  });
+  await harness.harvest();
+  const messageDebug = harness.events.find(
+    (event) => event.type === "capture-debug" && event.payload?.stage === "message",
+  )?.payload;
+  assert.equal(messageDebug?.opaqueSources?.[0]?.kind, "uri");
+  assert.equal(messageDebug?.opaqueSources?.[0]?.scheme, "openai-async");
+  assert.equal(JSON.stringify(messageDebug?.opaqueSources?.[0]?.queryKeys), JSON.stringify(["id", "generation_id"]));
+  assert.equal(JSON.stringify(messageDebug).includes(secretValue), false);
+});
+
+test("reads a structured prompt object from the current image tool message", async () => {
+  const prompt = "Create a warm editorial portrait with cream typography and directional studio light.";
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    message: {
+      id: "message-structured-prompt",
+      author: { role: "tool", name: "opaque_tool" },
+      metadata: { image_gen_title: "Generated image" },
+      content: {
+        parts: [{
+          content_type: "image_asset_pointer",
+          asset_pointer: "sediment://file-structured-prompt",
+        }],
+      },
+      prompt: {
+        content: [{ type: "text", text: prompt }],
+      },
+      generation: { status: "finished_successfully" },
+    },
+  });
+  await harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/conversation");
+  const output = generationEvents(harness).find((event) => event.payload.assetId === "file-structured-prompt")?.payload;
+  assert.ok(output);
+  assert.equal(output.prompt, prompt);
+  assert.equal(output.promptStatus, "generation-tool-prompt");
+  assert.equal(output.promptSource, "prompt");
+  assert.equal(output.isGeneration, true);
+});
+
+test("keeps a structured prompt ambiguous when it contains multiple different text candidates", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    message: {
+      id: "message-ambiguous-structured-prompt",
+      author: { role: "tool", name: "opaque_tool" },
+      metadata: { image_gen_title: "Generated image" },
+      content: {
+        parts: [{
+          content_type: "image_asset_pointer",
+          asset_pointer: "sediment://file-ambiguous-structured-prompt",
+        }],
+      },
+      prompt: {
+        content: [
+          { type: "text", text: "Create a blue poster with hard light." },
+          { type: "text", text: "Create a red poster with soft light." },
+        ],
+      },
+    },
+  });
+  await harness.harvest();
+  const output = harness.events.find(
+    (event) => event.type === "generation-meta"
+      && event.payload?.assetId === "file-ambiguous-structured-prompt",
+  )?.payload;
+  assert.ok(output);
+  assert.equal(output.prompt, "");
+  assert.equal(output.promptStatus, "not-available");
+  assert.equal(output.isGeneration, true);
+});
+
+test("keeps current tool output identity when ChatGPT omits its generation prompt", async () => {
+  const harness = createHookHarness(currentChatGptConversation());
+  await harness.refreshCurrentConversation();
+  const output = harness.events.find((event) => event.type === "generation-meta" && event.payload.assetId === "file-current-output")?.payload;
+  assert.ok(output);
+  assert.equal(output.prompt, "");
+  assert.equal(output.promptStatus, "not-available");
+  assert.equal(output.messageId, "output-message");
+  assert.equal(output.providerGenerationCallId, "generation-output");
+  assert.equal(output.isGeneration, true);
+  assert.equal(output.generationStatus, "completed");
+  assert.equal(output.generationContextId, "chatgpt:conversation-test:generation-output");
+});
+
+test("does not treat a reuploaded generated image as a new tool output", async () => {
+  const harness = createHookHarness(currentChatGptConversation("", "user"));
+  await harness.harvest();
+  assert.equal(harness.events.some((event) => event.payload?.isGeneration), false);
+});
+
+test("plural response interception excludes sidebar, batch, and other conversations", async () => {
+  const harness = createHookHarness(currentChatGptConversation("Create a green poster with soft lighting."));
+  for (const path of ["conversations", "conversations/batch", "conversations/other-chat"]) {
+    await harness.harvest(undefined, `https://chatgpt.com/backend-api/${path}`);
+  }
+  assert.equal(generationEvents(harness).length, 0);
+});
+
+test("falls back to the legacy conversation endpoint when the plural endpoint is unavailable", async () => {
+  const harness = createHookHarness(currentChatGptConversation(), "conversation-test", {
+    respond: (url) => url.includes("/conversations/") ? { ok: false, status: 404 } : null,
+  });
+  await harness.refreshCurrentConversation();
+  assert.deepEqual(harness.requestedUrls, [
+    "https://chatgpt.com/backend-api/conversations/conversation-test",
+    "https://chatgpt.com/backend-api/conversation/conversation-test",
+  ]);
+  assert.ok(harness.events.some((event) => event.payload?.isGeneration));
+});
+
+function currentChatGptContentHarness() {
+  const names = [
+    "conversationIdFromUrl", "currentConversationId", "conversationTurnForNode", "turnContainsRole", "nearestPrecedingUserScope",
+    "userMessageForCandidate", "messageIdsForCandidate", "messageIdForCandidate", "messageScopeForCandidate", "domCaptionForCandidate",
+    "chatGptImageProxyInfo", "normalizeAssetId", "imageLookupKeys", "candidateLookupKeys",
+    "findGenerationEvidenceForCandidate", "resolvePrompt", "buildStoredPrompt", "cleanPromptText",
+    "extractPlaceHints", "promptMentionsPlace", "looksLikeGenerationCaption", "isWeakChatPrompt",
+    "scorePromptText", "normalizeGenerationStatus",
+  ];
+  const source = names.map((name) => {
+    const match = new RegExp(`\\n {2}function ${name}\\([\\s\\S]*?\\n {2}\\}`).exec(contentSource);
+    assert.ok(match, `missing ${name}`);
+    return match[0];
+  }).join("\n");
+  const constants = ["CHATGPT_TURN_SELECTOR", "CHATGPT_USER_SELECTOR", "CHATGPT_MESSAGE_SELECTOR"]
+    .map((name) => new RegExp(`const ${name} = [^;]+;`).exec(contentSource)[0]).join("\n");
+  const userNode = {
+    innerText: "Make the lettering blue and keep the background red.",
+    matches: () => false,
+    closest: () => null,
+    compareDocumentPosition: () => 4,
+  };
+  const messageNode = { getAttribute: () => "output-message" };
+  class TestImage {
+    closest(selector) {
+      if (selector.includes("data-chatgpt-search-message-ids")) return messageNode;
+      return null;
+    }
+    getAttribute() { return "Generated image 1"; }
+  }
+  const registry = createGenerationRegistryHarness();
+  const context = {
+    HTMLImageElement: TestImage, Node: { DOCUMENT_POSITION_FOLLOWING: 4 },
+    URL, location: { href: "https://chatgpt.com/c/conversation-test", pathname: "/c/conversation-test" },
+    activeConversationId: "conversation-test",
+    document: { querySelectorAll: (selector) => selector.includes('data-content-search-unit-key$=":user"') ? [userNode] : [] },
+    STYLE_HINTS: [],
+    findBoundPromptForImage: () => null,
+    findGenerationEvidenceForImage: () => null,
+    generationRegistryForPage: () => registry,
+  };
+  vm.runInNewContext(`${constants}\n${source}`, context);
+  return { context, registry, messageNode, userNode, candidate: { el: new TestImage(), imageUrl: "blob:https://chatgpt.com/preview-1" } };
+}
+
+test("new blob previews preserve user input and output identity without inventing a prompt", async () => {
+  const hook = createHookHarness(currentChatGptConversation());
+  await hook.refreshCurrentConversation();
+  const { context, registry, candidate, userNode } = currentChatGptContentHarness();
+  for (const event of hook.events.filter((event) => event.type === "generation-meta")) registry.remember(event.payload);
+  const resolved = context.resolvePrompt(candidate.imageUrl, candidate);
+  assert.equal(resolved.prompt, "");
+  assert.equal(resolved.promptStatus, "not-available");
+  assert.equal(resolved.userMessage, userNode.innerText);
+  assert.equal(resolved.messageId, "output-message");
+  assert.equal(resolved.providerAssetId, "file-current-output");
+  assert.ok(context.candidateLookupKeys(candidate).includes("asset:file-current-output"));
+});
+
+test("late generation metadata upgrades only the matching current blob message", async () => {
+  const prompt = "Create blue metallic lettering on a red poster, with soft lighting.";
+  const { context, registry, candidate, messageNode } = currentChatGptContentHarness();
+  const hook = createHookHarness(currentChatGptConversation(prompt));
+  await hook.refreshCurrentConversation();
+  for (const event of generationEvents(hook)) registry.remember(event.payload);
+  assert.equal(context.resolvePrompt(candidate.imageUrl, candidate).prompt, prompt);
+  messageNode.getAttribute = () => "another-output";
+  assert.equal(context.resolvePrompt(candidate.imageUrl, candidate).prompt, "");
+  assert.equal(context.candidateLookupKeys(candidate).includes("asset:file-current-output"), false);
+  messageNode.getAttribute = () => "output-message another-output";
+  assert.equal(context.messageIdForCandidate(candidate), "");
+  assert.equal(context.resolvePrompt(candidate.imageUrl, candidate).prompt, "");
+});
+
+test("an already saved blob is upgraded when its provider identity arrives late", async () => {
+  const { context, registry, candidate } = currentChatGptContentHarness();
+  const savedKeys = context.candidateLookupKeys(candidate);
+  const ingests = [];
+  Object.assign(context, {
+    savedPromptRanks: new Map(savedKeys.map((key) => [key, 0])),
+    capturedCandidates: new Map(),
+    collectDomCandidates: () => [candidate],
+    promptUpgradeInFlight: new Set(),
+    clearPromptRecovery: () => {},
+    withAutoCaptureSlot: async (task) => task(),
+    ingestCandidate: async (item, options) => { ingests.push({ item, options }); },
+  });
+  const source = ["findCandidateForMeta", "candidateOperationKey", "savedPromptRankForKeys", "promptQuality", "metaPromptQuality", "schedulePromptUpgrade"]
+    .map((name) => new RegExp(`\\n {2}function ${name}\\([\\s\\S]*?\\n {2}\\}`).exec(contentSource)[0]).join("\n");
+  vm.runInNewContext(source, context);
+  const hook = createHookHarness(currentChatGptConversation("Create a poster with blue lettering and soft lighting."));
+  await hook.refreshCurrentConversation();
+  const meta = generationEvents(hook)[0].payload;
+  registry.remember(meta);
+  context.schedulePromptUpgrade(meta);
+  await setImmediate();
+  assert.equal(ingests.length, 1);
+  assert.equal(ingests[0].item, candidate);
+  assert.equal(ingests[0].options.reason, "prompt-upgrade");
+  assert.equal(ingests[0].options.force, true);
 });
 
 test("keeps a same-message user instruction separate and retries for a late caption", () => {
@@ -1734,7 +2584,7 @@ test("refreshes only the active conversation to recover a late Model caption", a
   await harness.refreshCurrentConversation();
 
   assert.deepEqual(harness.requestedUrls, [
-    "https://chatgpt.com/backend-api/conversation/conversation-test",
+    "https://chatgpt.com/backend-api/conversations/conversation-test",
   ]);
   assert.deepEqual(generationEvents(harness).map((event) => ({
     imageKey: event.payload.imageKey,
@@ -1859,7 +2709,7 @@ test("refreshes the active conversation without copying authentication headers",
   });
   await harness.refreshCurrentConversation();
 
-  const refreshIndex = harness.requestedUrls.indexOf("https://chatgpt.com/backend-api/conversation/conversation-test");
+  const refreshIndex = harness.requestedUrls.indexOf("https://chatgpt.com/backend-api/conversations/conversation-test");
   assert.ok(refreshIndex >= 0, "the refresh should reach the conversation endpoint");
   const init = harness.requestedInits[refreshIndex] || {};
   assert.equal(init.credentials, "include");
@@ -1876,7 +2726,7 @@ test("does not capture page authentication headers", async () => {
   assert.equal(posted.includes("page-session-token"), false, "a page token must never be posted out of the page");
   assert.doesNotMatch(contentSource, /authorization/i);
   assert.doesNotMatch(hookSource, /forwardedHeaders|rememberRequestHeaders|oai-device-id|oai-client-version|oai-language/i);
-  const refreshIndex = harness.requestedUrls.indexOf("https://chatgpt.com/backend-api/conversation/conversation-test");
+  const refreshIndex = harness.requestedUrls.indexOf("https://chatgpt.com/backend-api/conversations/conversation-test");
   assert.ok(refreshIndex >= 0);
   assert.equal(Object.hasOwn(harness.requestedInits[refreshIndex] || {}, "headers"), false);
 });
@@ -1893,6 +2743,20 @@ test("reports a failed conversation refresh instead of losing it silently", asyn
   assert.equal(failure.payload.status, 401);
   assert.equal(Object.hasOwn(failure.payload, "authorized"), false);
   assert.match(contentSource, /data\.type === "conversation-refresh-failed"/);
+});
+
+test("treats a missing conversation recovery endpoint as a soft failure", async () => {
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", {
+    respond: () => ({ ok: false, status: 404, text: async () => "", clone: () => ({ text: async () => "" }) }),
+  });
+
+  await harness.refreshCurrentConversation();
+
+  const failure = harness.events.find((event) => event.type === "conversation-refresh-failed");
+  assert.ok(failure);
+  assert.equal(failure.payload.status, 404);
+  assert.equal(failure.payload.soft, true);
+  assert.match(contentSource, /实时 Hook 正常 · 历史会话回读不可用/);
 });
 
 test("harvests a caption from the live WebSocket stream", async () => {

@@ -1,19 +1,29 @@
 import { readdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const ignored = new Set([".git", "node_modules", "coverage", "out", "assets", "production", "canvas", "outputs"]);
-const trackedIgnored = await gitLines(["ls-files", "-ci", "--exclude-standard"]);
-if (trackedIgnored.length > 0) {
-  throw new Error(`Tracked files match .gitignore and must be removed from Git tracking:\n${trackedIgnored.join("\n")}`);
+
+// The whole-repo sweep runs only when invoked as a CLI; importing the module
+// (e.g. from a test) must not trigger it.
+const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
+if (invokedPath && import.meta.url === invokedPath) {
+  await main();
 }
 
-const files = await collectJavaScript(root);
+async function main() {
+  const trackedIgnored = await gitLines(["ls-files", "-ci", "--exclude-standard"]);
+  if (trackedIgnored.length > 0) {
+    throw new Error(`Tracked files match .gitignore and must be removed from Git tracking:\n${trackedIgnored.join("\n")}`);
+  }
 
-for (const file of files) await check(file);
-console.log(`Syntax checked ${files.length} JavaScript files.`);
+  const files = await collectJavaScript(root);
+
+  for (const file of files) await check(file);
+  console.log(`Syntax checked ${files.length} JavaScript files.`);
+}
 
 async function collectJavaScript(directory) {
   const entries = await readdir(directory, { withFileTypes: true });

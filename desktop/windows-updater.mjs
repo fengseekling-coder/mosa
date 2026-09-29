@@ -242,6 +242,36 @@ export function windowsMoveDirectoryRetryScript() {
 }`;
 }
 
+export function windowsInstallProcessDrainScript() {
+  return String.raw`function Wait-MosaInstallProcessesExit {
+  param(
+    [Parameter(Mandatory=$true)][string]$InstallDir,
+    [int]$MaxAttempts = 60
+  )
+
+  $trimmed = $InstallDir.TrimEnd([char]92, [char]47)
+  if ($trimmed -notmatch '[\\/]') {
+    # A drive-root install (e.g. C:\) would make the prefix below match every
+    # process on that drive and abort valid updates; MOSA ships as a
+    # subdirectory layout, so fail closed with guidance instead.
+    throw "MOSA update requires a subdirectory install, not a drive root: $InstallDir"
+  }
+  $prefix = $trimmed + [IO.Path]::DirectorySeparatorChar
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    $remaining = @(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+      $exe = [string]$_.ExecutablePath
+      $exe -and $exe.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)
+    })
+    if ($remaining.Count -eq 0) { return }
+    if ($attempt -ge $MaxAttempts) {
+      $ids = ($remaining | ForEach-Object { [string]$_.ProcessId }) -join ','
+      throw "MOSA processes still hold the install directory after shutdown: $ids"
+    }
+    Start-Sleep -Milliseconds 250
+  }
+}`;
+}
+
 export function windowsUpdateHelperScript() {
   return String.raw`param(
   [Parameter(Mandatory=$true)][int]$TargetPid,
@@ -259,6 +289,7 @@ export function windowsUpdateHelperScript() {
 )
 
 ${windowsMoveDirectoryRetryScript()}
+${windowsInstallProcessDrainScript()}
 
 $ErrorActionPreference = "Stop"
 $script:MosaLastMoveDiagnostic = $null
@@ -282,6 +313,7 @@ try {
     $expectedSignerThumbprint = $oldSignature.SignerCertificate.Thumbprint
   }
   Wait-Process -Id $TargetPid -ErrorAction SilentlyContinue
+  Wait-MosaInstallProcessesExit -InstallDir $InstallDir
   New-Item -ItemType Directory -Path $transactionRoot -Force | Out-Null
   Expand-Archive -LiteralPath $ZipPath -DestinationPath $extractDir -Force
   $flatPayloadExe = Join-Path $extractDir $ExeName
@@ -322,6 +354,9 @@ try {
     }
     Remove-Item -LiteralPath $ReadyFile -Force -ErrorAction SilentlyContinue
     $readyArgument = '--mosa-update-ready-file="' + $ReadyFile + '"'
+    # The PowerShell helper itself is created with CREATE_NO_WINDOW. Do not
+    # propagate hidden-window semantics to MOSA.exe: it is a GUI application
+    # and must relaunch with its normal visible-window lifecycle.
     $newProcess = Start-Process -FilePath $newExe -WorkingDirectory $InstallDir -ArgumentList @($readyArgument) -PassThru
     $readyDeadline = [DateTime]::UtcNow.AddSeconds(45)
     while ([DateTime]::UtcNow -lt $readyDeadline) {

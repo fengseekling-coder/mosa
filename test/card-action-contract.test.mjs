@@ -7,8 +7,8 @@ import test from "node:test";
 import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
-const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
 /** Extracts a `{...}` block starting at the marker, honouring nested braces. */
@@ -243,7 +243,7 @@ test("17. no API, data-structure or persistence changes", async () => {
 
 // 18. i18n parity: zh/en key sets match and cover the card quick actions.
 test("18. i18n zh/en key parity including quick-action strings", async () => {
-  const messages = (await import(pathToFileURL(resolve(root, "app/i18n.mjs")).href)).default;
+  const messages = (await import(pathToFileURL(resolve(root, "web/app/i18n.mjs")).href)).default;
   const zhKeys = Object.keys(messages.zh).sort();
   const enKeys = Object.keys(messages.en).sort();
   assert.deepEqual(zhKeys, enKeys, "zh and en must expose the same key set");

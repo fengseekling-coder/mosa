@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { parseUpdateManifest } from "../desktop/update-service.mjs";
 import { normalizeDesktopDistribution } from "../lib/release-distribution.mjs";
@@ -157,7 +157,8 @@ async function main() {
     throw new Error("Usage: prepare-desktop-release-manifest.mjs --version <version> --output <latest.json> [--previous <latest.json>] [--mac <zip>] [--windows <zip>] [--published-at <ISO>] [--notes-zh <text>] [--notes-en <text>]");
   }
   const previousManifest = args.previous ? JSON.parse(await readFile(resolve(args.previous), "utf8")) : null;
-  const buildIdentity = JSON.parse(await readFile(resolve("app", "build-identity.json"), "utf8"));
+  const projectRoot = new URL("..", import.meta.url);
+  const buildIdentity = JSON.parse(await readFile(resolve(fileURLToPath(projectRoot), "desktop", "app", "build-identity.json"), "utf8"));
   const signingPrivateKey = releaseManifestPrivateKeyFromEnvironment(process.env);
   const manifest = await prepareDesktopReleaseManifest({
     version: args.version,

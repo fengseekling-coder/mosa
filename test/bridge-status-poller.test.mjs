@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBridgeStatusPoller } from "../app/bridge-status-poller.mjs";
+import { createBridgeStatusPoller } from "../web/app/bridge-status-poller.mjs";
 
 function deferred() {
   let resolve;

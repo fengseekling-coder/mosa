@@ -5,6 +5,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 ## Unreleased
 
 - MOSA Desktop now pairs the fixed allowlisted MOSA browser extensions automatically in the background. Installing/opening the app and loading the official extension no longer requires a native pairing confirmation dialog or manual Token entry; source/headless runtimes remain opt-in.
+- Web Capture extension 0.15.5 follows Google Flow's migration to its dedicated `flow.google.com` domain. The provider adapter now runs on both the legacy `labs.google/fx` routes and the new host, the background media probe accepts the relocated `media.getMediaUrlRedirect` endpoint (with or without the `/fx` prefix), and the media-host allowlists include the new origin. Failed media probes now back off per media item instead of re-fetching on every scan, and Flow grid-tile Prompt association uses the thumbnail size floor so small natural-size tiles keep their visible Prompt card.
 
 ## 0.2.1-rc.25 — 2026-09-20 / Release Candidate
 

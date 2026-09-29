@@ -29,9 +29,9 @@ test("1-2. BrowserWindow minWidth=960 且 minHeight=640（F-10 单次授权范�
 });
 
 test("3. 不在 renderer 中模拟窗口最小值", async () => {
-  const appJs = await source("app/app.mjs");
-  const index = await source("app/index.html");
-  const styles = await source("app/styles.css");
+  const appJs = await source("web/app/app.mjs");
+  const index = await source("web/app/index.html");
+  const styles = await source("web/app/styles.css");
   // renderer 不得用 resizeTo/resizeBy 或任何内视口钳制模拟桌面窗口最小尺寸。
   assert.doesNotMatch(appJs, /window\.resizeTo\(|window\.resizeBy\(/);
   assert.doesNotMatch(appJs, /Math\.max\(\s*960/);
@@ -81,8 +81,8 @@ test("10-11. 退役 Finder IPC 保持移除且其余 Desktop IPC 不变", async 
 });
 
 test("12-14. 960 下 Sidebar 批准收敛规则与搜索可达", async () => {
-  const styles = await source("app/styles.css");
-  const index = await source("app/index.html");
+  const styles = await source("web/app/styles.css");
+  const index = await source("web/app/index.html");
   // 701–1120 图标栏收敛（960×640 落在该区间）仍是批准的唯一紧凑档。
   assert.match(styles, /@media \(min-width: 701px\) and \(max-width: 1120px\)/);
   assert.match(styles, /\.shell\.details-open \.nav-item-text,/);
@@ -94,7 +94,7 @@ test("12-14. 960 下 Sidebar 批准收敛规则与搜索可达", async () => {
 });
 
 test("15-16. 960 下 Viewer shell 与舞台契约", async () => {
-  const styles = await source("app/styles.css");
+  const styles = await source("web/app/styles.css");
   // .asset-view 保持 flex 互斥布局（hidden 才退出），不在紧凑档新增隐藏规则。
   assert.match(styles, /\.asset-view\[hidden\] \{ display: none; \}/);
   assert.match(styles, /\.asset-view \{ display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden;/);
@@ -103,7 +103,7 @@ test("15-16. 960 下 Viewer shell 与舞台契约", async () => {
 });
 
 test("17-18. Inspector 独立滚动且宽度不超批准范围", async () => {
-  const styles = await source("app/styles.css");
+  const styles = await source("web/app/styles.css");
   assert.match(styles, /\.detail-inspector-scroll \{ position: relative; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; \}/);
   // 批准宽度：宽屏 320px / 紧凑 340px，均来自 Token 且未出现更大值。
   assert.match(styles, /--inspector-width: 320px;/);
@@ -113,8 +113,8 @@ test("17-18. Inspector 独立滚动且宽度不超批准范围", async () => {
 });
 
 test("19-21. Return / Prev / Next / Zoom 控件可见契约", async () => {
-  const index = await source("app/index.html");
-  const styles = await source("app/styles.css");
+  const index = await source("web/app/index.html");
+  const styles = await source("web/app/styles.css");
   assert.match(index, /id="assetViewBack"/);
   assert.match(index, /id="assetViewPrev"/);
   assert.match(index, /id="assetViewNext"/);
@@ -127,8 +127,8 @@ test("19-21. Return / Prev / Next / Zoom 控件可见契约", async () => {
 });
 
 test("22-24. Inspector V2 八项顺序：File/Tags 直接进入滚动列，More 收尾", async () => {
-  const appJs = await source("app/app.mjs");
-  const inspector = await source("app/inspector-markup.mjs");
+  const appJs = await source("web/app/app.mjs");
+  const inspector = await source("web/app/inspector-markup.mjs");
   const compositionStart = appJs.indexOf('const scroller = renderDetailInspectorContent(t("assetInspector"), `${detailFileSectionMarkup(asset)}');
   const template = appJs.slice(compositionStart, appJs.indexOf(";", compositionStart) + 1);
   assert.notEqual(compositionStart, -1, "asset content is composed into the persistent inspector scroller");
@@ -154,7 +154,7 @@ test("22-24. Inspector V2 八项顺序：File/Tags 直接进入滚动列，More 
 });
 
 test("25. body/document 不设置造成水平滚动的固定宽度", async () => {
-  const styles = await source("app/styles.css");
+  const styles = await source("web/app/styles.css");
   assert.doesNotMatch(styles, /body\s*\{[^}]*width:\s*\d+px/s);
   assert.doesNotMatch(styles, /html\s*\{[^}]*width:\s*\d+px/s);
   // 不以 body overflow-x:hidden 掩盖横向溢出（Phase 2C 守护 #14 延续）。
@@ -162,7 +162,7 @@ test("25. body/document 不设置造成水平滚动的固定宽度", async () =>
 });
 
 test("26. 断点必须属于已登记的桌面或 V2 响应式设计区间", async () => {
-  const styles = await source("app/styles.css");
+  const styles = await source("web/app/styles.css");
   // 只审计 @media 媒体查询中的宽度边界，不扫组件级 width/max-width 声明。
   const mediaQueries = [...styles.matchAll(/@media[^{]+\{/g)].map((match) => match[0]);
   const boundaryValues = [];
@@ -181,8 +181,8 @@ test("26. 断点必须属于已登记的桌面或 V2 响应式设计区间", asy
 });
 
 test("27. 959 Web fallback 保持（Electron 钳制 960 之外 Web 仍回退）", async () => {
-  const styles = await source("app/styles.css");
-  const assetView = await source("app/asset-view.mjs");
+  const styles = await source("web/app/styles.css");
+  const assetView = await source("web/app/asset-view.mjs");
   // 959 落在 701–1120 图标栏区间：收敛规则在 959 继续生效，无独立 959 断点。
   assert.match(styles, /@media \(min-width: 701px\) and \(max-width: 1120px\)/);
   assert.match(styles, /@media \(max-width: 700px\) \{[\s\S]*body \{ overflow: auto; \}/);
@@ -192,7 +192,7 @@ test("27. 959 Web fallback 保持（Electron 钳制 960 之外 Web 仍回退）"
 });
 
 test("28-30. Surface max-height / ConfirmDialog viewport-safe / Toast fixed 栈保持", async () => {
-  const styles = await source("app/styles.css");
+  const styles = await source("web/app/styles.css");
   // The retired filter popover is gone; the surviving settings surface remains viewport-safe.
   assert.doesNotMatch(styles, /\.filter-panel\b/);
   assert.match(styles, /\.settings-menu \{[^}]*max-height: calc\(100vh - 56px\)/);
@@ -207,7 +207,7 @@ test("28-30. Surface max-height / ConfirmDialog viewport-safe / Toast fixed 栈�
 });
 
 test("31. F-08 空状态不退化", async () => {
-  const appJs = await source("app/app.mjs");
+  const appJs = await source("web/app/app.mjs");
   assert.match(appJs, /gallery-empty-state/);
   assert.match(appJs, /data-empty-kind=/);
   assert.match(appJs, /empty-state-actions/);
@@ -224,15 +224,15 @@ test("32-34. Phase 5 Confirm / Toast 契约测试文件不退化", async () => {
 });
 
 test("35-37. Viewer Navigation / Transform / Return Snapshot 不退化", async () => {
-  const appJs = await source("app/app.mjs");
-  const assetView = await source("app/asset-view.mjs");
+  const appJs = await source("web/app/app.mjs");
+  const assetView = await source("web/app/asset-view.mjs");
   // 35 Navigation：稳定序列 + 边界禁用（BUG-10 扩展 session 持有总数/游标/快照）。
   assert.match(assetView, /const assetViewSequence = \{\n\s+ids: \[\], index: -1, requestKey: "",\n\s+total: 0, nextCursor: null, loading: false, generation: 0,\n\s+snapshot: null,\n\s*\};/);
   assert.match(assetView, /setAssetViewControlDisabled\(els\.assetViewPrev, !canNavigateAssetView\(-1\)\)/);
   assert.match(appJs, /els\.assetViewPrev\?\.addEventListener\("click", \(\) => navigateAssetView\(-1\)\)/);
   // 36 Transform：统一 transform 应用点与拖拽禁用契约保持。
   assert.match(assetView, /function applyAssetViewTransform\(\)/);
-  const index = await source("app/index.html");
+  const index = await source("web/app/index.html");
   assert.match(index, /id="assetViewImage"[^>]*draggable="false"/);
   // 37 Return Snapshot：四字段最小集合保持。
   assert.match(assetView, /state\.libraryReturnSnapshot = \{\n\s+scrollTop: getLibraryScrollContainer\(\)\.scrollTop,\n\s+focusedAssetId:/);
@@ -240,7 +240,7 @@ test("35-37. Viewer Navigation / Transform / Return Snapshot 不退化", async (
 });
 
 test("38. Inspector IA V2 七项 section 标记全在且唯一", async () => {
-  const inspector = await source("app/inspector-markup.mjs");
+  const inspector = await source("web/app/inspector-markup.mjs");
   const sections = ["file", "prompt", "source", "version", "group", "tags", "more"];
   for (const section of sections) {
     assert.equal(
@@ -254,7 +254,7 @@ test("38. Inspector IA V2 七项 section 标记全在且唯一", async () => {
 
 // 39. 2026-09-04：App/Web 原图能力入口已从检视器移除（右键菜单保留 Finder 与复制路径）。
 test("39. App/Web 原图能力入口保持移除", async () => {
-  const inspector = await source("app/inspector-markup.mjs");
+  const inspector = await source("web/app/inspector-markup.mjs");
   assert.doesNotMatch(inspector, /typeof window\.electronAPI\?\.showItemInFolder === "function" && imagePath\) return "desktop-finder"/);
   assert.doesNotMatch(inspector, /original-media-link/);
 });
@@ -272,7 +272,7 @@ test("40-41. package 与 lockfile 不变、无新依赖", async () => {
 });
 
 test("42. styles.css 不使用 !important", async () => {
-  const styles = await source("app/styles.css");
+  const styles = await source("web/app/styles.css");
   // 去掉 CSS 注释后再判：注释中的说明性文字（如“不使用 !important”）不算违规。
   const declarations = styles.replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(declarations, /!important/);

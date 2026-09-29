@@ -41,7 +41,32 @@ test("visual candidate gate accepts a licensed candidate that meets retrieval an
   assert.equal(evaluation.metrics.hitAt1, 1);
   assert.equal(evaluation.metrics.hitAt5, 1);
   assert.equal(evaluation.decision.eligible_for_next_stage, true);
+  assert.equal(evaluation.decision.release_ready, false);
+  assert.ok(evaluation.decision.release_blockers.some((blocker) => /zh visual queries/i.test(blocker)));
+  assert.ok(evaluation.decision.release_blockers.some((blocker) => /en visual queries/i.test(blocker)));
   assert.ok(evaluation.decision.warnings.some((warning) => /small synthetic gate/i.test(warning)));
+});
+
+test("visual candidate release gate reports Chinese and English quality independently", () => {
+  const queries = [];
+  for (let index = 0; index < 10; index += 1) {
+    queries.push({ id: `zh-${index}`, tier: "visual", locale: "zh", query: `中文视觉查询 ${index}`, expected_any: [`zh-asset-${index}`] });
+    queries.push({ id: `en-${index}`, tier: "visual", locale: "en", query: `English visual query ${index}`, expected_any: [`en-asset-${index}`] });
+  }
+  const fixture = { schema: "mosa.retrieval-acceptance/1", queries };
+  const report = passingReport(queries);
+  const evaluation = evaluateVisualRetrievalCandidate(report, fixture);
+  assert.equal(evaluation.metrics.by_locale.zh.total, 10);
+  assert.equal(evaluation.metrics.by_locale.en.total, 10);
+  assert.equal(evaluation.decision.release_ready, true);
+
+  report.queries[0].ranked_asset_ids = ["wrong"];
+  report.queries[2].ranked_asset_ids = ["wrong"];
+  report.queries[4].ranked_asset_ids = ["wrong"];
+  const failed = evaluateVisualRetrievalCandidate(report, fixture);
+  assert.ok(failed.metrics.by_locale.zh.hitAt1 < DEFAULT_VISUAL_RETRIEVAL_THRESHOLDS.minReleaseLocaleHitAt1);
+  assert.equal(failed.decision.release_ready, false);
+  assert.ok(failed.decision.release_blockers.some((blocker) => /zh visual hit@1/i.test(blocker)));
 });
 
 test("visual candidate gate rejects research-only or oversized candidates before model quality can justify them", async () => {

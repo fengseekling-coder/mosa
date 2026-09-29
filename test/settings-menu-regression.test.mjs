@@ -18,7 +18,7 @@ const root = resolve(import.meta.dirname, "..");
  * duplicate-binding bug.
  */
 test("renderSettingsMenu does not attach any event listeners", async () => {
-  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
   const match = /function renderSettingsMenu\(\{ force = false \} = \{\}\) \{([\s\S]*?)\n\}\n\nconst ARROW_KEYS/.exec(app);
   assert.ok(match, "expected to find renderSettingsMenu function body");
@@ -28,7 +28,7 @@ test("renderSettingsMenu does not attach any event listeners", async () => {
 });
 
 test("bindEvents registers the settingsMenu click delegation exactly once", async () => {
-  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
   const match = /function bindEvents\(\) \{([\s\S]*?)\n\}\n\nfunction bindDesktopIntegration/.exec(app);
   assert.ok(match, "expected to find bindEvents function body");
@@ -39,7 +39,7 @@ test("bindEvents registers the settingsMenu click delegation exactly once", asyn
 });
 
 test("bindEvents contains the theme-switch handler using real state", async () => {
-  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
   const match = /function bindEvents\(\) \{([\s\S]*?)\n\}\n\nfunction bindDesktopIntegration/.exec(app);
   assert.ok(match, "expected to find bindEvents function body");
@@ -52,7 +52,7 @@ test("bindEvents contains the theme-switch handler using real state", async () =
 });
 
 test("bindEvents contains the density-switch handler using real state", async () => {
-  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
   const match = /function bindEvents\(\) \{([\s\S]*?)\n\}\n\nfunction bindDesktopIntegration/.exec(app);
   assert.ok(match, "expected to find bindEvents function body");
@@ -65,14 +65,14 @@ test("bindEvents contains the density-switch handler using real state", async ()
 });
 
 test("legacy densityToggle references have been removed from app.js", async () => {
-  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
   assert.doesNotMatch(app, /els\.densityToggle/, "app.js must not reference els.densityToggle");
   assert.doesNotMatch(app, /renderDensityToggle/, "app.js must not reference renderDensityToggle");
 });
 
 test("renderSettingsMenu uses real state for segmented control active status", async () => {
-  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
   const match = /function renderSettingsMenu\(\{ force = false \} = \{\}\) \{([\s\S]*?)\n\}\n\nconst ARROW_KEYS/.exec(app);
   assert.ok(match, "expected to find renderSettingsMenu function body");
@@ -92,8 +92,8 @@ test("renderSettingsMenu uses real state for segmented control active status", a
 
 test("removed diagnostics panel leaves no dead renderer hooks or copy", async () => {
   const [app, i18n] = await Promise.all([
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
-    readFile(resolve(root, "app/i18n.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/i18n.mjs"), "utf8"),
   ]);
   assert.doesNotMatch(app, /diagnosticsPanel|diagnosticsContent|diagnosticsExpanded|fetchDiagnostics/);
   assert.doesNotMatch(i18n, /diagMcpVersion|diagUiFingerprint|showDiagnostics|hideDiagnostics/);
@@ -101,8 +101,8 @@ test("removed diagnostics panel leaves no dead renderer hooks or copy", async ()
 
 test("theme switching is owned by settings instead of a duplicate topbar control", async () => {
   const [app, html] = await Promise.all([
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
-    readFile(resolve(root, "app/index.html"), "utf8"),
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/index.html"), "utf8"),
   ]);
 
   assert.doesNotMatch(html, /id="themeToggle"/,
@@ -116,7 +116,7 @@ test("theme switching is owned by settings instead of a duplicate topbar control
 });
 
 test("settings popover remains inside the visible desktop viewport", async () => {
-  const css = await readFile(resolve(root, "app/styles.css"), "utf8");
+  const css = await readFile(resolve(root, "web/app/styles.css"), "utf8");
   const match = /\.settings-menu \{([^}]*)\}/.exec(css);
   assert.ok(match, "expected a settings-menu CSS rule");
 
@@ -130,9 +130,9 @@ test("settings popover remains inside the visible desktop viewport", async () =>
 
 test("settings is the single surface for preferences, storage, and about", async () => {
   const [html, app, css] = await Promise.all([
-    readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
-    readFile(resolve(root, "app/styles.css"), "utf8"),
+    readFile(resolve(root, "web/app/index.html"), "utf8"),
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/styles.css"), "utf8"),
   ]);
 
   assert.doesNotMatch(html, /accountModal|accountToggle/, "standalone About UI is removed");
@@ -150,7 +150,7 @@ test("settings is the single surface for preferences, storage, and about", async
 });
 
 test("settings uses one compact surface instead of category navigation", async () => {
-  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
   assert.doesNotMatch(app, /SETTINGS_SECTIONS|settingsSection|settings-section-tabs|settings-modal-rail/,
     "Settings must not keep category state or a navigation rail");
@@ -173,7 +173,7 @@ test("settings uses one compact surface instead of category navigation", async (
 });
 
 test("settings avoids full rerenders for normal interactions and keeps radio keyboard navigation", async () => {
-  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
   assert.match(app, /function syncSettingsMenuView\(\)/,
     "Settings has a local state synchronizer for stable in-place updates");
@@ -192,7 +192,7 @@ test("settings avoids full rerenders for normal interactions and keeps radio key
 });
 
 test("settings dialog uses the compact unified geometry", async () => {
-  const css = await readFile(resolve(root, "app/styles.css"), "utf8");
+  const css = await readFile(resolve(root, "web/app/styles.css"), "utf8");
 
   assert.match(css, /\.mosa-v2 \.settings-menu \{[\s\S]*?padding: 24px;[\s\S]*?backdrop-filter: blur\(18px\)/,
     "the modal scrim uses grid-aligned padding and a restrained material blur");

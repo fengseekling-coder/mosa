@@ -4,7 +4,7 @@
 // 普通 Library Change 绝不触发全量已加载窗口重拉。
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createLibraryReconciler, reconcileAssetListView } from "../app/library-reconciliation.mjs";
+import { createLibraryReconciler, reconcileAssetListView } from "../web/app/library-reconciliation.mjs";
 
 function row(id, createdAt, extra = {}) {
   return { id, project_id: "default", node_sort: { createdAt, sortName: `${id}-name`, searchScore: null }, updated_at: createdAt, ...extra };

@@ -95,9 +95,11 @@ test("returns 404 for a missing library image without stopping the server", asyn
   const retiredSuppressionDelete = await fetch(`http://127.0.0.1:${port}/api/ingest-suppressions`, { method: "DELETE" });
   assert.equal(retiredSuppressionDelete.status, 404, "suppression management must not be exposed over HTTP");
 
+  // Traversal-shaped static requests carry an extension and must 404 as
+  // themselves: the SPA fallback only applies to extensionless routes, and a
+  // missing/escaped .mjs must never be answered with app-shell HTML.
   const traversal = await rawGet(port, "/%2e%2e/server.mjs");
-  assert.equal(traversal.statusCode, 200);
-  assert.equal(traversal.headers["content-type"], "text/html; charset=utf-8");
+  assert.equal(traversal.statusCode, 404);
   assert.doesNotMatch(traversal.body, /import \{ createServer \} from "node:http"/);
 
   const missingImage = await fetch(`http://127.0.0.1:${port}/library/default/images/does-not-exist.png`);

@@ -51,6 +51,8 @@ test("MCP exposes recipe version creation, history, and structured errors", asyn
   assert.ok(createDefinition.inputSchema.properties.references);
   assert.ok(tools.some((tool) => tool.name === "asset_version_history"));
   assert.ok(tools.some((tool) => tool.name === "asset_recipe_history"));
+  assert.ok(tools.some((tool) => tool.name === "asset_search"));
+  assert.ok(tools.some((tool) => tool.name === "asset_provenance_export"));
 
   const created = await callMcp(server, {
     jsonrpc: "2.0",
@@ -101,6 +103,34 @@ test("MCP exposes recipe version creation, history, and structured errors", asyn
   assert.equal(childRecipe.user_prompt, "Make it warmer");
   assert.equal(childRecipe.negative_prompt, "watermark");
   assert.equal(childRecipe.references[0].asset_id, "root");
+
+  const search = await callMcp(server, {
+    jsonrpc: "2.0",
+    id: 41,
+    method: "tools/call",
+    params: {
+      name: "asset_search",
+      arguments: { projectId: "default", query: "updated prompt", visual: false, limit: 10 },
+    },
+  });
+  assert.equal(search.error, undefined);
+  assert.equal(search.result.structuredContent.visual.requested, false);
+  assert.ok(search.result.structuredContent.results.some((item) => item.asset.id === "child"));
+
+  const provenance = await callMcp(server, {
+    jsonrpc: "2.0",
+    id: 42,
+    method: "tools/call",
+    params: {
+      name: "asset_provenance_export",
+      arguments: { projectId: "default", assetId: "child" },
+    },
+  });
+  assert.equal(provenance.error, undefined);
+  assert.equal(provenance.result.structuredContent.bundle.schema, "mosa.provenance.bundle/1");
+  assert.equal(provenance.result.structuredContent.bundle.asset.id, "child");
+  assert.equal(provenance.result.structuredContent.c2pa_assertion.signed, false);
+  assert.equal("image_path" in provenance.result.structuredContent.bundle.asset, false);
 
   const invalid = await callMcp(server, {
     jsonrpc: "2.0",

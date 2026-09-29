@@ -50,7 +50,7 @@ const DESKTOP_SCRIPT = "desktop/main.mjs";
 const HEALTH_URL = "http://127.0.0.1:43517/api/health";
 const HEALTH_TIMEOUT_MS = 30_000;
 const EXPECTED_SERVICE_IDENTITY = Object.freeze({
-  ...getBuildIdentity(join(REPO_ROOT, "app")),
+  ...getBuildIdentity(join(REPO_ROOT, "desktop", "app")),
   serviceProtocolVersion: MOSA_SERVICE_PROTOCOL_VERSION,
 });
 
@@ -102,7 +102,11 @@ exec ${shellQuote(ELECTRON_BIN)} ${shellQuote(DESKTOP_SCRIPT)} >> ${shellQuote(l
   chmodSync(launcherPath, 0o755);
 
   try {
-    execFileSync("open", ["-n", "-W", appDir], {
+    // No `-W`: it blocks until the launched app exits, so a healthy GUI launch
+    // would always outlive any exec timeout and be misreported as failure —
+    // then re-launched by the fallback strategies. Plain `open -n` returns
+    // once LaunchServices accepts the handoff; waitForHealth gates readiness.
+    execFileSync("open", ["-n", appDir], {
       stdio: "inherit",
       timeout: 5000,
     });

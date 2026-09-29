@@ -7,11 +7,11 @@ import test from "node:test";
 const root = resolve(import.meta.dirname, "..");
 
 async function readApp() {
-  return readFile(resolve(root, "app/app.mjs"), "utf8");
+  return readFile(resolve(root, "web/app/app.mjs"), "utf8");
 }
 
 async function readStyles() {
-  return readFile(resolve(root, "app/styles.css"), "utf8");
+  return readFile(resolve(root, "web/app/styles.css"), "utf8");
 }
 
 function sliceBetween(source, start, end) {
@@ -75,7 +75,7 @@ test("desktop image paste never hijacks editors or stacks over another modal sur
 test("clipboard actions never use renderer clipboard reads in the production app", async () => {
   const [app, actions] = await Promise.all([
     readApp(),
-    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8"),
   ]);
   assert.doesNotMatch(actions, /navigator\.clipboard\.read/);
   assert.match(actions, /pasteClipboardImage/);
@@ -85,7 +85,7 @@ test("clipboard actions never use renderer clipboard reads in the production app
 test("context-menu image copy uses the stored original rather than a thumbnail", async () => {
   const [app, actions, preload, main] = await Promise.all([
     readApp(),
-    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8"),
     readFile(resolve(root, "desktop/preload.cjs"), "utf8"),
     readFile(resolve(root, "desktop/main.mjs"), "utf8"),
   ]);
@@ -99,7 +99,7 @@ test("context-menu image copy uses the stored original rather than a thumbnail",
 });
 
 test("context-menu favorite batch mutations preserve partial failures instead of claiming full success", async () => {
-  const actions = await readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8");
+  const actions = await readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8");
   assert.match(actions, /function reconcileBatchMutation\(assets = \[\], response = \{\}\)/);
   assert.match(actions, /if \(!response\?\.partial\) return \{ succeeded: assets, failed: \[\] \};/);
   assert.match(actions, /const outcome = reconcileBatchMutation\(assets, response\);/,
@@ -114,8 +114,8 @@ test("context-menu favorite batch mutations preserve partial failures instead of
 
 test("move-to-group submenu contains create-with-selection, remove-from-group, and real groups only", async () => {
   const [actions, i18n] = await Promise.all([
-    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
-    readFile(resolve(root, "app/i18n.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/i18n.mjs"), "utf8"),
   ]);
   const submenu = sliceBetween(actions, "// Move to group submenu", "if (!isMultiple)");
 
@@ -138,7 +138,7 @@ test("move-to-group submenu contains create-with-selection, remove-from-group, a
 });
 
 test("context-menu submenu collapses when pointer or keyboard leaves its parent", async () => {
-  const source = await readFile(resolve(root, "app/context-menu.mjs"), "utf8");
+  const source = await readFile(resolve(root, "web/app/context-menu.mjs"), "utf8");
 
   assert.match(source, /function hideSubmenu\(\{ restoreParentFocus = false \} = \{\}\)/,
     "submenu lifetime has one centralized close path");
@@ -160,9 +160,9 @@ test("context-menu submenu collapses when pointer or keyboard leaves its parent"
 test("manual sidebar groups create and rename inline without routing through the group modal", async () => {
   const [app, html, actions, bindings] = await Promise.all([
     readApp(),
-    readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
-    readFile(resolve(root, "app/context-menu-bindings.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/index.html"), "utf8"),
+    readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/context-menu-bindings.mjs"), "utf8"),
   ]);
   assert.match(html, /id="addGroupBtn"/);
   assert.match(html, /id="sidebarManualGroupList"/);
@@ -187,8 +187,8 @@ test("manual sidebar groups create and rename inline without routing through the
 test("sidebar smart and manual groups collapse independently and keep compact navigation density", async () => {
   const [app, html, css] = await Promise.all([
     readApp(),
-    readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/styles.css"), "utf8"),
+    readFile(resolve(root, "web/app/index.html"), "utf8"),
+    readFile(resolve(root, "web/app/styles.css"), "utf8"),
   ]);
   assert.match(html, /id="smartGroupsToggle"[^>]*aria-expanded="true"[^>]*aria-controls="sidebarGroupList"/);
   assert.match(html, /id="assetCategoriesToggle"[^>]*aria-expanded="true"[^>]*aria-controls="sidebarManualGroupList"/);
@@ -222,10 +222,10 @@ test("sidebar primary, smart-source, and manual-group navigation stay mutually e
 
 test("group deletion uses a second confirmation to decide whether assets are kept", async () => {
   const [actions, dialog, html, translations] = await Promise.all([
-    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
-    readFile(resolve(root, "app/confirm-dialog.mjs"), "utf8"),
-    readFile(resolve(root, "app/index.html"), "utf8"),
-    import(pathToFileURL(resolve(root, "app/i18n.mjs")).href).then((module) => module.default),
+    readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/confirm-dialog.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/index.html"), "utf8"),
+    import(pathToFileURL(resolve(root, "web/app/i18n.mjs")).href).then((module) => module.default),
   ]);
   assert.match(actions, /const confirmed = await requestConfirmation\([\s\S]*?title: t\("deleteGroupTitle"\)[\s\S]*?if \(!confirmed\) return;/,
     "the original delete-group confirmation remains the first gate");
@@ -251,7 +251,7 @@ test("group deletion uses a second confirmation to decide whether assets are kep
 
 test("group ordering uses a collection route that cannot collide with a group named order", async () => {
   const [actions, routes] = await Promise.all([
-    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8"),
     readFile(resolve(root, "lib/api/library-routes.mjs"), "utf8"),
   ]);
   assert.match(actions, /apiFetch\("\/api\/group-order"/);
@@ -262,13 +262,13 @@ test("group ordering uses a collection route that cannot collide with a group na
 
 test("Unorganized replaces Recent in primary navigation and Trash remains a first-class 90-day scope", async () => {
   const [config, html, app, client, routes, actions, translations] = await Promise.all([
-    readFile(resolve(root, "app/config.mjs"), "utf8"),
-    readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
-    readFile(resolve(root, "app/api-client.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/config.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/index.html"), "utf8"),
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/api-client.mjs"), "utf8"),
     readFile(resolve(root, "lib/api/asset-routes.mjs"), "utf8"),
-    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
-    import(pathToFileURL(resolve(root, "app/i18n.mjs")).href).then((module) => module.default),
+    readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8"),
+    import(pathToFileURL(resolve(root, "web/app/i18n.mjs")).href).then((module) => module.default),
   ]);
   assert.match(config, /SCOPES = \["all", "favorite", "unorganized", "trash"\]/);
   assert.match(html, /data-filter="unorganized"[\s\S]*?data-filter="trash"/, "Trash sits directly after Unorganized in the primary navigation");
@@ -289,7 +289,7 @@ test("Unorganized replaces Recent in primary navigation and Trash remains a firs
 });
 
 test("group export paginates until exhaustion without a silent asset cap", async () => {
-  const actions = await readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8");
+  const actions = await readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8");
   assert.doesNotMatch(actions, /collected\.length\s*<\s*5000/,
     "group export must not silently truncate libraries at 5000 assets");
   assert.match(actions, /const seenCursors = new Set\(\);/,
@@ -306,7 +306,7 @@ test("group export paginates until exhaustion without a silent asset cap", async
 test("project switching commits one complete destination workspace or leaves the old project untouched", async () => {
   const [app, apiClient] = await Promise.all([
     readApp(),
-    readFile(resolve(root, "app/api-client.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/api-client.mjs"), "utf8"),
   ]);
   const switcher = sliceBetween(apiClient, "async function switchProjectWorkspace(project, options = {})", "let assetRequestSequence");
   assert.match(switcher, /const \[library, navigation, assetsResult\] = await Promise\.all\(/,
@@ -323,8 +323,8 @@ test("project switching commits one complete destination workspace or leaves the
 });
 
 test("context-menu mutations freeze selection/project context and empty-grid Select All is real", async () => {
-  const actions = await readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8");
-  const selection = await readFile(resolve(root, "app/gallery-selection.mjs"), "utf8");
+  const actions = await readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8");
+  const selection = await readFile(resolve(root, "web/app/gallery-selection.mjs"), "utf8");
   assert.match(selection, /function captureActionContext\(\)[\s\S]*?projectId: state\.project[\s\S]*?revision: selectionRevision/);
   assert.match(selection, /async function resolveSelectedAssetIds\(context = captureActionContext\(\)\)[\s\S]*?project: context\.projectId/,
     "Stack expansion uses the frozen project for every cursor page");
@@ -386,7 +386,7 @@ test("a consumed Escape cannot also close mobile navigation", async () => {
 test("V2 sidebar source selection has no redundant active-filter implementation", async () => {
   const [app, html, css] = await Promise.all([
     readApp(),
-    readFile(resolve(root, "app/index.html"), "utf8"),
+    readFile(resolve(root, "web/app/index.html"), "utf8"),
     readStyles(),
   ]);
 
@@ -474,7 +474,7 @@ test("gallery card creation parses each changed batch once instead of one templa
 });
 
 test("full gallery reconciliation is a bounded last-resort path, not the revision flow", async () => {
-  const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
+  const apiClient = await readFile(resolve(root, "web/app/api-client.mjs"), "utf8");
   const reload = sliceBetween(apiClient, "async function performFullGalleryReconciliation(options = {})", "async function refreshLoadedAssetsInBackground()");
   const refresh = sliceBetween(apiClient, "async function refreshLoadedAssetsInBackground()", "async function refreshLibraryInBackground()");
 
@@ -488,7 +488,7 @@ test("full gallery reconciliation is a bounded last-resort path, not the revisio
 
 test("revision changes reconcile incrementally and never reload the loaded window", async () => {
   const app = await readApp();
-  const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
+  const apiClient = await readFile(resolve(root, "web/app/api-client.mjs"), "utf8");
   const reconcile = sliceBetween(apiClient, "async function reconcileLibraryRevision(revision)", "function currentAssetRequest()");
 
   assert.match(app, /new EventSource\(`\/api\/library-events\?project=\$\{encodeURIComponent\(project\)\}`\)/);
@@ -558,7 +558,7 @@ test("populated gallery renders reconcile cards by id instead of replacing the w
 
 test("infinite-scroll append uses a tail-only render path and virtualizes decoded thumbnails", async () => {
   const app = await readApp();
-  const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
+  const apiClient = await readFile(resolve(root, "web/app/api-client.mjs"), "utf8");
   const render = sliceBetween(app, "function renderGrid()", "/** Routed through the state machine");
   const paginationRemoval = sliceBetween(app, "function removeGalleryPaginationBoundary(grid)", "function insertGalleryPaginationBoundary(grid)");
   const append = sliceBetween(app, "function appendAssetCards(entries)", "// F-24");
@@ -591,7 +591,7 @@ test("infinite-scroll append uses a tail-only render path and virtualizes decode
 
 test("large galleries use explicit masonry placement and bounded card hydration", async () => {
   const app = await readApp();
-  const css = await readFile(resolve(root, "app/styles.css"), "utf8");
+  const css = await readFile(resolve(root, "web/app/styles.css"), "utf8");
   const virtualization = sliceBetween(app, "function galleryVirtualSpanKey", "function bindGalleryVideoFrame");
   const masonry = sliceBetween(app, "function layoutMasonry", "function scheduleMasonryLayout");
 
@@ -656,7 +656,7 @@ test("background library polling yields while an infinite-scroll append is in fl
   const app = await readApp();
   const init = sliceBetween(app, "async function init()", "async function loadProductVersion()");
   const pageshow = sliceBetween(app, 'window.addEventListener("pageshow",', "function refreshBridgeStatus()");
-  const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
+  const apiClient = await readFile(resolve(root, "web/app/api-client.mjs"), "utf8");
 
   assert.match(init, /libraryRefreshTimer = setInterval\(\(\) => \{/);
   assert.match(init, /if \(!isLoadingMore\) void refreshLibraryIfChanged\(\);/);
@@ -690,7 +690,7 @@ test("startup validates build identity before stateful reads and settles all par
 });
 
 test("background stats refresh skips the effectively static library-path request", async () => {
-  const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
+  const apiClient = await readFile(resolve(root, "web/app/api-client.mjs"), "utf8");
   const stats = sliceBetween(apiClient, "async function loadStats(options = {})", "let assetRequestSequence = 0;");
 
   assert.match(stats, /options\.background\s*\? Promise\.resolve\(null\)\s*:\s*apiFetch\(`\/api\/library-path/);
@@ -699,7 +699,7 @@ test("background stats refresh skips the effectively static library-path request
 });
 
 test("mutation auth recovers once from a restarted same-origin runtime", async () => {
-  const apiClient = await readFile(resolve(root, "app/api-client.mjs"), "utf8");
+  const apiClient = await readFile(resolve(root, "web/app/api-client.mjs"), "utf8");
   const fetcher = sliceBetween(apiClient, "async function apiFetch(path, options = {})", "async function loadProjects()");
   assert.match(apiClient, /async function refreshMosaBrowserSession\(\)/);
   assert.match(apiClient, /fetch\("\/", \{[\s\S]*?cache: "no-store"[\s\S]*?credentials: "same-origin"/);

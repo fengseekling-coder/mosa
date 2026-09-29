@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
-import { collectDroppedFiles, createBatchImporter, dropErrorMessage } from "../app/batch-import.mjs";
-import { dragGhostCount, dragGestureOwner, dragIdsForCard, pointOutsideWindow } from "../app/drag-gesture.mjs";
+import { collectDroppedFiles, createBatchImporter, dropErrorMessage } from "../web/app/batch-import.mjs";
+import { dragGhostCount, dragGestureOwner, dragIdsForCard, pointOutsideWindow } from "../web/app/drag-gesture.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 
@@ -209,8 +209,8 @@ test("desktop native drag bridge validates library paths in main process", async
   const [preload, main, nativeDrag, stacks] = await Promise.all([
     readFile(resolve(root, "desktop/preload.cjs"), "utf8"),
     readFile(resolve(root, "desktop/main.mjs"), "utf8"),
-    readFile(resolve(root, "app/native-asset-drag.mjs"), "utf8"),
-    readFile(resolve(root, "app/asset-stacks.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/native-asset-drag.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/asset-stacks.mjs"), "utf8"),
   ]);
   assert.match(preload, /startNativeDrag: \(paths\) => ipcRenderer\.invoke\("start-native-file-drag", paths\)/);
   assert.match(main, /ipcMain\.handle\("start-native-file-drag"/);

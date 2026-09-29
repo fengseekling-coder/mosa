@@ -15,9 +15,9 @@ import test from "node:test";
 // Node standard library only; no network access.
 
 const root = resolve(import.meta.dirname, "..");
-const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
-const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
-const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
 /** Extracts a `{...}` block starting at the marker, honouring nested braces. */
 function extractBlock(css, marker, fromIndex = 0) {

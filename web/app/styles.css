@@ -1,5 +1,6 @@
 /* ============================================================
    MOSA 统一 UI — 创作工作台设计系统（V2-only 整合版）
+   【网页端 Web UI】
    Source: ui-design-mockups/mosa-library-v2 (Stage 3-7, 2026-08-07)
    This stylesheet supersedes the earlier double-cascade:
      1. The pre-2026-08-18 Phase 1A semantic-token layer (burnt
@@ -234,7 +235,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 /* ===== 侧边栏 ===== */
 .sidebar { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; background: var(--app-sidebar); border-right: var(--border-width) solid var(--color-border-subtle); user-select: none; }
 .brand { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; height: var(--topbar-height); padding: 0 16px; }
-.brand-mark { display: grid; width: 28px; height: 28px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-control); color: var(--color-accent-contrast); background: var(--color-accent); }
 .brand-info { min-width: 0; }
 .brand-info h1 { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
 .brand-info p { margin-top: 1px; color: var(--color-text-tertiary); font-size: 10px; line-height: 1.3; }
@@ -255,7 +255,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .nav-label { padding: 0 8px; margin: 14px 0 4px; color: var(--color-text-tertiary); font-size: 11px; font-weight: 500; }
 .sidebar-group-list { display: flex; flex-direction: column; gap: 1px; }
 .sidebar-group-list > li { min-width: 0; }
-.nav-group-more { color: var(--color-text-tertiary); font-weight: 500; }
 .add-group-button { display: flex; width: 100%; min-width: 0; height: 28px; align-items: center; gap: 8px; margin-top: 2px; padding: 0 8px; border: 0; border-radius: var(--radius-control); color: var(--color-accent-active); background: transparent; cursor: pointer; font-size: 13px; text-align: left; }
 .add-group-button svg { flex: 0 0 auto; }
 .sidebar-spacer { display: none; }
@@ -266,20 +265,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 /* Legacy sidebar settings geometry remains as a non-V2 fallback. V2 overrides
    this with the centered Preferences dialog below. */
 .settings-menu { position: fixed; z-index: var(--z-dropdown); bottom: 44px; left: 8px; width: min(272px, calc(100vw - 16px)); max-height: calc(100vh - 56px); overflow-y: auto; overscroll-behavior: contain; padding: 8px; }
-.settings-section + .settings-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--color-border-subtle); }
 .settings-menu p { padding: 4px 8px 6px; color: var(--color-text-tertiary); font-size: 11px; font-weight: 500; }
 .settings-menu button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; padding: 4px 8px; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 12px; text-align: left; }
-.settings-project-row { display: flex; align-items: center; gap: 4px; padding: 0 4px; }
-.settings-project-row select { min-width: 0; flex: 1; height: 30px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-control); color: var(--color-text-secondary); background: var(--app-hover); font-size: 12px; }
-.settings-project-row select:hover { border-color: var(--color-border-subtle); }
-.settings-project-row .icon-button { flex: 0 0 auto; }
-.settings-cowart-list { display: grid; max-height: 154px; gap: 2px; margin: 0 4px; overflow: auto; }
-.settings-cowart-entry { display: flex; min-width: 0; height: 28px; align-items: center; gap: 7px; padding-left: 8px; border-radius: var(--radius-control); color: var(--color-text-secondary); font-size: 11px; }
-.settings-cowart-entry:hover { background: var(--app-hover); }
-.settings-cowart-status { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--color-text-tertiary); }
-.settings-cowart-status[data-state="ok"] { background: var(--color-success); }
-.settings-cowart-status[data-state="error"] { background: var(--color-danger); }
-.settings-cowart-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 分段控件（设置菜单内：主题 / 密度） */
 .segmented { display: flex; gap: 2px; margin: 2px 4px 4px; padding: 2px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); background: var(--app-sidebar); }
 .segmented-btn { flex: 1; height: 26px; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 12px; font-weight: 500; transition: background-color .12s ease, color .12s ease; }
@@ -574,10 +561,8 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .detail-fav-btn { display: inline-flex; height: 30px; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); color: var(--color-text-secondary); background: var(--app-card); cursor: pointer; font-size: 12px; font-weight: 500; }
 .detail-fav-btn.is-fav { color: var(--color-favorite); border-color: color-mix(in srgb, var(--color-favorite) 40%, transparent); background: color-mix(in srgb, var(--color-favorite) 10%, transparent); }
 .detail-tags-section .detail-prompt-head { align-items: baseline; }
-.detail-tags-hint { overflow: hidden; color: var(--color-text-tertiary); font-size: 10px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .detail-tags-row { display: flex; max-height: 56px; align-items: flex-start; gap: 6px; overflow: hidden; padding: 2px 0; flex-wrap: wrap; }
 .detail-tag { display: inline-flex; height: 24px; max-width: 120px; flex: 0 0 auto; align-items: center; overflow: hidden; padding: 0 8px; border: 1px solid var(--color-border-subtle); border-radius: 999px; color: var(--color-text-secondary); background: var(--app-sidebar); font-size: 11px; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
-.detail-tags-empty { height: 24px; display: inline-flex; align-items: center; }
 .detail-tags-add { display: inline-flex; height: 24px; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 7px; border: 1px dashed var(--color-border-default); border-radius: 999px; color: var(--color-accent); background: transparent; cursor: pointer; font-size: 11px; white-space: nowrap; }
 .detail-tags-add svg { flex: 0 0 auto; }
 .detail-tag-editor { display: inline-flex; height: 32px; flex: 0 0 100%; align-items: center; gap: 6px; }
@@ -589,7 +574,6 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .inspector-section { padding: 12px 16px 14px; border-top: 1px solid var(--color-border-subtle); }
 .inspector-section:first-child { border-top: 0; }
 .inspector-section[data-inspector-section="file"] { padding: 0 0 14px; }
-.inspector-section-compact { padding-top: 10px; padding-bottom: 10px; }
 .detail-facts { padding: 12px 16px 0; }
 .inspector-readout { margin: 0; overflow: hidden; color: var(--color-text-primary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .user-instruction { margin-top: 12px; }
@@ -600,7 +584,6 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .version-summary { display: grid; gap: 4px; margin-bottom: 10px; }
 .version-summary-label { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
 .version-summary-label strong { color: var(--color-text-primary); font-size: 12px; }
-.new-version-actions { display: grid; margin-top: 10px; }
 
 /* 区块与就近复制按钮（mini-btn 22px） */
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
@@ -623,7 +606,6 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .meta-key { color: var(--color-text-secondary); font-size: 11px; }
 .meta-val { overflow: hidden; color: var(--color-text-primary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .source-value { overflow-wrap: anywhere; white-space: normal; word-break: break-word; }
-.rating-stars { color: var(--color-favorite); letter-spacing: 1px; }
 
 /* 折叠区（单栏区块内：区块 padding 承担边距，disclosure 以细边界分段） */
 .detail-disclosure { border-top: 1px solid var(--color-border-subtle); }
@@ -817,7 +799,6 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 [aria-invalid="true"] { border-color: var(--color-danger); }
 .field-guidance { display: grid; gap: 3px; margin-top: 7px; color: var(--color-text-secondary); font-size: 10px; }
 .field-guidance p { display: flex; min-width: 0; gap: 6px; }
-.field-guidance-key { flex: 0 0 auto; font-weight: 600; }
 .field-guidance code { overflow: hidden; color: var(--color-text-secondary); font-family: var(--font-family-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .field-with-button { display: flex; align-items: center; gap: 6px; }
 .field-with-button input { flex: 1; min-width: 0; }
@@ -833,7 +814,6 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 .rating-edit { display: flex; gap: 2px; }
 .rating-edit button { width: 32px; min-height: 32px; padding: 0; border: 0; border-radius: var(--radius-control); color: var(--color-border-default); background: transparent; cursor: pointer; font-size: 16px; }
 .rating-edit button:hover, .rating-edit button.on { color: var(--color-favorite); background: color-mix(in srgb, var(--color-favorite) 10%, transparent); }
-.version-change-field { margin-top: 8px; }
 .recipe-change-field { margin-top: 8px; }
 .recipe-save-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
 .recipe-save-btn { min-width: 0; min-height: 34px; padding: 6px 8px; border-radius: var(--radius-control); cursor: pointer; font-size: 11px; font-weight: 600; line-height: 1.25; white-space: normal; }
@@ -885,9 +865,6 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 .image-preview-stage img { display: block; width: auto; height: auto; max-width: none; max-height: none; object-fit: contain; }
 .image-preview-stage video { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
 .image-preview-stage > [hidden] { display: none; }
-.image-preview-controls { position: absolute; z-index: 2; bottom: 24px; left: 50%; display: flex; gap: 6px; padding: 6px; border-radius: var(--radius-panel); background: var(--color-media-surface); transform: translateX(-50%); backdrop-filter: blur(10px); }
-.image-preview-controls button { display: flex; width: 36px; height: 36px; align-items: center; justify-content: center; border: 0; border-radius: var(--radius-control); color: var(--color-media-text); background: transparent; cursor: pointer; font-size: 16px; }
-.image-preview-controls button:hover { background: color-mix(in srgb, var(--color-media-text) 15%, transparent); }
 
 /* ===== 拖放导入遮罩 ===== */
 .drag-overlay { position: fixed; z-index: var(--z-overlay); inset: 8px; display: flex; align-items: center; justify-content: center; border: 2px dashed var(--color-accent); border-radius: var(--radius-panel); background: var(--color-accent-ring); backdrop-filter: blur(4px); pointer-events: none; opacity: 1; transition: opacity var(--duration-fast) var(--ease-standard), display var(--duration-fast) allow-discrete; }
@@ -1081,8 +1058,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   .shell.details-open .brand-info,
   .shell.details-open .sidebar-library-title,
   .shell.details-open .nav-label,
-  .shell.details-open .nav-count,
-  .shell.details-open .nav-group-more { display: none; }
+  .shell.details-open .nav-count { display: none; }
   .shell.details-open .nav-item,
   .shell.details-open .add-group-button,
   .shell.details-open .settings-trigger { position: relative; justify-content: center; gap: 0; padding-right: 0; padding-left: 0; }
@@ -1275,7 +1251,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-source-tag { color: var(--color-text-primary); font-weight: 600; }
 .mosa-v2 .detail .detail-tags-section { display: flex; min-width: 0; min-height: 24px; align-items: flex-start; padding: 0 16px 16px; border-top: 0; }
 .mosa-v2 .detail .detail-tags-row { display: flex; min-width: 0; align-items: flex-start; gap: 6px; padding: 2px 0; overflow: visible; flex-wrap: wrap; }
-.mosa-v2 .detail .detail-tags-empty { height: 24px; align-items: center; }
 .mosa-v2 .detail .detail-tags-add { display: inline-flex; height: 24px; min-height: 24px; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 8px; border: 1px dashed var(--color-border-default); border-radius: 999px; color: var(--color-accent); background: transparent; font-size: 11px; white-space: nowrap; }
 :root[data-theme="dark"] .mosa-v2 .detail-inspector-header { color: #f5f5f7; }
 :root[data-theme="dark"] .mosa-v2 .detail-inspector-header .detail-close, :root[data-theme="dark"] .mosa-v2 .detail .detail-fav-btn, :root[data-theme="dark"] .mosa-v2 .detail .detail-fact-tag { color: #d1d1d6; background: rgb(255 255 255 / .10); }
@@ -1427,11 +1402,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   background: var(--color-media-surface);
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.32);
 }
-.mosa-v2 .image-preview-controls {
-  border: 1px solid color-mix(in srgb, var(--color-media-text) 12%, transparent);
-  background: var(--color-media-surface);
-}
-.mosa-v2 .image-preview-controls button { color: var(--color-media-text); }
 
 @media (hover: hover) and (pointer: fine) {
   .mosa-v2 .image-preview-header .icon-button:hover {
@@ -1444,7 +1414,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 @keyframes v2-detail-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
 @media (max-width: 1400px) { .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-@media (max-width: 900px) { .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(3, minmax(0, 1fr)); }.mosa-v2 .topbar-search { width: 180px; }.mosa-v2 .batch-toggle span { display: none; } }
+@media (max-width: 900px) { .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(3, minmax(0, 1fr)); }.mosa-v2 .topbar-search { width: 180px; } }
 @media (max-width: 700px) {
   .mosa-v2 .shell { width: 100%; height: 100%; margin: 0; border: 0; border-radius: 0; grid-template-columns: 64px minmax(0, 1fr); }
   .mosa-v2 .brand { justify-content: center; padding: 0; }
@@ -2441,7 +2411,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .modal-overlay.open > .modal-card,
   .mosa-v2 .settings-menu,
   .mosa-v2 .settings-modal-card,
-  .mosa-v2 .settings-section-tab,
   .mosa-v2 .settings-modal-close,
   .mosa-v2 .settings-text-action,
   .image-preview-modal,
@@ -2459,7 +2428,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .detail .detail-overview-heading .detail-overview-open:active,
   .mosa-v2 .detail .section-head-copy:active,
   .mosa-v2 .detail .detail-tags-add:active,
-  .mosa-v2 .settings-section-tab:active,
   .mosa-v2 .settings-modal-close:active,
   .mosa-v2 .settings-menu .segmented-btn:active,
   .mosa-v2 .settings-text-action:active {
@@ -2476,3 +2444,9 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
     background: var(--color-danger-subtle);
   }
 }
+/* Prompt / Prompt 2 switch: the active variant reads like the section title. */
+.mosa-v2 .detail .detail-prompt-head .detail-prompt-switch { display: flex; flex: 0 1 auto; min-width: 0; align-items: center; gap: 12px; }
+.mosa-v2 .detail .detail-prompt-toggle { margin: 0; padding: 0; border: 0; color: var(--color-text-secondary); background: transparent; font-size: 13px; font-weight: 500; line-height: 18px; cursor: pointer; }
+.mosa-v2 .detail .detail-prompt-toggle.is-active { color: var(--color-text-primary); font-weight: 600; cursor: default; }
+.mosa-v2 .detail .detail-prompt-toggle:focus-visible { border-radius: 4px; outline: 2px solid var(--color-focus-ring, #0a84ff); outline-offset: 2px; }
+.mosa-v2 .detail .detail-prompt-box[hidden] { display: none; }

@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { access, lstat, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { desktopDistributionFromEnvironment, normalizeDesktopDistribution, requiresPlatformSigning } from "../lib/release-distribution.mjs";
 import { verifyMacosReleaseApp } from "./verify-macos-release.mjs";
 
@@ -135,7 +135,7 @@ async function signAndNotarizeDmg({ dmgPath, credentials, runner }) {
 }
 
 export async function makeMacosDmg({
-  rootDir = process.cwd(),
+  rootDir = resolve(fileURLToPath(new URL("..", import.meta.url))),
   outDir = process.env.MOSA_FORGE_OUT_DIR || "out",
   arch = MOSA_MAC_ARCH,
   distribution = desktopDistributionFromEnvironment(process.env),

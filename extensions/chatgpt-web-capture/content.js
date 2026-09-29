@@ -22,6 +22,8 @@
   const MIN_BYTES = 20 * 1024; // server also enforces this
   const COMPOSER_SELECTOR = 'form, [data-type="unified-composer"], [data-testid="composer"]';
   const CHATGPT_TURN_SELECTOR = '[data-testid^="conversation-turn-"]';
+  const CHATGPT_USER_SELECTOR = '[data-message-author-role="user"], [data-content-search-unit-key$=":user"]';
+  const CHATGPT_MESSAGE_SELECTOR = '[data-chatgpt-search-message-ids]';
   const GENERATION_EVIDENCE_RECOVERY_DELAYS = [2_800, 7_200, 15_000];
   const SIZE_FAILURE_LIMIT = 3;
   const SIZE_FAILURE_BACKOFF_MS = 60_000;
@@ -80,7 +82,7 @@
   let autoCapture = false;
   let scanTimer = null;
   let lastUrl = location.href;
-  let lastConversationId = conversationIdFromUrl();
+  let activeConversationId = conversationIdFromUrl();
   let conversationEpoch = 0;
   let hookReady = document.documentElement?.dataset?.mosaPageHook === "1";
   let lastError = "";
@@ -97,6 +99,7 @@
   let manualHookLeaseUntil = 0;
   let pageHookSyncTimer = null;
   let pageHookCaptureAck = null;
+  const captureDebugEvents = [];
 
   function pageHookChannel() {
     return String(document.documentElement?.dataset?.mosaPageHookChannel || "").trim();
@@ -215,6 +218,24 @@
   function conversationIdFromUrl() {
     const match = location.pathname.match(/\/c\/([a-zA-Z0-9-]+)/);
     return match ? match[1] : "";
+  }
+
+  function currentConversationId() {
+    return conversationIdFromUrl() || activeConversationId || "";
+  }
+
+  function adoptConversationId(value, { resetOnChange = true } = {}) {
+    const next = String(value || "").trim();
+    if (!next) return activeConversationId;
+
+    const urlConversationId = conversationIdFromUrl();
+    if (urlConversationId && next !== urlConversationId) return "";
+
+    if (activeConversationId && activeConversationId !== next && resetOnChange) {
+      resetConversationTransientState();
+    }
+    activeConversationId = next;
+    return activeConversationId;
   }
 
   function isBlockedUrl(src) {
@@ -353,7 +374,7 @@
     let nearest = null;
     const seen = new Set();
     const candidates = document.querySelectorAll(
-      `[data-message-author-role="user"], ${CHATGPT_TURN_SELECTOR}`,
+      `${CHATGPT_USER_SELECTOR}, ${CHATGPT_TURN_SELECTOR}`,
     );
     for (const candidate of candidates) {
       const scope = candidate.matches?.(CHATGPT_TURN_SELECTOR)
@@ -380,7 +401,7 @@
   function isReferenceCandidate(candidate) {
     const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
     if (!image || hasGeneratedImageDomMarker(image)) return false;
-    if (image.closest?.('[data-message-author-role="user"]')) return true;
+    if (image.closest?.(CHATGPT_USER_SELECTOR)) return true;
     const turn = conversationTurnForNode(image);
     return Boolean(turn?.querySelector?.('[data-message-author-role="user"]'));
   }
@@ -660,6 +681,8 @@
     const imageUrl = String(item.imageUrl || "");
     const imageKey = String(item.imageKey || "");
     const assetId = normalizeAssetId(item.assetId);
+    const transportConversationId = String(item.conversationId || item.conversation_id || "");
+    if (transportConversationId && !adoptConversationId(transportConversationId)) return null;
     const entry = {
       prompt,
       promptScore: Number(item.promptScore) || scorePromptText(prompt),
@@ -671,12 +694,13 @@
       promptPriority: Number(item.promptPriority || item.prompt_priority) || 0,
       promptScope: String(item.promptScope || item.prompt_scope || ""),
       generationStatus: normalizeGenerationStatus(item.generationStatus || item.generation_status),
-      conversationId: String(item.conversationId || item.conversation_id || ""),
+      conversationId: transportConversationId || currentConversationId(),
       messageId: String(item.messageId || item.message_id || ""),
       generationContextId: String(item.generationContextId || item.generation_context_id || ""),
       providerToolCallId: String(item.providerToolCallId || item.provider_tool_call_id || ""),
       providerGenerationCallId: String(item.providerGenerationCallId || item.provider_generation_call_id || ""),
       providerResponseId: String(item.providerResponseId || item.provider_response_id || ""),
+      generationRequestPrompt: String(item.generationRequestPrompt || item.generation_request_prompt || ""),
       model: String(item.model || ""),
       capturedAt: String(item.capturedAt || new Date().toISOString()),
       via: String(item.via || "network"),
@@ -738,9 +762,12 @@
     const imageRef = candidate?.imageUrl || candidate?.key || "";
     const exact = findGenerationEvidenceForImage(imageRef);
     if (exact) return exact;
-    const messageId = messageIdForCandidate(candidate);
-    if (!messageId) return null;
-    const messageResolved = generationRegistryForPage()?.resolvedForMessage?.(conversationIdFromUrl(), messageId);
+    const messageIds = messageIdsForCandidate(candidate);
+    if (!messageIds.length) return null;
+    const registry = generationRegistryForPage();
+    const messageResolved = messageIds.length === 1
+      ? registry?.resolvedForMessage?.(currentConversationId(), messageIds[0])
+      : registry?.resolvedForMessages?.(currentConversationId(), messageIds);
     return messageResolved?.isGeneration ? messageResolved : null;
   }
 
@@ -834,7 +861,10 @@
   }
 
   function candidateLookupKeys(candidate) {
-    return imageLookupKeys(candidate?.imageUrl || candidate?.key || "");
+    // New ChatGPT previews are blob URLs. Only an unambiguous provider result
+    // for this exact message may supply their stable asset identity.
+    const evidence = findGenerationEvidenceForCandidate(candidate);
+    return imageLookupKeys(candidate?.imageUrl || candidate?.key || "", evidence || {});
   }
 
   function candidateOperationKey(candidate) {
@@ -1069,11 +1099,13 @@
       if (!cleanPromptText(resolvedMeta?.prompt)) continue;
       const keys = imageLookupKeys(resolvedMeta?.imageUrl || "", resolvedMeta || {});
       if (!keys.length) continue;
-      const savedRank = savedPromptRankForKeys(keys);
-      const nextRank = metaPromptQuality(resolvedMeta);
-      if (savedRank < 0 || savedRank >= nextRank) continue;
       const candidate = findCandidateForMeta(keys);
       if (!candidate) continue;
+      // Metadata may arrive after this blob was saved. Its old saved rank is
+      // indexed by the blob URL, before the provider asset id became known.
+      const savedRank = savedPromptRankForKeys([...keys, ...candidateLookupKeys(candidate)]);
+      const nextRank = metaPromptQuality(resolvedMeta);
+      if (savedRank < 0 || savedRank >= nextRank) continue;
       const candidateKey = candidateOperationKey(candidate) || candidate.key || candidate.imageUrl;
       if (!candidateKey || promptUpgradeInFlight.has(candidateKey)) continue;
       clearPromptRecovery(candidate.key || candidate.imageUrl || candidateKey);
@@ -1108,7 +1140,7 @@
     // prompt even after the image was already archived.
     const delays = [2_800, 7_200, 15_000];
     const timers = delays.map((delay, index) => setTimeout(() => {
-      const bound = findBoundPromptForImage(imageRef);
+      const bound = findGenerationEvidenceForCandidate(candidate) || findBoundPromptForImage(imageRef);
       const promptReady = !needPrompt || Boolean(bound?.prompt);
       const terminalReady = !needTerminal || isTerminalGenerationStatus(bound?.generationStatus);
       if (promptReady && terminalReady) {
@@ -1226,7 +1258,7 @@
     const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
     if (!image) return null;
     return image.closest(
-      `[data-message-author-role="assistant"], [data-message-author-role="tool"], [data-message-id], ${CHATGPT_TURN_SELECTOR}, article`,
+      `${CHATGPT_MESSAGE_SELECTOR}, [data-message-author-role="assistant"], [data-message-author-role="tool"], [data-message-id], ${CHATGPT_TURN_SELECTOR}, article`,
     );
   }
 
@@ -1248,17 +1280,26 @@
     return "";
   }
 
-  function messageIdForCandidate(candidate) {
+  function messageIdsForCandidate(candidate) {
     const image = candidate?.el instanceof HTMLImageElement ? candidate.el : null;
-    if (!image) return "";
+    if (!image) return [];
     const directMessage = image.closest?.("[data-message-id]");
     const direct = String(directMessage?.getAttribute?.("data-message-id") || "").trim();
-    if (direct) return direct;
+    if (direct) return [direct];
+    const searchMessage = image.closest?.(CHATGPT_MESSAGE_SELECTOR);
+    const searchIds = String(searchMessage?.getAttribute?.("data-chatgpt-search-message-ids") || "")
+      .trim().split(/[\s,]+/).filter(Boolean);
+    if (searchIds.length) return [...new Set(searchIds)];
     const turn = conversationTurnForNode(image);
     const nestedMessage = String(turn?.querySelector?.("[data-message-id]")?.getAttribute?.("data-message-id") || "").trim();
-    if (nestedMessage) return nestedMessage;
+    if (nestedMessage) return [nestedMessage];
     const testId = String(turn?.getAttribute?.("data-testid") || "").trim();
-    return testId.startsWith("conversation-turn-") ? testId.slice("conversation-turn-".length) : "";
+    return testId.startsWith("conversation-turn-") ? [testId.slice("conversation-turn-".length)] : [];
+  }
+
+  function messageIdForCandidate(candidate) {
+    const ids = messageIdsForCandidate(candidate);
+    return ids.length === 1 ? ids[0] : "";
   }
 
   function requestCurrentConversationRefresh(candidate) {
@@ -1298,7 +1339,7 @@
     const userMessage = userMessageForCandidate(candidate);
     const providerAssetId = chatGptImageProxyInfo(imageUrl)?.assetId || "";
     const registry = generationRegistryForPage();
-    const generationEvidence = findGenerationEvidenceForImage(imageUrl);
+    const generationEvidence = findGenerationEvidenceForCandidate(candidate);
 
     const bound = findBoundPromptForImage(imageUrl);
     if (bound?.prompt) {
@@ -1321,6 +1362,7 @@
         providerToolCallId: bound.providerToolCallId || "",
         providerGenerationCallId: bound.providerGenerationCallId || "",
         providerResponseId: bound.providerResponseId || "",
+        generationRequestPrompt: bound.generationRequestPrompt || generationEvidence?.generationRequestPrompt || "",
         providerAssetId: bound.assetId || providerAssetId,
       };
     }
@@ -1330,11 +1372,12 @@
     // generation attempt in that message. Error + retry messages with several
     // attempts intentionally fail closed here instead of borrowing a sibling
     // attempt's prompt.
-    const domMessageId = messageIdForCandidate(candidate);
-    const messageBound = domMessageId
-      ? registry?.resolvedForMessage?.(conversationIdFromUrl(), domMessageId)
-      : null;
-    if (messageBound?.prompt && messageBound.isGeneration) {
+    const domMessageIds = messageIdsForCandidate(candidate);
+    const domMessageId = domMessageIds.length === 1 ? domMessageIds[0] : "";
+    const messageBound = domMessageIds.length === 1
+      ? registry?.resolvedForMessage?.(currentConversationId(), domMessageIds[0])
+      : registry?.resolvedForMessages?.(currentConversationId(), domMessageIds);
+    if (messageBound?.isGeneration) {
       const built = buildStoredPrompt({
         generationPrompt: messageBound.prompt,
         generationStatus: messageBound.promptStatus,
@@ -1348,12 +1391,13 @@
         promptScope: messageBound.promptScope || "attempt",
         generationStatus: normalizeGenerationStatus(messageBound.generationStatus),
         model: messageBound.model || "",
-        conversationId: messageBound.conversationId || conversationIdFromUrl(),
+        conversationId: messageBound.conversationId || currentConversationId(),
         messageId: messageBound.messageId || domMessageId,
         generationContextId: messageBound.generationContextId || "",
         providerToolCallId: messageBound.providerToolCallId || "",
         providerGenerationCallId: messageBound.providerGenerationCallId || "",
         providerResponseId: messageBound.providerResponseId || "",
+        generationRequestPrompt: messageBound.generationRequestPrompt || "",
         providerAssetId: messageBound.assetId || providerAssetId,
       };
     }
@@ -1375,12 +1419,13 @@
         promptScope: "output",
         generationStatus: normalizeGenerationStatus(generationEvidence?.generationStatus),
         model: "",
-        conversationId: conversationIdFromUrl(),
+        conversationId: currentConversationId(),
         messageId: messageIdForCandidate(candidate),
         generationContextId: "",
         providerToolCallId: "",
         providerGenerationCallId: "",
         providerResponseId: "",
+        generationRequestPrompt: generationEvidence?.generationRequestPrompt || "",
         providerAssetId,
       };
     }
@@ -1396,12 +1441,13 @@
       promptScope: "",
       generationStatus: normalizeGenerationStatus(generationEvidence?.generationStatus),
       model: "",
-      conversationId: conversationIdFromUrl(),
+      conversationId: currentConversationId(),
       messageId: "",
       generationContextId: "",
       providerToolCallId: "",
       providerGenerationCallId: "",
       providerResponseId: "",
+      generationRequestPrompt: generationEvidence?.generationRequestPrompt || "",
       providerAssetId,
     };
   }
@@ -1617,12 +1663,13 @@
           imageBase64,
           imageUrl: imageRef,
           pageUrl: location.href,
-          conversationId: resolved.conversationId || conversationIdFromUrl(),
+          conversationId: resolved.conversationId || currentConversationId(),
           messageId: resolved.messageId,
           generationContextId: generationContextId || resolved.generationContextId || "",
           providerToolCallId: resolved.providerToolCallId || "",
           providerGenerationCallId: resolved.providerGenerationCallId || "",
           providerResponseId: resolved.providerResponseId || "",
+          generationRequestPrompt: resolved.generationRequestPrompt || "",
           providerAssetId: resolved.providerAssetId || "",
           captureMode: manual ? "manual" : "automatic",
           capturedAt: new Date().toISOString(),
@@ -1639,7 +1686,7 @@
 
       // Capture the narrow race where metadata appeared while image bytes were
       // downloading, after resolvePrompt had already returned no prompt.
-      const lateBound = findBoundPromptForImage(imageRef);
+      const lateBound = findGenerationEvidenceForCandidate(candidate) || findBoundPromptForImage(imageRef);
       if (lateBound?.prompt) schedulePromptUpgrade(lateBound);
       const needsPromptRecovery = !lateBound?.prompt
         && !["visible-caption", "generation-tool-prompt"].includes(resolved.promptStatus);
@@ -1737,7 +1784,8 @@
       autoCapture,
       cachedPromptCount: networkMeta.filter((item) => item.prompt).length,
       contextLost,
-      conversationId: conversationIdFromUrl(),
+      conversationId: currentConversationId(),
+      debug: captureDebugEvents.slice(-6),
       error: lastError,
       hookReady,
       pageUrl: location.href,
@@ -1759,6 +1807,7 @@
     const detail = panel.querySelector('[data-role="detail"]');
     const saved = panel.querySelector('[data-role="saved-count"]');
     const cached = panel.querySelector('[data-role="prompt-count"]');
+    const debug = panel.querySelector('[data-role="debug"]');
     const toggle = panel.querySelector('[data-action="toggle-auto"]');
 
     if (mode) {
@@ -1784,6 +1833,11 @@
     }
     if (saved) saved.textContent = String(state.savedCount);
     if (cached) cached.textContent = String(state.cachedPromptCount);
+    if (debug) {
+      debug.textContent = state.debug.length
+        ? state.debug.map((item) => JSON.stringify(item)).join("\n")
+        : "暂无捕获事件";
+    }
     if (toggle) {
       toggle.textContent = state.autoCapture ? "关闭自动入库" : "启动自动入库";
       toggle.classList.toggle("is-off", !state.autoCapture);
@@ -1881,6 +1935,15 @@
       const response = await runtimeSend({ type: "mosa.openOptions" });
       if (!response?.ok) showToast(response?.error || "无法打开设置", true);
       else closeControlPanel();
+      return;
+    }
+    if (action === "copy-debug") {
+      const diagnostics = JSON.stringify({
+        version: chrome.runtime?.getManifest?.().version || "",
+        state: pageState(),
+      }, null, 2);
+      await navigator.clipboard?.writeText?.(diagnostics);
+      showToast("MOSA 捕获诊断已复制");
     }
   }
 
@@ -1927,6 +1990,11 @@
           <span><small>当前页面已存</small><strong data-role="saved-count">0</strong></span>
           <span><small>Prompt 缓存</small><strong data-role="prompt-count">0</strong></span>
         </div>
+        <details class="mosa-panel-debug">
+          <summary>捕获诊断（不含 Prompt 正文）</summary>
+          <pre data-role="debug">暂无捕获事件</pre>
+          <button type="button" class="mosa-panel-secondary" data-action="copy-debug">复制诊断</button>
+        </details>
         <button type="button" class="mosa-panel-primary" data-action="toggle-auto" aria-pressed="true">
           关闭自动入库
         </button>
@@ -2081,10 +2149,17 @@
       if (location.href !== lastUrl) {
         lastUrl = location.href;
         const nextConversationId = conversationIdFromUrl();
-        if (nextConversationId !== lastConversationId) {
-          lastConversationId = nextConversationId;
+        if (nextConversationId) {
+          const previousConversationId = activeConversationId;
+          adoptConversationId(nextConversationId);
+          if (autoCapture && nextConversationId !== previousConversationId) requestCurrentConversationRefresh(null);
+        } else if (activeConversationId) {
+          // Leaving a named conversation for a true new-chat/non-conversation
+          // route is a real boundary. The reverse transition (empty -> assigned
+          // id) is identity enrichment and deliberately preserves live-only
+          // WebSocket evidence such as Model caption and request Prompt.
+          activeConversationId = "";
           resetConversationTransientState();
-          if (autoCapture && nextConversationId) requestCurrentConversationRefresh(null);
         }
       }
       const net = networkMeta.filter((x) => x.prompt).length;
@@ -2155,6 +2230,7 @@
       }
       if (data.payload.prompt || data.payload.imageUrl || data.payload.imageKey) {
         const meta = rememberMeta(data.payload);
+        if (!meta) return;
         schedulePromptUpgrade(meta);
         if (meta.isGeneration) {
           const keys = imageLookupKeys(meta.imageUrl || "", meta);
@@ -2170,6 +2246,13 @@
           }
         }
       }
+    }
+
+    if (data.type === "capture-debug" && data.payload) {
+      captureDebugEvents.push(data.payload);
+      while (captureDebugEvents.length > 24) captureDebugEvents.shift();
+      renderControlPanel();
+      return;
     }
 
     if (data.type === "capture-state") {
@@ -2192,6 +2275,12 @@
     // a caption and nothing on screen said why.
     if (data.type === "conversation-refresh-failed") {
       const status = Number(data.payload?.status) || 0;
+      if (data.payload?.soft) {
+        setStatus(
+          `实时 Hook 正常 · 历史会话回读不可用${status ? ` (${status})` : ""}`,
+        );
+        return;
+      }
       setStatus(
         `会话元数据读取失败${status ? ` (${status})` : ""}，提示词可能缺失`,
         true,
@@ -2209,6 +2298,7 @@
     if (data.type === "auto-image" && data.payload?.imageUrl && autoCapture) {
       const imageUrl = String(data.payload.imageUrl);
       const meta = rememberMeta(data.payload);
+      if (!meta) return;
       if (meta.isGeneration !== true) return;
       if (!isLikelyGeneratedUrl(imageUrl)) return;
       if (enqueueDomCandidateForImage(imageUrl, "network-dom")) return;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createContextMenuActions } from "../app/context-menu-actions.mjs";
+import { createContextMenuActions } from "../web/app/context-menu-actions.mjs";
 
 /**
  * Behavioral tests for the collapsed-Stack context-menu mutations. The factory

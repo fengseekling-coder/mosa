@@ -272,6 +272,30 @@
   letter-spacing: -0.03em;
 }
 
+#mosa-capture-panel .mosa-panel-debug {
+  padding: 10px 12px;
+  border: 1px solid rgba(226, 232, 240, 0.09);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.32);
+  color: rgba(226, 232, 240, 0.68);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+#mosa-capture-panel .mosa-panel-debug summary {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+#mosa-capture-panel .mosa-panel-debug pre {
+  max-height: 150px;
+  margin: 10px 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: rgba(226, 232, 240, 0.68);
+  font: inherit;
+}
+
 #mosa-capture-panel .mosa-panel-primary,
 #mosa-capture-panel .mosa-panel-secondary {
   display: grid;

@@ -12,11 +12,11 @@ import test from "node:test";
 import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
-const readAssetView = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
-const readInspectorMarkup = () => readFile(resolve(root, "app/inspector-markup.mjs"), "utf8");
-const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
-const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
+const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
+const readAssetView = () => readFile(resolve(root, "web/app/asset-view.mjs"), "utf8");
+const readInspectorMarkup = () => readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readI18n = () => readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 const count = (source, needle) => source.split(needle).length - 1;
 
@@ -259,7 +259,7 @@ test("24-30. recipe save remains and save-as-version UI stays removed", async ()
 // English. 36. web-chatgpt resolves through the single source-label map.
 // 37. Grok media paths are copyable. 38. No copy affordance for empty sources.
 test("34-38. Phase 4A correction gates hold", async () => {
-  const [app, inspector, i18n, config] = await Promise.all([readApp(), readInspectorMarkup(), readI18n(), readFile(resolve(root, "app/config.mjs"), "utf8")]);
+  const [app, inspector, i18n, config] = await Promise.all([readApp(), readInspectorMarkup(), readI18n(), readFile(resolve(root, "web/app/config.mjs"), "utf8")]);
 
   // 34. The dead detailTab state (field, initial value, resets, comments) is
   // fully removed from the application code.

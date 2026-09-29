@@ -12,11 +12,11 @@ import test from "node:test";
 import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
-const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
-const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
-const readAssetView = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
-const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
+const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
+const readAssetView = () => readFile(resolve(root, "web/app/asset-view.mjs"), "utf8");
+const readI18n = () => readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
 /** Extracts a `{...}` block starting at the marker, honouring nested braces. */

@@ -24,7 +24,7 @@ The selected local MOSA library can contain:
 - Prompt and user-message text;
 - hashes, dimensions, timestamps, source paths, source type, model/tool information, and provenance;
 - version relationships, tags, archive state, and collection metadata;
-- for web capture, provider/page URL, capture time, capture mode, extension version, Prompt provenance/source/scope, a MOSA-derived Prompt-priority value used only to prevent lower-quality provider fields from overwriting better ones, observed generation status when exposed by the page/runtime, and bounded source-occurrence history; ChatGPT additionally records conversation/message identifiers and observed image-tool call, generation-call, response, or provider-asset identifiers when those values are explicitly present in the page/runtime data;
+- for web capture, provider/page URL, capture time, capture mode, extension version, Prompt provenance/source/scope, a MOSA-derived Prompt-priority value used only to prevent lower-quality provider fields from overwriting better ones, observed generation status when exposed by the page/runtime, and bounded source-occurrence history; ChatGPT additionally records conversation/message identifiers and observed image-tool call, generation-call, response, or provider-asset identifiers when those values are explicitly present in the page/runtime data and, when the live page stream exposes it, the Prompt text of the image-tool call (what ChatGPT's chat model sent to the image generator), stored separately from the caption Prompt;
 - generation events separately from deduplicated media assets. A generation event can contain a MOSA-created `capture_context_id`, provider runtime identifiers when observed, a verification level, Prompt fields and scope, observed generation status, references, and evidence. A MOSA capture-context ID is never represented as a provider generation-call ID.
 
 Reference images identified by Web Capture are stored as private generation-record attachments under the selected MOSA library. They are content-hash deduplicated and may be linked into the subsequent generated asset's recipe snapshot, but they are not ordinary assets and therefore do not appear in the gallery, search, recent items, or asset totals. MOSA does not infer the purpose or rights of a reference from its pixels.
@@ -62,6 +62,12 @@ Local visual search is optional. When you explicitly choose Install or Update in
 
 Removing the Visual Pack deletes the local optional model/runtime and derived visual relationship index. It does not delete or modify original library assets, Prompt text, or provenance records.
 
+## Optional C2PA helper download
+
+C2PA Content Credential export can use an optional `c2patool` helper pack. The desktop installer component is implemented and tested, but no desktop UI entry point ships it to end users yet; when a future release wires that entry point, this section describes exactly what will happen. MOSA reads the signed first-party release manifest used by application updates — signature verification is mandatory in code, not optional — and downloads the platform-specific helper only from `https://mosa.azhuilab.com/downloads/helper-packs/c2patool/`. These requests do not include your images, videos, Prompts, provenance records, library paths, search queries, signing keys, certificates, or credentials. The downloaded helper is verified locally by pinned file sizes and SHA-256 hashes before it becomes active.
+
+MOSA does not download `c2patool` directly from GitHub on end-user machines. Upstream binaries and license files are consumed only by MOSA's release preparation process, then redistributed as a pinned first-party helper pack.
+
 ## Web Capture Chrome Extension
 
 The optional extension:
@@ -79,7 +85,7 @@ The optional extension:
 - temporarily stores page-local `blob:`/Base64 media needed by queued jobs in the extension's local IndexedDB. Image media is stored as a Blob referenced by the retry queue; large page-local videos are stored as bounded ordered Blob chunks rather than one in-memory object. These records are deleted after MOSA acknowledges the capture, when the user/extension aborts the transfer, or when the associated bounded retry job expires or is evicted;
 - transfers large page-local generated videos to the extension worker in bounded chunks and later sends the queued chunks to MOSA through its local upload-session endpoints rather than one whole Base64 JSON message. Remote HTTPS videos continue to stream directly to the MOSA upload session without being retained as one whole video in extension memory.
 
-Its manifest host permissions are limited to the following explicit hosts/patterns: `chatgpt.com`, `chat.openai.com`, `*.oaiusercontent.com`, `images.openai.com`, `*.blob.core.windows.net`, `gemini.google.com`, `labs.google`, `aistudio.google.com`, `*.googleusercontent.com`, `*.ggpht.com`, `storage.googleapis.com`, `generativelanguage.googleapis.com`, `flow-content.google`, plus loopback `127.0.0.1` and `localhost` for delivery to MOSA. The Azure Blob host is used for provider-served media bytes and is not a MOSA-operated endpoint.
+Its manifest host permissions are limited to the following explicit hosts/patterns: `chatgpt.com`, `chat.openai.com`, `*.oaiusercontent.com`, `images.openai.com`, `*.blob.core.windows.net`, `gemini.google.com`, `labs.google`, `flow.google.com`, `aistudio.google.com`, `*.googleusercontent.com`, `*.ggpht.com`, `storage.googleapis.com`, `generativelanguage.googleapis.com`, `flow-content.google`, plus loopback `127.0.0.1` and `localhost` for delivery to MOSA. The Azure Blob host is used for provider-served media bytes and is not a MOSA-operated endpoint.
 
 For captured videos, MOSA may store media dimensions, MIME/type information, byte size, and `durationSeconds` when the provider-visible media metadata exposes a usable duration. This field is local provenance metadata and is not transmitted to a MOSA cloud service.
 
@@ -93,7 +99,7 @@ On Gemini (`gemini.google.com`), it may additionally capture only the nearest pr
 
 On Google AI Studio (`aistudio.google.com`), it may additionally capture only the nearest preceding rendered user Prompt turn within the same `ms-chat-session` as a visible generated image. It skips controls, inputs, editors, hidden content, model thoughts, other sessions, cookies, credentials, and API keys. This text is marked `provider-visible-prompt` and is not verified as the prompt actually executed for generation.
 
-On Flow (`labs.google`), it also may capture the one visible Prompt card structurally associated with a visible generated-image group, but only when the card has a unique nearby `Reuse Prompt` control. This text is marked `provider-visible-prompt`, is not verified as the prompt actually used for generation, and is never collected from an input, editor, hidden content, cookies, credentials, or the page as a whole.
+On Flow (`labs.google` / `flow.google.com`), it also may capture the one visible Prompt card structurally associated with a visible generated-image group, but only when the card has a unique nearby `Reuse Prompt` control. This text is marked `provider-visible-prompt`, is not verified as the prompt actually used for generation, and is never collected from an input, editor, hidden content, cookies, credentials, or the page as a whole.
 
 ## Network Boundary
 

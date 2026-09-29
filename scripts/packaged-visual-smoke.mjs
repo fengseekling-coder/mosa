@@ -22,7 +22,7 @@ if (!process.env.MOSA_VISUAL_SMOKE_PACK) {
 const verified = await verifyVisualModelPack({ packDir: sourcePackDir });
 const forgeOutDir = resolve(rootDir, process.env.MOSA_FORGE_OUT_DIR || "out");
 const binary = packagedExecutablePath({ rootDir, outDir: forgeOutDir });
-const scratchRoot = resolve(rootDir, "out", "tmp");
+const scratchRoot = resolve(forgeOutDir, "tmp");
 await mkdir(scratchRoot, { recursive: true });
 const temp = await mkdtemp(join(scratchRoot, "packaged-visual-smoke-"));
 const libraryDir = join(temp, "library");

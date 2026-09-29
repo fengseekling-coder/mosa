@@ -70,6 +70,42 @@ document.getElementById("save").addEventListener("click", async () => {
   setStatus("已保存。请刷新支持的网页使内容脚本生效。", "success");
 });
 
+// "未发现正在运行的 MOSA" lumps three very different failures together: the
+// service is down, another app owns the port, or MOSA is running but refuses
+// to pair with this extension's origin. Distinguish them here so the user
+// sees the actual blocker instead of a wrong "please open MOSA App".
+async function diagnoseMosaConnection(baseUrl) {
+  let health;
+  try {
+    health = await fetchWithTimeout(`${baseUrl}/api/health`, { cache: "no-cache" }, 3000);
+  } catch {
+    return `未检测到 MOSA 服务：${baseUrl} 无法访问。请确认 MOSA App 正在运行。`;
+  }
+  let identity = null;
+  try { identity = await health.json(); } catch { /* non-JSON responder */ }
+  if (!health.ok || identity?.product !== "mosa") {
+    return `${baseUrl} 上运行的不是 MOSA（HTTP ${health.status}）。请检查地址与端口。`;
+  }
+  const version = String(identity?.productVersion || "").trim();
+  try {
+    const pair = await fetchWithTimeout(`${baseUrl}/api/web-capture/pair`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+      cache: "no-cache",
+    }, 3000);
+    if (pair.status === 403) {
+      return `MOSA 正在运行${version ? `（${version}）` : ""}，但拒绝配对本扩展（ID ${chrome.runtime.id} 不在信任列表）。请升级 MOSA App 后重试。`;
+    }
+    if (pair.ok) {
+      return `MOSA 正在运行${version ? `（${version}）` : ""}，配对接口可用。请再点一次“测试连接”完成配对。`;
+    }
+    return `MOSA 正在运行${version ? `（${version}）` : ""}，但配对返回 HTTP ${pair.status}。`;
+  } catch {
+    return `MOSA 正在运行${version ? `（${version}）` : ""}，但配对请求失败。`;
+  }
+}
+
 document.getElementById("test").addEventListener("click", async () => {
   setStatus("测试中…", "success");
   let baseUrl;
@@ -86,14 +122,14 @@ document.getElementById("test").addEventListener("click", async () => {
       token = String(response?.settings?.mosaToken || "").trim();
       const discoveredBaseUrl = String(response?.settings?.mosaBaseUrl || "").trim();
       if (!token || !discoveredBaseUrl) {
-        setStatus("未发现正在运行的 MOSA。请先打开 MOSA App。", "error");
+        setStatus(await diagnoseMosaConnection(baseUrl), "error");
         return;
       }
       baseUrl = normalizeBaseUrl(discoveredBaseUrl);
       tokenEl.value = token;
       baseUrlEl.value = baseUrl;
     } catch {
-      setStatus("未发现正在运行的 MOSA。请先打开 MOSA App。", "error");
+      setStatus(await diagnoseMosaConnection(baseUrl).catch(() => "未发现正在运行的 MOSA。请先打开 MOSA App。"), "error");
       return;
     }
   }

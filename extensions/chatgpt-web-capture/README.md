@@ -1,4 +1,4 @@
-# MOSA Web Capture（0.15.4）
+# MOSA Web Capture（0.15.18）
 
 把 **ChatGPT、Gemini、Flow 和 Google AI Studio 网页**中用户可见的生成媒体归档到本机 MOSA。ChatGPT 支持图片提示词关联；Flow 与 Google AI Studio 同时支持已识别的视频，Gemini、Flow 与 Google AI Studio 的页面可见 Prompt 均明确标为未验证。
 
@@ -49,9 +49,13 @@ ChatGPT 捕获现在把一次响应明确拆成 **Message / Generation Attempt /
 自动收录还会结合生成状态和短暂的媒体稳定窗口：`in_progress / partial` 输出优先等待后续状态，`completed / failed / cancelled` 进入终态后可立即处理；没有明确状态的媒体需要先稳定一小段时间。这样可以降低中间预览图、错误后的残留图抢先入库的概率，同时保留终态到达后重新确认同一输出的能力。
 
 ChatGPT Prompt 字段使用确定性的来源优先级：`revised_prompt` → `generation_prompt` → `image_prompt` → image-generation 工具内部的 `original_prompt` / `prompt` → `Model caption` / `model_caption` → 其他明确 caption。snake_case 与 camelCase 字段会统一归一化。用户原始指令继续单独保存在 `user_message`，不会伪装成模型实际执行的生图 Prompt。
+
+ChatGPT 生图调用参数里的 `prompt`（对话模型发给生图工具的提示词）作为独立的“提示词2”保存在 `generation_request_prompt`，不参与上面的优先级，也不替换 Prompt。它同样只在实时推送里出现：扩展按图片消息的 `parent_id` 对应到发起调用的消息；没有 `parent_id` 时，只在同一轮里恰好有一次同一工具的调用时才对应。
 不会把整页最后一条用户消息误配给历史图片。
 
 ChatGPT 网页捕获现在会把“媒体”和“生成事件”分开记录。同一张去重后的图片可以对应多次独立生成；MOSA 自己构造的 `capture_context_id` 只用于关联一次网页捕获，不会冒充 OpenAI 的 generation-call ID。若页面运行时数据明确包含 tool-call、generation-call、response 或 provider asset ID，会分别保存为 provider 字段，但其证据等级仍是 `observed`，不是 OpenAI 公共 API 的 `provider_verified`。延迟补抓时优先沿用生成事件自身携带的 conversation ID，不只依赖当前页面 URL。网页捕获不会仅凭会话顺序自动建立父子版本关系。
+
+自 `0.15.18` 起，新会话在地址栏尚未出现 `/c/<conversationId>` 时，实时 transport 中已经观察到的 conversation identity 会先作为当前会话身份使用；随后 URL 获得同一 ID 只做身份补全，不再清空 live-only 的 Model caption、ImageGen request Prompt 或 generation registry。ChatGPT 的 `blob:` 输出若所在 DOM wrapper 同时列出 displayed/commentary 等多个 message ID，只有这些 ID 全部能唯一归并到同一个 Generation Attempt 时才允许绑定；跨 retry/失败 Attempt 或存在未知 message ID 时仍保持 fail-closed。
 
 MOSA 会在本地为同一 ChatGPT conversation 的 Generation Event 计算“关系候选”，但不会自动写成正式父子边。明确复用先前生成图的 provider asset ID 是强证据；“再改一下 / 把背景换黑 / 保持其他不变”等修改型用户指令、相邻生成和时间距离只能作为辅助信号。候选必须由用户确认后才进入正式生成树；只因为两张图前后出现，不会自动建立版本关系。
 
@@ -65,7 +69,7 @@ ChatGPT 中能够明确识别为本轮上传输入的参考图，会作为该轮
 
 第 3 条失败时右下角面板会显示原因，不再静默丢失。
 
-打开 Gemini（`gemini.google.com`）、Flow（`labs.google`）或 Google AI Studio（`aistudio.google.com`）出图后，扩展只对视口中已加载且达到最小尺寸的用户可见图片自动入库。Gemini 只读取生成图所属 `model-response` 前、同一局部消息结构中的最近可见 `user-query`；Flow 优先使用图片组内唯一、相邻且带「Reuse Prompt」语义的 Prompt 卡片，在本地化界面没有该英文标签时，仅当局部生成结构中仍然只有一个可用 Prompt 卡片才接受，存在歧义则留空；AI Studio 只读取图片所在 `ms-chat-session` 内、图片 Model 回合之前最近的页面可见用户 Prompt 回合。三者均标记为「未验证为实际生图提示词」，不会读取输入框、编辑器、隐藏内容、模型思考、其他会话或登录信息；若图片先于 Prompt 完成渲染，只会对同一图片的局部关联信息进行有界重试。
+打开 Gemini（`gemini.google.com`）、Flow（`labs.google` 或新版独立域名 `flow.google.com`）或 Google AI Studio（`aistudio.google.com`）出图后，扩展只对视口中已加载且达到最小尺寸的用户可见图片自动入库。Gemini 只读取生成图所属 `model-response` 前、同一局部消息结构中的最近可见 `user-query`；Flow 优先使用图片组内唯一、相邻且带「Reuse Prompt」语义的 Prompt 卡片，在本地化界面没有该英文标签时，仅当局部生成结构中仍然只有一个可用 Prompt 卡片才接受，存在歧义则留空；AI Studio 只读取图片所在 `ms-chat-session` 内、图片 Model 回合之前最近的页面可见用户 Prompt 回合。三者均标记为「未验证为实际生图提示词」，不会读取输入框、编辑器、隐藏内容、模型思考、其他会话或登录信息；若图片先于 Prompt 完成渲染，只会对同一图片的局部关联信息进行有界重试。
 
 远程生成媒体在提交前会进入扩展本地待处理队列，MOSA 暂时未运行或扩展 Service Worker 被浏览器回收时会保留任务并在后续重新尝试。队列任务最长保留 7 天，过期记录会从本地存储清除；同一媒体后来拿到更完整的终态或 Prompt 时会更新原队列票据，而不是继续重放旧的 `in_progress / not-available` 元数据。纯页面本地 `blob:` 图片和视频字节会先写入扩展自己的 IndexedDB spool，标签页关闭后仍可由 Service Worker 继续投递；单个存储故障也不会反过来阻断 MOSA 当前在线时的实时入库。Flow / AI Studio 的大体积页面本地视频使用分块扩展消息并逐块写入 IndexedDB，远程 HTTPS 视频则直接读取响应流；投递到 MOSA 时两者都通过临时上传会话逐块写入本地临时文件。扩展后台不再在内存中保留整段视频，MOSA commit 时也使用文件流计算内容哈希后直接导入。上传会话按顺序校验 chunk、限制总大小，并在 commit、abort 或超时清理临时文件；远程响应即使没有 `Content-Length` 也会在接收过程中持续执行 96 MiB 上限。原始媒体 URL 与实际重定向后的最终媒体 URL 会作为来源证据保存，但会移除签名、令牌和无关查询参数，仅保留必要的稳定媒体标识；最终重定向目标仍需通过媒体域名白名单。
 
@@ -83,11 +87,14 @@ ChatGPT 中能够明确识别为本轮上传输入的参考图，会作为该轮
 
 ## 限制
 
+ChatGPT 的 `Model caption` 只在实时推送中出现：它是 `commentary` 工具消息里与图片并列的字符串，这条消息和页面显示的图片消息不同，但共享同一 `gen_id`。存档会话（`/backend-api/conversations/…`）与图库接口都不含 caption，因此扩展安装前生成的图片无法补回 Prompt。自 2026-09-24 起页面图片改用 `blob:` 预览；`0.15.16` 让生成单元沿用同一消息里唯一的 caption，并通过 `gen_id` 绑定到页面显示的图片。`0.15.14` 按同一轮（`turn_exchange_id`）绑定长文本的逻辑已撤回：它会把工具状态说明（“Generated images … were saved at”）或技能（Skill）说明误当成 Prompt。
+
 - Google 站点使用稳定性较低的可见 `<img>` 识别；全屏看图器或站点更新可能需要刷新页面后重试
 - 全屏看图器 DOM 多变；若自动没命中，用悬浮「保存当前图」
 - GPT 网页未暴露生成 metadata 时，扩展只保留对应用户消息，不会伪造模型实际执行的提示词
 - 启发式判断“像生图 Prompt”的文本只作为恢复线索，不会被升级为 `generation-tool-prompt`
 - 无标记的 caption 只在**图片工具消息**内被接受；助手的普通回复即使提到风格词也不会被当成提示词
+- 用户消息里粘贴的 `Model caption:` 文本不会被当成模型 caption
 - 重读会话不会读取或复制 ChatGPT 的 Authorization 请求头；若同源会话请求无法返回元数据，扩展保留已捕获的图片并把 Prompt 标记为不可用
 - 相同内容 hash 去重
 - 参考图附件不进入素材库；当前可靠自动识别以 ChatGPT 上传输入为准，Flow/Gemini 不按页面顺序猜测参考图

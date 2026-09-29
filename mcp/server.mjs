@@ -4,6 +4,8 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssetStore } from "../lib/asset-store.mjs";
 import { assertExternalVerificationLevel } from "../lib/generation-history.mjs";
+import { searchMcpAssets } from "../lib/mcp-asset-search.mjs";
+import { buildAssetProvenanceBundle } from "../lib/provenance-bundle.mjs";
 import { acquireMosaRuntimeLock } from "../lib/runtime-lock.js";
 import { MCP_SERVER_VERSION } from "../lib/version-identities.mjs";
 
@@ -52,7 +54,9 @@ async function closeDirectStore() {
 
 const TOOL_ASSET_CREATE = "asset_create";
 const TOOL_ASSET_LIST = "asset_list";
+const TOOL_ASSET_SEARCH = "asset_search";
 const TOOL_ASSET_GET = "asset_get";
+const TOOL_ASSET_PROVENANCE_EXPORT = "asset_provenance_export";
 const TOOL_ASSET_UPDATE_METADATA = "asset_update_metadata";
 const TOOL_ASSET_ATTACH_PROMPT = "asset_attach_prompt";
 const TOOL_ASSET_ARCHIVE = "asset_archive";
@@ -165,6 +169,23 @@ function toolDefinitions() {
       }
     },
     {
+      name: TOOL_ASSET_SEARCH,
+      description: "Search MOSA visual memory using lexical search, optional local visual retrieval, and explicit creation-time bounds. Visual mode reuses the matching local MOSA runtime and degrades to lexical/time search if visual inference is unavailable.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectId: { type: "string" },
+          query: { type: "string" },
+          createdAfter: { type: "string", description: "Inclusive ISO-8601 lower creation-time bound." },
+          createdBefore: { type: "string", description: "Inclusive ISO-8601 upper creation-time bound." },
+          visual: { type: "boolean" },
+          minScore: { type: "number", minimum: -1, maximum: 1 },
+          limit: { type: "integer", minimum: 1, maximum: 100 },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
       name: TOOL_ASSET_GET,
       description: "Get one saved asset and its full prompt recipe.",
       inputSchema: {
@@ -173,6 +194,20 @@ function toolDefinitions() {
         required: ["assetId"],
         additionalProperties: false
       }
+    },
+    {
+      name: TOOL_ASSET_PROVENANCE_EXPORT,
+      description: "Export a portable MOSA provenance bundle plus an unsigned C2PA assertion payload. This does not create a signed Content Credential; a C2PA signer must bind and sign the assertion separately.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          projectId: { type: "string" },
+          assetId: { type: "string" },
+          includePrompts: { type: "boolean" },
+        },
+        required: ["assetId"],
+        additionalProperties: false,
+      },
     },
     {
       name: TOOL_ASSET_ARCHIVE,
@@ -389,9 +424,31 @@ async function handleToolCall(id, params) {
     sendResult(id, { content: [{ type: "text", text: `${result.assets.length} assets` }], structuredContent: result });
     return;
   }
+  if (params?.name === TOOL_ASSET_SEARCH) {
+    const result = await searchMcpAssets({
+      store,
+      libraryDir,
+      projectId: args.projectId || "default",
+      query: args.query || "",
+      createdAfter: args.createdAfter,
+      createdBefore: args.createdBefore,
+      visual: args.visual === true,
+      minScore: args.minScore,
+      limit: args.limit,
+    });
+    sendResult(id, { content: [{ type: "text", text: `${result.results.length} matching assets` }], structuredContent: result });
+    return;
+  }
   if (params?.name === TOOL_ASSET_GET) {
     const asset = await store.getAsset(args.projectId || "default", args.assetId);
     sendResult(id, { content: [{ type: "text", text: asset.prompt || `Asset ${asset.id}` }], structuredContent: { asset } });
+    return;
+  }
+  if (params?.name === TOOL_ASSET_PROVENANCE_EXPORT) {
+    const result = await buildAssetProvenanceBundle(store, args.projectId || "default", args.assetId, {
+      includePrompts: args.includePrompts !== false,
+    });
+    sendResult(id, { content: [{ type: "text", text: `Exported provenance for ${args.assetId}` }], structuredContent: result });
     return;
   }
   if (params?.name === TOOL_ASSET_UPDATE_METADATA) {

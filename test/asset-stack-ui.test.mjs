@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { moveBlockBefore, moveBlockRelative } from "../app/asset-stacks.mjs";
-import { createInspectorMarkup } from "../app/inspector-markup.mjs";
+import { moveBlockBefore, moveBlockRelative } from "../web/app/asset-stacks.mjs";
+import { createInspectorMarkup } from "../web/app/inspector-markup.mjs";
 
 test("stack manual ordering makes the first asset the cover", () => {
   assert.deepEqual(moveBlockBefore(["a", "b", "c", "d"], ["d"], "a"), ["d", "a", "b", "c"]);
@@ -44,16 +44,16 @@ test("Stack Inspector falls back to real media when a thumbnail is not ready", (
 
 test("visual stack behavior is wired into the shared web and desktop renderer", async () => {
   const [app, apiClient, stackController, selection, contextActions, contextBindings, html, css, i18n, inspector] = await Promise.all([
-    readFile(new URL("../app/app.mjs", import.meta.url), "utf8"),
-    readFile(new URL("../app/api-client.mjs", import.meta.url), "utf8"),
-    readFile(new URL("../app/asset-stacks.mjs", import.meta.url), "utf8"),
-    readFile(new URL("../app/gallery-selection.mjs", import.meta.url), "utf8"),
-    readFile(new URL("../app/context-menu-actions.mjs", import.meta.url), "utf8"),
-    readFile(new URL("../app/context-menu-bindings.mjs", import.meta.url), "utf8"),
-    readFile(new URL("../app/index.html", import.meta.url), "utf8"),
-    readFile(new URL("../app/styles.css", import.meta.url), "utf8"),
-    readFile(new URL("../app/i18n.mjs", import.meta.url), "utf8"),
-    readFile(new URL("../app/inspector-markup.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../web/app/app.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../web/app/api-client.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../web/app/asset-stacks.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../web/app/gallery-selection.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../web/app/context-menu-actions.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../web/app/context-menu-bindings.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../web/app/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../web/app/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../web/app/i18n.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../web/app/inspector-markup.mjs", import.meta.url), "utf8"),
   ]);
 
   assert.match(app, /activeStackId: ""/);

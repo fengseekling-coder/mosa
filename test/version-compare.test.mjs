@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { selectVersionComparisonPair, versionComparisonFields } from "../app/version-compare.mjs";
+import { selectVersionComparisonPair, versionComparisonFields } from "../web/app/version-compare.mjs";
 
 test("version comparison reports persisted field changes without inventing values", () => {
   const fields = versionComparisonFields(

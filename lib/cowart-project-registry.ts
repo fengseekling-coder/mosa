@@ -15,10 +15,6 @@ export interface CowartProjectRegistry {
   removeProject(id: string): Promise<ProjectEntry>;
 }
 
-export function defaultCowartProjectRegistryPath(): string {
-  return resolveSourceLocations().cowartRegistryPath;
-}
-
 export function createCowartProjectRegistry(options: { registryPath?: string; managerDir?: string } = {}): CowartProjectRegistry {
   const { cowartRegistryPath: registryPath } = resolveSourceLocations({
     env: process.env,
