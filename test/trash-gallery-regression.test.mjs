@@ -6,7 +6,7 @@ import test from "node:test";
 const root = resolve(import.meta.dirname, "..");
 
 test("Trash removal reflows masonry topology without remeasuring every survivor", async () => {
-  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
   const reconcileStart = app.indexOf("function reconcileAssetCards(entries)");
   const renderStart = app.indexOf("function renderGrid()", reconcileStart);
   const reconcile = app.slice(reconcileStart, renderStart);
@@ -28,8 +28,8 @@ test("Trash removal reflows masonry topology without remeasuring every survivor"
 
 test("Move to Trash uses one batch mutation and reconciles removed cards before the background refresh", async () => {
   const [actions, bindings] = await Promise.all([
-    readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8"),
-    readFile(resolve(root, "app/context-menu-bindings.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/context-menu-bindings.mjs"), "utf8"),
   ]);
 
   assert.match(actions, /apiFetch\("\/api\/assets\/batch"[\s\S]*?action: "trash"[\s\S]*?assetIds: ids/,

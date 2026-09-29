@@ -57,6 +57,11 @@
     "status", "state", "generation_status", "generationstatus",
     "result_status", "resultstatus", "finish_reason", "finishreason",
   ]);
+  const STRUCTURED_JSON_KEYS = new Set([
+    "arguments", "args", "input", "inputs", "parameters", "params",
+    "payload", "request", "result", "output", "tool_input", "toolinput",
+    "async_source",
+  ]);
 
   function post(type, payload) {
     try {
@@ -64,6 +69,129 @@
     } catch {
       // ignore
     }
+  }
+
+  function postDebug(stage, details = {}) {
+    post("capture-debug", {
+      stage: String(stage || "unknown").slice(0, 40),
+      ...details,
+    });
+  }
+
+  function parseStructuredJson(value) {
+    if (typeof value !== "string") return null;
+    const text = value.trim();
+    if (text.length < 2 || text.length > 512_000) return null;
+    if (!((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]")))) return null;
+    try {
+      const parsed = JSON.parse(text);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function interestingFieldKeys(value, out = new Set(), depth = 0) {
+    if (!value || typeof value !== "object" || depth > 7 || out.size >= 24) return [...out];
+    for (const [rawKey, child] of Object.entries(value)) {
+      const key = String(rawKey || "").toLowerCase();
+      if (/prompt|caption|image|asset|generation|tool|argument|input/.test(key)) out.add(key.slice(0, 80));
+      if (out.size >= 24) break;
+      if (child && typeof child === "object") interestingFieldKeys(child, out, depth + 1);
+      else if (STRUCTURED_JSON_KEYS.has(key)) {
+        const parsed = parseStructuredJson(child);
+        if (parsed) interestingFieldKeys(parsed, out, depth + 1);
+      }
+    }
+    return [...out];
+  }
+
+  function promptFieldShapes(value, path = "", out = [], depth = 0) {
+    if (!value || typeof value !== "object" || depth > 7 || out.length >= 12) return out;
+    for (const [rawKey, child] of Object.entries(value)) {
+      const key = String(rawKey || "").toLowerCase();
+      const nextPath = path ? `${path}.${key}` : key;
+      const canonical = canonicalPromptKey(key);
+      if (canonical) {
+        const type = Array.isArray(child) ? "array" : child === null ? "null" : typeof child;
+        out.push({
+          path: nextPath.slice(0, 160),
+          type,
+          keys: child && typeof child === "object" && !Array.isArray(child)
+            ? Object.keys(child).slice(0, 16).map((item) => String(item).slice(0, 80))
+            : [],
+          length: Array.isArray(child) ? child.length : typeof child === "string" ? child.length : undefined,
+        });
+      }
+      if (child && typeof child === "object") promptFieldShapes(child, nextPath, out, depth + 1);
+    }
+    return out;
+  }
+
+  function sanitizedSchema(value, path = "", out = [], depth = 0) {
+    if (depth > 8 || out.length >= 96 || value == null) return out;
+    if (Array.isArray(value)) {
+      out.push({ path: path || "$", type: "array", length: value.length });
+      for (let index = 0; index < Math.min(value.length, 8); index += 1) {
+        sanitizedSchema(value[index], `${path}[${index}]`, out, depth + 1);
+      }
+      return out;
+    }
+    if (typeof value === "object") {
+      if (path) out.push({ path, type: "object", keys: Object.keys(value).slice(0, 24) });
+      for (const [rawKey, child] of Object.entries(value)) {
+        const key = String(rawKey || "").slice(0, 80);
+        const nextPath = path ? `${path}.${key}` : key;
+        sanitizedSchema(child, nextPath, out, depth + 1);
+        if (out.length >= 96) break;
+      }
+      return out;
+    }
+    out.push({
+      path: path || "$",
+      type: typeof value,
+      length: typeof value === "string" ? value.length : undefined,
+    });
+    return out;
+  }
+
+  function opaqueSourceShapes(value, path = "", out = [], depth = 0) {
+    if (!value || typeof value !== "object" || depth > 7 || out.length >= 12) return out;
+    for (const [rawKey, child] of Object.entries(value)) {
+      const key = String(rawKey || "").toLowerCase();
+      const nextPath = path ? `${path}.${key}` : key;
+      if (key === "async_source" && typeof child === "string") {
+        const text = child.trim();
+        const descriptor = {
+          path: nextPath.slice(0, 160),
+          length: text.length,
+          kind: "opaque",
+        };
+        const parsed = parseStructuredJson(text);
+        if (parsed) {
+          descriptor.kind = "json";
+          descriptor.rootKeys = Array.isArray(parsed)
+            ? []
+            : Object.keys(parsed).slice(0, 24).map((item) => String(item).slice(0, 80));
+          descriptor.interestingKeys = interestingFieldKeys(parsed).slice(0, 24);
+        } else if (/^[a-z][a-z0-9+.-]*:/i.test(text)) {
+          try {
+            const url = new URL(text);
+            descriptor.kind = "uri";
+            descriptor.scheme = url.protocol.replace(/:$/, "").slice(0, 24);
+            descriptor.pathSegments = url.pathname.split("/").filter(Boolean).length;
+            descriptor.queryKeys = [...new Set([...url.searchParams.keys()])]
+              .slice(0, 24)
+              .map((item) => String(item).slice(0, 80));
+          } catch {
+            descriptor.kind = "opaque";
+          }
+        }
+        out.push(descriptor);
+      }
+      if (child && typeof child === "object") opaqueSourceShapes(child, nextPath, out, depth + 1);
+    }
+    return out;
   }
 
   function isCaptureEnabled() {
@@ -160,6 +288,36 @@
     return PROMPT_KEY_ALIASES.get(String(key || "").toLowerCase()) || "";
   }
 
+  const STRUCTURED_PROMPT_TEXT_KEYS = new Set([
+    "text", "value", "content", "caption", "description",
+    "instruction", "instructions",
+  ]);
+
+  function promptTextsFromValue(value, depth = 0, out = []) {
+    if (depth > 8 || out.length >= 12 || value == null) return out;
+    if (typeof value === "string") {
+      const text = cleanPrompt(value);
+      if (text && text.length <= 12000 && !looksLikeGenerationErrorText(text)) out.push(text);
+      return out;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) promptTextsFromValue(item, depth + 1, out);
+      return out;
+    }
+    if (typeof value !== "object") return out;
+    for (const [rawKey, child] of Object.entries(value)) {
+      const key = String(rawKey || "").toLowerCase();
+      if (canonicalPromptKey(key) || STRUCTURED_PROMPT_TEXT_KEYS.has(key)) {
+        promptTextsFromValue(child, depth + 1, out);
+      }
+    }
+    return out;
+  }
+
+  function uniquePromptTexts(value) {
+    return [...new Set(promptTextsFromValue(value))];
+  }
+
   function looksLikePrompt(text) {
     const t = cleanPrompt(text);
     if (t.length < 24 || t.length > 12000) return false;
@@ -181,7 +339,7 @@
   function normalizeGenerationStatus(value) {
     const raw = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
     if (!raw) return "unknown";
-    if (/^(?:completed?|succeeded|success|done|finished)$/.test(raw)) return "completed";
+    if (/^(?:completed?|succeeded|success|done|finished|finished_successfully)$/.test(raw)) return "completed";
     if (/^(?:failed|failure|error|errored|rejected|timeout|timed_out)$/.test(raw)) return "failed";
     if (/^(?:cancelled|canceled|aborted|stopped)$/.test(raw)) return "cancelled";
     if (/^(?:partial|incomplete)$/.test(raw)) return "partial";
@@ -282,6 +440,87 @@
     return "";
   }
 
+  function trustedGenerationIdFromKnownContainers(value, depth = 0, out = new Set()) {
+    if (!value || typeof value !== "object" || depth > 7 || out.size > 2) return out;
+    if (Array.isArray(value)) {
+      for (const item of value) trustedGenerationIdFromKnownContainers(item, depth + 1, out);
+      return out;
+    }
+    for (const [rawKey, child] of Object.entries(value)) {
+      const key = String(rawKey || "").toLowerCase();
+      if ((key === "dalle" || key === "generation") && child && typeof child === "object" && !Array.isArray(child)) {
+        const genId = typeof child.gen_id === "string" ? child.gen_id.trim() : "";
+        if (genId) out.add(genId);
+      }
+      if (
+        child && typeof child === "object"
+        && ["message", "metadata", "content", "parts", "payload", "result", "output"].includes(key)
+      ) {
+        trustedGenerationIdFromKnownContainers(child, depth + 1, out);
+      }
+    }
+    return out;
+  }
+
+  function trustedGenerationId(value) {
+    const ids = [...trustedGenerationIdFromKnownContainers(value)];
+    return ids.length === 1 ? ids[0] : "";
+  }
+
+  // ChatGPT sends each image tool call as an assistant "code" message whose
+  // JSON arguments hold the Prompt the chat model wrote for the generator.
+  // Only the live stream carries it; the stored conversation blanks it. It is
+  // kept apart from the caption Prompt and never competes with it.
+  const IMAGE_TOOL_ARGUMENT_KEYS = new Set([
+    "aspect_ratio", "size", "n", "transparent_background",
+    "reference_image_paths", "referenced_image_ids", "is_style_transfer",
+  ]);
+  const MAX_IMAGE_TOOL_CALLS = 64;
+  const imageToolCalls = new Map();
+
+  function rememberImageToolCall(message) {
+    if (String(message?.author?.role || "").toLowerCase() !== "assistant") return;
+    if (message?.content?.content_type !== "code" || typeof message.content.text !== "string") return;
+    const callId = typeof message.id === "string" ? message.id : "";
+    const args = parseStructuredJson(message.content.text);
+    if (!callId || !args || Array.isArray(args) || typeof args.prompt !== "string") return;
+    const recipient = String(message.recipient || "");
+    const imageTool = /(dall[-_.]?e|image[_ .-]?(gen|generation)|text2im|imagegen)/i.test(recipient)
+      || Object.keys(args).some((key) => IMAGE_TOOL_ARGUMENT_KEYS.has(key));
+    const prompt = cleanPrompt(args.prompt);
+    if (!imageTool || !prompt || prompt.length > 12000) return;
+    imageToolCalls.delete(callId);
+    imageToolCalls.set(callId, {
+      prompt,
+      recipient,
+      turnId: String(message.metadata?.turn_exchange_id || ""),
+      generationCallIds: new Set(),
+    });
+    while (imageToolCalls.size > MAX_IMAGE_TOOL_CALLS) imageToolCalls.delete(imageToolCalls.keys().next().value);
+  }
+
+  // An image answers the call named by its parent_id or, failing that, the one
+  // call of the same tool in its turn that no other generation has claimed.
+  function requestPromptForOutput(message, generationCallId) {
+    const toolName = String(message?.author?.name || "");
+    const sameTool = (call) => !toolName || !call.recipient || call.recipient === toolName;
+    const claim = (call) => {
+      if (generationCallId) call.generationCallIds.add(generationCallId);
+      return call.prompt;
+    };
+    const parent = imageToolCalls.get(String(message?.metadata?.parent_id || ""));
+    if (parent && sameTool(parent)) return claim(parent);
+    const turnId = String(message?.metadata?.turn_exchange_id || "");
+    if (!turnId) return "";
+    const calls = [...imageToolCalls.values()].filter((call) => call.turnId === turnId && sameTool(call));
+    if (calls.length !== 1) return "";
+    const [call] = calls;
+    const claimedByOther = generationCallId
+      ? [...call.generationCallIds].some((id) => id !== generationCallId)
+      : call.generationCallIds.size > 0;
+    return claimedByOther ? "" : claim(call);
+  }
+
   function contextForNode(node, inherited = {}) {
     const message = node?.message && typeof node.message === "object" ? node.message : node;
     return {
@@ -300,8 +539,11 @@
         || "",
       generationCallId: pickString(node, GENERATION_CALL_ID_KEYS)
         || pickString(message, GENERATION_CALL_ID_KEYS)
+        || trustedGenerationId(node)
+        || trustedGenerationId(message)
         || inherited.generationCallId
         || "",
+      generationOwnedContext: inherited.generationOwnedContext === true,
     };
   }
 
@@ -327,8 +569,9 @@
       messageId: extra.messageId || "",
       generationContextId: extra.generationContextId || "",
       providerToolCallId: extra.providerToolCallId || "",
-      providerGenerationCallId: extra.providerGenerationCallId || "",
-      providerResponseId: extra.providerResponseId || "",
+      providerGenerationCallId: extra.providerGenerationCallId || extra.generationCallId || "",
+      providerResponseId: extra.providerResponseId || extra.responseId || "",
+      generationRequestPrompt: extra.generationRequestPrompt || "",
       promptStatus: extra.promptStatus || (p ? "user-message" : "not-available"),
       promptSource: extra.promptSource || "",
       promptPriority: Number(extra.promptPriority) || 0,
@@ -343,12 +586,24 @@
       // that this exact asset is an output we may auto-archive.
       isGeneration: extra.isGeneration === true,
     };
+    postDebug("emit", {
+      via: payload.via,
+      promptStatus: payload.promptStatus,
+      promptSource: payload.promptSource,
+      hasPrompt: Boolean(payload.prompt),
+      hasAsset: Boolean(payload.assetId || payload.imageKey || payload.imageUrl),
+      isGeneration: payload.isGeneration,
+      hasMessageId: Boolean(payload.messageId),
+      hasGenerationCallId: Boolean(payload.providerGenerationCallId),
+      hasRequestPrompt: Boolean(payload.generationRequestPrompt),
+    });
     post("generation-meta", payload);
     if (url && payload.isGeneration) post("auto-image", payload);
   }
 
   function emitMessageBindings(node, inherited) {
     const message = node.message && typeof node.message === "object" ? node.message : node;
+    rememberImageToolCall(message);
     const context = contextForNode(node, inherited);
     const prompts = new Map();
     const assetIds = new Set();
@@ -363,29 +618,64 @@
       message?.metadata?.command,
       message?.metadata?.invoked_plugin?.namespace,
     ].filter(Boolean).join(" ");
+    const imageParts = Array.isArray(message?.content?.parts) ? message.content.parts : [];
+    const hasImageAssetPart = imageParts.some((part) => (
+      part && typeof part === "object"
+      && (part?.content_type === "image_asset_pointer" || normalizeAssetId(part?.asset_pointer || part?.assetPointer))
+    ));
+    const hasImageGenerationMetadata = Boolean(
+      message?.metadata?.image_gen_title
+      || message?.metadata?.imageGenTitle
+      || message?.metadata?.image_generation_title
+      || message?.metadata?.imageGenerationTitle
+    );
     const generationToolMarker = /(dall[-_.]?e|image[_ .-]?(gen|generation)|text2im|imagegen)/i.test(toolMarker)
       || Boolean(
         message?.metadata?.dalle
         || message?.metadata?.image_gen
         || message?.metadata?.imageGen
         || message?.metadata?.image_generation
-        || message?.metadata?.imageGeneration,
+        || message?.metadata?.imageGeneration
+        // Current ChatGPT tool names can be opaque. Generation provenance is
+        // still explicit on the image part; uploads do not have this marker.
+        || message?.content?.parts?.some((part) => (
+          part?.content_type === "image_asset_pointer"
+          && (part.metadata?.dalle?.gen_id || part.metadata?.generation?.gen_id)
+        ))
+        || (hasImageAssetPart && hasImageGenerationMetadata),
       );
     const authorRole = String(message?.author?.role || "").toLowerCase();
     const generationOwnedMessage = generationToolMarker && ["tool", "assistant"].includes(authorRole);
+    const requestPrompt = generationOwnedMessage && hasImageAssetPart
+      ? requestPromptForOutput(message, context.generationCallId)
+      : "";
+    if (hasImageAssetPart || generationToolMarker) {
+      postDebug("message", {
+        authorRole,
+        generationOwned: generationOwnedMessage,
+        hasImageAssetPart,
+        hasImageGenerationMetadata,
+        hasTrustedGenerationId: Boolean(context.generationCallId),
+        keys: interestingFieldKeys(message),
+        promptShapes: promptFieldShapes(message),
+        opaqueSources: opaqueSourceShapes(message),
+        schema: sanitizedSchema(message),
+      });
+    }
 
-    function emitScopedGenerationUnits(root) {
+    function emitScopedGenerationUnits(root, messageCaption) {
       if (!generationOwnedMessage) return 0;
       const units = new Map();
       const toolDefaults = new Map();
 
       function promptCandidate(key, value) {
         const canonical = canonicalPromptKey(key);
-        if (!canonical || typeof value !== "string") return null;
-        const text = cleanPrompt(value);
+        if (!canonical) return null;
+        const texts = uniquePromptTexts(value);
+        if (texts.length !== 1) return null;
+        const [text] = texts;
         const priority = promptPriority(canonical, { generationOwned: true });
         const status = promptStatusForKey(canonical, { generationOwned: true });
-        if (!text || text.length > 12000 || looksLikeGenerationErrorText(text)) return null;
         if (status !== "generation-tool-prompt" && !looksLikePrompt(text)) return null;
         return { text, priority, promptStatus: status, promptSource: canonical };
       }
@@ -493,6 +783,10 @@
           if ((URL_KEYS.has(lower) || typeof child === "string") && isImageishUrl(child)) localUrls.push(child);
           if ((lower === "model" || lower === "model_slug") && typeof child === "string" && child.trim()) localModel = child.trim();
           if ((lower === "error" || lower === "failure") && child) localStatus = "failed";
+          if (STRUCTURED_JSON_KEYS.has(lower)) {
+            const parsed = parseStructuredJson(child);
+            if (parsed) visit(parsed, { toolCallId, generationCallId }, depth + 1);
+          }
         }
 
         if (unit) {
@@ -541,7 +835,7 @@
         }
       };
 
-      visit(root);
+      visit(root, { generationCallId: context.generationCallId || "" });
       const explicitGenerationCounts = new Map();
       for (const unit of units.values()) {
         if (!unit.toolCallId || !unit.generationCallId) continue;
@@ -557,8 +851,12 @@
         const defaults = toolDefaults.get(unit.toolCallId) || null;
         const explicitGenerationCount = explicitGenerationCounts.get(unit.toolCallId) || 0;
         const canInheritToolDefaults = !unit.generationCallId || explicitGenerationCount <= 1;
+        // A message caption describes this message's image only when a single
+        // generation unit owns the message's outputs.
+        const captionFallback = outputUnitCount === 1 && unit.outputs.size ? messageCaption : null;
         const sharedPrompt = selectPromptGroups(unit.sharedPromptGroups)
-          || (canInheritToolDefaults ? selectPromptGroups(defaults?.promptGroups || []) : null);
+          || (canInheritToolDefaults ? selectPromptGroups(defaults?.promptGroups || []) : null)
+          || captionFallback;
         const model = unit.model || defaults?.model || "";
         let unitStatus = canInheritToolDefaults
           ? preferGenerationStatus(unit.generationStatus, defaults?.generationStatus || "unknown")
@@ -574,6 +872,7 @@
         for (const output of unit.outputs.values()) {
           const outputPrompt = selectPrompt(output.prompts);
           const selected = outputPrompt || sharedPrompt;
+          const outputScoped = Boolean(outputPrompt) || (selected === captionFallback && unit.outputs.size === 1);
           emitPair(selected?.text || "", output.imageUrl, {
             assetId: output.assetId,
             conversationId: context.conversationId,
@@ -585,9 +884,10 @@
             promptStatus: selected?.promptStatus || "not-available",
             promptSource: selected?.promptSource || "",
             promptPriority: selected?.priority || 0,
-            promptScope: outputPrompt ? "output" : selected ? "attempt" : "",
+            promptScope: outputScoped ? "output" : selected ? "attempt" : "",
             generationStatus: output.generationStatus !== "unknown" ? output.generationStatus : unitStatus,
             model,
+            generationRequestPrompt: requestPrompt,
             via: "message-generation-unit",
             isGeneration: true,
           });
@@ -618,49 +918,81 @@
       return emitted;
     }
 
-    const emittedNestedUnits = emitScopedGenerationUnits(message);
+    // The live image tool message carries its caption as a plain string next
+    // to the image in content.parts. Generation units only walk nested
+    // objects, so a unit without its own prompt takes the one message caption.
+    const messageCaption = (() => {
+      const captions = new Map();
+      for (const part of message?.content?.parts || []) {
+        if (typeof part !== "string") continue;
+        const candidate = visibleCaptionCandidate(part, {
+          hasImageAsset: hasImageAssetPart,
+          authorRole,
+          generationOwned: generationOwnedMessage,
+        });
+        if (candidate && !captions.has(candidate.text)) captions.set(candidate.text, candidate);
+      }
+      const ordered = [...captions.values()].sort((a, b) => b.priority - a.priority);
+      const tied = ordered.filter((item) => item.priority === ordered[0]?.priority);
+      return tied.length === 1 ? tied[0] : null;
+    })();
+
+    const emittedNestedUnits = emitScopedGenerationUnits(message, messageCaption);
     if (emittedNestedUnits > 0) return;
 
     function rememberPrompt(key, value) {
       const canonical = canonicalPromptKey(key);
-      if (!canonical || typeof value !== "string") return;
-      const text = cleanPrompt(value);
-      if (!text || text.length > 12000 || looksLikeGenerationErrorText(text)) return;
-      if (!isTrustedGenerationPromptKey(canonical, { generationOwned: generationOwnedMessage }) && !looksLikePrompt(text)) return;
-      const current = prompts.get(text);
+      if (!canonical) return;
       const priority = promptPriority(canonical, { generationOwned: generationOwnedMessage });
-      if (!current || priority > current.priority) {
-        prompts.set(text, {
-          text,
-          priority,
-          promptStatus: promptStatusForKey(canonical, { generationOwned: generationOwnedMessage }),
-          promptSource: canonical,
-        });
+      const status = promptStatusForKey(canonical, { generationOwned: generationOwnedMessage });
+      for (const text of uniquePromptTexts(value)) {
+        if (!isTrustedGenerationPromptKey(canonical, { generationOwned: generationOwnedMessage }) && !looksLikePrompt(text)) continue;
+        const current = prompts.get(text);
+        if (!current || priority > current.priority) {
+          prompts.set(text, {
+            text,
+            priority,
+            promptStatus: status,
+            promptSource: canonical,
+          });
+        }
       }
     }
 
-    // ChatGPT's current image tool often leaves dalle.prompt blank, while the
-    // same tool message exposes the caption as a plain string in content.parts.
-    // The "Model caption:" marker is OpenAI wording that has changed before, so
-    // an unmarked caption is accepted too — but only inside a tool message that
+    // ChatGPT's image tool has left dalle.prompt blank while the same tool
+    // message exposed the caption as a plain string in content.parts. The
+    // "Model caption:" marker is OpenAI wording that has changed before, so an
+    // unmarked caption is accepted too — but only inside a tool message that
     // owns the image, which is where a caption lives and chat prose does not.
-    function rememberVisibleCaption(value, { hasImageAsset, authorRole, generationOwned }) {
+    // A caption is provider output: users paste old "Model caption:" text into
+    // their own messages, and other tool text in the same turn (for example a
+    // Skill's instructions) is not a description of the image.
+    function visibleCaptionCandidate(value, { hasImageAsset, authorRole, generationOwned }) {
       const text = cleanPrompt(value);
-      if (!text || text.length > 12000 || looksLikeGenerationErrorText(text)) return;
+      if (!text || text.length > 12000 || looksLikeGenerationErrorText(text)) return null;
+      if (!["tool", "assistant"].includes(authorRole)) return null;
       const markedCaption = /^model caption\s*:/i.test(text);
       if (!markedCaption) {
-        if (!hasImageAsset || !["tool", "assistant"].includes(authorRole)) return;
-        if (authorRole === "assistant" && !generationOwned) return;
-        if (authorRole === "tool" && !generationOwned && !looksLikeGenerationCaption(text)) return;
-        if (/^(?:image generated|generated image|done|completed|success|已生成|生成完成|完成)[.!。！]?$/i.test(text)) return;
+        if (!hasImageAsset) return null;
+        if (authorRole === "assistant" && !generationOwned) return null;
+        if (authorRole === "tool" && !generationOwned && !looksLikeGenerationCaption(text)) return null;
+        if (/^(?:image generated|generated image|done|completed|success|已生成|生成完成|完成)[.!。！]?$/i.test(text)) return null;
       } else if (!looksLikePrompt(text)) {
-        return;
+        return null;
       }
-      const current = prompts.get(text);
-      const priority = markedCaption ? 425 : 325;
-      if (!current || priority > current.priority) {
-        prompts.set(text, { text, priority, promptStatus: "visible-caption", promptSource: "message-visible-caption" });
-      }
+      return {
+        text,
+        priority: markedCaption ? 425 : 325,
+        promptStatus: "visible-caption",
+        promptSource: "message-visible-caption",
+      };
+    }
+
+    function rememberVisibleCaption(value, captionContext) {
+      const candidate = visibleCaptionCandidate(value, captionContext);
+      if (!candidate) return;
+      const current = prompts.get(candidate.text);
+      if (!current || candidate.priority > current.priority) prompts.set(candidate.text, candidate);
     }
 
     let messageGenerationStatus = generationStatusFromObject(message);
@@ -763,6 +1095,7 @@
         promptScope: boundPrompt ? (assetIds.size + imageUrls.size > 1 ? "attempt" : "output") : "",
         generationStatus: messageGenerationStatus,
         model,
+        generationRequestPrompt: requestPrompt,
         via: "message-metadata-url",
         isGeneration: toolOwnedGeneration || boundPrompt?.promptStatus === "generation-tool-prompt" || boundPrompt?.promptStatus === "visible-caption",
       });
@@ -782,6 +1115,7 @@
         promptScope: boundPrompt ? (assetIds.size + imageUrls.size > 1 ? "attempt" : "output") : "",
         generationStatus: messageGenerationStatus,
         model,
+        generationRequestPrompt: requestPrompt,
         via: "message-metadata-asset",
         isGeneration: toolOwnedGeneration || boundPrompt?.promptStatus === "generation-tool-prompt" || boundPrompt?.promptStatus === "visible-caption",
       });
@@ -832,11 +1166,13 @@
     for (const [key, value] of Object.entries(node)) {
       const lower = String(key).toLowerCase();
       const canonical = canonicalPromptKey(lower);
-      if (canonical && typeof value === "string") {
-        const status = promptStatusForKey(canonical);
-        const text = cleanPrompt(value);
-        const priority = promptPriority(canonical);
-        if (text && !looksLikeGenerationErrorText(text) && text.length <= 12000 && (status === "generation-tool-prompt" || looksLikePrompt(text)) && priority >= localPromptPriority) {
+      if (canonical) {
+        const promptOptions = { generationOwned: context.generationOwnedContext === true };
+        const status = promptStatusForKey(canonical, promptOptions);
+        const priority = promptPriority(canonical, promptOptions);
+        const texts = uniquePromptTexts(value);
+        const text = texts.length === 1 ? texts[0] : "";
+        if (text && (status === "generation-tool-prompt" || looksLikePrompt(text)) && priority >= localPromptPriority) {
           localPrompt = text;
           localPromptStatus = status;
           localPromptPriority = priority;
@@ -850,12 +1186,38 @@
         localUrl = value;
       } else if (ASSET_REFERENCE_KEYS.has(lower) && typeof value === "string") {
         localAssetId = normalizeAssetId(value);
+      } else if (STRUCTURED_JSON_KEYS.has(lower)) {
+        if (value && typeof value === "object") {
+          walkObject(value, context, depth + 1);
+        } else {
+          const parsed = parseStructuredJson(value);
+          if (parsed) walkObject(parsed, context, depth + 1);
+        }
       } else if (value && typeof value === "object") {
-        walkObject(value, context, depth + 1);
+        const directGenId = (
+          (lower === "generation" || lower === "dalle")
+          && !Array.isArray(value)
+          && typeof value.gen_id === "string"
+        ) ? value.gen_id.trim() : "";
+        walkObject(value, directGenId ? {
+          ...context,
+          generationCallId: directGenId,
+          generationOwnedContext: true,
+        } : context, depth + 1);
       }
     }
 
     const localGenerationEvidence = localPromptStatus === "generation-tool-prompt" || Boolean(context.generationCallId);
+    if (localPrompt) {
+      postDebug("prompt-signal", {
+        promptStatus: localPromptStatus,
+        promptSource: localPromptSource,
+        hasMessageId: Boolean(context.messageId),
+        hasGenerationCallId: Boolean(context.generationCallId),
+        hasAsset: Boolean(localAssetId || localUrl),
+        isGeneration: localGenerationEvidence,
+      });
+    }
 
     if (localPrompt && localUrl) {
       emitPair(localPrompt, localUrl, {
@@ -948,7 +1310,9 @@
   // general fetch interceptor below.
   const originalFetch = window.fetch;
   const conversationRefreshAt = new Map();
+  const conversationRefreshBackoffUntil = new Map();
   const CONVERSATION_REFRESH_COOLDOWN_MS = 2_500;
+  const CONVERSATION_REFRESH_SOFT_FAILURE_BACKOFF_MS = 60_000;
 
   async function refreshCurrentConversation() {
     if (!isCaptureEnabled()) return;
@@ -956,6 +1320,8 @@
     if (!conversationId) return;
 
     const now = Date.now();
+    const backoffUntil = conversationRefreshBackoffUntil.get(conversationId) || 0;
+    if (now < backoffUntil) return;
     const previous = conversationRefreshAt.get(conversationId) || 0;
     if (now - previous < CONVERSATION_REFRESH_COOLDOWN_MS) return;
     conversationRefreshAt.set(conversationId, now);
@@ -968,6 +1334,7 @@
     const encodedConversationId = encodeURIComponent(conversationId);
     const base = location.origin || "https://chatgpt.com";
     const endpoints = [
+      `${base}/backend-api/conversations/${encodedConversationId}`,
       `${base}/backend-api/conversation/${encodedConversationId}`,
       `${base}/backend-api/f/conversation/${encodedConversationId}`,
     ];
@@ -997,7 +1364,14 @@
         // Try the alternate first-party conversation endpoint.
       }
     }
-    post("conversation-refresh-failed", { status: lastStatus });
+    const soft = [403, 404, 410].includes(lastStatus);
+    if (soft) {
+      conversationRefreshBackoffUntil.set(
+        conversationId,
+        Date.now() + CONVERSATION_REFRESH_SOFT_FAILURE_BACKOFF_MS,
+      );
+    }
+    post("conversation-refresh-failed", { status: lastStatus, soft });
   }
 
   // The payload is intentionally ignored. The page hook derives the ID from
@@ -1020,8 +1394,16 @@
       const url = new URL(String(value || ""), location.origin);
       if (url.origin !== location.origin) return false;
       const path = url.pathname.toLowerCase();
-      return path.startsWith("/backend-api/conversation/")
-        || path.startsWith("/backend-api/f/conversation/")
+      const isConversationStream = path === "/backend-api/conversation"
+        || path === "/backend-api/f/conversation";
+      const isConversationItem = path.startsWith("/backend-api/conversation/")
+        || path.startsWith("/backend-api/f/conversation/");
+      // The plural collection also exposes batch/sidebar responses. Inspect
+      // only the open conversation, never those multi-conversation payloads.
+      return (Boolean(conversationIdFromLocation())
+          && path === `/backend-api/conversations/${conversationIdFromLocation().toLowerCase()}`)
+        || isConversationStream
+        || isConversationItem
         || path.includes("/backend-api/estuary/")
         || /\/(image|images|imagegen|image-generation|generation)(?:\/|$)/.test(path);
     } catch {
@@ -1040,7 +1422,7 @@
           || /backend-api|conversation/i.test(String(url));
         if (textLike && !/^image\//.test(contentType)) {
           const clone = response.clone();
-          if (/json/.test(contentType) && /\/backend-api\/(?:f\/)?conversation\//i.test(String(url))) {
+          if (/json/.test(contentType) && /\/backend-api\/(?:f\/)?conversations?\//i.test(String(url))) {
             clone.json()
               .then((payload) => walkObject(payload, { conversationId: conversationIdFromLocation() }))
               .catch(() => {});
@@ -1091,7 +1473,20 @@
    * so fetch and XHR never see the caption of an image generated while the page
    * is open. Frames arrive as JSON envelopes whose `body` is base64 SSE text.
    */
-  const WS_INTEREST = /asset_pointer|asset_id|file_id|image_id|file-service|sediment|revised_prompt|generation_prompt|image_prompt|generation_call_id|image_generation_call_id|image_gen_call_id|tool_call_id|toolcallid|model[ _]caption|["']prompt["']\s*:|generation_status|finish_reason|["'](?:error|failure)["']\s*:|image[_ .-]?(gen|generation)|imagegen|dalle|oaiusercontent|estuary/i;
+  // Image tool arguments arrive as JSON text inside content.text, so their
+  // "prompt" key is escaped (\"prompt\":) in the raw frame.
+  const WS_INTEREST = /asset_pointer|asset_id|file_id|image_id|file-service|sediment|revised_prompt|generation_prompt|image_prompt|generation_call_id|image_generation_call_id|image_gen_call_id|tool_call_id|toolcallid|model[ _]caption|\\?["']prompt\\?["']\s*:|generation_status|finish_reason|["'](?:error|failure)["']\s*:|image[_ .-]?(gen|generation)|imagegen|dalle|oaiusercontent|estuary/i;
+
+  function hasConversationMessageShape(text) {
+    if (typeof text !== "string" || text.length < 24) return false;
+    // Current live envelopes have changed outer event names several times.
+    // `update_content.messages` is a more durable structural signal than a
+    // provider/tool keyword, while still avoiding a JSON parse for ordinary
+    // token-delta frames.
+    return text.includes('"update_content"')
+      && text.includes('"messages"')
+      && (text.includes('"content"') || text.includes('"message"'));
+  }
 
   function decodeBase64Utf8(value) {
     if (typeof atob !== "function") return "";
@@ -1106,7 +1501,7 @@
   function harvestSocketText(text) {
     if (!text || typeof text !== "string") return;
     // Token-by-token deltas dominate the stream. Parse only image-bearing frames.
-    if (WS_INTEREST.test(text)) harvest(text, "websocket");
+    if (WS_INTEREST.test(text) || hasConversationMessageShape(text)) harvest(text, "websocket");
     // Skip anything that is not a JSON envelope carrying a base64 body, so a
     // fast answer stream does not pay for a parse per token.
     if (text.charCodeAt(0) !== 123 || !text.includes('"body"')) return;
@@ -1120,7 +1515,9 @@
     if (typeof body !== "string" || !body) return;
     try {
       const decoded = decodeBase64Utf8(body);
-      if (decoded && WS_INTEREST.test(decoded)) harvest(decoded, "websocket-body");
+      if (decoded && (WS_INTEREST.test(decoded) || hasConversationMessageShape(decoded))) {
+        harvest(decoded, "websocket-body");
+      }
     } catch {
       // A frame we cannot decode is skipped; the refresh path still recovers it.
     }

@@ -7,10 +7,10 @@ const root = resolve(import.meta.dirname, "..");
 
 test("keeps the import flow keyboard-accessible", async () => {
   const [html, app, css, preview] = await Promise.all([
-    readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
-    readFile(resolve(root, "app/styles.css"), "utf8"),
-    readFile(resolve(root, "app/image-preview.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/index.html"), "utf8"),
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/styles.css"), "utf8"),
+    readFile(resolve(root, "web/app/image-preview.mjs"), "utf8"),
   ]);
 
   assert.match(html, /role="dialog" aria-modal="true" aria-labelledby="importModalTitle"/);
@@ -53,9 +53,9 @@ test("keeps the import flow keyboard-accessible", async () => {
 
 test("keeps the gallery source-aware and the inspector optional", async () => {
   const [app, config, inspector] = await Promise.all([
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
-    readFile(resolve(root, "app/config.mjs"), "utf8"),
-    readFile(resolve(root, "app/inspector-markup.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/config.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8"),
   ]);
 
   // Sidebar source filtering uses the actual source values directly; the
@@ -76,7 +76,7 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
   assert.match(app, /updateSelectedCard\(\);/);
   assert.match(inspector, /function isVideoAsset\(/);
   assert.match(inspector, /function assetMediaPreviewMarkup\(/);
-  const i18n = await readFile(resolve(root, "app/i18n.mjs"), "utf8");
+  const i18n = await readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
   assert.match(i18n, /userInstruction: "用户指令"/);
   assert.match(i18n, /webPromptUnavailable: "网页来源未暴露原始生图提示词"/);
   assert.match(inspector, /const userInstructionMarkup = `<div class="detail-prompt-subhead">/);
@@ -90,8 +90,8 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
 
 test("keeps background library refreshes from replacing active edits", async () => {
   const [app, apiClient] = await Promise.all([
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
-    readFile(resolve(root, "app/api-client.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/api-client.mjs"), "utf8"),
   ]);
 
   assert.match(app, /detailDirty: false/);
@@ -111,10 +111,10 @@ test("keeps background library refreshes from replacing active edits", async () 
 
 test("uses a single language chosen from system, Chinese, or English", async () => {
   const [app, i18n, i18nRuntime, apiClient] = await Promise.all([
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
-    readFile(resolve(root, "app/i18n.mjs"), "utf8"),
-    readFile(resolve(root, "app/i18n-runtime.mjs"), "utf8"),
-    readFile(resolve(root, "app/api-client.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/i18n.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/i18n-runtime.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/api-client.mjs"), "utf8"),
   ]);
 
   // V2 uses segmented control in settings for language selection (zh/en only)
@@ -136,10 +136,10 @@ test("uses a single language chosen from system, Chinese, or English", async () 
 
 test("keeps recipe version history navigable without replacing active edits", async () => {
   const [app, css, i18n, inspector] = await Promise.all([
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
-    readFile(resolve(root, "app/styles.css"), "utf8"),
-    readFile(resolve(root, "app/i18n.mjs"), "utf8"),
-    readFile(resolve(root, "app/inspector-markup.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/styles.css"), "utf8"),
+    readFile(resolve(root, "web/app/i18n.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8"),
   ]);
 
   assert.match(i18n, /versionHistory: "版本历史"/);
@@ -225,10 +225,10 @@ test("keeps recipe version history navigable without replacing active edits", as
 
 test("provides an accessible single-column detail panel", async () => {
   const [app, css, i18n, inspector] = await Promise.all([
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
-    readFile(resolve(root, "app/styles.css"), "utf8"),
-    readFile(resolve(root, "app/i18n.mjs"), "utf8"),
-    readFile(resolve(root, "app/inspector-markup.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/styles.css"), "utf8"),
+    readFile(resolve(root, "web/app/i18n.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8"),
   ]);
 
   // Phase 4A：三 Tab 合并为批准的单栏信息架构——无 tab 角色；#detailTitle 仍是焦点
@@ -263,7 +263,7 @@ test("provides an accessible single-column detail panel", async () => {
 });
 
 test("supports Escape to close detail panel and focus return", async () => {
-  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
   assert.match(app, /detailReturnFocus: null/);
   assert.match(app, /state\.detailReturnFocus = \(activeEl instanceof HTMLElement/);
@@ -282,7 +282,7 @@ test("supports Escape to close detail panel and focus return", async () => {
 });
 
 test("keeps the 960px+ side drawer layout without bottom split", async () => {
-  const css = await readFile(resolve(root, "app/styles.css"), "utf8");
+  const css = await readFile(resolve(root, "web/app/styles.css"), "utf8");
 
   assert.match(css, /\.shell\.details-open \{ grid-template-columns: var\(--sidebar-width\) minmax\(0, 1fr\) var\(--inspector-width\); \}/);
   assert.match(css, /@media \(max-width: 1120px\)[\s\S]*?\.shell\.details-open \{ grid-template-columns: var\(--sidebar-width-compact\) minmax\(0, 1fr\) var\(--inspector-width-compact\); \}/);
@@ -296,7 +296,7 @@ test("keeps the 960px+ side drawer layout without bottom split", async () => {
 });
 
 test("ensures minimum touch target sizes for accessibility", async () => {
-  const css = await readFile(resolve(root, "app/styles.css"), "utf8");
+  const css = await readFile(resolve(root, "web/app/styles.css"), "utf8");
 
   // MOSA interaction-size contract: these controls must be at least 36px tall.
   // Using min-height (not fixed height) so content can expand naturally.
@@ -307,9 +307,9 @@ test("ensures minimum touch target sizes for accessibility", async () => {
 
 test("commits Inspector discards transactionally and keeps result-set mutations coherent", async () => {
   const [app, apiClient, contextBindings] = await Promise.all([
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
-    readFile(resolve(root, "app/api-client.mjs"), "utf8"),
-    readFile(resolve(root, "app/context-menu-bindings.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/api-client.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/context-menu-bindings.mjs"), "utf8"),
   ]);
 
   const guardStart = app.indexOf("async function confirmDetailNavigation(nextAssetId)");

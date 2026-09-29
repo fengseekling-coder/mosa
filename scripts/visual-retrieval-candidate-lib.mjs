@@ -10,6 +10,9 @@ export const DEFAULT_VISUAL_RETRIEVAL_THRESHOLDS = Object.freeze({
   maxVectorSearchP95Ms: 60,
   minVisualHitAt1: 0.75,
   minVisualHitAt5: 1,
+  minReleaseVisualQueries: 20,
+  minReleaseLocaleQueries: 5,
+  minReleaseLocaleHitAt1: 0.75,
 });
 
 export function evaluateVisualRetrievalCandidate(report, fixture, thresholds = DEFAULT_VISUAL_RETRIEVAL_THRESHOLDS) {
@@ -25,6 +28,7 @@ export function evaluateVisualRetrievalCandidate(report, fixture, thresholds = D
     return {
       id: query.id,
       query: query.query,
+      locale: normalizeQueryLocale(query.locale, query.query),
       expected_any: query.expected_any,
       rank: rankIndex >= 0 ? rankIndex + 1 : null,
       ranked_asset_ids: rankedAssetIds,
@@ -33,6 +37,14 @@ export function evaluateVisualRetrievalCandidate(report, fixture, thresholds = D
   const hitAt1 = cases.filter((item) => item.rank === 1).length / cases.length;
   const hitAt5 = cases.filter((item) => item.rank != null && item.rank <= 5).length / cases.length;
   const mrr = cases.reduce((sum, item) => sum + (item.rank ? 1 / item.rank : 0), 0) / cases.length;
+  const localeMetrics = Object.fromEntries([...new Set(cases.map((item) => item.locale))].sort().map((locale) => {
+    const localeCases = cases.filter((item) => item.locale === locale);
+    return [locale, {
+      total: localeCases.length,
+      hitAt1: localeCases.filter((item) => item.rank === 1).length / localeCases.length,
+      hitAt5: localeCases.filter((item) => item.rank != null && item.rank <= 5).length / localeCases.length,
+    }];
+  }));
 
   const measurements = {
     cold_start_ms: finiteNumber(report.measurements.cold_start_ms),
@@ -60,19 +72,41 @@ export function evaluateVisualRetrievalCandidate(report, fixture, thresholds = D
   if (cases.length < 20) warnings.push("visual fixture is still a small synthetic gate; passing it is not sufficient for release");
   if (!String(report.environment?.device || "").trim()) warnings.push("benchmark device is not recorded");
 
+  const releaseBlockers = [];
+  if (failures.length) releaseBlockers.push("candidate does not pass the base visual retrieval gate");
+  if (cases.length < thresholds.minReleaseVisualQueries) {
+    releaseBlockers.push(`release validation requires at least ${thresholds.minReleaseVisualQueries} visual queries`);
+  }
+  for (const locale of ["zh", "en"]) {
+    const metrics = localeMetrics[locale];
+    if (!metrics || metrics.total < thresholds.minReleaseLocaleQueries) {
+      releaseBlockers.push(`release validation requires at least ${thresholds.minReleaseLocaleQueries} ${locale} visual queries`);
+    } else if (metrics.hitAt1 < thresholds.minReleaseLocaleHitAt1) {
+      releaseBlockers.push(`${locale} visual hit@1 is below the release threshold`);
+    }
+  }
+
   return {
     schema: VISUAL_RETRIEVAL_CANDIDATE_SCHEMA,
     candidate: report.candidate,
-    metrics: { total: cases.length, hitAt1, hitAt5, mrr },
+    metrics: { total: cases.length, hitAt1, hitAt5, mrr, by_locale: localeMetrics },
     measurements,
     thresholds,
     cases,
     decision: {
       eligible_for_next_stage: failures.length === 0,
+      release_ready: releaseBlockers.length === 0,
       failures,
+      release_blockers: releaseBlockers,
       warnings,
     },
   };
+}
+
+function normalizeQueryLocale(explicit, query) {
+  const value = String(explicit || "").trim().toLowerCase();
+  if (value === "zh" || value === "en") return value;
+  return /[\u3400-\u9fff]/u.test(String(query || "")) ? "zh" : "en";
 }
 
 export function percentile(values, fraction = 0.95) {

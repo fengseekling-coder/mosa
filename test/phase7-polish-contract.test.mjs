@@ -15,11 +15,11 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 const read = (relative) => readFile(resolve(root, relative), "utf8");
-const readApp = () => read("app/app.mjs");
-const readApiClient = () => read("app/api-client.mjs");
-const readHtml = () => read("app/index.html");
-const readCss = () => read("app/styles.css");
-const readInspectorMarkup = () => read("app/inspector-markup.mjs");
+const readApp = () => read("web/app/app.mjs");
+const readApiClient = () => read("web/app/api-client.mjs");
+const readHtml = () => read("web/app/index.html");
+const readCss = () => read("web/app/styles.css");
+const readInspectorMarkup = () => read("web/app/inspector-markup.mjs");
 const count = (source, needle) => source.split(needle).length - 1;
 
 /** Slices a top-level module function up to the next top-level function. */
@@ -239,7 +239,7 @@ test("12. Icon-button aria-label/title contract holds", async () => {
 //     are fine; an actual declaration `value !important;` is not).
 test("13. No !important in app or extension surfaces", async () => {
   for (const relative of [
-    "app/styles.css",
+    "web/app/styles.css",
     "extensions/chatgpt-web-capture/content.css",
     "extensions/chatgpt-web-capture/options.html",
   ]) {

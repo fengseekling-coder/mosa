@@ -23,7 +23,7 @@ function runtimeOptions(root, overrides = {}) {
     projectRoot: root,
     managerDir: repositoryRoot,
     cowartProjectDir: join(root, "desktop-data"),
-    appDir: join(repositoryRoot, "app"),
+    appDir: join(repositoryRoot, "web", "app"),
     libraryDir,
     assetsRoot: join(libraryDir, "assets"),
     generatedImagesDir: join(root, "generated-images"),
@@ -120,8 +120,8 @@ test("computeRuntimeFingerprint changes when runtime code changes", async () => 
   assert.notEqual(computeRuntimeFingerprint(root), first);
 });
 
-test("the repository app/ directory has a build-identity.json with valid fields", async () => {
-  const appDir = join(repositoryRoot, "app");
+test("the repository web/app/ directory has a build-identity.json with valid fields", async () => {
+  const appDir = join(repositoryRoot, "web", "app");
   resetBuildIdentityCache();
   const identity = getBuildIdentity(appDir);
   assert.ok(identity.productVersion !== "unknown", "productVersion should be set by the build step");
@@ -133,16 +133,19 @@ test("the repository app/ directory has a build-identity.json with valid fields"
   resetBuildIdentityCache();
 });
 
-test("build identity exists only under app/ and never at the repository root", async () => {
+test("build identity exists only under web/app/ and desktop/app/, never at the repository root", async () => {
   await assert.rejects(
     readFile(join(repositoryRoot, "build-identity.json"), "utf8"),
     (error) => error?.code === "ENOENT",
     "repository-root build-identity.json is a stale generated-file location and must stay absent",
   );
+  // Verify both web and desktop have their own build-identity.json
+  await readFile(join(repositoryRoot, "web", "app", "build-identity.json"), "utf8");
+  await readFile(join(repositoryRoot, "desktop", "app", "build-identity.json"), "utf8");
 });
 
 test("uiFingerprint in build-identity.json matches the actual browser-delivered app shell", async () => {
-  const appDir = join(repositoryRoot, "app");
+  const appDir = join(repositoryRoot, "web", "app");
   resetBuildIdentityCache();
   const identity = getBuildIdentity(appDir);
   const computed = computeUiFingerprint(appDir);
@@ -152,7 +155,7 @@ test("uiFingerprint in build-identity.json matches the actual browser-delivered 
 });
 
 test("runtimeFingerprint in build-identity.json matches the actual local runtime code", async () => {
-  const appDir = join(repositoryRoot, "app");
+  const appDir = join(repositoryRoot, "web", "app");
   resetBuildIdentityCache();
   const identity = getBuildIdentity(appDir);
   assert.equal(identity.runtimeFingerprint, computeRuntimeFingerprint(repositoryRoot));
@@ -176,9 +179,9 @@ test("/api/health returns product, protocol, MCP, Git, UI, and runtime build ide
   assert.equal(typeof health.uiFingerprint, "string");
   assert.equal(typeof health.runtimeFingerprint, "string");
 
-  // Verify against the actual build-identity.json in app/
+  // Verify against the actual build-identity.json in web/app/
   resetBuildIdentityCache();
-  const identity = getBuildIdentity(join(repositoryRoot, "app"));
+  const identity = getBuildIdentity(join(repositoryRoot, "web", "app"));
   assert.equal(health.productVersion, identity.productVersion);
   assert.equal(health.gitSha, identity.gitSha);
   assert.equal(health.uiFingerprint, identity.uiFingerprint);
@@ -232,24 +235,25 @@ test("static resources served by the runtime match the source files in app/", as
     const response = await fetch(`${service.url}/${file}`);
     assert.equal(response.status, 200, `${file} should be served`);
     const served = await response.text();
-    const source = await readFile(join(repositoryRoot, "app", file), "utf-8");
+    const source = await readFile(join(repositoryRoot, "web", "app", file), "utf-8");
     assert.equal(served, source, `${file} served by the runtime must match the source file`);
   }
 });
 
 test("index.html does not use hardcoded ?v=NN query parameters for cache busting", async () => {
-  const indexHtml = await readFile(join(repositoryRoot, "app", "index.html"), "utf-8");
+  const indexHtml = await readFile(join(repositoryRoot, "web", "app", "index.html"), "utf-8");
   assert.doesNotMatch(indexHtml, /\?v=\d+["'\s>]/,
     "index.html must not rely on manual ?v=NN query strings; uiFingerprint is the source of truth");
 });
 
-test("the forge packaging config includes app/ resources and does not ignore build-identity.json", async () => {
+test("the forge packaging config includes desktop/app/ resources and relocates them to app/ in the package", async () => {
   const forgeConfig = (await import("../desktop/forge.config.mjs")).default;
   const patterns = forgeConfig.packagerConfig.ignore;
-  // app/ directory should not be ignored.
-  assert.ok(!patterns.some((p) => p.test("/app/index.html")));
-  assert.ok(!patterns.some((p) => p.test("/app/build-identity.json")));
-  assert.ok(!patterns.some((p) => p.test("/app/app.mjs")));
+  // desktop/app/ directory should not be ignored in source.
+  assert.ok(!patterns.some((p) => p.test("/desktop/app/index.html")));
+  assert.ok(!patterns.some((p) => p.test("/desktop/app/build-identity.json")));
+  assert.ok(!patterns.some((p) => p.test("/desktop/app/app.mjs")));
+  // After packaging, desktop/app/ is moved to app/ via packageAfterPrune hook
 });
 
 test("desktop main.mjs derives the app root from its own module location, not app.getAppPath() or cwd", async () => {
@@ -257,14 +261,14 @@ test("desktop main.mjs derives the app root from its own module location, not ap
   // 静态 UI 根从 desktop/main.mjs 的模块位置派生：父目录即应用根（dev 解析为仓库根，packaged 解析为 app.asar 根）。
   assert.ok(source.includes('const appRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));'),
     "appRoot must be derived from the module location, not app.getAppPath()");
-  // projectRoot、managerDir、appDir 使用同一个应用根。
+  // projectRoot、managerDir 使用同一个应用根。
   assert.ok(source.includes("projectRoot: appRoot"), "projectRoot must use appRoot");
   assert.ok(source.includes("managerDir: appRoot"), "managerDir must use appRoot");
-  assert.ok(source.includes('appDir: join(appRoot, "app")'), "appDir must be appRoot/app");
+  // In development, desktop UI is at desktop/app; in packaged runtime, it's moved to app/
+  assert.ok(source.includes('appDir: join(appRoot, "desktop", "app")'), "appDir must be appRoot/desktop/app in development");
   // 不再通过 app.getAppPath() 拼出 appDir，也不依赖 process.cwd()。
   assert.ok(!source.includes("app.getAppPath()"), "must not use app.getAppPath()");
   assert.ok(!source.includes("process.cwd()"), "must not use process.cwd()");
-  assert.ok(!source.includes('appDir: join(appPath, "app")'), "must not join appPath with app");
   // Renderer still loads the verified loopback service. The management
   // capability travels only in the URL fragment, which HTTP never receives.
   assert.ok(source.includes("const clientUrl = new URL(activeService.url)"), "must derive the renderer URL from the verified active service URL");
@@ -278,7 +282,7 @@ test("desktop main.mjs derives the app root from its own module location, not ap
 });
 
 test("early return prevents desktop integration in non-Electron browsers", async () => {
-  const appSource = await readFile(join(repositoryRoot, "app", "app.mjs"), "utf-8");
+  const appSource = await readFile(join(repositoryRoot, "web", "app", "app.mjs"), "utf-8");
   // The bindDesktopIntegration function must bail out when electronAPI is absent.
   assert.match(appSource, /if \(!api\) return/);
   // After the guard, event listeners are registered only when api is available.

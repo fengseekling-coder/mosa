@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { access, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { desktopDistributionFromEnvironment, normalizeDesktopDistribution } from "../lib/release-distribution.mjs";
 
@@ -69,7 +69,7 @@ export function windowsUpdateZipCommand({ packageDir, output, platform = process
 }
 
 export async function makeWindowsUpdateZip({
-  rootDir = process.cwd(),
+  rootDir = resolve(fileURLToPath(new URL("..", import.meta.url))),
   outDir = process.env.MOSA_FORGE_OUT_DIR || "out",
   arch = MOSA_WINDOWS_UPDATE_ARCH,
   distribution = desktopDistributionFromEnvironment(process.env),

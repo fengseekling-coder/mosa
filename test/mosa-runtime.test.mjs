@@ -24,7 +24,7 @@ function runtimeOptions(root, overrides = {}) {
     projectRoot: root,
     managerDir: repositoryRoot,
     cowartProjectDir: join(root, "desktop-data"),
-    appDir: join(repositoryRoot, "app"),
+    appDir: join(repositoryRoot, "web", "app"),
     libraryDir,
     assetsRoot: join(libraryDir, "assets"),
     generatedImagesDir: join(root, "generated-images"),

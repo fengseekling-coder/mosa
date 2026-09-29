@@ -16,7 +16,7 @@ function runtimeOptions(root) {
     projectRoot: root,
     managerDir: repositoryRoot,
     cowartProjectDir: join(root, "desktop-data"),
-    appDir: join(repositoryRoot, "app"),
+    appDir: join(repositoryRoot, "web", "app"),
     libraryDir,
     assetsRoot: join(libraryDir, "assets"),
     generatedImagesDir: join(root, "generated-images"),
@@ -53,8 +53,8 @@ function makeStore(storedValue) {
 let themeScriptSource;
 
 test("theme-init.mjs loads before the stylesheet in index.html", async () => {
-  themeScriptSource = await readFile(join(repositoryRoot, "app", "theme-init.mjs"), "utf8");
-  const indexHtml = await readFile(join(repositoryRoot, "app", "index.html"), "utf8");
+  themeScriptSource = await readFile(join(repositoryRoot, "web", "app", "theme-init.mjs"), "utf8");
+  const indexHtml = await readFile(join(repositoryRoot, "web", "app", "index.html"), "utf8");
 
   const scriptTag = '<script src="/theme-init.mjs"></script>';
   const scriptIdx = indexHtml.indexOf(scriptTag);
@@ -88,7 +88,7 @@ test("theme-init falls back to light when localStorage is unavailable", () => {
 });
 
 test("brand safe-area offset remains desktop-only", async () => {
-  const css = await readFile(join(repositoryRoot, "app", "styles.css"), "utf8");
+  const css = await readFile(join(repositoryRoot, "web", "app", "styles.css"), "utf8");
   assert.match(css, /\.mosa-v2 \.brand-info h1 \{ color: var\(--color-text-primary\);/);
   assert.match(css, /html\.electron-shell body\.mosa-v2 \.brand-info h1 \{ margin-left: 76px; \}/);
   assert.doesNotMatch(css, /(?:^|\n)\.mosa-v2 \.brand-info h1 \{[^}]*margin-left/);

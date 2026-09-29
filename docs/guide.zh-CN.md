@@ -180,7 +180,9 @@ MCP 工具包括：
 ```text
 asset_create
 asset_list
+asset_search
 asset_get
+asset_provenance_export
 asset_update_metadata
 asset_attach_prompt
 asset_archive
@@ -194,7 +196,15 @@ generation_relation_record
 generation_lineage
 ```
 
-`asset_list` 和 `GET /api/assets` 支持 `limit` 与 `cursor` 分页，默认 100 条、最大 250 条。创建子版本时，使用 `asset_version_create` 并传入真实图片路径和非空 `version_change`；需要读取某个素材的不可变配方快照历史时，使用 `asset_recipe_history`。
+`asset_list` 和 `GET /api/assets` 支持 `limit` 与 `cursor` 分页，默认 100 条、最大 250 条；`GET /api/assets` 还可用 `createdAfter` / `createdBefore` 传入 ISO-8601 时间做包含边界的创建时间过滤。
+
+`asset_search` 面向 AI agent 的“视觉记忆”检索：可组合文本查询、`createdAfter` / `createdBefore` 时间范围，并在 `visual: true` 时复用**同一资料库**当前正在运行的 MOSA 本地视觉检索服务。MCP 会先核对 loopback Runtime 的 MOSA 身份和资料库路径；视觉模型未安装、未启用、Runtime 不可达或资料库不匹配时，不会另起一套模型进程，也不会放宽安全边界，而是明确返回视觉不可用原因并保留文本/时间检索结果。文本与视觉同时可用时使用稳定的 reciprocal-rank fusion 合并排序。
+
+`asset_provenance_export` 导出 `mosa.provenance.bundle/1`，包含经过字段白名单/敏感字段清理的素材身份、内容摘要、Recipe 历史、Generation Events/Relations 和 verification level；同时生成一个 `com.azhuilab.mosa.provenance` C2PA assertion payload。该 payload 明确标记为 `signed: false`：它只是交给 C2PA SDK/签名器的可移植声明数据，**不是**已经签名的 Content Credential，MOSA 不会把未签名记录描述成经过 C2PA 验证的来源证明。
+
+后端 `c2pa-export` 已提供真正的签名导出链路：它把上述 provenance 组装成 `c2pa.actions.v2` + MOSA 自定义 assertion，通过外部 `c2patool` 写入**新的导出副本**，然后重新读取结果确认 MOSA assertion 确实存在。开发测试模式可使用 c2patool 自带测试证书；生产模式禁止把私钥塞进 manifest 或环境变量，必须配置独立 subprocess signer。当前这仍是后端能力，尚未接入桌面 UI。
+
+创建子版本时，使用 `asset_version_create` 并传入真实图片路径和非空 `version_change`；需要读取某个素材的不可变配方快照历史时，使用 `asset_recipe_history`。
 
 生成历史与素材版本是两套关系。`generation_record` 记录一次独立生成，即使输出图片已经被内容去重；`generation_relation_record` 只在有明确证据时记录 `edited_from`、`variant_of`、`derived_from` 或 `based_on`；`generation_lineage` 读取相连的生成图。普通 MCP 调用方不能把记录标成 `provider_verified`，该等级只保留给 MOSA 直接接入并验证 provider 响应的受信集成。
 

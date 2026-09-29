@@ -2059,3 +2059,108 @@ test("a capture with no conversation identifier links nothing", async (t) => {
 
   assert.deepEqual(created.references, [], "nothing ties a loose capture to a turn");
 });
+
+test("stores the ChatGPT image request Prompt beside the caption Prompt", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-request-prompt-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  t.after(() => store.close?.());
+  await store.ensureProject("default");
+  const tempRoot = join(libraryDir, ".web-capture-tmp");
+  const caption = "Model caption: A clean flat vector illustration of a gray tabby cat on a pale cream background with soft lighting.";
+  const requestPrompt = "Create a new image in the same visual style as Image A. Generate a simple flat illustration of a gray tabby cat.";
+  const image = (await noiseImage(311)).toString("base64");
+
+  const first = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: {
+      provider: "chatgpt",
+      prompt: caption,
+      prompt_status: "visible-caption",
+      generation_request_prompt: requestPrompt,
+      imageBase64: image,
+      mimeType: "image/png",
+    },
+  });
+  assert.equal(first.status, "imported");
+  assert.equal(first.asset.prompt, caption);
+  assert.equal(first.asset.source?.generation_request_prompt, requestPrompt);
+
+  const repeat = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: { provider: "chatgpt", generation_request_prompt: "A different later text", imageBase64: image, mimeType: "image/png" },
+  });
+  assert.equal(repeat.status, "skipped");
+  assert.equal(repeat.asset.prompt, caption);
+  assert.equal(repeat.asset.source?.generation_request_prompt, requestPrompt, "the first observed request Prompt is kept");
+
+  const gemini = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: {
+      provider: "gemini",
+      generation_request_prompt: requestPrompt,
+      imageBase64: (await noiseImage(312)).toString("base64"),
+      mimeType: "image/png",
+    },
+  });
+  assert.equal(gemini.status, "imported");
+  assert.equal(gemini.asset.source?.generation_request_prompt, null);
+});
+
+test("adds a late ChatGPT request Prompt to an already archived capture", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-late-request-prompt-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  t.after(() => store.close?.());
+  await store.ensureProject("default");
+  const bridge = createWebCaptureIngest({
+    store,
+    libraryDir,
+    projectId: "default",
+    token: "request-secret",
+    allowedOrigins: ["chrome-extension://example-extension"],
+  });
+  const requestPrompt = "Generate a simple flat illustration of an orange tabby cat sitting on a cream background.";
+
+  const byDuplicate = await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: (await noiseImage(321)).toString("base64"),
+    mimeType: "image/png",
+    promptStatus: "not-available",
+  }, "request-secret");
+  assert.equal(byDuplicate.asset.source?.generation_request_prompt, null);
+  const repeated = await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: (await noiseImage(321)).toString("base64"),
+    mimeType: "image/png",
+    generationRequestPrompt: requestPrompt,
+  }, "request-secret");
+  assert.equal(repeated.status, "skipped");
+  assert.equal(repeated.asset.source?.generation_request_prompt, requestPrompt);
+
+  await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: (await noiseImage(322)).toString("base64"),
+    mimeType: "image/png",
+    providerAssetId: "file-late-request",
+    promptStatus: "not-available",
+  }, "request-secret");
+  const upgraded = await bridge.upgradeMetadata({
+    provider: "chatgpt",
+    mediaKind: "image",
+    providerAssetId: "file-late-request",
+    generationRequestPrompt: requestPrompt,
+  }, "request-secret");
+  assert.equal(upgraded.asset.source?.generation_request_prompt, requestPrompt);
+  assert.equal(upgraded.asset.prompt, "", "a request Prompt never fills the caption Prompt");
+});

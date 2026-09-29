@@ -289,7 +289,7 @@ test("batch Trash removes a selected version chain child-first in one request", 
 });
 
 test("shows only the four everyday fields and hides the rest behind advanced settings", async () => {
-  const html = await readFile(resolve(root, "app/index.html"), "utf8");
+  const html = await readFile(resolve(root, "web/app/index.html"), "utf8");
   const body = html.slice(html.indexOf('<div class="modal-body import-modal-body">'), html.indexOf('<div class="modal-footer">'));
   const advanced = body.slice(body.indexOf('<details class="import-advanced"'));
   const everyday = body.slice(0, body.indexOf('<details class="import-advanced"'));
@@ -307,9 +307,9 @@ test("shows only the four everyday fields and hides the rest behind advanced set
 
 test("offers a real file picker while keeping server-sourced format guidance", async () => {
   const [html, app, apiClient] = await Promise.all([
-    readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
-    readFile(resolve(root, "app/api-client.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/index.html"), "utf8"),
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/api-client.mjs"), "utf8"),
   ]);
 
   assert.match(html, /id="importFormatList"/);
@@ -331,8 +331,8 @@ test("offers a real file picker while keeping server-sourced format guidance", a
 
 test("keeps desktop bridge minimal while manual files use unified server staging", async () => {
   const [html, app, preload] = await Promise.all([
-    readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/index.html"), "utf8"),
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
     readFile(resolve(root, "desktop/preload.cjs"), "utf8"),
   ]);
 
@@ -352,10 +352,10 @@ test("keeps desktop bridge minimal while manual files use unified server staging
 
 test("attaches import errors to their field with aria wiring and non-colour cues", async () => {
   const [html, app, css, apiClient] = await Promise.all([
-    readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/app.mjs"), "utf8"),
-    readFile(resolve(root, "app/styles.css"), "utf8"),
-    readFile(resolve(root, "app/api-client.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/index.html"), "utf8"),
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/styles.css"), "utf8"),
+    readFile(resolve(root, "web/app/api-client.mjs"), "utf8"),
   ]);
 
   assert.match(html, /id="imagePathInput"[^>]*aria-describedby="imagePathGuidance imagePathError"/);
@@ -379,7 +379,7 @@ test("attaches import errors to their field with aria wiring and non-colour cues
 });
 
 test("blocks a double submit and shows a loading state while saving", async () => {
-  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
   assert.match(app, /if \(state\.importSaving\) return;/);
   assert.match(app, /els\.importModal\?\.querySelectorAll\("input, textarea, select, button"\)\.forEach\(\(control\) => \{ control\.disabled = busy; \}\)/,
@@ -395,7 +395,7 @@ test("blocks a double submit and shows a loading state while saving", async () =
 });
 
 test("keeps the import dialog's focus contract and translates every new string", async () => {
-  const app = await readFile(resolve(root, "app/app.mjs"), "utf8");
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
   assert.match(app, /function trapImportModalFocus\(event\)/);
   assert.match(app, /if \(event\.key === "Escape"\) \{ event\.preventDefault\(\); closeImportModal\(\); return; \}/);
@@ -409,7 +409,7 @@ test("keeps the import dialog's focus contract and translates every new string",
     "advancedSettings", "importPathFormats", "importPathExample", "importPathCodexDir", "importPathCodexDirUnknown",
     "errorPathRequired", "errorPathNotFound", "errorPathUnsupported", "errorPathNotReadable", "errorInvalidJson", "savingAsset",
   ];
-  const i18n = await readFile(resolve(root, "app/i18n.mjs"), "utf8");
+  const i18n = await readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
   for (const key of keys) {
     assert.match(i18n, new RegExp(`\\b${key}:`), `translation missing for ${key}`);
   }

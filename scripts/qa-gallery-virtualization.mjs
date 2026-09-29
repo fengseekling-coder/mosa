@@ -5,8 +5,18 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
-import { GALLERY_PAGE_SIZE } from "../app/config.mjs";
+import { GALLERY_PAGE_SIZE as DESKTOP_GALLERY_PAGE_SIZE } from "../desktop/app/config.mjs";
+import { GALLERY_PAGE_SIZE as WEB_GALLERY_PAGE_SIZE } from "../web/app/config.mjs";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
+
+// This gate measures the desktop renderer (package.json main is
+// desktop/main.mjs), so the scroll-step budget must come from the tree under
+// test. The web constant is asserted equal so tree divergence fails loudly
+// here instead of silently budgeting against the wrong value.
+const GALLERY_PAGE_SIZE = DESKTOP_GALLERY_PAGE_SIZE;
+if (GALLERY_PAGE_SIZE !== WEB_GALLERY_PAGE_SIZE) {
+  throw new Error(`Gallery page size diverged between UI trees (web=${WEB_GALLERY_PAGE_SIZE}, desktop=${DESKTOP_GALLERY_PAGE_SIZE}); align them or budget per tree.`);
+}
 
 const root = resolve(import.meta.dirname, "..");
 const ASSET_COUNT = Number.parseInt(process.env.MOSA_GALLERY_QA_ASSET_COUNT || "2000", 10);

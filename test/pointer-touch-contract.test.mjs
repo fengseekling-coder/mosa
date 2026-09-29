@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
-import { createImagePreviewViewer } from "../app/image-preview.mjs";
+import { createImagePreviewViewer } from "../web/app/image-preview.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const read = (relativePath) => readFile(resolve(root, relativePath), "utf8");
@@ -24,7 +24,7 @@ function functionBody(source, name) {
 }
 
 test("Preview uses one Pointer Events path with capture and no document mouse drag", async () => {
-  const preview = await read("app/image-preview.mjs");
+  const preview = await read("web/app/image-preview.mjs");
   const setup = functionBody(preview, "setupImageZoomPan");
   for (const eventName of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
     assert.match(setup, new RegExp(`addEventListener\\(\\"${eventName}\\",`), `${eventName} is bound on the Preview stage`);
@@ -38,7 +38,7 @@ test("Preview uses one Pointer Events path with capture and no document mouse dr
 });
 
 test("Preview pinch uses two touch pointers, distance scaling, midpoint anchoring, and one final announcement", async () => {
-  const preview = await read("app/image-preview.mjs");
+  const preview = await read("web/app/image-preview.mjs");
   assert.match(preview, /function startImagePreviewPinch\(\)/);
   assert.match(functionBody(preview, "startImagePreviewPinch"), /length < 2/);
   assert.match(functionBody(preview, "startImagePreviewPinch"), /startDistance/);
@@ -94,7 +94,7 @@ test("Preview exposes bounded transform reconciliation and consumes drag clicks 
 });
 
 test("Viewer keeps its independent transform state and gains the same pointer lifecycle", async () => {
-  const viewer = await read("app/asset-view.mjs");
+  const viewer = await read("web/app/asset-view.mjs");
   assert.match(viewer, /const assetViewTransform = \{ mode: "fit"/);
   assert.match(viewer, /const assetViewActivePointers = new Map\(\)/, "Viewer owns a separate active-pointer table");
   const setup = functionBody(viewer, "setupAssetViewInteraction");
@@ -114,10 +114,10 @@ test("Viewer keeps its independent transform state and gains the same pointer li
 });
 
 test("Touch input is scoped to the two complete stages and the existing mouse, keyboard, and wheel paths remain", async () => {
-  const app = await read("app/app.mjs");
-  const viewer = await read("app/asset-view.mjs");
-  const preview = await read("app/image-preview.mjs");
-  const css = await read("app/styles.css");
+  const app = await read("web/app/app.mjs");
+  const viewer = await read("web/app/asset-view.mjs");
+  const preview = await read("web/app/image-preview.mjs");
+  const css = await read("web/app/styles.css");
   assert.equal((css.match(/touch-action:\s*none/g) || []).length, 2, "only Preview and Viewer stages disable browser touch scrolling");
   assert.doesNotMatch(app, /document\.addEventListener\("mousemove"/);
   assert.doesNotMatch(app, /document\.addEventListener\("mouseup"/);

@@ -10,14 +10,14 @@ import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
-import { createInspectorMarkup } from "../app/inspector-markup.mjs";
+import { createInspectorMarkup } from "../web/app/inspector-markup.mjs";
 import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
-const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
-const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
-const readInspectorMarkup = () => readFile(resolve(root, "app/inspector-markup.mjs"), "utf8");
+const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readI18n = () => readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
+const readInspectorMarkup = () => readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 const count = (source, needle) => source.split(needle).length - 1;
 

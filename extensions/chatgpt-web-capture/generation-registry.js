@@ -45,6 +45,29 @@
       };
     }
 
+    function preferGenerationContextId(current, candidate) {
+      const previous = clean(current);
+      const next = clean(candidate);
+      if (!previous) return next;
+      if (!next || previous === next) return previous;
+
+      // A new ChatGPT conversation starts before /c/<id> necessarily appears
+      // in the address bar. The live event therefore first uses
+      // `chatgpt:<attempt>` and can later be enriched to
+      // `chatgpt:<conversation>:<attempt>`. Keep the richer form without
+      // turning that normal identity enrichment into a second Attempt.
+      const previousParts = previous.split(":");
+      const nextParts = next.split(":");
+      if (
+        previousParts[0] === "chatgpt"
+        && nextParts[0] === "chatgpt"
+        && previousParts.at(-1) === nextParts.at(-1)
+      ) {
+        return nextParts.length > previousParts.length ? next : previous;
+      }
+      return previous;
+    }
+
     function attemptKeys(entry) {
       const identity = attemptIdentity(entry);
       const keys = [];
@@ -119,6 +142,7 @@
         generationCallId: identity.generationCallId,
         toolCallId: identity.toolCallId,
         generationContextId: identity.generationContextId,
+        requestPrompt: "",
         attemptKeys: new Set(),
         messageKeys: new Set(),
         outputs: new Set(),
@@ -173,17 +197,28 @@
 
     function attemptsCompatible(left, right) {
       if (!left || !right || left === right) return true;
-      if (left.generationCallId && right.generationCallId && left.generationCallId !== right.generationCallId) return false;
-      if (left.toolCallId && right.toolCallId && left.toolCallId !== right.toolCallId) return false;
-      if (left.generationContextId && right.generationContextId && left.generationContextId !== right.generationContextId) return false;
+      // Strong provider identity wins over weaker context. Context ids are
+      // MOSA-created correlation keys and may legitimately become more
+      // specific after ChatGPT assigns the new conversation URL.
+      if (left.generationCallId && right.generationCallId) return left.generationCallId === right.generationCallId;
+      if (left.toolCallId && right.toolCallId) return left.toolCallId === right.toolCallId;
+      if (left.generationContextId && right.generationContextId) {
+        return preferGenerationContextId(left.generationContextId, right.generationContextId) !== left.generationContextId
+          || preferGenerationContextId(right.generationContextId, left.generationContextId) !== right.generationContextId
+          || left.generationContextId === right.generationContextId;
+      }
       return true;
     }
 
     function attemptCompatibleWithEntry(attempt, entry) {
       const identity = attemptIdentity(entry);
-      if (attempt.generationCallId && identity.generationCallId && attempt.generationCallId !== identity.generationCallId) return false;
-      if (attempt.toolCallId && identity.toolCallId && attempt.toolCallId !== identity.toolCallId) return false;
-      if (attempt.generationContextId && identity.generationContextId && attempt.generationContextId !== identity.generationContextId) return false;
+      if (attempt.generationCallId && identity.generationCallId) return attempt.generationCallId === identity.generationCallId;
+      if (attempt.toolCallId && identity.toolCallId) return attempt.toolCallId === identity.toolCallId;
+      if (attempt.generationContextId && identity.generationContextId) {
+        return preferGenerationContextId(attempt.generationContextId, identity.generationContextId) !== attempt.generationContextId
+          || preferGenerationContextId(identity.generationContextId, attempt.generationContextId) !== identity.generationContextId
+          || attempt.generationContextId === identity.generationContextId;
+      }
       return true;
     }
 
@@ -206,7 +241,8 @@
       if (!primary || !secondary || primary === secondary || !attemptsCompatible(primary, secondary)) return primary || secondary;
       primary.generationCallId ||= secondary.generationCallId;
       primary.toolCallId ||= secondary.toolCallId;
-      primary.generationContextId ||= secondary.generationContextId;
+      primary.generationContextId = preferGenerationContextId(primary.generationContextId, secondary.generationContextId);
+      primary.requestPrompt ||= secondary.requestPrompt;
       primary.sharedPrompt = betterPrompt(primary.sharedPrompt, secondary.sharedPrompt);
       primary.generationStatus = betterStatus(primary.generationStatus, secondary.generationStatus);
       primary.isGeneration = primary.isGeneration || secondary.isGeneration;
@@ -290,7 +326,7 @@
       const identity = attemptIdentity(entry);
       attempt.generationCallId ||= identity.generationCallId;
       attempt.toolCallId ||= identity.toolCallId;
-      attempt.generationContextId ||= identity.generationContextId;
+      attempt.generationContextId = preferGenerationContextId(attempt.generationContextId, identity.generationContextId);
       for (const key of attemptKeys(entry)) attempt.attemptKeys.add(key);
       const msgKey = messageKey(entry);
       if (msgKey) attempt.messageKeys.add(msgKey);
@@ -318,6 +354,8 @@
       applyAttemptIdentity(attempt, entry);
       attempt.updatedAt = Date.now();
       attempt.isGeneration = attempt.isGeneration || entry.isGeneration === true;
+      // The image tool call's Prompt belongs to the whole generation attempt.
+      attempt.requestPrompt ||= clean(entry.generationRequestPrompt);
       attempt.generationStatus = betterStatus(attempt.generationStatus, normalizeGenerationStatus(entry));
 
       const output = outputForEntry(attempt, entry, { create: imageKeys(entry).length > 0 });
@@ -392,6 +430,7 @@
         providerToolCallId: clean(meta.providerToolCallId || prompt.providerToolCallId || attempt.toolCallId),
         providerGenerationCallId: clean(meta.providerGenerationCallId || prompt.providerGenerationCallId || attempt.generationCallId),
         providerResponseId: clean(meta.providerResponseId || prompt.providerResponseId),
+        generationRequestPrompt: clean(attempt.requestPrompt || meta.generationRequestPrompt),
         assetId: clean(meta.assetId || prompt.assetId),
         isGeneration: attempt.isGeneration,
       };
@@ -415,6 +454,7 @@
         providerToolCallId: clean(prompt.providerToolCallId || attempt.toolCallId),
         providerGenerationCallId: clean(prompt.providerGenerationCallId || attempt.generationCallId),
         providerResponseId: clean(prompt.providerResponseId),
+        generationRequestPrompt: clean(attempt.requestPrompt),
         assetId: "",
         isGeneration: attempt.isGeneration,
       };
@@ -451,6 +491,28 @@
       const live = liveMessageAttempts(key);
       if (live.length !== 1) return null;
       return resolvedAttempt(live[0]);
+    }
+
+    function resolvedForMessages(conversationId, messageIds) {
+      const ids = [...new Set((Array.isArray(messageIds) ? messageIds : [messageIds])
+        .map(clean)
+        .filter(Boolean))];
+      if (!ids.length) return null;
+      const matchedAttempts = new Set();
+      let matchedMessageCount = 0;
+      for (const messageId of ids) {
+        const key = messageKey({ conversationId, messageId });
+        if (!key) continue;
+        const live = liveMessageAttempts(key);
+        if (!live.length) continue;
+        matchedMessageCount += 1;
+        for (const attempt of live) matchedAttempts.add(attempt);
+      }
+      // A DOM wrapper may name the displayed image message plus a live
+      // commentary copy. Accept that multi-id wrapper only when every matched
+      // id collapses to one Attempt; retry/error siblings remain fail-closed.
+      if (matchedMessageCount !== ids.length || matchedAttempts.size !== 1) return null;
+      return resolvedAttempt([...matchedAttempts][0]);
     }
 
     function imageKeysForEntry(entry) {
@@ -550,6 +612,7 @@
       resolvedForEntry,
       resolvedForImage,
       resolvedForMessage,
+      resolvedForMessages,
       resolvedOutputsForEntry,
     };
   }

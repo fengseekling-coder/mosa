@@ -17,6 +17,7 @@ import {
   windowsUpdateDetachedLauncherCommand,
   windowsUpdateDownloadUrl,
   windowsUpdateHelperScript,
+  windowsInstallProcessDrainScript,
   windowsMoveDirectoryRetryScript,
   windowsUpdateTransactionParentDir,
 } from "../desktop/windows-updater.mjs";
@@ -100,6 +101,9 @@ test("Windows updater downloads to userData staging and verifies exact size plus
 test("Windows apply helper waits for MOSA, replaces the whole portable directory, rolls back, and relaunches", async () => {
   const script = windowsUpdateHelperScript();
   assert.match(script, /Wait-Process -Id \$TargetPid/);
+  assert.match(script, /Wait-MosaInstallProcessesExit -InstallDir \$InstallDir/);
+  assert.match(script, /Get-CimInstance -ClassName Win32_Process/);
+  assert.match(script, /ExecutablePath/);
   assert.match(script, /\$transactionRoot = Join-Path \$parentDir/);
   assert.match(script, /\$flatPayloadExe = Join-Path \$extractDir \$ExeName/);
   assert.match(script, /\$nestedPayloadDir = Join-Path \$extractDir "MOSA-win32-x64"/);
@@ -122,6 +126,9 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   assert.match(script, /nativeCode=\$nativeCode/);
   assert.match(script, /errorId=\$errorId/);
   assert.match(script, /--mosa-update-ready-file=/);
+  assert.match(script, /Start-Process -FilePath \$newExe -WorkingDirectory \$InstallDir -ArgumentList @\(\$readyArgument\) -PassThru/);
+  assert.doesNotMatch(script, /Start-Process -FilePath \$newExe[^\n]*-WindowStyle Hidden/);
+  assert.doesNotMatch(script, /Start-Process -FilePath \$oldExe[^\n]*-WindowStyle Hidden/);
   assert.match(script, /Test-Path -LiteralPath \$ReadyFile/);
   assert.match(script, /did not report readiness before the rollback deadline/);
   assert.match(script, /readiness identity does not match the release manifest/);
@@ -172,6 +179,14 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   } finally {
     await removeTestPath(root, { recursive: true, force: true });
   }
+});
+
+test("Windows updater drains residual install-directory processes before replacement", () => {
+  const script = windowsInstallProcessDrainScript();
+  assert.match(script, /\[int\]\$MaxAttempts = 60/);
+  assert.match(script, /StartsWith\(\$prefix, \[StringComparison\]::OrdinalIgnoreCase\)/);
+  assert.match(script, /Start-Sleep -Milliseconds 250/);
+  assert.match(script, /processes still hold the install directory/i);
 });
 
 test("Windows directory move retries a transient exclusive file lock", { skip: process.platform !== "win32" }, async () => {

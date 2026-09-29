@@ -67,7 +67,27 @@ Windows 10/11 x64 is currently a **Preview / testing** target. A real Windows-ma
 
 Windows Preview builds may remain unsigned and SmartScreen may warn about an unknown publisher. Production builds require `MOSA_WINDOWS_SIGNER_THUMBPRINT` plus a supported signing source (`WINDOWS_CERTIFICATE_FILE` + `WINDOWS_CERTIFICATE_PASSWORD`, `WINDOWS_SIGN_WITH_PARAMS`, or `WINDOWS_SIGN_HOOK_MODULE_PATH`). macOS Preview DMGs use the ad-hoc signing path and are not notarized; only `desktop:release:production` requires Apple Developer credentials. A conventional Windows installer and background login launch remain separate release work.
 
-Packaged Windows builds support an explicit in-app update flow for portable ZIP releases. Release builds pin an Ed25519 release-manifest public key in their build identity, so the main process verifies `latest.json` before trusting any artifact hash or distribution mode. It then requires the artifact platform/architecture/filename to match the advertised release, downloads only from the fixed MOSA origin, and verifies the declared byte size/SHA-256. Preview updates rely on that signed manifest plus post-launch build-identity verification; Production updates additionally require the installed publisher and every `.exe`, `.dll`, and `.node` in the replacement payload to have matching valid Authenticode signatures. The relaunched app must report the exact expected version, Git SHA, UI fingerprint, runtime fingerprint, and distribution before the transaction is accepted; otherwise rollback restores the previous directory.
+Packaged Windows builds support an explicit in-app update flow for portable ZIP releases. Release builds pin an Ed25519 release-manifest public key in their build identity, so the main process verifies `latest.json` before trusting any artifact hash or distribution mode. It then requires the artifact platform/architecture/filename to match the advertised release, downloads only from the fixed MOSA origin, and verifies the declared byte size/SHA-256. After the old main process exits, the detached helper also waits for residual processes whose executable still lives inside the current MOSA install directory before attempting replacement; bounded `Move-Item` retries remain as a second defense against short antivirus/indexer handle retention. The helper itself is created with `CREATE_NO_WINDOW`, while the relaunched MOSA GUI process uses its normal visible-window lifecycle rather than inheriting hidden-window semantics. Preview updates rely on the signed manifest plus post-launch build-identity verification; Production updates additionally require the installed publisher and every `.exe`, `.dll`, and `.node` in the replacement payload to have matching valid Authenticode signatures. The relaunched app must report the exact expected version, Git SHA, UI fingerprint, runtime fingerprint, and distribution before the transaction is accepted; otherwise rollback restores the previous directory.
+
+### C2PA / Content Credentials helper
+
+MOSA's backend C2PA exporter is intentionally side-effect isolated from the Library: it reads the managed original and writes a **new export file**; input and output may never be the same path. The exporter builds a `c2pa.actions.v2` assertion plus the custom `com.azhuilab.mosa.provenance` assertion from the sanitized `mosa.provenance.bundle/1`. It only auto-declares `trainedAlgorithmicMedia` when MOSA provenance actually identifies a generated source or recorded generation event; unknown local imports fail closed instead of being mislabeled.
+
+The helper executable resolution order is: explicit `MOSA_C2PATOOL_PATH`, then the newest verified C2PA helper pack under Electron `userData`, then `c2patool` on `PATH`. Development-test mode deliberately relies on c2patool's built-in **test** certificate/key and is never reported as production trust. The real integration test runs automatically when `c2patool -V` succeeds (or when `MOSA_C2PATOOL_TEST_PATH` points to a test binary); otherwise that one E2E test is skipped while manifest/policy/helper-contract tests still run.
+
+Production signing requires an external subprocess signer and passes it through c2patool's `--signer-path` interface. MOSA strips `C2PA_PRIVATE_KEY`, `C2PA_SIGN_CERT`, and `C2PATOOL_SETTINGS` from the c2patool child environment and does not put private keys or signing certificates in generated manifest JSON. A production signer should keep its private key in the OS keychain/TPM, Secure Enclave, HSM, or KMS and expose only the c2patool subprocess-signer protocol. Using an external signer does **not** by itself prove that its certificate chains to the C2PA Trust List; trust/conformance verification remains a separate release requirement.
+
+Before any production export, MOSA preflights the signer using the official subprocess protocol. The signer executable must support `--signer-info`, return JSON containing a supported `alg` plus a PEM `sign_cert` chain, and may additionally return an HTTPS `tsa_url` and bounded `reserve_size`. MOSA validates that response, parses the public X.509 certificate chain, records only public diagnostics (algorithm, certificate SHA-256/subject/issuer/validity, TSA and reserve size), and refuses to invoke c2patool if preflight fails. During the real signing operation c2patool sends the to-be-signed bytes to the signer on stdin and expects raw signature bytes on stdout; the private key therefore stays inside the signer/KMS/HSM/keychain process.
+
+The current MOSA production contract is deliberately stricter than c2patool's general command-string interface: `signerPath` must be an absolute path to a non-empty regular executable, must not be a symlink, and currently must not contain whitespace or embedded command arguments. If a deployment needs profiles or KMS parameters, put that configuration inside the signer wrapper or its secure operator-managed configuration rather than concatenating request-controlled command-line text.
+
+Operators can validate a signer without signing an asset:
+
+```bash
+npm run check:c2pa-signer -- --signer /absolute/path/to/mosa-c2pa-signer
+```
+
+This command prints public signer metadata only. It must never print or persist private-key material.
 
 Packaged macOS arm64 builds use the same Settings update control and signed release-manifest trust root. The trusted main process accepts only `platforms.macos` entries whose identity is exactly `macOS` / `arm64` / `MOSA-darwin-arm64-<version>.zip`, downloads only from `https://mosa.azhuilab.com/downloads/`, rejects redirects, verifies declared size/SHA-256, and stages the ZIP under Electron `userData`. Preview replacements must have the expected bundle/version and pass `codesign --verify`, but do not require Developer ID or Gatekeeper acceptance. Production replacements additionally require the same Developer ID TeamIdentifier as the installed app, Hardened Runtime, and Gatekeeper acceptance. The relaunched app must report the exact signed-manifest version, Git SHA, fingerprints, and distribution. Missing readiness, identity drift, an early crash, or any replacement failure restores the previous app and relaunches it automatically.
 
@@ -100,6 +120,29 @@ node scripts/build-visual-model-pack.mjs --source <candidate-source> \
 Use `--runtime-target win32-x64` for the Windows pack. The command prints a `release_manifest_patch.visualPacks.<target>` object containing the exact pack id/revision, total payload bytes, `model-pack.json` byte size and SHA-256, and license metadata. Upload the output directory byte-for-byte to `/downloads/visual-packs/<id>/<revision>/<target>/`, then merge that generated entry into the official `releases/latest.json`.
 
 Do not publish the release-feed entry until every referenced file is already present at the fixed download origin. The desktop installer rejects arbitrary renderer-provided URLs, redirects, unsupported targets, mismatched runtime architecture, insufficient disk space, manifest/file size drift, SHA-256 drift, and packs that fail final `verifyVisualModelPack()` validation. Updates download beside the working revision and select the new revision only after verification, so a failed update does not destroy the last known-good pack.
+
+### Optional C2PA helper pack publishing
+
+`c2patool` is also kept outside the core desktop package. Prepare each target on a **native runner** so the preparation step can execute `c2patool -V` before accepting the binary. Supply the upstream license files together with the extracted official executable:
+
+```bash
+npm run prepare:c2pa-helper -- \
+  --binary /path/to/c2patool \
+  --version <upstream-version> \
+  --license /path/to/LICENSE-MIT \
+  --license /path/to/LICENSE-APACHE \
+  --output <release-root>/c2patool/<version>/darwin-arm64
+```
+
+On Windows run the same command with the native `c2patool.exe`; the output target becomes `win32-x64`. The preparer verifies the executable's reported version, copies the executable and supplied license material, writes `helper-pack.json`, hashes every file, verifies the completed pack, and prints a `helperPacks.c2patool.<target>` release-manifest patch.
+
+Upload the output byte-for-byte under:
+
+`/downloads/helper-packs/c2patool/<version>/<target>/`
+
+Then merge the generated patch into the signed first-party `releases/latest.json`. Publish the files **before** publishing the release-feed reference. The desktop installer only accepts the signed MOSA release feed — release-manifest signature verification is mandatory in code — and the fixed `https://mosa.azhuilab.com/downloads/helper-packs/c2patool/` origin; it rejects redirects, path traversal, unsupported targets, invalid sizes/hashes, symlinks, missing license/notice material, and packs whose final verification fails. Installation is staged beside the last working helper and swapped only after verification. The installer module (`desktop/c2pa-helper-installer.mjs`) is implemented and covered by tests, but no desktop UI entry point invokes it yet; releases must not describe helper installation as an end-user feature until that wiring ships.
+
+The current upstream binary distribution uses a macOS universal archive and a Windows x64 MSVC archive. MOSA does not download those GitHub archives at runtime; upstream artifacts are an input to the release-preparation pipeline only. Client machines download only the MOSA-pinned helper pack from the first-party origin.
 
 ## Library Migration
 

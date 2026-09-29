@@ -21,7 +21,7 @@ test("static resource cache semantics: no-cache for UI files and immutable for l
     projectRoot: root,
     managerDir: repositoryRoot,
     cowartProjectDir: join(root, "desktop-data"),
-    appDir: join(repositoryRoot, "app"),
+    appDir: join(repositoryRoot, "web", "app"),
     assetsRoot: join(isolatedLibraryDir, "assets"),
     generatedImagesDir: join(root, "generated-images"),
     codexImagesDir: join(root, "codex-images"),

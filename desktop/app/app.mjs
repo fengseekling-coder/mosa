@@ -5616,7 +5616,21 @@ function bindDetailEvents(asset, renderId) {
   if (!isVideoAsset(asset)) {
     panel.querySelector(".detail-image")?.addEventListener("dblclick", (event) => openImagePreview(asset.id, event.currentTarget));
   }
-  panel.querySelector('[data-action="copy-prompt"]')?.addEventListener("click", () => runAction(async () => { await writeClipboardText(asset.prompt || ""); showToast(t("copySuccess"), "success"); }));
+  // Prompt / Prompt 2 switch the visible text; copy follows the visible one.
+  const promptTexts = { 1: String(asset.prompt || ""), 2: String(asset.source?.generation_request_prompt || "").trim() };
+  let activePromptVariant = "1";
+  panel.querySelectorAll("[data-prompt-variant]").forEach((tab) => tab.addEventListener("click", () => {
+    activePromptVariant = tab.dataset.promptVariant === "2" ? "2" : "1";
+    panel.querySelectorAll("[data-prompt-variant]").forEach((other) => {
+      const active = other.dataset.promptVariant === activePromptVariant;
+      other.classList.toggle("is-active", active);
+      other.setAttribute("aria-pressed", String(active));
+    });
+    panel.querySelectorAll("[data-prompt-panel]").forEach((box) => { box.hidden = box.dataset.promptPanel !== activePromptVariant; });
+    const copy = panel.querySelector('[data-action="copy-prompt"]');
+    if (copy) copy.disabled = !promptTexts[activePromptVariant];
+  }));
+  panel.querySelector('[data-action="copy-prompt"]')?.addEventListener("click", () => runAction(async () => { await writeClipboardText(promptTexts[activePromptVariant] || ""); showToast(t("copySuccess"), "success"); }));
   panel.querySelector('[data-action="copy-instruction"]')?.addEventListener("click", () => runAction(async () => { const instruction = String(asset.source?.user_message || asset.business_fields?.user_message || "").trim(); await writeClipboardText(instruction); showToast(t("copySuccess"), "success"); }));
   panel.querySelectorAll('[data-edit="rating"] button').forEach((button) => button.addEventListener("click", () => {
     state.detailDirty = true;

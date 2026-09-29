@@ -128,7 +128,7 @@ function cliOption(argv, name) {
 async function main() {
   if (process.platform !== "darwin") throw new Error("macOS release verification must run on macOS.");
   const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-  const appPath = cliOption(process.argv.slice(2), "app") || resolve(root, "out", "MOSA-darwin-arm64", "MOSA.app");
+  const appPath = cliOption(process.argv.slice(2), "app") || resolve(root, process.env.MOSA_FORGE_OUT_DIR || "out", "MOSA-darwin-arm64", "MOSA.app");
   const result = await verifyMacosReleaseApp({ appPath, staple: process.argv.includes("--staple") });
   console.log(`[MOSA] macOS ${result.distribution} app verified: ${result.bundleId}${result.teamId ? `; team ${result.teamId}` : ""}`);
 }

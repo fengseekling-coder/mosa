@@ -240,9 +240,9 @@ export function packageIgnorePatternsForTarget(target = resolveDesktopPackagingT
   return [
   // The desktop bundle has one runtime surface. Everything else at the
   // repository root is development, documentation, or another distribution.
-  /^\/(?!app(?:\/|$)|desktop(?:\/|$)|lib(?:\/|$)|node_modules(?:\/|$)|LICENSE$|package\.json$).+/,
+  /^\/(?!desktop(?:\/|$)|lib(?:\/|$)|node_modules(?:\/|$)|LICENSE$|package\.json$).+/,
   /^\/desktop\/assets(?:\/|$)/,
-  /^\/desktop\/(?:forge\.config\.mjs|icon-assets\.mjs|preload\.mjs)$/,
+  /^\/desktop\/(?:forge\.config\.mjs|icon-assets\.mjs)$/,
   /^\/lib\/.*(?:\.ts|\.js\.map)$/,
   /^\/node_modules\/\.package-lock\.json$/,
   new RegExp(`^/node_modules/(?!(?:better-sqlite3|detect-libc|node-addon-api|semver|sharp)(?:/|$)|@img(?:/(?:${allowedImagePackages})(?:/|$)|$)).+`),

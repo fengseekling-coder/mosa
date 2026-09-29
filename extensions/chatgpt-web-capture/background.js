@@ -25,6 +25,7 @@ const REMOTE_MEDIA_HOSTS = new Set([
   "chat.openai.com",
   "images.openai.com",
   "labs.google",
+  "flow.google.com",
   "aistudio.google.com",
   "storage.googleapis.com",
   "generativelanguage.googleapis.com",
@@ -769,9 +770,9 @@ async function probeFlowMedia(url) {
   } catch {
     throw new Error("Invalid Flow media URL.");
   }
-  if (parsed.origin !== "https://labs.google"
-    || parsed.pathname !== "/fx/api/trpc/media.getMediaUrlRedirect"
-    || !parsed.searchParams.get("name")) {
+  // The accepted Flow origins and redirect paths live in provider-policy.js
+  // so the page adapter and this background gate share one rule set.
+  if (!globalThis.MosaProviderPolicy?.isFlowMediaRedirectUrl?.(parsed.href)) {
     throw new Error("Unsupported Flow media probe URL.");
   }
 
@@ -796,7 +797,8 @@ async function probeFlowMedia(url) {
       const trustedFinalHost = finalHost === "flow-content.google"
         || finalHost === "storage.googleapis.com"
         || finalHost.endsWith(".googleusercontent.com")
-        || finalParsed?.origin === "https://labs.google";
+        || finalParsed?.origin === "https://labs.google"
+        || finalParsed?.origin === "https://flow.google.com";
       if (!trustedFinalHost) throw new Error("Flow media redirected to an unsupported host.");
       const mediaKind = contentType.startsWith("video/") || finalPath.includes("/video/")
         ? "video"
@@ -968,6 +970,7 @@ function captureRequestPayload(payload, { mediaKind, mimeType, mediaUrl = "", fi
     prompt: payload.prompt || "",
     prompt_status: payload.promptStatus || (payload.prompt ? "user-message" : "not-available"),
     user_message: payload.userMessage || payload.user_message || "",
+    generation_request_prompt: payload.generationRequestPrompt || payload.generation_request_prompt || "",
     prompt_source: payload.promptSource || payload.prompt_source || "",
     prompt_priority: Number(payload.promptPriority || payload.prompt_priority) || 0,
     prompt_scope: payload.promptScope || payload.prompt_scope || "",
@@ -1234,10 +1237,12 @@ async function ingestToMosa(payload = {}, { binaryParts = null } = {}) {
     }
   }
 
+  // Discard a failed body only when a repaired pairing replaces the response.
+  // Otherwise it is read below, so the user sees MOSA's own error and status.
   if (response.status === 401 || response.status === 403) {
-    await response.arrayBuffer().catch(() => {});
     const repaired = await repairPairing().catch(() => null);
     if (repaired && (repaired.baseUrl !== baseUrl || repaired.token !== token)) {
+      await response.arrayBuffer().catch(() => {});
       baseUrl = repaired.baseUrl;
       token = repaired.token;
       response = await requestIngest();
@@ -1249,9 +1254,9 @@ async function ingestToMosa(payload = {}, { binaryParts = null } = {}) {
   // pairing once for endpoint-level failures, but never retry normal 4xx media
   // validation errors because those belong to the current capture itself.
   if ([404, 405, 500, 502, 503, 504].includes(response.status)) {
-    await response.arrayBuffer().catch(() => {});
     const repaired = await repairPairing().catch(() => null);
     if (repaired && (repaired.baseUrl !== baseUrl || repaired.token !== token)) {
+      await response.arrayBuffer().catch(() => {});
       baseUrl = repaired.baseUrl;
       token = repaired.token;
       response = await requestIngest();
@@ -1338,6 +1343,7 @@ async function refreshContextMenus() {
       "https://chat.openai.com/*",
       "https://gemini.google.com/*",
       "https://labs.google/*",
+      "https://flow.google.com/*",
       "https://aistudio.google.com/*",
     ],
   });
@@ -1347,6 +1353,7 @@ async function refreshContextMenus() {
     contexts: ["video"],
     documentUrlPatterns: [
       "https://labs.google/*",
+      "https://flow.google.com/*",
       "https://aistudio.google.com/*",
     ],
   });

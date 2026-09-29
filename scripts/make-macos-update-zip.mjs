@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { access, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { desktopDistributionFromEnvironment, normalizeDesktopDistribution, requiresPlatformSigning } from "../lib/release-distribution.mjs";
 import { verifyMacosReleaseApp } from "./verify-macos-release.mjs";
 
@@ -25,7 +25,7 @@ export function macosUpdateArtifactPath({ rootDir, outDir = "out", version, arch
 }
 
 export async function makeMacosUpdateZip({
-  rootDir = process.cwd(),
+  rootDir = resolve(fileURLToPath(new URL("..", import.meta.url))),
   outDir = process.env.MOSA_FORGE_OUT_DIR || "out",
   arch = MOSA_MAC_UPDATE_ARCH,
   distribution = desktopDistributionFromEnvironment(process.env),

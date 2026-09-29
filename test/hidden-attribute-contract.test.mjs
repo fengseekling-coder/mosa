@@ -14,8 +14,8 @@ const root = resolve(import.meta.dirname, "..");
  */
 test("every hidden-toggled element with a display rule restates it for [hidden]", async () => {
   const [html, css] = await Promise.all([
-    readFile(resolve(root, "app/index.html"), "utf8"),
-    readFile(resolve(root, "app/styles.css"), "utf8"),
+    readFile(resolve(root, "web/app/index.html"), "utf8"),
+    readFile(resolve(root, "web/app/styles.css"), "utf8"),
   ]);
 
   // Classes on elements that carry the boolean `hidden` attribute. The lookbehind

@@ -12,12 +12,12 @@ import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 // 源码切片契约。不用整文件 SHA 代替行为契约（package/lockfile 除外）。
 
 const root = resolve(import.meta.dirname, "..");
-const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
-const readAssetView = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
-const readApiClient = () => readFile(resolve(root, "app/api-client.mjs"), "utf8");
-const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
-const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
-const readInspectorMarkup = () => readFile(resolve(root, "app/inspector-markup.mjs"), "utf8");
+const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
+const readAssetView = () => readFile(resolve(root, "web/app/asset-view.mjs"), "utf8");
+const readApiClient = () => readFile(resolve(root, "web/app/api-client.mjs"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readI18n = () => readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
+const readInspectorMarkup = () => readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8");
 
 const count = (source, needle) => source.split(needle).length - 1;
 const sha256 = (content) => createHash("sha256").update(content).digest("hex");

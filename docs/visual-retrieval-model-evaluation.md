@@ -145,6 +145,8 @@ The current hard gate is deliberately conservative:
 
 Passing this gate only earns a candidate the next stage. The current visual fixture is intentionally small and synthetic; it is not enough evidence to ship a model. Before release, expand it with a private, opt-in evaluation corpus outside the repository and report aggregate metrics only. Never commit user assets or derived embeddings.
 
+The evaluator therefore exposes a separate `decision.release_ready` gate instead of treating the synthetic candidate gate as a shipping approval. Release validation currently requires at least 20 visual queries, including at least 5 Chinese (`zh`) and 5 English (`en`) queries, and requires each language slice to reach Hit@1 >= 75% in addition to the base latency, footprint, license, and overall retrieval gates. A query may declare `locale`; otherwise the evaluator classifies CJK text as `zh` and other text as `en`. These minimums are a floor for catching language regressions, not evidence that five examples represent production quality; the broader private corpus remains required.
+
 ## Vector-search baseline
 
 The first implementation should prefer exact search until scale proves otherwise. Run:

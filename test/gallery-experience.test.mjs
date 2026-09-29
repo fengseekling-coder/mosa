@@ -4,12 +4,12 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
-const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
-const readApiClient = () => readFile(resolve(root, "app/api-client.mjs"), "utf8");
-const readI18n = () => readFile(resolve(root, "app/i18n.mjs"), "utf8");
-const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
-const readInspectorMarkup = () => readFile(resolve(root, "app/inspector-markup.mjs"), "utf8");
-const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
+const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
+const readApiClient = () => readFile(resolve(root, "web/app/api-client.mjs"), "utf8");
+const readI18n = () => readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
+const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
+const readInspectorMarkup = () => readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 
 /** WCAG relative luminance for an opaque sRGB hex colour. */
 function relativeLuminance(hex) {
@@ -48,8 +48,8 @@ test("shortens card titles instead of exposing the whole prompt", async () => {
   // cardShortTitle moved to app/utils.mjs (R1 batch 2); CARD_TITLE_MAX now lives
   // in app/config.mjs, so both are lifted from their new homes.
   const [utils, config] = await Promise.all([
-    readFile(resolve(root, "app/utils.mjs"), "utf8"),
-    readFile(resolve(root, "app/config.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/utils.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/config.mjs"), "utf8"),
   ]);
   const cardShortTitle = new Function(`
     const LEADING_UI_GLYPH_TOKENS = new Set(["play_circle", "play_arrow", "more_vert"]);
@@ -153,7 +153,7 @@ test("separates loading, failed, empty and populated gallery states", async () =
   // import binds them before init() runs, so the same no-TDZ guarantee holds.
   const configImport = app.indexOf('from "./config.mjs"');
   assert.ok(configImport > -1 && configImport < initCall, "config.mjs import must precede init()");
-  const config = await readFile(resolve(root, "app/config.mjs"), "utf8");
+  const config = await readFile(resolve(root, "web/app/config.mjs"), "utf8");
   assert.match(config, /export const SKELETON_TILE_COUNT = 12;/);
   assert.match(config, /export const GALLERY_DENSITIES = \["image", "info"\]/);
   // Heights vary through nth-child, keeping the markup free of inline styles.
@@ -161,7 +161,7 @@ test("separates loading, failed, empty and populated gallery states", async () =
 });
 
 test("offers a stable image-only / with-info density switch", async () => {
-  const [app, css, config] = await Promise.all([readApp(), readCss(), readFile(resolve(root, "app/config.mjs"), "utf8")]);
+  const [app, css, config] = await Promise.all([readApp(), readCss(), readFile(resolve(root, "web/app/config.mjs"), "utf8")]);
 
   // V2: Density is controlled via settings-menu segmented control
   assert.match(app, /data-density-opt/);

@@ -49,29 +49,6 @@ export function runPowerShell(command, { spawnImpl = spawn } = {}) {
   });
 }
 
-export async function verifyWindowsReleaseExecutable({
-  exePath,
-  expectedThumbprint = process.env.MOSA_WINDOWS_SIGNER_THUMBPRINT,
-  powershell = runPowerShell,
-} = {}) {
-  if (!exePath) throw new Error("Windows release executable path is required.");
-  const resolvedExe = resolve(exePath);
-  await access(resolvedExe);
-  const escaped = resolvedExe.replaceAll("'", "''");
-  const output = await powershell(
-    `$signature = Get-AuthenticodeSignature -LiteralPath '${escaped}'; `
-    + `[pscustomobject]@{status=[string]$signature.Status; thumbprint=$signature.SignerCertificate.Thumbprint; subject=$signature.SignerCertificate.Subject} | ConvertTo-Json -Compress`,
-  );
-  let result;
-  try {
-    result = JSON.parse(output);
-  } catch (error) {
-    throw new Error(`Windows Authenticode verifier returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  assertWindowsReleaseSignature(result, expectedThumbprint);
-  return { exePath: resolvedExe, ...result };
-}
-
 export async function verifyWindowsReleasePackage({
   packageDir,
   expectedThumbprint = process.env.MOSA_WINDOWS_SIGNER_THUMBPRINT,
@@ -102,7 +79,7 @@ export async function verifyWindowsReleasePackage({
 
 async function main() {
   if (process.platform !== "win32") throw new Error("Windows release verification must run on Windows.");
-  const packageDir = resolve(rootDir, "out", "MOSA-win32-x64");
+  const packageDir = resolve(rootDir, process.env.MOSA_FORGE_OUT_DIR || "out", "MOSA-win32-x64");
   const result = await verifyWindowsReleasePackage({ packageDir });
   console.log(`[MOSA] Windows release signatures verified: ${result.files} executable/native files.`);
 }

@@ -9,7 +9,7 @@ import {
   rectFromPoints,
   rectsIntersect,
   selectionRangeIds,
-} from "../app/gallery-selection.mjs";
+} from "../web/app/gallery-selection.mjs";
 
 test("marquee geometry normalizes drag direction and detects overlap", () => {
   assert.deepEqual(rectFromPoints(40, 50, 10, 20), {
@@ -411,11 +411,11 @@ test("active marquee refreshes its geometry after infinite-scroll append and sta
 });
 
 test("gallery marquee selection is wired into shared web/app renderer", async () => {
-  const app = await readFile(new URL("../app/app.mjs", import.meta.url), "utf8");
-  const html = await readFile(new URL("../app/index.html", import.meta.url), "utf8");
-  const css = await readFile(new URL("../app/styles.css", import.meta.url), "utf8");
-  const bindings = await readFile(new URL("../app/context-menu-bindings.mjs", import.meta.url), "utf8");
-  const selection = await readFile(new URL("../app/gallery-selection.mjs", import.meta.url), "utf8");
+  const app = await readFile(new URL("../web/app/app.mjs", import.meta.url), "utf8");
+  const html = await readFile(new URL("../web/app/index.html", import.meta.url), "utf8");
+  const css = await readFile(new URL("../web/app/styles.css", import.meta.url), "utf8");
+  const bindings = await readFile(new URL("../web/app/context-menu-bindings.mjs", import.meta.url), "utf8");
+  const selection = await readFile(new URL("../web/app/gallery-selection.mjs", import.meta.url), "utf8");
 
   assert.match(app, /selectedIds: new Set\(\)/);
   assert.match(app, /createGallerySelection\(\{[\s\S]*?currentAssetRequest,[\s\S]*?requestAssetPage,[\s\S]*?apiFetch,[\s\S]*?showToast/);

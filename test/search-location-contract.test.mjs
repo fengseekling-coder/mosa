@@ -14,10 +14,10 @@ import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 // (events, state, algorithm, i18n) did not change. Node standard library only.
 
 const root = resolve(import.meta.dirname, "..");
-const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
-const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
-const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
-const readApiClient = () => readFile(resolve(root, "app/api-client.mjs"), "utf8");
+const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
+const readApiClient = () => readFile(resolve(root, "web/app/api-client.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
 /** Extracts a `{...}` block starting at the marker, honouring nested braces. */
@@ -96,7 +96,7 @@ test("6. i18n placeholder uses the V2 copy in both locales", async () => {
   const input = /<input id="searchInput"[^>]*>/.exec(await readHtml());
   assert.match(input[0], /data-i18n-placeholder="searchPlaceholder"/, "placeholder i18n binding must be preserved");
   assert.match(input[0], /placeholder="搜索所有素材\.\.\."/, "default zh placeholder must match V2");
-  const messages = (await import(pathToFileURL(resolve(root, "app/i18n.mjs")).href)).default;
+  const messages = (await import(pathToFileURL(resolve(root, "web/app/i18n.mjs")).href)).default;
   assert.equal(messages.zh.searchPlaceholder, "搜索所有素材...", "zh placeholder must match V2");
   assert.equal(messages.en.searchPlaceholder, "Search all assets...", "en placeholder must match V2");
 });
@@ -134,7 +134,7 @@ test("9. search algorithm, API and i18n behaviour stay locked", async () => {
   assert.match(apiClient, /const params = new URLSearchParams\(\{ project: request\.project, q: request\.query \}\)/,
     "the /api/assets query construction must stay unchanged");
   assert.match(apiClient, /Number\(options\.limit\) \|\| GALLERY_PAGE_SIZE/, "gallery paging must default to the shared performance-tuned page size");
-  const i18n = await readFile(resolve(root, "app/i18n.mjs"), "utf8");
+  const i18n = await readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
   assert.match(i18n, /searchPlaceholder: "搜索所有素材\.\.\."/, "zh search placeholder must match V2");
   assert.match(i18n, /searchPlaceholder: "Search all assets\.\.\."/, "en search placeholder must match V2");
 });

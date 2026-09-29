@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import translations from "../app/i18n.mjs";
-import { createT } from "../app/i18n-runtime.mjs";
+import translations from "../web/app/i18n.mjs";
+import { createT } from "../web/app/i18n-runtime.mjs";
 
 const FILE_MANAGER_KEYS = ["openedInFinder", "showInFinder", "shownInFinder", "showInFinderFailed", "openInFinder"];
 const EXPLORER_KEYS = ["openedInFileExplorer", "showInFileExplorer", "shownInFileExplorer", "showInFileExplorerFailed", "openInFileExplorer"];

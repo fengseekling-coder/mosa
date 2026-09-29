@@ -250,8 +250,19 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
       : "";
     // Prompt 不存在时复制按钮不渲染（避免死按钮与空复制成功提示）；用户指令作为独立子段，
     // 不伪装成生成 Prompt；复制 Prompt 只复制生成 Prompt。
+    // Prompt 2 is the Prompt ChatGPT's chat model sent to the image tool. It
+    // sits beside the caption Prompt as a switchable view, never replacing it.
+    const requestPrompt = String(source.generation_request_prompt || "").trim();
     const copyButton = asset.prompt
       ? `<button class="section-head-copy" type="button" data-action="copy-prompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}">${COPY_ICON_SVG}</button>`
+      : requestPrompt
+        ? `<button class="section-head-copy" type="button" data-action="copy-prompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}" disabled>${COPY_ICON_SVG}</button>`
+        : "";
+    const promptTitle = requestPrompt
+      ? `<h3 class="detail-prompt-switch"><button class="detail-prompt-toggle is-active" type="button" aria-pressed="true" data-prompt-variant="1">${t("prompt")}</button><button class="detail-prompt-toggle" type="button" aria-pressed="false" data-prompt-variant="2">${t("prompt2")}</button></h3>`
+      : `<h3>${t("prompt")}</h3>`;
+    const requestPromptBox = requestPrompt
+      ? `<div class="prompt-box detail-prompt-box" role="textbox" aria-readonly="true" data-prompt-panel="2" hidden>${escapeHtml(requestPrompt)}</div>`
       : "";
     const userInstruction = String(source.user_message || asset.business_fields?.user_message || "").trim();
     const instructionText = userInstruction
@@ -262,7 +273,7 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     // of letting a legacy recipe disclosure rise into the V2 first view.
     const userInstructionMarkup = `<div class="detail-prompt-subhead"><h4>${t("userInstruction")}</h4><button class="detail-copy-sub" type="button" data-action="copy-instruction" aria-label="${escapeHtml(t("userInstruction"))}"${userInstruction ? "" : " disabled"}>${COPY_ICON_SVG}</button></div><div class="prompt-box detail-instruction-box">${instructionText}</div>`;
     const referenceRow = `<div data-prompt-references>${promptReferencesMarkup(asset)}</div>`;
-    return `<section class="inspector-section detail-prompt-section" data-inspector-section="prompt"><div class="detail-prompt-head"><h3>${t("prompt")}</h3>${copyButton}</div><div class="prompt-box detail-prompt-box" role="textbox" aria-readonly="true">${promptText}</div>${promptProvenance}${userInstructionMarkup}${referenceRow}<details class="detail-disclosure"><summary>${t("recipeAndEditing")}</summary><div class="disclosure-content detail-fields">${editRecipeFieldsMarkup(asset)}<label class="field recipe-change-field"><span>${t("recipeChangeSummary")}</span><textarea data-recipe-change rows="2" placeholder="${escapeHtml(t("recipeChangePlaceholder"))}"></textarea></label><div class="recipe-save-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-recipe">${t("saveRecipe")}</button><span class="detail-autosave-status" data-autosave-status role="status" aria-live="polite"></span></div></div></details></section>`;
+    return `<section class="inspector-section detail-prompt-section" data-inspector-section="prompt"><div class="detail-prompt-head">${promptTitle}${copyButton}</div>${requestPromptBox}<div class="prompt-box detail-prompt-box" role="textbox" aria-readonly="true" data-prompt-panel="1">${promptText}</div>${promptProvenance}${userInstructionMarkup}${referenceRow}<details class="detail-disclosure"><summary>${t("recipeAndEditing")}</summary><div class="disclosure-content detail-fields">${editRecipeFieldsMarkup(asset)}<label class="field recipe-change-field"><span>${t("recipeChangeSummary")}</span><textarea data-recipe-change rows="2" placeholder="${escapeHtml(t("recipeChangePlaceholder"))}"></textarea></label><div class="recipe-save-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-recipe">${t("saveRecipe")}</button><span class="detail-autosave-status" data-autosave-status role="status" aria-live="polite"></span></div></div></details></section>`;
   }
 
   function editRecipeFieldsMarkup(asset) {

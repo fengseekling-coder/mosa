@@ -10,9 +10,9 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
-const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
-const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
-const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
+const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
 /** Extracts a `{...}` block starting at the marker, honouring nested braces. */
@@ -218,7 +218,7 @@ test("26-28. hygiene: no !important, no undefined tokens, no new dependencies", 
   const anchorRefs = new Set([...css.matchAll(/var\(\s*(--[\w-]+)\s*,/g)].map((m) => m[1]));
   const app = await readApp();
   // R1 batch 3: the toast stack offset injection lives in app/toast-manager.mjs.
-  const toast = await readFile(resolve(root, "app/toast-manager.mjs"), "utf8");
+  const toast = await readFile(resolve(root, "web/app/toast-manager.mjs"), "utf8");
   for (const name of anchorRefs) {
     if (defined.has(name)) continue;
     assert.ok((app + toast).includes(`setProperty("${name}"`), `anchor ${name} needs a fallback and a JS injection site`);

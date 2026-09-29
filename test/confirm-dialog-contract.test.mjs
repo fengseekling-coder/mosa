@@ -14,12 +14,12 @@ import test from "node:test";
 import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const readApp = () => readFile(resolve(root, "app/app.mjs"), "utf8");
-const readAssetView = () => readFile(resolve(root, "app/asset-view.mjs"), "utf8");
-const readConfirmDialog = () => readFile(resolve(root, "app/confirm-dialog.mjs"), "utf8");
-const readInspectorMarkup = () => readFile(resolve(root, "app/inspector-markup.mjs"), "utf8");
-const readHtml = () => readFile(resolve(root, "app/index.html"), "utf8");
-const readCss = () => readFile(resolve(root, "app/styles.css"), "utf8");
+const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
+const readAssetView = () => readFile(resolve(root, "web/app/asset-view.mjs"), "utf8");
+const readConfirmDialog = () => readFile(resolve(root, "web/app/confirm-dialog.mjs"), "utf8");
+const readInspectorMarkup = () => readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8");
+const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 const count = (source, needle) => source.split(needle).length - 1;
 
@@ -222,7 +222,7 @@ test("43-44. contextKey guards keep stale results from acting", async () => {
 
 // 45-50. Only copy for active confirmation flows remains in the bundle.
 test("45-50. active confirm copy stays symmetric and retired copy is removed", async () => {
-  const { default: translations } = await import(pathToFileURL(resolve(root, "app/i18n.mjs")).href);
+  const { default: translations } = await import(pathToFileURL(resolve(root, "web/app/i18n.mjs")).href);
   const keys = ["discardChangesTitle", "discardChangesDescription", "discardChangesAction"];
   for (const locale of ["zh", "en"]) {
     for (const key of keys) {
@@ -323,8 +323,8 @@ test("58. dialog styles without !important", async () => {
 });
 
 test("context-menu bulk Trash action passes the selected count into its title", async () => {
-  const source = await readFile(resolve(root, "app/context-menu-actions.mjs"), "utf8");
-  const { default: translations } = await import(pathToFileURL(resolve(root, "app/i18n.mjs")).href);
+  const source = await readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8");
+  const { default: translations } = await import(pathToFileURL(resolve(root, "web/app/i18n.mjs")).href);
 
   assert.match(translations.zh.moveAssetsToTrashTitle, /\{count\}/);
   assert.match(translations.en.moveAssetsToTrashTitle, /\{count\}/);

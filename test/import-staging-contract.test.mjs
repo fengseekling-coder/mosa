@@ -429,7 +429,7 @@ test("desktop import uses the renderer picker instead of a redundant native dial
 });
 
 test("manual picker/drop pattern matches the store set and stages through the local runtime", async () => {
-  const app = await readFile(join(root, "app", "app.mjs"), "utf8");
+  const app = await readFile(join(root, "web", "app", "app.mjs"), "utf8");
   const pattern = app.match(/\/\\\.\(([a-z0-9|?]+)\)\$\/i/);
   assert.ok(pattern, "drop extension pattern must exist");
   const dropSet = pattern[1]
@@ -450,7 +450,7 @@ test("manual picker/drop pattern matches the store set and stages through the lo
   assert.match(app, /fetch\("\/api\/import\/stage"/, "manual files stream to the local staging endpoint");
   assert.match(app, /showToast\(error\?\.message \|\| t\("fileSelectionFailed"\), "error"\)/, "staging failure is visible");
 
-  const i18n = await readFile(join(root, "app", "i18n.mjs"), "utf8");
+  const i18n = await readFile(join(root, "web", "app", "i18n.mjs"), "utf8");
   assert.equal((i18n.match(/fileSelectionFailed:/g) || []).length, 2, "zh + en keys exist");
 });
 
@@ -459,7 +459,7 @@ test("manual picker/drop pattern matches the store set and stages through the lo
 test("Electron manual drag/drop uses the same byte-stream staging path as Web", async () => {
   const [preload, app] = await Promise.all([
     readFile(join(root, "desktop", "preload.cjs"), "utf8"),
-    readFile(join(root, "app", "app.mjs"), "utf8"),
+    readFile(join(root, "web", "app", "app.mjs"), "utf8"),
   ]);
 
   assert.doesNotMatch(preload, /getPathForFile|webUtils\.getPathForFile|stage-dropped-file/,
@@ -478,7 +478,7 @@ test("Electron manual drag/drop uses the same byte-stream staging path as Web", 
 // ── batch 1.3: drop failure state hygiene ────────────────────────────────────
 
 test("drop failures clear the live region and never open an empty import modal", async () => {
-  const app = await readFile(join(root, "app", "app.mjs"), "utf8");
+  const app = await readFile(join(root, "web", "app", "app.mjs"), "utf8");
   const drop = app.match(/library\.addEventListener\("drop", async \(e\) => \{[\s\S]*?\n  }\);/)[0];
 
   assert.match(drop, /collectDroppedFiles\(e\.dataTransfer/);

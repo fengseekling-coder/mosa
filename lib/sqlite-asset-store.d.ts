@@ -48,18 +48,19 @@ export interface StoredAsset {
 export interface AssetListFilters {
   projectId?: string;
   query?: string;
+  source?: string;
+  conversation?: string;
+  generationBatch?: string;
+  category?: string;
   style?: string;
-  skill?: string;
-  sourceType?: string;
   favorite?: boolean;
   recent?: boolean;
+  createdAfterMs?: number;
+  createdBeforeMs?: number;
   unorganized?: boolean;
   archived?: boolean;
   trash?: boolean;
   group?: string;
-  tags?: string[];
-  sessionId?: string;
-  batchId?: string;
   limit?: number;
   cursor?: string;
   sort?: string;
@@ -67,6 +68,7 @@ export interface AssetListFilters {
   collapseStacks?: boolean;
   includeTotal?: boolean;
   boundaryCursor?: string;
+  assetIds?: string[];
   [key: string]: unknown;
 }
 

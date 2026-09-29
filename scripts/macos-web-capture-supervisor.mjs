@@ -25,7 +25,7 @@ export function watchOwnedRuntimeSources({
   watchImpl = watch,
   settleMs = DEFAULT_SOURCE_CHANGE_SETTLE_MS,
   sources = [
-    { path: join(repositoryRoot, "app"), recursive: true },
+    { path: join(repositoryRoot, "web", "app"), recursive: true },
     { path: join(repositoryRoot, "lib"), recursive: true },
     { path: serverEntry, recursive: false },
     { path: join(repositoryRoot, "package.json"), recursive: false },
