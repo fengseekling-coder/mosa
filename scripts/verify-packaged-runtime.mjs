@@ -125,7 +125,7 @@ export async function verifyPackagedRuntime({
   if (unpackedOnnx) throw new Error("Optional ONNX Runtime must stay out of MOSA.app unpacked resources.");
 
   const sourceIdentity = JSON.parse(await readFile(resolve(projectRoot, "desktop", "app", "build-identity.json"), "utf8"));
-  const packagedIdentity = parseJsonBuffer(extractFile(asarPath, "desktop/app/build-identity.json"), "packaged build identity");
+  const packagedIdentity = parseJsonBuffer(extractFile(asarPath, join("desktop", "app", "build-identity.json")), "packaged build identity");
   if (!isDeepStrictEqual(packagedIdentity, sourceIdentity)) {
     throw new Error("Packaged build identity does not match the current source build identity.");
   }
