@@ -203,6 +203,20 @@ test("skipped-only imports toast as info while real failures stay errors", async
   assert.deepEqual(toasts.pop(), ['batchImportSkipped:{"imported":1,"failed":0,"skipped":1}', "info"]);
   await makeImporter(async () => { throw new Error("offline"); }).enqueue([{ name: "a.png" }]);
   assert.deepEqual(toasts.pop(), ['batchImportPartial:{"imported":0,"failed":1,"skipped":0}', "error"]);
+  // Drop entry points filter unsupported files while collecting them and pass
+  // only their count; it must still reach the summary instead of vanishing.
+  await makeImporter(async () => ({ imported: 1, failed: 0 })).enqueue([{ name: "a.png" }], { skipped: 2 });
+  assert.deepEqual(toasts.pop(), ['batchImportSkipped:{"imported":1,"failed":0,"skipped":2}', "info"]);
+});
+
+test("gallery and sidebar drops hand their filtered-out count to the importer", async () => {
+  for (const tree of ["web/app", "desktop/app"]) {
+    const app = await readFile(resolve(root, tree, "app.mjs"), "utf8");
+    assert.match(app, /batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\), skipped: unsupported \}\)/,
+      `${tree}: gallery drop reports skipped unsupported files`);
+    assert.match(app, /batchImporter\.enqueue\(files, \{ metadata: \{ group \}, stackId: "", skipped: unsupported \}\)/,
+      `${tree}: sidebar group drop reports skipped unsupported files`);
+  }
 });
 
 test("desktop native drag bridge validates library paths in main process", async () => {

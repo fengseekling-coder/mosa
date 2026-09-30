@@ -467,7 +467,7 @@ test("Electron manual drag/drop uses the same byte-stream staging path as Web", 
   assert.match(app, /collectDroppedFiles\(e\.dataTransfer/, "drop handler collects files and folders through the shared batch path");
   assert.match(app, /function currentDropImportMetadata\(\) \{[\s\S]*?state\.facets\.group[\s\S]*?return group \? \{ group \} : \{\};[\s\S]*?\}/,
     "gallery drop snapshots the active manual-group facet as import metadata");
-  assert.match(app, /batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\) \}\)/,
+  assert.match(app, /batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\), skipped: unsupported \}\)/,
     "gallery drop enters the quick import queue with the active group");
   assert.match(app, /stageFile: stageBrowserFile/, "imports stream selected bytes through the runtime");
   assert.doesNotMatch(app, /file\.path|electronAPI\.getPathForFile/,
@@ -481,7 +481,7 @@ test("drop failures clear the live region and no import path opens a modal", asy
   const drop = app.match(/library\.addEventListener\("drop", async \(e\) => \{[\s\S]*?\n  }\);/)[0];
 
   assert.match(drop, /collectDroppedFiles\(e\.dataTransfer/);
-  assert.match(drop, /void batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\) \}\);/);
+  assert.match(drop, /void batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\), skipped: unsupported \}\);/);
   assert.match(drop, /announceGalleryStatus\(""\);/, "drop completion always clears the persistent live-region message");
   assert.match(drop, /catch \(error\) \{[\s\S]*?announceGalleryStatus\(""\);[\s\S]*?return;/,
     "drop collection failure clears the live region and stops the flow");

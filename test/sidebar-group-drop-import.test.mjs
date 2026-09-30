@@ -61,7 +61,7 @@ test("03 drop enqueues into the target group with stackId pinned to the group ro
       "the drop reuses the shared file collector (unsupported formats still count)");
     assert.match(drop, /const group = String\(item\.dataset\.value \|\| ""\)\.trim\(\);/,
       "the group name comes from the dropped item's data-value");
-    assert.match(drop, /batchImporter\.enqueue\(files, \{ metadata: \{ group \}, stackId: "" \}\)/,
+    assert.match(drop, /batchImporter\.enqueue\(files, \{ metadata: \{ group \}, stackId: "", skipped: unsupported \}\)/,
       "enqueue pins stackId to \"\" so files land at the group root, never inside the active Stack");
   }
 });

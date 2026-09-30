@@ -116,7 +116,9 @@ export function createBatchImporter({
 
   async function processJob(job) {
     const supported = job.files.filter(isSupportedFile);
-    const skipped = job.files.length - supported.length;
+    // Drop entry points filter unsupported files while collecting them and
+    // hand over only their count, so both kinds of skip reach the summary.
+    const skipped = job.files.length - supported.length + job.skippedBeforeQueue;
     if (!supported.length) {
       showToast?.(t("batchImportNoSupportedFiles"), "error");
       return { imported: 0, failed: 0, skipped };
@@ -192,14 +194,23 @@ export function createBatchImporter({
     workerPromise = null;
   }
 
-  function enqueue(files, { metadata = {}, projectId = state.project, stackId = state.activeStackId || "" } = {}) {
+  function enqueue(files, { metadata = {}, projectId = state.project, stackId = state.activeStackId || "", skipped = 0 } = {}) {
     const list = Array.from(files || []).filter(Boolean);
     if (!list.length) return Promise.resolve({ imported: 0, failed: 0, skipped: 0 });
     const metadataSnapshot = metadata && typeof metadata === "object" && !Array.isArray(metadata)
       ? { ...metadata }
       : {};
     const promise = new Promise((resolve, reject) => {
-      queue.push({ files: list, metadata: metadataSnapshot, projectId, stackId: String(stackId || ""), resolve, reject, errors: [] });
+      queue.push({
+        files: list,
+        metadata: metadataSnapshot,
+        projectId,
+        stackId: String(stackId || ""),
+        skippedBeforeQueue: Math.max(0, Number(skipped) || 0),
+        resolve,
+        reject,
+        errors: [],
+      });
     });
     showToast?.(t("batchImportQueued", { count: list.length }), "info");
     if (!workerPromise) workerPromise = drain();

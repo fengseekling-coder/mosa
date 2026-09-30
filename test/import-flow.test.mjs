@@ -309,7 +309,7 @@ test("import has no manual modal left: drag/drop enqueues the batch importer and
   assert.doesNotMatch(app, /file\.path|electronAPI\.getPathForFile/);
   assert.match(app, /fetch\("\/api\/import\/stage"/);
   assert.match(app, /collectDroppedFiles\(e\.dataTransfer/);
-  assert.match(app, /batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\) \}\)/);
+  assert.match(app, /batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\), skipped: unsupported \}\)/);
 });
 
 test("keeps desktop bridge minimal while dropped files use unified server staging", async () => {

@@ -473,7 +473,7 @@ function setupDragDrop() {
       if (unsupported) showToast(t("errorPathUnsupported"), "error");
       return;
     }
-    void batchImporter.enqueue(files, { metadata: currentDropImportMetadata() });
+    void batchImporter.enqueue(files, { metadata: currentDropImportMetadata(), skipped: unsupported });
   });
 }
 
@@ -546,7 +546,7 @@ function setupSidebarGroupDropImport() {
       if (unsupported) showToast(t("errorPathUnsupported"), "error");
       return;
     }
-    void batchImporter.enqueue(files, { metadata: { group }, stackId: "" });
+    void batchImporter.enqueue(files, { metadata: { group }, stackId: "", skipped: unsupported });
   });
   // 拖放被取消（Esc / 拖回桌面）时清掉高亮与播报。
   window.addEventListener("dragend", () => clearHighlight({ announce: false }));

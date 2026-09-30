@@ -365,7 +365,7 @@ test("the retired import staging lifecycle leaves no modal cancel path behind", 
   const drop = sliceBetween(app, 'library.addEventListener("drop", async (e) => {', "\n}\n\n// ===== Global drag/drop guard");
 
   // Quick gallery drops enqueue the batch importer and never open any modal.
-  assert.match(drop, /void batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\) \}\);/);
+  assert.match(drop, /void batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\), skipped: unsupported \}\);/);
   assert.doesNotMatch(drop, /openImportModal|prepareImportFile\(|modal/, "the drop handler opens no dialog");
   assert.doesNotMatch(app, /state\.stagedPath|stagingCanceled/,
     "the modal-era staged-path lifecycle fields are gone; only the paste re-entrancy guard remains");
