@@ -15,6 +15,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - An open manual group now shows its name as the gallery title and in the asset viewer's scope label, instead of "All assets".
 - Version compare selectors keep working after switching versions or any other Inspector refresh.
 - Tags can now be removed in the Inspector: each user tag shows a remove button on hover or keyboard focus (always visible on touch). Source tags cannot be removed.
+- MOSA Desktop on macOS now removes leftover `.MOSA-update-*` folders beside `MOSA.app` from failed in-place updates once they are more than 10 minutes old, as it already did on Windows.
 
 ## 0.2.1-rc.25 — 2026-09-20 / Release Candidate
 

@@ -254,8 +254,18 @@ test("Windows update transaction cleanup targets the helper transaction parent",
 
 test("desktop stale transaction cleanup scans the updater transaction parent", async () => {
   const main = await readFile(new URL("../desktop/main.mjs", import.meta.url), "utf8");
-  assert.match(main, /const parentDir = windowsUpdateTransactionParentDir\(process\.execPath\);/);
+  assert.match(main, /windowsUpdateTransactionParentDir\(process\.execPath\)/);
+  assert.match(main, /resolveMacosInstallAppPath\(process\.execPath\)/);
   assert.doesNotMatch(main, /const parentDir = dirname\(process\.execPath\);/);
+  // The sweep deletes directories, so it must stay limited to packaged builds
+  // and to the exact prefix both update helpers create; a renamed helper
+  // prefix would otherwise silently stop the cleanup.
+  assert.match(main, /function cleanupStaleUpdateTransactions\(\) \{\n  if \(!app\.isPackaged\) return;/);
+  assert.match(main, /const UPDATE_TRANSACTION_PREFIX = "\.MOSA-update-";/);
+  const macosUpdater = await readFile(new URL("../desktop/macos-updater.mjs", import.meta.url), "utf8");
+  assert.match(macosUpdater, /TRANSACTION_ROOT="\$PARENT_DIR\/\.MOSA-update-/);
+  const windowsUpdater = await readFile(new URL("../desktop/windows-updater.mjs", import.meta.url), "utf8");
+  assert.match(windowsUpdater, /Join-Path \$parentDir \("\.MOSA-update-"/);
 });
 
 test("Windows update helper rejects when PowerShell cannot spawn", async () => {

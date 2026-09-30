@@ -233,7 +233,7 @@ if (!app.requestSingleInstanceLock()) {
       console.warn(`[MOSA] visual pack cleanup failed: ${error?.message || error}`);
     });
     startAnonymousUsageLifecycle();
-    cleanupStaleWindowsUpdateTransactions();
+    cleanupStaleUpdateTransactions();
   }).catch(reportStartupFailure);
 
   app.on("activate", () => {
@@ -403,26 +403,34 @@ function buildMenu() {
 }
 
 // The Windows update helper parks the previous installation under
-// .MOSA-update-*/previous beside the portable install directory and deliberately
-// leaves that recovery data in place after a successful apply. A running,
-// packaged Windows app can safely sweep those directories once they are old
-// enough that no in-flight update transaction can still own them.
-const WINDOWS_UPDATE_TRANSACTION_PREFIX = ".MOSA-update-";
-const WINDOWS_UPDATE_TRANSACTION_MIN_AGE_MS = 10 * 60 * 1000;
+// .MOSA-update-*/previous beside the portable install directory, and the macOS
+// helper leaves its extracted payload plus failed replacement under the same
+// prefix beside MOSA.app after a failed apply. Both deliberately keep that
+// recovery data in place; a running, packaged app can safely sweep those
+// directories once they are old enough that no in-flight update transaction
+// can still own them.
+const UPDATE_TRANSACTION_PREFIX = ".MOSA-update-";
+const UPDATE_TRANSACTION_MIN_AGE_MS = 10 * 60 * 1000;
 
-function cleanupStaleWindowsUpdateTransactions() {
-  if (process.platform !== "win32" || !app.isPackaged) return;
-  const parentDir = windowsUpdateTransactionParentDir(process.execPath);
+function staleUpdateTransactionParentDir() {
+  if (process.platform === "win32") return windowsUpdateTransactionParentDir(process.execPath);
+  const installAppPath = resolveMacosInstallAppPath(process.execPath);
+  return installAppPath ? dirname(installAppPath) : "";
+}
+
+function cleanupStaleUpdateTransactions() {
+  if (!app.isPackaged) return;
+  const parentDir = staleUpdateTransactionParentDir();
   if (!parentDir) return;
   void (async () => {
     try {
       const entries = await readdir(parentDir, { withFileTypes: true });
       await Promise.all(entries
-        .filter((entry) => entry.isDirectory() && entry.name.startsWith(WINDOWS_UPDATE_TRANSACTION_PREFIX))
+        .filter((entry) => entry.isDirectory() && entry.name.startsWith(UPDATE_TRANSACTION_PREFIX))
         .map(async (entry) => {
           const transactionDir = join(parentDir, entry.name);
           const info = await stat(transactionDir).catch(() => null);
-          if (!info || Date.now() - info.mtimeMs < WINDOWS_UPDATE_TRANSACTION_MIN_AGE_MS) return;
+          if (!info || Date.now() - info.mtimeMs < UPDATE_TRANSACTION_MIN_AGE_MS) return;
           await rm(transactionDir, { recursive: true, force: true }).catch(() => {});
         }));
     } catch {
