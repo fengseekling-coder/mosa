@@ -9,6 +9,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - Removed the manual Import dialog. Import external images by dragging files or folders into the open gallery (they land in the current group or Stack) or onto a manual group in the sidebar. Pasting an image imports it directly into the current group or Stack. The empty-state Import button, the blank-area "Import asset" context-menu item, and the desktop File → Import menu item (Cmd/Ctrl+N) are gone. Prompt and other metadata are edited afterwards in the Inspector.
 - Fixed tags missing from assets loaded through the gallery list: the Inspector showed no tags, and adding a tag there could erase the asset's existing tags.
 - Context menus could stop opening, and keyboard shortcuts stop working, after a menu item was activated immediately (for example by assistive technology).
+- Opening an asset in the viewer from the context menu no longer leaves its card in the multi-selection, so a later Ctrl/Shift-click or batch action cannot silently include it.
 
 ## 0.2.1-rc.25 — 2026-09-20 / Release Candidate
 

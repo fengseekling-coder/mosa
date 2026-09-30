@@ -135,6 +135,12 @@ export function bindContextMenuEvents(options = {}) {
   });
   window.addEventListener("mosa:open-asset-view", (event) => {
     const { assetId } = event.detail;
-    if (assetId) openAssetView(assetId);
+    if (!assetId) return;
+    // The right-click only put this card into the multi-selection to target
+    // the menu. Entering the viewer is a single-asset intent (as double-click
+    // is), so drop that selection; otherwise a later Ctrl/Shift+click or batch
+    // action would silently include a card the viewer may have moved away from.
+    gallerySelection?.clear?.();
+    openAssetView(assetId);
   });
 }
