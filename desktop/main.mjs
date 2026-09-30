@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain, clipboard, nativeImage, screen, session, shell, Notification } from "electron";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
-import { access, cp, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { access, readdir, rm, stat } from "node:fs/promises";
 import { userInfo } from "node:os";
 import { dirname, join, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,8 +14,8 @@ import { desktopPlatformAdapter } from "./platform/index.mjs";
 import { checkForMosaUpdate, MOSA_DOWNLOAD_PAGE_URL, reportAnonymousUsage } from "./update-service.mjs";
 import { prepareAnonymousUsage } from "./anonymous-usage.mjs";
 import { mosaClientTokenFingerprint, resolveAllowedFolderPath } from "../lib/server-security.js";
-import { isPathInsideOrEqual, isUrlLikePath, pathsEqual } from "../lib/path-safety.mjs";
-import { finalizeCopiedSqliteLibrary } from "../lib/library-relocation.mjs";
+import { isUrlLikePath } from "../lib/path-safety.mjs";
+import { copyLibraryForRelocation, validateRelocationTarget } from "../lib/library-relocation.mjs";
 import { getBuildIdentity } from "../lib/build-identity.mjs";
 import { MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
 import {
@@ -233,7 +233,7 @@ if (!app.requestSingleInstanceLock()) {
       console.warn(`[MOSA] visual pack cleanup failed: ${error?.message || error}`);
     });
     startAnonymousUsageLifecycle();
-    cleanupStaleWindowsUpdateTransactions();
+    cleanupStaleUpdateTransactions();
   }).catch(reportStartupFailure);
 
   app.on("activate", () => {
@@ -342,13 +342,6 @@ function buildMenu() {
       id: "mosa-menu-file",
       label: getDesktopText("menuFile", currentLocale),
       submenu: [
-        {
-          id: "mosa-menu-import-asset",
-          label: getDesktopText("menuImportAsset", currentLocale),
-          accelerator: "CmdOrCtrl+N",
-          click: () => sendToWindow("menu-import"),
-        },
-        { id: "mosa-menu-file-separator-1", type: "separator" },
         { id: "mosa-menu-close", role: "close", label: getDesktopText("menuClose", currentLocale) },
       ],
     },
@@ -410,26 +403,34 @@ function buildMenu() {
 }
 
 // The Windows update helper parks the previous installation under
-// .MOSA-update-*/previous beside the portable install directory and deliberately
-// leaves that recovery data in place after a successful apply. A running,
-// packaged Windows app can safely sweep those directories once they are old
-// enough that no in-flight update transaction can still own them.
-const WINDOWS_UPDATE_TRANSACTION_PREFIX = ".MOSA-update-";
-const WINDOWS_UPDATE_TRANSACTION_MIN_AGE_MS = 10 * 60 * 1000;
+// .MOSA-update-*/previous beside the portable install directory, and the macOS
+// helper leaves its extracted payload plus failed replacement under the same
+// prefix beside MOSA.app after a failed apply. Both deliberately keep that
+// recovery data in place; a running, packaged app can safely sweep those
+// directories once they are old enough that no in-flight update transaction
+// can still own them.
+const UPDATE_TRANSACTION_PREFIX = ".MOSA-update-";
+const UPDATE_TRANSACTION_MIN_AGE_MS = 10 * 60 * 1000;
 
-function cleanupStaleWindowsUpdateTransactions() {
-  if (process.platform !== "win32" || !app.isPackaged) return;
-  const parentDir = windowsUpdateTransactionParentDir(process.execPath);
+function staleUpdateTransactionParentDir() {
+  if (process.platform === "win32") return windowsUpdateTransactionParentDir(process.execPath);
+  const installAppPath = resolveMacosInstallAppPath(process.execPath);
+  return installAppPath ? dirname(installAppPath) : "";
+}
+
+function cleanupStaleUpdateTransactions() {
+  if (!app.isPackaged) return;
+  const parentDir = staleUpdateTransactionParentDir();
   if (!parentDir) return;
   void (async () => {
     try {
       const entries = await readdir(parentDir, { withFileTypes: true });
       await Promise.all(entries
-        .filter((entry) => entry.isDirectory() && entry.name.startsWith(WINDOWS_UPDATE_TRANSACTION_PREFIX))
+        .filter((entry) => entry.isDirectory() && entry.name.startsWith(UPDATE_TRANSACTION_PREFIX))
         .map(async (entry) => {
           const transactionDir = join(parentDir, entry.name);
           const info = await stat(transactionDir).catch(() => null);
-          if (!info || Date.now() - info.mtimeMs < WINDOWS_UPDATE_TRANSACTION_MIN_AGE_MS) return;
+          if (!info || Date.now() - info.mtimeMs < UPDATE_TRANSACTION_MIN_AGE_MS) return;
           await rm(transactionDir, { recursive: true, force: true }).catch(() => {});
         }));
     } catch {
@@ -900,19 +901,8 @@ function registerIPC() {
     if (selection.canceled || !selection.filePaths?.[0]) return { ok: false, reason: "cancelled" };
 
     const nextLibraryDir = resolve(selection.filePaths[0]);
-    if (pathsEqual(nextLibraryDir, libraryDir)) return { ok: false, reason: "cancelled" };
-    // Parent/child moves can recursively copy the library into itself or make
-    // rollback ambiguous. Only independent directories are accepted.
-    if (isPathInsideOrEqual(libraryDir, nextLibraryDir) || isPathInsideOrEqual(nextLibraryDir, libraryDir)) {
-      return { ok: false, reason: "invalid" };
-    }
-    try {
-      const entries = await readdir(nextLibraryDir);
-      if (entries.length > 0) return { ok: false, reason: "not-empty" };
-    } catch (error) {
-      if (error?.code !== "ENOENT") return { ok: false, reason: "unavailable" };
-      await mkdir(nextLibraryDir, { recursive: true });
-    }
+    const validation = await validateRelocationTarget({ currentLibraryDir: libraryDir, nextLibraryDir });
+    if (!validation.ok) return { ok: false, reason: validation.reason };
 
     const confirmation = await dialog.showMessageBox(mainWindow, {
       type: "question",
@@ -934,31 +924,15 @@ function registerIPC() {
     try {
       await stopOwnedRuntime();
       service = null;
-      // The runtime lock has been released by stopOwnedRuntime(). Never copy a
-      // stale lock into the new location even if shutdown cleanup is delayed.
-      const sourceEntries = await readdir(previousLibraryDir, { withFileTypes: true });
-      for (const entry of sourceEntries) {
-        if (entry.name === ".mosa-runtime.lock") continue;
-        await cp(join(previousLibraryDir, entry.name), join(nextLibraryDir, entry.name), {
-          recursive: true,
-          force: false,
-          errorOnExist: true,
-        });
-      }
-      // SQLite stores the managed original/derivative locations as absolute
-      // paths. Rebase and verify the copied database before changing the saved
-      // preference or deleting a single byte from the old authoritative tree.
-      await finalizeCopiedSqliteLibrary({
+      // The runtime lock has been released by stopOwnedRuntime(), and the copy
+      // skips the lock file even if shutdown cleanup is delayed.
+      await copyLibraryForRelocation({
         sourceLibraryDir: previousLibraryDir,
         destinationLibraryDir: nextLibraryDir,
       });
       saveLibraryDir(nextLibraryDir);
     } catch (error) {
       console.error(`[MOSA] library relocation failed: ${error?.stack || error}`);
-      // The destination was required to be empty before the operation, so it
-      // is safe to remove a partial copy. The original remains authoritative.
-      await rm(nextLibraryDir, { recursive: true, force: true }).catch(() => {});
-      await mkdir(nextLibraryDir, { recursive: true }).catch(() => {});
       libraryDir = previousLibraryDir;
       app.relaunch();
       app.exit(1);

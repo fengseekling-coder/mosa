@@ -109,8 +109,8 @@ test("19-21. Escape consumed first, never leaks into the viewer", async () => {
   assert.match(trap, /event\.preventDefault\(\);\s*\n\s*event\.stopPropagation\(\);\s*\n\s*closeConfirmDialog\(false\);/,
     "Escape is preventDefault + stopPropagation, then cancels");
   assert.ok(app.indexOf('document.addEventListener("keydown", trapConfirmDialogFocus);')
-    < app.indexOf('document.addEventListener("keydown", trapImportModalFocus);'),
-  "the confirm trap registers before the legacy modal traps — Escape priority head");
+    < app.indexOf('document.addEventListener("keydown", trapSettingsModalFocus);'),
+  "the confirm trap registers before the surviving modal traps — Escape priority head");
   const shortcuts = functionSlice(app, "setupKeyboardShortcuts");
   assert.match(shortcuts, /if \(confirmDialogState\.pending\) return;/, "background shortcuts stay silent while the dialog is open");
   const keyboardNav = functionSlice(app, "bindKeyboardNav");
@@ -247,12 +247,12 @@ test("51-54. anchored overlay, viewer escape, version workflow, and return snaps
   // 2026-08-18: V2-only token consolidation. The V2 design retired the
   // standalone #filterPanel element (its affordance merged into the
   // `.topbar-type-filters` strip in `.topbar-context`). The Escape chain
-  // now starts from the image-preview modal and walks through import /
-  // group / settings overlays before view-mode / detail-open
-  // fall-through. The contract pins the surviving branches.
+  // now starts from the image-preview modal and walks through group /
+  // settings overlays before view-mode / detail-open fall-through. The
+  // contract pins the surviving branches. (2026-09: the manual import
+  // modal was retired, so its branch is gone from the chain.)
   const branches = [
     ["!els.imagePreviewModal?.hidden", "imagePreview"],
-    ["els.importModal?.classList.contains(\"open\")", "importModal"],
     ["els.groupModal?.classList.contains(\"open\")", "groupModal"],
     ["!els.settingsMenu?.hidden", "settingsMenu"],
   ];

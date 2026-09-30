@@ -49,27 +49,34 @@ test("tag editor participates in dirty-state protection until its save commits",
   assert.match(tagEditor, /clearDetailDirtyScope\(panel, "tags"\)/);
 });
 
-test("desktop image paste never hijacks editors or stacks over another modal surface", async () => {
+test("image paste never hijacks editors, stacks over another modal surface, or opens a dialog", async () => {
   const app = await readApp();
-  const paste = sliceBetween(app, 'document.addEventListener("paste", async (event) => {', "api.onMenuImport");
+  const paste = sliceBetween(app, "function setupPasteImport()", "const favoriteRequests");
 
   assert.match(paste, /target\.closest\("input, textarea, select, \[contenteditable\]"\)/);
   assert.match(paste, /confirmDialogState\.pending/);
   assert.match(paste, /!els\.settingsMenu\?\.hidden/);
   assert.match(paste, /!els\.imagePreviewModal\?\.hidden/);
-  assert.match(paste, /els\.importModal\?\.classList\.contains\("open"\)/);
   assert.match(paste, /els\.groupModal\?\.classList\.contains\("open"\)/);
   assert.doesNotMatch(app, /accountModal|openAccountModal|closeAccountModal/,
     "the retired standalone About dialog must not leave renderer blocking hooks behind");
-  assert.match(paste, /if \(editableTarget \|\| blockingSurfaceOpen\) return;/);
-  assert.match(paste, /await pasteClipboardImage\(\)/, "paste events use the shared native-image paste path");
+  assert.match(paste, /item\.type\.startsWith\("image\/"\)/);
+  assert.match(paste, /item\.getAsFile\?\.\(\)/);
+  assert.match(paste, /event\.preventDefault\(\)/);
+  assert.match(paste, /batchImporter\.enqueue\(named, \{ metadata: currentDropImportMetadata\(\) \}\)/,
+    "pasted clipboard images enter the same batch import pipeline as drag & drop");
+  // The manual import modal is retired: no paste path may reference it.
+  assert.doesNotMatch(app, /importModal|openImportModal|closeImportModal/);
+  assert.doesNotMatch(app, /onMenuImport/);
 
   const sharedPaste = sliceBetween(app, "async function pasteClipboardImage()", "function setLanguage");
   assert.match(sharedPaste, /state\.stagingInProgress/, "rapid paste cannot create concurrent staging files");
-  assert.match(sharedPaste, /state\.stagedPath = filePath;/, "Electron paste joins the same cancel-cleanup lifecycle as manual staging");
-  assert.match(sharedPaste, /if \(!els\.importModal\?\.classList\.contains\("open"\)\)[\s\S]*?cleanupStagedFile\(filePath\)/,
-    "a paste staged while another overlay opens is discarded instead of becoming hidden state");
+  assert.match(sharedPaste, /api\.pasteImage\(\)/);
+  assert.match(sharedPaste, /apiFetch\("\/api\/assets\/create"/,
+    "the Electron context-menu paste creates the asset directly instead of opening a form");
+  assert.match(sharedPaste, /cleanupStagedFile\(imagePath\)/, "a failed direct import cleans up its staged copy");
   assert.match(sharedPaste, /showToast\(t\("pasteImageSaveFailed"\), "error"\)/, "staging failures are not misreported as clipboard permissions");
+  assert.doesNotMatch(sharedPaste, /els\.|openImportModal/, "the direct paste path touches no modal elements");
 });
 
 test("clipboard actions never use renderer clipboard reads in the production app", async () => {
@@ -341,9 +348,11 @@ test("context-menu mutations freeze selection/project context and empty-grid Sel
 
 test("global drag guard blocks default file navigation outside an active library drop target", async () => {
   const app = await readApp();
-  const guard = sliceBetween(app, "function setupGlobalDragGuard()", "const favoriteRequests");
+  const guard = sliceBetween(app, "function setupGlobalDragGuard()", "// ===== Paste import =====");
 
-  assert.match(guard, /if \(target\.closest\("\.import-v2-path-card"\)\) return true;/);
+  // The import modal drop zone is retired; only the library container is a
+  // known drop target now.
+  assert.doesNotMatch(guard, /import-v2-path-card/);
   assert.match(guard, /return state\.viewMode === "library" && Boolean\(target\.closest\("\.library"\)\);/,
     "the shared .library container must not whitelist the large asset view");
   assert.equal((guard.match(/if \(isAllowedDropTarget\(e\.target\)\) return;/g) || []).length, 2,
@@ -351,17 +360,16 @@ test("global drag guard blocks default file navigation outside an active library
   assert.match(guard, /if \(e\.dataTransfer\) e\.dataTransfer\.dropEffect = "none";/);
 });
 
-test("closing import during staging invalidates and removes the late staged file", async () => {
+test("the retired import staging lifecycle leaves no modal cancel path behind", async () => {
   const app = await readApp();
-  const prepare = sliceBetween(app, "async function prepareImportFile", "// ===== Drag & Drop =====");
-  const close = sliceBetween(app, "function closeImportModal", "function openSettingsModal");
+  const drop = sliceBetween(app, 'library.addEventListener("drop", async (e) => {', "\n}\n\n// ===== Global drag/drop guard");
 
-  assert.match(app, /stagingCanceled: false/);
-  assert.match(close, /if \(state\.stagingInProgress\) state\.stagingCanceled = true;/);
-  assert.match(prepare, /filePath = await stageBrowserFile\(file\);\s*if \(state\.stagingCanceled\) \{\s*await cleanupStagedFile\(filePath\);\s*return false;/,
-    "a stage finishing after cancel is deleted before it can become form state");
-  assert.match(prepare, /if \(state\.stagingCanceled\) return false;[\s\S]*?filePath = await stageBrowserFile/,
-    "cancel during old-file cleanup stops before a new upload starts");
+  // Quick gallery drops enqueue the batch importer and never open any modal.
+  assert.match(drop, /void batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\), skipped: unsupported \}\);/);
+  assert.doesNotMatch(drop, /openImportModal|prepareImportFile\(|modal/, "the drop handler opens no dialog");
+  assert.doesNotMatch(app, /state\.stagedPath|stagingCanceled/,
+    "the modal-era staged-path lifecycle fields are gone; only the paste re-entrancy guard remains");
+  assert.match(app, /stagingInProgress: false, \/\/ Paste import re-entrancy guard/);
 });
 
 test("focused video keeps native keyboard controls while Escape keeps app-layer priority", async () => {

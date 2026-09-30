@@ -51,17 +51,32 @@ test("bindEvents contains the theme-switch handler using real state", async () =
   assert.match(body, /state\.darkMode = newTheme === "dark"/, "bindEvents must set state.darkMode from the selected theme");
 });
 
-test("bindEvents contains the density-switch handler using real state", async () => {
+test("bindEvents no longer contains a density-switch handler", async () => {
   const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
   const match = /function bindEvents\(\) \{([\s\S]*?)\n\}\n\nfunction bindDesktopIntegration/.exec(app);
   assert.ok(match, "expected to find bindEvents function body");
   const body = match[1];
 
-  // The HTML attribute data-density-opt is accessed via the camelCase
-  // DOM dataset API as dataset.densityOpt in the click delegation handler.
-  assert.match(body, /dataset\.densityOpt/, "bindEvents must handle data-density-opt via dataset.densityOpt");
-  assert.match(body, /state\.galleryDensity = normalizeDensity/, "bindEvents must set state.galleryDensity via normalizeDensity");
+  // The card density setting was removed (the gallery is image-only), so the
+  // click delegation must not keep a data-density-opt branch or density state.
+  assert.doesNotMatch(body, /densityOpt|galleryDensity|normalizeDensity|gallery-density/,
+    "bindEvents must not keep the removed density-switch handler");
+});
+
+test("the card density setting is gone from the settings menu and shell sources", async () => {
+  const [app, utils] = await Promise.all([
+    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/utils.mjs"), "utf8"),
+  ]);
+
+  // 任务 17：卡片密度选项整体下线。设置菜单不再渲染 data-density-opt；
+  // app.mjs / utils.mjs 不再出现 galleryDensity、normalizeDensity 或
+  // mosa.gallery-density（历史 localStorage 值直接忽略，不做迁移）。
+  assert.doesNotMatch(app, /data-density-opt/, "settings menu must not render data-density-opt");
+  assert.doesNotMatch(app, /galleryDensity|normalizeDensity|mosa\.gallery-density/,
+    "app.mjs must not keep galleryDensity / normalizeDensity / mosa.gallery-density");
+  assert.doesNotMatch(utils, /normalizeDensity/, "utils.mjs must not keep normalizeDensity");
 });
 
 test("legacy densityToggle references have been removed from app.js", async () => {
@@ -80,8 +95,8 @@ test("renderSettingsMenu uses real state for segmented control active status", a
 
   // Theme active state must key off state.darkMode, not a tautological literal.
   assert.match(body, /state\.darkMode/, "renderSettingsMenu must use state.darkMode for theme active status");
-  // Density active state must key off state.galleryDensity, not a tautological literal.
-  assert.match(body, /state\.galleryDensity/, "renderSettingsMenu must use state.galleryDensity for density active status");
+  // The density row was removed: the settings renderer must not reference it.
+  assert.doesNotMatch(body, /densityOpt|galleryDensity/, "renderSettingsMenu must not keep density state");
   assert.doesNotMatch(body, /anonymousUsage|data-usage-opt/, "anonymous telemetry must not be exposed as a user-facing settings toggle");
   // No tautological self-comparisons that would make the active class always-on.
   assert.doesNotMatch(body, /"light"\s*===\s*"light"/, "renderSettingsMenu must not contain tautological light comparison");

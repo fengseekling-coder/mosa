@@ -253,7 +253,6 @@ test("preload surface and Electron security boundaries stay narrowly approved", 
     "downloadAndInstallUpdate",
     "getVisualModelState",
     "installVisualPack",
-    "onMenuImport",
     "onMenuSearch",
     "onUpdateDownloadProgress",
     "onVisualPackProgress",
@@ -444,11 +443,11 @@ test("manual picker/drop pattern matches the store set and stages through the lo
     .sort();
   assert.deepEqual(dropSet, SUPPORTED_MEDIA_EXTENSIONS, "drag/drop must accept exactly the store set");
 
-  assert.match(app, /els\.browseFileBtn\?\.addEventListener\("click"/, "upload region opens the native file input");
-  assert.match(app, /els\.importFileInput\.click\(\)/, "browse click delegates to the file input");
-  assert.match(app, /els\.importFileInput\?\.addEventListener\("change"/, "selected files enter the preparation path");
-  assert.match(app, /fetch\("\/api\/import\/stage"/, "manual files stream to the local staging endpoint");
-  assert.match(app, /showToast\(error\?\.message \|\| t\("fileSelectionFailed"\), "error"\)/, "staging failure is visible");
+  // 2026-09: the manual import modal (browse button + hidden file input) was
+  // retired; dropped/pasted files enter through the batch importer only.
+  assert.doesNotMatch(app, /browseFileBtn|importFileInput/);
+  assert.match(app, /fetch\("\/api\/import\/stage"/, "dropped files stream to the local staging endpoint");
+  assert.match(app, /stageFile: stageBrowserFile/, "the batch importer stages through the shared browser staging helper");
 
   const i18n = await readFile(join(root, "web", "app", "i18n.mjs"), "utf8");
   assert.equal((i18n.match(/fileSelectionFailed:/g) || []).length, 2, "zh + en keys exist");
@@ -468,31 +467,27 @@ test("Electron manual drag/drop uses the same byte-stream staging path as Web", 
   assert.match(app, /collectDroppedFiles\(e\.dataTransfer/, "drop handler collects files and folders through the shared batch path");
   assert.match(app, /function currentDropImportMetadata\(\) \{[\s\S]*?state\.facets\.group[\s\S]*?return group \? \{ group \} : \{\};[\s\S]*?\}/,
     "gallery drop snapshots the active manual-group facet as import metadata");
-  assert.match(app, /batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\) \}\)/,
-    "gallery drop enters the quick import queue with the active group instead of opening the single-file modal");
-  assert.match(app, /filePath = await stageBrowserFile\(file\);/, "manual import streams selected bytes through the runtime");
+  assert.match(app, /batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\), skipped: unsupported \}\)/,
+    "gallery drop enters the quick import queue with the active group");
+  assert.match(app, /stageFile: stageBrowserFile/, "imports stream selected bytes through the runtime");
   assert.doesNotMatch(app, /file\.path|electronAPI\.getPathForFile/,
     "renderer must never read or request the raw Electron file path");
 });
 
 // ── batch 1.3: drop failure state hygiene ────────────────────────────────────
 
-test("drop failures clear the live region and never open an empty import modal", async () => {
+test("drop failures clear the live region and no import path opens a modal", async () => {
   const app = await readFile(join(root, "web", "app", "app.mjs"), "utf8");
   const drop = app.match(/library\.addEventListener\("drop", async \(e\) => \{[\s\S]*?\n  }\);/)[0];
 
   assert.match(drop, /collectDroppedFiles\(e\.dataTransfer/);
-  assert.match(drop, /void batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\) \}\);/);
+  assert.match(drop, /void batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\), skipped: unsupported \}\);/);
   assert.match(drop, /announceGalleryStatus\(""\);/, "drop completion always clears the persistent live-region message");
   assert.match(drop, /catch \(error\) \{[\s\S]*?announceGalleryStatus\(""\);[\s\S]*?return;/,
     "drop collection failure clears the live region and stops the flow");
-  assert.doesNotMatch(drop, /openImportModal|prepareImportFile\(/,
-    "quick gallery drops never open the single-file import modal");
-
-  const prepare = app.slice(app.indexOf("async function prepareImportFile"), app.indexOf("// ===== Drag & Drop ====="));
-  assert.match(prepare, /catch \(error\) \{/, "staging failures are caught centrally");
-  assert.match(prepare, /showToast\(error\?\.message \|\| t\("fileSelectionFailed"\), "error"\)/, "staging failure shows visible feedback");
-  assert.match(prepare, /if \(!filePath\) \{[\s\S]*?return false;/, "an empty staged path never opens the modal");
+  // 2026-09: the manual import modal is retired — no import path may open any dialog.
+  assert.doesNotMatch(drop, /openImportModal|prepareImportFile\(|modal/,
+    "quick gallery drops never open any import dialog");
 
   // 无文件（或全部格式不支持）：清空持久 live region，不留误导性的"已收到文件"。
   const noFilesBlock = drop.slice(drop.indexOf("if (!files.length)"), drop.indexOf("void batchImporter.enqueue"));

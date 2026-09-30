@@ -349,3 +349,13 @@ test("styles. picker and recipe-change styling stay within the Phase 4B boundary
   const cssDeclarations = css.replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(cssDeclarations, /!important/, "no !important in any CSS declaration");
 });
+
+test("inspector re-render re-binds the version compare selects", async () => {
+  for (const tree of ["web/app", "desktop/app"]) {
+    const app = await readFile(resolve(tree, "app.mjs"), "utf8");
+    // renderDetail rebuilds the compare selects from cached history; without
+    // this rebind they silently stop responding after a version switch.
+    assert.match(app, /bindVersionHistoryEvents\(cachedHistory\);[\s\S]{0,300}?bindVersionCompareEvents\(cachedHistory, asset\.id\);/,
+      `${tree}: renderDetail must re-bind version compare events`);
+  }
+});

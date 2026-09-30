@@ -155,21 +155,26 @@ test("separates loading, failed, empty and populated gallery states", async () =
   assert.ok(configImport > -1 && configImport < initCall, "config.mjs import must precede init()");
   const config = await readFile(resolve(root, "web/app/config.mjs"), "utf8");
   assert.match(config, /export const SKELETON_TILE_COUNT = 12;/);
-  assert.match(config, /export const GALLERY_DENSITIES = \["image", "info"\]/);
   // Heights vary through nth-child, keeping the markup free of inline styles.
   assert.match(css, /\.asset-skeleton:nth-child\(3n\)/);
 });
 
-test("offers a stable image-only / with-info density switch", async () => {
+test("pins the gallery to image-only cards with no density setting", async () => {
   const [app, css, config] = await Promise.all([readApp(), readCss(), readFile(resolve(root, "web/app/config.mjs"), "utf8")]);
 
-  // V2: Density is controlled via settings-menu segmented control
-  assert.match(app, /data-density-opt/);
-  assert.match(app, /"image".*data-density-opt|data-density-opt.*"image"/);
+  // The card density setting is gone: the V2 gallery shows images only, so
+  // there is no segmented control, no persisted density and no density state.
+  assert.doesNotMatch(app, /data-density-opt/);
+  assert.doesNotMatch(app, /galleryDensity|normalizeDensity|gallery-density/);
+  assert.doesNotMatch(app, /dataset\.density/);
+  assert.doesNotMatch(config, /GALLERY_DENSITIES/);
   assert.match(app, /data-appearance-opt/);
-  assert.match(config, /export const GALLERY_DENSITIES = \["image", "info"\]/);
-  assert.match(app, /safeStorageSet\("mosa\.gallery-density", state\.galleryDensity\)/);
-  // Info mode adds short title, source, date and a group/version badge.
+  // Card markup keeps the info block, but it is always hidden and the masonry
+  // estimate no longer reserves a 44px info-row height.
+  assert.match(css, /\.asset-card-info \{ display: none;/);
+  assert.doesNotMatch(css, /\[data-density/);
+  assert.doesNotMatch(app, /\? 44 : 0/, "the masonry estimate must not reserve an info-row height");
+  // The card keeps its short title, source, date and a group/version badge.
   assert.match(app, /class="asset-card-title"/);
   assert.match(app, /class="asset-card-meta"/);
   assert.match(app, /class="asset-card-badge"/);
@@ -177,10 +182,6 @@ test("offers a stable image-only / with-info density switch", async () => {
   // the version label.
   assert.match(app, /versionIndex > 1 \? t\("versionLabelShort", \{ number: versionIndex \}\) : ""/);
   assert.match(app, /String\(asset\.group \|\| ""\)\.trim\(\),/);
-  // The block is always rendered and only revealed, so toggling cannot reorder cards.
-  assert.match(css, /\.asset-card-info \{ display: none;/);
-  assert.match(css, /\.grid\[data-density="info"\] \.asset-card-info \{ display: block; \}/);
-  assert.match(app, /els\.assetGrid\.dataset\.density = state\.galleryDensity/);
   // Masonry row spans must not depend solely on an animation frame: the first
   // full pass is synchronous, while later image decodes repair only their own
   // cards instead of triggering a whole-grid measurement storm.
@@ -254,7 +255,7 @@ test("drops the card lift when the reader asks for less motion", async () => {
 test("translates every new gallery string in both locales", async () => {
   const i18n = await readI18n();
   const keys = [
-    "galleryLoading", "cardDensity", "densityImageControl", "densityInfoControl",
+    "galleryLoading",
     "cardAccessibleName", "versionLabelShort", "sourceWebChatgpt", "sourceUnknown", "loadFailed",
   ];
   const zh = i18n;

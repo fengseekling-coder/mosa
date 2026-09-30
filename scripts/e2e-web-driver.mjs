@@ -1,20 +1,33 @@
 #!/usr/bin/env electron
 
 import { app, BrowserWindow } from "electron";
-import { resolve } from "node:path";
-import { createCriticalUiFlowSource, createStackUiFlowSource } from "./e2e-ui-flow.mjs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { createCriticalUiFlowSource, createStackUiFlowSource, createTrashUiFlowSource, E2E_DROP_GROUP_NAME } from "./e2e-ui-flow.mjs";
 
 const cliArgs = process.argv.slice(2).filter((arg) => arg !== "--");
-const [cliTargetUrl, cliUserDataDir, cliMode, cliFixturePath, cliSearchTerm, cliRecipeChange] = cliArgs;
+const [cliTargetUrl, cliUserDataDir, cliMode, cliSearchTerm, cliRecipeChange] = cliArgs;
 const targetUrl = process.env.MOSA_E2E_WEB_TARGET_URL || cliTargetUrl;
 const userDataDir = process.env.MOSA_E2E_WEB_USER_DATA || cliUserDataDir;
 const mode = process.env.MOSA_E2E_WEB_MODE || cliMode;
-const fixturePath = process.env.MOSA_E2E_WEB_FIXTURE || cliFixturePath;
 const searchTerm = process.env.MOSA_E2E_WEB_SEARCH || cliSearchTerm;
 const recipeChange = process.env.MOSA_E2E_WEB_RECIPE_CHANGE || cliRecipeChange;
-const flow = process.env.MOSA_E2E_WEB_FLOW || "critical";
-if (!targetUrl || !userDataDir || (flow === "critical" && (!mode || !fixturePath || !searchTerm || !recipeChange))) {
-  console.error("usage: electron scripts/e2e-web-driver.mjs <url> <userDataDir> <exercise|verify> <fixturePath> <searchTerm> <recipeChange>");
+const dropGroupName = process.env.MOSA_E2E_WEB_GROUP || E2E_DROP_GROUP_NAME;
+const pasteEnabled = (process.env.MOSA_E2E_WEB_PASTE ?? "1") !== "0";
+const trashConfigSource = process.env.MOSA_E2E_WEB_TRASH_CONFIG || "";
+// Pluggable flows (scripts/e2e-flows) hand over a ready-made source file.
+const sourceFile = process.env.MOSA_E2E_WEB_SOURCE_FILE || "";
+const flow = sourceFile ? "source" : (process.env.MOSA_E2E_WEB_FLOW || "critical");
+if (!targetUrl || !userDataDir) {
+  console.error("usage: electron scripts/e2e-web-driver.mjs <url> <userDataDir> [mode] [searchTerm] [recipeChange]");
+  process.exit(2);
+}
+if (flow === "critical" && (!mode || !searchTerm || !recipeChange)) {
+  console.error("usage (critical): MOSA_E2E_WEB_MODE / MOSA_E2E_WEB_SEARCH / MOSA_E2E_WEB_RECIPE_CHANGE are required");
+  process.exit(2);
+}
+if (flow === "trash" && !trashConfigSource) {
+  console.error("usage (trash): MOSA_E2E_WEB_TRASH_CONFIG (JSON) is required");
   process.exit(2);
 }
 
@@ -31,11 +44,50 @@ app.whenReady().then(async () => {
       sandbox: true,
     },
   });
+  // E2E only: the hidden window must never pop a save dialog (it would hang),
+  // so every download is auto-saved into this run's sandboxed userData under
+  // downloads/, with a numeric suffix when the name is already taken. Flows
+  // that never download never fire this handler.
+  const downloadsDir = join(resolve(userDataDir), "downloads");
+  win.webContents.session.on("will-download", (_event, item) => {
+    mkdirSync(downloadsDir, { recursive: true });
+    const filename = item.getFilename();
+    const dot = filename.lastIndexOf(".");
+    const stem = dot > 0 ? filename.slice(0, dot) : filename;
+    const ext = dot > 0 ? filename.slice(dot) : "";
+    let savePath = join(downloadsDir, filename);
+    for (let n = 1; existsSync(savePath); n += 1) savePath = join(downloadsDir, `${stem}-${n}${ext}`);
+    item.setSavePath(savePath);
+  });
   try {
     await win.loadURL(targetUrl);
-    const source = flow === "stack"
-      ? createStackUiFlowSource()
-      : createCriticalUiFlowSource({ mode, fixturePath, searchTerm, recipeChange });
+    // Flows match Chinese UI copy, but without a stored preference the UI
+    // follows navigator.language, which is English on CI runners. Pin Chinese
+    // unless this profile already chose a language (a flow may switch it).
+    const pinnedLocale = await win.webContents.executeJavaScript(`(() => {
+      try {
+        if (localStorage.getItem("mosa.ui-language")) return false;
+        localStorage.setItem("mosa.ui-language", "zh");
+        return true;
+      } catch {
+        return false;
+      }
+    })()`, true);
+    if (pinnedLocale) {
+      // A real reload: loadURL(targetUrl) would only be a same-document hash
+      // navigation. The client token already moved to sessionStorage, which
+      // survives the reload.
+      await new Promise((resolveReload, rejectReload) => {
+        win.webContents.once("did-finish-load", resolveReload);
+        win.webContents.once("did-fail-load", (_event, code, description) => rejectReload(new Error(`reload failed: ${code} ${description}`)));
+        win.webContents.reload();
+      });
+    }
+    let source;
+    if (flow === "source") source = readFileSync(sourceFile, "utf8");
+    else if (flow === "stack") source = createStackUiFlowSource();
+    else if (flow === "trash") source = createTrashUiFlowSource(JSON.parse(trashConfigSource));
+    else source = createCriticalUiFlowSource({ mode, searchTerm, recipeChange, dropGroupName, pasteEnabled });
     const result = await win.webContents.executeJavaScript(source, true);
     console.log(JSON.stringify(result));
   } finally {

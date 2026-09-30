@@ -24,7 +24,6 @@ const translations = {
 const desktopTranslations = {
   zh: {
     menuFile: "文件",
-    menuImportAsset: "导入素材…",
     menuEdit: "编辑",
     menuView: "视图",
     menuSearch: "搜索",
@@ -55,7 +54,6 @@ const desktopTranslations = {
   },
   en: {
     menuFile: "File",
-    menuImportAsset: "Import Asset…",
     menuEdit: "Edit",
     menuView: "View",
     menuSearch: "Search",

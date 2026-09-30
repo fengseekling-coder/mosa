@@ -171,6 +171,25 @@ test("asset-updated patches the target card in place without any reload", async 
   assert.deepEqual(harness.calls.commits.at(-1).updatedIds, ["b"]);
 });
 
+test("a row whose sort key and content both change is moved and re-rendered", async () => {
+  // Dissolving a Stack turns its node row into a plain row with its own
+  // created_at: repositioning alone would leave the stale Stack card behind.
+  const harness = createHarness({
+    initialAssets: [row("a", "2026-01-01"), row("b", "2025-01-01")],
+    galleryRows: () => ({ rows: [{ ...row("b", "2026-06-01"), prompt: "changed" }], rowByAssetId: { b: "b" } }),
+  });
+  await harness.reconciler.applyChangeDelta({
+    changes: [{ revision: 2, kind: "asset-updated", entityType: "asset", entityId: "b" }],
+    revision: "2",
+    complete: true,
+  });
+  assert.equal(harness.calls.fullReloads, 0);
+  assert.deepEqual(harness.state.assets.map((asset) => asset.id), ["b", "a"], "newer sort key moves b to the top");
+  const commit = harness.calls.commits.at(-1);
+  assert.deepEqual(commit.repositionIds, ["b"]);
+  assert.deepEqual(commit.updatedIds, ["b"], "the moved row must also be re-rendered");
+});
+
 test("batched assets-updated reconciles every derivative id through one affected-row fetch", async () => {
   const harness = createHarness({
     initialAssets: [row("a", "2026-02-01"), row("b", "2026-01-01")],

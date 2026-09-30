@@ -526,7 +526,7 @@ test("retired show-in-folder IPC stays removed without expanding renderer author
   assert.doesNotMatch(preload, /showItemInFolder|show-item-in-folder/);
   assert.doesNotMatch(main, /ipcMain\.handle\("show-item-in-folder",/);
   // preload 其余 API 不变，不向 renderer 暴露 shell 对象或任意命令执行能力。
-  for (const api of ["pasteImage", "setLocale", "onMenuImport", "onMenuSearch"]) {
+  for (const api of ["pasteImage", "setLocale", "onMenuSearch"]) {
     assert.match(preload, new RegExp(`${api}:`), `preload keeps exposing ${api}`);
   }
   // Dead IPC channels stay removed rather than expanding renderer authority.

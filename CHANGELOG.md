@@ -6,6 +6,20 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 - MOSA Desktop now pairs the fixed allowlisted MOSA browser extensions automatically in the background. Installing/opening the app and loading the official extension no longer requires a native pairing confirmation dialog or manual Token entry; source/headless runtimes remain opt-in.
 - Web Capture extension 0.15.5 follows Google Flow's migration to its dedicated `flow.google.com` domain. The provider adapter now runs on both the legacy `labs.google/fx` routes and the new host, the background media probe accepts the relocated `media.getMediaUrlRedirect` endpoint (with or without the `/fx` prefix), and the media-host allowlists include the new origin. Failed media probes now back off per media item instead of re-fetching on every scan, and Flow grid-tile Prompt association uses the thumbnail size floor so small natural-size tiles keep their visible Prompt card.
+- Removed the manual Import dialog. Import external images by dragging files or folders into the open gallery (they land in the current group or Stack) or onto a manual group in the sidebar. Pasting an image imports it directly into the current group or Stack. The empty-state Import button, the blank-area "Import asset" context-menu item, and the desktop File → Import menu item (Cmd/Ctrl+N) are gone. Prompt and other metadata are edited afterwards in the Inspector.
+- Fixed tags missing from assets loaded through the gallery list: the Inspector showed no tags, and adding a tag there could erase the asset's existing tags.
+- Context menus could stop opening, and keyboard shortcuts stop working, after a menu item was activated immediately (for example by assistive technology).
+- Opening an asset in the viewer from the context menu no longer leaves its card in the multi-selection, so a later Ctrl/Shift-click or batch action cannot silently include it.
+- Dissolving a Stack whose original cover had been removed no longer leaves a stale Stack card in the gallery.
+- The Stack header count now updates after members are removed or added in place.
+- An open manual group now shows its name as the gallery title and in the asset viewer's scope label, instead of "All assets".
+- Version compare selectors keep working after switching versions or any other Inspector refresh.
+- Tags can now be removed in the Inspector: each user tag shows a remove button on hover or keyboard focus (always visible on touch). Source tags cannot be removed.
+- Changing the library location now refuses the current folder, a folder inside it (or containing it, including case-only path differences), and any non-empty destination before copying anything, so a relocation can no longer copy a library into itself or delete it afterwards.
+- Dropping a mix of supported and unsupported files into the gallery or onto a sidebar group now reports the skipped unsupported files in the import summary instead of silently ignoring them.
+- Removed the "Card density" setting. The gallery always shows image-only cards, as the V2 design intends; the "Info" option had no visible effect but still reserved 44 px of empty space under every card in the masonry layout. A previously saved density preference is ignored.
+- "Export Group" no longer writes local file paths, local directories, `/library/...` links or captured web page/media links into the exported JSON, so the file can be shared without revealing your user name or folder structure. Fields are removed by name only (`*_path`, `*_url`, `*_dir`, `path`, `prompt_file`); your library is not changed.
+- MOSA Desktop on macOS now removes leftover `.MOSA-update-*` folders beside `MOSA.app` from failed in-place updates once they are more than 10 minutes old, as it already did on Windows.
 
 ## 0.2.1-rc.25 — 2026-09-20 / Release Candidate
 

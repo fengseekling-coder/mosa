@@ -288,48 +288,31 @@ test("batch Trash removes a selected version chain child-first in one request", 
   assert.deepEqual(trash.assets.filter((item) => item.id === parent.id || item.id === child.id).map((item) => item.id).sort(), [parent.id, child.id].sort());
 });
 
-test("shows only the four everyday fields and hides the rest behind advanced settings", async () => {
-  const html = await readFile(resolve(root, "web/app/index.html"), "utf8");
-  const body = html.slice(html.indexOf('<div class="modal-body import-modal-body">'), html.indexOf('<div class="modal-footer">'));
-  const advanced = body.slice(body.indexOf('<details class="import-advanced"'));
-  const everyday = body.slice(0, body.indexOf('<details class="import-advanced"'));
-
-  for (const id of ["imagePathInput", "groupInput"]) {
-    assert.match(everyday, new RegExp(`id="${id}"`), `${id} should be visible by default`);
-  }
-  for (const id of ["promptInput", "categoryInput", "skillInput", "styleInput", "ratioInput", "themeInput", "businessInput"]) {
-    assert.doesNotMatch(everyday, new RegExp(`id="${id}"`), `${id} should not be visible by default`);
-    assert.match(advanced, new RegExp(`id="${id}"`), `${id} should live under advanced settings`);
-  }
-  // Collapsed by default: no `open` attribute on the disclosure.
-  assert.match(body, /<details class="import-advanced" id="importAdvanced">/);
-});
-
-test("offers a real file picker while keeping server-sourced format guidance", async () => {
+test("import has no manual modal left: drag/drop enqueues the batch importer and paste shares it", async () => {
   const [html, app, apiClient] = await Promise.all([
     readFile(resolve(root, "web/app/index.html"), "utf8"),
     readFile(resolve(root, "web/app/app.mjs"), "utf8"),
     readFile(resolve(root, "web/app/api-client.mjs"), "utf8"),
   ]);
 
-  assert.match(html, /id="importFormatList"/);
-  assert.match(html, /id="importPathExample"/);
-  assert.match(html, /id="codexSourceHint"/);
-  assert.match(app, /els\.importFormatList\.textContent = state\.supportedMediaExtensions\.join\(" "\)/);
-  assert.match(apiClient, /if \(library\) \{[\s\S]*?state\.supportedMediaExtensions = Array\.isArray\(library\.supportedMediaExtensions\)/,
-    "foreground stats load hydrates server-sourced media formats; background polling may skip the static library-path request");
-  // Manual import must use real File bytes rather than assuming a browser can
-  // reveal an absolute local path. The staged server path stays internal to the
-  // existing create-asset form.
+  // The manual import modal and every one of its entry points are gone.
+  assert.doesNotMatch(html, /id="importModal"|importFileInput|browseFileBtn|imagePathInput/);
+  assert.doesNotMatch(app, /openImportModal|closeImportModal|prepareImportFile|trapImportModalFocus/);
+  assert.doesNotMatch(app, /data-action="empty-import"/);
+  // The retained format hint is hydrated from the server response, never a
+  // client-side copy of the store's accepted set.
+  assert.match(apiClient, /if \(library\) \{[\s\S]*?state\.libraryRoot = library\.libraryDir/,
+    "foreground stats load still hydrates the library root; background polling may skip the static library-path request");
+  // Imports stream real File bytes to the local runtime; the renderer never
+  // assumes it can read an absolute local path.
   assert.doesNotMatch(app, /showOpenFilePicker|webkitdirectory/);
-  assert.match(html, /id="importFileInput"[^>]*type="file"[^>]*multiple/);
+  assert.doesNotMatch(app, /file\.path|electronAPI\.getPathForFile/);
   assert.match(app, /fetch\("\/api\/import\/stage"/);
-  assert.match(app, /els\.importFileInput\.click\(\)/);
   assert.match(app, /collectDroppedFiles\(e\.dataTransfer/);
-  assert.match(app, /batchImporter\.enqueue\(files\)/);
+  assert.match(app, /batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\), skipped: unsupported \}\)/);
 });
 
-test("keeps desktop bridge minimal while manual files use unified server staging", async () => {
+test("keeps desktop bridge minimal while dropped files use unified server staging", async () => {
   const [html, app, preload] = await Promise.all([
     readFile(resolve(root, "web/app/index.html"), "utf8"),
     readFile(resolve(root, "web/app/app.mjs"), "utf8"),
@@ -337,7 +320,7 @@ test("keeps desktop bridge minimal while manual files use unified server staging
   ]);
 
   assert.doesNotMatch(html, /id="dropOverlay"/);
-  assert.ok(app.includes("filePath = await stageBrowserFile(file)"));
+  assert.ok(app.includes("stageFile: stageBrowserFile"));
   assert.equal(app.includes("file.webkitRelativePath || file.name"), false);
   assert.doesNotMatch(app, /file\.path|electronAPI\.getPathForFile/);
   assert.doesNotMatch(preload, /getPathForFile|webUtils\.getPathForFile|stage-dropped-file/);
@@ -350,67 +333,46 @@ test("keeps desktop bridge minimal while manual files use unified server staging
   assert.ok(app.includes('showToast(t("darkModeChanged"), "success")'));
 });
 
-test("attaches import errors to their field with aria wiring and non-colour cues", async () => {
-  const [html, app, css, apiClient] = await Promise.all([
-    readFile(resolve(root, "web/app/index.html"), "utf8"),
-    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
-    readFile(resolve(root, "web/app/styles.css"), "utf8"),
-    readFile(resolve(root, "web/app/api-client.mjs"), "utf8"),
-  ]);
-
-  assert.match(html, /id="imagePathInput"[^>]*aria-describedby="imagePathGuidance imagePathError"/);
-  assert.match(html, /id="businessInput"[^>]*aria-describedby="businessFieldsError"/);
-  assert.match(html, /<p class="field-error" id="imagePathError" role="alert" hidden><\/p>/);
-  assert.match(html, /<p class="field-error" id="businessFieldsError" role="alert" hidden><\/p>/);
-  assert.match(app, /target\.input\?\.setAttribute\("aria-invalid", "true"\)/);
-  assert.match(app, /target\.input\?\.focus\(\)/);
-  // An error inside the collapsed section has to reveal that section.
-  assert.match(app, /if \(target\.disclosure\) target\.disclosure\.open = true/);
-  // Icon plus text, so colour is not the only carrier of meaning.
-  assert.match(css, /\.field-error::before \{ content: "⚠"/);
-  // The flex display above outranks the UA [hidden] rule, so it needs restating
-  // or an empty warning icon sits under the field with no error to report.
-  assert.match(css, /\.field-error\[hidden\] \{ display: none; \}/);
-
-  for (const code of ["IMAGE_PATH_REQUIRED", "IMAGE_PATH_NOT_FOUND", "IMAGE_PATH_UNSUPPORTED_TYPE", "IMAGE_PATH_NOT_READABLE"]) {
-    assert.match(app, new RegExp(`${code}: \\{ field: "imagePath"`), `${code} must map to the path field`);
-  }
-  assert.match(apiClient, /if \(payload\.code\) error\.code = payload\.code/);
-});
-
-test("blocks a double submit and shows a loading state while saving", async () => {
+test("paste imports clipboard images directly without any modal", async () => {
   const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
-  assert.match(app, /if \(state\.importSaving\) return;/);
-  assert.match(app, /els\.importModal\?\.querySelectorAll\("input, textarea, select, button"\)\.forEach\(\(control\) => \{ control\.disabled = busy; \}\)/,
-    "the full import form is frozen while the request is in flight");
-  assert.match(app, /els\.saveAssetBtn\.setAttribute\("aria-busy", String\(busy\)\)/);
-  assert.match(app, /els\.saveAssetBtn\.textContent = busy \? t\("savingAsset"\) : t\("saveAsset"\)/);
-  // The button has to be released whether the request succeeded or failed.
-  assert.match(app, /\} finally \{\s*setImportBusy\(false\);/);
-  // Success still selects the new asset and refreshes the gallery.
-  assert.match(app, /state\.selectedId = result\.asset\.id;\s*\n\s*clearImportForm\(\); closeImportModal\(\{ force: true \}\);/);
-  assert.match(app, /await Promise\.all\(\[loadStats\(\), loadAssets\(\)\]\);/,
-    "success refreshes stats and gallery together instead of serialising two independent reads");
+  // The document paste handler feeds clipboard image Files into the same
+  // batch importer as drag & drop, naming unnamed screenshot entries.
+  const pasteHandler = app.slice(app.indexOf("function setupPasteImport()"), app.indexOf("const favoriteRequests"));
+  assert.match(pasteHandler, /document\.addEventListener\("paste"/);
+  assert.match(pasteHandler, /item\.type\.startsWith\("image\/"\)/);
+  assert.match(pasteHandler, /item\.getAsFile\?\.\(\)/);
+  assert.match(pasteHandler, /pasted-\$\{Date\.now\(\)\}/);
+  assert.match(pasteHandler, /batchImporter\.enqueue\(named, \{ metadata: currentDropImportMetadata\(\) \}\)/);
+  assert.doesNotMatch(pasteHandler, /importModal|imagePathInput|pasteClipboardImage/);
+
+  // The Electron context-menu paste path stages natively and creates the asset
+  // directly through /api/assets/create; no modal element survives anywhere in it.
+  const sharedPaste = app.slice(app.indexOf("async function pasteClipboardImage()"), app.indexOf("function setLanguage"));
+  assert.match(sharedPaste, /api\.pasteImage\(\)/);
+  assert.match(sharedPaste, /apiFetch\("\/api\/assets\/create"/);
+  assert.match(sharedPaste, /state\.activeStackId \? \{ stackId: state\.activeStackId \}/);
+  assert.match(sharedPaste, /cleanupStagedFile\(imagePath\)/);
+  assert.match(sharedPaste, /showToast\(t\("pasteImageSaveFailed"\), "error"\)/);
+  assert.doesNotMatch(sharedPaste, /importModal|imagePathInput|openImportModal|els\./);
+
+  // The paste handler is registered for both modes, not only Electron.
+  assert.match(app, /setupPasteImport\(\);/);
+  assert.doesNotMatch(app, /onMenuImport/);
 });
 
-test("keeps the import dialog's focus contract and translates every new string", async () => {
-  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
-
-  assert.match(app, /function trapImportModalFocus\(event\)/);
-  assert.match(app, /if \(event\.key === "Escape"\) \{ event\.preventDefault\(\); closeImportModal\(\); return; \}/);
-  assert.match(app, /function closeImportModal\(\{ force = false \} = \{\}\)[\s\S]*?if \(state\.importSaving && !force\) return false;[\s\S]*?state\.modalReturnFocus\.focus\(\)/);
-  // Opening resets any error left from a previous attempt while preserving the
-  // exact save guard and the modal-mutex check. Do not broaden this to an
-  // arbitrary same-line regex: both conditions are part of the contract.
-  assert.match(app, /function openImportModal\(\) \{\s*if \(state\.importSaving \|\| hasBlockingOverlay\("import"\)\) return;\s*state\.modalReturnFocus = document\.activeElement;\s*clearImportErrors\(\);/);
+test("translated copy for the retained import surfaces stays symmetric across locales", async () => {
+  const i18n = await readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
 
   const keys = [
-    "advancedSettings", "importPathFormats", "importPathExample", "importPathCodexDir", "importPathCodexDirUnknown",
-    "errorPathRequired", "errorPathNotFound", "errorPathUnsupported", "errorPathNotReadable", "errorInvalidJson", "savingAsset",
+    "errorPathUnsupported", "fileSelectionFailed", "pasteImageSaveFailed", "pastedImageImported",
+    "batchImportQueued", "batchImportProgress", "batchImportComplete", "emptyDropHint",
   ];
-  const i18n = await readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
   for (const key of keys) {
-    assert.match(i18n, new RegExp(`\\b${key}:`), `translation missing for ${key}`);
+    assert.equal((i18n.match(new RegExp(`\\b${key}:`, "g")) || []).length, 2, `${key} exists exactly once per locale`);
+  }
+  // The retired modal copy leaves no dead keys behind.
+  for (const retired of ["importAsset", "importEyebrow", "importTitle", "uploadFile", "uploadHint", "uploadFormats", "closeImport", "imagePathPlaceholder", "promptPlaceholder", "groupOptional", "groupInputPlaceholder", "saveAsset", "savingAsset", "savedAsset", "advancedSettings", "importPathFormats", "importPathExample", "errorPathRequired", "errorPathNotFound", "errorPathNotReadable", "errorInvalidJson", "browseFile", "onboardImport", "dropPathUnavailable"]) {
+    assert.doesNotMatch(i18n, new RegExp(`\\b${retired}:`), `retired modal key ${retired} is gone`);
   }
 });

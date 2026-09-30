@@ -40,9 +40,11 @@ const checks = [
   ["04 confirm blocks background shortcuts", async () => assert.match(await read("web/app/app.mjs"), /if \(confirmDialogState\.pending\) return;/)],
   ["05 modal Escape trap remains", async () => {
     const app = await read("web/app/app.mjs");
-    assert.match(app, /function trapImportModalFocus\(event\)/);
+    // 2026-09: the manual import modal retired; its trap went with it and the
+    // surviving group-modal trap keeps its Escape contract.
+    assert.doesNotMatch(app, /trapImportModalFocus|closeImportModal/);
     assert.match(app, /function trapGroupModalFocus\(event\)/);
-    assert.match(app, /if \(event\.key === "Escape"\) \{ event\.preventDefault\(\); closeImportModal\(\); return; \}/);
+    assert.match(app, /if \(event\.key === "Escape"\) \{ event\.preventDefault\(\); closeGroupModal\(\); return; \}/);
   }],
   ["06 retired language child overlay stays removed", async () => {
     const app = await read("web/app/app.mjs");
@@ -204,7 +206,15 @@ const checks = [
     assert.match(drag, /hideDragOverlay\(\{ announce: false \}\);\s+announceGalleryStatus\(t\("dropImportReceived"\), \{ persist: true \}\)/);
   }],
   ["58 invalid drop keeps error Toast", async () => assert.match(await read("web/app/app.mjs"), /showToast\(t\("errorPathUnsupported"\), "error"\)/)],
-  ["59 unavailable path keeps error Toast", async () => assert.match(await read("web/app/app.mjs"), /if \(!filePath\) \{[\s\S]*?showToast\(t\("dropPathUnavailable"\), "error"\)/)],
+  ["59 paste imports without stealing editor paste", async () => {
+    const app = await read("web/app/app.mjs");
+    // 2026-09: the drop-path "unavailable path" Toast retired with the import
+    // modal; paste import never targets editable fields or overlay surfaces.
+    const paste = app.slice(app.indexOf("function setupPasteImport()"), app.indexOf("const favoriteRequests"));
+    assert.match(paste, /target\.closest\("input, textarea, select, \[contenteditable\]"\)/);
+    assert.match(paste, /confirmDialogState\.pending/);
+    assert.doesNotMatch(app, /dropPathUnavailable/);
+  }],
   ["60 dragenter is not an alert", async () => {
     const [html, app] = await Promise.all([read("web/app/index.html"), read("web/app/app.mjs")]);
     assert.doesNotMatch(html, /id="dragOverlay"[^>]*role="alert"/);

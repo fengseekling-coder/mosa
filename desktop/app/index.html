@@ -24,48 +24,6 @@
       </div>
     </div>
 
-    <div class="modal-overlay" id="importModal" aria-hidden="true">
-      <div class="modal-card import-modal-card" role="dialog" aria-modal="true" aria-labelledby="importModalTitle" tabindex="-1">
-        <div class="modal-header">
-          <div>
-            <p class="eyebrow" data-i18n="importEyebrow">LIBRARY</p>
-            <h3 id="importModalTitle" data-i18n="importTitle">导入素材</h3>
-          </div>
-          <button class="icon-button" id="closeImportModal" type="button" data-i18n-aria-label="closeImport" aria-label="关闭导入窗口">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg>
-          </button>
-        </div>
-        <div class="modal-body import-modal-body">
-          <div class="import-v2-path-card">
-            <label class="field import-v2-path-field"><span class="import-v2-upload-label" data-i18n="uploadFile">上传文件</span><div class="field-with-button"><input class="import-v2-path-input" id="imagePathInput" data-i18n-placeholder="imagePathPlaceholder" placeholder="图片的本地绝对路径" aria-describedby="imagePathGuidance imagePathError" /><input class="visually-hidden" id="importFileInput" type="file" multiple accept="image/apng,image/avif,image/gif,image/jpeg,image/png,image/svg+xml,image/webp,video/x-m4v,video/quicktime,video/mp4,video/webm" /><button class="browse-btn" id="browseFileBtn" type="button" data-i18n-title="browseFile" title="浏览" data-i18n-aria-label="uploadHint" aria-label="点击上传或拖拽文件到此处"><svg class="import-v2-upload-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></svg><span class="import-v2-browse-title" data-i18n="uploadHint">点击上传或拖拽文件到此处</span><span class="import-v2-browse-formats" data-i18n="uploadFormats">支持 JPG、PNG、GIF、MP4 等格式</span></button></div></label>
-            <p class="field-error" id="imagePathError" role="alert" hidden></p>
-            <div class="field-guidance import-v2-guidance" id="imagePathGuidance"><p><span data-i18n="importPathFormats">支持格式</span><span id="importFormatList"></span></p><code id="importPathExample" class="visually-hidden"></code><code id="codexSourceHint" class="visually-hidden"></code></div>
-          </div>
-          <label class="field import-v2-group"><span data-i18n="groupOptional">分组（可选）</span><input id="groupInput" data-i18n-placeholder="groupInputPlaceholder" placeholder="输入分组名称" /></label>
-          <details class="import-advanced" id="importAdvanced">
-            <summary data-i18n="advancedSettings">高级设置</summary>
-            <div class="import-advanced-content">
-              <label class="field"><span data-i18n="prompt">提示词</span><textarea id="promptInput" rows="4" data-i18n-placeholder="promptPlaceholder" placeholder="完整提示词"></textarea></label>
-              <label class="field"><span data-i18n="category">分类</span><select id="categoryInput">
-                <option value="" data-i18n="none">—</option><option value="product" data-i18n="categoryProduct">产品</option><option value="concept" data-i18n="categoryConcept">概念</option><option value="texture" data-i18n="categoryTexture">纹理</option><option value="reference" data-i18n="categoryReference">参考</option><option value="other" data-i18n="categoryOther">其他</option>
-              </select></label>
-              <div class="two">
-                <label class="field"><span data-i18n="skill">技能</span><input id="skillInput" placeholder="punk-cover" /></label>
-                <label class="field"><span data-i18n="style">风格</span><input id="styleInput" placeholder="cyberpunk" /></label>
-              </div>
-              <div class="two">
-                <label class="field"><span data-i18n="ratio">比例</span><input id="ratioInput" placeholder="9:16" /></label>
-                <label class="field"><span data-i18n="theme">主题</span><input id="themeInput" placeholder="orbital-luxury-vault" /></label>
-              </div>
-              <label class="field"><span data-i18n="businessFields">业务字段 JSON</span><textarea id="businessInput" rows="3" placeholder='{"product":"...","price":"..."}' aria-describedby="businessFieldsError"></textarea></label>
-              <p class="field-error" id="businessFieldsError" role="alert" hidden></p>
-            </div>
-          </details>
-        </div>
-        <div class="modal-footer"><button class="btn-secondary" id="cancelImportBtn" type="button" data-i18n="cancel">取消</button><button class="btn-primary" id="saveAssetBtn" type="button" data-i18n="saveAsset">保存素材</button></div>
-      </div>
-    </div>
-
     <div class="modal-overlay" id="groupModal" aria-hidden="true">
       <div class="modal-card group-modal-card" role="dialog" aria-modal="true" aria-labelledby="groupModalTitle" tabindex="-1">
         <div class="modal-header">

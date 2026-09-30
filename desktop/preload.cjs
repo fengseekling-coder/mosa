@@ -22,6 +22,5 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("update-download-progress", (_event, progress) => callback(progress)),
   openDownloadPage: () => ipcRenderer.invoke("open-download-page"),
   changeLibraryLocation: () => ipcRenderer.invoke("change-library-location"),
-  onMenuImport: (callback) => ipcRenderer.on("menu-import", (_event, ...args) => callback(...args)),
   onMenuSearch: (callback) => ipcRenderer.on("menu-search", (_event, ...args) => callback(...args)),
 });

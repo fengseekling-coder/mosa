@@ -15,7 +15,6 @@ export const SIDEBAR_SOURCE_TYPES = [
 ];
 export const SCOPES = ["all", "favorite", "unorganized", "trash"];
 export const FACET_KEYS = ["source", "group", "category", "style", "conversation", "generationBatch"];
-export const GALLERY_DENSITIES = ["image", "info"];
 export const CARD_TITLE_MAX = 52;
 export const SKELETON_TILE_COUNT = 12;
 // Gallery pages are deliberately smaller than the API ceiling. The data layer

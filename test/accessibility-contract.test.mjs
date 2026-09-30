@@ -13,10 +13,8 @@ test("keeps the import flow keyboard-accessible", async () => {
     readFile(resolve(root, "web/app/image-preview.mjs"), "utf8"),
   ]);
 
-  assert.match(html, /role="dialog" aria-modal="true" aria-labelledby="importModalTitle"/);
   assert.match(html, /id="imagePreviewModal" role="dialog" aria-modal="true" aria-labelledby="imagePreviewTitle"/);
   assert.match(html, /id="imagePreviewStage"/);
-  assert.match(html, /data-i18n-aria-label="closeImport"/);
   assert.match(html, /data-i18n-aria-label="closePreview"/);
   assert.match(html, /<button class="nav-item active"/);
   assert.match(html, /data-i18n="smartGroups"/);
@@ -29,7 +27,6 @@ test("keeps the import flow keyboard-accessible", async () => {
   assert.doesNotMatch(app, /card-overlay|asset-source-badge/);
   assert.doesNotMatch(html, /id="assetCount"/);
   assert.match(html, /id="bridgeStatus" data-state="checking" role="status" aria-live="polite"/);
-  assert.match(app, /function trapImportModalFocus\(event\)/);
   assert.match(app, /function trapGroupModalFocus\(event\)/);
   assert.match(app, /async function saveGroup\(\)/);
   assert.match(app, /function openImagePreview\(id, trigger\)/);
@@ -319,8 +316,6 @@ test("commits Inspector discards transactionally and keeps result-set mutations 
     "confirmation alone must never mark a draft clean before the caller succeeds");
   assert.match(apiClient, /const preserveDirtySelection = Boolean\([\s\S]*?state\.detailOpen && state\.detailDirty[\s\S]*?state\.detailAsset = previousSelected;/,
     "a dirty selected asset removed from the current result set remains the Inspector source of truth");
-  assert.match(app, /async function saveAsset\(\)[\s\S]*?await apiFetch\("\/api\/assets\/create"[\s\S]*?discardDetailDraft\(\);[\s\S]*?state\.selectedId = result\.asset\.id;/,
-    "import discards the old Inspector draft only after asset creation succeeds");
   assert.match(app, /async function saveGroup\(\)[\s\S]*?await apiFetch\("\/api\/groups"[\s\S]*?discardDetailDraft\(\);[\s\S]*?clearDetailSelection\(\);/,
     "group creation keeps the old draft dirty until the group mutation succeeds");
   assert.match(contextBindings, /void librarySync\.applyLocalChanges\(changes\)\.catch\(\(error\) => console\.warn\("Incremental refresh failed:", error\)\)/,

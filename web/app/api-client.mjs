@@ -59,7 +59,6 @@ export function createApiClient(deps) {
     els,
     renderSettingsMenu,
     renderDetail,
-    updateCodexHint,
     renderQuickFilters,
     renderGrid,
     updateViewTitle,
@@ -137,8 +136,6 @@ export function createApiClient(deps) {
       state.libraryPath = library.path || "";
       state.libraryRoot = library.libraryDir || "";
       state.codexImagesDir = library.codexGeneratedImagesDir || "";
-      state.supportedMediaExtensions = Array.isArray(library.supportedMediaExtensions) ? library.supportedMediaExtensions : [];
-      updateCodexHint();
     }
     const nextGroups = navigationStateFromPayload(result);
     const changed = JSON.stringify(nextGroups) !== JSON.stringify(state.groups);
@@ -239,8 +236,6 @@ export function createApiClient(deps) {
     state.libraryPath = library?.path || "";
     state.libraryRoot = library?.libraryDir || "";
     state.codexImagesDir = library?.codexGeneratedImagesDir || "";
-    state.supportedMediaExtensions = Array.isArray(library?.supportedMediaExtensions) ? library.supportedMediaExtensions : [];
-    updateCodexHint();
     renderQuickFilters();
     renderSettingsMenu();
     renderGrid({ preserveScroll: false });
@@ -548,10 +543,19 @@ export function createApiClient(deps) {
 
     const total = Number(result.page?.total);
     if (!Number.isFinite(total)) return false;
+    let titleChanged = false;
+    // Inside a Stack the title prefers the Stack summary count, captured on
+    // entry; membership changes made in place must refresh it too, or the
+    // title keeps the old member count.
+    if (request.stackId && result.stack && result.stack.count !== state.activeStackSummary?.count) {
+      state.activeStackSummary = { ...state.activeStackSummary, ...result.stack };
+      titleChanged = true;
+    }
     if (state.pageTotal !== total) {
       state.pageTotal = total;
-      updateViewTitle();
+      titleChanged = true;
     }
+    if (titleChanged) updateViewTitle();
     return true;
   }
 

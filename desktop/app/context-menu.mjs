@@ -139,7 +139,12 @@ export function createContextMenu() {
     // scroll 事件不冒泡，window 捕获阶段监听才能覆盖画廊内部滚动容器。
     const dismissOnAnchorShift = () => hide();
 
-    setTimeout(() => {
+    // Registration is deferred so the opening contextmenu event cannot close
+    // the menu it just produced. A menu hidden before the timer fires (e.g. a
+    // synchronous item click from assistive tech or automation) must cancel it,
+    // or these document/window listeners would leak and keep closing every
+    // later menu and swallowing every keydown.
+    const registerTimer = setTimeout(() => {
       document.addEventListener("click", closeHandler);
       document.addEventListener("contextmenu", closeHandler);
       document.addEventListener("keydown", keyHandler, { capture: true });
@@ -148,6 +153,7 @@ export function createContextMenu() {
     }, 0);
 
     menu._cleanup = () => {
+      clearTimeout(registerTimer);
       document.removeEventListener("click", closeHandler);
       document.removeEventListener("contextmenu", closeHandler);
       document.removeEventListener("keydown", keyHandler, { capture: true });
