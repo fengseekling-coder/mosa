@@ -1683,7 +1683,9 @@ function updateViewTitle() {
           count: state.activeStackSummary?.count || state.pageTotal || state.assets.length,
         })
         : t("stackItemCount", { count: state.activeStackSummary?.count || state.pageTotal || state.assets.length }))
-    : (titles[state.scope] || t("allAssets"));
+    // An open manual group names itself, like an open Stack does; the asset
+    // viewer's scope chip mirrors this title.
+    : (state.scope === "all" && String(state.facets?.group || "").trim()) || titles[state.scope] || t("allAssets");
   // Match V2 SearchBar's scope-aware hint without changing the shared search
   // control or any query semantics.
   if (els.searchInput) {
