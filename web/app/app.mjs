@@ -4916,6 +4916,9 @@ function renderDetail({ syncAssetView = true } = {}) {
   bindReferenceThumbnailFallbacks(els.detailPanel);
   bindVersionPickerEvents();
   bindVersionHistoryEvents(cachedHistory);
+  // The compare selects are rebuilt from the cached history on every render,
+  // so they need their listeners again (not only after /versions loads).
+  bindVersionCompareEvents(cachedHistory, asset.id);
   bindGenerationHistoryEvents(cachedGenerationHistory, asset.id);
   bindRecipeHistoryEvents(cachedRecipeHistory, asset);
   detailRenderedAssetId = asset.id;

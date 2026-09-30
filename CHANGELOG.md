@@ -13,6 +13,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - Dissolving a Stack whose original cover had been removed no longer leaves a stale Stack card in the gallery.
 - The Stack header count now updates after members are removed or added in place.
 - An open manual group now shows its name as the gallery title and in the asset viewer's scope label, instead of "All assets".
+- Version compare selectors keep working after switching versions or any other Inspector refresh.
 
 ## 0.2.1-rc.25 — 2026-09-20 / Release Candidate
 
