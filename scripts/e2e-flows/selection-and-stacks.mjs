@@ -74,7 +74,10 @@ const SELECTION_HELPERS = String.raw`
     await sleep(90);
     window.dispatchEvent(new PointerEvent('pointerup', { ...init, buttons: 0, clientX: toX, clientY: toY }));
     await sleep(40);
+    // Failure diagnostics: what each individual marquee actually selected.
+    marqueeLog.push({ from: [Math.round(fromX), Math.round(fromY)], to: [Math.round(toX), Math.round(toY)], shiftKey, selected: selectedCardIds().map((id) => id.slice(0, 12)) });
   }
+  const marqueeLog = [];
   const cardRect = (assetId) => {
     const card = document.querySelector(cardSelector(assetId));
     if (!card) throw new Error('Missing card for ' + assetId);
@@ -206,7 +209,11 @@ export async function run(ctx) {
       } catch (error) {
         const grid = document.querySelector('#assetGrid')?.getBoundingClientRect();
         const rects = Object.fromEntries(rootCardIds().map((id) => { const r = cardRect(id); return [id.slice(0, 14), [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)]]; }));
-        throw new Error(error.message + ' marquee=' + JSON.stringify({ marqueeStrategy, selected: selectedCardIds(), grid: grid && [Math.round(grid.left), Math.round(grid.top), Math.round(grid.right), Math.round(grid.bottom)], viewport: [innerWidth, innerHeight, devicePixelRatio], gridScroll: document.querySelector('#assetGrid')?.scrollTop, rects }));
+        // Masonry placement drives the selection geometry snapshot; compare it
+        // with the rendered rects above to spot a stale layout.
+        const placement = Object.fromEntries(rootCardIds().map((id) => { const s = document.querySelector(cardSelector(id))?.style; return [id.slice(0, 12), s ? [s.gridColumnStart, s.gridRowStart, s.gridRowEnd] : null]; }));
+        const gridStyle = getComputedStyle(document.querySelector('#assetGrid'));
+        throw new Error(error.message + ' marquee=' + JSON.stringify({ marqueeStrategy, marqueeLog, selected: selectedCardIds(), grid: grid && [Math.round(grid.left), Math.round(grid.top), Math.round(grid.right), Math.round(grid.bottom)], viewport: [innerWidth, innerHeight, devicePixelRatio], gridScroll: document.querySelector('#assetGrid')?.scrollTop, columns: gridStyle.gridTemplateColumns, padding: [gridStyle.paddingLeft, gridStyle.paddingTop], rects, placement }));
       }
       return { marqueeStrategy, selected: selectedCardIds(), barVisible: selectionBarVisible(), countText: selectionCountText() };
     `));
