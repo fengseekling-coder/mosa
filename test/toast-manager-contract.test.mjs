@@ -258,8 +258,10 @@ test("52-55. ConfirmDialog / retired overlay / Viewer / F-08 seams intact", asyn
   // R1 batch 4: the viewer factory moved to app/asset-view.mjs.
   assert.match(viewer, /state\.libraryReturnSnapshot = \{/, "Viewer return snapshot intact");
   assert.match(viewer, /function openAssetView\(/, "Viewer open path intact");
-  assert.match(app, /data-action="empty-view-all"/, "F-08 gallery empty-state actions intact");
-  assert.match(app, /data-action="empty-open-library"/, "F-08 empty-state library entry intact");
+  assert.match(app, /data-action="empty-clear"/, "F-08 gallery empty-state reset action intact");
+  // V2 renders one neutral recovery state; handlers for buttons it never
+  // renders are dead code and must not creep back.
+  assert.doesNotMatch(app, /empty-view-all|empty-open-library/, "retired empty-state actions stay removed");
 });
 
 // 56. i18n: dismiss + container names exist symmetrically in zh and en.

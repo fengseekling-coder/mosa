@@ -1834,11 +1834,9 @@ function bindEvents() {
       return;
     }
     if (event.target.closest('[data-action="retry"]')) window.location.reload();
-    // F-08 空态操作：导入只靠拖放（空态以提示文案指引）；清除与查看全部共用
-    // 同一个 reset helper，只触发一次刷新；打开素材库复用既有 API。
-    if (event.target.closest('[data-action="empty-clear"]') || event.target.closest('[data-action="empty-view-all"]')) { resetLibraryRefinements(); return; }
-    const openLibraryAction = event.target.closest('[data-action="empty-open-library"]');
-    if (openLibraryAction) runAction(async () => { if (!state.libraryPath) return; await apiFetch("/api/open-folder", { method: "POST", body: { path: state.libraryPath } }); showToast(t("openInFinder"), "success"); });
+    // F-08 空态操作：V2 只有一个中性恢复态，唯一的动作是清除筛选（导入只靠
+    // 拖放，由空态提示文案指引）。
+    if (event.target.closest('[data-action="empty-clear"]')) { resetLibraryRefinements(); return; }
   });
   els.assetGrid?.addEventListener("dblclick", (event) => {
     const selectButton = event.target.closest(".asset-card-select");
