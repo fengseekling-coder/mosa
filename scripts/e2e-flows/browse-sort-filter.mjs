@@ -339,7 +339,9 @@ function sessionOneSource(expect) {
     const stages = await scrollToLoadAll('pagination');
     const loadedIds = rootCardIds();
     click('.topbar-type-filters [data-type="img"]');
-    await waitFor(() => matchesOrder(expect.imgOrder), 'img filter prefix of API order');
+    // Without seeded videos the img order equals the unfiltered order, so the
+    // order check alone passes before the click lands; wait for the filter too.
+    await waitFor(() => typePressed('img').active && matchesOrder(expect.imgOrder), 'img filter prefix of API order');
     const imgIds = rootCardIds();
     const imgPressed = typePressed('img');
     let videoIds = [];
@@ -351,7 +353,7 @@ function sessionOneSource(expect) {
       videoPressed = typePressed('video');
     }
     click('.topbar-type-filters [data-type="all"]');
-    await waitFor(() => matchesOrder(expect.newestOrder), 'back to all types');
+    await waitFor(() => typePressed('all').active && matchesOrder(expect.newestOrder), 'back to all types');
     const allTypeIds = rootCardIds();
     const allPressed = typePressed('all');
     const newestIds = await applySort('newest', expect.newestOrder, 'sort newest applied');
