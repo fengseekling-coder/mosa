@@ -3,6 +3,8 @@
  * Defines all context menu items and their actions
  */
 
+import { sanitizeAssetForExport } from "./utils.mjs";
+
 export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, openStackRenameModal, loadAssets, getGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, gallerySelection }) {
   const { apiFetch } = apiClient;
   // getGroupColor falls back to the deterministic palette so call sites can rely
@@ -260,11 +262,13 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             await runAction(async () => {
               const projectId = state.project;
               const assets = await fetchGroupAssets(item.name, projectId);
+              // 导出文件可能被分享：素材对象先剥掉本机路径与 /library/ 链接
+              //（sanitizeAssetForExport），顶层 exportedAt/project/group 不变。
               downloadJson(`mosa-group-${safeFileToken(item.name)}.json`, {
                 exportedAt: new Date().toISOString(),
                 project: projectId,
                 group: item.name,
-                assets,
+                assets: assets.map((asset) => sanitizeAssetForExport(asset)),
               });
               showToast(t("exportStarted"), "success");
             });

@@ -33,6 +33,8 @@ A recipe may also record rights declarations for the reference images it used: c
 
 The library is stored on the user's machine. MOSA does not upload it to a MOSA-operated service.
 
+User-initiated exports of group metadata (the sidebar group context-menu "Export Group" JSON download) stay metadata-only: the exported file contains file names, Prompts, tags, groups, categories, ratings, business fields, source types, and timestamps, and the export strips every local file path and directory (managed originals, previews, import source paths), every `/library/...` URL that only resolves against the local MOSA server, and web-capture page/media links such as `page_url` and `source_media_url`, so the file can be shared without disclosing your user name or directory structure. Fields are dropped by name only — a business field whose key ends in `_path`, `_url`, or `_dir`, or is named `path`, is also dropped, while all other business fields are kept verbatim.
+
 ## Anonymous Usage Metrics
 
 Desktop builds send minimal anonymous usage metrics so the project can measure whether releases are actually being installed and retained. This telemetry is limited to the bounded fields below and is not exposed as an in-app preference; it can be disabled locally by launching MOSA with the `MOSA_DISABLE_TELEMETRY=1` environment variable.

@@ -18,6 +18,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - Changing the library location now refuses the current folder, a folder inside it (or containing it, including case-only path differences), and any non-empty destination before copying anything, so a relocation can no longer copy a library into itself or delete it afterwards.
 - Dropping a mix of supported and unsupported files into the gallery or onto a sidebar group now reports the skipped unsupported files in the import summary instead of silently ignoring them.
 - Removed the "Card density" setting. The gallery always shows image-only cards, as the V2 design intends; the "Info" option had no visible effect but still reserved 44 px of empty space under every card in the masonry layout. A previously saved density preference is ignored.
+- "Export Group" no longer writes local file paths, local directories, `/library/...` links or captured web page/media links into the exported JSON, so the file can be shared without revealing your user name or folder structure. Fields are removed by name only (`*_path`, `*_url`, `*_dir`, `path`, `prompt_file`); your library is not changed.
 - MOSA Desktop on macOS now removes leftover `.MOSA-update-*` folders beside `MOSA.app` from failed in-place updates once they are more than 10 minutes old, as it already did on Windows.
 
 ## 0.2.1-rc.25 — 2026-09-20 / Release Candidate

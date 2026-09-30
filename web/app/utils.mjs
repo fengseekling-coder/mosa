@@ -50,3 +50,25 @@ export function escapeHtml(value) { return String(value ?? "").replace(/&/g, "&a
 export function safeStorageGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
 
 export function safeStorageSet(key, value) { try { localStorage.setItem(key, value); } catch {} }
+
+/**
+ * 分组导出的 JSON 会离开本机，而接口返回的素材对象带着本机绝对路径
+ * （image_path / source.path / cowart_project_dir 等，含用户名与目录结构）、
+ * 只有本机服务能解析的 /library/... 链接，以及采集时记录的网页/媒体链接。
+ * 删除只看字段名（*_path、*_url、*_dir、path、prompt_file）并递归处理嵌套
+ * 对象与数组，绝不按“值像不像路径”判断——用户写的提示词、业务字段文字、
+ * 标签即使以 / 开头也必须原样保留。asset（库内文件名）保留供对照。
+ */
+const EXPORT_REDACTED_KEY_SUFFIX = /(_path|_url|_dir)$/;
+const EXPORT_REDACTED_KEYS = new Set(["path", "prompt_file"]);
+
+export function sanitizeAssetForExport(value) {
+  if (Array.isArray(value)) return value.map(sanitizeAssetForExport);
+  if (!value || typeof value !== "object") return value;
+  const clean = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (EXPORT_REDACTED_KEY_SUFFIX.test(key) || EXPORT_REDACTED_KEYS.has(key)) continue;
+    clean[key] = sanitizeAssetForExport(item);
+  }
+  return clean;
+}
