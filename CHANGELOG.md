@@ -17,6 +17,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - Tags can now be removed in the Inspector: each user tag shows a remove button on hover or keyboard focus (always visible on touch). Source tags cannot be removed.
 - Changing the library location now refuses the current folder, a folder inside it (or containing it, including case-only path differences), and any non-empty destination before copying anything, so a relocation can no longer copy a library into itself or delete it afterwards.
 - Dropping a mix of supported and unsupported files into the gallery or onto a sidebar group now reports the skipped unsupported files in the import summary instead of silently ignoring them.
+- Removed the "Card density" setting. The gallery always shows image-only cards, as the V2 design intends; the "Info" option had no visible effect but still reserved 44 px of empty space under every card in the masonry layout. A previously saved density preference is ignored.
 - MOSA Desktop on macOS now removes leftover `.MOSA-update-*` folders beside `MOSA.app` from failed in-place updates once they are more than 10 minutes old, as it already did on Windows.
 
 ## 0.2.1-rc.25 — 2026-09-20 / Release Candidate

@@ -146,8 +146,8 @@ test("20-32. resetLibraryRefinements is the single clear path with focus recover
   assert.match(reset, /state\.scope = "all";/, "restores the all scope");
   assert.match(reset, /state\.mediaKind = "all";/, "restores the all media kind");
   assert.match(reset, /clearFacets\(\);/, "clears every facet including the group");
-  // 25-27. Never touches sort, density, theme, language or project.
-  for (const untouched of ["state.sort", "state.galleryDensity", "state.darkMode", "state.languagePreference", "state.locale =", "state.project =", "setLanguage"]) {
+  // 25-27. Never touches sort, theme, language or project (density is gone).
+  for (const untouched of ["state.sort", "state.darkMode", "state.languagePreference", "state.locale =", "state.project =", "setLanguage"]) {
     assert.doesNotMatch(reset, new RegExp(untouched.replace(/[.=]/g, (m) => `\\${m}`)), `${untouched} stays untouched`);
   }
   // 28. Exactly one refresh: one loadAssets, no second path through applyFilterChange.

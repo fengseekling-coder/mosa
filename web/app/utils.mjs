@@ -1,6 +1,6 @@
 // 叶子 helpers：纯函数或仅依赖 config/localStorage，app.js 只保留 import 与调用
 //（REFACTORING-PLAN R1 批次 2）。
-import { CARD_TITLE_MAX, GALLERY_DENSITIES, SORT_ORDERS } from "./config.mjs";
+import { CARD_TITLE_MAX, SORT_ORDERS } from "./config.mjs";
 
 const LEADING_UI_GLYPH_TOKENS = new Set([
   "play_circle", "play_arrow", "pause_circle", "stop_circle",
@@ -17,10 +17,6 @@ export function displayAssetTitle(asset = {}) {
 
 export function normalizeSort(value) {
   return SORT_ORDERS.includes(String(value || "")) ? String(value) : "newest";
-}
-
-export function normalizeDensity(value) {
-  return GALLERY_DENSITIES.includes(String(value || "")) ? String(value) : "image";
 }
 
 /**

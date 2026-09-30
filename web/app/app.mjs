@@ -4,7 +4,7 @@ import {
   FACET_KEYS, LIBRARY_REFRESH_INTERVAL, LIVE_REGION_WRITE_DELAY, SCOPES, SETTINGS_SYNC_DEBOUNCE_MS, SIDEBAR_SOURCE_TYPES, SKELETON_TILE_COUNT, SOURCE_LABEL_KEYS, STATUS_ANNOUNCEMENT_DURATION,
 } from "./config.mjs";
 import {
-  cardShortTitle, debounce, displayAssetTitle, escapeHtml, formatDate, normalizeDensity, normalizeSort, safeStorageGet, safeStorageSet,
+  cardShortTitle, debounce, displayAssetTitle, escapeHtml, formatDate, normalizeSort, safeStorageGet, safeStorageSet,
 } from "./utils.mjs";
 import { createToastManager } from "./toast-manager.mjs";
 import { createApiClient, mosaMutationHeaders } from "./api-client.mjs";
@@ -78,7 +78,7 @@ const state = {
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
   groups: { total: 0, favorites: 0, unorganized: 0, trash: 0, sourceTypes: [], groups: [] },
-  galleryStatus: "loading", galleryError: null, paginationStatus: "idle", galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")), storageKind: "unknown",
+  galleryStatus: "loading", galleryError: null, paginationStatus: "idle", storageKind: "unknown",
   libraryPath: "", libraryRoot: "", codexImagesDir: "", groupSaving: false, libraryMoveInProgress: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
   dragCounter: 0,
   stagingInProgress: false, // Paste import re-entrancy guard: one clipboard import at a time
@@ -981,7 +981,7 @@ function announceEmptyState(kind) {
 /**
  * The single refinement reset. Clears query, search input, facets (including
  * the group facet), facet search and scope, then refreshes exactly once.
- * Sort, density, theme, language, project and every asset/favorite stay
+ * Sort, theme, language, project and every asset/favorite stay
  * untouched. Focus never lands on body: the first card wins, the grid
  * container is the fallback.
  */
@@ -1248,11 +1248,10 @@ function syncSettingsMenuView() {
   if (menu.hidden) return;
   const setRadioState = (selector, selectedValue) => {
     menu.querySelectorAll(selector).forEach((button) => {
-      button.classList.toggle("active", button.value === selectedValue || button.dataset.appearanceOpt === selectedValue || button.dataset.densityOpt === selectedValue || button.dataset.locale === selectedValue);
+      button.classList.toggle("active", button.value === selectedValue || button.dataset.appearanceOpt === selectedValue || button.dataset.locale === selectedValue);
     });
   };
   setRadioState("[data-appearance-opt]", state.darkMode ? "dark" : "light");
-  setRadioState("[data-density-opt]", state.galleryDensity);
   setRadioState("[data-locale]", state.locale === "en" ? "en" : "zh");
 
   const libraryPath = state.libraryRoot || state.libraryPath || state.codexImagesDir || "—";
@@ -1309,7 +1308,6 @@ function renderSettingsMenu({ force = false } = {}) {
     : `<button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button>`;
   const appearanceRows = [
     row(settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("themeMode"), "", segmented(t("themeMode"), "data-appearance-opt", state.darkMode ? "dark" : "light", [{ value: "light", label: t("themeLight") }, { value: "dark", label: t("themeDark") }])),
-    row(settingIcon("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"), t("cardDensity"), "", segmented(t("cardDensity"), "data-density-opt", state.galleryDensity, [{ value: "image", label: t("densityImageControl") }, { value: "info", label: t("densityInfoControl") }])),
     row(settingIcon("M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("interfaceLanguage"), "", segmented(t("interfaceLanguage"), "data-locale", visualLocale, [{ value: "zh", label: "中文" }, { value: "en", label: "EN" }]))
   ].join("");
   const storageRows = [
@@ -1998,26 +1996,13 @@ function bindEvents() {
   els.settingsMenu?.addEventListener("click", (event) => {
     const button = event.target.closest("button");
     if (event.target === els.settingsMenu || button?.dataset.settingsClose !== undefined) { closeSettingsModal(); return; }
-    // Theme/Density segmented buttons
+    // Theme segmented buttons
     if (button?.dataset.appearanceOpt) {
       const newTheme = button.dataset.appearanceOpt;
       state.darkMode = newTheme === "dark";
       safeStorageSet("mosa-dark-mode", String(state.darkMode));
       applyDarkMode(); // 同步 .active 视觉态与 aria-checked/roving tabindex（Phase 5A / F-12）
       showToast(t("darkModeChanged"), "success");
-      return;
-    }
-
-    // Gallery density segmented buttons
-    if (button?.dataset.densityOpt) {
-      const newDensity = button.dataset.densityOpt;
-      state.galleryDensity = normalizeDensity(newDensity);
-      safeStorageSet("mosa.gallery-density", state.galleryDensity);
-      renderGrid();
-      if (state.detailOpen && !isDetailEditorActive()) renderDetail();
-      button.parentElement.querySelectorAll(".segmented-btn").forEach((b) => b.classList.remove("active"));
-      button.classList.add("active");
-      syncSegmentedRadios(els.settingsMenu); // aria-checked 与 .active 同步（Phase 5A / F-12）
       return;
     }
 
@@ -2627,11 +2612,11 @@ const GALLERY_CARD_DOM_WINDOW_THRESHOLD = 240;
 const GALLERY_CARD_DOM_PRELOAD = 1800;
 
 function galleryVirtualSpanKey(assetId, columnWidth = galleryCardVirtualColumnWidth) {
-  return `${state.galleryDensity}\u001f${Math.round(columnWidth)}\u001f${assetId}`;
+  return `${Math.round(columnWidth)}\u001f${assetId}`;
 }
 
 function pruneGalleryVirtualSpanCache(activeIds) {
-  const currentPrefix = `${state.galleryDensity}\u001f${Math.round(galleryCardVirtualColumnWidth)}\u001f`;
+  const currentPrefix = `${Math.round(galleryCardVirtualColumnWidth)}\u001f`;
   for (const key of galleryCardVirtualSpanCache.keys()) {
     const assetId = key.slice(key.lastIndexOf("\u001f") + 1);
     if (!key.startsWith(currentPrefix) || !activeIds.has(assetId)) galleryCardVirtualSpanCache.delete(key);
@@ -2668,11 +2653,10 @@ function estimatedGalleryCardSpan(asset) {
   // masonry slot. Estimates are allowed to be approximate, but never
   // deliberately shorter than the media ratio we already know.
   const mediaHeight = galleryCardColumnWidth() * Math.max(0.35, galleryAssetAspect(asset));
-  const infoHeight = state.galleryDensity === "info" ? 44 : 0;
   const grid = els.assetGrid;
   const styles = grid ? getComputedStyle(grid) : null;
   const gap = styles ? (Number.parseFloat(styles.getPropertyValue("--gallery-gap")) || Number.parseFloat(styles.columnGap) || 0) : 0;
-  return Math.max(48, Math.ceil(mediaHeight + infoHeight + gap));
+  return Math.max(48, Math.ceil(mediaHeight + gap));
 }
 
 function virtualGalleryCardEntry(entry) {
@@ -3192,7 +3176,7 @@ function masonryGeometrySpan(grid, geometry) {
 // makes later cards hop between columns, which is especially visible while an
 // infinite-scroll page is entering the warm zone. Keep the established column
 // assignment stable and shift only the affected column from the first changed
-// card downward. Full relayouts (resize, density or structural changes) still
+// card downward. Full relayouts (resize or structural changes) still
 // use placeMasonryCards and are free to rebalance columns.
 function reflowPlacedMasonryColumns(grid, cards) {
   const affectedColumns = new Map();
@@ -3711,7 +3695,7 @@ function appendAssetCards(entries) {
 // 普通重渲染（搜索/筛选/排序/后台刷新）不带参数则不播放；签名保持无参以兼容
 // 既有契约测试对 renderGrid 签名的正则锁定。
 function renderGrid() {
-  // Direct UI-only rerenders (language/density/state decoration) should keep
+  // Direct UI-only rerenders (language/state decoration) should keep
   // the current viewport by default. loadAssets explicitly disables this when
   // the result-set semantics changed (search/filter/sort/project).
   const { animate = false, animateFrom = 0, preserveScroll = true } = arguments[0] || {};
@@ -3728,7 +3712,6 @@ function renderGrid() {
       : focusedElement?.classList.contains("asset-card-select")
         ? "select"
         : null;
-  els.assetGrid.dataset.density = state.galleryDensity;
   els.assetGrid.dataset.loadedAssets = String(state.assets.length);
   els.assetGrid.dataset.query = state.query;
   const restoreGridFallbackFocus = () => {
@@ -3757,8 +3740,7 @@ function renderGrid() {
   }
   const isAppendMode = animateFrom > 0;
   const canAppendFast = isAppendMode
-    && galleryCardVirtualEntries.size === animateFrom
-    && els.assetGrid.dataset.renderedDensity === state.galleryDensity;
+    && galleryCardVirtualEntries.size === animateFrom;
   const renderAssets = canAppendFast ? state.assets.slice(animateFrom) : state.assets;
   galleryCardVirtualColumnWidth = galleryCardColumnWidth();
   if (!canAppendFast) {
@@ -3793,14 +3775,12 @@ function renderGrid() {
   const scrollContainer = els.assetGrid;
   const savedScrollTop = (isAppendMode || preserveScroll) ? scrollContainer.scrollTop : null;
   if (!preserveScroll && !isAppendMode) scrollContainer.scrollTop = 0;
-  const previousDensity = els.assetGrid.dataset.renderedDensity || "";
   const appendChangedCards = canAppendFast ? appendAssetCards(domCards) : null;
   const reconciliation = canAppendFast
     ? { changedCards: appendChangedCards, replacedFocusedCard: false, structureChanged: false }
     : reconcileAssetCards(domCards);
   const { changedCards, replacedFocusedCard, structureChanged } = reconciliation;
-  els.assetGrid.dataset.renderedDensity = state.galleryDensity;
-  const requiresFullMasonry = !canAppendFast && (previousDensity !== state.galleryDensity || changedCards.length >= state.assets.length);
+  const requiresFullMasonry = !canAppendFast && changedCards.length >= state.assets.length;
   setupMasonryLayout(requiresFullMasonry ? {} : { cards: changedCards, full: false });
   if (!requiresFullMasonry && structureChanged) reflowMasonryPlacement();
   // Keyed incremental reconciliation keeps unchanged card nodes mounted, so

@@ -456,7 +456,7 @@ test("gallery marquee selection is wired into shared web/app renderer", async ()
   assert.match(app, /const gap = Number\.parseFloat\(styles\.getPropertyValue\("--gallery-gap"\)\) \|\| Number\.parseFloat\(styles\.columnGap\) \|\| 0;/,
     "selection geometry and masonry resolve the same gallery-gap source");
   assert.match(app, /function pruneGalleryVirtualSpanCache\(activeIds\)[\s\S]*?galleryCardVirtualSpanCache\.delete\(key\)/,
-    "virtual span measurements are pruned when the active result window/density changes");
+    "virtual span measurements are pruned when the active result window changes");
   assert.match(app, /if \(!canAppendFast\) \{[\s\S]*?pruneGalleryVirtualSpanCache\(currentIds\)/,
     "full gallery renders bound the span cache to the current result set");
 

@@ -423,11 +423,10 @@ body.asset-stack-dragging { cursor: grabbing; user-select: none; }
 .card-action-btn svg { width: 15px; height: 15px; }
 .card-favorite.is-fav svg { fill: currentColor; }
 
-/* 信息密度：隐藏而非移除，切换密度不会改变卡片顺序。V2：去卡片边框后信息区
-   不再需要 border-top 分隔线；标题字号提升、元数据改 mono 字体并降级为三级文字，
-   徽章去掉药丸容器，回归纯文字（D8：人读标题为主、哈希/技术信息为辅）。 */
+/* 信息区：保留在卡片 markup 里但恒为隐藏（V2 画廊固定只看图）。V2：去卡片边框
+   后信息区不再需要 border-top 分隔线；标题字号提升、元数据改 mono 字体并降级为
+   三级文字，徽章去掉药丸容器，回归纯文字（D8：人读标题为主、哈希/技术信息为辅）。 */
 .asset-card-info { display: none; padding: var(--space-1) 2px 0; }
-.grid[data-density="info"] .asset-card-info { display: block; }
 .asset-card-title { overflow: hidden; color: var(--color-text-primary); font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 /* text-2, not V2's text-3: --color-text-tertiary is documented decorative-only (sub-4.5:1 AA), and
    dates/source metadata here are content, not decoration (see gallery-experience.test.mjs). */
@@ -1171,7 +1170,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 #assetGrid:focus-visible { outline: none; }
 .mosa-v2 .asset-card { margin-bottom: 0; transition: transform 200ms var(--ease-standard), box-shadow 200ms var(--ease-standard); }
 .mosa-v2 .asset-card-select { border-radius: 12px; background: var(--app-card); box-shadow: none; }.mosa-v2 .asset-card-select::after { border-radius: 12px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .04); }.mosa-v2 .asset-card.selected .asset-card-select::after, .mosa-v2 .asset-card.multi-selected .asset-card-select::after { box-shadow: none; }.mosa-v2 .asset-card.selected::after, .mosa-v2 .asset-card.multi-selected::after { content: ""; position: absolute; z-index: 4; inset: -1px; box-sizing: border-box; border: var(--border-width) solid var(--color-accent); border-radius: 13px; pointer-events: none; }
-.mosa-v2 .asset-card .thumb, .mosa-v2 .asset-card .thumb img, .mosa-v2 .asset-card .thumb-video-poster, .mosa-v2 .asset-card .thumb-video-placeholder { border-radius: 12px; }.mosa-v2 .asset-card-info, .mosa-v2 .grid[data-density="info"] .asset-card-info { display: none; }.mosa-v2 .asset-card.selected .card-check { display: none; }
+.mosa-v2 .asset-card .thumb, .mosa-v2 .asset-card .thumb img, .mosa-v2 .asset-card .thumb-video-poster, .mosa-v2 .asset-card .thumb-video-placeholder { border-radius: 12px; }.mosa-v2 .asset-card-info { display: none; }.mosa-v2 .asset-card.selected .card-check { display: none; }
 .mosa-v2 .card-actions { top: 8px; right: 8px; gap: 0; opacity: 1; }
 .mosa-v2 .card-action-btn {
   position: relative;
