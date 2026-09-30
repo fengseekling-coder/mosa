@@ -14,6 +14,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - The Stack header count now updates after members are removed or added in place.
 - An open manual group now shows its name as the gallery title and in the asset viewer's scope label, instead of "All assets".
 - Version compare selectors keep working after switching versions or any other Inspector refresh.
+- Tags can now be removed in the Inspector: each user tag shows a remove button on hover or keyboard focus (always visible on touch). Source tags cannot be removed.
 
 ## 0.2.1-rc.25 — 2026-09-20 / Release Candidate
 

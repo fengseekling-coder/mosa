@@ -5447,6 +5447,9 @@ function bindDetailEvents(asset, renderId) {
   // 素材、不返回 Library；loadAssets 后 renderDetail 重渲染按 asset.favorite 重绘本按钮。
   panel.querySelector('[data-action="toggle-favorite"]')?.addEventListener("click", (event) => toggleFavorite(asset.id, event));
   panel.querySelector('[data-action="add-tag"]')?.addEventListener("click", () => openTagEditor(panel, asset, renderId));
+  panel.querySelectorAll('[data-action="remove-tag"]').forEach((button) => {
+    button.addEventListener("click", () => removeDetailTag(panel, button, asset, renderId));
+  });
   panel.querySelector('[data-action="copy-source"]')?.addEventListener("click", () => runAction(async () => { await writeClipboardText(sourceCopyValue(asset.source)); showToast(t("originalPathCopied"), "success"); }));
   panel.querySelector('[data-action="view-generation-session"]')?.addEventListener("click", () => { void showRelatedGenerations(asset, "session"); });
   panel.querySelector('[data-action="view-generation-batch"]')?.addEventListener("click", () => { void showRelatedGenerations(asset, "batch"); });
@@ -5766,6 +5769,40 @@ function openTagEditor(panel, asset, renderId) {
   });
 }
 
+// 标签删除：与 openTagEditor 的 submit 同一保存语义——以 latestAssetSnapshot 的 assetTags
+// 为基准去掉目标标签后整体 PATCH tags。不弹确认框（标签随时可加回）；保存期间禁用按钮
+// 防连点，失败由 runAction 提示、标签保持原样。焦点落到被删位置的下一个标签按钮；
+// 没有更多标签时落回「添加标签」。标签编辑器打开时忽略删除，避免重渲染清掉未保存草稿。
+function removeDetailTag(panel, button, asset, renderId) {
+  const section = panel.querySelector('[data-inspector-section="tags"]');
+  if (!section || !button?.isConnected || button.disabled || section.querySelector("[data-tag-editor]")) return;
+  const removedIndex = [...section.querySelectorAll('[data-action="remove-tag"]')].indexOf(button);
+  const tagValue = button.dataset.tagValue;
+  // Every tag write PATCHes the whole list from the current snapshot, so a
+  // second write started before this one lands would resurrect this tag.
+  // Lock all tag controls in the section until the save settles.
+  const tagControls = [...section.querySelectorAll('[data-action="remove-tag"], [data-action="add-tag"]')];
+  tagControls.forEach((control) => { control.disabled = true; });
+  runAction(async () => {
+    const currentAsset = latestAssetSnapshot(asset.project_id, asset.id, asset);
+    const target = String(tagValue).trim().toLocaleLowerCase();
+    const tags = assetTags(currentAsset).filter((tag) => tag.toLocaleLowerCase() !== target);
+    const result = await apiFetch(`/api/assets/${encodeURIComponent(asset.project_id)}/${encodeURIComponent(asset.id)}`, { method: "PATCH", body: { tags } });
+    if (!isCurrentDetailAction(renderId, asset.project_id, asset.id)) return;
+    state.detailAsset = result.asset;
+    const index = state.assets.findIndex((item) => item.id === asset.id);
+    if (index >= 0) state.assets[index] = result.asset;
+    showToast(t("tagRemoved"), "success");
+    refreshDetailTagsSection(result.asset, renderId);
+    const refreshed = panel.querySelector('[data-inspector-section="tags"]');
+    const nextFocus = refreshed?.querySelectorAll('[data-action="remove-tag"]')[removedIndex]
+      || refreshed?.querySelector('[data-action="add-tag"]');
+    nextFocus?.focus();
+  }).finally(() => {
+    tagControls.forEach((control) => { if (control.isConnected) control.disabled = false; });
+  });
+}
+
 function refreshDetailTagsSection(asset, renderId) {
   const current = els.detailPanel?.querySelector('[data-inspector-section="tags"]');
   if (!current || !isCurrentDetailAction(renderId, asset.project_id, asset.id)) return;
@@ -5775,6 +5812,9 @@ function refreshDetailTagsSection(asset, renderId) {
   if (!replacement) return;
   current.replaceWith(replacement);
   replacement.querySelector('[data-action="add-tag"]')?.addEventListener("click", () => openTagEditor(els.detailPanel, asset, renderId));
+  replacement.querySelectorAll('[data-action="remove-tag"]').forEach((button) => {
+    button.addEventListener("click", () => removeDetailTag(els.detailPanel, button, asset, renderId));
+  });
 }
 
 function readRecipeDraft(panel) {

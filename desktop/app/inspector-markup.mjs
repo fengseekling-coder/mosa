@@ -191,8 +191,10 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     const tags = assetTags(asset)
       .filter((tag) => !duplicateSourceTags.has(String(tag).trim().toLowerCase()))
       .slice(0, 9);
+    // 来源标签纯展示（无删除入口）；用户标签末尾内联 × 按钮，显示/焦点规则见 styles.css
+    // .detail-tag-remove（平时 opacity:0，悬停或标签内聚焦时显示，触屏常显）。
     const sourceMarkup = `<span class="detail-tag detail-source-tag" aria-label="${escapeHtml(`${t("source")}: ${sourceLabel}`)}">${escapeHtml(sourceLabel)}</span>`;
-    const tagMarkup = tags.map((tag) => `<span class="detail-tag" data-tag-value="${escapeHtml(tag)}">${escapeHtml(tag)}</span>`).join("");
+    const tagMarkup = tags.map((tag) => `<span class="detail-tag" data-tag-value="${escapeHtml(tag)}"><span class="detail-tag-label">${escapeHtml(tag)}</span><button class="detail-tag-remove" type="button" data-action="remove-tag" data-tag-value="${escapeHtml(tag)}" aria-label="${escapeHtml(t("removeTag", { tag }))}">×</button></span>`).join("");
     return `<section class="inspector-section detail-tags-section" data-inspector-section="tags" aria-label="${escapeHtml(t("tags"))}"><div class="detail-tags-row" data-tags-list>${sourceMarkup}${tagMarkup}<button class="detail-tags-add" type="button" data-action="add-tag"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>${escapeHtml(t("addTag"))}</span></button></div></section>`;
   }
 

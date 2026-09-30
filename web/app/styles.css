@@ -563,6 +563,15 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .detail-tags-section .detail-prompt-head { align-items: baseline; }
 .detail-tags-row { display: flex; max-height: 56px; align-items: flex-start; gap: 6px; overflow: hidden; padding: 2px 0; flex-wrap: wrap; }
 .detail-tag { display: inline-flex; height: 24px; max-width: 120px; flex: 0 0 auto; align-items: center; overflow: hidden; padding: 0 8px; border: 1px solid var(--color-border-subtle); border-radius: 999px; color: var(--color-text-secondary); background: var(--app-sidebar); font-size: 11px; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
+.detail-tag-label { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 删除按钮：占满胶囊高度（点击区域 16×24，不撑高 .detail-tag）；平时 opacity 隐藏
+   （不用 display:none，保持 Tab 可达），悬停标签或焦点进入标签时显示；触屏常显。 */
+.detail-tag-remove { display: inline-flex; width: 16px; align-self: stretch; flex: 0 0 auto; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 999px; color: var(--color-text-tertiary); background: transparent; cursor: pointer; font-size: 12px; line-height: 1; opacity: 0; }
+.detail-tag-remove:hover { color: var(--color-danger); }
+.detail-tag:hover .detail-tag-remove, .detail-tag:focus-within .detail-tag-remove, .detail-tag-remove:focus-visible { opacity: 1; }
+@media (hover: none), (pointer: coarse) {
+  .detail-tag-remove { width: 24px; opacity: 1; }
+}
 .detail-tags-add { display: inline-flex; height: 24px; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 7px; border: 1px dashed var(--color-border-default); border-radius: 999px; color: var(--color-accent); background: transparent; cursor: pointer; font-size: 11px; white-space: nowrap; }
 .detail-tags-add svg { flex: 0 0 auto; }
 .detail-tag-editor { display: inline-flex; height: 32px; flex: 0 0 100%; align-items: center; gap: 6px; }
