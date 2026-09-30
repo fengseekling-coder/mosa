@@ -543,10 +543,19 @@ export function createApiClient(deps) {
 
     const total = Number(result.page?.total);
     if (!Number.isFinite(total)) return false;
+    let titleChanged = false;
+    // Inside a Stack the title prefers the Stack summary count, captured on
+    // entry; membership changes made in place must refresh it too, or the
+    // title keeps the old member count.
+    if (request.stackId && result.stack && result.stack.count !== state.activeStackSummary?.count) {
+      state.activeStackSummary = { ...state.activeStackSummary, ...result.stack };
+      titleChanged = true;
+    }
     if (state.pageTotal !== total) {
       state.pageTotal = total;
-      updateViewTitle();
+      titleChanged = true;
     }
+    if (titleChanged) updateViewTitle();
     return true;
   }
 
