@@ -172,7 +172,7 @@ test("10. single click inspects, double click views, and Stack double click ente
     "single-click must not enter a collapsed Stack");
   assert.doesNotMatch(cards, /openAssetView/, "single-click must not enter the dedicated Viewer");
 
-  const doubleClick = sliceBetween(app, 'els.assetGrid?.addEventListener("dblclick"', 'els.browseFileBtn?.addEventListener');
+  const doubleClick = sliceBetween(app, 'els.assetGrid?.addEventListener("dblclick"', 'els.quickFilters?.addEventListener');
   assert.match(doubleClick, /if \(!state\.activeStackId && \(card\?\.dataset\.stackId \|\| asset\?\.stack\?\.id\)\)/,
     "only a collapsed Stack intercepts double-click; members inside an active Stack fall through to Viewer");
   assert.match(doubleClick, /assetStacks\.enterStack\(asset\.stack\.id, asset\.stack\)/,

@@ -581,7 +581,7 @@ export function createAssetViewer({
     // 仅 Asset mode 且图片就绪时接管；Library mode、Modal/Lightbox/面板打开时一律放行
     // （不 preventDefault），不拦截应用其他区域滚动。
     if (state.viewMode !== "asset" || !assetViewImageReady()) return;
-    if (!els.imagePreviewModal?.hidden || els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open")) return;
+    if (!els.imagePreviewModal?.hidden || els.groupModal?.classList.contains("open")) return;
     if (!els.settingsMenu?.hidden) return;
     event.preventDefault();
     // 乘法步进与按钮一致（每 100 deltaY 一个 ×1.2 档）；普通滚轮与浏览器映射的 pinch

@@ -24,7 +24,6 @@ const EXPECTED_API_KEYS = [
   "downloadAndInstallUpdate",
   "getVisualModelState",
   "installVisualPack",
-  "onMenuImport",
   "onMenuSearch",
   "onUpdateDownloadProgress",
   "onVisualPackProgress",

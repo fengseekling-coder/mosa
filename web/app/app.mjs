@@ -79,11 +79,9 @@ const state = {
   mediaKind: "all",
   groups: { total: 0, favorites: 0, unorganized: 0, trash: 0, sourceTypes: [], groups: [] },
   galleryStatus: "loading", galleryError: null, paginationStatus: "idle", galleryDensity: normalizeDensity(safeStorageGet("mosa.gallery-density")), storageKind: "unknown",
-  libraryPath: "", libraryRoot: "", codexImagesDir: "", supportedMediaExtensions: [], importSaving: false, groupSaving: false, libraryMoveInProgress: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
+  libraryPath: "", libraryRoot: "", codexImagesDir: "", groupSaving: false, libraryMoveInProgress: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
   dragCounter: 0,
-  stagedPath: "", // P1-2: Track current staged file for cleanup on cancel
-  stagingInProgress: false, // P1-3: Prevent concurrent staging requests
-  stagingCanceled: false, // A close during staging invalidates the late result and cleans it up
+  stagingInProgress: false, // Paste import re-entrancy guard: one clipboard import at a time
   productVersion: "",
   webCaptureStatus: null,
   updateStatus: "idle",
@@ -111,7 +109,6 @@ const applyLanguage = createLanguageApplier({
   state,
   t,
   refreshUI: () => {
-    updateCodexHint();
     window.electronAPI?.setLocale?.(state.locale);
     // Locale changes are the only settings update that needs fresh copy.
     // Rebuild without replaying the dialog entrance animation.
@@ -132,7 +129,7 @@ const els = {
   typeFilters: document.querySelector(".topbar-type-filters"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
   sortSelect: document.querySelector("#sortSelect"),
-  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), openInspectorBtn: document.querySelector("#openInspectorBtn"), importModal: document.querySelector("#importModal"), closeImportModal: document.querySelector("#closeImportModal"), cancelImportBtn: document.querySelector("#cancelImportBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), stackRenameModal: document.querySelector("#stackRenameModal"), stackRenameModalTitle: document.querySelector("#stackRenameModalTitle"), stackRenameModalInput: document.querySelector("#stackRenameInput"), stackRenameModalClose: document.querySelector("#stackRenameModalClose"), cancelStackRenameBtn: document.querySelector("#cancelStackRenameBtn"), saveStackRenameBtn: document.querySelector("#saveStackRenameBtn"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"), imagePathInput: document.querySelector("#imagePathInput"), importFileInput: document.querySelector("#importFileInput"), browseFileBtn: document.querySelector("#browseFileBtn"), codexSourceHint: document.querySelector("#codexSourceHint"), importFormatList: document.querySelector("#importFormatList"), importPathExample: document.querySelector("#importPathExample"), imagePathError: document.querySelector("#imagePathError"), businessFieldsError: document.querySelector("#businessFieldsError"), importAdvanced: document.querySelector("#importAdvanced"), promptInput: document.querySelector("#promptInput"), skillInput: document.querySelector("#skillInput"), styleInput: document.querySelector("#styleInput"), ratioInput: document.querySelector("#ratioInput"), themeInput: document.querySelector("#themeInput"), groupInput: document.querySelector("#groupInput"), categoryInput: document.querySelector("#categoryInput"), businessInput: document.querySelector("#businessInput"), saveAssetBtn: document.querySelector("#saveAssetBtn"),
+  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), openInspectorBtn: document.querySelector("#openInspectorBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), stackRenameModal: document.querySelector("#stackRenameModal"), stackRenameModalTitle: document.querySelector("#stackRenameModalTitle"), stackRenameModalInput: document.querySelector("#stackRenameInput"), stackRenameModalClose: document.querySelector("#stackRenameModalClose"), cancelStackRenameBtn: document.querySelector("#cancelStackRenameBtn"), saveStackRenameBtn: document.querySelector("#saveStackRenameBtn"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"),
   viewTitle: document.querySelector("#viewTitle"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
 
@@ -173,7 +170,6 @@ const apiClient = createApiClient({
   els,
   renderSettingsMenu,
   renderDetail,
-  updateCodexHint,
   renderQuickFilters,
   renderGrid,
   updateViewTitle,
@@ -406,58 +402,6 @@ async function cleanupStagedFile(stagedPath) {
   }
 }
 
-async function prepareImportFile(file, { openModal = true } = {}) {
-  // P1-3: Prevent concurrent staging to avoid orphaned files and last-write-wins
-  if (state.stagingInProgress) return false;
-  state.stagingInProgress = true;
-  state.stagingCanceled = false;
-  clearImportErrors();
-  let filePath = "";
-  try {
-    // P1-2: Clean up previous staged file before staging new one
-    if (state.stagedPath) {
-      await cleanupStagedFile(state.stagedPath);
-      state.stagedPath = "";
-    }
-    if (state.stagingCanceled) return false;
-
-    // One path for Web and Electron: stream the selected File to the local
-    // MOSA runtime and let the server stage it below the library root. This
-    // also works when Electron safely attaches to an already-running MOSA
-    // runtime, where an Electron-userData staging path would not be trusted.
-    filePath = await stageBrowserFile(file);
-    if (state.stagingCanceled) {
-      await cleanupStagedFile(filePath);
-      return false;
-    }
-    state.stagedPath = filePath; // P1-2: Track for cleanup on cancel
-  } catch (error) {
-    if (state.stagingCanceled) return false;
-    const mapped = IMPORT_ERROR_FIELDS[error?.code];
-    if (mapped) showImportError(mapped.field, t(mapped.message));
-    else showToast(error?.message || t("fileSelectionFailed"), "error");
-    return false;
-  } finally {
-    state.stagingInProgress = false;
-    state.stagingCanceled = false;
-  }
-  if (!filePath) {
-    showToast(t("dropPathUnavailable"), "error");
-    return false;
-  }
-  if (els.imagePathInput) els.imagePathInput.value = filePath;
-  if (openModal) {
-    openImportModal();
-    if (!els.importModal?.classList.contains("open")) {
-      state.stagedPath = "";
-      if (els.imagePathInput?.value === filePath) els.imagePathInput.value = "";
-      await cleanupStagedFile(filePath);
-      return false;
-    }
-  }
-  return true;
-}
-
 // ===== Drag & Drop =====
 function currentDropImportMetadata() {
   const group = String(state.facets.group || "").trim();
@@ -474,7 +418,8 @@ function setupDragDrop() {
     if (announce) clearDragAnnouncement();
   };
   library.addEventListener("dragenter", (e) => {
-    if (state.viewMode !== "library") return;
+    // 回收站是只读范围：不显示导入浮层，也不接收任何拖放导入。
+    if (state.viewMode !== "library" || state.scope === "trash") return;
     e.preventDefault();
     if (state.dragCounter === 0) {
       state.dragCounter = 1;
@@ -487,6 +432,10 @@ function setupDragDrop() {
   library.addEventListener("dragover", (e) => {
     if (state.viewMode !== "library") return;
     e.preventDefault();
+    if (state.scope === "trash") {
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "none";
+      return;
+    }
     e.dataTransfer.dropEffect = "copy";
   });
   library.addEventListener("dragleave", (e) => {
@@ -496,7 +445,8 @@ function setupDragDrop() {
     if (state.dragCounter === 0) hideDragOverlay();
   });
   library.addEventListener("drop", async (e) => {
-    if (state.viewMode !== "library") return;
+    // 回收站里不导入；不 preventDefault，让全局守卫拦截浏览器跳转。
+    if (state.viewMode !== "library" || state.scope === "trash") return;
     e.preventDefault();
     hideDragOverlay({ announce: false });
     announceGalleryStatus(t("dropImportReceived"), { persist: true });
@@ -527,6 +477,81 @@ function setupDragDrop() {
   });
 }
 
+// ===== Sidebar group drop import =====
+// 从 Finder/资源管理器把文件直接拖到侧边栏手动分组上，松开即导入到该分组。
+// stackId 显式传空：即便当前在某个 Stack 里，文件也落到分组根层级而不是 Stack。
+// 只响应外部文件拖拽（dataTransfer.types 含 "Files"）；asset-stacks.mjs 的
+// 拖卡片入组基于 pointer 事件，不会触发这里的 HTML5 drag 事件，互不影响。
+// 拖拽目标仅限 #sidebarManualGroupList 内的 .nav-group-item[data-filter="group"]；
+// 智能分组、快捷筛选与"新建分组"编辑框都不是放置目标（全局守卫给出 dropEffect = "none"）。
+function setupSidebarGroupDropImport() {
+  const list = els.sidebarManualGroupList;
+  if (!list) return;
+  let highlighted = null;
+  const clearHighlight = ({ announce = true } = {}) => {
+    if (!highlighted) return;
+    highlighted.classList.remove("group-drop-target");
+    highlighted = null;
+    if (announce) announceGalleryStatus("");
+  };
+  const dropGroupItem = (event) => {
+    // 回收站是只读范围：不做放置目标；非文件拖拽（如页内选择）也不是。
+    if (state.scope === "trash") return null;
+    if (!Array.from(event.dataTransfer?.types || []).includes("Files")) return null;
+    return event.target instanceof Element
+      ? event.target.closest('.nav-group-item[data-filter="group"]')
+      : null;
+  };
+  list.addEventListener("dragenter", (e) => {
+    if (!dropGroupItem(e)) return;
+    e.preventDefault();
+  });
+  list.addEventListener("dragover", (e) => {
+    const item = dropGroupItem(e);
+    if (!item) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    // 高亮跟随命中项切换；在子元素之间移动由 dragleave 的 relatedTarget 守卫，
+    // 不会闪烁。进入新分组时向读屏播报目标分组名。
+    if (highlighted !== item) {
+      clearHighlight({ announce: false });
+      highlighted = item;
+      item.classList.add("group-drop-target");
+      announceGalleryStatus(t("sidebarDropImportReady", { group: String(item.dataset.value || "").trim() }), { persist: true });
+    }
+  });
+  list.addEventListener("dragleave", (e) => {
+    // 落点仍在当前高亮项内部（子元素间移动）时不算离开。
+    if (highlighted && e.relatedTarget instanceof Node && highlighted.contains(e.relatedTarget)) return;
+    clearHighlight();
+  });
+  list.addEventListener("drop", async (e) => {
+    const item = dropGroupItem(e);
+    clearHighlight();
+    if (!item) return;
+    e.preventDefault();
+    const group = String(item.dataset.value || "").trim();
+    if (!group) return;
+    let collected = { files: [], unsupported: 0 };
+    try {
+      collected = await collectDroppedFiles(e.dataTransfer, {
+        isSupported: (name) => isSupportedImportFile({ name }),
+      });
+    } catch (error) {
+      showToast(dropErrorMessage(error, t), "error");
+      return;
+    }
+    const { files, unsupported } = collected;
+    if (!files.length) {
+      if (unsupported) showToast(t("errorPathUnsupported"), "error");
+      return;
+    }
+    void batchImporter.enqueue(files, { metadata: { group }, stackId: "" });
+  });
+  // 拖放被取消（Esc / 拖回桌面）时清掉高亮与播报。
+  window.addEventListener("dragend", () => clearHighlight({ announce: false }));
+}
+
 // ===== Global drag/drop guard (P1-1) =====
 // Prevent default drag-and-drop navigation in browser mode. Without this,
 // dropping a file on non-drop targets (topbar, sidebar, modal backdrop, asset view)
@@ -535,7 +560,11 @@ function setupDragDrop() {
 function setupGlobalDragGuard() {
   const isAllowedDropTarget = (target) => {
     if (!(target instanceof Element)) return false;
-    if (target.closest(".import-v2-path-card")) return true;
+    // 侧边栏手动分组接收外部文件拖放（setupSidebarGroupDropImport 自己
+    // preventDefault）；侧边栏其余区域仍被守卫拦截，回收站范围永远不是
+    // 放置目标（由守卫给出 dropEffect = "none"）。
+    if (state.scope !== "trash"
+      && target.closest('#sidebarManualGroupList .nav-group-item[data-filter="group"]')) return true;
     // `.library` also contains the mutually-exclusive large asset view. Only
     // the library mode has a drop handler that calls preventDefault(), so the
     // asset view must stay behind this fallback navigation guard.
@@ -576,6 +605,43 @@ function setupGlobalDragGuard() {
       announceGalleryStatus("");
     }
   }, true); // Capture phase to reset before any other drop handlers
+}
+
+// ===== Paste import =====
+// Ctrl/Cmd+V imports clipboard images through the same batch pipeline as drag
+// and drop. Web and Electron share this handler; the Electron-only context
+// menu keeps its native staging path (pasteClipboardImage).
+function setupPasteImport() {
+  document.addEventListener("paste", (event) => {
+    const target = event.target;
+    // Never steal paste from a native editor, and never import while another
+    // modal/lightbox owns the surface. Image paste remains available from the
+    // normal app canvas where it is an intentional import shortcut.
+    if (target instanceof Element && target.closest("input, textarea, select, [contenteditable]")) return;
+    // 回收站是只读范围：不允许任何导入（含粘贴）。
+    if (state.scope === "trash") return;
+    if (confirmDialogState.pending
+      || !els.settingsMenu?.hidden
+      || !els.imagePreviewModal?.hidden
+      || els.groupModal?.classList.contains("open")
+      || els.stackRenameModal?.classList.contains("open")) return;
+    const items = event.clipboardData?.items;
+    if (!items) return;
+    const files = [];
+    for (const item of items) {
+      if (!item.type.startsWith("image/")) continue;
+      const file = item.getAsFile?.();
+      if (file) files.push(file);
+    }
+    if (!files.length) return;
+    event.preventDefault();
+    // Screenshot clipboard entries can arrive unnamed; the importer needs a
+    // name for the staged copy, so give those a timestamped default.
+    const named = files.map((file, index) => (file.name
+      ? file
+      : new File([file], `pasted-${Date.now()}${index ? `-${index + 1}` : ""}.png`, { type: file.type || "image/png" })));
+    void batchImporter.enqueue(named, { metadata: currentDropImportMetadata() });
+  });
 }
 
 const favoriteRequests = new Set();
@@ -695,12 +761,11 @@ function setupKeyboardShortcuts() {
     // 或切换画廊选中。
     if (contextMenu.isOpen()) return;
     // The gallery owns ⌘/Ctrl+A now that marquee selection is available. Paste
-    // remains desktop-only; browser mode still blocks accidental DOM selection
-    // and paste handlers that MOSA does not own.
+    // is let through in both modes: the document paste handler imports
+    // clipboard images, so preventDefault() here would suppress it entirely.
     if ((event.metaKey || event.ctrlKey) && (event.key === "a" || event.key === "A" || event.key === "v" || event.key === "V")) {
       if (event.target.matches?.("input, textarea, select, [contenteditable]")) return;
       if (confirmDialogState.pending
-        || els.importModal?.classList.contains("open")
         || els.groupModal?.classList.contains("open")
         || els.stackRenameModal?.classList.contains("open")
         || !els.imagePreviewModal?.hidden
@@ -710,12 +775,7 @@ function setupKeyboardShortcuts() {
         void gallerySelection.selectAll({ announce: true });
         return;
       }
-      // In Electron, the paste event handler in bindDesktopIntegration imports
-      // a pasted image from the clipboard. Calling preventDefault() here would
-      // suppress that paste event entirely, so let it through on the desktop.
-      if (event.key === "v" || event.key === "V") {
-        if (window.electronAPI) return;
-      }
+      if (event.key === "v" || event.key === "V") return;
       event.preventDefault();
       return;
     }
@@ -742,7 +802,6 @@ function setupKeyboardShortcuts() {
     if (event.key === "/" && state.viewMode === "library"
       && els.imagePreviewModal?.hidden
       && els.settingsMenu?.hidden
-      && !els.importModal?.classList.contains("open")
       && !els.groupModal?.classList.contains("open")
       && !els.stackRenameModal?.classList.contains("open")) { event.preventDefault(); els.searchInput?.focus(); return; }
     if (event.key === "Escape") {
@@ -750,7 +809,6 @@ function setupKeyboardShortcuts() {
       // （preventDefault）时，本链不得再继续向下穿透（否则会关 Modal 同时退出查看模式）。
       if (event.defaultPrevented) return;
       if (!els.imagePreviewModal?.hidden) { closeImagePreview(); event.preventDefault(); return; }
-      if (els.importModal?.classList.contains("open")) { closeImportModal(); event.preventDefault(); return; }
       if (els.groupModal?.classList.contains("open")) { closeGroupModal(); event.preventDefault(); return; }
       if (els.stackRenameModal?.classList.contains("open")) { closeStackRenameModal(); event.preventDefault(); return; }
       // Escape 先关最上层 Modal，再退出查看模式，不得穿透。
@@ -793,7 +851,6 @@ function setupKeyboardShortcuts() {
     if (state.viewMode === "asset"
       && !event.ctrlKey && !event.metaKey && !event.altKey
       && els.imagePreviewModal?.hidden
-      && !els.importModal?.classList.contains("open")
       && !els.groupModal?.classList.contains("open")
       && !els.stackRenameModal?.classList.contains("open")
       && els.settingsMenu?.hidden
@@ -885,9 +942,12 @@ function deriveGalleryEmptyState() {
 function galleryEmptyMarkup() {
   const kind = deriveGalleryEmptyState();
   if (kind === "none") return "";
-  // Faithful V2 recovery shell: package glyph, neutral copy, reset and import.
+  // Faithful V2 recovery shell: package glyph, neutral copy, reset action and a
+  // drag-and-drop import hint (the modal-free import path). 回收站是只读范围，
+  // 不展示导入提示。
   const packageOpenIcon = "<svg class=\"gallery-empty-icon\" width=\"48\" height=\"48\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 22v-9\"/><path d=\"M15.17 2.21a1.67 1.67 0 0 1 1.63 0L21 4.57a1.93 1.93 0 0 1 0 3.36L8.82 14.79a1.66 1.66 0 0 1-1.64 0L3 12.43a1.93 1.93 0 0 1 0-3.36z\"/><path d=\"M20 13v3.87a2.06 2.06 0 0 1-1.11 1.83l-6 3.08a1.93 1.93 0 0 1-1.78 0l-6-3.08A2.06 2.06 0 0 1 4 16.87V13\"/><path d=\"M21 12.43a1.93 1.93 0 0 0 0-3.36L8.83 2.21a1.64 1.64 0 0 0-1.63 0L3 4.57a1.93 1.93 0 0 0 0 3.36l12.18 6.86a1.64 1.64 0 0 0 1.63 0z\"/></svg>";
-  return "<div class=\"gallery-empty-state\" data-empty-kind=\"" + kind + "\">" + packageOpenIcon + "<div class=\"empty-state-copy\"><h2>" + escapeHtml(t("noResultsTitle")) + "</h2><p>" + escapeHtml(t("noResultsDescription")) + "</p></div><div class=\"empty-state-actions\"><button class=\"btn-secondary\" type=\"button\" data-action=\"empty-clear\">" + escapeHtml(t("resetFilters")) + "</button><button class=\"btn-primary\" type=\"button\" data-action=\"empty-import\">" + escapeHtml(t("onboardImport")) + "</button></div></div>";
+  const dropHint = state.scope === "trash" ? "" : "<p>" + escapeHtml(t("emptyDropHint")) + "</p>";
+  return "<div class=\"gallery-empty-state\" data-empty-kind=\"" + kind + "\">" + packageOpenIcon + "<div class=\"empty-state-copy\"><h2>" + escapeHtml(t("noResultsTitle")) + "</h2><p>" + escapeHtml(t("noResultsDescription")) + "</p>" + dropHint + "</div><div class=\"empty-state-actions\"><button class=\"btn-secondary\" type=\"button\" data-action=\"empty-clear\">" + escapeHtml(t("resetFilters")) + "</button></div></div>";
 }
 
 /** Reuses the existing polite live region; never a second announcement system. */
@@ -957,7 +1017,9 @@ async function init() {
     gallerySelection.bind();
     bindEvents();
     setupDragDrop();
+    setupSidebarGroupDropImport();
     setupGlobalDragGuard();
+    setupPasteImport();
     setupKeyboardShortcuts();
     setupImageZoomPan();
     renderGrid();
@@ -1333,7 +1395,7 @@ function handleLibraryKeyboardNavigation(event) {
 // router. The name is retained for the Phase 3 contract seam; it does not add a
 // second document listener or a second shortcut manager.
 function bindKeyboardNav(event) {
-  if (confirmDialogState.pending || els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open") || els.stackRenameModal?.classList.contains("open")) return;
+  if (confirmDialogState.pending || els.groupModal?.classList.contains("open") || els.stackRenameModal?.classList.contains("open")) return;
   if (!els.imagePreviewModal?.hidden || !els.settingsMenu?.hidden) return;
   if (event.target.closest?.("[contenteditable]")) return;
   if (event.target.closest?.("[role='tab']")) return;
@@ -1604,21 +1666,6 @@ function applyBridgeStatusFailure() {
     setStatus(t("statusUnavailable"), "error");
 }
 
-/**
- * The supported-format list comes from the server rather than a copy in the
- * client, so the hint cannot claim a format the store would reject.
- */
-function updateCodexHint() {
-  if (els.importFormatList) els.importFormatList.textContent = state.supportedMediaExtensions.join(" ");
-  const exampleDir = state.codexImagesDir || "/Users/you/Pictures";
-  const exampleBase = exampleDir.replace(/[\\/]+$/, "");
-  const exampleSeparator = exampleBase.includes("\\") ? "\\" : "/";
-  const examplePath = `${exampleBase}${exampleSeparator}example.png`;
-  if (els.importPathExample) els.importPathExample.textContent = examplePath;
-  if (els.imagePathInput) els.imagePathInput.placeholder = examplePath;
-  if (els.codexSourceHint) els.codexSourceHint.textContent = state.codexImagesDir || t("importPathCodexDirUnknown");
-}
-
 function updateViewTitle() {
   const titles = { all: t("allAssets"), favorite: t("favorites"), unorganized: t("unorganized"), trash: t("trash") };
   const hasFacets = Object.values(state.facets || {}).some(Boolean);
@@ -1785,9 +1832,8 @@ function bindEvents() {
       return;
     }
     if (event.target.closest('[data-action="retry"]')) window.location.reload();
-    // F-08 空态操作：导入复用现有 Modal（不建第二套）；清除与查看全部共用
+    // F-08 空态操作：导入只靠拖放（空态以提示文案指引）；清除与查看全部共用
     // 同一个 reset helper，只触发一次刷新；打开素材库复用既有 API。
-    if (event.target.closest('[data-action="empty-import"]')) { openImportModal(); return; }
     if (event.target.closest('[data-action="empty-clear"]') || event.target.closest('[data-action="empty-view-all"]')) { resetLibraryRefinements(); return; }
     const openLibraryAction = event.target.closest('[data-action="empty-open-library"]');
     if (openLibraryAction) runAction(async () => { if (!state.libraryPath) return; await apiFetch("/api/open-folder", { method: "POST", body: { path: state.libraryPath } }); showToast(t("openInFinder"), "success"); });
@@ -1829,61 +1875,6 @@ function bindEvents() {
     });
   });
   els.openInspectorBtn?.addEventListener("click", openDetailSurfaceManually);
-  // Topbar import action retired: drag/drop and empty-state import remain the supported entry points.
-  els.browseFileBtn?.addEventListener("click", () => {
-    if (state.importSaving) return;
-    if (els.importFileInput) {
-      els.importFileInput.value = "";
-      els.importFileInput.click();
-    }
-  });
-  els.importFileInput?.addEventListener("change", () => {
-    const files = Array.from(els.importFileInput.files || []);
-    if (!files.length) return;
-    if (files.length === 1) {
-      void prepareImportFile(files[0], { openModal: false });
-      return;
-    }
-    void batchImporter.enqueue(files);
-  });
-  const importDropZone = els.browseFileBtn?.closest(".import-v2-path-card");
-  ["dragenter", "dragover"].forEach((eventName) => {
-    importDropZone?.addEventListener(eventName, (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-      importDropZone.classList.add("drag-active");
-    });
-  });
-  ["dragleave", "drop"].forEach((eventName) => {
-    importDropZone?.addEventListener(eventName, (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      // P3-3: Only remove drag-active if leaving the zone entirely (not entering a child)
-      if (eventName === "dragleave") {
-        const related = event.relatedTarget;
-        if (related instanceof Node && importDropZone.contains(related)) return;
-      }
-      importDropZone.classList.remove("drag-active");
-      if (eventName !== "drop") return;
-      // P1-3: Prevent drop during import save to avoid phantom path race
-      if (state.importSaving) return;
-      void (async () => {
-        const { files, unsupported } = await collectDroppedFiles(event.dataTransfer, {
-          isSupported: (name) => isSupportedImportFile({ name }),
-        });
-        if (files.length === 1) {
-          void prepareImportFile(files[0], { openModal: false });
-          return;
-        }
-        if (files.length) {
-          void batchImporter.enqueue(files);
-          return;
-        }
-        if (unsupported) showToast(t("errorPathUnsupported"), "error");
-      })().catch((error) => showToast(dropErrorMessage(error, t), "error"));
-    });
-  });
   els.quickFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) void setFilter(button.dataset.filter); });
   els.smartGroupsToggle?.addEventListener("click", () => setSidebarSectionCollapsed("smart", !state.sidebarSmartCollapsed));
   els.assetCategoriesToggle?.addEventListener("click", () => setSidebarSectionCollapsed("manual", !state.sidebarManualCollapsed));
@@ -2163,9 +2154,6 @@ function bindEvents() {
       });
     }
   });
-  els.closeImportModal?.addEventListener("click", closeImportModal);
-  els.cancelImportBtn?.addEventListener("click", closeImportModal);
-  els.importModal?.addEventListener("click", (event) => { if (event.target === els.importModal) closeImportModal(); });
   els.closeGroupModal?.addEventListener("click", closeGroupModal);
   els.cancelGroupBtn?.addEventListener("click", closeGroupModal);
   els.groupModal?.addEventListener("click", (event) => { if (event.target === els.groupModal) closeGroupModal(); });
@@ -2220,7 +2208,6 @@ function bindEvents() {
   // Phase 3C：唯一一套上一张/下一张（全应用无第二套导航控件）。
   els.assetViewPrev?.addEventListener("click", () => navigateAssetView(-1));
   els.assetViewNext?.addEventListener("click", () => navigateAssetView(1));
-  els.saveAssetBtn?.addEventListener("click", saveAsset);
   // Settings 的 segmented radiogroup 在持久根节点上统一处理方向键。
   // 绑定在持久的 #settingsMenu 元素上：innerHTML 重建不会叠加监听器（全应用唯一一套）。
   els.settingsMenu?.addEventListener("keydown", handleSettingsMenuKeydown);
@@ -2241,7 +2228,6 @@ function bindEvents() {
   // Phase 5B：ConfirmDialog 陷阱先于其余陷阱注册——Escape 优先级链最前（preventDefault +
   // stopPropagation，不穿透 Viewer/既有 Modal）；ConfirmDialog 未打开时后续陷阱照常工作。
   document.addEventListener("keydown", trapConfirmDialogFocus);
-  document.addEventListener("keydown", trapImportModalFocus);
   document.addEventListener("keydown", trapSettingsModalFocus);
   document.addEventListener("keydown", trapGroupModalFocus);
   document.addEventListener("keydown", trapGroupStatsModalFocus);
@@ -2254,7 +2240,7 @@ function bindEvents() {
     if (!state.detailOpen) return;
     // Phase 3A：查看模式的 Escape 由 setupKeyboardShortcuts 的优先级链统一处理（先浮层后退出）。
     if (state.viewMode === "asset") return;
-    if (els.importModal?.classList.contains("open") || els.groupModal?.classList.contains("open") || els.stackRenameModal?.classList.contains("open") || !els.imagePreviewModal?.hidden) return;
+    if (els.groupModal?.classList.contains("open") || els.stackRenameModal?.classList.contains("open") || !els.imagePreviewModal?.hidden) return;
     if (!els.settingsMenu?.hidden) return;
     if (isInspectorDocked()) return;
     event.preventDefault();
@@ -2266,32 +2252,9 @@ function bindEvents() {
 function bindDesktopIntegration() {
   const api = window.electronAPI;
   if (!api) return;
-  document.addEventListener("paste", async (event) => {
-    const target = event.target;
-    const editableTarget = target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable]"));
-    const blockingSurfaceOpen = Boolean(
-      confirmDialogState.pending
-      || !els.settingsMenu?.hidden
-      || !els.imagePreviewModal?.hidden
-      || els.importModal?.classList.contains("open")
-      || els.groupModal?.classList.contains("open")
-      || els.stackRenameModal?.classList.contains("open")
-    );
-    // Never steal paste from a native editor, and never stack an Import modal
-    // on top of another modal/lightbox. Image paste remains available from the
-    // normal app canvas where it is an intentional import shortcut.
-    if (editableTarget || blockingSurfaceOpen) return;
-    const items = event.clipboardData?.items;
-    if (!items) return;
-    for (const item of items) {
-      if (item.type.startsWith("image/")) {
-        event.preventDefault();
-        await pasteClipboardImage();
-        return;
-      }
-    }
-  });
-  api.onMenuImport?.(() => openImportModal());
+  // Clipboard image import (Ctrl/Cmd+V) runs through the shared setupPasteImport
+  // handler in both modes; only the context-menu entry uses the native staging
+  // path below.
   api.onMenuSearch?.(() => { els.searchInput?.focus(); });
   api.onUpdateDownloadProgress?.((progress) => {
     const percent = Math.max(0, Math.min(100, Math.round(Number(progress?.percent) || 0)));
@@ -2310,45 +2273,45 @@ function bindDesktopIntegration() {
   });
 }
 
+// Electron context-menu paste: the main process writes the clipboard image to
+// a staging path (api.pasteImage), and that path is imported directly through
+// /api/assets/create — no modal, no form state. state.stagingInProgress keeps
+// a double-triggered paste from creating two assets from one image.
+// Returns false only when the clipboard held no image (the caller tells the
+// user); null means the attempt was refused or already reported its failure.
 async function pasteClipboardImage() {
+  // 回收站是只读范围：不允许任何导入。
+  if (state.scope === "trash") return null;
   const api = window.electronAPI;
-  if (!api?.pasteImage || state.stagingInProgress) return false;
+  if (!api?.pasteImage || state.stagingInProgress) return null;
   state.stagingInProgress = true;
-  state.stagingCanceled = false;
+  let imagePath = "";
+  let result = null;
   try {
-    const filePath = await api.pasteImage();
-    if (!filePath) return false;
-    if (state.stagingCanceled) {
-      await cleanupStagedFile(filePath);
-      return false;
-    }
-    if (state.stagedPath && state.stagedPath !== filePath) await cleanupStagedFile(state.stagedPath);
-    if (state.stagingCanceled) {
-      await cleanupStagedFile(filePath);
-      return false;
-    }
-    state.stagedPath = filePath;
-    if (!els.imagePathInput) {
-      state.stagedPath = "";
-      await cleanupStagedFile(filePath);
-      return false;
-    }
-    els.imagePathInput.value = filePath;
-    openImportModal();
-    if (!els.importModal?.classList.contains("open")) {
-      state.stagedPath = "";
-      els.imagePathInput.value = "";
-      await cleanupStagedFile(filePath);
-      return false;
-    }
-    return true;
+    imagePath = await api.pasteImage();
+    if (!imagePath) return false;
+    result = await apiFetch("/api/assets/create", {
+      method: "POST",
+      body: {
+        projectId: state.project,
+        imagePath,
+        ...currentDropImportMetadata(),
+        ...(state.activeStackId ? { stackId: state.activeStackId } : {}),
+      },
+    });
   } catch (error) {
-    if (!state.stagingCanceled) showToast(t("pasteImageSaveFailed"), "error");
-    return false;
+    // The staged copy would otherwise linger after a failed import.
+    await cleanupStagedFile(imagePath);
+    showToast(t("pasteImageSaveFailed"), "error");
+    return null;
   } finally {
     state.stagingInProgress = false;
-    state.stagingCanceled = false;
   }
+  // The asset already exists here; a failed refresh must not report the
+  // import as failed (the library change stream reconciles it later).
+  showToast(t("pastedImageImported"), "success");
+  await Promise.all([loadStats(), loadAssets()]).catch(() => {});
+  return result?.asset?.id || true;
 }
 
 function setLanguage(value) {
@@ -2473,97 +2436,6 @@ function handleSettingsMenuKeydown(event) {
     buttons[next].focus();
     return;
   }
-}
-
-/** Maps a store error code to the field that caused it and a readable reason. */
-const IMPORT_ERROR_FIELDS = {
-  IMAGE_PATH_REQUIRED: { field: "imagePath", message: "errorPathRequired" },
-  IMAGE_PATH_NOT_FOUND: { field: "imagePath", message: "errorPathNotFound" },
-  IMAGE_PATH_UNSUPPORTED_TYPE: { field: "imagePath", message: "errorPathUnsupported" },
-  IMAGE_PATH_NOT_READABLE: { field: "imagePath", message: "errorPathNotReadable" },
-};
-
-function importErrorTargets() {
-  return {
-    imagePath: { input: els.imagePathInput, output: els.imagePathError, disclosure: null },
-    businessFields: { input: els.businessInput, output: els.businessFieldsError, disclosure: els.importAdvanced },
-  };
-}
-
-function clearImportErrors() {
-  for (const { input, output } of Object.values(importErrorTargets())) {
-    input?.removeAttribute("aria-invalid");
-    if (output) { output.hidden = true; output.textContent = ""; }
-  }
-}
-
-/**
- * Errors are shown next to the field that caused them, announced through the
- * field's aria-describedby, and marked with aria-invalid — the icon and text
- * carry the meaning, so colour is never the only signal.
- */
-function showImportError(field, message) {
-  clearImportErrors();
-  const target = importErrorTargets()[field];
-  if (!target) { showToast(message, "error"); return; }
-  if (target.output) { target.output.textContent = message; target.output.hidden = false; }
-  target.input?.setAttribute("aria-invalid", "true");
-  // A collapsed advanced section would otherwise hide the field the error names.
-  if (target.disclosure) target.disclosure.open = true;
-  // 控件在保存期间是 disabled（focus 对其是 no-op）；rAF 晚于调用方的 finally，
-  // 到那时按钮已恢复可用，焦点才能真正落到出错字段上。
-  requestAnimationFrame(() => target.input?.focus());
-}
-
-function setImportBusy(busy) {
-  state.importSaving = busy;
-  els.importModal?.querySelectorAll("input, textarea, select, button").forEach((control) => { control.disabled = busy; });
-  if (els.saveAssetBtn) {
-    els.saveAssetBtn.setAttribute("aria-busy", String(busy));
-    els.saveAssetBtn.textContent = busy ? t("savingAsset") : t("saveAsset");
-  }
-}
-
-async function saveAsset() {
-  // A second click while the first request is in flight would import twice.
-  if (state.importSaving) return;
-  clearImportErrors();
-  if (!els.imagePathInput.value.trim()) { showImportError("imagePath", t("errorPathRequired")); return; }
-  let businessFields = {};
-  if (els.businessInput.value.trim()) {
-    try { businessFields = JSON.parse(els.businessInput.value); }
-    catch { showImportError("businessFields", t("errorInvalidJson")); return; }
-  }
-  const originProjectId = state.project;
-  const originStackId = state.activeStackId || "";
-  const originAssetId = state.selectedId;
-  const hadDetailDraft = state.detailDirty;
-  // 防重窗口必须先于 confirmDetailNavigation 的网络级冲刷打开（PATCH + 两次
-  // 刷新，数百毫秒）--否则冲刷期间的双击会重复走到 POST /api/assets/create，
-  // 同一文件被导入两份。
-  setImportBusy(true);
-  try {
-    if (hadDetailDraft && !await confirmDetailNavigation(null)) return;
-    const result = await apiFetch("/api/assets/create", { method: "POST", body: { projectId: originProjectId, ...(originStackId ? { stackId: originStackId } : {}), imagePath: els.imagePathInput.value, prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, ratio: els.ratioInput.value, theme: els.themeInput.value, group: els.groupInput.value, category: els.categoryInput.value, tags: uniqueTags([...(derivePromptTags({ prompt: els.promptInput.value, skill: els.skillInput.value, style: els.styleInput.value, theme: els.themeInput.value, category: els.categoryInput.value }))]), business_fields: businessFields } });
-    if (hadDetailDraft && originProjectId === state.project && originAssetId === state.selectedId) discardDetailDraft();
-    state.selectedId = result.asset.id;
-    clearImportForm(); closeImportModal({ force: true }); showToast(`${t("savedAsset")} · ${result.asset.id}`, "success");
-    // P3-2: Parallel loadStats and loadAssets for faster UI refresh
-    await Promise.all([loadStats(), loadAssets()]);
-  } catch (error) {
-    const mapped = IMPORT_ERROR_FIELDS[error?.code];
-    if (mapped) showImportError(mapped.field, t(mapped.message));
-    else showToast(error.message, "error");
-  } finally {
-    setImportBusy(false);
-  }
-}
-
-function clearImportForm() {
-  [els.imagePathInput, els.promptInput, els.skillInput, els.styleInput, els.ratioInput, els.themeInput, els.groupInput, els.businessInput].forEach((input) => { input.value = ""; });
-  els.categoryInput.value = "";
-  clearImportErrors();
-  if (els.importAdvanced) els.importAdvanced.open = false;
 }
 
 function renderQuickFilters() {
@@ -4517,42 +4389,11 @@ function setDetailOpen(open, { allowDockedClose = false } = {}) {
 
 function hasBlockingOverlay(except = "") {
   return [
-    ["import", Boolean(els.importModal?.classList.contains("open"))],
     ["group", Boolean(els.groupModal?.classList.contains("open")) || Boolean(els.groupStatsModal?.classList.contains("open"))],
     ["rename", Boolean(els.stackRenameModal?.classList.contains("open"))],
     ["settings", Boolean(els.settingsMenu && !els.settingsMenu.hidden)],
     ["preview", Boolean(els.imagePreviewModal && !els.imagePreviewModal.hidden)],
   ].some(([name, open]) => name !== except && open);
-}
-
-function openImportModal() {
-  if (state.importSaving || hasBlockingOverlay("import")) return;
-  state.modalReturnFocus = document.activeElement;
-  clearImportErrors();
-  els.importModal?.classList.add("open");
-  els.importModal?.setAttribute("aria-hidden", "false");
-  // Focused synchronously: an animation frame never runs while the window is hidden.
-  els.closeImportModal?.focus();
-}
-function closeImportModal({ force = false } = {}) {
-  if (state.importSaving && !force) return false;
-  // Closing while a replacement file is still uploading invalidates that
-  // request. prepareImportFile/paste cleanup the late staging path as soon as
-  // it becomes available, so a cancel never leaves a hidden orphan behind.
-  if (state.stagingInProgress) state.stagingCanceled = true;
-  // P1-2: Clean up orphaned staged file on cancel (non-destructive)
-  const stagedToClean = state.stagedPath;
-  state.stagedPath = "";
-  if (stagedToClean) {
-    // Non-blocking cleanup
-    void cleanupStagedFile(stagedToClean);
-  }
-  announceGalleryStatus("");
-  els.importModal?.classList.remove("open");
-  els.importModal?.setAttribute("aria-hidden", "true");
-  if (state.modalReturnFocus instanceof HTMLElement) state.modalReturnFocus.focus();
-  state.modalReturnFocus = null;
-  return true;
 }
 function openSettingsModal() {
   if (!els.settingsMenu || !els.settingsMenu.hidden || hasBlockingOverlay("settings")) return;
@@ -4793,15 +4634,6 @@ function trapGroupStatsModalFocus(event) {
   event.preventDefault(); focusable[next].focus();
 }
 
-function trapImportModalFocus(event) {
-  if (event.defaultPrevented) return;
-  if (!els.importModal?.classList.contains("open")) return;
-  if (event.key === "Escape") { event.preventDefault(); closeImportModal(); return; }
-  if (event.key !== "Tab") return;
-  const focusable = [...els.importModal.querySelectorAll("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")].filter((element) => !element.hasAttribute("hidden"));
-  if (!focusable.length) return; const current = focusable.indexOf(document.activeElement); const next = event.shiftKey ? (current <= 0 ? focusable.length - 1 : current - 1) : (current === focusable.length - 1 ? 0 : current + 1); event.preventDefault(); focusable[next].focus();
-}
-
 function trapSettingsModalFocus(event) {
   if (event.defaultPrevented) return;
   if (els.settingsMenu?.hidden) return;
@@ -4832,7 +4664,7 @@ async function saveGroup() {
   const originAssetId = state.selectedId;
   const hadDetailDraft = state.detailDirty;
   const onCreated = pendingGroupCreated;
-  // 同 saveAsset：防重窗口先于草稿冲刷的网络往返打开，冲刷期间双击不重复建组。
+  // 防重窗口先于草稿冲刷的网络往返打开，冲刷期间双击不重复建组。
   setGroupBusy(true);
   try {
     if (hadDetailDraft && !await confirmDetailNavigation(null)) return;

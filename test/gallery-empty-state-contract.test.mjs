@@ -112,16 +112,19 @@ test("14-19. one shell, honest copy, and the right single action per kind", asyn
   const app = await readApp();
   const markup = sliceBetween(app, "function galleryEmptyMarkup()", "/** Reuses the existing polite live region");
 
-  // V2 (2026-08-16): one neutral shell with no-results copy and two actions
-  // (reset filters + import). The kind is set to "no-results" via
+  // V2 (2026-08-16): one neutral shell with no-results copy, the reset action,
+  // and a drag/paste import hint. The kind is set to "no-results" via
   // `data-empty-kind`, but the copy and actions are the same for both —
   // a deliberate simplification from the legacy per-scope copy.
+  // 2026-09: the manual import modal was retired, so the import button became
+  // a plain hint line pointing at drag & drop / paste.
   assert.match(markup, /data-empty-kind=\\"" \+ kind/, "the shell carries its kind via data attribute (string concat in V2)");
   assert.match(markup, /<svg class=\\?"gallery-empty-icon\\?"/, "the shell uses the package glyph icon");
   assert.match(markup, /t\("noResultsTitle"\)/, "the heading uses the V2 no-results title");
   assert.match(markup, /t\("noResultsDescription"\)/, "the description uses the V2 no-results description");
   assert.match(markup, /data-action=\\?"empty-clear\\?"/, "the reset action targets empty-clear");
-  assert.match(markup, /data-action=\\?"empty-import\\?"/, "the import action reuses the onboarding copy");
+  assert.match(markup, /t\("emptyDropHint"\)/, "the shell explains the drag/paste import path instead of a button");
+  assert.doesNotMatch(markup, /empty-import/, "no import button action remains");
   // The legacy per-scope copy keys must not leak into the markup anymore.
   assert.doesNotMatch(markup, /favoritesEmptyTitle|recentEmptyTitle|groupEmptyTitle/, "the retired scoped empty copy keys are not consumed");
   // The single shell keeps an icon (not decorative, but functional) and never
@@ -154,7 +157,7 @@ test("20-32. resetLibraryRefinements is the single clear path with focus recover
   // filter-chip toolbar no longer keeps a second clear-all wrapper alive.
   assert.equal(count(app, "resetLibraryRefinements();"), 1, "only the empty-state reset entry remains");
   assert.doesNotMatch(app, /function clearAllFilters\(|renderActiveFilters|removeFilterChip/);
-  const delegation = sliceBetween(app, 'els.assetGrid?.addEventListener("click"', 'els.browseFileBtn?.addEventListener("click", () => {');
+  const delegation = sliceBetween(app, 'els.assetGrid?.addEventListener("click"', 'els.quickFilters?.addEventListener("click"');
   assert.match(delegation, /resetLibraryRefinements\(\); return;/, "the empty-state clear/view-all actions share the same helper");
   // 29. The search input DOM stays in sync.
   assert.match(reset, /els\.searchInput\) els\.searchInput\.value = "";/, "the search input is cleared");
@@ -167,17 +170,18 @@ test("20-32. resetLibraryRefinements is the single clear path with focus recover
   assert.match(reset, /announceGalleryStatus\(t\("statusRefinementsCleared"\)\)/, "the reset announces through the existing live region");
 });
 
-test("33-36. import reuses the existing modal; retry and pagination failures stay honest", async () => {
+test("33-36. import stays drag/drop-only; retry and pagination failures stay honest", async () => {
   const [app, apiClient] = await Promise.all([readApp(), readApiClient()]);
-  const delegation = sliceBetween(app, 'els.assetGrid?.addEventListener("click"', 'els.browseFileBtn?.addEventListener("click", () => {');
+  const delegation = sliceBetween(app, 'els.assetGrid?.addEventListener("click"', 'els.quickFilters?.addEventListener("click"');
 
-  // 33-34. Import reuses the one existing modal; there is no second one.
-  assert.match(delegation, /\[data-action="empty-import"\]'\)\) \{ openImportModal\(\); return; \}/, "the empty-state import opens the existing modal");
-  assert.equal(count(app, "function openImportModal()"), 1, "there is still exactly one import modal opener");
+  // 33-34. 2026-09: the manual import modal is retired. The empty state never
+  // opens a modal, and no import-modal opener survives anywhere in the app.
+  assert.doesNotMatch(delegation, /empty-import/, "the empty state has no import button left");
+  assert.doesNotMatch(app, /function openImportModal\(\)/, "the import modal opener is gone");
+  assert.doesNotMatch(app, /importModal/, "no import modal references survive in the renderer");
   const markup = sliceBetween(app, "function galleryEmptyMarkup()", "/** Reuses the existing polite live region");
   assert.doesNotMatch(markup, /importModal|modal-overlay|role="dialog"/, "the empty state never builds a second modal");
-  // Focus trap and return focus of the modal stay untouched.
-  assert.match(app, /function trapImportModalFocus\(event\)/);
+  // Return focus of the surviving modals stays untouched.
   assert.match(app, /state\.modalReturnFocus instanceof HTMLElement\) state\.modalReturnFocus\.focus\(\);/);
   // 35. Fatal error keeps error-state + Retry.
   const renderGrid = sliceBetween(app, "function renderGrid()", "\nfunction renderErrorState");
@@ -208,7 +212,7 @@ test("40. V2 i18n keys for the no-results recovery shell are symmetric across zh
   // variant. The legacy scoped-copy keys (`favoritesEmptyTitle`,
   // `recentEmptyTitle`, `groupEmptyTitle`, etc.) are outside this active
   // recovery contract and are not required by the renderer.
-  const ACTIVE_KEYS = ["noResultsTitle", "noResultsDescription", "resetFilters", "onboardImport", "statusRefinementsCleared"];
+  const ACTIVE_KEYS = ["noResultsTitle", "noResultsDescription", "resetFilters", "emptyDropHint", "statusRefinementsCleared"];
   for (const key of ACTIVE_KEYS) {
     assert.equal(count(i18n, `${key}:`), 2, `${key} exists exactly once per locale`);
   }

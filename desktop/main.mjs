@@ -342,13 +342,6 @@ function buildMenu() {
       id: "mosa-menu-file",
       label: getDesktopText("menuFile", currentLocale),
       submenu: [
-        {
-          id: "mosa-menu-import-asset",
-          label: getDesktopText("menuImportAsset", currentLocale),
-          accelerator: "CmdOrCtrl+N",
-          click: () => sendToWindow("menu-import"),
-        },
-        { id: "mosa-menu-file-separator-1", type: "separator" },
         { id: "mosa-menu-close", role: "close", label: getDesktopText("menuClose", currentLocale) },
       ],
     },

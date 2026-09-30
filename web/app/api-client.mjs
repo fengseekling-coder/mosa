@@ -59,7 +59,6 @@ export function createApiClient(deps) {
     els,
     renderSettingsMenu,
     renderDetail,
-    updateCodexHint,
     renderQuickFilters,
     renderGrid,
     updateViewTitle,
@@ -137,8 +136,6 @@ export function createApiClient(deps) {
       state.libraryPath = library.path || "";
       state.libraryRoot = library.libraryDir || "";
       state.codexImagesDir = library.codexGeneratedImagesDir || "";
-      state.supportedMediaExtensions = Array.isArray(library.supportedMediaExtensions) ? library.supportedMediaExtensions : [];
-      updateCodexHint();
     }
     const nextGroups = navigationStateFromPayload(result);
     const changed = JSON.stringify(nextGroups) !== JSON.stringify(state.groups);
@@ -239,8 +236,6 @@ export function createApiClient(deps) {
     state.libraryPath = library?.path || "";
     state.libraryRoot = library?.libraryDir || "";
     state.codexImagesDir = library?.codexGeneratedImagesDir || "";
-    state.supportedMediaExtensions = Array.isArray(library?.supportedMediaExtensions) ? library.supportedMediaExtensions : [];
-    updateCodexHint();
     renderQuickFilters();
     renderSettingsMenu();
     renderGrid({ preserveScroll: false });

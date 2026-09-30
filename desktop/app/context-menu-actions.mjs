@@ -911,14 +911,17 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
    * Get empty grid context menu
    */
   function getEmptyGridMenu() {
-    return [
-      {
-        label: t("importAsset"),
-        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>',
-        action: async () => {
-          els.newAssetTopBtn?.click();
-        },
+    // 回收站是只读范围：不提供粘贴导入（拖拽与 Ctrl/Cmd+V 导入同样被禁用）。
+    const pasteItem = state.scope === "trash" ? [] : [{
+      label: t("pasteFromClipboard"),
+      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+      disabled: typeof pasteClipboardImage !== "function",
+      action: async () => {
+        const pasted = await pasteClipboardImage?.();
+        if (pasted === false) showToast(t("clipboardNoImage"), "default");
       },
+    }];
+    return [
       {
         label: t("createGroup"),
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 11v6M9 14h6"/></svg>',
@@ -926,15 +929,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           openGroupModal?.();
         },
       },
-      {
-        label: t("pasteFromClipboard"),
-        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
-        disabled: typeof pasteClipboardImage !== "function",
-        action: async () => {
-          const pasted = await pasteClipboardImage?.();
-          if (!pasted) showToast(t("clipboardNoImage"), "default");
-        },
-      },
+      ...pasteItem,
       { separator: true },
       {
         label: t("refreshLibrary"),

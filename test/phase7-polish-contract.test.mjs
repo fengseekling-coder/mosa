@@ -212,22 +212,15 @@ test("11. Card animation is conditional and not replayed on ordinary renders", a
 });
 
 // 12. Icon-only buttons keep consistent accessible names (native title tooltip).
-// 2026-08-18: V2-only token consolidation. The browse-file button now carries
-// `aria-label="uploadHint"` (the upload nudge) and `title="browseFile"` (the
-// action label). V2 deliberately decouples these: aria-label describes the
-// region/purpose; title describes the trigger action. The contract is now
-// "either matching title=i18n-key, OR i18n-key aria-label matching the same
-// i18n key as the title" — whichever pairing the surface uses, the names must
-// resolve to the same key. The favourites and inspector entries preserve the
-// original "title == aria-label" symmetry because their content is symmetric.
+// 12. Icon-only buttons keep consistent accessible names (native title tooltip).
+// 2026-08-18: V2-only token consolidation. V2 deliberately decouples aria-label
+// (describes the region/purpose) from title (describes the trigger action) on
+// some surfaces; the contract is "either matching title=i18n-key, OR i18n-key
+// aria-label matching the same i18n key as the title". The favourites and
+// inspector entries preserve the original "title == aria-label" symmetry
+// because their content is symmetric. (2026-09: the import-modal browse button
+// retired with the modal, so its aria pairing assertion is gone.)
 test("12. Icon-button aria-label/title contract holds", async () => {
-  const html = await readHtml();
-  // Browse button: aria-label intentionally exposes the upload-region
-  // copy (a screen reader first hears "click to upload or drag files
-  // here"), title exposes the trigger action ("浏览"). Both must resolve
-  // through the i18n system (data-i18n-{aria-label,title} attribute).
-  assert.match(html, /data-i18n-title="browseFile"[^>]*data-i18n-aria-label="uploadHint"/,
-    "browse button uses uploadHint for aria-label and browseFile for title (V2 split)");
   const app = await readApp();
   const inspector = await readInspectorMarkup();
   assert.match(app, /aria-label="\$\{escapeHtml\(favoriteLabel\)\}" title="\$\{escapeHtml\(favoriteLabel\)\}"/, "favorite button name matches title");

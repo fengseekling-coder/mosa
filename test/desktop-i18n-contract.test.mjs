@@ -13,7 +13,6 @@ const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
 const DESKTOP_TEXT = {
   menuFile: { zh: "文件", en: "File" },
-  menuImportAsset: { zh: "导入素材…", en: "Import Asset…" },
   menuEdit: { zh: "编辑", en: "Edit" },
   menuView: { zh: "视图", en: "View" },
   menuSearch: { zh: "搜索", en: "Search" },
@@ -74,7 +73,7 @@ test("main localizes custom menu labels without changing roles or accelerators",
   assert.match(menu, /id:\s*"mosa-menu-edit"/);
   assert.match(menu, /id:\s*"mosa-menu-view"/);
   assert.match(menu, /id:\s*"mosa-menu-window"/);
-  for (const label of Object.values(DESKTOP_TEXT).slice(0, 6).flatMap(({ zh, en }) => [zh, en])) {
+  for (const label of Object.values(DESKTOP_TEXT).slice(0, 5).flatMap(({ zh, en }) => [zh, en])) {
     assert.doesNotMatch(menu, new RegExp(`label\\s*:\\s*${label.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}`));
   }
   assert.equal((menu.match(/getDesktopText\s*\(/g) || []).length >= 6, true, "all custom labels must use desktop i18n");
@@ -86,9 +85,11 @@ test("main localizes custom menu labels without changing roles or accelerators",
   ]) {
     assert.match(menu, new RegExp(`role\\s*:\\s*"${role}"`), `${role} role remains available`);
   }
-  assert.match(menu, /accelerator\s*:\s*"CmdOrCtrl\+N"/);
+  // 2026-09: the "Import Asset" menu item retired with the manual import
+  // modal, so the File menu keeps only Close and the ⌘N accelerator is gone.
+  assert.doesNotMatch(menu, /CmdOrCtrl\+N/);
+  assert.doesNotMatch(menu, /menu-import/);
   assert.match(menu, /accelerator\s*:\s*"CmdOrCtrl\+F"/);
-  assert.match(menu, /sendToWindow\("menu-import"\)/);
   assert.match(menu, /sendToWindow\("menu-search"\)/);
   assert.match(menu, /pruneInjectedMenuItems\(menu\);/);
   assert.match(menu, /setImmediate\(\(\) =>/);
@@ -135,7 +136,6 @@ test("package metadata stays frozen and the runtime preload preserves its approv
     "downloadAndInstallUpdate",
     "getVisualModelState",
     "installVisualPack",
-    "onMenuImport",
     "onMenuSearch",
     "onUpdateDownloadProgress",
     "onVisualPackProgress",

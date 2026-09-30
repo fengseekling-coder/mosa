@@ -793,23 +793,6 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--c
 input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 .detail-fields input, .detail-fields select { height: 32px; }
 .field-hint { color: var(--color-text-tertiary); font-size: 10px; overflow-wrap: anywhere; }
-.field-error { display: flex; gap: 5px; margin-top: 6px; color: var(--color-danger); font-size: 11px; font-weight: 550; line-height: 1.4; overflow-wrap: anywhere; }
-.field-error[hidden] { display: none; }
-.field-error::before { content: "⚠"; flex: 0 0 auto; font-size: 12px; line-height: 1.3; }
-[aria-invalid="true"] { border-color: var(--color-danger); }
-.field-guidance { display: grid; gap: 3px; margin-top: 7px; color: var(--color-text-secondary); font-size: 10px; }
-.field-guidance p { display: flex; min-width: 0; gap: 6px; }
-.field-guidance code { overflow: hidden; color: var(--color-text-secondary); font-family: var(--font-family-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.field-with-button { display: flex; align-items: center; gap: 6px; }
-.field-with-button input { flex: 1; min-width: 0; }
-.browse-btn { display: inline-grid; width: 32px; height: 32px; flex: 0 0 auto; padding: 0; place-items: center; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); color: var(--color-text-secondary); background: var(--app-card); cursor: pointer; }
-.import-advanced { margin-top: 14px; border-top: 1px solid var(--color-border-subtle); }
-.import-advanced summary { display: flex; min-height: 36px; align-items: center; color: var(--color-text-secondary); cursor: pointer; font-size: 12px; font-weight: 500; list-style: none; }
-.import-advanced summary::-webkit-details-marker { display: none; }
-.import-advanced summary::before { content: "▸"; margin-right: 7px; color: var(--color-text-tertiary); font-size: 9px; transition: transform .16s var(--ease-standard); }
-.import-advanced[open] summary::before { transform: rotate(90deg); }
-.import-advanced summary:hover { color: var(--color-text-primary); }
-.import-advanced-content { padding-bottom: 4px; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
 .rating-edit { display: flex; gap: 2px; }
 .rating-edit button { width: 32px; min-height: 32px; padding: 0; border: 0; border-radius: var(--radius-control); color: var(--color-border-default); background: transparent; cursor: pointer; font-size: 16px; }
@@ -902,7 +885,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
                          .asset-load-more button / .recipe-snapshot-footer button /
                          .detail-close（secondary）；
                          .icon-button.quiet / .section-head-copy（quiet）
-   - IconButton        → .icon-button / .toolbar-icon / .browse-btn / .section-head-copy：
+   - IconButton        → .icon-button / .toolbar-icon / .section-head-copy：
                          正方形点击区域（28/32px），图标视觉尺寸由 SVG 自身控制，
                          与点击面积分离；均带 aria-label，不依赖 title 命名
    - ToolbarButton     → .toolbar-icon / .toolbar-filter / .create-button：顶栏
@@ -923,7 +906,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 /* --- Hover：仅在支持 hover 的精确指针设备启用，避免触摸设备粘住 hover --- */
 @media (hover: hover) and (pointer: fine) {
   /* Button secondary / IconButton / ToolbarButton（surface 变体；.card-action-btn 为 Phase 1C 加入的 IconButton 消费方） */
-  :where(.toolbar-icon, .toolbar-filter:not([aria-pressed="true"]), .icon-button:not(.quiet), .browse-btn, .action-btn:not(.primary):not(.danger), .detail-fav-btn, .mini-btn, .asset-load-more button, .recipe-snapshot-footer button, .btn-secondary, .detail-close, .recipe-save-btn.secondary, .card-action-btn):not(:disabled):not([aria-disabled="true"]):hover {
+  :where(.toolbar-icon, .toolbar-filter:not([aria-pressed="true"]), .icon-button:not(.quiet), .action-btn:not(.primary):not(.danger), .detail-fav-btn, .mini-btn, .asset-load-more button, .recipe-snapshot-footer button, .btn-secondary, .detail-close, .recipe-save-btn.secondary, .card-action-btn):not(:disabled):not([aria-disabled="true"]):hover {
     color: var(--color-text-primary); border-color: var(--color-border-default); background: var(--app-hover);
   }
   /* Button quiet 变体：仅加底色 */
@@ -957,7 +940,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 }
 
 /* --- Active：明确按压反馈；只改颜色，不改尺寸、不产生位移、不加动画 --- */
-:where(.toolbar-icon, .toolbar-filter:not([aria-pressed="true"]), .icon-button:not(.quiet), .browse-btn, .action-btn:not(.primary):not(.danger), .detail-fav-btn, .mini-btn, .asset-load-more button, .recipe-snapshot-footer button, .btn-secondary, .detail-close, .recipe-save-btn.secondary, .card-action-btn):not(:disabled):not([aria-disabled="true"]):active {
+:where(.toolbar-icon, .toolbar-filter:not([aria-pressed="true"]), .icon-button:not(.quiet), .action-btn:not(.primary):not(.danger), .detail-fav-btn, .mini-btn, .asset-load-more button, .recipe-snapshot-footer button, .btn-secondary, .detail-close, .recipe-save-btn.secondary, .card-action-btn):not(:disabled):not([aria-disabled="true"]):active {
   color: var(--color-text-primary); border-color: var(--color-border-default); background: var(--color-border-default);
 }
 :where(.icon-button.quiet, .section-head-copy):not(:disabled):not([aria-disabled="true"]):active {
@@ -988,8 +971,8 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 
 /* --- Disabled / aria-disabled：不仅降低透明度，hover/active 经上方 :not()
      守卫被抑制；原生 disabled 与 aria-disabled 表现一致 --- */
-:where(.btn-primary, .btn-secondary, .btn-danger, .create-button, .action-btn, .recipe-save-btn, .icon-button, .toolbar-icon, .toolbar-filter, .browse-btn, .mini-btn, .detail-fav-btn, .section-head-copy, .detail-close, .asset-load-more button, .error-state button, .recipe-snapshot-footer button):disabled,
-:where(.btn-primary, .btn-secondary, .btn-danger, .create-button, .action-btn, .recipe-save-btn, .icon-button, .toolbar-icon, .toolbar-filter, .browse-btn, .mini-btn, .detail-fav-btn, .section-head-copy, .detail-close, .asset-load-more button, .error-state button, .recipe-snapshot-footer button)[aria-disabled="true"] {
+:where(.btn-primary, .btn-secondary, .btn-danger, .create-button, .action-btn, .recipe-save-btn, .icon-button, .toolbar-icon, .toolbar-filter, .mini-btn, .detail-fav-btn, .section-head-copy, .detail-close, .asset-load-more button, .error-state button, .recipe-snapshot-footer button):disabled,
+:where(.btn-primary, .btn-secondary, .btn-danger, .create-button, .action-btn, .recipe-save-btn, .icon-button, .toolbar-icon, .toolbar-filter, .mini-btn, .detail-fav-btn, .section-head-copy, .detail-close, .asset-load-more button, .error-state button, .recipe-snapshot-footer button)[aria-disabled="true"] {
   cursor: not-allowed;
   opacity: .48;
 }
@@ -997,7 +980,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 /* --- Busy/loading：仅视觉契约（aria-busy），不改动宽度、内边距与内容，
      加载中按钮宽度保持稳定；busy 期间保持 wait 光标（承接原
      .recipe-save-btn:disabled 的 cursor: wait 行为），不新增业务逻辑 --- */
-:where(.btn-primary, .btn-secondary, .btn-danger, .create-button, .action-btn, .recipe-save-btn, .icon-button, .toolbar-icon, .toolbar-filter, .browse-btn, .mini-btn, .detail-fav-btn, .section-head-copy, .detail-close, .asset-load-more button, .error-state button, .recipe-snapshot-footer button)[aria-busy="true"] {
+:where(.btn-primary, .btn-secondary, .btn-danger, .create-button, .action-btn, .recipe-save-btn, .icon-button, .toolbar-icon, .toolbar-filter, .mini-btn, .detail-fav-btn, .section-head-copy, .detail-close, .asset-load-more button, .error-state button, .recipe-snapshot-footer button)[aria-busy="true"] {
   cursor: wait;
 }
 
@@ -1108,7 +1091,6 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   .card-actions, .card-action-btn { transition: none; }
   .asset-skeleton { animation: none; background: var(--app-hover); }
   .nav-item, .type-filter, .topbar-search { transition: none; }
-  .import-advanced summary::before { transition: none; }
   .toast { transition: none; transform: none; }
   .asset-view-control, .asset-view-fit, .asset-view-nav-btn { transition: none; }
   .segmented-btn, .segmented-thumb, .toolbar-icon, .toolbar-filter, .create-button, .icon-button,
@@ -1389,7 +1371,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-label { color: #d1d1d6; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-value { color: #6e6e73; }
 .mosa-v2 .modal-overlay { background: rgb(0 0 0 / .28); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }.mosa-v2 .modal-card { border: 1px solid rgb(255 255 255 / .76); border-radius: 16px; background: rgb(from var(--app-modal) r g b / .96); box-shadow: var(--shadow-modal); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }.mosa-v2 .modal-header { padding: 16px 20px; border-bottom-color: var(--color-border-subtle); }.mosa-v2 .modal-body { padding: 18px 20px; }.mosa-v2 .modal-footer { padding: 12px 20px; border-top-color: var(--color-border-subtle); background: transparent; }
-.mosa-v2 .btn-primary { border-radius: 8px; background: #2424ff; }.mosa-v2 .btn-secondary, .mosa-v2 .icon-button, .mosa-v2 .browse-btn { border-color: var(--color-border-subtle); border-radius: 8px; background: var(--app-search); }.mosa-v2 .field input, .mosa-v2 .field textarea, .mosa-v2 .field select { border-color: var(--color-border-subtle); border-radius: 8px; background: var(--app-input); }
+.mosa-v2 .btn-primary { border-radius: 8px; background: #2424ff; }.mosa-v2 .btn-secondary, .mosa-v2 .icon-button { border-color: var(--color-border-subtle); border-radius: 8px; background: var(--app-search); }.mosa-v2 .field input, .mosa-v2 .field textarea, .mosa-v2 .field select { border-color: var(--color-border-subtle); border-radius: 8px; background: var(--app-input); }
 
 /* V2 media preview stays token-driven so the same semantic palette covers
    the black stage, floating header action, controls, and both themes. */
@@ -1620,32 +1602,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .group-modal-card .modal-header, .mosa-v2 .group-modal-card .modal-body, .mosa-v2 .group-modal-card .modal-footer { padding-left: 20px; padding-right: 20px; }
 }
 
-/* V2 Import keeps the local-path workflow, but promotes only the two
-   reference-level fields on first open. Optional metadata stays collapsed. */
-.mosa-v2 #importModal .import-modal-card { width: min(540px, 100%); max-height: min(620px, calc(100vh - 40px)); }
-.mosa-v2 #importModal .modal-header { align-items: center; padding: 20px 24px 10px; border-bottom: 0; }.mosa-v2 #importModal .modal-header .eyebrow { margin: 0 0 3px; color: var(--color-text-tertiary); font-size: 10px; font-weight: 500; letter-spacing: .08em; }.mosa-v2 #importModal .modal-header h3 { margin: 0; color: var(--color-text-primary); font-size: 18px; line-height: 24px; }.mosa-v2 #importModal .modal-header .icon-button { width: 32px; height: 32px; padding: 0; border-color: rgb(36 36 255 / .52); color: var(--color-text-secondary); background: transparent; }
-.mosa-v2 #importModal .import-modal-body { display: flex; flex-direction: column; gap: 12px; padding: 12px 24px 8px; }.mosa-v2 #importModal .import-v2-path-card { padding: 14px; border: 1px dashed rgb(36 36 255 / .64); border-radius: 10px; background: rgb(36 36 255 / .025); }.mosa-v2 #importModal .field > span { margin-bottom: 7px; color: var(--color-text-secondary); font-size: 12px; font-weight: 500; }.mosa-v2 #importModal .field-with-button { gap: 8px; }.mosa-v2 #importModal .field input, .mosa-v2 #importModal .field select { height: 36px; font-size: 12px; }.mosa-v2 #importModal .field textarea { min-height: 92px; }.mosa-v2 #importModal .browse-btn { width: 36px; height: 36px; border-color: rgb(36 36 255 / .32); background: rgb(36 36 255 / .06); }.mosa-v2 #importModal .import-v2-guidance { display: block; margin-top: 8px; color: var(--color-text-tertiary); font-size: 10px; text-align: center; }.mosa-v2 #importModal .import-v2-guidance p { justify-content: center; gap: 5px; }.mosa-v2 #importModal .import-v2-guidance span:first-child { font-weight: 400; }.mosa-v2 #importModal .import-v2-group { margin: 0; }.mosa-v2 #importModal .import-advanced { margin-top: 0; border-top-color: rgb(60 60 67 / .12); }.mosa-v2 #importModal .import-advanced summary { min-height: 34px; color: var(--color-text-secondary); }.mosa-v2 #importModal .import-advanced-content { padding: 4px 0 8px; }.mosa-v2 #importModal .modal-footer { padding: 12px 24px 16px; border-top: 0; }.mosa-v2 #importModal .btn-primary, .mosa-v2 #importModal .btn-secondary { min-width: 84px; height: 32px; }
-/* The initial import screen follows the V2 upload-first dialog.  MOSA's
-   local-path and metadata controls remain available only after a path is
-   selected, so existing desktop import behavior is not discarded. */
-.mosa-v2 #importModal .import-modal-body { gap: 16px; padding: 12px 24px 20px; }
-.mosa-v2 #importModal .import-v2-path-card { box-sizing: border-box; position: relative; min-height: 150px; margin-top: 24px; padding: 0; border-width: 2px; }
-.mosa-v2 #importModal .import-v2-path-card.drag-active { border-style: solid; background: rgb(36 36 255 / .07); }
-.mosa-v2 #importModal .import-modal-card, .mosa-v2 #importModal .import-v2-path-card { border-radius: 12px; }
-.mosa-v2 #importModal .modal-header .icon-button { border-radius: 4px; }
-.mosa-v2 #importModal .import-v2-path-field, .mosa-v2 #importModal .import-v2-path-field .field-with-button { display: block; position: relative; height: 100%; min-height: 146px; margin: 0; }
-.mosa-v2 #importModal .import-v2-upload-label { position: absolute; top: -22px; left: 0; margin: 0; color: var(--color-text-secondary); font-size: 12px; font-weight: 500; line-height: 16px; }
-.mosa-v2 #importModal .import-v2-path-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.mosa-v2 #importModal .browse-btn { display: flex; width: 100%; height: 146px; align-items: center; justify-content: center; gap: 5px; flex-direction: column; padding: 18px; border: 0; border-radius: 8px; color: var(--color-text-secondary); background: transparent; text-align: center; }
-.mosa-v2 #importModal .browse-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -4px; }
-.mosa-v2 #importModal .import-v2-upload-icon { flex: 0 0 auto; color: var(--color-text-tertiary); }
-.mosa-v2 #importModal .import-v2-browse-title { color: var(--color-text-secondary); font-size: 13px; line-height: 18px; }
-.mosa-v2 #importModal .import-v2-browse-formats { color: var(--color-text-tertiary); font-size: 11px; line-height: 16px; }
-.mosa-v2 #importModal .import-v2-guidance, .mosa-v2 #importModal .import-advanced, .mosa-v2 #importModal .modal-footer { display: none; }
-.mosa-v2 #importModal .import-v2-group { margin: 0; }
-.mosa-v2 #importModal .import-modal-card:has(#imagePathInput:not(:placeholder-shown)) .import-advanced { display: block; margin-top: 0; border-top-color: rgb(60 60 67 / .12); }
-.mosa-v2 #importModal .import-modal-card:has(#imagePathInput:not(:placeholder-shown)) .modal-footer { display: flex; padding: 12px 24px 16px; border-top: 0; }
-:root[data-theme="dark"] .mosa-v2 #importModal .import-v2-path-card { border-color: rgb(126 126 255 / .66); background: rgb(126 126 255 / .08); }:root[data-theme="dark"] .mosa-v2 #importModal .browse-btn { border-color: rgb(126 126 255 / .42); background: rgb(126 126 255 / .14); }
 
 /* Latest library-v2 reference completion
    --------------------------------------

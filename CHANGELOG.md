@@ -6,6 +6,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 - MOSA Desktop now pairs the fixed allowlisted MOSA browser extensions automatically in the background. Installing/opening the app and loading the official extension no longer requires a native pairing confirmation dialog or manual Token entry; source/headless runtimes remain opt-in.
 - Web Capture extension 0.15.5 follows Google Flow's migration to its dedicated `flow.google.com` domain. The provider adapter now runs on both the legacy `labs.google/fx` routes and the new host, the background media probe accepts the relocated `media.getMediaUrlRedirect` endpoint (with or without the `/fx` prefix), and the media-host allowlists include the new origin. Failed media probes now back off per media item instead of re-fetching on every scan, and Flow grid-tile Prompt association uses the thumbnail size floor so small natural-size tiles keep their visible Prompt card.
+- Removed the manual Import dialog. Import external images by dragging files or folders into the open gallery (they land in the current group or Stack) or onto a manual group in the sidebar. Pasting an image imports it directly into the current group or Stack. The empty-state Import button, the blank-area "Import asset" context-menu item, and the desktop File → Import menu item (Cmd/Ctrl+N) are gone. Prompt and other metadata are edited afterwards in the Inspector.
 
 ## 0.2.1-rc.25 — 2026-09-20 / Release Candidate
 

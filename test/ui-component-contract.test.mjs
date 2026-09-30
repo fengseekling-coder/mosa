@@ -61,10 +61,11 @@ function contractSection(css) {
 }
 
 // The current button families covered by the shared Phase 1B state contract.
+// (2026-09: the import-modal-only .browse-btn family retired with the modal.)
 const FAMILIES = [
   "icon-button", "toolbar-icon", "toolbar-filter", "create-button", "action-btn",
   "recipe-save-btn", "btn-primary", "btn-secondary", "mini-btn",
-  "settings-trigger", "add-group-button", "browse-btn",
+  "settings-trigger", "add-group-button",
 ];
 
 test("the six button primitives are declared in the contract section", async () => {
