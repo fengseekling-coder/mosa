@@ -175,6 +175,14 @@ function rootViewerSource(config) {
 
     click('#assetViewBack');
     await waitFor(() => view().hidden === true, 'asset view hidden after back');
+    // Focus returns two animation frames after the view hides (scroll is
+    // restored first), so wait for it instead of sampling immediately; slower
+    // runners (Windows CI) miss that window. A timeout falls through to the
+    // assertion below, which reports the real state.
+    try {
+      await waitFor(() => document.querySelector(cardSelector(selectionMarkedCardId()))?.contains(document.activeElement),
+        'focus restored to the last viewed card', 5000);
+    } catch {}
     const afterBack = {
       viewHidden: view().hidden,
       selectedCardId: selectedCardId(),
