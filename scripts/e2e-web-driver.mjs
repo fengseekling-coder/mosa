@@ -46,6 +46,28 @@ app.whenReady().then(async () => {
   });
   try {
     await win.loadURL(targetUrl);
+    // Flows match Chinese UI copy, but without a stored preference the UI
+    // follows navigator.language, which is English on CI runners. Pin Chinese
+    // unless this profile already chose a language (a flow may switch it).
+    const pinnedLocale = await win.webContents.executeJavaScript(`(() => {
+      try {
+        if (localStorage.getItem("mosa.ui-language")) return false;
+        localStorage.setItem("mosa.ui-language", "zh");
+        return true;
+      } catch {
+        return false;
+      }
+    })()`, true);
+    if (pinnedLocale) {
+      // A real reload: loadURL(targetUrl) would only be a same-document hash
+      // navigation. The client token already moved to sessionStorage, which
+      // survives the reload.
+      await new Promise((resolveReload, rejectReload) => {
+        win.webContents.once("did-finish-load", resolveReload);
+        win.webContents.once("did-fail-load", (_event, code, description) => rejectReload(new Error(`reload failed: ${code} ${description}`)));
+        win.webContents.reload();
+      });
+    }
     let source;
     if (flow === "source") source = readFileSync(sourceFile, "utf8");
     else if (flow === "stack") source = createStackUiFlowSource();
