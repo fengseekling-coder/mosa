@@ -115,11 +115,19 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(relocationHandler, /event\.sender !== mainWindow\.webContents/, "library relocation validates the sender");
   assert.match(relocationHandler, /process\.env\.MOSA_LIBRARY_DIR/, "an explicit environment-managed library cannot be overridden in-app");
   assert.match(relocationHandler, /service\?\.mode !== "owned"/, "attached external runtimes cannot be moved by the desktop shell");
-  assert.match(relocationHandler, /readdir\(nextLibraryDir\)/, "the destination must be inspected before copying");
-  assert.match(relocationHandler, /entries\.length > 0/, "only an empty destination is accepted");
+  // Destination inspection (same-dir/nesting/empty-target) and the copy
+  // itself (runtime lock skipped, no overwrites, fail-closed cleanup) live in
+  // lib/library-relocation.mjs and are pinned behaviorally by
+  // test/library-relocation.test.mjs. The handler must still validate before
+  // the confirm dialog and keep the copy -> save -> delete ordering.
+  assert.match(relocationHandler, /validateRelocationTarget\(\{ currentLibraryDir: libraryDir, nextLibraryDir \}\)/, "the destination must be validated before copying");
+  assert.ok(relocationHandler.indexOf("if (!validation.ok) return") > -1
+    && relocationHandler.indexOf("if (!validation.ok) return") < relocationHandler.indexOf("await dialog.showMessageBox"),
+    "a rejected target aborts before any copy is attempted");
   assert.match(relocationHandler, /await stopOwnedRuntime\(\)/, "SQLite and the runtime lock are closed before migration");
-  assert.match(relocationHandler, /entry\.name === "\.mosa-runtime\.lock"/, "runtime locks are never copied to the new library");
-  assert.ok(relocationHandler.indexOf("saveLibraryDir(nextLibraryDir)") > relocationHandler.indexOf("await cp(join(previousLibraryDir, entry.name), join(nextLibraryDir, entry.name)"),
+  assert.ok(relocationHandler.indexOf("await copyLibraryForRelocation({") > relocationHandler.indexOf("await stopOwnedRuntime()"),
+    "the copy starts only after the runtime stopped");
+  assert.ok(relocationHandler.indexOf("saveLibraryDir(nextLibraryDir)") > relocationHandler.indexOf("await copyLibraryForRelocation({"),
     "the persisted location switches only after the copy succeeds");
   assert.ok(relocationHandler.indexOf("await rm(previousLibraryDir") > relocationHandler.indexOf("saveLibraryDir(nextLibraryDir)"),
     "the original library is removed only after a successful copy and preference switch");
