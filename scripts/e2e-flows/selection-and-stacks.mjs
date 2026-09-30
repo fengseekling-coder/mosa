@@ -201,7 +201,13 @@ export async function run(ctx) {
       await waitFor(() => gallerySettled() && rootCardIds().length === 6, 'gallery before marquee');
       await sleep(150);
       const marqueeStrategy = await marqueeFrameExactly([config.s2, config.s4]);
-      await waitFor(() => gallerySettled() && JSON.stringify(selectedCardIds()) === JSON.stringify([config.s2, config.s4].sort()), 'marquee selects exactly S2+S4');
+      try {
+        await waitFor(() => gallerySettled() && JSON.stringify(selectedCardIds()) === JSON.stringify([config.s2, config.s4].sort()), 'marquee selects exactly S2+S4');
+      } catch (error) {
+        const grid = document.querySelector('#assetGrid')?.getBoundingClientRect();
+        const rects = Object.fromEntries(rootCardIds().map((id) => { const r = cardRect(id); return [id.slice(0, 14), [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)]]; }));
+        throw new Error(error.message + ' marquee=' + JSON.stringify({ marqueeStrategy, selected: selectedCardIds(), grid: grid && [Math.round(grid.left), Math.round(grid.top), Math.round(grid.right), Math.round(grid.bottom)], viewport: [innerWidth, innerHeight, devicePixelRatio], gridScroll: document.querySelector('#assetGrid')?.scrollTop, rects }));
+      }
       return { marqueeStrategy, selected: selectedCardIds(), barVisible: selectionBarVisible(), countText: selectionCountText() };
     `));
     expect(sameMembers(p2.selected, [ids.s2, ids.s4]), `P2 marquee selection: ${JSON.stringify(p2.selected)}`);
