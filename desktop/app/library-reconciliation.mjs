@@ -292,8 +292,12 @@ export function reconcileAssetListView({ list, request, rows, rowByAssetId, afte
     const contentChanged = galleryRowSignature(previous, project) !== galleryRowSignature(row, project);
     const orderChanged = compareGalleryNodeOrder(previous, row, sort) !== 0;
     nextList[index] = row;
+    // Order and content change independently: a dissolved Stack node turns
+    // into a plain row with a different sort key, so it must be both moved
+    // and re-rendered. The commit re-renders updated rows before moving
+    // repositioned ones, so a row in both lists lands fresh and in place.
     if (orderChanged && canPlace) repositionIds.push(row.id);
-    else if (contentChanged) updatedIds.push(row.id);
+    if (contentChanged) updatedIds.push(row.id);
   }
 
   if (removedIds.length) {

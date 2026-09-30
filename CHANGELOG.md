@@ -10,6 +10,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 - Fixed tags missing from assets loaded through the gallery list: the Inspector showed no tags, and adding a tag there could erase the asset's existing tags.
 - Context menus could stop opening, and keyboard shortcuts stop working, after a menu item was activated immediately (for example by assistive technology).
 - Opening an asset in the viewer from the context menu no longer leaves its card in the multi-selection, so a later Ctrl/Shift-click or batch action cannot silently include it.
+- Dissolving a Stack whose original cover had been removed no longer leaves a stale Stack card in the gallery.
 
 ## 0.2.1-rc.25 — 2026-09-20 / Release Candidate
 
