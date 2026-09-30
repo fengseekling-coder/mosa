@@ -1,8 +1,8 @@
 #!/usr/bin/env electron
 
 import { app, BrowserWindow } from "electron";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { createCriticalUiFlowSource, createStackUiFlowSource, createTrashUiFlowSource, E2E_DROP_GROUP_NAME } from "./e2e-ui-flow.mjs";
 
 const cliArgs = process.argv.slice(2).filter((arg) => arg !== "--");
@@ -43,6 +43,21 @@ app.whenReady().then(async () => {
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+  // E2E only: the hidden window must never pop a save dialog (it would hang),
+  // so every download is auto-saved into this run's sandboxed userData under
+  // downloads/, with a numeric suffix when the name is already taken. Flows
+  // that never download never fire this handler.
+  const downloadsDir = join(resolve(userDataDir), "downloads");
+  win.webContents.session.on("will-download", (_event, item) => {
+    mkdirSync(downloadsDir, { recursive: true });
+    const filename = item.getFilename();
+    const dot = filename.lastIndexOf(".");
+    const stem = dot > 0 ? filename.slice(0, dot) : filename;
+    const ext = dot > 0 ? filename.slice(dot) : "";
+    let savePath = join(downloadsDir, filename);
+    for (let n = 1; existsSync(savePath); n += 1) savePath = join(downloadsDir, `${stem}-${n}${ext}`);
+    item.setSavePath(savePath);
   });
   try {
     await win.loadURL(targetUrl);

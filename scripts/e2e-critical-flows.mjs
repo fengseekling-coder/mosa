@@ -169,16 +169,19 @@ function createFlowContext(flowName) {
     },
     // Starts server.mjs on this flow's library/userData. Call stop() in a
     // finally block; start again with the same dirs to verify persistence.
-    async startServer() {
+    // `{ libraryDir }` runs the server against a different library directory
+    // (health check included) — used by the library-relocation flow.
+    async startServer({ libraryDir: libraryDirOverride } = {}) {
+      const activeLibraryDir = libraryDirOverride || dirs.libraryDir;
       const port = await freePort();
       const child = spawn(process.execPath, ["server.mjs"], {
         cwd: rootDir,
-        env: qaEnvironment({ portVariable: "MOSA_PORT", port, userData: dirs.userDataDir, library: dirs.libraryDir }),
+        env: qaEnvironment({ portVariable: "MOSA_PORT", port, userData: dirs.userDataDir, library: activeLibraryDir }),
         stdio: ["ignore", "pipe", "pipe"],
       });
       const stderr = collect(child.stderr);
       try {
-        assertHealth(await waitForHealth(`http://127.0.0.1:${port}/api/health`, child), dirs.libraryDir);
+        assertHealth(await waitForHealth(`http://127.0.0.1:${port}/api/health`, child), activeLibraryDir);
       } catch (error) {
         await stopProcess(child);
         throw new Error(`${error.message}\n${stderr().trim()}`, { cause: error });
