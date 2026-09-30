@@ -211,7 +211,6 @@ function sessionASource() {
   const dupIds = rootCardIds().filter((id) => !known.has(id));
 
   // 7) the 10001-file drop guard (no upload may happen)
-  const queueToastCountBefore = cap.toasts.filter((text) => text.includes('已加入导入队列')).length;
   const startedAt = Date.now();
   const seed = await makePngFile('mosa-ibe-bulk-seed.png', '#101010');
   const many = Array.from({ length: 10001 }, (_, index) => new File([seed], 'mosa-ibe-bulk-' + index + '.png', { type: 'image/png' }));
@@ -220,7 +219,10 @@ function sessionASource() {
   const maxDropMs = Date.now() - startedAt;
   await sleep(800);
   const cardsAfterMax = rootCardIds().length;
-  const queueToastCountAfter = cap.toasts.filter((text) => text.includes('已加入导入队列')).length;
+  // Toasts display one after another, so a slow runner can still be showing
+  // an earlier drop's queue toast here; only a queue toast for this drop's
+  // file count would mean the guard let the batch through.
+  const oversizedQueued = cap.toasts.some((text) => /已加入导入队列：1000[01] 个文件/.test(text));
 
   return {
     batchIds,
@@ -232,8 +234,7 @@ function sessionASource() {
     folderIds,
     dupIds,
     cardsAfterMax,
-    queueToastCountBefore,
-    queueToastCountAfter,
+    oversizedQueued,
     maxDropMs,
     toasts: cap.toasts.slice(),
     announcements: cap.announcements.slice(),
@@ -397,7 +398,7 @@ function assertSessionA(a, observed) {
   expect(a.dupIds.length === 2 && new Set(a.dupIds).size === 2, `X and X-prime both imported as separate assets: ${JSON.stringify(a.dupIds)}`);
 
   expect(a.cardsAfterMax === 18, `10001-file drop imported nothing: ${a.cardsAfterMax} cards`);
-  expect(a.queueToastCountAfter === a.queueToastCountBefore, `no job queued for the oversized drop: ${a.queueToastCountBefore} -> ${a.queueToastCountAfter}`);
+  expect(a.oversizedQueued === false, `no job queued for the oversized drop: ${JSON.stringify(a.toasts)}`);
   expect(a.maxDropMs < 20000, `oversized drop handled in ${a.maxDropMs}ms (too slow)`);
   expect(!a.rendererErrors?.length, `renderer errors in session A: ${JSON.stringify(a.rendererErrors)}`);
 
