@@ -48,6 +48,10 @@ function consumerPathsFor(path, allPaths) {
 // Intentionally retained items the scanners cannot attribute to a consumer.
 // Each entry needs a justification comment next to it.
 const DEAD_FILE_EXCEPTIONS = new Set();
+// Pluggable e2e flows are entry points: scripts/e2e-critical-flows.mjs loads
+// every scripts/e2e-flows/*.mjs through readdir(), so no file names them.
+// Shared helpers there ("_"-prefixed) are imported by name and stay checked.
+const DEAD_FILE_EXCEPTION_PATTERNS = [/^scripts\/e2e-flows\/[^_/][^/]*\.mjs$/];
 const DEAD_EXPORT_EXCEPTIONS = new Set();
 const DEAD_CSS_EXCEPTIONS = new Set();
 // Classes whose numeric suffix is built through an intermediate variable
@@ -137,7 +141,9 @@ export function analyzeDeadCode({ files, sourceDirs = SOURCE_DIRS, cssFiles = nu
     const stem = basename(path).replace(/\.[^.]+$/, "");
     const consumers = consumerPathsFor(path, allPaths);
     const referenced = consumers.some((other) => files.get(other).includes(stem));
-    if (!referenced && !DEAD_FILE_EXCEPTIONS.has(path)) deadFiles.push(path);
+    if (referenced || DEAD_FILE_EXCEPTIONS.has(path)) continue;
+    if (DEAD_FILE_EXCEPTION_PATTERNS.some((pattern) => pattern.test(path))) continue;
+    deadFiles.push(path);
   }
 
   // Only names with no consumer anywhere — including the defining file with

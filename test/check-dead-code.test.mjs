@@ -158,3 +158,14 @@ test("scans every stylesheet in the UI trees, not just styles.css", () => {
   });
   assert.deepEqual(result.deadCssClasses, [{ file: "web/app/extra.css", name: "extra-dead" }]);
 });
+
+test("treats pluggable e2e flows as entry points but still checks their helpers", () => {
+  const result = analyze({
+    "scripts/e2e-flows/some-flow.mjs": "export const name = 'some-flow';\nexport async function run() {}\n",
+    "scripts/e2e-flows/_unused-helper.mjs": "export const HELPER = 1;\n",
+    "scripts/e2e-critical-flows.mjs": "const flows = await readdir(flowsDir);\n",
+    "package.json": "{ \"scripts\": { \"test:e2e\": \"node scripts/e2e-critical-flows.mjs\" } }\n",
+  });
+  assert.deepEqual(result.deadFiles, ["scripts/e2e-flows/_unused-helper.mjs"],
+    "flows are discovered by readdir(); only unreferenced helpers are dead");
+});
