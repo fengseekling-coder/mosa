@@ -134,4 +134,6 @@ test("the last-declared header rules carry the R21 values (cascade order)", asyn
   // 标题行里的收藏按钮只显示图标（按钮自带 aria-label），把宽度让给两行标题。
   assert.match(css, /\.mosa-v2 \.asset-name-row \.detail-fav-btn \{ width: 28px;[^}]*\}/);
   assert.match(css, /\.mosa-v2 \.asset-name-row \.detail-fav-btn > span:not\(\[aria-hidden\]\) \{ display: none; \}/);
+  // 头部区块是检视器的第一个区块，它与头部的距离照 R21 是 20（原来被 :first-child 规则压成 16）。
+  assert.match(css, /\.mosa-v2 \.detail \.inspector-section:first-child \{ padding-top: var\(--r21-s5\); \}/);
 });

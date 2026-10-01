@@ -1240,7 +1240,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   --color-media-border: rgb(255 255 255 / 0.24);
   --color-media-text: #ffffff;
 }
-.mosa-v2 .detail .inspector-section { padding: 16px; border-top: 0; }.mosa-v2 .detail .inspector-section:first-child { padding-top: 16px; }
+.mosa-v2 .detail .inspector-section { padding: 16px; border-top: 0; }.mosa-v2 .detail .inspector-section:first-child { padding-top: var(--r21-s5); }
 .mosa-v2 .detail .detail-disclosure { border-bottom: 0; border-top: 0; }.mosa-v2 .detail .detail-head { padding: 12px 0 0; }.mosa-v2 .detail .detail-head h3 { font-size: 15px; font-weight: 600; }
 .mosa-v2 .detail .detail-head p, .mosa-v2 .detail .meta-key, .mosa-v2 .detail .meta-val { color: #6e6e73; font-size: 12px; }:root[data-theme="dark"] .mosa-v2 .detail .detail-head p, :root[data-theme="dark"] .mosa-v2 .detail .meta-key, :root[data-theme="dark"] .mosa-v2 .detail .meta-val { color: #d1d1d6; }
 .mosa-v2 .detail .prompt-box, .mosa-v2 .detail .user-instruction .prompt-box, .mosa-v2 .detail textarea, .mosa-v2 .detail input, .mosa-v2 .detail select { border-color: rgb(60 60 67 / .16); border-radius: 12px; background: rgb(248 248 250 / .88); }:root[data-theme="dark"] .mosa-v2 .detail .prompt-box, :root[data-theme="dark"] .mosa-v2 .detail .user-instruction .prompt-box, :root[data-theme="dark"] .mosa-v2 .detail textarea, :root[data-theme="dark"] .mosa-v2 .detail input, :root[data-theme="dark"] .mosa-v2 .detail select { border-color: rgb(255 255 255 / .10); color: #f5f5f7; background: rgb(255 255 255 / .06); }
@@ -2388,3 +2388,377 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 /* R21 头部标题行：收藏按钮只显示星形图标，把宽度让给标题（按钮自带 aria-label，读屏名称不变）。 */
 .mosa-v2 .asset-name-row .detail-fav-btn { width: 28px; min-width: 28px; height: 28px; min-height: 28px; justify-content: center; padding: 0; }
 .mosa-v2 .asset-name-row .detail-fav-btn > span:not([aria-hidden]) { display: none; }
+
+/* ===== R21 检视器主体（任务 24）：头部以下区块统一到 R21 4px 网格。 =====
+   本块全部追加在文件末尾（同一选择器的前面几组一律以这里为准）。只动样式，
+   不改结构、不藏任何带 data-action 的控件；新颜色只写 :root[data-theme="light"]
+   作用域，深色保持既有 token；新加字号一律 ≥10px。 */
+
+/* —— 区块之间：1px 分隔线，上下各 20（--r21-s5），左右与头部一致（24，--r21-s6）。
+   版本/分组/更多此前没有分隔线：深色用透明边占位保持现状，浅色上色。 —— */
+.mosa-v2 .detail .detail-prompt-section,
+.mosa-v2 .detail .detail-source-section {
+  padding: var(--r21-s5) var(--r21-s6);
+}
+.mosa-v2 .detail .detail-version-section,
+.mosa-v2 .detail .detail-group-section,
+.mosa-v2 .detail .inspector-section[data-inspector-section="more"] {
+  padding: var(--r21-s5) var(--r21-s6);
+  border-top: 1px solid transparent;
+}
+.mosa-v2 .detail .detail-tags-section {
+  /* 设计稿：标签行紧跟头部信息，本列第一条分隔线画在提示词区块上方。 */
+  padding: var(--r21-s4) var(--r21-s6) var(--r21-s5);
+}
+:root[data-theme="light"] .mosa-v2 .detail :is(.detail-prompt-section, .detail-source-section, .detail-version-section, .detail-group-section, .inspector-section[data-inspector-section="more"]) {
+  border-top-color: #e7e7ea;
+}
+
+/* —— 区块小标题（R21 .sec-head：10.5px / 590）与右侧复制等操作（R21 .copy） —— */
+.mosa-v2 .detail .detail-prompt-head h3,
+.mosa-v2 .detail .detail-prompt-subhead h4,
+.mosa-v2 .detail .detail-source-summary > span {
+  font-size: 10.5px;
+  font-weight: 590;
+}
+.mosa-v2 .detail .detail-prompt-head .detail-prompt-toggle {
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .detail-source-summary > strong {
+  font-size: 10.5px;
+  font-weight: 450;
+}
+.mosa-v2 .detail .detail-disclosure > summary {
+  font-size: 10.5px;
+  font-weight: 590;
+}
+.mosa-v2 .detail .detail-disclosure > summary::after {
+  font-size: 13px;
+}
+.mosa-v2 .detail .detail-prompt-head .section-head-copy svg,
+.mosa-v2 .detail .detail-copy-sub svg,
+.mosa-v2 .detail .detail-source-copy .section-head-copy svg {
+  width: 12px;
+  height: 12px;
+}
+:root[data-theme="light"] .mosa-v2 .detail :is(.detail-prompt-head h3, .detail-prompt-subhead h4, .detail-source-summary > span, .detail-disclosure > summary, .detail-fields .field > span) {
+  color: #8d8d93;
+}
+:root[data-theme="light"] .mosa-v2 .detail :is(.detail-prompt-head .section-head-copy, .detail-copy-sub, .detail-source-copy .section-head-copy, .detail-source-summary > strong) {
+  color: #929297;
+}
+
+/* —— 标签（R21 .tag：内边距 4 8、圆角 8、字号 10；浅色 #f0f0f2 / #5b5b61）。
+   删除按钮「×」的悬停/聚焦显示规则不变（见上方 .detail-tag-remove）。 —— */
+.mosa-v2 .detail .detail-tags-row {
+  gap: var(--r21-s2);
+}
+.mosa-v2 .detail .detail-tag,
+.mosa-v2 .detail .detail-tags-add {
+  /* 全局没有 content-box 重置：锁 border-box，min-height 才是盒子的总高。 */
+  box-sizing: border-box;
+  height: auto;
+  min-height: 22px;
+  padding: var(--r21-s1) var(--r21-s2);
+  border-radius: var(--inspector-radius-sm);
+  font-size: 10px;
+}
+.mosa-v2 .detail .detail-tags-add svg {
+  width: 12px;
+  height: 12px;
+}
+:root[data-theme="light"] .mosa-v2 .detail .detail-tag {
+  border-color: transparent;
+  background: #f0f0f2;
+  color: #5b5b61;
+}
+:root[data-theme="light"] .mosa-v2 .detail .detail-tags-add {
+  background: #f0f0f2;
+  color: #5b5b61;
+}
+
+/* —— 提示词 / 用户指令框（R21 .prompt-box：距小标题 12 由区块 gap 承担，
+   内边距 12、圆角 8、10.5px、行高 1.58；浅色 #f3f3f5 / #4a4a50、无边框） —— */
+.mosa-v2 .detail .detail-prompt-box,
+.mosa-v2 .detail .detail-instruction-box {
+  padding: var(--r21-s3);
+  border-radius: var(--inspector-radius-sm);
+  font-size: 10.5px;
+  line-height: 1.58;
+}
+:root[data-theme="light"] .mosa-v2 .detail .detail-prompt-box,
+:root[data-theme="light"] .mosa-v2 .detail .detail-instruction-box {
+  border-color: transparent;
+  background: #f3f3f5;
+  color: #4a4a50;
+}
+:root[data-theme="light"] .mosa-v2 .detail .detail-prompt-box .empty-copy,
+:root[data-theme="light"] .mosa-v2 .detail .detail-instruction-box .empty-copy {
+  color: #929297;
+}
+
+/* —— 参考图（R21 .ref-grid / .ref-thumb / .ref-count）：3 列网格、间距 8、
+   每格 1.3:1、圆角 8；浅色边 #e4e4e7、底 #ededf0；无参考图那一行文字 10.5px 灰。 —— */
+.mosa-v2 .detail .detail-reference-block {
+  gap: var(--r21-s2);
+  padding: var(--r21-s3);
+  border-radius: var(--inspector-radius-sm);
+}
+.mosa-v2 .detail .detail-reference-summary {
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .detail-reference-summary .detail-reference-label {
+  font-weight: 590;
+}
+.mosa-v2 .detail .detail-reference-summary .detail-reference-value {
+  font-weight: 450;
+}
+.mosa-v2 .detail .detail-reference-thumbnails {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--r21-s2);
+  overflow-x: visible;
+  padding-bottom: 0;
+}
+.mosa-v2 .detail .detail-reference-thumb {
+  width: auto;
+  height: auto;
+  flex: 0 0 auto;
+  aspect-ratio: 1.3 / 1;
+  border-radius: var(--inspector-radius-sm);
+}
+.mosa-v2 .detail .detail-reference-row {
+  height: auto;
+  min-height: 0;
+  flex-basis: auto;
+  padding: var(--r21-s3);
+  border-radius: var(--inspector-radius-sm);
+  font-size: 10.5px;
+}
+:root[data-theme="light"] .mosa-v2 .detail .detail-reference-block {
+  background: #f3f3f5;
+}
+:root[data-theme="light"] .mosa-v2 .detail .detail-reference-thumb {
+  border-color: #e4e4e7;
+  background: #ededf0;
+}
+:root[data-theme="light"] .mosa-v2 .detail .detail-reference-row {
+  background: #f3f3f5;
+}
+:root[data-theme="light"] .mosa-v2 .detail :is(.detail-reference-summary .detail-reference-label, .detail-reference-row .detail-reference-label) {
+  color: #8d8d93;
+}
+:root[data-theme="light"] .mosa-v2 .detail :is(.detail-reference-summary .detail-reference-value, .detail-reference-row .detail-reference-value) {
+  color: #929297;
+}
+
+/* —— 来源信息（R21 .context-card / .context-facts / .context-actions）：
+   卡片 1px 边 + 圆角 8 + 浅色底 #fafafa；键值行距 4、列距 8、字号 10，
+   键左值右单行省略；「同一批次/整个会话」按钮行等分一行、高 28、圆角 8。
+   深色不加上色（透明边占位保持现状）。 —— */
+.mosa-v2 .detail .detail-source-content .meta-table {
+  gap: var(--r21-s1);
+  padding: var(--r21-s3);
+  border: 1px solid transparent;
+  border-radius: var(--inspector-radius-sm);
+}
+.mosa-v2 .detail .detail-source-content .meta-row {
+  column-gap: var(--r21-s2);
+}
+.mosa-v2 .detail .detail-source-content .meta-key,
+.mosa-v2 .detail .detail-source-content .meta-val {
+  font-size: 10px;
+}
+.mosa-v2 .detail .detail-source-content .meta-val {
+  /* R21 .context-facts 的取值：右对齐单行省略（覆盖 .source-value 的折行）。 */
+  overflow-wrap: normal;
+  word-break: normal;
+  text-align: right;
+}
+:root[data-theme="light"] .mosa-v2 .detail .detail-source-content .meta-table {
+  border-color: #e7e7ea;
+  background: #fafafa;
+}
+:root[data-theme="light"] .mosa-v2 .detail .detail-source-content .meta-key {
+  color: #a0a0a6;
+}
+:root[data-theme="light"] .mosa-v2 .detail .detail-source-content .meta-val {
+  color: #66666c;
+}
+.mosa-v2 .detail .detail-source-content .generation-navigation {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: var(--r21-s1);
+  margin-top: var(--r21-s2);
+  padding: var(--r21-s2);
+  border-top: 1px solid transparent;
+  border-radius: var(--inspector-radius-sm);
+}
+.mosa-v2 .detail .generation-navigation .action-btn {
+  box-sizing: border-box;
+  min-height: 28px;
+  border-radius: var(--inspector-radius-sm);
+  font-size: 10px;
+}
+:root[data-theme="light"] .mosa-v2 .detail .detail-source-content .generation-navigation {
+  border-top-color: #e7e7ea;
+  background: #f7f7f8;
+}
+:root[data-theme="light"] .mosa-v2 .detail .generation-navigation .action-btn {
+  border-color: transparent;
+  background: #ececef;
+  color: #606066;
+}
+
+/* —— 版本区：只统一字号（10～10.5）、行距 12（R21 .ver）、圆角 8；
+   对比下拉框/对比行结构不动；当前版本浅色用强调色。 —— */
+.mosa-v2 .detail .version-single {
+  margin-bottom: var(--r21-s3);
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .version-single strong {
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .version-picker {
+  margin-bottom: var(--r21-s3);
+}
+.mosa-v2 .detail .version-picker select {
+  border-radius: var(--inspector-radius-sm);
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .version-summary-label strong {
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .version-change {
+  font-size: 10.5px;
+}
+.mosa-v2 .detail :is(.version-history-status, .generation-history-status, .recipe-history-status) {
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .version-timeline {
+  gap: var(--r21-s3);
+}
+.mosa-v2 .detail .version-title strong {
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .generation-lineage-head strong {
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .generation-lineage-prompt {
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .recipe-snapshot-head strong {
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .recipe-snapshot-change {
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .version-compare-controls label {
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .version-compare-controls select {
+  box-sizing: border-box;
+  height: 32px;
+  border-radius: var(--inspector-radius-sm);
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .version-compare-media > div {
+  border-radius: var(--inspector-radius-sm);
+}
+.mosa-v2 .detail .version-compare-grid {
+  border-radius: var(--inspector-radius-sm);
+}
+.mosa-v2 .detail .version-compare-head strong {
+  font-size: 10px;
+}
+.mosa-v2 .detail .version-compare-row > strong {
+  font-size: 10px;
+}
+.mosa-v2 .detail .version-compare-row > span {
+  font-size: 10px;
+}
+:root[data-theme="light"] .mosa-v2 .detail :is(.version-single strong, .version-summary-label strong) {
+  color: var(--color-accent);
+}
+
+/* —— 配方与编辑表单：标签文字同小标题；输入框高 32、内边距 0 12（多行 12）、
+   圆角 8；浅色 #f3f3f5 无边框——焦点环走既有 box-shadow（border 透明后仍可见）。 —— */
+.mosa-v2 .detail .detail-fields .field > span {
+  font-size: 10.5px;
+  font-weight: 590;
+}
+.mosa-v2 .detail .detail-fields input,
+.mosa-v2 .detail .detail-fields select {
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 var(--r21-s3);
+  border-radius: var(--inspector-radius-sm);
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .detail-fields textarea {
+  padding: var(--r21-s3);
+  border-radius: var(--inspector-radius-sm);
+  font-size: 10.5px;
+  line-height: 1.58;
+}
+:root[data-theme="light"] .mosa-v2 .detail .detail-fields :is(input, textarea, select) {
+  border-color: transparent;
+  background: #f3f3f5;
+}
+.mosa-v2 .detail .two {
+  gap: var(--r21-s2);
+}
+.mosa-v2 .detail .recipe-save-actions {
+  gap: var(--r21-s1);
+}
+.mosa-v2 .detail .recipe-save-btn {
+  min-height: 32px;
+  border-radius: var(--inspector-radius-sm);
+  font-size: 10.5px;
+}
+
+/* —— 分组 / 更多操作等其余区块：小标题与键值同上，路径框与提示词框同款。 —— */
+.mosa-v2 .detail .inspector-readout {
+  font-size: 10.5px;
+}
+.mosa-v2 .detail .more-location {
+  gap: var(--r21-s2);
+}
+.mosa-v2 .detail .more-location .meta-key {
+  font-size: 10px;
+}
+.mosa-v2 .detail .more-location .path-box {
+  padding: var(--r21-s1) var(--r21-s2);
+  border-radius: var(--inspector-radius-sm);
+  font-size: 10px;
+}
+:root[data-theme="light"] .mosa-v2 .detail .more-location .meta-key {
+  color: #a0a0a6;
+}
+:root[data-theme="light"] .mosa-v2 .detail .more-location .path-box {
+  border-color: transparent;
+  background: #f3f3f5;
+  color: #66666c;
+}
+
+/* —— 浅色覆盖特异性更高，会吞掉上方 hover/active 的颜色：按原语义补回。 —— */
+@media (hover: hover) and (pointer: fine) {
+  :root[data-theme="light"] .mosa-v2 .detail .detail-tags-add:hover {
+    color: var(--color-text-primary);
+    background: var(--app-hover);
+  }
+  :root[data-theme="light"] .mosa-v2 .detail :is(.detail-prompt-head .section-head-copy, .detail-copy-sub, .detail-source-copy .section-head-copy):hover {
+    color: var(--color-text-primary);
+    background: var(--app-hover);
+  }
+  :root[data-theme="light"] .mosa-v2 .detail .generation-navigation .action-btn:not(:disabled):not([aria-disabled="true"]):hover {
+    border-color: transparent;
+    background: #e6e6e9;
+    color: #303035;
+  }
+}
+:root[data-theme="light"] .mosa-v2 .detail .generation-navigation .action-btn:not(:disabled):not([aria-disabled="true"]):active {
+  border-color: transparent;
+  background: #e0e0e4;
+  color: #26262b;
+}
