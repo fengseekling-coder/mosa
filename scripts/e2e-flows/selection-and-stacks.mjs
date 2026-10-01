@@ -88,7 +88,29 @@ const SELECTION_HELPERS = String.raw`
   // layout allows framing exactly the targets, otherwise a non-additive
   // marquee for the first target plus shift-additive marquees for the rest.
   // Either way the assertion is the resulting selection set.
+  // Slow runners keep decoding images and re-flowing the masonry after the
+  // gallery reports settled; Windows CI once measured S2 ~320px tall and then
+  // framed the wrong cards once it shrank to 92px. Wait until every card image
+  // is decoded and the card rects stop moving before measuring a marquee.
+  async function waitForStableCardLayout(label) {
+    const snapshot = () => JSON.stringify(rootCardIds().map((id) => {
+      const r = cardRect(id);
+      return [id, Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+    }));
+    const imagesReady = () => [...document.querySelectorAll('#assetGrid .asset-card img')]
+      .every((img) => img.complete && img.naturalWidth > 0);
+    let previous = '';
+    let stableReads = 0;
+    await waitFor(() => {
+      if (!gallerySettled() || !imagesReady()) { stableReads = 0; previous = ''; return false; }
+      const current = snapshot();
+      stableReads = current === previous ? stableReads + 1 : 0;
+      previous = current;
+      return stableReads >= 3;
+    }, label + ' (stable card layout)');
+  }
   async function marqueeFrameExactly(targetIds) {
+    await waitForStableCardLayout('marquee targets');
     const targets = targetIds.map((id) => ({ id, rect: cardRect(id) }));
     const allIds = rootCardIds();
     const inset = 3;
@@ -104,7 +126,11 @@ const SELECTION_HELPERS = String.raw`
       return 'single-rect';
     }
     for (const [index, entry] of targets.entries()) {
-      await marqueeSelect(entry.rect.left + inset, entry.rect.top + inset, entry.rect.right - inset, entry.rect.bottom - inset, { shiftKey: index > 0 });
+      // Re-measure right before each gesture: an earlier marquee re-renders
+      // the selection and must not leave this one aiming at a stale rect.
+      await waitForStableCardLayout('marquee target ' + (index + 1));
+      const rect = cardRect(entry.id);
+      await marqueeSelect(rect.left + inset, rect.top + inset, rect.right - inset, rect.bottom - inset, { shiftKey: index > 0 });
     }
     return 'additive-rects';
   }

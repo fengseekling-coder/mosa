@@ -9,7 +9,7 @@ test("keeps the import flow keyboard-accessible", async () => {
   const [html, app, css, preview] = await Promise.all([
     readFile(resolve(root, "web/app/index.html"), "utf8"),
     readFile(resolve(root, "web/app/app.mjs"), "utf8"),
-    readFile(resolve(root, "web/app/styles.css"), "utf8"),
+    readFile(resolve(root, "desktop/app/styles.css"), "utf8"),
     readFile(resolve(root, "web/app/image-preview.mjs"), "utf8"),
   ]);
 
@@ -134,7 +134,7 @@ test("uses a single language chosen from system, Chinese, or English", async () 
 test("keeps recipe version history navigable without replacing active edits", async () => {
   const [app, css, i18n, inspector] = await Promise.all([
     readFile(resolve(root, "web/app/app.mjs"), "utf8"),
-    readFile(resolve(root, "web/app/styles.css"), "utf8"),
+    readFile(resolve(root, "desktop/app/styles.css"), "utf8"),
     readFile(resolve(root, "web/app/i18n.mjs"), "utf8"),
     readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8"),
   ]);
@@ -221,11 +221,14 @@ test("keeps recipe version history navigable without replacing active edits", as
 });
 
 test("provides an accessible single-column detail panel", async () => {
-  const [app, css, i18n, inspector] = await Promise.all([
-    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
-    readFile(resolve(root, "web/app/styles.css"), "utf8"),
-    readFile(resolve(root, "web/app/i18n.mjs"), "utf8"),
+  // R23（R21 检视器头部）：web 头部区块重排、标题文案改为「素材详情」；
+  // 旧头部结构与标题文案的断言锁桌面端（i18n / inspector 的桌面读取仅服务这些断言）。
+  const [app, css, i18n, inspector, inspectorDesktop] = await Promise.all([
+    readFile(resolve(root, "desktop/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "desktop/app/styles.css"), "utf8"),
+    readFile(resolve(root, "desktop/app/i18n.mjs"), "utf8"),
     readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8"),
+    readFile(resolve(root, "desktop/app/inspector-markup.mjs"), "utf8"),
   ]);
 
   // Phase 4A：三 Tab 合并为批准的单栏信息架构——无 tab 角色；#detailTitle 仍是焦点
@@ -245,7 +248,7 @@ test("provides an accessible single-column detail panel", async () => {
   assert.doesNotMatch(app.slice(bindDetailEventsStart, bindDetailEventsEnd), /data-action="close-detail"/,
     "detail re-renders must not accumulate duplicate close listeners");
   assert.match(inspector, /data-action="toggle-favorite" aria-pressed="\$\{favorite\}"/);
-  assert.match(inspector, /class="detail-facts" role="group" aria-label=/);
+  assert.match(inspectorDesktop, /class="detail-facts" role="group" aria-label=/);
   assert.match(inspector, /<details class="detail-disclosure"><summary>\$\{t\("versionHistory"\)\}<\/summary>/);
   const renderDetailStart = app.indexOf("function renderDetail(");
   const renderDetailEnd = app.indexOf("\nfunction ", renderDetailStart + 1);
@@ -279,7 +282,7 @@ test("supports Escape to close detail panel and focus return", async () => {
 });
 
 test("keeps the 960px+ side drawer layout without bottom split", async () => {
-  const css = await readFile(resolve(root, "web/app/styles.css"), "utf8");
+  const css = await readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 
   assert.match(css, /\.shell\.details-open \{ grid-template-columns: var\(--sidebar-width\) minmax\(0, 1fr\) var\(--inspector-width\); \}/);
   assert.match(css, /@media \(max-width: 1120px\)[\s\S]*?\.shell\.details-open \{ grid-template-columns: var\(--sidebar-width-compact\) minmax\(0, 1fr\) var\(--inspector-width-compact\); \}/);
@@ -293,7 +296,7 @@ test("keeps the 960px+ side drawer layout without bottom split", async () => {
 });
 
 test("ensures minimum touch target sizes for accessibility", async () => {
-  const css = await readFile(resolve(root, "web/app/styles.css"), "utf8");
+  const css = await readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 
   // MOSA interaction-size contract: these controls must be at least 36px tall.
   // Using min-height (not fixed height) so content can expand naturally.

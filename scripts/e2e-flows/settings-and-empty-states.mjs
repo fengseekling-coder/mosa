@@ -1,13 +1,15 @@
 // Settings modal (open / Escape / outside-click, theme, language, read-only
 // info), refresh persistence, gallery empty states (search miss and empty
-// trash), and the narrow-viewport navigation probe. The final step regresses
-// 任务 17: the card density setting is gone — the settings menu renders no
-// density option and the image-only gallery keeps .asset-card-info hidden.
+// trash), and the narrow-viewport navigation probe. The final phase exercises
+// 任务 20's card-info setting: the retired density option stays gone, the new
+// segmented control defaults to 隐藏, 显示 really reveals the info block (the
+// masonry row grows past the media), the choice survives a fresh page load,
+// and 隐藏 restores the hidden state.
 
 import { PAGE_HELPERS } from "./_page-helpers.mjs";
 
 export const name = "settings-and-empty-states";
-export const description = "settings modal lifecycle + theme/language persistence + read-only info -> empty-state clear + trash drop-hint rule -> density setting removed (image-only gallery)";
+export const description = "settings modal lifecycle + theme/language persistence + read-only info -> empty-state clear + trash drop-hint rule -> card-info setting (default hidden / show / persist / hide)";
 
 export async function run(ctx) {
   await ctx.prepare();
@@ -35,18 +37,33 @@ export async function run(ctx) {
     const empties = await ctx.runInPage(server, emptyStatesSource(config));
     await assertEmptyStates(empties, seededIds, server, ctx);
 
-    // 任务 17 regression (ordered last, after the other phases): the card
-    // density setting is gone — no density option in the settings menu, and
-    // .asset-card-info stays invisible in the image-only gallery.
-    const densityGone = await ctx.runInPage(server, densitySettingGoneSource());
-    assertDensitySettingGone(densityGone);
+    // 任务 20: the card-info setting. Density stays gone (asserted inside the
+    // lifecycle phase); the new segmented control defaults to 隐藏, 显示
+    // really reveals the info block (the card grows past the media), the
+    // choice survives a fresh page load, and 隐藏 restores the hidden state.
+    // Each phase runs in its own page; localStorage is shared across them, so
+    // a new page is the same thing as a refresh.
+    const cardInfoDefault = await ctx.runInPage(server, cardInfoDefaultSource());
+    assertCardInfoDefault(cardInfoDefault);
+    const cardInfoShown = await ctx.runInPage(server, cardInfoShowSource());
+    assertCardInfoShown(cardInfoShown);
+    const cardInfoPersisted = await ctx.runInPage(server, cardInfoPersistedSource());
+    assertCardInfoPersisted(cardInfoPersisted);
+    const cardInfoHidden = await ctx.runInPage(server, cardInfoHideSource());
+    assertCardInfoHiddenAgain(cardInfoHidden);
+
+    // 任务 25: the two-pane settings pages. Default page, category switching,
+    // roving arrow-key navigation and the language-rebuild focus contract.
+    const pages = await ctx.runInPage(server, settingsPagesSource());
+    assertSettingsPages(pages);
 
     return {
       seededIds,
       lifecycle: opened,
       persisted,
       empties,
-      densitySettingGone: densityGone,
+      cardInfo: { default: cardInfoDefault, shown: cardInfoShown, persisted: cardInfoPersisted, hidden: cardInfoHidden },
+      pages,
     };
   } finally {
     await server.stop();
@@ -169,15 +186,146 @@ async function assertEmptyStates(r, seededIds, server, ctx) {
   }
 }
 
-// 任务 17: the card density setting is gone. The settings menu renders no
-// data-density-opt control, and the always-image-only gallery keeps the card
-// info block (kept in markup) hidden.
-function assertDensitySettingGone(r) {
-  expect(r?.densityOptCount === 0, `settings menu must not render a card density option: ${JSON.stringify(r)}`);
-  expect(r.infoDisplay === "none", `.asset-card-info must stay hidden in the image-only gallery: ${JSON.stringify(r)}`);
+// 任务 20: the card-info setting. The retired density option stays gone; the
+// new segmented control defaults to 隐藏 (info block hidden), 显示 really
+// displays the info block, and the choice persists in localStorage.
+function assertCardInfoDefault(r) {
+  const dump = JSON.stringify(r);
+  expect(r?.densityOptCount === 0, `settings menu must not render a card density option: ${dump}`);
+  expect(r.cardInfoOptCount === 2, `settings menu must render both card-info options: ${dump}`);
+  expect(r.showActive === false && r.hideActive === true, `card-info must default to the 隐藏 option highlighted: ${dump}`);
+  expect(r.storedBefore === null || r.storedBefore === undefined, `card-info must default to hidden without a stored value: ${dump}`);
+  expect(r.infoDisplay === "none", `.asset-card-info must be hidden by default: ${dump}`);
+}
+
+function assertCardInfoShown(r) {
+  const dump = JSON.stringify(r);
+  expect(r?.stored === "show", `the show choice must be persisted to mosa.card-info: ${dump}`);
+  expect(r.gridAttr === "show", `#assetGrid must carry data-card-info="show": ${dump}`);
+  expect(r.infoDisplay === "block", `card info did not display after switching to show: ${dump}`);
+  expect(r.titleText.length > 0, `card info title must have text when shown: ${dump}`);
+  expect(r.mediaHeight > 0 && r.cardHeight > r.mediaHeight,
+    `card height (${r.cardHeight}) must exceed the media height (${r.mediaHeight}) once info is shown: ${dump}`);
+}
+
+function assertCardInfoPersisted(r) {
+  const dump = JSON.stringify(r);
+  expect(r?.stored === "show", `card-info preference lost after refresh: ${dump}`);
+  expect(r.gridAttr === "show", `#assetGrid must still carry data-card-info="show" after refresh: ${dump}`);
+  expect(r.infoDisplay === "block", `card info did not stay visible after refresh: ${dump}`);
+  expect(r.showActive === true && r.hideActive === false, `settings must highlight 显示 after refresh: ${dump}`);
+}
+
+function assertCardInfoHiddenAgain(r) {
+  const dump = JSON.stringify(r);
+  expect(r?.stored === "hide", `the hide choice must be persisted to mosa.card-info: ${dump}`);
+  expect(r.gridAttr === "hide", `#assetGrid must carry data-card-info="hide": ${dump}`);
+  expect(r.infoDisplay === "none", `card info did not return to hidden: ${dump}`);
+}
+
+// 任务 25: the two-pane settings pages (常规与外观 / 素材库与存储 / 本地视觉能力 /
+// 关于 MOSA). Locks the default page, category switching with panel visibility,
+// the roving arrow-key navigation and the language-rebuild focus contract.
+function assertSettingsPages(r) {
+  const dump = JSON.stringify(r);
+  expect(r?.default?.selected.join(",") === "true,false,false,false",
+    `settings must open on 常规与外观 with only it selected: ${dump}`);
+  expect(r.default.hidden.join(",") === "false,true,true,true",
+    `the three inactive panels must carry the hidden attribute: ${dump}`);
+  expect(r.library?.generalHidden === true && r.library.pathVisible === true,
+    `素材库与存储 must show its panel and reveal the library path: ${dump}`);
+  expect(r.library?.headTitle === "素材库与存储",
+    `the right-pane header must show the current category name: ${dump}`);
+  expect(r.keyboard?.visualSelected === true && r.keyboard.focusOnVisualTab === true,
+    `ArrowDown must move selection and focus to the next category: ${dump}`);
+  expect(r.keyboard?.libraryHidden === true && r.keyboard.visualPanelVisible === true,
+    `ArrowDown must swap panel visibility: ${dump}`);
+  expect(r.homeKey?.selected === true && r.homeKey.focusOnGeneralTab === true,
+    `Home must return to the first category with focus: ${dump}`);
+  expect(r.endKey?.selected === true,
+    `End must jump to the last category: ${dump}`);
+  expect(r.rebuild?.pageKept === true,
+    `the language rebuild must keep the current category: ${dump}`);
+  expect(r.rebuild?.focusOffBody === true && r.rebuild.focusInMenu === true,
+    `focus must not drop to body after the language rebuild: ${dump}`);
+  expect(r.rebuild?.focusIsLocaleButton === true,
+    `focus should land near the locale control after the rebuild: ${dump}`);
+  expect(r.closed === true, `settings should close after the pages check: ${dump}`);
 }
 
 // ===== in-page sources =====
+
+function settingsPagesSource() {
+  return `(async () => {
+    ${PAGE_HELPERS}
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards for the pages check');
+    click('#settingsToggle');
+    await waitFor(() => !document.querySelector('#settingsMenu')?.hidden, 'settings opens for the pages check');
+    const tab = (page) => document.querySelector('#settingsMenu [data-settings-page="' + page + '"]');
+    const panel = (page) => document.querySelector('#settingsMenu [data-settings-panel="' + page + '"]');
+    const PAGES = ['general', 'library', 'visual', 'about'];
+    const result = {};
+
+    // 1) 默认停在「常规与外观」：aria-selected 正确，其余三页 hidden。
+    await waitFor(() => tab('general')?.getAttribute('aria-selected') === 'true', 'general selected by default');
+    result.default = {
+      selected: PAGES.map((page) => tab(page)?.getAttribute('aria-selected')),
+      hidden: PAGES.map((page) => panel(page)?.hidden === true),
+    };
+
+    // 2) 点「素材库与存储」：面板显示、素材库路径可见、右栏标题跟分类名。
+    tab('library').click();
+    await waitFor(() => panel('library')?.hidden === false, 'library panel visible');
+    const pathNode = document.querySelector('#settingsMenu [data-settings-library-path]');
+    result.library = {
+      generalHidden: panel('general')?.hidden === true,
+      pathVisible: Boolean(pathNode) && pathNode.offsetWidth > 0 && pathNode.getBoundingClientRect().height > 0,
+      headTitle: document.querySelector('#settingsMenu [data-settings-active-title]')?.textContent || '',
+    };
+
+    // 3) 焦点在导航上按 ↓：切到下一分类且焦点跟着走；Home / End 到首 / 末。
+    tab('library').focus();
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    await waitFor(() => tab('visual')?.getAttribute('aria-selected') === 'true', 'ArrowDown activates the next category');
+    result.keyboard = {
+      visualSelected: tab('visual')?.getAttribute('aria-selected') === 'true',
+      focusOnVisualTab: document.activeElement === tab('visual'),
+      libraryHidden: panel('library')?.hidden === true,
+      visualPanelVisible: panel('visual')?.hidden === false,
+    };
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+    await waitFor(() => tab('general')?.getAttribute('aria-selected') === 'true', 'Home returns to general');
+    result.homeKey = {
+      selected: tab('general')?.getAttribute('aria-selected') === 'true',
+      focusOnGeneralTab: document.activeElement === tab('general'),
+    };
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
+    await waitFor(() => tab('about')?.getAttribute('aria-selected') === 'true', 'End jumps to about');
+    result.endKey = { selected: tab('about')?.getAttribute('aria-selected') === 'true' };
+
+    // 4) 在「常规与外观」切语言触发重绘：仍停在当前分类，焦点不丢到 body。
+    tab('general').click();
+    await waitFor(() => panel('general')?.hidden === false, 'back on general');
+    const localeValue = document.documentElement.lang === 'en' ? 'zh' : 'en';
+    document.querySelector('#settingsMenu [data-locale="' + localeValue + '"]').click();
+    await waitFor(() => document.documentElement.lang === localeValue, 'locale switched for the rebuild check');
+    await waitFor(() => document.activeElement?.dataset?.locale === localeValue, 'focus lands near the locale control after rebuild');
+    result.rebuild = {
+      pageKept: tab('general')?.getAttribute('aria-selected') === 'true',
+      focusOffBody: document.activeElement !== document.body,
+      focusInMenu: document.querySelector('#settingsMenu').contains(document.activeElement),
+      focusIsLocaleButton: document.activeElement?.dataset?.locale === localeValue,
+    };
+    // 还原语言，不给后续阶段留状态。
+    document.querySelector('#settingsMenu [data-locale="' + (localeValue === 'en' ? 'zh' : 'en') + '"]').click();
+    await waitFor(() => document.documentElement.lang === (localeValue === 'en' ? 'zh-CN' : 'en'), 'locale restored');
+
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await waitFor(() => document.querySelector('#settingsMenu')?.hidden === true, 'settings closes after the pages check');
+    result.closed = document.querySelector('#settingsMenu')?.hidden === true;
+    return result;
+  })()`;
+}
 
 function settingsLifecycleSource(config) {
   return `(async () => {
@@ -275,13 +423,25 @@ function settingsLifecycleSource(config) {
     };
 
     // Read-only info + web-mode library buttons (observed, never clicked).
+    // 任务 25 两栏布局：不在当前分类的控件是隐藏的——读取前先切到对应分类。
+    const openPage = async (page) => {
+      const pageTab = document.querySelector('#settingsMenu [data-settings-page="' + page + '"]');
+      if (pageTab?.getAttribute('aria-selected') !== 'true') {
+        pageTab.click();
+        await waitFor(() => document.querySelector('#settingsMenu [data-settings-page="' + page + '"]')?.getAttribute('aria-selected') === 'true', page + ' tab selected');
+      }
+      await waitFor(() => document.querySelector('#settingsMenu [data-settings-panel="' + page + '"]')?.hidden === false, page + ' panel visible');
+    };
+    await openPage('library');
     const readOnly = {
       libraryPathText: document.querySelector('#settingsMenu [data-settings-library-path]')?.textContent || '',
       storageText: document.querySelector('#settingsMenu [data-settings-storage-engine]')?.textContent || '',
-      versionText: document.querySelector('#settingsMenu [data-settings-version]')?.textContent || '',
       hasChangeLibraryButton: Boolean(document.querySelector('#settingsMenu [data-change-library]')),
       hasOpenLibraryButton: Boolean(document.querySelector('#settingsMenu [data-open-library]')),
     };
+    await openPage('about');
+    readOnly.versionText = document.querySelector('#settingsMenu [data-settings-version]')?.textContent || '';
+    await openPage('general');
 
     click('#settingsMenu .settings-modal-close');
     await waitFor(menuHidden, 'settings closes via its close button');
@@ -382,18 +542,95 @@ function emptyStatesSource(config) {
   })()`;
 }
 
-function densitySettingGoneSource() {
+function cardInfoDefaultSource() {
   return `(async () => {
     ${PAGE_HELPERS}
-    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards for the density check');
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards for the card-info default check');
     click('#settingsToggle');
-    await waitFor(() => !document.querySelector('#settingsMenu')?.hidden, 'settings opens for the density check');
-    const densityOptCount = document.querySelectorAll('#settingsMenu [data-density-opt]').length;
+    await waitFor(() => !document.querySelector('#settingsMenu')?.hidden, 'settings opens for the card-info default check');
+    const result = {
+      densityOptCount: document.querySelectorAll('#settingsMenu [data-density-opt]').length,
+      cardInfoOptCount: document.querySelectorAll('#settingsMenu [data-card-info-opt]').length,
+      showActive: document.querySelector('#settingsMenu [data-card-info-opt="show"]')?.classList.contains('active') === true,
+      hideActive: document.querySelector('#settingsMenu [data-card-info-opt="hide"]')?.classList.contains('active') === true,
+      storedBefore: localStorage.getItem('mosa.card-info'),
+    };
     click('#settingsMenu .settings-modal-close');
-    await waitFor(() => document.querySelector('#settingsMenu')?.hidden === true, 'settings closes after the density check');
+    await waitFor(() => document.querySelector('#settingsMenu')?.hidden === true, 'settings closes after the card-info default check');
     const info = document.querySelector('#assetGrid .asset-card .asset-card-info');
     if (!info) throw new Error('card info area missing from the gallery markup');
-    const infoDisplay = getComputedStyle(info).display;
-    return { densityOptCount, infoDisplay };
+    result.infoDisplay = getComputedStyle(info).display;
+    return result;
+  })()`;
+}
+
+function cardInfoShowSource() {
+  return `(async () => {
+    ${PAGE_HELPERS}
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards before showing card info');
+    click('#settingsToggle');
+    await waitFor(() => !document.querySelector('#settingsMenu')?.hidden, 'settings opens to show card info');
+    document.querySelector('#settingsMenu [data-card-info-opt="show"]').click();
+    await waitFor(() => localStorage.getItem('mosa.card-info') === 'show', 'the show choice is stored');
+    click('#settingsMenu .settings-modal-close');
+    await waitFor(() => document.querySelector('#settingsMenu')?.hidden === true, 'settings closes after showing card info');
+    await waitFor(() => gallerySettled(), 'gallery settles after the card-info switch');
+    const card = document.querySelector('#assetGrid .asset-card');
+    const info = card?.querySelector(':scope > .asset-card-info');
+    if (!info) throw new Error('card info area missing after switching to show');
+    const media = card.querySelector(':scope > .asset-card-select');
+    return {
+      stored: localStorage.getItem('mosa.card-info'),
+      gridAttr: document.querySelector('#assetGrid')?.dataset.cardInfo ?? null,
+      infoDisplay: getComputedStyle(info).display,
+      titleText: info.querySelector('.asset-card-title')?.textContent || '',
+      mediaHeight: media ? media.getBoundingClientRect().height : 0,
+      cardHeight: card.getBoundingClientRect().height,
+    };
+  })()`;
+}
+
+function cardInfoPersistedSource() {
+  return `(async () => {
+    ${PAGE_HELPERS}
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards after refresh');
+    // Fresh page (== refresh): mosa.card-info still says show and the info
+    // block is visible without any interaction.
+    const card = document.querySelector('#assetGrid .asset-card');
+    const info = card?.querySelector(':scope > .asset-card-info');
+    if (!info) throw new Error('card info area missing after refresh');
+    const result = {
+      stored: localStorage.getItem('mosa.card-info'),
+      gridAttr: document.querySelector('#assetGrid')?.dataset.cardInfo ?? null,
+      infoDisplay: getComputedStyle(info).display,
+    };
+    click('#settingsToggle');
+    await waitFor(() => !document.querySelector('#settingsMenu')?.hidden, 'settings opens for the persistence check');
+    result.showActive = document.querySelector('#settingsMenu [data-card-info-opt="show"]')?.classList.contains('active') === true;
+    result.hideActive = document.querySelector('#settingsMenu [data-card-info-opt="hide"]')?.classList.contains('active') === true;
+    click('#settingsMenu .settings-modal-close');
+    await waitFor(() => document.querySelector('#settingsMenu')?.hidden === true, 'settings closes after the persistence check');
+    return result;
+  })()`;
+}
+
+function cardInfoHideSource() {
+  return `(async () => {
+    ${PAGE_HELPERS}
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards before hiding card info');
+    click('#settingsToggle');
+    await waitFor(() => !document.querySelector('#settingsMenu')?.hidden, 'settings opens to hide card info');
+    document.querySelector('#settingsMenu [data-card-info-opt="hide"]').click();
+    await waitFor(() => localStorage.getItem('mosa.card-info') === 'hide', 'the hide choice is stored');
+    click('#settingsMenu .settings-modal-close');
+    await waitFor(() => document.querySelector('#settingsMenu')?.hidden === true, 'settings closes after hiding card info');
+    await waitFor(() => gallerySettled(), 'gallery settles after hiding card info');
+    const info = document.querySelector('#assetGrid .asset-card .asset-card-info');
+    if (!info) throw new Error('card info area missing after switching back to hide');
+    return {
+      stored: localStorage.getItem('mosa.card-info'),
+      gridAttr: document.querySelector('#assetGrid')?.dataset.cardInfo ?? null,
+      infoDisplay: getComputedStyle(info).display,
+    };
   })()`;
 }

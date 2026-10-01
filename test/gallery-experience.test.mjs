@@ -5,11 +5,12 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
+const readDesktopApp = () => readFile(resolve(root, "desktop/app/app.mjs"), "utf8");
 const readApiClient = () => readFile(resolve(root, "web/app/api-client.mjs"), "utf8");
 const readI18n = () => readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
 const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
 const readInspectorMarkup = () => readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8");
-const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 
 /** WCAG relative luminance for an opaque sRGB hex colour. */
 function relativeLuminance(hex) {
@@ -106,7 +107,7 @@ test("gallery never falls back to a full-resolution original while thumbnails ar
 });
 
 test("video cards lazily reveal a first-frame poster and adopt the real media aspect ratio", async () => {
-  const [app, inspector, css] = await Promise.all([readApp(), readInspectorMarkup(), readCss()]);
+  const [app, inspector, css] = await Promise.all([readDesktopApp(), readInspectorMarkup(), readCss()]);
 
   assert.match(inspector, /function videoThumbAspectAttributes\(asset\)/);
   assert.match(inspector, /data-gallery-video-src="\$\{escapeHtml\(asset\.image_url\)\}" preload="none"/);
@@ -126,7 +127,7 @@ test("video cards lazily reveal a first-frame poster and adopt the real media as
 });
 
 test("separates loading, failed, empty and populated gallery states", async () => {
-  const [app, css, apiClient] = await Promise.all([readApp(), readCss(), readApiClient()]);
+  const [app, css, apiClient] = await Promise.all([readDesktopApp(), readCss(), readApiClient()]);
 
   assert.match(app, /galleryStatus: "loading"/);
   assert.match(app, /if \(state\.galleryStatus === "loading"\) \{ els\.assetGrid\.innerHTML = gallerySkeletonMarkup\(\); restoreGridFallbackFocus\(\); return; \}/);
@@ -160,7 +161,7 @@ test("separates loading, failed, empty and populated gallery states", async () =
 });
 
 test("pins the gallery to image-only cards with no density setting", async () => {
-  const [app, css, config] = await Promise.all([readApp(), readCss(), readFile(resolve(root, "web/app/config.mjs"), "utf8")]);
+  const [app, css, config] = await Promise.all([readDesktopApp(), readCss(), readFile(resolve(root, "web/app/config.mjs"), "utf8")]);
 
   // The card density setting is gone: the V2 gallery shows images only, so
   // there is no segmented control, no persisted density and no density state.
@@ -169,11 +170,13 @@ test("pins the gallery to image-only cards with no density setting", async () =>
   assert.doesNotMatch(app, /dataset\.density/);
   assert.doesNotMatch(config, /GALLERY_DENSITIES/);
   assert.match(app, /data-appearance-opt/);
-  // Card markup keeps the info block, but it is always hidden and the masonry
-  // estimate no longer reserves a 44px info-row height.
+  // Card markup keeps the info block: it is hidden by default and shown only
+  // while the 任务 20 card-info setting is on, and the masonry estimate
+  // reserves the 44px info-row height only in that state.
   assert.match(css, /\.asset-card-info \{ display: none;/);
+  assert.match(css, /\.mosa-v2 \.grid\[data-card-info="show"\] \.asset-card-info \{ display: block; \}/);
   assert.doesNotMatch(css, /\[data-density/);
-  assert.doesNotMatch(app, /\? 44 : 0/, "the masonry estimate must not reserve an info-row height");
+  assert.match(app, /const infoHeight = state\.showCardInfo \? 44 : 0;/, "the masonry estimate reserves the info-row height only while the card-info setting is on");
   // The card keeps its short title, source, date and a group/version badge.
   assert.match(app, /class="asset-card-title"/);
   assert.match(app, /class="asset-card-meta"/);

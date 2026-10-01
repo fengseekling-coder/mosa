@@ -12,7 +12,7 @@ const readWebApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
 const readDesktopApp = () => readFile(resolve(root, "desktop/app/app.mjs"), "utf8");
 const readWebActions = () => readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8");
 const readWebI18n = () => readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
-const readWebCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readDesktopCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 
 function sliceBetween(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -77,14 +77,9 @@ test("04 highlight reuses .group-drop-target with a flicker-safe leave guard", a
     assert.match(setup, /announceGalleryStatus\(t\("sidebarDropImportReady", \{ group: String\(item\.dataset\.value \|\| ""\)\.trim\(\) \}\), \{ persist: true \}\)/);
     assert.match(setup, /window\.addEventListener\("dragend"/, "cancelled drags clear the highlight");
     // 高亮类在样式表里已有定义，直接复用，不新增样式族。
-    const css = await readWebCss();
+    const css = await readDesktopCss();
     assert.match(css, /\.mosa-v2 \.nav-item\.group-drop-target \{ background: var\(--app-hover\); box-shadow: inset 0 0 0 1\.5px var\(--color-accent\); \}/);
   }
-});
-
-test("05 both UI trees carry byte-identical drop-import code", async () => {
-  const [web, desktop] = await Promise.all([readWebApp(), readDesktopApp()]);
-  assert.equal(web, desktop, "web/app/app.mjs and desktop/app/app.mjs must stay identical copies");
 });
 
 test("06 global drag guard whitelists only the manual group items and still blocks the rest of the sidebar", async () => {

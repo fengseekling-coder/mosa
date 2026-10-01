@@ -16,9 +16,10 @@ import test from "node:test";
 const root = resolve(import.meta.dirname, "..");
 const read = (relative) => readFile(resolve(root, relative), "utf8");
 const readApp = () => read("web/app/app.mjs");
+const readDesktopApp = () => read("desktop/app/app.mjs");
 const readApiClient = () => read("web/app/api-client.mjs");
 const readHtml = () => read("web/app/index.html");
-const readCss = () => read("web/app/styles.css");
+const readCss = () => read("desktop/app/styles.css");
 const readInspectorMarkup = () => read("web/app/inspector-markup.mjs");
 const count = (source, needle) => source.split(needle).length - 1;
 
@@ -200,7 +201,7 @@ test("11. Card animation is conditional and not replayed on ordinary renders", a
   const baseRule = css.match(/\.asset-card \{[^}]*\}/)?.[0] || "";
   assert.doesNotMatch(baseRule, /animation:/, ".asset-card base rule has no animation");
   assert.match(css, /\.asset-card\.card-enter \{ animation: card-in/, "card-enter conditional animation exists");
-  const app = await readApp();
+  const app = await readDesktopApp();
   const apiClient = await readApiClient();
   const grid = functionSlice(app, "renderGrid");
   const cardBuilder = functionSlice(app, "buildGalleryCardEntry");
@@ -232,7 +233,7 @@ test("12. Icon-button aria-label/title contract holds", async () => {
 //     are fine; an actual declaration `value !important;` is not).
 test("13. No !important in app or extension surfaces", async () => {
   for (const relative of [
-    "web/app/styles.css",
+    "desktop/app/styles.css",
     "extensions/chatgpt-web-capture/content.css",
     "extensions/chatgpt-web-capture/options.html",
   ]) {
