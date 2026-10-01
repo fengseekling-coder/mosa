@@ -164,7 +164,8 @@
   --space-1: 8px;
   --space-2: 16px;
   --space-3: 24px;
-  --gallery-gap: 12px;
+  /* R21：画廊横竖间距共用一个值（瀑布流高度估算与框选命中都只读它）。 */
+  --gallery-gap: 16px;
 
   /* --- R21 4px 结构网格阶梯（命名照 R21 设计稿的 --mosa-s*，前缀 --r21-） --- */
   --r21-s1: 4px;
@@ -437,14 +438,16 @@ body.asset-stack-dragging { cursor: grabbing; user-select: none; }
 .card-action-btn svg { width: 15px; height: 15px; }
 .card-favorite.is-fav svg { fill: currentColor; }
 
-/* 信息区：保留在卡片 markup 里但恒为隐藏（V2 画廊固定只看图）。V2：去卡片边框
-   后信息区不再需要 border-top 分隔线；标题字号提升、元数据改 mono 字体并降级为
-   三级文字，徽章去掉药丸容器，回归纯文字（D8：人读标题为主、哈希/技术信息为辅）。 */
-.asset-card-info { display: none; padding: var(--space-1) 2px 0; }
-.asset-card-title { overflow: hidden; color: var(--color-text-primary); font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-/* text-2, not V2's text-3: --color-text-tertiary is documented decorative-only (sub-4.5:1 AA), and
-   dates/source metadata here are content, not decoration (see gallery-experience.test.mjs). */
-.asset-card-meta { display: flex; flex-wrap: wrap; gap: 2px 7px; margin-top: 2px; color: var(--color-text-secondary); font-family: var(--font-family-mono); font-size: 11px; }
+/* 信息区：保留在卡片 markup 里，仅在 #assetGrid[data-card-info="show"] 时显示
+   （任务 20 的开关）。R21：距缩略图 12（padding-top，计入卡片实际高度）、标题
+   12px/620 单行省略、元信息 10px 普通字体单行省略与标题间距 4、底部留白 12
+   （同样计入实际高度——16 的画廊间距 + 12 = R21 的 28 视觉竖距）。
+   浅色元信息 #8d8d92 与深色现状（--color-text-secondary）由主题覆盖/本规则分工。 */
+.asset-card-info { display: none; padding: var(--r21-s3) 2px; }
+.asset-card-title { overflow: hidden; color: var(--color-text-primary); font-size: 12px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+/* 浅色下 R21 指定 #8d8d92（见文件末尾画廊主题覆盖）；深色维持 --color-text-secondary。 */
+.asset-card-meta { display: flex; flex-wrap: nowrap; gap: 2px 7px; margin-top: var(--r21-s1); overflow: hidden; color: var(--color-text-secondary); font-size: 10px; white-space: nowrap; }
+.asset-card-meta > * { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .asset-card-badge { overflow: hidden; max-width: 96px; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 加载更多 */
@@ -1194,11 +1197,15 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .toolbar-filter { gap: 6px; padding: 0 10px; }.mosa-v2 .toolbar-filter[aria-pressed="true"] { color: var(--color-text-primary); background: var(--app-chip-active); }
 .mosa-v2 .sort-control select { min-width: 96px; padding: 0 26px 0 12px; }
 .mosa-v2 .create-button { height: 32px; gap: 6px; padding: 0 12px; border-radius: 8px; color: #fff; background: #2424ff; box-shadow: 0 4px 8px -3px rgb(36 36 255 / .28); font-size: 12px; }
-.mosa-v2 .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); column-gap: var(--gallery-gap); row-gap: 0; padding: 1px 24px 24px; background: transparent; }
+.mosa-v2 .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); column-gap: var(--gallery-gap); row-gap: 0; padding: var(--r21-s5) var(--r21-s6) var(--r21-s8); background: transparent; }
 .mosa-v2 #assetGrid:focus-visible { outline: none; }
 .mosa-v2 .asset-card { margin-bottom: 0; transition: transform 200ms var(--ease-standard), box-shadow 200ms var(--ease-standard); }
-.mosa-v2 .asset-card-select { border-radius: 12px; background: var(--app-card); box-shadow: none; }.mosa-v2 .asset-card-select::after { border-radius: 12px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .04); }.mosa-v2 .asset-card.selected .asset-card-select::after, .mosa-v2 .asset-card.multi-selected .asset-card-select::after { box-shadow: none; }.mosa-v2 .asset-card.selected::after, .mosa-v2 .asset-card.multi-selected::after { content: ""; position: absolute; z-index: 4; inset: -1px; box-sizing: border-box; border: var(--border-width) solid var(--color-accent); border-radius: 13px; pointer-events: none; }
-.mosa-v2 .asset-card .thumb, .mosa-v2 .asset-card .thumb img, .mosa-v2 .asset-card .thumb-video-poster, .mosa-v2 .asset-card .thumb-video-placeholder { border-radius: 12px; }.mosa-v2 .asset-card-info { display: none; }.mosa-v2 .grid[data-card-info="show"] .asset-card-info { display: block; }.mosa-v2 .asset-card.selected .card-check { display: none; }
+.mosa-v2 .asset-card-select { border-radius: var(--radius-card); background: var(--app-card); box-shadow: none; }.mosa-v2 .asset-card-select::after { border-radius: var(--radius-card); box-shadow: inset 0 0 0 1px rgb(0 0 0 / .04); }.mosa-v2 .asset-card.selected .asset-card-select::after, .mosa-v2 .asset-card.multi-selected .asset-card-select::after { box-shadow: none; }.mosa-v2 .asset-card.selected::after, .mosa-v2 .asset-card.multi-selected::after { content: ""; position: absolute; z-index: 4; inset: -1px; box-sizing: border-box; border: 1.5px solid var(--color-accent); border-radius: calc(var(--radius-card) + 1px); pointer-events: none; }
+.mosa-v2 .asset-card .thumb, .mosa-v2 .asset-card .thumb img, .mosa-v2 .asset-card .thumb-video-poster, .mosa-v2 .asset-card .thumb-video-placeholder { border-radius: var(--radius-card); }.mosa-v2 .asset-card-info { display: none; }.mosa-v2 .grid[data-card-info="show"] .asset-card-info { display: block; }.mosa-v2 .asset-card.selected .card-check { display: none; }
+/* R21 画廊新颜色（仅浅色；深色保持现状）：缩略图占位底色、选中框颜色、元信息文字。 */
+:root[data-theme="light"] .mosa-v2 .asset-card .thumb { background: #ececef; }
+:root[data-theme="light"] .mosa-v2 .asset-card.selected::after, :root[data-theme="light"] .mosa-v2 .asset-card.multi-selected::after { border-color: #4d4dff; }
+:root[data-theme="light"] .mosa-v2 .asset-card-meta { color: #8d8d92; }
 .mosa-v2 .card-actions { top: 8px; right: 8px; gap: 0; opacity: 1; }
 .mosa-v2 .card-action-btn {
   position: relative;

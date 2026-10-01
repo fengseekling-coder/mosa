@@ -2667,7 +2667,8 @@ function estimatedGalleryCardSpan(asset) {
   // masonry slot. Estimates are allowed to be approximate, but never
   // deliberately shorter than the media ratio we already know.
   const mediaHeight = galleryCardColumnWidth() * Math.max(0.35, galleryAssetAspect(asset));
-  const infoHeight = state.showCardInfo ? 44 : 0;
+  // R21 实测：信息区（12 顶距 + 12px/620 标题 + 4 + 10px 元信息 + 12 底部留白）= 61px。
+  const infoHeight = state.showCardInfo ? 61 : 0;
   const grid = els.assetGrid;
   const styles = grid ? getComputedStyle(grid) : null;
   const gap = styles ? (Number.parseFloat(styles.getPropertyValue("--gallery-gap")) || Number.parseFloat(styles.columnGap) || 0) : 0;

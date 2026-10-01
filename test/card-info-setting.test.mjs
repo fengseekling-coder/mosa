@@ -105,11 +105,15 @@ test("the virtual span cache key and its prune prefix carry the switch state", a
 });
 
 test("estimatedGalleryCardSpan reserves the info-row height only while the switch is on", async () => {
+  // R21 起两树各自估算：Web 信息区按新样式实测 61px（12 顶距 + 18 标题行 + 4 +
+  // 15 元信息行 + 12 底部留白）；桌面端维持 44px。
+  const estimateHeights = { "web/app": 61, "desktop/app": 44 };
   for (const tree of TREES) {
     const app = await read(`${tree}/app.mjs`);
     const estimate = functionSlice(app, "estimatedGalleryCardSpan");
-    assert.match(estimate, /const infoHeight = state\.showCardInfo \? 44 : 0;/,
-      `${tree}: the estimate must add the info-row height only when card info is shown`);
+    const height = estimateHeights[tree];
+    assert.match(estimate, new RegExp(`const infoHeight = state\\.showCardInfo \\? ${height} : 0;`),
+      `${tree}: the estimate must add the ${height}px info-row height only when card info is shown`);
     assert.match(estimate, /Math\.max\(48, Math\.ceil\(mediaHeight \+ infoHeight \+ gap\)\)/,
       `${tree}: the estimate must include the info height in the span`);
   }
