@@ -165,7 +165,11 @@ test("10. bridge status live semantics stay intact", async () => {
   const app = await readApp();
   assert.match(app, /els\.bridgeStatus\.dataset\.state = stateName; els\.bridgeStatus\.title = value;/, "setStatus still publishes data-state + tooltip");
   assert.match(app, /els\.bridgeStatusLabel\) els\.bridgeStatusLabel\.textContent = value;/, "setStatus still publishes the label text");
-  assert.match(app, /els\.statusText\) els\.statusText\.textContent = value;/, "setStatus still publishes the hidden live text");
+  // The hidden live text is owned by status-live-region.mjs (announce-on-change,
+  // never mid-announcement); app.mjs only feeds it through setPersistentStatus.
+  assert.match(app, /statusRegion\.setPersistentStatus\(value\);/, "setStatus still feeds the hidden live region");
+  const regionModule = await readFile(resolve(root, "web/app/status-live-region.mjs"), "utf8");
+  assert.match(regionModule, /node\.textContent = text;/, "the live region module still writes the hidden live text");
 });
 
 // 11. Theme selection is exposed only in Settings.
