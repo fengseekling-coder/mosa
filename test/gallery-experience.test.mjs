@@ -170,11 +170,13 @@ test("pins the gallery to image-only cards with no density setting", async () =>
   assert.doesNotMatch(app, /dataset\.density/);
   assert.doesNotMatch(config, /GALLERY_DENSITIES/);
   assert.match(app, /data-appearance-opt/);
-  // Card markup keeps the info block, but it is always hidden and the masonry
-  // estimate no longer reserves a 44px info-row height.
+  // Card markup keeps the info block: it is hidden by default and shown only
+  // while the 任务 20 card-info setting is on, and the masonry estimate
+  // reserves the 44px info-row height only in that state.
   assert.match(css, /\.asset-card-info \{ display: none;/);
+  assert.match(css, /\.mosa-v2 \.grid\[data-card-info="show"\] \.asset-card-info \{ display: block; \}/);
   assert.doesNotMatch(css, /\[data-density/);
-  assert.doesNotMatch(app, /\? 44 : 0/, "the masonry estimate must not reserve an info-row height");
+  assert.match(app, /const infoHeight = state\.showCardInfo \? 44 : 0;/, "the masonry estimate reserves the info-row height only while the card-info setting is on");
   // The card keeps its short title, source, date and a group/version badge.
   assert.match(app, /class="asset-card-title"/);
   assert.match(app, /class="asset-card-meta"/);

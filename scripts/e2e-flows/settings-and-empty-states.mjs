@@ -1,13 +1,15 @@
 // Settings modal (open / Escape / outside-click, theme, language, read-only
 // info), refresh persistence, gallery empty states (search miss and empty
-// trash), and the narrow-viewport navigation probe. The final step regresses
-// 任务 17: the card density setting is gone — the settings menu renders no
-// density option and the image-only gallery keeps .asset-card-info hidden.
+// trash), and the narrow-viewport navigation probe. The final phase exercises
+// 任务 20's card-info setting: the retired density option stays gone, the new
+// segmented control defaults to 隐藏, 显示 really reveals the info block (the
+// masonry row grows past the media), the choice survives a fresh page load,
+// and 隐藏 restores the hidden state.
 
 import { PAGE_HELPERS } from "./_page-helpers.mjs";
 
 export const name = "settings-and-empty-states";
-export const description = "settings modal lifecycle + theme/language persistence + read-only info -> empty-state clear + trash drop-hint rule -> density setting removed (image-only gallery)";
+export const description = "settings modal lifecycle + theme/language persistence + read-only info -> empty-state clear + trash drop-hint rule -> card-info setting (default hidden / show / persist / hide)";
 
 export async function run(ctx) {
   await ctx.prepare();
@@ -35,18 +37,27 @@ export async function run(ctx) {
     const empties = await ctx.runInPage(server, emptyStatesSource(config));
     await assertEmptyStates(empties, seededIds, server, ctx);
 
-    // 任务 17 regression (ordered last, after the other phases): the card
-    // density setting is gone — no density option in the settings menu, and
-    // .asset-card-info stays invisible in the image-only gallery.
-    const densityGone = await ctx.runInPage(server, densitySettingGoneSource());
-    assertDensitySettingGone(densityGone);
+    // 任务 20: the card-info setting. Density stays gone (asserted inside the
+    // lifecycle phase); the new segmented control defaults to 隐藏, 显示
+    // really reveals the info block (the card grows past the media), the
+    // choice survives a fresh page load, and 隐藏 restores the hidden state.
+    // Each phase runs in its own page; localStorage is shared across them, so
+    // a new page is the same thing as a refresh.
+    const cardInfoDefault = await ctx.runInPage(server, cardInfoDefaultSource());
+    assertCardInfoDefault(cardInfoDefault);
+    const cardInfoShown = await ctx.runInPage(server, cardInfoShowSource());
+    assertCardInfoShown(cardInfoShown);
+    const cardInfoPersisted = await ctx.runInPage(server, cardInfoPersistedSource());
+    assertCardInfoPersisted(cardInfoPersisted);
+    const cardInfoHidden = await ctx.runInPage(server, cardInfoHideSource());
+    assertCardInfoHiddenAgain(cardInfoHidden);
 
     return {
       seededIds,
       lifecycle: opened,
       persisted,
       empties,
-      densitySettingGone: densityGone,
+      cardInfo: { default: cardInfoDefault, shown: cardInfoShown, persisted: cardInfoPersisted, hidden: cardInfoHidden },
     };
   } finally {
     await server.stop();
@@ -169,12 +180,41 @@ async function assertEmptyStates(r, seededIds, server, ctx) {
   }
 }
 
-// 任务 17: the card density setting is gone. The settings menu renders no
-// data-density-opt control, and the always-image-only gallery keeps the card
-// info block (kept in markup) hidden.
-function assertDensitySettingGone(r) {
-  expect(r?.densityOptCount === 0, `settings menu must not render a card density option: ${JSON.stringify(r)}`);
-  expect(r.infoDisplay === "none", `.asset-card-info must stay hidden in the image-only gallery: ${JSON.stringify(r)}`);
+// 任务 20: the card-info setting. The retired density option stays gone; the
+// new segmented control defaults to 隐藏 (info block hidden), 显示 really
+// displays the info block, and the choice persists in localStorage.
+function assertCardInfoDefault(r) {
+  const dump = JSON.stringify(r);
+  expect(r?.densityOptCount === 0, `settings menu must not render a card density option: ${dump}`);
+  expect(r.cardInfoOptCount === 2, `settings menu must render both card-info options: ${dump}`);
+  expect(r.showActive === false && r.hideActive === true, `card-info must default to the 隐藏 option highlighted: ${dump}`);
+  expect(r.storedBefore === null || r.storedBefore === undefined, `card-info must default to hidden without a stored value: ${dump}`);
+  expect(r.infoDisplay === "none", `.asset-card-info must be hidden by default: ${dump}`);
+}
+
+function assertCardInfoShown(r) {
+  const dump = JSON.stringify(r);
+  expect(r?.stored === "show", `the show choice must be persisted to mosa.card-info: ${dump}`);
+  expect(r.gridAttr === "show", `#assetGrid must carry data-card-info="show": ${dump}`);
+  expect(r.infoDisplay === "block", `card info did not display after switching to show: ${dump}`);
+  expect(r.titleText.length > 0, `card info title must have text when shown: ${dump}`);
+  expect(r.mediaHeight > 0 && r.cardHeight > r.mediaHeight,
+    `card height (${r.cardHeight}) must exceed the media height (${r.mediaHeight}) once info is shown: ${dump}`);
+}
+
+function assertCardInfoPersisted(r) {
+  const dump = JSON.stringify(r);
+  expect(r?.stored === "show", `card-info preference lost after refresh: ${dump}`);
+  expect(r.gridAttr === "show", `#assetGrid must still carry data-card-info="show" after refresh: ${dump}`);
+  expect(r.infoDisplay === "block", `card info did not stay visible after refresh: ${dump}`);
+  expect(r.showActive === true && r.hideActive === false, `settings must highlight 显示 after refresh: ${dump}`);
+}
+
+function assertCardInfoHiddenAgain(r) {
+  const dump = JSON.stringify(r);
+  expect(r?.stored === "hide", `the hide choice must be persisted to mosa.card-info: ${dump}`);
+  expect(r.gridAttr === "hide", `#assetGrid must carry data-card-info="hide": ${dump}`);
+  expect(r.infoDisplay === "none", `card info did not return to hidden: ${dump}`);
 }
 
 // ===== in-page sources =====
@@ -382,18 +422,95 @@ function emptyStatesSource(config) {
   })()`;
 }
 
-function densitySettingGoneSource() {
+function cardInfoDefaultSource() {
   return `(async () => {
     ${PAGE_HELPERS}
-    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards for the density check');
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards for the card-info default check');
     click('#settingsToggle');
-    await waitFor(() => !document.querySelector('#settingsMenu')?.hidden, 'settings opens for the density check');
-    const densityOptCount = document.querySelectorAll('#settingsMenu [data-density-opt]').length;
+    await waitFor(() => !document.querySelector('#settingsMenu')?.hidden, 'settings opens for the card-info default check');
+    const result = {
+      densityOptCount: document.querySelectorAll('#settingsMenu [data-density-opt]').length,
+      cardInfoOptCount: document.querySelectorAll('#settingsMenu [data-card-info-opt]').length,
+      showActive: document.querySelector('#settingsMenu [data-card-info-opt="show"]')?.classList.contains('active') === true,
+      hideActive: document.querySelector('#settingsMenu [data-card-info-opt="hide"]')?.classList.contains('active') === true,
+      storedBefore: localStorage.getItem('mosa.card-info'),
+    };
     click('#settingsMenu .settings-modal-close');
-    await waitFor(() => document.querySelector('#settingsMenu')?.hidden === true, 'settings closes after the density check');
+    await waitFor(() => document.querySelector('#settingsMenu')?.hidden === true, 'settings closes after the card-info default check');
     const info = document.querySelector('#assetGrid .asset-card .asset-card-info');
     if (!info) throw new Error('card info area missing from the gallery markup');
-    const infoDisplay = getComputedStyle(info).display;
-    return { densityOptCount, infoDisplay };
+    result.infoDisplay = getComputedStyle(info).display;
+    return result;
+  })()`;
+}
+
+function cardInfoShowSource() {
+  return `(async () => {
+    ${PAGE_HELPERS}
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards before showing card info');
+    click('#settingsToggle');
+    await waitFor(() => !document.querySelector('#settingsMenu')?.hidden, 'settings opens to show card info');
+    document.querySelector('#settingsMenu [data-card-info-opt="show"]').click();
+    await waitFor(() => localStorage.getItem('mosa.card-info') === 'show', 'the show choice is stored');
+    click('#settingsMenu .settings-modal-close');
+    await waitFor(() => document.querySelector('#settingsMenu')?.hidden === true, 'settings closes after showing card info');
+    await waitFor(() => gallerySettled(), 'gallery settles after the card-info switch');
+    const card = document.querySelector('#assetGrid .asset-card');
+    const info = card?.querySelector(':scope > .asset-card-info');
+    if (!info) throw new Error('card info area missing after switching to show');
+    const media = card.querySelector(':scope > .asset-card-select');
+    return {
+      stored: localStorage.getItem('mosa.card-info'),
+      gridAttr: document.querySelector('#assetGrid')?.dataset.cardInfo ?? null,
+      infoDisplay: getComputedStyle(info).display,
+      titleText: info.querySelector('.asset-card-title')?.textContent || '',
+      mediaHeight: media ? media.getBoundingClientRect().height : 0,
+      cardHeight: card.getBoundingClientRect().height,
+    };
+  })()`;
+}
+
+function cardInfoPersistedSource() {
+  return `(async () => {
+    ${PAGE_HELPERS}
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards after refresh');
+    // Fresh page (== refresh): mosa.card-info still says show and the info
+    // block is visible without any interaction.
+    const card = document.querySelector('#assetGrid .asset-card');
+    const info = card?.querySelector(':scope > .asset-card-info');
+    if (!info) throw new Error('card info area missing after refresh');
+    const result = {
+      stored: localStorage.getItem('mosa.card-info'),
+      gridAttr: document.querySelector('#assetGrid')?.dataset.cardInfo ?? null,
+      infoDisplay: getComputedStyle(info).display,
+    };
+    click('#settingsToggle');
+    await waitFor(() => !document.querySelector('#settingsMenu')?.hidden, 'settings opens for the persistence check');
+    result.showActive = document.querySelector('#settingsMenu [data-card-info-opt="show"]')?.classList.contains('active') === true;
+    result.hideActive = document.querySelector('#settingsMenu [data-card-info-opt="hide"]')?.classList.contains('active') === true;
+    click('#settingsMenu .settings-modal-close');
+    await waitFor(() => document.querySelector('#settingsMenu')?.hidden === true, 'settings closes after the persistence check');
+    return result;
+  })()`;
+}
+
+function cardInfoHideSource() {
+  return `(async () => {
+    ${PAGE_HELPERS}
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards before hiding card info');
+    click('#settingsToggle');
+    await waitFor(() => !document.querySelector('#settingsMenu')?.hidden, 'settings opens to hide card info');
+    document.querySelector('#settingsMenu [data-card-info-opt="hide"]').click();
+    await waitFor(() => localStorage.getItem('mosa.card-info') === 'hide', 'the hide choice is stored');
+    click('#settingsMenu .settings-modal-close');
+    await waitFor(() => document.querySelector('#settingsMenu')?.hidden === true, 'settings closes after hiding card info');
+    await waitFor(() => gallerySettled(), 'gallery settles after hiding card info');
+    const info = document.querySelector('#assetGrid .asset-card .asset-card-info');
+    if (!info) throw new Error('card info area missing after switching back to hide');
+    return {
+      stored: localStorage.getItem('mosa.card-info'),
+      gridAttr: document.querySelector('#assetGrid')?.dataset.cardInfo ?? null,
+      infoDisplay: getComputedStyle(info).display,
+    };
   })()`;
 }

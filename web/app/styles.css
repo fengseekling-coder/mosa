@@ -1170,7 +1170,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 #assetGrid:focus-visible { outline: none; }
 .mosa-v2 .asset-card { margin-bottom: 0; transition: transform 200ms var(--ease-standard), box-shadow 200ms var(--ease-standard); }
 .mosa-v2 .asset-card-select { border-radius: 12px; background: var(--app-card); box-shadow: none; }.mosa-v2 .asset-card-select::after { border-radius: 12px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .04); }.mosa-v2 .asset-card.selected .asset-card-select::after, .mosa-v2 .asset-card.multi-selected .asset-card-select::after { box-shadow: none; }.mosa-v2 .asset-card.selected::after, .mosa-v2 .asset-card.multi-selected::after { content: ""; position: absolute; z-index: 4; inset: -1px; box-sizing: border-box; border: var(--border-width) solid var(--color-accent); border-radius: 13px; pointer-events: none; }
-.mosa-v2 .asset-card .thumb, .mosa-v2 .asset-card .thumb img, .mosa-v2 .asset-card .thumb-video-poster, .mosa-v2 .asset-card .thumb-video-placeholder { border-radius: 12px; }.mosa-v2 .asset-card-info { display: none; }.mosa-v2 .asset-card.selected .card-check { display: none; }
+.mosa-v2 .asset-card .thumb, .mosa-v2 .asset-card .thumb img, .mosa-v2 .asset-card .thumb-video-poster, .mosa-v2 .asset-card .thumb-video-placeholder { border-radius: 12px; }.mosa-v2 .asset-card-info { display: none; }.mosa-v2 .grid[data-card-info="show"] .asset-card-info { display: block; }.mosa-v2 .asset-card.selected .card-check { display: none; }
 .mosa-v2 .card-actions { top: 8px; right: 8px; gap: 0; opacity: 1; }
 .mosa-v2 .card-action-btn {
   position: relative;
