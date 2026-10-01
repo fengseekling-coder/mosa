@@ -104,7 +104,7 @@ test("i18n. removeTag and tagRemoved are symmetric across zh and en", async () =
 });
 
 test("styles. the remove button hides by default, shows on hover/focus, and never uses display:none", async () => {
-  const css = await read("web/app/styles.css");
+  const css = await read("desktop/app/styles.css");
   const removeRule = sliceBetween(css, ".detail-tag-remove {", "}\n");
   const revealRule = sliceBetween(css, ".detail-tag:hover .detail-tag-remove", "}\n");
   const touchBlock = sliceBetween(css, "@media (hover: none), (pointer: coarse) {", "}\n");
@@ -117,9 +117,3 @@ test("styles. the remove button hides by default, shows on hover/focus, and neve
   assert.match(touchBlock, /\.detail-tag-remove \{ width: 24px; opacity: 1;/, "touch devices always show a wider button");
 });
 
-test("parity. web/app and desktop/app copies stay byte-identical", async () => {
-  for (const name of ["app.mjs", "inspector-markup.mjs"]) {
-    const [web, desktop] = await Promise.all([read(`web/app/${name}`), read(`desktop/app/${name}`)]);
-    assert.equal(web, desktop, `${name} must be identical in web/app and desktop/app`);
-  }
-});

@@ -15,7 +15,8 @@ import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
-const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readDesktopApp = () => readFile(resolve(root, "desktop/app/app.mjs"), "utf8");
+const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 const readI18n = () => readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
 const readInspectorMarkup = () => readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
@@ -67,7 +68,7 @@ const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(
 // 2. No detail tablist. 3. No detail tab. 4. No detail tabpanel.
 // 5. Nine semantic sections exist. 6. Their order matches the V2 spec.
 test("1-6. single-column architecture, tab roles removed, V2 sections in approved order", async () => {
-  const [app, inspector, css] = await Promise.all([readApp(), readInspectorMarkup(), readCss()]);
+  const [app, inspector, css] = await Promise.all([readDesktopApp(), readInspectorMarkup(), readCss()]);
 
   // 1. Single column: one inspector shell with one header and one scroll container.
   const renderDetail = functionSlice(app, "renderDetail");

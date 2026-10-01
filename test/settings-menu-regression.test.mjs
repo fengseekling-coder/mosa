@@ -131,7 +131,7 @@ test("theme switching is owned by settings instead of a duplicate topbar control
 });
 
 test("settings popover remains inside the visible desktop viewport", async () => {
-  const css = await readFile(resolve(root, "web/app/styles.css"), "utf8");
+  const css = await readFile(resolve(root, "desktop/app/styles.css"), "utf8");
   const match = /\.settings-menu \{([^}]*)\}/.exec(css);
   assert.ok(match, "expected a settings-menu CSS rule");
 
@@ -147,7 +147,7 @@ test("settings is the single surface for preferences, storage, and about", async
   const [html, app, css] = await Promise.all([
     readFile(resolve(root, "web/app/index.html"), "utf8"),
     readFile(resolve(root, "web/app/app.mjs"), "utf8"),
-    readFile(resolve(root, "web/app/styles.css"), "utf8"),
+    readFile(resolve(root, "desktop/app/styles.css"), "utf8"),
   ]);
 
   assert.doesNotMatch(html, /accountModal|accountToggle/, "standalone About UI is removed");
@@ -207,7 +207,7 @@ test("settings avoids full rerenders for normal interactions and keeps radio key
 });
 
 test("settings dialog uses the compact unified geometry", async () => {
-  const css = await readFile(resolve(root, "web/app/styles.css"), "utf8");
+  const css = await readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 
   assert.match(css, /\.mosa-v2 \.settings-menu \{[\s\S]*?padding: 24px;[\s\S]*?backdrop-filter: blur\(18px\)/,
     "the modal scrim uses grid-aligned padding and a restrained material blur");

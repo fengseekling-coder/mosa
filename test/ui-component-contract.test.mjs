@@ -6,7 +6,7 @@ import test from "node:test";
 import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
 /** WCAG relative luminance for an opaque sRGB hex colour. */
@@ -177,7 +177,7 @@ test("busy/loading contract is visual-only and keeps button width stable", async
   assert.ok(section.indexOf('[aria-busy="true"] {') > section.indexOf("cursor: not-allowed"),
     "the busy rule must come after the disabled rule to keep the wait cursor during busy saves");
   // aria-busy already has a live consumer in the save flow.
-  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
+  const app = await readFile(resolve(root, "desktop/app/app.mjs"), "utf8");
   assert.match(app, /aria-busy/, "app.js must keep driving aria-busy for the busy contract");
 });
 

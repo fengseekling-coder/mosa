@@ -9,7 +9,7 @@ test("keeps the import flow keyboard-accessible", async () => {
   const [html, app, css, preview] = await Promise.all([
     readFile(resolve(root, "web/app/index.html"), "utf8"),
     readFile(resolve(root, "web/app/app.mjs"), "utf8"),
-    readFile(resolve(root, "web/app/styles.css"), "utf8"),
+    readFile(resolve(root, "desktop/app/styles.css"), "utf8"),
     readFile(resolve(root, "web/app/image-preview.mjs"), "utf8"),
   ]);
 
@@ -134,7 +134,7 @@ test("uses a single language chosen from system, Chinese, or English", async () 
 test("keeps recipe version history navigable without replacing active edits", async () => {
   const [app, css, i18n, inspector] = await Promise.all([
     readFile(resolve(root, "web/app/app.mjs"), "utf8"),
-    readFile(resolve(root, "web/app/styles.css"), "utf8"),
+    readFile(resolve(root, "desktop/app/styles.css"), "utf8"),
     readFile(resolve(root, "web/app/i18n.mjs"), "utf8"),
     readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8"),
   ]);
@@ -222,8 +222,8 @@ test("keeps recipe version history navigable without replacing active edits", as
 
 test("provides an accessible single-column detail panel", async () => {
   const [app, css, i18n, inspector] = await Promise.all([
-    readFile(resolve(root, "web/app/app.mjs"), "utf8"),
-    readFile(resolve(root, "web/app/styles.css"), "utf8"),
+    readFile(resolve(root, "desktop/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "desktop/app/styles.css"), "utf8"),
     readFile(resolve(root, "web/app/i18n.mjs"), "utf8"),
     readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8"),
   ]);
@@ -279,7 +279,7 @@ test("supports Escape to close detail panel and focus return", async () => {
 });
 
 test("keeps the 960px+ side drawer layout without bottom split", async () => {
-  const css = await readFile(resolve(root, "web/app/styles.css"), "utf8");
+  const css = await readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 
   assert.match(css, /\.shell\.details-open \{ grid-template-columns: var\(--sidebar-width\) minmax\(0, 1fr\) var\(--inspector-width\); \}/);
   assert.match(css, /@media \(max-width: 1120px\)[\s\S]*?\.shell\.details-open \{ grid-template-columns: var\(--sidebar-width-compact\) minmax\(0, 1fr\) var\(--inspector-width-compact\); \}/);
@@ -293,7 +293,7 @@ test("keeps the 960px+ side drawer layout without bottom split", async () => {
 });
 
 test("ensures minimum touch target sizes for accessibility", async () => {
-  const css = await readFile(resolve(root, "web/app/styles.css"), "utf8");
+  const css = await readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 
   // MOSA interaction-size contract: these controls must be at least 36px tall.
   // Using min-height (not fixed height) so content can expand naturally.

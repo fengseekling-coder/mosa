@@ -10,9 +10,10 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
-const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
 const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
+const readDesktopApp = () => readFile(resolve(root, "desktop/app/app.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
 /** Extracts a `{...}` block starting at the marker, honouring nested braces. */
@@ -184,7 +185,7 @@ test("22. O2 compact desktop behavior stays locked in public CSS", async () => {
 // 24. The topbar three-group hierarchy keeps holding.
 // 25. The card quick-action contract keeps holding.
 test("23-25. adjacent Phase 2A/2B/1C contracts unaffected", async () => {
-  const [html, css, app] = await Promise.all([readHtml(), readCss(), readApp()]);
+  const [html, css, app] = await Promise.all([readHtml(), readCss(), readDesktopApp()]);
 
   const sidebar = htmlSlice(html, '<aside class="sidebar"', '<main class="library">');
   const topbar = htmlSlice(html, '<header class="topbar">', "</header>");
@@ -216,7 +217,7 @@ test("26-28. hygiene: no !important, no undefined tokens, no new dependencies", 
   const missing = [...hardRefs].filter((name) => !defined.has(name));
   assert.deepEqual(missing, [], `undefined tokens referenced: ${missing.join(", ")}`);
   const anchorRefs = new Set([...css.matchAll(/var\(\s*(--[\w-]+)\s*,/g)].map((m) => m[1]));
-  const app = await readApp();
+  const app = await readDesktopApp();
   // R1 batch 3: the toast stack offset injection lives in app/toast-manager.mjs.
   const toast = await readFile(resolve(root, "web/app/toast-manager.mjs"), "utf8");
   for (const name of anchorRefs) {

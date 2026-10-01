@@ -1,18 +1,20 @@
 // 任务 18 回归：分组导出（mosa-group-<名称>.json）不得携带本机绝对路径、目录
-// 路径或只有本机服务能解析的 /library/... 链接。清洗规则在 web/app/utils.mjs 的
+// 路径或只有本机服务能解析的 /library/... 链接。清洗规则在 app/utils.mjs 的
 // sanitizeAssetForExport：只按字段名删除（*_path、*_url、*_dir、path、
 // prompt_file），递归处理嵌套对象与数组；用户写的内容（提示词、标签、业务字段
-// 文字）与 asset（库内文件名）必须原样保留。web/app 与 desktop/app 双树各有一份
-// 拷贝，逐字节一致是仓库级约定（diff -rq 只允许 build-identity.json 与
-// styles.css）。
+// 文字）与 asset（库内文件名）必须原样保留。web/app 与 desktop/app 双树各有
+// 一份拷贝；自 R21 分流起不再断言两份逐字节一致，但同一套行为契约必须对两份
+// 实现各跑一遍（web 侧 / desktop 侧）。
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import test from "node:test";
 
-import { sanitizeAssetForExport } from "../web/app/utils.mjs";
+import { sanitizeAssetForExport as sanitizeWebAssetForExport } from "../web/app/utils.mjs";
+import { sanitizeAssetForExport as sanitizeDesktopAssetForExport } from "../desktop/app/utils.mjs";
 
-const root = resolve(import.meta.dirname, "..");
+const implementations = [
+  ["web/app/utils.mjs", sanitizeWebAssetForExport],
+  ["desktop/app/utils.mjs", sanitizeDesktopAssetForExport],
+];
 
 // 覆盖接口返回的全部路径/链接字段形态：顶层文件路径、顶层运行时 URL、
 // 遗留 prompt_file，以及嵌套在 source、references、business_fields 里的同类字段。
@@ -86,7 +88,7 @@ function fullyLoadedAsset() {
   };
 }
 
-test("group export sanitize removes every path and url field by name, recursively", () => {
+function expectRemovesEveryPathFieldByName(sanitizeAssetForExport) {
   const clean = sanitizeAssetForExport(fullyLoadedAsset());
 
   for (const key of [
@@ -112,9 +114,9 @@ test("group export sanitize removes every path and url field by name, recursivel
     `no path/url-ish key may survive: ${JSON.stringify(keys)}`);
   // 整个导出对象序列化后不再出现任何本机路径片段。
   assert.equal(JSON.stringify(clean).includes("/Users/someone"), false, "no absolute user path may survive");
-});
+}
 
-test("group export sanitize keeps user content, metadata, and the asset file name", () => {
+function expectKeepsUserContentMetadataAndAssetName(sanitizeAssetForExport) {
   const asset = fullyLoadedAsset();
   const clean = sanitizeAssetForExport(asset);
 
@@ -135,9 +137,9 @@ test("group export sanitize keeps user content, metadata, and the asset file nam
   assert.equal(clean.created_at, asset.created_at);
   assert.equal(clean.updated_at, asset.updated_at);
   assert.deepEqual(clean.child_asset_ids, ["asset-2"]);
-});
+}
 
-test("cowart-bridge source fields: _dir/_path/_url removed, id and tool kept", () => {
+function expectCowartBridgeSourceFields(sanitizeAssetForExport) {
   // lib/cowart-bridge.ts 归档 Cowart 画布时写入 source 的完整字段形态：
   // cowart_project_dir / cowart_canvas_dir 是本机绝对路径（键名 _dir 结尾），
   // cowart_page_asset_path / cowart_page_asset_url 是页面素材的路径与链接。
@@ -170,21 +172,28 @@ test("cowart-bridge source fields: _dir/_path/_url removed, id and tool kept", (
   assert.equal(clean.source.content_sha256, "03738e21");
   assert.equal(clean.prompt, "canvas alt text");
   assert.equal(JSON.stringify(clean).includes("/Users/someone"), false, "no absolute user path may survive");
-});
+}
 
-test("group export sanitize does not mutate its input", () => {
+function expectDoesNotMutateItsInput(sanitizeAssetForExport) {
   const asset = fullyLoadedAsset();
   sanitizeAssetForExport(asset);
   assert.equal(asset.image_path.startsWith("/Users/someone"), true, "the in-memory API object stays untouched");
-});
+}
 
-test("both twin-tree copies of sanitizeAssetForExport are byte-identical", async () => {
-  const marker = "export function sanitizeAssetForExport";
-  const extract = async (relativePath) => {
-    const source = await readFile(resolve(root, relativePath), "utf8");
-    const from = source.indexOf(marker);
-    assert.ok(from >= 0, `${relativePath} must define sanitizeAssetForExport`);
-    return source.slice(from);
-  };
-  assert.equal(await extract("web/app/utils.mjs"), await extract("desktop/app/utils.mjs"));
-});
+for (const [tree, sanitizeAssetForExport] of implementations) {
+  test(`group export sanitize removes every path and url field by name, recursively (${tree})`, () => {
+    expectRemovesEveryPathFieldByName(sanitizeAssetForExport);
+  });
+
+  test(`group export sanitize keeps user content, metadata, and the asset file name (${tree})`, () => {
+    expectKeepsUserContentMetadataAndAssetName(sanitizeAssetForExport);
+  });
+
+  test(`cowart-bridge source fields: _dir/_path/_url removed, id and tool kept (${tree})`, () => {
+    expectCowartBridgeSourceFields(sanitizeAssetForExport);
+  });
+
+  test(`group export sanitize does not mutate its input (${tree})`, () => {
+    expectDoesNotMutateItsInput(sanitizeAssetForExport);
+  });
+}
