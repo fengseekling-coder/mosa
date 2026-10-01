@@ -187,7 +187,7 @@
   --sidebar-width: 216px;
   --sidebar-width-narrow: 208px;
   --sidebar-width-compact: 56px;
-  --inspector-width: 320px;
+  --inspector-width: 344px;
   --inspector-width-compact: 340px;
   --topbar-height: 64px;
   --statusbar-height: 48px;
@@ -559,7 +559,6 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .detail-inspector-header { display: flex; min-height: var(--topbar-height); flex: 0 0 auto; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--color-border-subtle); color: var(--color-text-primary); background: var(--app-bg); font-size: 13px; font-weight: 600; }
 .detail-inspector-scroll { position: relative; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; }
 .detail-close { display: inline-flex; min-height: 36px; align-items: center; padding: 0 9px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); color: var(--color-text-secondary); background: var(--app-card); cursor: pointer; font-size: 11px; font-weight: 500; }
-.detail-image-wrap { display: flex; min-height: 200px; max-height: 42vh; align-items: center; justify-content: center; overflow: hidden; background: var(--app-sidebar); border-bottom: 1px solid var(--color-border-subtle); }
 .detail-image { display: block; width: 100%; max-height: 42vh; object-fit: contain; }
 .detail-video { background: var(--color-media-backdrop); }
 .detail-video-stack { display: flex; width: 100%; flex-direction: column; gap: 8px; align-items: center; }
@@ -599,7 +598,6 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .inspector-section { padding: 12px 16px 14px; border-top: 1px solid var(--color-border-subtle); }
 .inspector-section:first-child { border-top: 0; }
 .inspector-section[data-inspector-section="file"] { padding: 0 0 14px; }
-.detail-facts { padding: 12px 16px 0; }
 .inspector-readout { margin: 0; overflow: hidden; color: var(--color-text-primary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .user-instruction { margin-top: 12px; }
 /* Phase 4B 版本选择器：原生 select 直接复用全局表单基样（32px/focus 蓝环），无自制弹层；
@@ -1243,7 +1241,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   --color-media-text: #ffffff;
 }
 .mosa-v2 .detail .inspector-section { padding: 16px; border-top: 0; }.mosa-v2 .detail .inspector-section:first-child { padding-top: 16px; }
-.mosa-v2 .detail .detail-image-wrap, .mosa-v2 .detail .detail-disclosure { border-bottom: 0; border-top: 0; }.mosa-v2 .detail .detail-image-wrap { overflow: hidden; border-radius: 12px; }.mosa-v2 .detail .detail-head { padding: 12px 0 0; }.mosa-v2 .detail .detail-head h3 { font-size: 15px; font-weight: 600; }
+.mosa-v2 .detail .detail-disclosure { border-bottom: 0; border-top: 0; }.mosa-v2 .detail .detail-head { padding: 12px 0 0; }.mosa-v2 .detail .detail-head h3 { font-size: 15px; font-weight: 600; }
 .mosa-v2 .detail .detail-head p, .mosa-v2 .detail .meta-key, .mosa-v2 .detail .meta-val { color: #6e6e73; font-size: 12px; }:root[data-theme="dark"] .mosa-v2 .detail .detail-head p, :root[data-theme="dark"] .mosa-v2 .detail .meta-key, :root[data-theme="dark"] .mosa-v2 .detail .meta-val { color: #d1d1d6; }
 .mosa-v2 .detail .prompt-box, .mosa-v2 .detail .user-instruction .prompt-box, .mosa-v2 .detail textarea, .mosa-v2 .detail input, .mosa-v2 .detail select { border-color: rgb(60 60 67 / .16); border-radius: 12px; background: rgb(248 248 250 / .88); }:root[data-theme="dark"] .mosa-v2 .detail .prompt-box, :root[data-theme="dark"] .mosa-v2 .detail .user-instruction .prompt-box, :root[data-theme="dark"] .mosa-v2 .detail textarea, :root[data-theme="dark"] .mosa-v2 .detail input, :root[data-theme="dark"] .mosa-v2 .detail select { border-color: rgb(255 255 255 / .10); color: #f5f5f7; background: rgb(255 255 255 / .06); }
 .mosa-v2 .detail .detail-close, .mosa-v2 .detail .section-head-copy, .mosa-v2 .detail .detail-fav-btn { border-radius: 10px; }
@@ -1252,18 +1250,31 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
    compact visual unit. The previous sectioned treatment left the favorite
    action detached below the file facts. */
 .mosa-v2 .detail { overflow: hidden; }
-.mosa-v2 .detail-inspector-header { min-height: 56px; padding: 0 16px; border-bottom: 0; color: var(--color-text-primary); background: transparent; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
-.mosa-v2 .detail-inspector-header .detail-close { display: flex; width: 32px; height: 32px; min-height: 32px; flex: 0 0 32px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 10px; color: #6e6e73; background: rgb(242 242 247 / .92); cursor: pointer; transition: background 200ms var(--ease-standard), color 200ms var(--ease-standard); }
+.mosa-v2 .detail-inspector-header { min-height: var(--topbar-height); padding: 0 24px; border-bottom: 1px solid var(--color-border-subtle); color: var(--color-text-primary); background: transparent; font-size: 14px; font-weight: 640; letter-spacing: -.01em; }
+.mosa-v2 .detail-inspector-header .detail-close { display: flex; width: 28px; height: 28px; min-height: 28px; flex: 0 0 28px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--radius-card); color: #6e6e73; background: rgb(242 242 247 / .92); cursor: pointer; transition: background 200ms var(--ease-standard), color 200ms var(--ease-standard); }
 .mosa-v2 .detail-inspector-header .detail-close svg { width: 16px; height: 16px; }
-.mosa-v2 .detail .detail-overview { box-sizing: border-box; display: flex; min-height: 0; height: auto; flex-direction: column; gap: 12px; padding: 16px 16px 0; border-top: 0; overflow: visible; }
-.mosa-v2 .detail .detail-overview-heading { display: flex; height: 18px; min-width: 0; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; }
-.mosa-v2 .detail .detail-overview-heading h3 { flex: 0 0 auto; margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 600; line-height: 18px; }
-.mosa-v2 .detail .detail-overview-heading p { min-width: 0; margin: 0; overflow: hidden; color: #6e6e73; font-size: 12px; line-height: 18px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.mosa-v2 .detail .detail-overview-heading .detail-overview-open { min-width: 18px; min-height: 18px; flex: 0 0 18px; padding: 0; border: 0; border-radius: 5px; color: #6e6e73; background: transparent; cursor: pointer; }
-.mosa-v2 .detail .detail-overview .detail-image-wrap { width: 100%; min-height: 0; height: auto; max-height: none; flex: 0 0 auto; aspect-ratio: var(--detail-preview-aspect, 9 / 16); border: 0; border-radius: 12px; background: var(--app-search); }
-.mosa-v2 .detail .detail-overview .detail-image { width: 100%; height: 100%; max-height: none; object-fit: cover; }
-.mosa-v2 .detail .detail-overview-title-row { display: flex; height: 24px; min-width: 0; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; }
-.mosa-v2 .detail .detail-overview-title-row h3 { min-width: 0; margin: 0; overflow: hidden; color: var(--color-text-primary); font-size: 15px; font-weight: 600; letter-spacing: 0; line-height: 24px; text-overflow: ellipsis; white-space: nowrap; }
+/* R21 头部区块：左 132×132 预览小图 + 右侧信息两栏。区块与头部距离 20、
+   左右内边距 24、两栏间距 16，均走 4px 阶梯（--inspector-space-* = 4px 单位）。 */
+.mosa-v2 .detail .detail-overview { box-sizing: border-box; display: block; min-height: 0; height: auto; padding: var(--inspector-space-5) 24px 0; border-top: 0; overflow: visible; }
+.mosa-v2 .detail .asset-head { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: var(--inspector-space-4); align-items: start; }
+.mosa-v2 .detail .asset-mini { position: relative; width: 132px; aspect-ratio: 1 / 1; align-self: start; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--inspector-divider); border-radius: var(--radius-card); background: var(--app-search); }
+.mosa-v2 .detail .asset-mini .detail-video-stack,
+.mosa-v2 .detail .asset-mini img.detail-image,
+.mosa-v2 .detail .asset-mini video.detail-image { width: 100%; height: 100%; }
+.mosa-v2 .detail .asset-mini img.detail-image,
+.mosa-v2 .detail .asset-mini video.detail-image { object-fit: cover; }
+.mosa-v2 .detail .asset-meta-wrap { min-width: 0; display: flex; flex-direction: column; }
+.mosa-v2 .detail .asset-name-row { display: flex; min-width: 0; align-items: flex-start; gap: var(--inspector-space-2); }
+.mosa-v2 .detail .asset-name-row h3 { min-width: 0; flex: 1 1 auto; margin: 0; overflow: hidden; color: var(--color-text-primary); font-size: 14px; font-weight: 650; letter-spacing: -.1px; line-height: 20px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: ellipsis; word-break: break-all; }
+.mosa-v2 .detail .asset-name-row .detail-overview-open { display: inline-grid; width: 28px; height: 28px; min-width: 28px; min-height: 28px; flex: 0 0 28px; padding: 0; place-items: center; border: 0; border-radius: var(--inspector-radius-sm); color: var(--color-text-secondary); background: transparent; cursor: pointer; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
+.mosa-v2 .detail .asset-kind { min-width: 0; margin: var(--inspector-space-1) 0 0; overflow: hidden; color: var(--color-text-tertiary); font-size: 10px; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .detail .head-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--inspector-space-2); row-gap: var(--inspector-space-1); margin-top: var(--inspector-space-2); }
+.mosa-v2 .detail .head-facts .meta-row { display: contents; }
+.mosa-v2 .detail .head-facts .meta-key { min-width: 0; font-size: 10px; line-height: 14px; }
+.mosa-v2 .detail .head-facts .meta-val { min-width: 0; overflow: hidden; font-size: 10px; line-height: 14px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+:root[data-theme="light"] .mosa-v2 .detail .head-facts .meta-key { color: #a0a0a6; }
+:root[data-theme="light"] .mosa-v2 .detail .head-facts .meta-val { color: #636369; }
+:root[data-theme="light"] .mosa-v2 .detail .asset-kind { color: #8d8d93; }
 /* #detailTitle receives programmatic focus when the inspector opens so screen
    readers land in the new context.  It is not an interactive control, and a
    persistent ring here reads as a text cursor in the V2 title row. */
@@ -1271,17 +1282,14 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-fav-btn { display: inline-flex; height: 24px; min-height: 24px; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 8px; border: 0; border-radius: 9px; color: #6e6e73; background: rgb(242 242 247 / .90); font-size: 12px; font-weight: 500; line-height: 16px; }
 .mosa-v2 .detail .detail-fav-btn > span:first-child { font-size: 15px; line-height: 1; }
 .mosa-v2 .detail .detail-fav-btn.is-fav { border: 0; color: #2424ff; background: rgb(36 36 255 / .10); }
-.mosa-v2 .detail .detail-facts { display: flex; min-width: 0; height: 24px; flex: 0 0 auto; gap: 4px; padding: 0; overflow-x: auto; overflow-y: hidden; }
-.mosa-v2 .detail .detail-fact-tag, .mosa-v2 .detail .detail-tag { display: inline-flex; min-height: 24px; flex: 0 0 auto; align-items: center; padding: 0 8px; border: 1px solid var(--color-border-subtle); border-radius: 999px; color: var(--color-text-secondary); background: var(--app-sidebar); font-size: 11px; line-height: 1; white-space: nowrap; }
+.mosa-v2 .detail .detail-tag { display: inline-flex; min-height: 24px; flex: 0 0 auto; align-items: center; padding: 0 8px; border: 1px solid var(--color-border-subtle); border-radius: 999px; color: var(--color-text-secondary); background: var(--app-sidebar); font-size: 11px; line-height: 1; white-space: nowrap; }
 .mosa-v2 .detail .detail-source-tag { color: var(--color-text-primary); font-weight: 600; }
 .mosa-v2 .detail .detail-tags-section { display: flex; min-width: 0; min-height: 24px; align-items: flex-start; padding: 0 16px 16px; border-top: 0; }
 .mosa-v2 .detail .detail-tags-row { display: flex; min-width: 0; align-items: flex-start; gap: 6px; padding: 2px 0; overflow: visible; flex-wrap: wrap; }
 .mosa-v2 .detail .detail-tags-add { display: inline-flex; height: 24px; min-height: 24px; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 8px; border: 1px dashed var(--color-border-default); border-radius: 999px; color: var(--color-accent); background: transparent; font-size: 11px; white-space: nowrap; }
 :root[data-theme="dark"] .mosa-v2 .detail-inspector-header { color: #f5f5f7; }
-:root[data-theme="dark"] .mosa-v2 .detail-inspector-header .detail-close, :root[data-theme="dark"] .mosa-v2 .detail .detail-fav-btn, :root[data-theme="dark"] .mosa-v2 .detail .detail-fact-tag { color: #d1d1d6; background: rgb(255 255 255 / .10); }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-overview-heading h3, :root[data-theme="dark"] .mosa-v2 .detail .detail-overview-title-row h3 { color: #f5f5f7; }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-overview-heading p { color: #a1a1a6; }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-overview-heading .detail-overview-open { color: #a1a1a6; }
+:root[data-theme="dark"] .mosa-v2 .detail-inspector-header .detail-close, :root[data-theme="dark"] .mosa-v2 .detail .detail-fav-btn { color: #d1d1d6; background: rgb(255 255 255 / .10); }
+:root[data-theme="dark"] .mosa-v2 .detail .asset-name-row .detail-overview-open { color: #a1a1a6; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-fav-btn.is-fav { color: #7e7eff; background: rgb(126 126 255 / .18); }
 
 /* V2 Inspector section headers: compact 13px/18px row with copy icon */
@@ -1916,16 +1924,17 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   box-sizing: border-box;
   height: var(--topbar-height);
   min-height: var(--topbar-height);
-  padding: 0 var(--inspector-space-4);
+  /* R21：左右 24、背景透明（沿用面板底色）。这一组规则晚于上面 1253 行那条，实际生效的是这里。 */
+  padding: 0 var(--r21-s6);
   border-bottom: 1px solid var(--inspector-divider);
-  background: var(--app-card);
+  background: transparent;
 }
 .mosa-v2 .detail-inspector-header > span {
   min-width: 0;
   flex: 1 1 auto;
   overflow: hidden;
-  font-size: 17px;
-  font-weight: 650;
+  font-size: 14px;
+  font-weight: 640;
   line-height: 24px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1937,9 +1946,9 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   font-weight: 600;
 }
 .mosa-v2 .detail-inspector-header .detail-close {
-  width: 32px;
-  height: 32px;
-  min-height: 32px;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
   border: 0;
   border-radius: var(--inspector-radius-sm);
   background: var(--app-search);
@@ -1949,11 +1958,15 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   display: flex;
   flex-direction: column;
   gap: 0;
-  padding: 0 0 var(--inspector-space-6);
+  padding: 0 0 var(--r21-s7);
   scroll-padding: var(--inspector-space-4);
   scrollbar-gutter: stable;
   background: var(--app-card);
 }
+/* R21 检视器外框新颜色（仅浅色；深色保持现状）：面板底色与左右边线。 */
+:root[data-theme="light"] .mosa-v2 .detail { background: #fbfbfc; border-left-color: #e7e7ea; }
+:root[data-theme="light"] .mosa-v2 .detail-inspector-header { border-bottom-color: #e7e7ea; }
+:root[data-theme="light"] .mosa-v2 .detail-inspector-scroll { background: #fbfbfc; }
 .mosa-v2 .detail-inspector-scroll > .inspector-section {
   box-sizing: border-box;
   min-width: 0;
@@ -1970,79 +1983,11 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .stack-inspector-member > span { position: absolute; right: 6px; bottom: 6px; display: inline-grid; min-width: 18px; height: 18px; place-items: center; padding: 0 5px; border-radius: 999px; color: var(--color-media-text); background: rgb(0 0 0 / .52); font-size: 10px; font-weight: 600; line-height: 18px; }
 .mosa-v2 .detail .stack-inspector-status { padding: 36px 12px; color: var(--color-text-secondary); font-size: 12px; text-align: center; }
 .mosa-v2 .detail .stack-inspector-status.is-error { color: var(--color-danger); }
-.mosa-v2 .detail .detail-overview {
-  gap: var(--inspector-space-3);
-  padding: var(--inspector-space-5) var(--inspector-space-4) var(--inspector-space-2);
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-.mosa-v2 .detail .detail-overview-heading {
-  height: 28px;
-  min-height: 28px;
-  overflow: visible;
-}
-.mosa-v2 .detail .detail-overview-heading h3,
 .mosa-v2 .detail .detail-prompt-head h3,
 .mosa-v2 .detail .detail-prompt-subhead h4 {
   font-size: 13px;
   font-weight: 650;
   line-height: 20px;
-}
-.mosa-v2 .detail .detail-overview-heading p {
-  flex: 1 1 auto;
-  font-size: 11px;
-  line-height: 20px;
-}
-.mosa-v2 .detail .detail-overview-heading .detail-overview-open {
-  display: inline-grid;
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  min-height: 28px;
-  flex: 0 0 28px;
-  padding: 0;
-  place-items: center;
-  border: 0;
-  border-radius: var(--inspector-radius-sm);
-  color: var(--color-text-secondary);
-  background: transparent;
-  cursor: pointer;
-  text-decoration: none;
-  transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
-}
-.mosa-v2 .detail .detail-overview .detail-image-wrap {
-  width: 100%;
-  height: auto;
-  min-height: 0;
-  max-height: none;
-  flex: 0 0 auto;
-  aspect-ratio: var(--detail-preview-aspect, 9 / 16);
-  overflow: hidden;
-  border-radius: var(--inspector-radius-md);
-  background: var(--app-search);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text-primary) 6%, transparent);
-}
-.mosa-v2 .detail .detail-overview .detail-image {
-  width: 100%;
-  height: 100%;
-  max-height: none;
-  object-fit: cover;
-}
-.mosa-v2 .detail .detail-overview-title-row {
-  min-height: 28px;
-  height: auto;
-  align-items: center;
-  gap: var(--inspector-space-2);
-  overflow: visible;
-}
-.mosa-v2 .detail .detail-overview-title-row h3 {
-  overflow: hidden;
-  font-size: 15px;
-  font-weight: 650;
-  line-height: 20px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .mosa-v2 .detail .detail-fav-btn {
   height: 28px;
@@ -2052,15 +1997,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   background: transparent;
   align-self: flex-start;
 }
-.mosa-v2 .detail .detail-facts {
-  height: 24px;
-  gap: var(--inspector-space-1);
-  flex-wrap: nowrap;
-  scrollbar-width: none;
-}
-.mosa-v2 .detail .detail-facts::-webkit-scrollbar { height: 0; }
-.mosa-v2 .detail .detail-fact-tag { flex: 0 0 auto; white-space: nowrap; }
-.mosa-v2 .detail .detail-fact-tag,
 .mosa-v2 .detail .detail-tag {
   min-height: 24px;
   padding: 0 6px;
@@ -2355,7 +2291,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 @media (hover: hover) and (pointer: fine) {
   .mosa-v2 .detail-inspector-header .detail-close:hover,
   .mosa-v2 .detail .detail-fav-btn:hover,
-  .mosa-v2 .detail .detail-overview-heading .detail-overview-open:hover,
+  .mosa-v2 .detail .asset-name-row .detail-overview-open:hover,
   .mosa-v2 .detail .detail-prompt-head .section-head-copy:hover,
   .mosa-v2 .detail .detail-source-copy .section-head-copy:hover,
   .mosa-v2 .detail .detail-copy-sub:hover,
@@ -2366,7 +2302,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 }
 .mosa-v2 .detail-inspector-header .detail-close:active,
 .mosa-v2 .detail .detail-fav-btn:active,
-.mosa-v2 .detail .detail-overview-heading .detail-overview-open:active,
+.mosa-v2 .detail .asset-name-row .detail-overview-open:active,
 .mosa-v2 .detail .detail-source-copy .section-head-copy:active,
 .mosa-v2 .detail .section-head-copy:active,
 .mosa-v2 .detail .detail-tags-add:active {
@@ -2424,7 +2360,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   }
   .mosa-v2 .detail-inspector-header .detail-close:active,
   .mosa-v2 .detail .detail-fav-btn:active,
-  .mosa-v2 .detail .detail-overview-heading .detail-overview-open:active,
+  .mosa-v2 .detail .asset-name-row .detail-overview-open:active,
   .mosa-v2 .detail .section-head-copy:active,
   .mosa-v2 .detail .detail-tags-add:active,
   .mosa-v2 .settings-modal-close:active,
@@ -2449,3 +2385,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-prompt-toggle.is-active { color: var(--color-text-primary); font-weight: 600; cursor: default; }
 .mosa-v2 .detail .detail-prompt-toggle:focus-visible { border-radius: 4px; outline: 2px solid var(--color-focus-ring, #0a84ff); outline-offset: 2px; }
 .mosa-v2 .detail .detail-prompt-box[hidden] { display: none; }
+/* R21 头部标题行：收藏按钮只显示星形图标，把宽度让给标题（按钮自带 aria-label，读屏名称不变）。 */
+.mosa-v2 .asset-name-row .detail-fav-btn { width: 28px; min-width: 28px; height: 28px; min-height: 28px; justify-content: center; padding: 0; }
+.mosa-v2 .asset-name-row .detail-fav-btn > span:not([aria-hidden]) { display: none; }

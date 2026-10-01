@@ -221,11 +221,14 @@ test("keeps recipe version history navigable without replacing active edits", as
 });
 
 test("provides an accessible single-column detail panel", async () => {
-  const [app, css, i18n, inspector] = await Promise.all([
+  // R23（R21 检视器头部）：web 头部区块重排、标题文案改为「素材详情」；
+  // 旧头部结构与标题文案的断言锁桌面端（i18n / inspector 的桌面读取仅服务这些断言）。
+  const [app, css, i18n, inspector, inspectorDesktop] = await Promise.all([
     readFile(resolve(root, "desktop/app/app.mjs"), "utf8"),
     readFile(resolve(root, "desktop/app/styles.css"), "utf8"),
-    readFile(resolve(root, "web/app/i18n.mjs"), "utf8"),
+    readFile(resolve(root, "desktop/app/i18n.mjs"), "utf8"),
     readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8"),
+    readFile(resolve(root, "desktop/app/inspector-markup.mjs"), "utf8"),
   ]);
 
   // Phase 4A：三 Tab 合并为批准的单栏信息架构——无 tab 角色；#detailTitle 仍是焦点
@@ -245,7 +248,7 @@ test("provides an accessible single-column detail panel", async () => {
   assert.doesNotMatch(app.slice(bindDetailEventsStart, bindDetailEventsEnd), /data-action="close-detail"/,
     "detail re-renders must not accumulate duplicate close listeners");
   assert.match(inspector, /data-action="toggle-favorite" aria-pressed="\$\{favorite\}"/);
-  assert.match(inspector, /class="detail-facts" role="group" aria-label=/);
+  assert.match(inspectorDesktop, /class="detail-facts" role="group" aria-label=/);
   assert.match(inspector, /<details class="detail-disclosure"><summary>\$\{t\("versionHistory"\)\}<\/summary>/);
   const renderDetailStart = app.indexOf("function renderDetail(");
   const renderDetailEnd = app.indexOf("\nfunction ", renderDetailStart + 1);
