@@ -1532,29 +1532,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .settings-modal-close:active { transform: scale(.94); }
 .mosa-v2 .settings-modal-close svg { display: block; flex-shrink: 0; }
 .mosa-v2 .settings-modal-body { min-height: 0; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; padding: 0 24px 20px; scrollbar-gutter: stable; }
-.mosa-v2 .settings-block { position: relative; }
-.mosa-v2 .settings-block + .settings-block { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--color-border-subtle); }
-.mosa-v2 .settings-block > h3 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 5px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: -.005em;
-  line-height: 18px;
-}
-.mosa-v2 .settings-block > h3::before {
-  width: 3px;
-  height: 12px;
-  flex: 0 0 3px;
-  border-radius: 999px;
-  background: rgb(83 83 255 / .72);
-  content: "";
-}
 .mosa-v2 .settings-modal-row { position: relative; box-sizing: border-box; display: grid; grid-template-columns: 24px minmax(0, 1fr) 164px; align-items: center; column-gap: 12px; min-height: 52px; padding: 8px 0; }
-.mosa-v2 .settings-block > .settings-modal-row:not(:last-child)::after { position: absolute; right: 0; bottom: 0; left: 36px; height: 1px; background: var(--color-border-subtle); content: ""; }
 .mosa-v2 .settings-row-icon { display: grid; width: 24px; height: 24px; place-items: center; color: var(--color-text-secondary); }
 .mosa-v2 .settings-row-icon svg { width: 16px; height: 16px; }
 .mosa-v2 .settings-row-copy { min-width: 0; }
@@ -1587,7 +1565,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 }
 :root[data-theme="dark"] .mosa-v2 .settings-menu { background: rgb(0 0 0 / .56); }
 :root[data-theme="dark"] .mosa-v2 .settings-modal-card { border-color: rgb(255 255 255 / .1); background: rgb(29 29 33 / .96); box-shadow: 0 34px 90px -26px rgb(0 0 0 / .8), inset 0 0 0 1px rgb(255 255 255 / .04); }
-:root[data-theme="dark"] .mosa-v2 .settings-block > h3::before { background: rgb(126 126 255 / .82); }
 :root[data-theme="dark"] .mosa-v2 .settings-menu .segmented { border-color: rgb(255 255 255 / .09); background: rgb(255 255 255 / .055); }
 :root[data-theme="dark"] .mosa-v2 .settings-menu .segmented-thumb { background: rgb(126 126 255 / .18); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .035); }
 :root[data-theme="dark"] .mosa-v2 .settings-menu .segmented-btn.active { color: #fff; background: transparent; }
@@ -1604,7 +1581,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .settings-row-control { grid-column: 2; width: auto; justify-content: flex-start; }
   .mosa-v2 .settings-inline-actions { flex-wrap: wrap; }
   .mosa-v2 .settings-library-row .settings-row-control { margin-top: 2px; }
-  .mosa-v2 .settings-block > h3 { margin-left: 0; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .mosa-v2 .settings-menu,
@@ -2761,4 +2737,337 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   border-color: transparent;
   background: #e0e0e4;
   color: #26262b;
+}
+
+/* ===== R21 设置弹窗（任务 25）：单栏改两栏（168px 分类导航 + 1fr 内容页）。 =====
+   结构类名见 app.mjs renderSettingsMenu：.settings-modal-sidebar / -brand /
+   -nav（role="tablist"）/ .settings-nav-tab / -foot / .settings-local-first /
+   .settings-modal-main / .settings-page(-head/-title/-desc) / .settings-group。
+   本块追加在文件末尾：同选择器以上面几组旧规则为准的地方，这里最后生效；
+   新颜色只写 :root[data-theme="light"] 作用域，深色沿用既有 token；新加字号 ≥10px。 */
+
+.mosa-v2 .settings-modal-card {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  width: 792px;
+  height: 592px;
+  max-height: none;
+  border-radius: 16px;
+}
+.mosa-v2 .settings-modal-sidebar {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  padding: 0 12px 16px;
+  border-right: 1px solid transparent;
+}
+:root[data-theme="light"] .mosa-v2 .settings-modal-sidebar {
+  border-right-color: #e7e7ea;
+  background: #fbfbfc;
+}
+.mosa-v2 .settings-modal-brand {
+  display: flex;
+  height: 56px;
+  flex: 0 0 56px;
+  align-items: center;
+  margin: 0 -12px 8px;
+  padding: 0 16px;
+  border-bottom: 1px solid transparent;
+}
+:root[data-theme="light"] .mosa-v2 .settings-modal-brand {
+  border-bottom-color: #e7e7ea;
+}
+.mosa-v2 .settings-modal-brand h2 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -.01em;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mosa-v2 .settings-modal-nav {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--r21-s1);
+  overflow-y: auto;
+}
+.mosa-v2 .settings-nav-tab {
+  display: flex;
+  width: 100%;
+  height: 32px;
+  flex: 0 0 32px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--r21-s2);
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--inspector-radius-sm);
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+}
+.mosa-v2 .settings-nav-tab svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+.mosa-v2 .settings-nav-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mosa-v2 .settings-nav-tab.active {
+  color: var(--color-text-primary);
+  background: var(--app-hover);
+  font-weight: 590;
+}
+:root[data-theme="light"] .mosa-v2 .settings-nav-tab {
+  color: #5f5f65;
+}
+:root[data-theme="light"] .mosa-v2 .settings-nav-tab.active {
+  color: #202024;
+  background: #ececef;
+}
+@media (hover: hover) and (pointer: fine) {
+  /* 浅色覆盖特异性更高，会吞掉基础 ：where hover 的文字色：按原语义补回。 */
+  :root[data-theme="light"] .mosa-v2 .settings-nav-tab:not(.active):hover {
+    color: var(--color-text-primary);
+  }
+}
+.mosa-v2 .settings-modal-foot {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid transparent;
+}
+:root[data-theme="light"] .mosa-v2 .settings-modal-foot {
+  border-top-color: #e7e7ea;
+}
+.mosa-v2 .settings-local-first {
+  display: flex;
+  gap: var(--r21-s2);
+  align-items: flex-start;
+}
+.mosa-v2 .settings-local-first > svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  margin-top: 1px;
+  color: var(--color-text-tertiary);
+}
+.mosa-v2 .settings-local-first-copy {
+  min-width: 0;
+}
+.mosa-v2 .settings-local-first-copy strong {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+}
+.mosa-v2 .settings-local-first-copy p {
+  margin: 2px 0 0;
+  padding: 0;
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  line-height: 14px;
+}
+.mosa-v2 .settings-modal-main {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+.mosa-v2 .settings-modal-header {
+  height: 56px;
+  flex: 0 0 56px;
+  align-items: center;
+  padding: 0 20px;
+  border-bottom: 1px solid transparent;
+}
+:root[data-theme="light"] .mosa-v2 .settings-modal-header {
+  border-bottom-color: #e7e7ea;
+}
+.mosa-v2 .settings-modal-header h2 {
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -.01em;
+}
+.mosa-v2 .settings-modal-close {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+}
+.mosa-v2 .settings-modal-body {
+  padding: 20px 24px 28px;
+}
+.mosa-v2 .settings-page-head {
+  margin-bottom: 16px;
+}
+.mosa-v2 .settings-page-title {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 17px;
+  font-weight: 660;
+  letter-spacing: -.01em;
+  line-height: 24px;
+}
+.mosa-v2 .settings-page-desc {
+  margin: 6px 0 0;
+  padding: 0;
+  color: var(--color-text-tertiary);
+  font-size: 10.5px;
+  line-height: 15px;
+}
+:root[data-theme="light"] .mosa-v2 .settings-page-desc {
+  color: #919197;
+}
+.mosa-v2 .settings-group {
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--inspector-radius-md);
+}
+:root[data-theme="light"] .mosa-v2 .settings-group {
+  border-color: #e7e7ea;
+}
+.mosa-v2 .settings-group .settings-modal-row {
+  min-height: 56px;
+  padding: 12px 16px;
+}
+.mosa-v2 .settings-group .settings-modal-row:not(:last-child)::after {
+  position: absolute;
+  right: 16px;
+  bottom: 0;
+  left: 52px;
+  height: 1px;
+  background: var(--color-border-subtle);
+  content: "";
+}
+:root[data-theme="light"] .mosa-v2 .settings-group .settings-modal-row:not(:last-child)::after {
+  background: #efeff1;
+}
+.mosa-v2 .settings-row-copy h4 {
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 580;
+  line-height: 18px;
+}
+.mosa-v2 .settings-row-copy p {
+  padding: 0;
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  line-height: 14px;
+}
+:root[data-theme="light"] .mosa-v2 .settings-row-copy p {
+  color: #9a9aa0;
+}
+.mosa-v2 .settings-path {
+  max-width: 352px;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:root[data-theme="light"] .mosa-v2 .settings-path {
+  color: #8e8e94;
+}
+.mosa-v2 .settings-text-action {
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--inspector-radius-sm);
+}
+.mosa-v2 .settings-menu .segmented {
+  box-sizing: border-box;
+  width: 156px;
+  height: 32px;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--inspector-radius-sm);
+}
+.mosa-v2 .settings-menu .segmented-thumb {
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / 2);
+  border-radius: 6px;
+}
+.mosa-v2 .settings-menu .segmented-btn {
+  height: 24px;
+  border-radius: 6px;
+  font-size: 10px;
+}
+:root[data-theme="light"] .mosa-v2 .settings-menu .segmented {
+  background: #f1f1f3;
+}
+:root[data-theme="light"] .mosa-v2 .settings-menu .segmented-thumb {
+  display: none;
+}
+:root[data-theme="light"] .mosa-v2 .settings-menu .segmented-btn.active {
+  color: #303035;
+  background: #fff;
+  font-weight: 590;
+  box-shadow: 0 0 0 1px #e2e2e5 inset;
+}
+
+/* 窄窗口（<840px，R21 未给规格的降级）：宽度取视口 - 32，高度自适应封顶；
+   左栏压成顶部一行横向分类按钮（可横滚），本地优先说明隐藏。 */
+@media (max-width: 839px) {
+  .mosa-v2 .settings-menu {
+    padding: 16px;
+  }
+  .mosa-v2 .settings-modal-card {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: auto;
+    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
+  }
+  .mosa-v2 .settings-modal-sidebar {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--r21-s2);
+    padding: 8px 12px;
+    border-right: 0;
+    border-bottom: 1px solid transparent;
+  }
+  :root[data-theme="light"] .mosa-v2 .settings-modal-sidebar {
+    border-bottom-color: #e7e7ea;
+  }
+  .mosa-v2 .settings-modal-brand {
+    height: auto;
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 0;
+    border-bottom: 0;
+  }
+  .mosa-v2 .settings-modal-nav {
+    flex: 1 1 auto;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 2px 0;
+  }
+  .mosa-v2 .settings-nav-tab {
+    width: auto;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .mosa-v2 .settings-modal-foot {
+    display: none;
+  }
+  .mosa-v2 .settings-modal-body {
+    padding: 16px 16px 24px;
+  }
 }

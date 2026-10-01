@@ -52,12 +52,18 @@ export async function run(ctx) {
     const cardInfoHidden = await ctx.runInPage(server, cardInfoHideSource());
     assertCardInfoHiddenAgain(cardInfoHidden);
 
+    // 任务 25: the two-pane settings pages. Default page, category switching,
+    // roving arrow-key navigation and the language-rebuild focus contract.
+    const pages = await ctx.runInPage(server, settingsPagesSource());
+    assertSettingsPages(pages);
+
     return {
       seededIds,
       lifecycle: opened,
       persisted,
       empties,
       cardInfo: { default: cardInfoDefault, shown: cardInfoShown, persisted: cardInfoPersisted, hidden: cardInfoHidden },
+      pages,
     };
   } finally {
     await server.stop();
@@ -217,7 +223,109 @@ function assertCardInfoHiddenAgain(r) {
   expect(r.infoDisplay === "none", `card info did not return to hidden: ${dump}`);
 }
 
+// 任务 25: the two-pane settings pages (常规与外观 / 素材库与存储 / 本地视觉能力 /
+// 关于 MOSA). Locks the default page, category switching with panel visibility,
+// the roving arrow-key navigation and the language-rebuild focus contract.
+function assertSettingsPages(r) {
+  const dump = JSON.stringify(r);
+  expect(r?.default?.selected.join(",") === "true,false,false,false",
+    `settings must open on 常规与外观 with only it selected: ${dump}`);
+  expect(r.default.hidden.join(",") === "false,true,true,true",
+    `the three inactive panels must carry the hidden attribute: ${dump}`);
+  expect(r.library?.generalHidden === true && r.library.pathVisible === true,
+    `素材库与存储 must show its panel and reveal the library path: ${dump}`);
+  expect(r.library?.headTitle === "素材库与存储",
+    `the right-pane header must show the current category name: ${dump}`);
+  expect(r.keyboard?.visualSelected === true && r.keyboard.focusOnVisualTab === true,
+    `ArrowDown must move selection and focus to the next category: ${dump}`);
+  expect(r.keyboard?.libraryHidden === true && r.keyboard.visualPanelVisible === true,
+    `ArrowDown must swap panel visibility: ${dump}`);
+  expect(r.homeKey?.selected === true && r.homeKey.focusOnGeneralTab === true,
+    `Home must return to the first category with focus: ${dump}`);
+  expect(r.endKey?.selected === true,
+    `End must jump to the last category: ${dump}`);
+  expect(r.rebuild?.pageKept === true,
+    `the language rebuild must keep the current category: ${dump}`);
+  expect(r.rebuild?.focusOffBody === true && r.rebuild.focusInMenu === true,
+    `focus must not drop to body after the language rebuild: ${dump}`);
+  expect(r.rebuild?.focusIsLocaleButton === true,
+    `focus should land near the locale control after the rebuild: ${dump}`);
+  expect(r.closed === true, `settings should close after the pages check: ${dump}`);
+}
+
 // ===== in-page sources =====
+
+function settingsPagesSource() {
+  return `(async () => {
+    ${PAGE_HELPERS}
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards for the pages check');
+    click('#settingsToggle');
+    await waitFor(() => !document.querySelector('#settingsMenu')?.hidden, 'settings opens for the pages check');
+    const tab = (page) => document.querySelector('#settingsMenu [data-settings-page="' + page + '"]');
+    const panel = (page) => document.querySelector('#settingsMenu [data-settings-panel="' + page + '"]');
+    const PAGES = ['general', 'library', 'visual', 'about'];
+    const result = {};
+
+    // 1) 默认停在「常规与外观」：aria-selected 正确，其余三页 hidden。
+    await waitFor(() => tab('general')?.getAttribute('aria-selected') === 'true', 'general selected by default');
+    result.default = {
+      selected: PAGES.map((page) => tab(page)?.getAttribute('aria-selected')),
+      hidden: PAGES.map((page) => panel(page)?.hidden === true),
+    };
+
+    // 2) 点「素材库与存储」：面板显示、素材库路径可见、右栏标题跟分类名。
+    tab('library').click();
+    await waitFor(() => panel('library')?.hidden === false, 'library panel visible');
+    const pathNode = document.querySelector('#settingsMenu [data-settings-library-path]');
+    result.library = {
+      generalHidden: panel('general')?.hidden === true,
+      pathVisible: Boolean(pathNode) && pathNode.offsetWidth > 0 && pathNode.getBoundingClientRect().height > 0,
+      headTitle: document.querySelector('#settingsMenu [data-settings-active-title]')?.textContent || '',
+    };
+
+    // 3) 焦点在导航上按 ↓：切到下一分类且焦点跟着走；Home / End 到首 / 末。
+    tab('library').focus();
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    await waitFor(() => tab('visual')?.getAttribute('aria-selected') === 'true', 'ArrowDown activates the next category');
+    result.keyboard = {
+      visualSelected: tab('visual')?.getAttribute('aria-selected') === 'true',
+      focusOnVisualTab: document.activeElement === tab('visual'),
+      libraryHidden: panel('library')?.hidden === true,
+      visualPanelVisible: panel('visual')?.hidden === false,
+    };
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+    await waitFor(() => tab('general')?.getAttribute('aria-selected') === 'true', 'Home returns to general');
+    result.homeKey = {
+      selected: tab('general')?.getAttribute('aria-selected') === 'true',
+      focusOnGeneralTab: document.activeElement === tab('general'),
+    };
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
+    await waitFor(() => tab('about')?.getAttribute('aria-selected') === 'true', 'End jumps to about');
+    result.endKey = { selected: tab('about')?.getAttribute('aria-selected') === 'true' };
+
+    // 4) 在「常规与外观」切语言触发重绘：仍停在当前分类，焦点不丢到 body。
+    tab('general').click();
+    await waitFor(() => panel('general')?.hidden === false, 'back on general');
+    const localeValue = document.documentElement.lang === 'en' ? 'zh' : 'en';
+    document.querySelector('#settingsMenu [data-locale="' + localeValue + '"]').click();
+    await waitFor(() => document.documentElement.lang === localeValue, 'locale switched for the rebuild check');
+    await waitFor(() => document.activeElement?.dataset?.locale === localeValue, 'focus lands near the locale control after rebuild');
+    result.rebuild = {
+      pageKept: tab('general')?.getAttribute('aria-selected') === 'true',
+      focusOffBody: document.activeElement !== document.body,
+      focusInMenu: document.querySelector('#settingsMenu').contains(document.activeElement),
+      focusIsLocaleButton: document.activeElement?.dataset?.locale === localeValue,
+    };
+    // 还原语言，不给后续阶段留状态。
+    document.querySelector('#settingsMenu [data-locale="' + (localeValue === 'en' ? 'zh' : 'en') + '"]').click();
+    await waitFor(() => document.documentElement.lang === (localeValue === 'en' ? 'zh-CN' : 'en'), 'locale restored');
+
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await waitFor(() => document.querySelector('#settingsMenu')?.hidden === true, 'settings closes after the pages check');
+    result.closed = document.querySelector('#settingsMenu')?.hidden === true;
+    return result;
+  })()`;
+}
 
 function settingsLifecycleSource(config) {
   return `(async () => {
@@ -315,13 +423,25 @@ function settingsLifecycleSource(config) {
     };
 
     // Read-only info + web-mode library buttons (observed, never clicked).
+    // 任务 25 两栏布局：不在当前分类的控件是隐藏的——读取前先切到对应分类。
+    const openPage = async (page) => {
+      const pageTab = document.querySelector('#settingsMenu [data-settings-page="' + page + '"]');
+      if (pageTab?.getAttribute('aria-selected') !== 'true') {
+        pageTab.click();
+        await waitFor(() => document.querySelector('#settingsMenu [data-settings-page="' + page + '"]')?.getAttribute('aria-selected') === 'true', page + ' tab selected');
+      }
+      await waitFor(() => document.querySelector('#settingsMenu [data-settings-panel="' + page + '"]')?.hidden === false, page + ' panel visible');
+    };
+    await openPage('library');
     const readOnly = {
       libraryPathText: document.querySelector('#settingsMenu [data-settings-library-path]')?.textContent || '',
       storageText: document.querySelector('#settingsMenu [data-settings-storage-engine]')?.textContent || '',
-      versionText: document.querySelector('#settingsMenu [data-settings-version]')?.textContent || '',
       hasChangeLibraryButton: Boolean(document.querySelector('#settingsMenu [data-change-library]')),
       hasOpenLibraryButton: Boolean(document.querySelector('#settingsMenu [data-open-library]')),
     };
+    await openPage('about');
+    readOnly.versionText = document.querySelector('#settingsMenu [data-settings-version]')?.textContent || '';
+    await openPage('general');
 
     click('#settingsMenu .settings-modal-close');
     await waitFor(menuHidden, 'settings closes via its close button');

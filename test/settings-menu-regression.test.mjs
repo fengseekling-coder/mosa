@@ -144,18 +144,20 @@ test("settings popover remains inside the visible desktop viewport", async () =>
 });
 
 test("settings is the single surface for preferences, storage, and about", async () => {
-  const [html, app, css] = await Promise.all([
+  const [html, app, css, desktopApp] = await Promise.all([
     readFile(resolve(root, "web/app/index.html"), "utf8"),
     readFile(resolve(root, "web/app/app.mjs"), "utf8"),
     readFile(resolve(root, "desktop/app/styles.css"), "utf8"),
+    readFile(resolve(root, "desktop/app/app.mjs"), "utf8"),
   ]);
 
   assert.doesNotMatch(html, /accountModal|accountToggle/, "standalone About UI is removed");
   assert.doesNotMatch(app, /openAccountModal|closeAccountModal|trapAccountModalFocus/, "standalone About behavior is removed");
   assert.doesNotMatch(css, /account-modal-card|account-modal-overlay/, "standalone About styles are removed");
   assert.match(app, /data-settings-library-path/, "the local library path is visible in the unified Settings surface");
-  assert.doesNotMatch(app, /settingsLocalFirst|preferencesSubtitle|settings-header-mark|headerIcon/,
-    "Settings avoids redundant explanatory copy and decorative header chrome");
+  // R21 两栏设置把「本地优先」说明放进了 Web 端左栏；这条反模式断言改锁桌面端。
+  assert.doesNotMatch(desktopApp, /settingsLocalFirst|preferencesSubtitle|settings-header-mark|headerIcon/,
+    "the frozen desktop Settings keeps avoiding redundant explanatory copy and decorative header chrome");
   assert.match(app, /data-change-library/, "Settings exposes library relocation when the desktop bridge supports it");
   assert.match(app, /state\.libraryRoot \|\| state\.libraryPath/, "Settings opens the library root rather than only the active project folder");
   assert.match(app, /function openSettingsModal\(\)[\s\S]*?renderSettingsMenu\(\);[\s\S]*?els\.settingsMenu\.hidden = false/,
@@ -164,13 +166,15 @@ test("settings is the single surface for preferences, storage, and about", async
     "Settings initially focuses the dialog container without forcing a close-button focus ring");
 });
 
-test("settings uses one compact surface instead of category navigation", async () => {
-  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
+test("the frozen desktop settings keeps the single compact surface without category navigation", async () => {
+  const app = await readFile(resolve(root, "desktop/app/app.mjs"), "utf8");
 
   assert.doesNotMatch(app, /SETTINGS_SECTIONS|settingsSection|settings-section-tabs|settings-modal-rail/,
-    "Settings must not keep category state or a navigation rail");
+    "desktop Settings must not keep category state or a navigation rail");
   assert.doesNotMatch(app, /role="tab"|role="tabpanel"|data-settings-section/,
-    "the compact Settings surface has no fake multi-page tab semantics");
+    "the frozen desktop Settings has no fake multi-page tab semantics");
+  assert.doesNotMatch(app, /handleSettingsMenuKeydown\(event\)[\s\S]*?\[role="tab"\]/,
+    "desktop settings keeps no category keyboard branch");
   assert.match(app, /section\(t\("appearance"\), appearanceRows\)/,
     "appearance controls render directly in the unified surface");
   assert.match(app, /section\(t\("storageDataSection"\), storageRows\)/,
@@ -202,8 +206,8 @@ test("settings avoids full rerenders for normal interactions and keeps radio key
     "segmented controls synchronize the sliding thumb with their active radio");
   assert.match(app, /class="segmented-thumb" aria-hidden="true"/,
     "segmented controls render one non-interactive sliding thumb");
-  assert.doesNotMatch(app, /handleSettingsMenuKeydown\(event\)[\s\S]*?\[role="tab"\]/,
-    "removed category tabs leave no dead keyboard branch");
+  // R21 两栏设置给 Web 端加回了分类 tablist（role="tab" 的键盘分支见 web-r21-settings）；
+  // 这里只锁与结构无关的行为：segmented 键盘导航、状态同步仍走 Web 端。
 });
 
 test("settings dialog uses the compact unified geometry", async () => {
