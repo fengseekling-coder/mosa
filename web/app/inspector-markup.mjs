@@ -127,42 +127,25 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return `<button class="detail-fav-btn${favorite ? " is-fav" : ""}" type="button" data-action="toggle-favorite" aria-pressed="${favorite}" aria-label="${escapeHtml(actionLabel)}"><span aria-hidden="true">${favorite ? "★" : "☆"}</span><span>${escapeHtml(visibleLabel)}</span></button>`;
   }
 
-  // 9:16 is the tallest preview viewport we allow. Assets that are less tall
-  // than that (for example 2:3, 3:4, 1:1, 16:9) keep their real aspect ratio,
-  // so the thumbnail has no letterboxing. Assets taller than 9:16 are capped
-  // to a 9:16 viewport; object-fit: cover then fills the viewport by cropping.
-  const MIN_DETAIL_PREVIEW_ASPECT = 9 / 16;
-
-  function detailPreviewAspectRatio(asset) {
-    const width = persistedPositiveNumber(asset, "width");
-    const height = persistedPositiveNumber(asset, "height");
-    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-      return "9 / 16";
-    }
-    const assetAspect = width / height;
-    return assetAspect >= MIN_DETAIL_PREVIEW_ASPECT ? `${width} / ${height}` : "9 / 16";
-  }
-
+  // R21 头部：左 132×132 预览小图 + 右侧信息（标题 / 来源·日期 / 键值事实）。
+  // 旧的整宽大图与 data-detail-preview-aspect 宽高比属性随布局一并移除；
+  // app.mjs 对该属性缺失是可选链降级，不需要改动。
   function detailFileSectionMarkup(asset) {
     const title = displayAssetTitle(asset);
     const source = sourceName(asset.source || {});
     const sourceRef = asset.source || {};
-    const previewAspectRatio = detailPreviewAspectRatio(asset);
-    const previewWidth = persistedPositiveNumber(asset, "width");
-    const previewHeight = persistedPositiveNumber(asset, "height");
-    const previewNeedsNaturalFallback = !Number.isFinite(previewWidth) || !Number.isFinite(previewHeight) || previewWidth <= 0 || previewHeight <= 0;
+    const sourceLine = `${escapeHtml(source)} · ${formatDate(asset.created_at, state.locale)}`;
     const openSourceButton = String(sourceRef.conversation_id || "").trim()
       ? `<button class="section-head-copy detail-overview-open" type="button" data-action="view-generation-session" title="${escapeHtml(t("openOriginalConversation"))}" aria-label="${escapeHtml(t("openOriginalConversation"))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button>`
       : "";
-    const overviewActions = openSourceButton;
     const facts = [
       ["fileFormat", fileFormatText(asset)],
       ["fileDimensions", fileDimensionsText(asset)],
       ["aspectRatio", fileAspectRatioText(asset)],
       ["fileSize", fileSizeText(asset)],
       ["group", String(asset.group || "").trim() || t("notGrouped")],
-    ].map(([key, value]) => fileFactTagMarkup(key, value)).join("");
-    return `<section class="inspector-section detail-overview" data-inspector-section="file" aria-labelledby="assetOverviewTitle"><div class="detail-overview-heading"><h3 id="assetOverviewTitle">${t("fileFacts")}</h3><p title="${escapeHtml(`${source} · ${formatDate(asset.created_at, state.locale)}`)}">${escapeHtml(source)} · ${formatDate(asset.created_at, state.locale)}</p>${overviewActions}</div><div class="detail-image-wrap" data-detail-preview-aspect="${escapeHtml(previewAspectRatio)}"${previewNeedsNaturalFallback ? ' data-detail-preview-natural-fallback="true"' : ""}>${assetMediaPreviewMarkup(asset, "detail")}</div><div class="detail-overview-title-row"><h3 id="detailTitle" tabindex="-1" title="${escapeHtml(title)}">${escapeHtml(title)}</h3>${detailFavoriteButtonMarkup(asset)}</div><div class="detail-facts" role="group" aria-label="${escapeHtml(t("assetMetadata"))}">${facts}</div></section>`;
+    ].map(([key, value]) => fileFactRowMarkup(key, value)).join("");
+    return `<section class="inspector-section detail-overview" data-inspector-section="file" aria-labelledby="assetOverviewTitle"><h3 id="assetOverviewTitle" class="visually-hidden">${t("fileFacts")}</h3><div class="asset-head"><div class="asset-mini">${assetMediaPreviewMarkup(asset, "detail")}</div><div class="asset-meta-wrap"><div class="asset-name-row"><h3 id="detailTitle" tabindex="-1" title="${escapeHtml(title)}">${escapeHtml(title)}</h3>${detailFavoriteButtonMarkup(asset)}${openSourceButton}</div><p class="asset-kind" title="${sourceLine}">${sourceLine}</p><div class="head-facts" role="group" aria-label="${escapeHtml(t("assetMetadata"))}">${facts}</div></div></div></section>`;
   }
 
   function detailTagsSectionMarkup(asset) {

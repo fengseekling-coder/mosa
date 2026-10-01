@@ -58,7 +58,7 @@ const state = {
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
   groups: { total: 0, favorites: 0, unorganized: 0, trash: 0, sourceTypes: [], groups: [] },
-  galleryStatus: "loading", galleryError: null, paginationStatus: "idle", storageKind: "unknown",
+  galleryStatus: "loading", galleryError: null, paginationStatus: "idle", showCardInfo: safeStorageGet("mosa.card-info") === "show", storageKind: "unknown",
   libraryPath: "", libraryRoot: "", codexImagesDir: "", groupSaving: false, libraryMoveInProgress: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
   dragCounter: 0,
   stagingInProgress: false, // Paste import re-entrancy guard: one clipboard import at a time
@@ -71,6 +71,8 @@ const state = {
   updateDownloadPercent: 0,
   visualModelStatus: null,
   darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null,
+  // 设置弹窗当前分类（两栏标签页）。仅会话内记忆，不写本地存储；重建后停留原分类。
+  settingsPage: "general",
   sidebarSmartCollapsed: safeStorageGet("mosa.sidebar-smart-collapsed") === "true",
   sidebarManualCollapsed: safeStorageGet("mosa.sidebar-manual-collapsed") === "true",
   detailReturnFocusAssetId: null, previewReturnFocusAssetId: null,
@@ -1220,10 +1222,11 @@ function syncSettingsMenuView() {
   if (menu.hidden) return;
   const setRadioState = (selector, selectedValue) => {
     menu.querySelectorAll(selector).forEach((button) => {
-      button.classList.toggle("active", button.value === selectedValue || button.dataset.appearanceOpt === selectedValue || button.dataset.locale === selectedValue);
+      button.classList.toggle("active", button.value === selectedValue || button.dataset.appearanceOpt === selectedValue || button.dataset.cardInfoOpt === selectedValue || button.dataset.locale === selectedValue);
     });
   };
   setRadioState("[data-appearance-opt]", state.darkMode ? "dark" : "light");
+  setRadioState("[data-card-info-opt]", state.showCardInfo ? "show" : "hide");
   setRadioState("[data-locale]", state.locale === "en" ? "en" : "zh");
 
   const libraryPath = state.libraryRoot || state.libraryPath || state.codexImagesDir || "—";
@@ -1261,6 +1264,8 @@ function renderSettingsMenu({ force = false } = {}) {
 
   const refreshingVisibleDialog = Boolean(existingDialog && !els.settingsMenu.hidden);
   if (refreshingVisibleDialog) els.settingsMenu.setAttribute("data-refreshing", "true");
+  // 语言切换等可见重建会销毁焦点节点：先记录焦点"身份"，重建后恢复到原来的位置附近。
+  const previousFocus = refreshingVisibleDialog ? describeSettingsFocus(document.activeElement) : null;
 
   const settingIcon = (path) => `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
   const radio = (selected, attribute, value, label) => `<button class="segmented-btn${selected ? " active" : ""}" type="button" role="radio" aria-checked="${selected}" tabindex="${selected ? 0 : -1}" ${attribute}="${value}">${label}</button>`;
@@ -1270,7 +1275,6 @@ function renderSettingsMenu({ force = false } = {}) {
     return `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(ariaLabel)}" data-active-index="${activeIndex}"><span class="segmented-thumb" aria-hidden="true"></span>${buttons}</div>`;
   };
   const row = (icon, title, subtitle, control = "", extraClass = "") => `<div class="settings-modal-row${extraClass ? ` ${extraClass}` : ""}"><div class="settings-row-icon" aria-hidden="true">${icon}</div><div class="settings-row-copy"><h4>${title}</h4>${subtitle ? `<p>${subtitle}</p>` : ""}</div>${control ? `<div class="settings-row-control">${control}</div>` : ""}</div>`;
-  const section = (title, rows, extraClass = "") => `<section class="settings-block${extraClass ? ` ${extraClass}` : ""}"><h3>${title}</h3>${rows}</section>`;
   const visualLocale = state.locale === "en" ? "en" : "zh";
   const path = escapeHtml(state.libraryRoot || state.libraryPath || state.codexImagesDir || "—");
   const closeIcon = settingIcon("m6 6 12 12M18 6 6 18");
@@ -1280,6 +1284,7 @@ function renderSettingsMenu({ force = false } = {}) {
     : `<button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button>`;
   const appearanceRows = [
     row(settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("themeMode"), "", segmented(t("themeMode"), "data-appearance-opt", state.darkMode ? "dark" : "light", [{ value: "light", label: t("themeLight") }, { value: "dark", label: t("themeDark") }])),
+    row(settingIcon("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"), t("cardInfo"), "", segmented(t("cardInfo"), "data-card-info-opt", state.showCardInfo ? "show" : "hide", [{ value: "show", label: t("cardInfoShow") }, { value: "hide", label: t("cardInfoHide") }])),
     row(settingIcon("M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("interfaceLanguage"), "", segmented(t("interfaceLanguage"), "data-locale", visualLocale, [{ value: "zh", label: "中文" }, { value: "en", label: "EN" }]))
   ].join("");
   const storageRows = [
@@ -1295,9 +1300,74 @@ function renderSettingsMenu({ force = false } = {}) {
   );
   const aboutRow = row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), `<span data-settings-version>${escapeHtml(updateVersionSummary())}</span>`, `<div data-settings-update-action>${updateVersionControlMarkup()}</div>`, "settings-about-row");
 
-  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" tabindex="-1"><header class="settings-modal-header"><h2 id="settingsModalTitle">${t("settings")}</h2><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${section(t("appearance"), appearanceRows)}${section(t("storageDataSection"), storageRows)}${section(t("visualModelSection"), visualRows)}${section(t("aboutSection"), aboutRow, "settings-about-block")}</div></div>`;
+  // R21 两栏设置：左栏品牌 + 分类导航 + 本地优先说明，右栏标题栏 + 四个分类页。
+  // 行内容复用既有 row()，控件与 data-* 属性不变；分类只在会话内记忆。
+  const settingsPages = [
+    { id: "general", label: t("settingsPageGeneral"), description: t("settingsPageGeneralDesc"), rows: appearanceRows, icon: settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0") },
+    { id: "library", label: t("settingsPageLibrary"), description: t("settingsPageLibraryDesc"), rows: storageRows, icon: settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z") },
+    { id: "visual", label: t("settingsPageVisual"), description: t("settingsPageVisualDesc"), rows: visualRows, icon: settingIcon("M5 7h14M7 4v6M17 4v6M6 14h12M8 11v6M16 11v6M5 20h14") },
+    { id: "about", label: t("settingsPageAbout"), description: t("settingsPageAboutDesc"), rows: aboutRow, icon: settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0") },
+  ];
+  if (!settingsPages.some((page) => page.id === state.settingsPage)) state.settingsPage = "general";
+  const activePage = state.settingsPage;
+  const nav = settingsPages.map((page) => {
+    const active = page.id === activePage;
+    return `<button class="settings-nav-tab${active ? " active" : ""}" type="button" role="tab" id="settings-tab-${page.id}" aria-selected="${active}" aria-controls="settings-page-${page.id}" data-settings-page="${page.id}" tabindex="${active ? 0 : -1}">${page.icon}<span class="settings-nav-tab-label">${page.label}</span></button>`;
+  }).join("");
+  const panels = settingsPages.map((page) => `<section class="settings-page" role="tabpanel" id="settings-page-${page.id}" aria-labelledby="settings-tab-${page.id}" data-settings-panel="${page.id}"${page.id === activePage ? "" : " hidden"}><div class="settings-page-head"><h3 class="settings-page-title">${page.label}</h3><p class="settings-page-desc">${page.description}</p></div><div class="settings-group">${page.rows}</div></section>`).join("");
+  const activeLabel = settingsPages.find((page) => page.id === activePage)?.label || "";
+
+  els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" tabindex="-1"><aside class="settings-modal-sidebar"><div class="settings-modal-brand"><h2 id="settingsModalTitle">${t("settings")}</h2></div><nav class="settings-modal-nav" role="tablist" aria-orientation="vertical" aria-label="${escapeHtml(t("settings"))}">${nav}</nav><div class="settings-modal-foot"><div class="settings-local-first">${settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6")}<div class="settings-local-first-copy"><strong>${t("settingsLocalFirst")}</strong><p>${t("settingsLocalFirstDesc")}</p></div></div></div></aside><div class="settings-modal-main"><header class="settings-modal-header"><h2 class="settings-modal-title" data-settings-active-title>${activeLabel}</h2><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${panels}</div></div></div>`;
   syncSettingsMenuView();
-  if (refreshingVisibleDialog) requestAnimationFrame(() => els.settingsMenu?.removeAttribute("data-refreshing"));
+  if (refreshingVisibleDialog) {
+    restoreSettingsFocus(previousFocus);
+    requestAnimationFrame(() => els.settingsMenu?.removeAttribute("data-refreshing"));
+  }
+}
+
+// 设置弹窗内焦点的"身份"：导航标签记分类，普通控件记它的 data-* 选择器。
+// 重建后由 restoreSettingsFocus 优先回到原控件，其次回到当前分类的标签。
+function describeSettingsFocus(element) {
+  if (!(element instanceof HTMLElement) || !els.settingsMenu?.contains(element)) return null;
+  const tab = element.closest("[data-settings-page]");
+  if (tab) return { page: tab.dataset.settingsPage, control: null };
+  const attributes = ["data-appearance-opt", "data-card-info-opt", "data-locale", "data-open-library", "data-change-library", "data-check-updates", "data-cancel-update", "data-install-update", "data-download-latest", "data-visual-model-toggle", "data-visual-pack-install", "data-visual-pack-cancel", "data-visual-pack-remove", "data-settings-close"];
+  for (const attribute of attributes) {
+    const value = element.getAttribute(attribute);
+    if (value !== null) return { page: state.settingsPage, control: `[${attribute}="${CSS.escape(value)}"]` };
+  }
+  return { page: state.settingsPage, control: null };
+}
+
+function restoreSettingsFocus(previousFocus) {
+  if (!previousFocus) return;
+  if (previousFocus.control) {
+    const control = els.settingsMenu.querySelector(previousFocus.control);
+    if (control && !control.closest("[hidden]") && !control.disabled) {
+      control.focus();
+      return;
+    }
+  }
+  els.settingsMenu.querySelector(`[data-settings-page="${CSS.escape(previousFocus.page)}"]`)?.focus();
+}
+
+// 分类切换的唯一入口：同步 aria-selected / roving tabindex / 面板 hidden 与右栏标题。
+function activateSettingsPage(pageId) {
+  const menu = els.settingsMenu;
+  const targetTab = menu?.querySelector(`[data-settings-page="${CSS.escape(pageId)}"]`);
+  if (!targetTab) return;
+  state.settingsPage = pageId;
+  for (const tab of menu.querySelectorAll("[data-settings-page]")) {
+    const active = tab === targetTab;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+  }
+  for (const panel of menu.querySelectorAll("[data-settings-panel]")) {
+    panel.hidden = panel.dataset.settingsPanel !== pageId;
+  }
+  const title = menu.querySelector("[data-settings-active-title]");
+  if (title) title.textContent = targetTab.querySelector(".settings-nav-tab-label")?.textContent || targetTab.textContent.trim();
 }
 
 const ARROW_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
@@ -1968,6 +2038,9 @@ function bindEvents() {
   els.settingsMenu?.addEventListener("click", (event) => {
     const button = event.target.closest("button");
     if (event.target === els.settingsMenu || button?.dataset.settingsClose !== undefined) { closeSettingsModal(); return; }
+    // 分类导航（两栏设置的 tablist）：点按钮切换当前分类。
+    const settingsPageTab = event.target.closest("[data-settings-page]");
+    if (settingsPageTab) { activateSettingsPage(settingsPageTab.dataset.settingsPage); return; }
     // Theme segmented buttons
     if (button?.dataset.appearanceOpt) {
       const newTheme = button.dataset.appearanceOpt;
@@ -1975,6 +2048,18 @@ function bindEvents() {
       safeStorageSet("mosa-dark-mode", String(state.darkMode));
       applyDarkMode(); // 同步 .active 视觉态与 aria-checked/roving tabindex（Phase 5A / F-12）
       showToast(t("darkModeChanged"), "success");
+      return;
+    }
+
+    // Card info segmented buttons
+    if (button?.dataset.cardInfoOpt) {
+      const newCardInfo = button.dataset.cardInfoOpt;
+      state.showCardInfo = newCardInfo === "show";
+      safeStorageSet("mosa.card-info", state.showCardInfo ? "show" : "hide");
+      renderGrid();
+      button.parentElement.querySelectorAll(".segmented-btn").forEach((b) => b.classList.remove("active"));
+      button.classList.add("active");
+      syncSegmentedRadios(els.settingsMenu); // aria-checked 与 .active 同步（Phase 5A / F-12）
       return;
     }
 
@@ -2373,7 +2458,26 @@ function closePanel(panel, trigger, reason = "escape") {
 
 // Settings keeps native button semantics; segmented radiogroups additionally
 // support desktop arrow-key navigation without introducing a second UI state.
+// 分类导航（role="tab"）照同一套 roving 写法：↑/↓ 在分类间移动并自动激活，
+// Home/End 到首/末；激活走 click 业务路径（activateSettingsPage），不另设状态。
 function handleSettingsMenuKeydown(event) {
+  const tab = event.target.closest?.('[role="tab"]');
+  if (tab) {
+    const tabs = [...(tab.closest('[role="tablist"]')?.querySelectorAll('[role="tab"]') || [])];
+    const index = tabs.indexOf(tab);
+    let next = -1;
+    // 窄窗口下导航是横向一行，← / → 与 ↓ / ↑ 等价。
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") next = Math.min(index + 1, tabs.length - 1);
+    else if (event.key === "ArrowUp" || event.key === "ArrowLeft") next = Math.max(index - 1, 0);
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = tabs.length - 1;
+    if (next === -1 || next === index || !tabs[next]) return;
+    event.preventDefault();
+    event.stopPropagation();
+    tabs[next].click();
+    tabs[next].focus();
+    return;
+  }
   const radio = event.target.closest?.('[role="radio"]');
   if (radio) {
     const group = radio.closest('[role="radiogroup"]');
@@ -2584,11 +2688,11 @@ const GALLERY_CARD_DOM_WINDOW_THRESHOLD = 240;
 const GALLERY_CARD_DOM_PRELOAD = 1800;
 
 function galleryVirtualSpanKey(assetId, columnWidth = galleryCardVirtualColumnWidth) {
-  return `${Math.round(columnWidth)}\u001f${assetId}`;
+  return `${state.showCardInfo ? "show" : "hide"}\u001f${Math.round(columnWidth)}\u001f${assetId}`;
 }
 
 function pruneGalleryVirtualSpanCache(activeIds) {
-  const currentPrefix = `${Math.round(galleryCardVirtualColumnWidth)}\u001f`;
+  const currentPrefix = `${state.showCardInfo ? "show" : "hide"}\u001f${Math.round(galleryCardVirtualColumnWidth)}\u001f`;
   for (const key of galleryCardVirtualSpanCache.keys()) {
     const assetId = key.slice(key.lastIndexOf("\u001f") + 1);
     if (!key.startsWith(currentPrefix) || !activeIds.has(assetId)) galleryCardVirtualSpanCache.delete(key);
@@ -2625,10 +2729,12 @@ function estimatedGalleryCardSpan(asset) {
   // masonry slot. Estimates are allowed to be approximate, but never
   // deliberately shorter than the media ratio we already know.
   const mediaHeight = galleryCardColumnWidth() * Math.max(0.35, galleryAssetAspect(asset));
+  // R21 实测：信息区（12 顶距 + 12px/620 标题 + 4 + 10px 元信息 + 12 底部留白）= 61px。
+  const infoHeight = state.showCardInfo ? 61 : 0;
   const grid = els.assetGrid;
   const styles = grid ? getComputedStyle(grid) : null;
   const gap = styles ? (Number.parseFloat(styles.getPropertyValue("--gallery-gap")) || Number.parseFloat(styles.columnGap) || 0) : 0;
-  return Math.max(48, Math.ceil(mediaHeight + gap));
+  return Math.max(48, Math.ceil(mediaHeight + infoHeight + gap));
 }
 
 function virtualGalleryCardEntry(entry) {
@@ -3684,6 +3790,8 @@ function renderGrid() {
       : focusedElement?.classList.contains("asset-card-select")
         ? "select"
         : null;
+  const cardInfo = state.showCardInfo ? "show" : "hide";
+  els.assetGrid.dataset.cardInfo = cardInfo;
   els.assetGrid.dataset.loadedAssets = String(state.assets.length);
   els.assetGrid.dataset.query = state.query;
   const restoreGridFallbackFocus = () => {
@@ -3712,7 +3820,8 @@ function renderGrid() {
   }
   const isAppendMode = animateFrom > 0;
   const canAppendFast = isAppendMode
-    && galleryCardVirtualEntries.size === animateFrom;
+    && galleryCardVirtualEntries.size === animateFrom
+    && els.assetGrid.dataset.renderedCardInfo === cardInfo;
   const renderAssets = canAppendFast ? state.assets.slice(animateFrom) : state.assets;
   galleryCardVirtualColumnWidth = galleryCardColumnWidth();
   if (!canAppendFast) {
@@ -3747,12 +3856,14 @@ function renderGrid() {
   const scrollContainer = els.assetGrid;
   const savedScrollTop = (isAppendMode || preserveScroll) ? scrollContainer.scrollTop : null;
   if (!preserveScroll && !isAppendMode) scrollContainer.scrollTop = 0;
+  const previousCardInfo = els.assetGrid.dataset.renderedCardInfo || "";
   const appendChangedCards = canAppendFast ? appendAssetCards(domCards) : null;
   const reconciliation = canAppendFast
     ? { changedCards: appendChangedCards, replacedFocusedCard: false, structureChanged: false }
     : reconcileAssetCards(domCards);
   const { changedCards, replacedFocusedCard, structureChanged } = reconciliation;
-  const requiresFullMasonry = !canAppendFast && changedCards.length >= state.assets.length;
+  els.assetGrid.dataset.renderedCardInfo = cardInfo;
+  const requiresFullMasonry = !canAppendFast && (previousCardInfo !== cardInfo || changedCards.length >= state.assets.length);
   setupMasonryLayout(requiresFullMasonry ? {} : { cards: changedCards, full: false });
   if (!requiresFullMasonry && structureChanged) reflowMasonryPlacement();
   // Keyed incremental reconciliation keeps unchanged card nodes mounted, so

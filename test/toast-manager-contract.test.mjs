@@ -20,7 +20,7 @@ const root = resolve(import.meta.dirname, "..");
 const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
 const readToast = () => readFile(resolve(root, "web/app/toast-manager.mjs"), "utf8");
 const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
-const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 const count = (source, needle) => source.split(needle).length - 1;
 

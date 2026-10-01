@@ -58,7 +58,7 @@ const state = {
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
   mediaKind: "all",
   groups: { total: 0, favorites: 0, unorganized: 0, trash: 0, sourceTypes: [], groups: [] },
-  galleryStatus: "loading", galleryError: null, paginationStatus: "idle", storageKind: "unknown",
+  galleryStatus: "loading", galleryError: null, paginationStatus: "idle", showCardInfo: safeStorageGet("mosa.card-info") === "show", storageKind: "unknown",
   libraryPath: "", libraryRoot: "", codexImagesDir: "", groupSaving: false, libraryMoveInProgress: false, modalReturnFocus: null, languagePreference: preference, locale: resolveLocale(preference),
   dragCounter: 0,
   stagingInProgress: false, // Paste import re-entrancy guard: one clipboard import at a time
@@ -1220,10 +1220,11 @@ function syncSettingsMenuView() {
   if (menu.hidden) return;
   const setRadioState = (selector, selectedValue) => {
     menu.querySelectorAll(selector).forEach((button) => {
-      button.classList.toggle("active", button.value === selectedValue || button.dataset.appearanceOpt === selectedValue || button.dataset.locale === selectedValue);
+      button.classList.toggle("active", button.value === selectedValue || button.dataset.appearanceOpt === selectedValue || button.dataset.cardInfoOpt === selectedValue || button.dataset.locale === selectedValue);
     });
   };
   setRadioState("[data-appearance-opt]", state.darkMode ? "dark" : "light");
+  setRadioState("[data-card-info-opt]", state.showCardInfo ? "show" : "hide");
   setRadioState("[data-locale]", state.locale === "en" ? "en" : "zh");
 
   const libraryPath = state.libraryRoot || state.libraryPath || state.codexImagesDir || "—";
@@ -1280,6 +1281,7 @@ function renderSettingsMenu({ force = false } = {}) {
     : `<button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button>`;
   const appearanceRows = [
     row(settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("themeMode"), "", segmented(t("themeMode"), "data-appearance-opt", state.darkMode ? "dark" : "light", [{ value: "light", label: t("themeLight") }, { value: "dark", label: t("themeDark") }])),
+    row(settingIcon("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"), t("cardInfo"), "", segmented(t("cardInfo"), "data-card-info-opt", state.showCardInfo ? "show" : "hide", [{ value: "show", label: t("cardInfoShow") }, { value: "hide", label: t("cardInfoHide") }])),
     row(settingIcon("M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("interfaceLanguage"), "", segmented(t("interfaceLanguage"), "data-locale", visualLocale, [{ value: "zh", label: "中文" }, { value: "en", label: "EN" }]))
   ].join("");
   const storageRows = [
@@ -1978,6 +1980,18 @@ function bindEvents() {
       return;
     }
 
+    // Card info segmented buttons
+    if (button?.dataset.cardInfoOpt) {
+      const newCardInfo = button.dataset.cardInfoOpt;
+      state.showCardInfo = newCardInfo === "show";
+      safeStorageSet("mosa.card-info", state.showCardInfo ? "show" : "hide");
+      renderGrid();
+      button.parentElement.querySelectorAll(".segmented-btn").forEach((b) => b.classList.remove("active"));
+      button.classList.add("active");
+      syncSegmentedRadios(els.settingsMenu); // aria-checked 与 .active 同步（Phase 5A / F-12）
+      return;
+    }
+
     const localeButton = event.target.closest("[data-locale]");
     if (localeButton) {
       return setLanguage(localeButton.dataset.locale);
@@ -2584,11 +2598,11 @@ const GALLERY_CARD_DOM_WINDOW_THRESHOLD = 240;
 const GALLERY_CARD_DOM_PRELOAD = 1800;
 
 function galleryVirtualSpanKey(assetId, columnWidth = galleryCardVirtualColumnWidth) {
-  return `${Math.round(columnWidth)}\u001f${assetId}`;
+  return `${state.showCardInfo ? "show" : "hide"}\u001f${Math.round(columnWidth)}\u001f${assetId}`;
 }
 
 function pruneGalleryVirtualSpanCache(activeIds) {
-  const currentPrefix = `${Math.round(galleryCardVirtualColumnWidth)}\u001f`;
+  const currentPrefix = `${state.showCardInfo ? "show" : "hide"}\u001f${Math.round(galleryCardVirtualColumnWidth)}\u001f`;
   for (const key of galleryCardVirtualSpanCache.keys()) {
     const assetId = key.slice(key.lastIndexOf("\u001f") + 1);
     if (!key.startsWith(currentPrefix) || !activeIds.has(assetId)) galleryCardVirtualSpanCache.delete(key);
@@ -2625,10 +2639,11 @@ function estimatedGalleryCardSpan(asset) {
   // masonry slot. Estimates are allowed to be approximate, but never
   // deliberately shorter than the media ratio we already know.
   const mediaHeight = galleryCardColumnWidth() * Math.max(0.35, galleryAssetAspect(asset));
+  const infoHeight = state.showCardInfo ? 44 : 0;
   const grid = els.assetGrid;
   const styles = grid ? getComputedStyle(grid) : null;
   const gap = styles ? (Number.parseFloat(styles.getPropertyValue("--gallery-gap")) || Number.parseFloat(styles.columnGap) || 0) : 0;
-  return Math.max(48, Math.ceil(mediaHeight + gap));
+  return Math.max(48, Math.ceil(mediaHeight + infoHeight + gap));
 }
 
 function virtualGalleryCardEntry(entry) {
@@ -3684,6 +3699,8 @@ function renderGrid() {
       : focusedElement?.classList.contains("asset-card-select")
         ? "select"
         : null;
+  const cardInfo = state.showCardInfo ? "show" : "hide";
+  els.assetGrid.dataset.cardInfo = cardInfo;
   els.assetGrid.dataset.loadedAssets = String(state.assets.length);
   els.assetGrid.dataset.query = state.query;
   const restoreGridFallbackFocus = () => {
@@ -3712,7 +3729,8 @@ function renderGrid() {
   }
   const isAppendMode = animateFrom > 0;
   const canAppendFast = isAppendMode
-    && galleryCardVirtualEntries.size === animateFrom;
+    && galleryCardVirtualEntries.size === animateFrom
+    && els.assetGrid.dataset.renderedCardInfo === cardInfo;
   const renderAssets = canAppendFast ? state.assets.slice(animateFrom) : state.assets;
   galleryCardVirtualColumnWidth = galleryCardColumnWidth();
   if (!canAppendFast) {
@@ -3747,12 +3765,14 @@ function renderGrid() {
   const scrollContainer = els.assetGrid;
   const savedScrollTop = (isAppendMode || preserveScroll) ? scrollContainer.scrollTop : null;
   if (!preserveScroll && !isAppendMode) scrollContainer.scrollTop = 0;
+  const previousCardInfo = els.assetGrid.dataset.renderedCardInfo || "";
   const appendChangedCards = canAppendFast ? appendAssetCards(domCards) : null;
   const reconciliation = canAppendFast
     ? { changedCards: appendChangedCards, replacedFocusedCard: false, structureChanged: false }
     : reconcileAssetCards(domCards);
   const { changedCards, replacedFocusedCard, structureChanged } = reconciliation;
-  const requiresFullMasonry = !canAppendFast && changedCards.length >= state.assets.length;
+  els.assetGrid.dataset.renderedCardInfo = cardInfo;
+  const requiresFullMasonry = !canAppendFast && (previousCardInfo !== cardInfo || changedCards.length >= state.assets.length);
   setupMasonryLayout(requiresFullMasonry ? {} : { cards: changedCards, full: false });
   if (!requiresFullMasonry && structureChanged) reflowMasonryPlacement();
   // Keyed incremental reconciliation keeps unchanged card nodes mounted, so

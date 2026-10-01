@@ -556,6 +556,9 @@ export default {
     dismissNotification: "关闭此错误通知",
     themeLight: "浅色",
     themeDark: "深色",
+    cardInfo: "素材卡片信息",
+    cardInfoShow: "显示",
+    cardInfoHide: "隐藏",
     // Phase 4A single-column inspector
     fileFacts: "基础信息",
     fileDimensions: "尺寸",
@@ -1132,6 +1135,9 @@ export default {
     dismissNotification: "Dismiss this error notification",
     themeLight: "Light",
     themeDark: "Dark",
+    cardInfo: "Card info",
+    cardInfoShow: "Show",
+    cardInfoHide: "Hide",
     // Phase 4A single-column inspector
     fileFacts: "Overview",
     fileDimensions: "Dimensions",

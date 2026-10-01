@@ -88,7 +88,7 @@ test("theme-init falls back to light when localStorage is unavailable", () => {
 });
 
 test("brand safe-area offset remains desktop-only", async () => {
-  const css = await readFile(join(repositoryRoot, "web", "app", "styles.css"), "utf8");
+  const css = await readFile(join(repositoryRoot, "desktop", "app", "styles.css"), "utf8");
   assert.match(css, /\.mosa-v2 \.brand-info h1 \{ color: var\(--color-text-primary\);/);
   assert.match(css, /html\.electron-shell body\.mosa-v2 \.brand-info h1 \{ margin-left: 76px; \}/);
   assert.doesNotMatch(css, /(?:^|\n)\.mosa-v2 \.brand-info h1 \{[^}]*margin-left/);

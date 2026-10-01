@@ -44,14 +44,14 @@ test("Stack Inspector falls back to real media when a thumbnail is not ready", (
 
 test("visual stack behavior is wired into the shared web and desktop renderer", async () => {
   const [app, apiClient, stackController, selection, contextActions, contextBindings, html, css, i18n, inspector] = await Promise.all([
-    readFile(new URL("../web/app/app.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../desktop/app/app.mjs", import.meta.url), "utf8"),
     readFile(new URL("../web/app/api-client.mjs", import.meta.url), "utf8"),
     readFile(new URL("../web/app/asset-stacks.mjs", import.meta.url), "utf8"),
     readFile(new URL("../web/app/gallery-selection.mjs", import.meta.url), "utf8"),
     readFile(new URL("../web/app/context-menu-actions.mjs", import.meta.url), "utf8"),
     readFile(new URL("../web/app/context-menu-bindings.mjs", import.meta.url), "utf8"),
     readFile(new URL("../web/app/index.html", import.meta.url), "utf8"),
-    readFile(new URL("../web/app/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../desktop/app/styles.css", import.meta.url), "utf8"),
     readFile(new URL("../web/app/i18n.mjs", import.meta.url), "utf8"),
     readFile(new URL("../web/app/inspector-markup.mjs", import.meta.url), "utf8"),
   ]);

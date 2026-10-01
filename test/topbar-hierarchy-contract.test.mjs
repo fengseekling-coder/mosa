@@ -16,7 +16,7 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
-const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
 /** Extracts a `{...}` block starting at the marker, honouring nested braces. */
