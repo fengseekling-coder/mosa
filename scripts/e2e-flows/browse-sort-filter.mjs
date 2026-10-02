@@ -325,6 +325,27 @@ function sessionOneSource(expect) {
       await waitFor(() => gallerySettled(), label + ' settled');
       return stages;
     }
+    // Layout-stability gate for filter switches: the request has settled and
+    // the leading cards' positions stopped moving across consecutive samples.
+    async function waitForStableCardLayout(label, timeoutMs = 20000) {
+      const deadline = Date.now() + timeoutMs;
+      let previous = '';
+      let stable = 0;
+      while (Date.now() < deadline) {
+        await sleep(120);
+        const grid = gridElement();
+        const snapshot = JSON.stringify({
+          busy: grid.getAttribute('aria-busy'),
+          top: Math.round(grid.scrollTop),
+          ids: rootCardIds(),
+          tops: [...document.querySelectorAll('#assetGrid > .asset-card')].slice(0, 8).map((card) => Math.round(card.getBoundingClientRect().top)),
+        });
+        stable = snapshot === previous && gallerySettled() ? stable + 1 : 0;
+        previous = snapshot;
+        if (stable >= 5) return;
+      }
+      throw new Error('gallery layout never stabilized: ' + label + ' ' + previous.slice(0, 400));
+    }
     // 超过一页的结果集可能触发无限滚动自动追加，等待条件用"是完整顺序的前缀"；
     // 是否恰好一页只在首屏（见 initial first page）与小于 limit 的状态严格要求。
     const isPrefix = (ids, order) => ids.length <= order.length && ids.every((id, index) => order[index] === id);
@@ -338,6 +359,40 @@ function sessionOneSource(expect) {
     await waitFor(() => gallerySettled() && rootCardIds().length === expect.initialCount, 'initial first page');
     const initialIds = rootCardIds();
     const sentinelInitially = Boolean(sentinel());
+    // First-screen contract regression: switching a filter on a >1-page result
+    // must keep exactly one page in the DOM until the user scrolls. The old
+    // observer auto-appended here because the fresh layout's sentinel rested
+    // inside the preload warm zone. Hold the count across a 3s window so the
+    // re-render (and any historical auto-append) lands inside the check.
+    click('.topbar-type-filters [data-type="img"]');
+    await waitFor(() => typePressed('img').active, 'img filter button activates');
+    // With videos seeded, the pre-render grid cannot satisfy the img prefix,
+    // so this also proves the filter's re-render landed before the stability
+    // gate (a slow response could otherwise pass stability on the old grid).
+    await waitFor(() => isPrefix(rootCardIds(), expect.imgOrder), 'img filter page renders', 20000);
+    await waitForStableCardLayout('img filter switch');
+    const imgFirstPageIds = rootCardIds();
+    if (imgFirstPageIds.length !== expect.initialCount) {
+      throw new Error("img filter auto-appended page 2 without scrolling: " + (imgFirstPageIds.length) + " cards (expected exactly " + (expect.initialCount) + ")");
+    }
+    if (!isPrefix(imgFirstPageIds, expect.imgOrder)) throw new Error('img filter first page is not a prefix of the img order');
+    for (let i = 0; i < 20; i += 1) {
+      await sleep(150);
+      const heldCount = rootCardIds().length;
+      if (heldCount !== expect.initialCount) {
+        throw new Error("img filter auto-appended during the " + (3) + "s hold: " + (heldCount) + " cards (expected exactly " + (expect.initialCount) + ")");
+      }
+    }
+    // Scrolling to the bottom under the same filter must still append normally.
+    const appendGrid = gridElement();
+    appendGrid.scrollTop = appendGrid.scrollHeight;
+    appendGrid.dispatchEvent(new Event('scroll'));
+    await waitFor(() => rootCardIds().length > expect.initialCount || !sentinel(), 'img filter scroll appends a page', 20000);
+    await waitFor(() => gallerySettled(), 'img filter append settles', 20000);
+    const imgAfterAppendCount = rootCardIds().length;
+    if (imgAfterAppendCount <= expect.initialCount) throw new Error("scroll-append did not grow the gallery: " + (imgAfterAppendCount));
+    click('.topbar-type-filters [data-type="all"]');
+    await waitFor(() => typePressed('all').active && gallerySettled() && rootCardIds().length >= expect.initialCount, 'all-types restores a full first page', 20000);
     const stages = await scrollToLoadAll('pagination');
     const loadedIds = rootCardIds();
     click('.topbar-type-filters [data-type="img"]');

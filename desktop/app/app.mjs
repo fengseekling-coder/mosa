@@ -3447,6 +3447,29 @@ function setupMasonryLayout(options = {}) {
 let infiniteScrollObserver = null;
 let isLoadingMore = false;
 let infiniteScrollRearmFrame = null;
+// Fresh result sets (launch, filter/search/sort/project switches) render while
+// the user is parked at scrollTop 0, where the sentinel's resting position is
+// an artifact of placeholder heights rather than of the user's position. The
+// guard parks the observer on a viewport-only rootMargin until the first real
+// scroll; see setupInfiniteScroll.
+let infiniteScrollFirstPageGuard = false;
+let infiniteScrollScrollGrid = null;
+
+function handleInfiniteScrollFirstScroll() {
+  if (!infiniteScrollFirstPageGuard) return;
+  const grid = els.assetGrid;
+  if (!grid || grid.scrollTop <= 0) return;
+  infiniteScrollFirstPageGuard = false;
+  setupInfiniteScroll();
+}
+
+function bindInfiniteScrollFirstScroll() {
+  const grid = els.assetGrid;
+  if (!grid || infiniteScrollScrollGrid === grid) return;
+  infiniteScrollScrollGrid?.removeEventListener("scroll", handleInfiniteScrollFirstScroll);
+  infiniteScrollScrollGrid = grid;
+  grid.addEventListener("scroll", handleInfiniteScrollFirstScroll, { passive: true });
+}
 
 function sentinelInInfiniteScrollWarmZone(grid, sentinel, preloadDistance) {
   if (!(grid instanceof HTMLElement) || !(sentinel instanceof HTMLElement) || !sentinel.isConnected) return false;
@@ -3475,7 +3498,7 @@ function requestInfiniteScrollAppend(requestKey, preloadDistance) {
       const nextGrid = els.assetGrid;
       const nextSentinel = nextGrid?.querySelector('[data-sentinel="true"]');
       if (nextGrid && nextSentinel && state.nextCursor
-        && sentinelInInfiniteScrollWarmZone(nextGrid, nextSentinel, preloadDistance)) {
+        && sentinelInInfiniteScrollWarmZone(nextGrid, nextSentinel, infiniteScrollFirstPageGuard ? 0 : preloadDistance)) {
         requestInfiniteScrollAppend(requestKey, preloadDistance);
       }
     });
@@ -3502,14 +3525,24 @@ function setupInfiniteScroll() {
   // Data is already prefetched by api-client. The sentinel therefore controls
   // only when cached rows enter the DOM, not when I/O starts. Mount roughly one
   // viewport ahead: early enough to hide a 40-card placeholder commit, but late
-  // enough that the first page never auto-appends during launch.
+  // enough that the first page never auto-appends during launch. The preload
+  // margin alone does not guarantee that: launch only stayed on one page because
+  // pending-thumb placeholders measure taller than real media, and a fresh
+  // result set with real thumbnails can leave the sentinel inside the warm zone
+  // before the user scrolls at all. Until the first scroll, the observer (and
+  // the post-append rearm check) therefore watch the viewport only, so short
+  // result sets still fill the screen; handleInfiniteScrollFirstScroll restores
+  // the preload margin afterwards.
   const preloadDistance = Math.max(600, Math.ceil(grid.clientHeight * 0.85));
+  const firstPageUnscrolled = grid.scrollTop <= 0;
+  infiniteScrollFirstPageGuard = firstPageUnscrolled;
   infiniteScrollObserver = new IntersectionObserver((entries) => {
     entries.forEach((entry) => {
       if (entry.isIntersecting) requestInfiniteScrollAppend(requestKey, preloadDistance);
     });
-  }, { root: grid, rootMargin: `${preloadDistance}px 0px` });
+  }, { root: grid, rootMargin: `${firstPageUnscrolled ? 0 : preloadDistance}px 0px` });
   infiniteScrollObserver.observe(sentinel);
+  bindInfiniteScrollFirstScroll();
 }
 
 /**
