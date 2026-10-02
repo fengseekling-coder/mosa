@@ -346,6 +346,10 @@ export function createAssetStackController({
     if (!state.activeStackId) return false;
     const ids = [...(state.selectedIds instanceof Set ? state.selectedIds : new Set())];
     if (!ids.length) return false;
+    // root 里 Stack 节点的行 id 就是封面成员。移出封面后服务端会改派封面，
+    // 原节点行消失、新封面成为节点行；本地变化要和服务端日志一样带上新旧封面，
+    // 否则 root 只拿到被移出成员的独立行，Stack 节点要等 SSE 才能回来。
+    const previousCoverId = String(state.activeStackSummary?.cover_asset_id || "");
     return runStackMutation(async () => {
       const result = await apiFetch(`/api/asset-stacks/${encodeURIComponent(state.activeStackId)}/assets`, {
         method: "DELETE",
@@ -365,11 +369,12 @@ export function createAssetStackController({
       }
       // Stack 视图内：受影响成员行就地 reconcile（移除的成员从视图消失，
       // Stack 计数同步），root 快照由增量层并行更新。
+      const coverId = String(result.stack?.cover_asset_id || "");
       await librarySync.applyLocalChanges([{
         kind: "stack-members-changed",
         entityType: "stack",
         entityId: state.activeStackId,
-        assetIds: ids,
+        assetIds: [...new Set([...ids, previousCoverId, coverId].filter(Boolean))],
       }]);
       showToast?.(t("stackAssetsRemoved", { count: ids.length }), "success");
       return true;

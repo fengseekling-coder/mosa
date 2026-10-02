@@ -525,6 +525,12 @@ export function createLibraryReconciler({
     const redirect = redirectActiveGroupFilter(classified);
     if (redirect.reload) return performFullRecovery(revision);
     const requestAtStart = currentAssetRequest();
+    // exitStack 不在串行链上：Stack 内开始的任务可能在退出之后才结束。这时
+    // active 提交因请求已变被跳过、root 结果写进的是已被换出的快照对象，若再
+    // 按结束时刻判断 pending 也会跳过，这批变化就只剩 baseline 推进而无人补上。
+    // 记住起始时刻的 root 快照，结束时照样排进它的 pending，由排在本任务之后的
+    // 退出回放补上。
+    const pendingRootAtStart = rootView();
     const targets = [];
     // 初始加载未完成的视图由 loadAssets 的正常路径负责（会带上最新 revision）。
     if (state.galleryStatus === "ready") targets.push({ kind: "active", request: requestAtStart });
@@ -585,8 +591,11 @@ export function createLibraryReconciler({
     }
 
     // Stack 内逗留期间，把原始变化排队到 root 快照，退出时统一回放（二十二）。
-    const pendingRoot = state.activeStackId ? state.stackReturnSnapshot?.rootView : null;
-    if (pendingRoot) {
+    const pendingRoots = new Set([
+      pendingRootAtStart,
+      state.activeStackId ? state.stackReturnSnapshot?.rootView : null,
+    ].filter(Boolean));
+    for (const pendingRoot of pendingRoots) {
       pendingRoot.pending = Array.isArray(pendingRoot.pending) ? pendingRoot.pending : [];
       pendingRoot.pending.push(...(Array.isArray(changes) ? changes : []));
       if (pendingRoot.pending.length > ROOT_SNAPSHOT_PENDING_LIMIT) pendingRoot.degraded = true;
