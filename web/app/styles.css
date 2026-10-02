@@ -1278,7 +1278,9 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .head-facts .meta-row { display: contents; }
 .mosa-v2 .detail .head-facts .meta-key { min-width: 0; font-size: 10px; line-height: 14px; }
 .mosa-v2 .detail .head-facts .meta-val { min-width: 0; overflow: hidden; font-size: 10px; line-height: 14px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-:root[data-theme="light"] .mosa-v2 .detail .head-facts .meta-key { color: #a0a0a6; }
+/* 任务 41：键名从 R21 稿的 #a0a0a6（2.35:1）加深到 #707076——在检视器面板
+   #fbfbfc 上实测 4.76:1（≥4.5），仍比值 #636369（5.77:1）淡一档；深色走上方 token。 */
+:root[data-theme="light"] .mosa-v2 .detail .head-facts .meta-key { color: #707076; }
 :root[data-theme="light"] .mosa-v2 .detail .head-facts .meta-val { color: #636369; }
 :root[data-theme="light"] .mosa-v2 .detail .asset-kind { color: #8d8d93; }
 /* #detailTitle receives programmatic focus when the inspector opens so screen
@@ -2422,12 +2424,34 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-source-copy .section-head-copy svg {
   width: 12px;
   height: 12px;
+  /* 任务 41：按钮带文字后图标不参与压缩。 */
+  flex: 0 0 auto;
 }
 :root[data-theme="light"] .mosa-v2 .detail :is(.detail-prompt-head h3, .detail-prompt-subhead h4, .detail-source-summary > span, .detail-disclosure > summary, .detail-fields .field > span) {
   color: #8d8d93;
 }
+/* 任务 41：复制按钮带文字后按 AA 校色——R21 稿 .copy 的 #929297 在面板 #fbfbfc
+   上只有 2.99:1，加深到 #6e6e73（4.90:1）；来源摘要 strong 同块受益。深色维持
+   下方既有深色规则（#d1d1d6）。 */
 :root[data-theme="light"] .mosa-v2 .detail :is(.detail-prompt-head .section-head-copy, .detail-copy-sub, .detail-source-copy .section-head-copy, .detail-source-summary > strong) {
-  color: #929297;
+  color: #6e6e73;
+}
+
+/* —— 任务 41：带文字的复制按钮（R21 .copy）：图标 12 + 4px 间距 + 文字，
+   10.5px / 450；宽度随文字自适应（原 28px 方钮放开），左右 8px 内边距承托
+   hover 底色与焦点环；悬停/active/禁用/焦点环全部沿用既有规则，不在此重复。 —— */
+.mosa-v2 .detail .detail-prompt-head .section-head-copy,
+.mosa-v2 .detail .detail-copy-sub,
+.mosa-v2 .detail .detail-source-copy .section-head-copy {
+  display: inline-flex;
+  width: auto;
+  min-width: 0;
+  flex: 0 0 auto;
+  gap: var(--r21-s1);
+  align-items: center;
+  padding: 0 var(--inspector-space-2);
+  font-size: 10.5px;
+  font-weight: 450;
 }
 
 /* —— 标签（R21 .tag：内边距 4 8、圆角 8、字号 10；浅色 #f0f0f2 / #5b5b61）。
@@ -2699,6 +2723,90 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 }
 :root[data-theme="light"] .mosa-v2 .detail :is(.version-single strong, .version-summary-label strong) {
   color: var(--color-accent);
+}
+
+/* —— 任务 41：版本历史竖线时间轴（R21 .version-tree / .ver）。
+   画法：每行画自己那一段——li 相对定位，::before 落在本行圆点的 x 中轴
+   （按钮左内边距 8 + 圆点外沿 8 / 2 = 12px），top 上探一个行距把 grid gap
+   补成连续竖线；首行从圆点中心（距行顶 16px）起、末行画到圆点中心止、
+   单行不画线。圆点 position:relative 压在线上方：线穿行不穿点。
+   缩进走既有 li margin-left，::before 随 li 平移，线与圆点永远同轴，
+   不因层级缩进断成错位的几截。行内为三栏 grid：版本号 / 说明 / 时间，
+   列距 8（R21 .ver 的 gap 7 按 4px 网格取 8）；行距仍是上面的 12px gap。 —— */
+.mosa-v2 .detail .version-timeline-item {
+  position: relative;
+}
+.mosa-v2 .detail .version-timeline-item::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--r21-s3));
+  bottom: 0;
+  left: 12px;
+  width: 1px;
+  background: var(--color-border-subtle);
+}
+.mosa-v2 .detail .version-timeline-item:first-child::before {
+  top: 16px;
+}
+.mosa-v2 .detail .version-timeline-item:last-child::before {
+  bottom: calc(100% - 16px);
+}
+.mosa-v2 .detail .version-timeline-item:only-child::before {
+  content: none;
+}
+.mosa-v2 .detail .version-marker {
+  position: relative;
+  box-sizing: border-box;
+  border-width: 1px;
+}
+.mosa-v2 .detail .version-content {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: var(--r21-s2);
+  align-items: baseline;
+}
+.mosa-v2 .detail .version-title strong {
+  font-family: var(--font-family-mono);
+  font-weight: 650;
+}
+.mosa-v2 .detail .version-change {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 2px var(--r21-s1);
+  align-items: center;
+  line-height: 1.4;
+}
+.mosa-v2 .detail .version-content time {
+  font-size: 10px;
+  white-space: nowrap;
+  text-align: right;
+}
+:root[data-theme="light"] .mosa-v2 .detail .version-timeline-item::before {
+  background: #dcdce1;
+}
+:root[data-theme="light"] .mosa-v2 .detail .version-marker {
+  border-color: #a8a8ae;
+  background: #ffffff;
+}
+:root[data-theme="light"] .mosa-v2 .detail .version-timeline-item.selected .version-marker {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px #e8e8ff;
+}
+:root[data-theme="dark"] .mosa-v2 .detail .version-timeline-item.selected .version-marker {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+:root[data-theme="light"] .mosa-v2 .detail .version-title strong {
+  color: #58585e;
+}
+:root[data-theme="light"] .mosa-v2 .detail .version-timeline-item.selected .version-title strong {
+  color: var(--color-accent);
+}
+:root[data-theme="light"] .mosa-v2 .detail .version-change {
+  color: #64646a;
+}
+:root[data-theme="light"] .mosa-v2 .detail .version-content time {
+  color: #67676d;
 }
 
 /* —— 配方与编辑表单：标签文字同小标题；输入框高 32、内边距 0 12（多行 12）、

@@ -2,6 +2,7 @@
 // 锁定：区块左右内边距 24 与 1px 分隔线、小标题 10.5px/590、标签 4/8 内边距与
 // 10px 字号、提示词框四项、参考图 3 列网格、来源卡边框/圆角/按钮行、表单控件
 // 高 32/圆角 8、本任务新增字号下限 10px，以及浅色覆盖后 hover/active 语义补回。
+// 任务 41：区块小标题复制按钮改带文字后按 AA 校色（#929297 → #6e6e73）。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -49,7 +50,9 @@ test("section titles read as R21 sec-head (10.5px/590) with copy buttons in .cop
   assert.match(disclosure, /font-size: 10\.5px;/);
   assert.match(disclosure, /font-weight: 590;/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-prompt-head h3, \.detail-prompt-subhead h4, \.detail-source-summary > span, \.detail-disclosure > summary, \.detail-fields \.field > span\) \{\n  color: #8d8d93;\n\}/);
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-prompt-head \.section-head-copy, \.detail-copy-sub, \.detail-source-copy \.section-head-copy, \.detail-source-summary > strong\) \{\n  color: #929297;\n\}/);
+  // 任务 41：复制按钮带文字后按 AA 校色——R21 稿 #929297 只有 2.99:1，加深为 #6e6e73
+  // （面板 #fbfbfc 上 4.90:1）；同一 :is 块里的来源摘要 strong 一并达标。
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-prompt-head \.section-head-copy, \.detail-copy-sub, \.detail-source-copy \.section-head-copy, \.detail-source-summary > strong\) \{\n  color: #6e6e73;\n\}/);
   const icon = lastBlock(css, ".mosa-v2 .detail .detail-prompt-head .section-head-copy svg");
   assert.match(icon, /width: 12px;/);
   assert.match(icon, /height: 12px;/);
