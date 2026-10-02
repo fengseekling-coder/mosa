@@ -12,7 +12,7 @@ import { createApiClient, mosaMutationHeaders } from "./api-client.mjs";
 import { createConfirmDialog } from "./confirm-dialog.mjs";
 import { createImagePreviewViewer } from "./image-preview.mjs";
 import { createAssetViewer } from "./asset-view.mjs";
-import { createInspectorMarkup } from "./inspector-markup.mjs";
+import { createInspectorMarkup, DETAIL_TAGS_VISIBLE_LIMIT } from "./inspector-markup.mjs";
 import { assetTags, derivePromptTags, uniqueTags } from "./tag-utils.mjs";
 import { createContextMenu } from "./context-menu.mjs";
 import { createContextMenuActions } from "./context-menu-actions.mjs";
@@ -76,6 +76,10 @@ const state = {
   sidebarSmartCollapsed: safeStorageGet("mosa.sidebar-smart-collapsed") === "true",
   sidebarManualCollapsed: safeStorageGet("mosa.sidebar-manual-collapsed") === "true",
   detailReturnFocusAssetId: null, previewReturnFocusAssetId: null,
+  // 任务 35：检视器「+N」标签展开状态。会话内 UI 状态（同 settingsPage，不写本地存储）：
+  // 只在当前检视器、当前素材内保持——切素材在 renderDetail 重置，同素材重渲染（增删标签、
+  // 语言切换、后台刷新）保留；由 toggleDetailTagsExpanded 翻转。
+  detailTagsExpanded: false,
   imageZoom: 1, imagePanX: 0, imagePanY: 0,
   // Bulk-selection gate. The viewer short-circuits while batch mode is active so
   // Phase 3A / D4：专用大图查看模式最小状态——viewMode 二值（library/asset）+ 进入时的
@@ -5005,6 +5009,9 @@ function renderDetail({ syncAssetView = true } = {}) {
     if (scroller) scroller.scrollTop = 0;
     return;
   }
+  // 任务 35：「+N」展开状态只跟随当前素材——换素材渲染（首次打开/从别的素材或空态
+  // 切回来）回到折叠；同素材重渲染（detailRenderedAssetId === asset.id）保留现状。
+  if (detailRenderedAssetId !== asset.id) state.detailTagsExpanded = false;
   const cachedHistory = versionHistoryForAsset(asset);
   const cachedRecipeHistory = recipeHistoryForAsset(asset) || recipeHistoryFromAsset(asset);
   const cachedGenerationHistory = generationHistoryForAsset(asset);
@@ -5567,6 +5574,7 @@ function bindDetailEvents(asset, renderId) {
   panel.querySelectorAll('[data-action="remove-tag"]').forEach((button) => {
     button.addEventListener("click", () => removeDetailTag(panel, button, asset, renderId));
   });
+  panel.querySelector('[data-action="toggle-tags"]')?.addEventListener("click", () => toggleDetailTagsExpanded(asset, renderId));
   panel.querySelector('[data-action="copy-source"]')?.addEventListener("click", () => runAction(async () => { await writeClipboardText(sourceCopyValue(asset.source)); showToast(t("originalPathCopied"), "success"); }));
   panel.querySelector('[data-action="view-generation-session"]')?.addEventListener("click", () => { void showRelatedGenerations(asset, "session"); });
   panel.querySelector('[data-action="view-generation-batch"]')?.addEventListener("click", () => { void showRelatedGenerations(asset, "batch"); });
@@ -5876,6 +5884,9 @@ function openTagEditor(panel, asset, renderId) {
       const index = state.assets.findIndex((item) => item.id === asset.id);
       if (index >= 0) state.assets[index] = result.asset;
       showToast(t("tagSaved"), "success");
+      // 任务 35：折叠时新标签会落到前 9 个之后的隐藏区，先自动展开，保证刚加的
+      // 标签立即可见、可删；未过上限时不渲染 +N 按钮，展开标志无视觉影响。
+      if (assetTags(result.asset).length > DETAIL_TAGS_VISIBLE_LIMIT) state.detailTagsExpanded = true;
       refreshDetailTagsSection(result.asset, renderId);
       clearDetailDirtyScope(panel, "tags");
     }).finally(() => {
@@ -5932,6 +5943,16 @@ function refreshDetailTagsSection(asset, renderId) {
   replacement.querySelectorAll('[data-action="remove-tag"]').forEach((button) => {
     button.addEventListener("click", () => removeDetailTag(els.detailPanel, button, asset, renderId));
   });
+  replacement.querySelector('[data-action="toggle-tags"]')?.addEventListener("click", () => toggleDetailTagsExpanded(asset, renderId));
+}
+
+// 任务 35：「+N」切换——翻转 state.detailTagsExpanded 后重渲染标签区（与增删标签走
+// 同一条 refreshDetailTagsSection 路径），焦点交还给切换按钮本身：重渲染替换了节点，
+// 点击与键盘 Enter 激活走同一 handler，aria-expanded 随新节点更新。
+function toggleDetailTagsExpanded(asset, renderId) {
+  state.detailTagsExpanded = !state.detailTagsExpanded;
+  refreshDetailTagsSection(asset, renderId);
+  els.detailPanel?.querySelector('[data-action="toggle-tags"]')?.focus();
 }
 
 function readRecipeDraft(panel) {

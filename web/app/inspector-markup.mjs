@@ -14,6 +14,10 @@ import { assetTags } from "./tag-utils.mjs";
 import { displayAssetTitle, escapeHtml, formatDate, formatDateTime } from "./utils.mjs";
 import { selectVersionComparisonPair } from "./version-compare.mjs";
 
+// 任务 35：检视器用户标签的折叠阈值——超过时只渲染前 N 个并追加「+N」展开按钮。
+// app.mjs 的添加标签路径按它判断新加标签是否会落进隐藏区（是则自动展开）。
+export const DETAIL_TAGS_VISIBLE_LIMIT = 9;
+
 export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
   const COPY_ICON_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg>`;
 
@@ -171,14 +175,24 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
       sourceType === "web-chatgpt" ? "gpt" : "",
       sourceType === "web-google-ai-studio" ? "google ai studio" : "",
     ].filter(Boolean).map((value) => String(value).trim().toLowerCase()));
-    const tags = assetTags(asset)
-      .filter((tag) => !duplicateSourceTags.has(String(tag).trim().toLowerCase()))
-      .slice(0, 9);
+    // 任务 35：用户标签超过 DETAIL_TAGS_VISIBLE_LIMIT 时折叠——只渲染前 N 个，
+    // 隐藏部分根本不进 DOM（不占 Tab 序、读屏不可见），后跟「+N」切换按钮；展开时
+    // 全部渲染、按钮变「收起」。展开标志在 state.detailTagsExpanded（app.mjs 维护，
+    // 只在当前检视器、当前素材内保持），本纯展示 helper 只读不写。
+    const allTags = assetTags(asset)
+      .filter((tag) => !duplicateSourceTags.has(String(tag).trim().toLowerCase()));
+    const overflowCount = Math.max(allTags.length - DETAIL_TAGS_VISIBLE_LIMIT, 0);
+    const expanded = state.detailTagsExpanded === true && overflowCount > 0;
+    const tags = expanded ? allTags : allTags.slice(0, DETAIL_TAGS_VISIBLE_LIMIT);
     // 来源标签纯展示（无删除入口）；用户标签末尾内联 × 按钮，显示/焦点规则见 styles.css
     // .detail-tag-remove（平时 opacity:0，悬停或标签内聚焦时显示，触屏常显）。
     const sourceMarkup = `<span class="detail-tag detail-source-tag" aria-label="${escapeHtml(`${t("source")}: ${sourceLabel}`)}">${escapeHtml(sourceLabel)}</span>`;
     const tagMarkup = tags.map((tag) => `<span class="detail-tag" data-tag-value="${escapeHtml(tag)}"><span class="detail-tag-label">${escapeHtml(tag)}</span><button class="detail-tag-remove" type="button" data-action="remove-tag" data-tag-value="${escapeHtml(tag)}" aria-label="${escapeHtml(t("removeTag", { tag }))}">×</button></span>`).join("");
-    return `<section class="inspector-section detail-tags-section" data-inspector-section="tags" aria-label="${escapeHtml(t("tags"))}"><div class="detail-tags-row" data-tags-list>${sourceMarkup}${tagMarkup}<button class="detail-tags-add" type="button" data-action="add-tag"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>${escapeHtml(t("addTag"))}</span></button></div></section>`;
+    // 「+N」是真按钮：aria-expanded 暴露开合状态，可访问名称带出隐藏个数 / 收起。
+    const tagsToggleMarkup = overflowCount > 0
+      ? `<button class="detail-tags-toggle" type="button" data-action="toggle-tags" aria-expanded="${expanded}" aria-label="${escapeHtml(expanded ? t("collapseTags") : t("showMoreTags", { count: overflowCount }))}"><span aria-hidden="true">${expanded ? escapeHtml(t("collapseTagsShort")) : `+${overflowCount}`}</span></button>`
+      : "";
+    return `<section class="inspector-section detail-tags-section" data-inspector-section="tags" aria-label="${escapeHtml(t("tags"))}"><div class="detail-tags-row" data-tags-list>${sourceMarkup}${tagMarkup}${tagsToggleMarkup}<button class="detail-tags-add" type="button" data-action="add-tag"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>${escapeHtml(t("addTag"))}</span></button></div></section>`;
   }
 
   function activeRecipeReferences(asset) {
