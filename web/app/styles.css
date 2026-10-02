@@ -1263,6 +1263,12 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .asset-mini video.detail-image { width: 100%; height: 100%; }
 .mosa-v2 .detail .asset-mini img.detail-image,
 .mosa-v2 .detail .asset-mini video.detail-image { object-fit: cover; }
+/* 任务 36：检视器图片的键盘预览入口。button 撑满 .asset-mini 瓦片，img 规则
+   不变；焦点环复用全局 button:focus-visible（--color-focus-ring 随主题切换，
+   深色同样可见），仅把外扩收进瓦片（同 .asset-card-select:focus-visible 的
+   -2px 惯例），否则环会被瓦片的 overflow:hidden 圆角裁掉。 */
+.mosa-v2 .detail .asset-mini .detail-preview-entry { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; }
+.mosa-v2 .detail .asset-mini .detail-preview-entry:focus-visible { outline-offset: -2px; }
 .mosa-v2 .detail .asset-meta-wrap { min-width: 0; display: flex; flex-direction: column; }
 .mosa-v2 .detail .asset-name-row { display: flex; min-width: 0; align-items: flex-start; gap: var(--inspector-space-2); }
 .mosa-v2 .detail .asset-name-row h3 { min-width: 0; flex: 1 1 auto; margin: 0; overflow: hidden; color: var(--color-text-primary); font-size: 14px; font-weight: 650; letter-spacing: -.1px; line-height: 20px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: ellipsis; word-break: break-all; }

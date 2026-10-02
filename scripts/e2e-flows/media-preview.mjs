@@ -1,10 +1,14 @@
 // Pluggable e2e flow: 图片预览弹窗 + 视频播放。
-// 图片预览（web/app/image-preview.mjs / app.mjs openImagePreview）：唯一 UI 入口是
-// 检视器里 img.detail-image 的双击（app.mjs 只在非视频素材上绑定）。API 预置两张
-// PNG（一张 400×300、一张 2400×1600 大图），经真实入口驱动弹窗：打开后显示正确
-// 素材（src 与 /api/assets 的 preview_url 逐字相等）、焦点落到关闭按钮；按钮关闭
-// 与 Escape 关闭各一次，关闭后焦点回到打开前的位置；大图阶段断言"适应窗口"的
-// fit 尺寸与 scale(1)，再走缩放控件：滚轮放大 ×2、"+" 键、滚轮缩小、"0" 键复位。
+// 图片预览（web/app/image-preview.mjs / app.mjs openImagePreview）：检视器里
+// img.detail-image 外层的 button.detail-preview-entry（任务 36）是唯一 UI 入口——
+// 鼠标双击打开（app.mjs 只在非视频素材上绑定）；键盘走入口的 keydown
+// Enter/Space，或程序化 .click()（detail===0 分支）。API 预置两张 PNG（一张
+// 400×300、一张 2400×1600 大图），经真实入口驱动弹窗：打开后显示正确素材
+// （src 与 /api/assets 的 preview_url 逐字相等）、焦点落到关闭按钮；按钮关闭
+// 与 Escape 关闭各一次，关闭后焦点回到键盘入口（button，任务 36 的焦点归还
+// 契约；旧断言"回 body"记录的是入口不可聚焦时代的缺陷，已按新行为改掉）；
+// 大图阶段断言"适应窗口"的 fit 尺寸与 scale(1)，再走缩放控件：滚轮放大 ×2、
+// "+" 键、滚轮缩小、"0" 键复位。视频素材的检视器不得渲染预览入口（断言）。
 // asset-viewer.mjs 已覆盖素材查看页（#assetView）的翻页/缩放，本流程不重复。
 //
 // 视频：webm 全链路被支持（前端 isSupportedImportFile、服务端 STAGING_EXTENSIONS /
@@ -22,7 +26,7 @@
 import { PAGE_HELPERS } from "./_page-helpers.mjs";
 
 export const name = "media-preview";
-export const description = "inspector dblclick image preview modal: open/verify/close (button + Escape, focus return) -> wheel/keyboard zoom + fit; video: in-page MediaRecorder webm drop import -> video card styling -> detail <video> play/pause -> mediaKind API recheck";
+export const description = "inspector image preview modal via mouse dblclick + keyboard entry (Enter/Space, focus return): open/verify/close (button + Escape) -> wheel/keyboard zoom + fit; video: in-page MediaRecorder webm drop import -> video card styling -> detail <video> play/pause (no preview entry) -> mediaKind API recheck";
 
 const SEED_TIMEOUT_MS = 30000;
 
@@ -83,6 +87,7 @@ function imagePhaseSource(config) {
     const previewImg = () => document.querySelector('#imagePreviewImage');
     const stage = () => document.querySelector('#imagePreviewStage');
     const detailImg = () => document.querySelector('#detailPanel img.detail-image');
+    const previewEntry = () => document.querySelector('#detailPanel .detail-preview-entry');
     const activeSig = () => {
       const el = document.activeElement;
       if (!el || el === document.body) return 'body';
@@ -113,17 +118,15 @@ function imagePhaseSource(config) {
       }, 'detail image loaded for ' + assetId);
     }
     async function openPreview() {
-      // 真实用户双击非可聚焦的 detail 图时，mousedown 的焦点修正会把焦点交回
-      // body；这里用 blur() 复现同一个"打开前焦点位置"，供关闭后对比。
-      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-      const before = activeSig();
+      // 任务 36：入口是 button.detail-preview-entry，真实双击的 mousedown 会把
+      // 焦点交给它；沙箱里只派发 dblclick（不合成 mousedown），焦点归还断言
+      // 不依赖打开前的焦点位置——关闭后统一回入口。
       detailImg().dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
       await waitFor(modalOpen, 'image preview modal opens');
       await waitFor(() => !previewImg().hidden && previewImg().complete && previewImg().naturalWidth > 0, 'preview image loaded');
       // openImagePreview 经 requestAnimationFrame 把焦点交给关闭按钮，隐藏窗口
       // 下 rAF 可能迟到，放宽等待。
       await waitFor(() => document.activeElement === document.querySelector('#closeImagePreview'), 'focus on close button', 8000);
-      return before;
     }
     const closeAndWait = async () => {
       await waitFor(() => !modalOpen(), 'image preview modal closed');
@@ -135,7 +138,7 @@ function imagePhaseSource(config) {
 
     // 小图：打开 -> 观察内容与焦点 -> 按钮关闭。
     await openDetailFor(config.small.id);
-    const beforeButtonClose = await openPreview();
+    await openPreview();
     const openedSmall = {
       imgSrc: previewImg().getAttribute('src') || '',
       imgAlt: previewImg().getAttribute('alt') || '',
@@ -188,14 +191,54 @@ function imagePhaseSource(config) {
     click('#closeImagePreview');
     const focusAfterZoomClose = await closeAndWait();
 
+    // ===== 任务 36：键盘路径 =====
+    // 真实键盘走入口的 keydown 分支；沙箱里合成 KeyboardEvent 不会触发原生
+    // 激活，但会经过同一段 keydown 处理（preventDefault + openImagePreview）。
+    // 程序化 .click()（detail===0）是等价的另一条激活路径，一并断言。
+    await openDetailFor(config.small.id);
+    const entry = previewEntry();
+    if (!entry) throw new Error('missing .detail-preview-entry in the inspector');
+    const entryLabel = entry.getAttribute('aria-label') || '';
+    entry.focus();
+    const entryFocusable = document.activeElement === entry;
+    entry.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await waitFor(modalOpen, 'preview opens via Enter');
+    await waitFor(() => !previewImg().hidden && previewImg().complete && previewImg().naturalWidth > 0, 'preview image loaded (Enter)', 8000);
+    // 关闭按钮的聚焦走 rAF，等它落位再断言（同 openPreview 的放宽等待）。
+    await waitFor(() => document.activeElement === document.querySelector('#closeImagePreview'), 'focus on close button (Enter)', 8000);
+    const keyboardEnter = {
+      src: previewImg().getAttribute('src') || '',
+      focusOnClose: document.activeElement === document.querySelector('#closeImagePreview'),
+    };
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    const focusAfterKeyboardEscape = await closeAndWait();
+    entry.focus();
+    entry.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+    await waitFor(modalOpen, 'preview opens via Space');
+    await waitFor(() => !previewImg().hidden && previewImg().complete && previewImg().naturalWidth > 0, 'preview image loaded (Space)', 8000);
+    const keyboardSpace = { src: previewImg().getAttribute('src') || '' };
+    click('#closeImagePreview');
+    const focusAfterKeyboardButtonClose = await closeAndWait();
+    // 鼠标单击不打开（保持任务 36 之前的现状）：detail>=1 的 click 不触发。
+    entry.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    const singleClickOpens = modalOpen();
+
     return {
-      beforeButtonClose,
       openedSmall,
       focusAfterButtonClose,
       focusAfterEscape,
       openedLarge,
       zoomSteps,
       focusAfterZoomClose,
+      keyboard: {
+        entryLabel,
+        entryFocusable,
+        keyboardEnter,
+        focusAfterKeyboardEscape,
+        keyboardSpace,
+        focusAfterKeyboardButtonClose,
+        singleClickOpens,
+      },
       rendererErrors,
     };
   })()`;
@@ -223,18 +266,28 @@ function assertImagePhase(result, config) {
   }
   if (openedSmall.stageZoomedClass !== false) problems.push("stage marked zoomed before any zoom");
 
-  // 打开前的位置是 body（见 openPreview 注释）：两条关闭路径都要回到那里，
-  // 且不能留在已隐藏的弹窗里。
-  if (result?.beforeButtonClose !== "body") problems.push(`pre-open focus ${JSON.stringify(result?.beforeButtonClose)}`);
-  if (result?.focusAfterButtonClose !== result?.beforeButtonClose) {
-    problems.push(`focus after button close ${JSON.stringify(result?.focusAfterButtonClose)} != pre-open ${JSON.stringify(result?.beforeButtonClose)}`);
+  // 任务 36：关闭后焦点回到键盘入口（button.detail-preview-entry）。旧断言
+  // "回 body" 记录的是入口（不可聚焦的 img）时代的缺陷，按新契约改写。
+  const entrySig = "button.detail-preview-entry";
+  if (result?.focusAfterButtonClose !== entrySig) problems.push(`focus after button close ${JSON.stringify(result?.focusAfterButtonClose)} != entry`);
+  if (result?.focusAfterEscape !== entrySig) problems.push(`focus after Escape ${JSON.stringify(result?.focusAfterEscape)} != entry`);
+  if (result?.focusAfterZoomClose !== entrySig) problems.push(`focus after zoom-phase close ${JSON.stringify(result?.focusAfterZoomClose)} != entry`);
+
+  // 键盘路径：入口可聚焦、Enter/Space 打开正确的图、两条键盘关闭路径都回入口、
+  // 鼠标单击不开（保持旧现状）。
+  const kb = result?.keyboard || {};
+  if (kb.entryLabel !== "查看大图") problems.push(`entry aria-label ${JSON.stringify(kb.entryLabel)}`);
+  if (kb.entryFocusable !== true) problems.push("entry is not focusable via focus()");
+  if (kb.keyboardEnter?.src !== config.small.previewUrl) {
+    problems.push(`Enter-opened preview src ${JSON.stringify(kb.keyboardEnter?.src)} != api preview`);
   }
-  if (result?.focusAfterEscape !== result?.beforeButtonClose) {
-    problems.push(`focus after Escape ${JSON.stringify(result?.focusAfterEscape)} != pre-open ${JSON.stringify(result?.beforeButtonClose)}`);
+  if (kb.keyboardEnter?.focusOnClose !== true) problems.push(`focus after Enter-open: ${String(kb.keyboardEnter?.focusOnClose)}`);
+  if (kb.focusAfterKeyboardEscape !== entrySig) problems.push(`focus after keyboard Escape close ${JSON.stringify(kb.focusAfterKeyboardEscape)} != entry`);
+  if (kb.keyboardSpace?.src !== config.small.previewUrl) {
+    problems.push(`Space-opened preview src ${JSON.stringify(kb.keyboardSpace?.src)} != api preview`);
   }
-  if (result?.focusAfterZoomClose !== result?.beforeButtonClose) {
-    problems.push(`focus after zoom-phase close ${JSON.stringify(result?.focusAfterZoomClose)} != pre-open ${JSON.stringify(result?.beforeButtonClose)}`);
-  }
+  if (kb.focusAfterKeyboardButtonClose !== entrySig) problems.push(`focus after keyboard button close ${JSON.stringify(kb.focusAfterKeyboardButtonClose)} != entry`);
+  if (kb.singleClickOpens !== false) problems.push(`single click (detail=1) opened the preview: ${String(kb.singleClickOpens)} (must stay closed)`);
 
   const openedLarge = result?.openedLarge || {};
   if (openedLarge.imgSrc !== config.large.previewUrl) {
@@ -380,6 +433,8 @@ function videoPhaseSource() {
       detailVideoClass: detailVideo.classList.contains('detail-video'),
       src: detailVideo.getAttribute('src') || '',
       hasControls: detailVideo.controls === true,
+      // 任务 36：视频检视器不得渲染图片预览入口（入口只包 img 分支）。
+      hasPreviewEntry: Boolean(document.querySelector('#detailPanel .detail-preview-entry')),
     };
     // 原生 controls 的播放键在封闭 shadow DOM 里，无法合成点击；Electron 默认
     // autoplay 策略允许无手势播放，所以在页面里直接调用 play()。
@@ -436,6 +491,7 @@ async function assertVideoPhase(ctx, server, result, images) {
   const detailFacts = result?.detailFacts || {};
   if (detailFacts.detailVideoClass !== true) problems.push("detail media lacks detail-video class");
   if (detailFacts.hasControls !== true) problems.push("detail video has no controls attribute");
+  if (detailFacts.hasPreviewEntry !== false) problems.push("video detail must not render the image preview entry (task 36)");
 
   const playback = result?.playback || {};
   if (playback.playOutcome !== "playing") problems.push(`play() outcome ${JSON.stringify(playback.playOutcome)}`);

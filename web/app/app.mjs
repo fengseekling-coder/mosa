@@ -5579,7 +5579,24 @@ function bindDetailEvents(asset, renderId) {
   panel.querySelector('[data-action="view-generation-session"]')?.addEventListener("click", () => { void showRelatedGenerations(asset, "session"); });
   panel.querySelector('[data-action="view-generation-batch"]')?.addEventListener("click", () => { void showRelatedGenerations(asset, "batch"); });
   if (!isVideoAsset(asset)) {
-    panel.querySelector(".detail-image")?.addEventListener("dblclick", (event) => openImagePreview(asset.id, event.currentTarget));
+    // 任务 36：预览入口是 button（inspector-markup assetMediaPreviewMarkup 的
+    // detail 分支），关闭弹窗时 openImagePreview 记录的 returnFocus 就是它，
+    // 焦点归还从此真正生效。三条激活路径：
+    // - dblclick：鼠标原行为保留（img 上的双击冒泡到入口，currentTarget 是入口）；
+    // - keydown Enter/Space：显式处理并 preventDefault（抑制原生 click 免得二次打开）；
+    // - click 且 detail===0：程序化 .click() / 辅助技术激活兜底，与键盘同路径。
+    // 鼠标单击（detail>=1）不打开，维持任务 36 之前的现状。
+    const previewEntry = panel.querySelector(".detail-preview-entry");
+    const openPreviewFromEntry = (event) => openImagePreview(asset.id, event.currentTarget);
+    previewEntry?.addEventListener("dblclick", openPreviewFromEntry);
+    previewEntry?.addEventListener("click", (event) => {
+      if (event.detail === 0) openPreviewFromEntry(event);
+    });
+    previewEntry?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openPreviewFromEntry(event);
+    });
   }
   // Prompt / Prompt 2 switch the visible text; copy follows the visible one.
   const promptTexts = { 1: String(asset.prompt || ""), 2: String(asset.source?.generation_request_prompt || "").trim() };
