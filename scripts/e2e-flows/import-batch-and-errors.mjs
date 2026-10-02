@@ -160,10 +160,20 @@ function sessionASource() {
   // 1) 12 differently coloured PNGs in one drop
   const colors = ['#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe', '#008080', '#9a6324'];
   const batchFiles = await Promise.all(colors.map((color, index) => makePngFile('mosa-ibe-batch-' + index + '.png', color)));
+  // 12 small PNGs import in a single chunk (0/12 -> 12/12 -> clear). On a fast
+  // machine each step can finish inside the live region's write delay, so every
+  // progress write is cancelled by the next one before it lands. Hold the
+  // import-batch request long enough for "0/12" to reach #statusText.
+  const realFetch = window.fetch;
+  window.fetch = async (input, init) => {
+    if (String(input).includes('/api/assets/import-batch')) await new Promise((resolve) => setTimeout(resolve, 150));
+    return realFetch.call(window, input, init);
+  };
   beginFileDrag(libraryDropTarget(), batchFiles)();
   await waitFor(() => gallerySettled() && rootCardIds().length === 12, '12 cards after the 12-file drop');
   const batchIds = rootCardIds();
   await waitFor(() => toastSeen((text) => text.includes('已导入 12 个素材')), 'batchImportComplete toast for 12 files');
+  window.fetch = realFetch;
   const queuedToast12 = toastSeen((text) => text.includes('已加入导入队列：12 个文件'));
   const progressAnnouncements = cap.announcements.filter((text) => /正在导入 \\d+\\/12/.test(text));
 

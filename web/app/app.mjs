@@ -1,5 +1,6 @@
 import { createLanguageApplier, createT, resolveLocale } from "./i18n-runtime.mjs";
 import { createBridgeStatusPoller } from "./bridge-status-poller.mjs";
+import { createStatusLiveRegion } from "./status-live-region.mjs";
 import {
   FACET_KEYS, LIBRARY_REFRESH_INTERVAL, LIVE_REGION_WRITE_DELAY, SCOPES, SETTINGS_SYNC_DEBOUNCE_MS, SIDEBAR_SOURCE_TYPES, SKELETON_TILE_COUNT, SOURCE_LABEL_KEYS, STATUS_ANNOUNCEMENT_DURATION,
 } from "./config.mjs";
@@ -21,10 +22,6 @@ import { createAssetStackController } from "./asset-stacks.mjs";
 import { createLibraryReconciler } from "./library-reconciliation.mjs";
 import { collectDroppedFiles, createBatchImporter, dropErrorMessage } from "./batch-import.mjs";
 import { createNativeAssetDrag } from "./native-asset-drag.mjs";
-let statusAnnouncementTimer = null;
-let statusTextWriteTimer = null;
-let statusAnnouncementSequence = 0;
-let statusAnnouncementActive = false;
 let libraryRefreshTimer = null;
 let settingsSyncTimer = null;
 let settingsSyncScheduled = false;
@@ -36,25 +33,8 @@ function trashRemainingDays(deletedAt) {
   return Math.max(0, Math.ceil((deletedAtMs + TRASH_RETENTION_MS - Date.now()) / (24 * 60 * 60 * 1000)));
 }
 let libraryEventSource = null;
-let persistentStatus = { value: "", stateName: "neutral" };
 let sidebarGroupEdit = null;
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
-
-// Clear and repopulate the shared status node in separate DOM mutations. This
-// gives VoiceOver a reliable text mutation to announce when the same status is
-// emitted twice in a row.
-function writeStatusText(value) {
-  if (!els.statusText) return;
-  window.clearTimeout(statusTextWriteTimer);
-  statusTextWriteTimer = null;
-  els.statusText.textContent = "";
-  value = String(value ?? "");
-  if (!value) return;
-  statusTextWriteTimer = window.setTimeout(() => {
-    statusTextWriteTimer = null;
-    if (els.statusText) els.statusText.textContent = value;
-  }, LIVE_REGION_WRITE_DELAY);
-}
 
 function assetSourceLabel(asset = {}) {
   const type = String(asset.source?.type || asset.sourceType || "");
@@ -134,6 +114,16 @@ const els = {
   settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), openInspectorBtn: document.querySelector("#openInspectorBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), stackRenameModal: document.querySelector("#stackRenameModal"), stackRenameModalTitle: document.querySelector("#stackRenameModalTitle"), stackRenameModalInput: document.querySelector("#stackRenameInput"), stackRenameModalClose: document.querySelector("#stackRenameModalClose"), cancelStackRenameBtn: document.querySelector("#cancelStackRenameBtn"), saveStackRenameBtn: document.querySelector("#saveStackRenameBtn"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"),
   viewTitle: document.querySelector("#viewTitle"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
+
+// #statusText 是唯一的读屏播报区：临时播报（导入进度、拖入提示等）与桥接状态
+// 的轮询写入共用；两条写入规则见 status-live-region.mjs。
+const statusRegion = createStatusLiveRegion({
+  getRegion: () => els.statusText,
+  liveRegionWriteDelay: LIVE_REGION_WRITE_DELAY,
+  announcementDuration: STATUS_ANNOUNCEMENT_DURATION,
+  setTimeout: (callback, ms) => window.setTimeout(callback, ms),
+  clearTimeout: (handle) => window.clearTimeout(handle),
+});
 
 // asset-view 的导航状态更新由 asset-view.mjs 工厂闭包持有。保持顶层函数声明
 // （提升使其在下方 createApiClient 参数求值时可引用），运行时再委托给已初始化的 viewer。
@@ -954,25 +944,7 @@ function galleryEmptyMarkup() {
 
 /** Reuses the existing polite live region; never a second announcement system. */
 function announceGalleryStatus(message, { persist = false } = {}) {
-  if (!els.statusText) return;
-  window.clearTimeout(statusAnnouncementTimer);
-  statusAnnouncementTimer = null;
-  const sequence = ++statusAnnouncementSequence;
-  const announcement = String(message ?? "");
-  if (!announcement) {
-    statusAnnouncementActive = false;
-    writeStatusText(persistentStatus.value);
-    return;
-  }
-  statusAnnouncementActive = true;
-  writeStatusText(announcement);
-  if (persist) return;
-  statusAnnouncementTimer = window.setTimeout(() => {
-    if (sequence !== statusAnnouncementSequence) return;
-    statusAnnouncementTimer = null;
-    statusAnnouncementActive = false;
-    writeStatusText(persistentStatus.value);
-  }, STATUS_ANNOUNCEMENT_DURATION);
+  statusRegion.announce(message, { persist });
 }
 
 function announceEmptyState(kind) {
@@ -5936,10 +5908,11 @@ function isCurrentDetailSelection(projectId, assetId) {
 }
 
 function setStatus(value, stateName = "neutral") {
-  persistentStatus = { value, stateName };
-  if (!statusAnnouncementActive) writeStatusText(value);
+  // 只在状态文本变化、且没有进行中的播报时才进入读屏播报区；进行中的播报
+  // （导入进度等）结束后由恢复写入补播最新持久状态。轮询同值不再重复写入。
+  statusRegion.setPersistentStatus(value);
   // The visible label collapses to its dot in a narrow workspace bar, so the text
-  // is also carried as a tooltip. #statusText keeps announcing it either way.
+  // is also carried as a tooltip.
   if (els.bridgeStatus) { els.bridgeStatus.dataset.state = stateName; els.bridgeStatus.title = value; }
   if (els.bridgeStatusLabel) els.bridgeStatusLabel.textContent = value;
 }
