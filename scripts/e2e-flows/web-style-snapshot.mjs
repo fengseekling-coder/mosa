@@ -53,6 +53,9 @@ const KEY_KINDS = {
   "topbar.sortSelectHeight": "px",
   "topbar.sortSelectRadius": "px",
   "topbar.sortSelectBackground": "color",
+  "topbar.categorySelectHeight": "px",
+  "topbar.categorySelectRadius": "px",
+  "topbar.categorySelectBackground": "color",
   "topbar.searchHeight": "px",
   "topbar.searchRadius": "px",
   "topbar.searchBackground": "color",
@@ -349,6 +352,13 @@ function measurementSource({ plainAssetId }) {
     R['topbar.searchHeight'] = rectOf(searchBox).height;
     R['topbar.searchRadius'] = searchStyle.borderTopLeftRadius;
     R['topbar.searchBackground'] = searchStyle.backgroundColor;
+
+    // 任务 34：分类下拉框（复用 .sort-control 链，锁定与排序框同款外观）。
+    const categorySelect = pick('#categorySelect');
+    const categoryStyle = styleOf(categorySelect);
+    R['topbar.categorySelectHeight'] = rectOf(categorySelect).height;
+    R['topbar.categorySelectRadius'] = categoryStyle.borderTopLeftRadius;
+    R['topbar.categorySelectBackground'] = categoryStyle.backgroundColor;
 
     const gridStyle = styleOf(pick('#assetGrid'));
     R['gallery.gridPaddingTop'] = gridStyle.paddingTop;
