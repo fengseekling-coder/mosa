@@ -53,9 +53,9 @@ test("R21 card info: 12 distance, 12px/620 title, 10px non-mono meta, 12 bottom 
   assert.match(meta, /overflow: hidden;/, "the meta row must clip to one line");
   // 元信息子项逐项省略。
   assert.match(css, /\.asset-card-meta > \* \{ flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; \}/);
-  // 元信息颜色：浅色 #8d8d92，深色保持 --color-text-secondary（基规则不动）。
+  // 元信息颜色：浅色 #6e6e73（在 #f6f6f7 上 4.70:1，达 AA 4.5:1），深色保持 --color-text-secondary（基规则不动）。
   assert.match(css, /\.asset-card-meta \{ display: flex; flex-wrap: nowrap; gap: 2px 7px; margin-top: var\(--r21-s1\); overflow: hidden; color: var\(--color-text-secondary\); font-size: 10px; white-space: nowrap; \}/);
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.asset-card-meta \{ color: #8d8d92; \}/);
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.asset-card-meta \{ color: #6e6e73; \}/);
 });
 
 test("web estimate uses the measured 61px info height; the span math is unchanged", async () => {

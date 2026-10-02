@@ -442,10 +442,10 @@ body.asset-stack-dragging { cursor: grabbing; user-select: none; }
    （任务 20 的开关）。R21：距缩略图 12（padding-top，计入卡片实际高度）、标题
    12px/620 单行省略、元信息 10px 普通字体单行省略与标题间距 4、底部留白 12
    （同样计入实际高度——16 的画廊间距 + 12 = R21 的 28 视觉竖距）。
-   浅色元信息 #8d8d92 与深色现状（--color-text-secondary）由主题覆盖/本规则分工。 */
+   浅色元信息 #6e6e73（R21 稿为 #8d8d92，3.06:1 不达 AA，10-02 加深到 4.70:1）与深色现状（--color-text-secondary）由主题覆盖/本规则分工。 */
 .asset-card-info { display: none; padding: var(--r21-s3) 2px; }
 .asset-card-title { overflow: hidden; color: var(--color-text-primary); font-size: 12px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
-/* 浅色下 R21 指定 #8d8d92（见文件末尾画廊主题覆盖）；深色维持 --color-text-secondary。 */
+/* 浅色下用 #6e6e73（见文件末尾画廊主题覆盖；R21 稿 #8d8d92 对比度不足）；深色维持 --color-text-secondary。 */
 .asset-card-meta { display: flex; flex-wrap: nowrap; gap: 2px 7px; margin-top: var(--r21-s1); overflow: hidden; color: var(--color-text-secondary); font-size: 10px; white-space: nowrap; }
 .asset-card-meta > * { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .asset-card-badge { overflow: hidden; max-width: 96px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1203,7 +1203,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 /* R21 画廊新颜色（仅浅色；深色保持现状）：缩略图占位底色、选中框颜色、元信息文字。 */
 :root[data-theme="light"] .mosa-v2 .asset-card .thumb { background: #ececef; }
 :root[data-theme="light"] .mosa-v2 .asset-card.selected::after, :root[data-theme="light"] .mosa-v2 .asset-card.multi-selected::after { border-color: #4d4dff; }
-:root[data-theme="light"] .mosa-v2 .asset-card-meta { color: #8d8d92; }
+:root[data-theme="light"] .mosa-v2 .asset-card-meta { color: #6e6e73; }
 .mosa-v2 .card-actions { top: 8px; right: 8px; gap: 0; opacity: 1; }
 .mosa-v2 .card-action-btn {
   position: relative;
