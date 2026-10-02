@@ -50,7 +50,7 @@ const DESKTOP_SCRIPT = "desktop/main.mjs";
 const HEALTH_URL = "http://127.0.0.1:43517/api/health";
 const HEALTH_TIMEOUT_MS = 30_000;
 const EXPECTED_SERVICE_IDENTITY = Object.freeze({
-  ...getBuildIdentity(join(REPO_ROOT, "desktop", "app")),
+  ...getBuildIdentity(join(REPO_ROOT, "web", "app")),
   serviceProtocolVersion: MOSA_SERVICE_PROTOCOL_VERSION,
 });
 

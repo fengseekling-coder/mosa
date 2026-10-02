@@ -265,6 +265,7 @@ test("desktop package excludes every non-runtime project surface", () => {
     "/server.mjs",
     "/test/desktop-packaging.test.mjs",
     "/tsconfig.json",
+    "/web/legacy-ui/index.html",
   ]) {
     assert.equal(isIgnored(path), true, `${path} must stay out of the desktop package`);
   }
@@ -274,11 +275,11 @@ test("desktop package keeps every required runtime surface", () => {
   for (const path of [
     "/LICENSE",
     "/package.json",
-    "/desktop/app/app.mjs",
-    "/desktop/app/build-identity.json",
-    "/desktop/app/index.html",
-    "/desktop/app/styles.css",
-    "/desktop/app/i18n.mjs",
+    "/web/app/app.mjs",
+    "/web/app/build-identity.json",
+    "/web/app/index.html",
+    "/web/app/styles.css",
+    "/web/app/i18n.mjs",
     "/desktop/main.mjs",
     "/desktop/notification-i18n.mjs",
     "/desktop/platform/index.mjs",
@@ -477,8 +478,8 @@ test("keeps the desktop window single-instance and sandboxed", async () => {
     "shutdown must not surface a false startup error dialog",
   );
 
-  const appSource = await readFile(resolve(import.meta.dirname, "..", "desktop", "app", "app.mjs"), "utf8");
-  const index = await readFile(resolve(import.meta.dirname, "..", "desktop", "app", "index.html"), "utf8");
+  const appSource = await readFile(resolve(import.meta.dirname, "..", "web", "app", "app.mjs"), "utf8");
+  const index = await readFile(resolve(import.meta.dirname, "..", "web", "app", "index.html"), "utf8");
   assert.doesNotMatch(appSource, /window\.open\(/);
   assert.match(appSource, /openImagePreview\(asset\.id, event\.currentTarget\)/);
   assert.match(index, /<video id="imagePreviewVideo" controls playsinline hidden>/);
@@ -486,7 +487,7 @@ test("keeps the desktop window single-instance and sandboxed", async () => {
 
 test("packaged smoke waits for the real renderer and tears Electron down before cleanup", async () => {
   const source = await readFile(resolve(import.meta.dirname, "..", "scripts", "packaged-smoke.mjs"), "utf8");
-  const apiClientSource = await readFile(resolve(import.meta.dirname, "..", "desktop", "app", "api-client.mjs"), "utf8");
+  const apiClientSource = await readFile(resolve(import.meta.dirname, "..", "web", "app", "api-client.mjs"), "utf8");
   assert.match(source, /--remote-debugging-port=/, "packaged smoke must inspect the packaged renderer");
   assert.match(source, /waitForRenderer\(/, "packaged smoke must wait for renderer readiness");
   assert.match(source, /document\.querySelector\('#appShell'\)/, "renderer readiness must require the real MOSA app shell");
@@ -502,18 +503,24 @@ test("packaged smoke waits for the real renderer and tears Electron down before 
   assert.match(source, /signalProcessTree\(childProcess\.pid, \{ force: true \}\)/, "teardown must have a bounded process-tree hard-stop fallback");
 });
 
-test("the packaged app keeps the desktop UI tree and its build identity", () => {
-  // desktop/app is the single packaged UI surface; its generated
-  // build-identity.json must not be filtered out by the forge ignore rules.
-  assert.equal(isIgnored("/desktop/app/build-identity.json"), false);
-  assert.equal(isIgnored("/desktop/app/index.html"), false);
-  assert.equal(isIgnored("/desktop/app/app.mjs"), false);
-  assert.equal(isIgnored("/desktop/app/styles.css"), false);
+test("the packaged app keeps the shared web UI tree and its build identity", () => {
+  // web/app is the single packaged UI surface, shared with the browser; its
+  // generated build-identity.json must not be filtered out by the forge
+  // ignore rules. /web itself must stay allowed too: the packager matches
+  // directory entries against the ignore rules.
+  assert.equal(isIgnored("/web"), false);
+  assert.equal(isIgnored("/web/app"), false);
+  assert.equal(isIgnored("/web/app/build-identity.json"), false);
+  assert.equal(isIgnored("/web/app/index.html"), false);
+  assert.equal(isIgnored("/web/app/app.mjs"), false);
+  assert.equal(isIgnored("/web/app/styles.css"), false);
   assert.equal(isIgnored("/desktop/startup.html"), false);
   assert.equal(isIgnored("/lib/build-identity.mjs"), false);
   assert.equal(isIgnored("/desktop/preload.cjs"), false);
-  // The web UI tree and root-level copies must stay out of the desktop bundle.
-  assert.equal(isIgnored("/web/app/app.mjs"), true);
+  // Anything under /web outside web/app must stay out of the desktop bundle,
+  // as must root-level UI copies.
+  assert.equal(isIgnored("/web/legacy-ui/index.html"), true);
+  assert.equal(isIgnored("/web/notes.md"), true);
   assert.equal(isIgnored("/app/app.mjs"), true);
 });
 

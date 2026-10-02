@@ -118,39 +118,42 @@ test("extractExports strips export statements from own-file usage detection", ()
   assert.doesNotMatch(strippedSource, /export/);
 });
 
-test("a UI export kept alive only by its twin tree is dead", () => {
+test("a web/app export with no consumer anywhere is dead", () => {
   const result = analyze({
     "web/app/pair.mjs": "export function pairOnly() { return 1; }\n",
-    "desktop/app/pair.mjs": "export function pairOnly() { return 1; }\n",
+    "web/app/other.mjs": "const other = 1;\n",
   });
-  assert.deepEqual(result.deadExports, [
-    { file: "web/app/pair.mjs", name: "pairOnly" },
-    { file: "desktop/app/pair.mjs", name: "pairOnly" },
-  ]);
+  assert.deepEqual(result.deadExports, [{ file: "web/app/pair.mjs", name: "pairOnly" }]);
 });
 
-test("a UI export consumed outside the UI trees stays alive", () => {
+test("a web/app export consumed outside the UI tree stays alive", () => {
   const result = analyze({
     "web/app/shared.mjs": "export function sharedThing() { return 1; }\n",
-    "desktop/app/shared.mjs": "export function sharedThing() { return 1; }\n",
     "test/shared.test.mjs": "import { sharedThing } from '../web/app/shared.mjs';\nsharedThing();\n",
   });
   assert.equal(result.deadExports.length, 0);
 });
 
-test("a UI module referenced only by its twin is dead", () => {
+test("a web/app module consumed within its own tree stays alive", () => {
   const result = analyze({
     "web/app/index.html": '<script type="module" src="/app.mjs"></script>\n',
-    "web/app/app.mjs": "const start = 1;\n",
+    "web/app/app.mjs": "import { lonelyValue } from './lonely.mjs';\nconsole.log(lonelyValue);\n",
     "web/app/lonely.mjs": "export const lonelyValue = 1;\n",
-    "desktop/app/index.html": '<script type="module" src="/app.mjs"></script>\n',
-    "desktop/app/app.mjs": "import { lonelyValue } from './lonely.mjs';\nconsole.log(lonelyValue);\n",
-    "desktop/app/lonely.mjs": "export const lonelyValue = 1;\n",
   });
-  assert.deepEqual(result.deadFiles, ["web/app/lonely.mjs"]);
+  assert.equal(result.deadFiles.length, 0);
 });
 
-test("scans every stylesheet in the UI trees, not just styles.css", () => {
+test("the styles.css presence gate applies to the single UI tree", () => {
+  assert.throws(
+    () => analyze({
+      "web/app/extra.css": ".extra { color: red; }\n",
+      "web/app/app.mjs": "el.classList.add('extra');\n",
+    }),
+    /missing web\/app\/styles\.css/,
+  );
+});
+
+test("scans every stylesheet in the UI tree, not just styles.css", () => {
   const result = analyze({
     "web/app/styles.css": ".alive { color: red; }\n",
     "web/app/extra.css": ".extra-dead { color: blue; }\n",

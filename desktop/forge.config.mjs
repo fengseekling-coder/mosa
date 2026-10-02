@@ -240,7 +240,11 @@ export function packageIgnorePatternsForTarget(target = resolveDesktopPackagingT
   return [
   // The desktop bundle has one runtime surface. Everything else at the
   // repository root is development, documentation, or another distribution.
-  /^\/(?!desktop(?:\/|$)|lib(?:\/|$)|node_modules(?:\/|$)|LICENSE$|package\.json$).+/,
+  // The shared UI ships from web/app/; /web itself must stay allowed (the
+  // packager matches directory entries too) while everything under /web
+  // outside web/app is ignored.
+  /^\/(?!web(?:\/|$)|desktop(?:\/|$)|lib(?:\/|$)|node_modules(?:\/|$)|LICENSE$|package\.json$).+/,
+  /^\/web\/(?!app(?:\/|$)).+/,
   /^\/desktop\/assets(?:\/|$)/,
   /^\/desktop\/(?:forge\.config\.mjs|icon-assets\.mjs)$/,
   /^\/lib\/.*(?:\.ts|\.js\.map)$/,

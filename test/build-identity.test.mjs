@@ -133,15 +133,20 @@ test("the repository web/app/ directory has a build-identity.json with valid fie
   resetBuildIdentityCache();
 });
 
-test("build identity exists only under web/app/ and desktop/app/, never at the repository root", async () => {
+test("build identity exists only under web/app/, never at the repository root or the retired desktop UI copy", async () => {
   await assert.rejects(
     readFile(join(repositoryRoot, "build-identity.json"), "utf8"),
     (error) => error?.code === "ENOENT",
     "repository-root build-identity.json is a stale generated-file location and must stay absent",
   );
-  // Verify both web and desktop have their own build-identity.json
   await readFile(join(repositoryRoot, "web", "app", "build-identity.json"), "utf8");
-  await readFile(join(repositoryRoot, "desktop", "app", "build-identity.json"), "utf8");
+  // The desktop UI copy was removed; its build identity must not come back.
+  const desktopDir = join(repositoryRoot, "desktop");
+  await assert.rejects(
+    readFile(join(desktopDir, "app", "build-identity.json"), "utf8"),
+    (error) => error?.code === "ENOENT",
+    "the retired desktop UI copy's build-identity.json must stay absent",
+  );
 });
 
 test("uiFingerprint in build-identity.json matches the actual browser-delivered app shell", async () => {
@@ -246,14 +251,15 @@ test("index.html does not use hardcoded ?v=NN query parameters for cache busting
     "index.html must not rely on manual ?v=NN query strings; uiFingerprint is the source of truth");
 });
 
-test("the forge packaging config includes desktop/app/ resources and relocates them to app/ in the package", async () => {
+test("the forge packaging config includes web/app/ resources, the shared UI directory", async () => {
   const forgeConfig = (await import("../desktop/forge.config.mjs")).default;
   const patterns = forgeConfig.packagerConfig.ignore;
-  // desktop/app/ directory should not be ignored in source.
-  assert.ok(!patterns.some((p) => p.test("/desktop/app/index.html")));
-  assert.ok(!patterns.some((p) => p.test("/desktop/app/build-identity.json")));
-  assert.ok(!patterns.some((p) => p.test("/desktop/app/app.mjs")));
-  // After packaging, desktop/app/ is moved to app/ via packageAfterPrune hook
+  // web/app/ is the single UI surface for browser and Electron; it stays at
+  // web/app/ inside the package (verify-packaged-runtime reads
+  // web/app/build-identity.json from the asar).
+  assert.ok(!patterns.some((p) => p.test("/web/app/index.html")));
+  assert.ok(!patterns.some((p) => p.test("/web/app/build-identity.json")));
+  assert.ok(!patterns.some((p) => p.test("/web/app/app.mjs")));
 });
 
 test("desktop main.mjs derives the app root from its own module location, not app.getAppPath() or cwd", async () => {
@@ -264,8 +270,9 @@ test("desktop main.mjs derives the app root from its own module location, not ap
   // projectRoot、managerDir 使用同一个应用根。
   assert.ok(source.includes("projectRoot: appRoot"), "projectRoot must use appRoot");
   assert.ok(source.includes("managerDir: appRoot"), "managerDir must use appRoot");
-  // In development, desktop UI is at desktop/app; in packaged runtime, it's moved to app/
-  assert.ok(source.includes('appDir: join(appRoot, "desktop", "app")'), "appDir must be appRoot/desktop/app in development");
+  // Desktop serves the shared web UI: appDir points at web/app in both dev
+  // and packaged runtimes.
+  assert.ok(source.includes('appDir: join(appRoot, "web", "app")'), "appDir must be appRoot/web/app");
   // 不再通过 app.getAppPath() 拼出 appDir，也不依赖 process.cwd()。
   assert.ok(!source.includes("app.getAppPath()"), "must not use app.getAppPath()");
   assert.ok(!source.includes("process.cwd()"), "must not use process.cwd()");

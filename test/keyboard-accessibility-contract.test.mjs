@@ -168,13 +168,12 @@ const checks = [
     assert.match(apiClient, /renderErrorState\(error, requestId, request\)/);
     assert.match(app, /function renderErrorState\(error, requestId = null, request = null\)[\s\S]*?setGalleryBusy\(false, requestId, request\)/s);
   }],
-  ["46b both ends destructure the busy helper from the api client", async () => {
-    for (const tree of ["web", "desktop"]) {
-      const apiClient = await read(`${tree}/app/api-client.mjs`);
-      const app = await read(`${tree}/app/app.mjs`);
-      assert.match(apiClient, /return \{[^}]*\bsetGalleryBusy\b[^}]*\};/);
-      assert.match(app, /const \{ apiFetch,[^}]*\bsetGalleryBusy\b[^}]*\} = apiClient;/);
-    }
+  ["46b the shared UI end destructures the busy helper from the api client", async () => {
+    // web/app is now the only UI tree (desktop serves the same directory).
+    const apiClient = await read("web/app/api-client.mjs");
+    const app = await read("web/app/app.mjs");
+    assert.match(apiClient, /return \{[^}]*\bsetGalleryBusy\b[^}]*\};/);
+    assert.match(app, /const \{ apiFetch,[^}]*\bsetGalleryBusy\b[^}]*\} = apiClient;/);
   }],
   ["47 stale request cannot clear busy", async () => assert.match(await read("web/app/api-client.mjs"), /if \(!busy && requestId !== null && !isCurrentAssetRequest\(requestId, request\)\) return false;/)],
   ["48 pagination uses same loader", async () => assert.match(await read("web/app/app.mjs"), /data-action="load-more".*?loadAssets\(\{ append: true \}\)/s)],
