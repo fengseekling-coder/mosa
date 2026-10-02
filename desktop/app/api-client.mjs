@@ -786,6 +786,6 @@ export function createApiClient(deps) {
     refreshAssetPageTotalInBackground, refreshLoadedAssetsInBackground, performFullGalleryReconciliation,
     buildAssetPageParams, requestAssetPage, requestAssetTotal, currentAssetRequest, assetRequestKey, assetListVersion, assetVersion,
     noteLibraryRevision, getLibraryRevisionBaseline, setLibraryDeltaApplier, fetchLibraryChanges,
-    reconcileLibraryRevision, prefetchNextAssetPage, resetAssetPrefetch,
+    reconcileLibraryRevision, prefetchNextAssetPage, resetAssetPrefetch, setGalleryBusy,
   };
 }

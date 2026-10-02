@@ -157,6 +157,81 @@ const SELECTION_HELPERS = String.raw`
     }
     item.click();
   }
+  // ===== 堆叠退出诊断（仅 Page 6 安装）=====
+  // CI 偶发「返回根视图后缺移出成员」超时（任务 26 两轮排查未复现），超时时
+  // 只有 pageDiagnostic 的通用字段，无法判断变更丢在哪一步。这里包一层
+  // window.fetch 记录请求时序（gallery-rows 额外记录受影响行与响应行），
+  // 配合「移出完成」「点返回前」两个时刻的状态快照，在超时错误里一并抛出。
+  // 成功路径零输出；流程结束（成功或失败）由调用方 finally 还原 fetch。
+  const T28 = { log: [], snapshots: {}, originalFetch: null, installed: false, t0: 0 };
+  function t28InstallFetchProbe() {
+    if (T28.installed) return;
+    T28.installed = true;
+    T28.t0 = performance.now();
+    T28.originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, init = {}) => {
+      let path = String(typeof input === 'string' ? input : input?.url || '');
+      const method = String(init?.method || (typeof input === 'object' ? input?.method : '') || 'GET').toUpperCase();
+      try {
+        const parsed = new URL(path, location.origin);
+        for (const key of [...parsed.searchParams.keys()]) {
+          if (key.toLowerCase().includes('token')) parsed.searchParams.delete(key);
+        }
+        path = parsed.pathname + parsed.search;
+      } catch { path = path.slice(0, 120); }
+      const record = { t: Math.round(performance.now() - T28.t0), method, path };
+      const isRows = path.includes('/api/gallery-rows');
+      if (isRows) {
+        try {
+          const body = JSON.parse(String(init?.body || '{}'));
+          record.assetIds = Array.isArray(body?.assetIds) ? body.assetIds.slice(0, 24) : [];
+          record.stackId = String(body?.request?.stackId || '');
+          record.boundaryCursor = Boolean(body?.request?.boundaryCursor);
+        } catch { /* 记录请求体失败不阻塞原请求 */ }
+      }
+      try {
+        const response = await T28.originalFetch(input, init);
+        record.status = response.status;
+        if (isRows) {
+          // 响应体异步解析：waitFor 超时（15s）远晚于解析完成，汇总时已就绪。
+          void response.clone().json().then((payload) => {
+            record.rows = (Array.isArray(payload?.rows) ? payload.rows : []).map((row) => String(row?.id || ''));
+            record.rowByAssetId = (payload?.rowByAssetId && typeof payload.rowByAssetId === 'object') ? payload.rowByAssetId : {};
+          }).catch(() => {});
+        }
+        T28.log.push(record);
+        if (T28.log.length > 40) T28.log.shift();
+        return response;
+      } catch (error) {
+        record.status = 'error';
+        T28.log.push(record);
+        if (T28.log.length > 40) T28.log.shift();
+        throw error;
+      }
+    };
+  }
+  function t28RestoreFetch() {
+    if (!T28.installed) return;
+    window.fetch = T28.originalFetch;
+    T28.installed = false;
+  }
+  function t28GalleryState() {
+    return {
+      rootIds: rootCardIds(),
+      ariaBusy: document.querySelector('#assetGrid')?.getAttribute('aria-busy') ?? null,
+      baseline: window.__mosa?.librarySync?.baseline?.() ?? null,
+    };
+  }
+  // 超时汇总：单行 JSON ≤6KB，超长时丢请求记录的最旧段（保留最近的时序）。
+  function t28Summary() {
+    const summary = { snapshots: T28.snapshots, now: t28GalleryState(), requests: T28.log };
+    let text = JSON.stringify(summary);
+    while (text.length > 6000 && summary.requests.length > 1) {
+      summary.requests.shift();
+      text = JSON.stringify(summary);
+    }
+    return text.length > 6000 ? text.slice(0, 6000) : text;
+  }
 `;
 
 function source(config, body) {
@@ -321,33 +396,67 @@ export async function run(ctx) {
     expect(p5.titleAfterEmptyAttempt === "S-Stack", `P5 empty name not saved: ${p5.titleAfterEmptyAttempt}`);
 
     // ===== Page 6: open the stack, remove S5 from inside, return =====
-    const p6 = await ctx.runInPage(first, source(ids, `
-      await waitFor(() => document.querySelector(stackNodeSelector(config.stackId)), 'Stack node before opening');
-      await rightClickChoose(stackNodeSelector(config.stackId) + ' .asset-card-select', [MENU.openStack]);
-      await waitFor(() => !document.querySelector('#stackBack')?.hidden
-        && document.querySelector('#selectionStack')?.hidden
-        && !document.querySelector('#selectionRemoveFromStack')?.hidden
-        && gallerySettled(), 'entered stack view');
-      const memberIdsInside = rootCardIds();
-      const viewTitleInside = document.querySelector('#viewTitle')?.textContent || '';
-      ctrlClickCard(config.s5);
-      await waitFor(() => JSON.stringify(selectedCardIds()) === JSON.stringify([config.s5]), 'S5 selected inside stack');
-      click('#selectionRemoveFromStack');
-      await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds().sort()) === JSON.stringify([config.s3, config.s4].sort()), 'S5 removed, 2 members left');
-      // The member count in the header refreshes in the background after an
-      // in-place removal; it must not keep the count captured on entry.
-      const viewTitleAfterRemove = await waitFor(() => {
-        const title = document.querySelector('#viewTitle')?.textContent || '';
-        return title.includes('S-Stack') && title.includes('2') && !title.includes('3') ? title : '';
-      }, 'stack title member count after removal');
-      const removeToast = allToastTexts().find((text) => text.includes('已从堆叠移出')) || '';
-      click('#stackBack');
-      await waitFor(() => gallerySettled() && rootCardIds().length === 5
-        && document.querySelector(cardSelector(config.s5))
-        && stackNodeCount(config.stackId) === '2', 'back at root with S5 restored');
-      const nodeCard = document.querySelector(stackNodeSelector(config.stackId));
-      return { memberIdsInside, viewTitleInside, viewTitleAfterRemove, removeToast, rootIdsAfterBack: rootCardIds(), nodeIdAfterBack: nodeCard?.dataset.id || '' };
+    let p6;
+    try {
+      p6 = await ctx.runInPage(first, source(ids, `
+      t28InstallFetchProbe();
+      try {
+        await waitFor(() => document.querySelector(stackNodeSelector(config.stackId)), 'Stack node before opening');
+        await rightClickChoose(stackNodeSelector(config.stackId) + ' .asset-card-select', [MENU.openStack]);
+        await waitFor(() => !document.querySelector('#stackBack')?.hidden
+          && document.querySelector('#selectionStack')?.hidden
+          && !document.querySelector('#selectionRemoveFromStack')?.hidden
+          && gallerySettled(), 'entered stack view');
+        const memberIdsInside = rootCardIds();
+        const viewTitleInside = document.querySelector('#viewTitle')?.textContent || '';
+        ctrlClickCard(config.s5);
+        await waitFor(() => JSON.stringify(selectedCardIds()) === JSON.stringify([config.s5]), 'S5 selected inside stack');
+        click('#selectionRemoveFromStack');
+        await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds().sort()) === JSON.stringify([config.s3, config.s4].sort()), 'S5 removed, 2 members left');
+        T28.snapshots.afterRemove = t28GalleryState();
+        // The member count in the header refreshes in the background after an
+        // in-place removal; it must not keep the count captured on entry.
+        const viewTitleAfterRemove = await waitFor(() => {
+          const title = document.querySelector('#viewTitle')?.textContent || '';
+          return title.includes('S-Stack') && title.includes('2') && !title.includes('3') ? title : '';
+        }, 'stack title member count after removal');
+        const removeToast = allToastTexts().find((text) => text.includes('已从堆叠移出')) || '';
+        T28.snapshots.beforeBack = t28GalleryState();
+        click('#stackBack');
+        try {
+          await waitFor(() => gallerySettled() && rootCardIds().length === 5
+            && document.querySelector(cardSelector(config.s5))
+            && stackNodeCount(config.stackId) === '2', 'back at root with S5 restored');
+        } catch (error) {
+          throw new Error(error.message + ' stackExitDiagnostics=' + t28Summary());
+        }
+        const nodeCard = document.querySelector(stackNodeSelector(config.stackId));
+        return { memberIdsInside, viewTitleInside, viewTitleAfterRemove, removeToast, rootIdsAfterBack: rootCardIds(), nodeIdAfterBack: nodeCard?.dataset.id || '' };
+      } finally {
+        t28RestoreFetch();
+      }
     `));
+    } catch (error) {
+      // 任务 28：页面超时（根视图缺 S5）时在 Node 端补服务端事实，区分
+      // 「服务端就没有 S5」与「前端没画出来」。首屏查询参数与前端 loadAssets
+      // 的首屏请求一致（buildAssetPageParams：project/q/limit=60/sort + view=gallery）。
+      const audit = { serverRootIds: null, serverStack: null, auditError: "" };
+      try {
+        const page = await ctx.api(first.origin, "GET", "/api/assets?project=default&q=&limit=60&sort=newest&view=gallery");
+        audit.serverRootIds = (page?.assets || []).map((asset) => asset.id);
+      } catch (apiError) {
+        audit.auditError = String(apiError?.message || apiError).slice(0, 160);
+      }
+      try {
+        const summary = await ctx.api(first.origin, "GET", `/api/asset-stacks/${encodeURIComponent(ids.stackId)}?project=default`);
+        audit.serverStack = summary?.stack
+          ? { id: summary.stack.id, name: summary.stack.name, count: summary.stack.count }
+          : null;
+      } catch (apiError) {
+        audit.auditError = String(apiError?.message || apiError).slice(0, 160);
+      }
+      throw new Error(`selection-and-stacks Page 6 failed; serverAudit=${JSON.stringify(audit)}`, { cause: error });
+    }
     expect(sameMembers(p6.memberIdsInside, [ids.s3, ids.s4, ids.s5]), `P6 stack interior: ${JSON.stringify(p6.memberIdsInside)}`);
     expect(p6.viewTitleInside.includes("S-Stack") && p6.viewTitleInside.includes("3"), `P6 view title inside stack: ${p6.viewTitleInside}`);
     expect(p6.viewTitleAfterRemove.includes("S-Stack") && p6.viewTitleAfterRemove.includes("2"), `P6 view title after removal: ${p6.viewTitleAfterRemove}`);
