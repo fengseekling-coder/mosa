@@ -286,8 +286,8 @@ const checks = [
     assert.doesNotMatch(returned, /setTimeout|setInterval/);
   }],
   ["80 drag overlay is viewer guarded", async () => assert.match(await read("web/app/app.mjs"), /if \(state\.viewMode !== "library"\) return;/)],
-  ["81 drag overlay does not intercept pointer", async () => assert.match(await read("desktop/app/styles.css"), /\.drag-overlay \{[^}]*pointer-events: none;/)],
-  ["82 preview stage uses the existing focus ring", async () => assert.match(await read("desktop/app/styles.css"), /\[tabindex\]:focus-visible/)],
+  ["81 drag overlay does not intercept pointer", async () => assert.match(await read("web/app/styles.css"), /\.drag-overlay \{[^}]*pointer-events: none;/)],
+  ["82 preview stage uses the existing focus ring", async () => assert.match(await read("web/app/styles.css"), /\[tabindex\]:focus-visible/)],
   ["83 960x640 viewport remains declared", async () => assert.match(await read("web/app/index.html"), /name="viewport" content="width=device-width, initial-scale=1\.0"/)],
   ["84 status text remains the single app announcement lane", async () => assert.equal(count(await read("web/app/index.html"), "id=\"statusText\""), 1)],
   ["85 contract itself uses no network", async () => {

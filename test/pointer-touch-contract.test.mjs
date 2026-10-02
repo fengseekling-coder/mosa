@@ -117,7 +117,7 @@ test("Touch input is scoped to the two complete stages and the existing mouse, k
   const app = await read("web/app/app.mjs");
   const viewer = await read("web/app/asset-view.mjs");
   const preview = await read("web/app/image-preview.mjs");
-  const css = await read("desktop/app/styles.css");
+  const css = await read("web/app/styles.css");
   assert.equal((css.match(/touch-action:\s*none/g) || []).length, 2, "only Preview and Viewer stages disable browser touch scrolling");
   assert.doesNotMatch(app, /document\.addEventListener\("mousemove"/);
   assert.doesNotMatch(app, /document\.addEventListener\("mouseup"/);

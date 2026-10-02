@@ -11,7 +11,7 @@ async function readApp() {
 }
 
 async function readStyles() {
-  return readFile(resolve(root, "desktop/app/styles.css"), "utf8");
+  return readFile(resolve(root, "web/app/styles.css"), "utf8");
 }
 
 function sliceBetween(source, start, end) {
@@ -195,7 +195,7 @@ test("sidebar smart and manual groups collapse independently and keep compact na
   const [app, html, css] = await Promise.all([
     readApp(),
     readFile(resolve(root, "web/app/index.html"), "utf8"),
-    readFile(resolve(root, "desktop/app/styles.css"), "utf8"),
+    readFile(resolve(root, "web/app/styles.css"), "utf8"),
   ]);
   assert.match(html, /id="smartGroupsToggle"[^>]*aria-expanded="true"[^>]*aria-controls="sidebarGroupList"/);
   assert.match(html, /id="assetCategoriesToggle"[^>]*aria-expanded="true"[^>]*aria-controls="sidebarManualGroupList"/);
@@ -599,7 +599,7 @@ test("infinite-scroll append uses a tail-only render path and virtualizes decode
 
 test("large galleries use explicit masonry placement and bounded card hydration", async () => {
   const app = await readApp();
-  const css = await readFile(resolve(root, "desktop/app/styles.css"), "utf8");
+  const css = await readFile(resolve(root, "web/app/styles.css"), "utf8");
   const virtualization = sliceBetween(app, "function galleryVirtualSpanKey", "function bindGalleryVideoFrame");
   const masonry = sliceBetween(app, "function layoutMasonry", "function scheduleMasonryLayout");
 

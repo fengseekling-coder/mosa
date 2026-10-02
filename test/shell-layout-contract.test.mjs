@@ -10,10 +10,9 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
-const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
 const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
-const readDesktopApp = () => readFile(resolve(root, "desktop/app/app.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
 /** Extracts a `{...}` block starting at the marker, honouring nested braces. */
@@ -63,23 +62,19 @@ test("1-7. shell regions and panel token consumption", async () => {
 
   // 3–6. Widths resolve from token definitions, and narrow/compact variants drive
   // the ≤1120px media query — never repeated literals in Shell rules.
-  // 2026-08-18: V2-only token consolidation. V2 collapses the Phase 1A
-  // 232px sidebar down to 220px (still on the 8pt grid). Narrow (208) and
-  // compact (56) stay identical; the inspector widths are unchanged.
-  assert.match(css, /--sidebar-width: 220px;/);
+  // R21 改版值（sidebar 216 / inspector 344 / topbar 64）分别由 web-r21-shell、
+  // web-r21-inspector-head 锁定，这里只守 token 消费与 narrow/compact 变体。
   assert.match(css, /--sidebar-width-narrow: 208px;/);
   assert.match(css, /--sidebar-width-compact: 56px;/);
-  assert.match(css, /--inspector-width: 320px;/);
   assert.match(css, /--inspector-width-compact: 340px;/);
   const mq1120 = blockAfter(css, "@media (max-width: 1120px)");
   assert.match(mq1120, /\.shell \{ grid-template-columns: var\(--sidebar-width-narrow\) minmax\(0, 1fr\); \}/);
   assert.match(mq1120, /\.shell\.details-open \{ grid-template-columns: var\(--sidebar-width-compact\) minmax\(0, 1fr\) var\(--inspector-width-compact\); \}/);
   assert.doesNotMatch(shell + shellOpen + mq1120, /grid-template-columns:[^;]*\b(232|208|56|360|340)px\b/);
 
-  // 7. Topbar height token. V2 (2026-08-07) moved the value from 52px to 56px
-  // (8pt-grid fix); the token indirection is what this asserts.
+  // 7. Topbar height token: the token indirection is what this asserts
+  // (the R21 64px value is pinned by web-r21-shell).
   assert.match(blockAfter(css, ".topbar {"), /height: var\(--topbar-height\)/);
-  assert.match(css, /--topbar-height: 56px;/);
 });
 
 // 8. Wide-screen detail sits on the right.
@@ -185,7 +180,7 @@ test("22. O2 compact desktop behavior stays locked in public CSS", async () => {
 // 24. The topbar three-group hierarchy keeps holding.
 // 25. The card quick-action contract keeps holding.
 test("23-25. adjacent Phase 2A/2B/1C contracts unaffected", async () => {
-  const [html, css, app] = await Promise.all([readHtml(), readCss(), readDesktopApp()]);
+  const [html, css, app] = await Promise.all([readHtml(), readCss(), readApp()]);
 
   const sidebar = htmlSlice(html, '<aside class="sidebar"', '<main class="library">');
   const topbar = htmlSlice(html, '<header class="topbar">', "</header>");
@@ -217,7 +212,7 @@ test("26-28. hygiene: no !important, no undefined tokens, no new dependencies", 
   const missing = [...hardRefs].filter((name) => !defined.has(name));
   assert.deepEqual(missing, [], `undefined tokens referenced: ${missing.join(", ")}`);
   const anchorRefs = new Set([...css.matchAll(/var\(\s*(--[\w-]+)\s*,/g)].map((m) => m[1]));
-  const app = await readDesktopApp();
+  const app = await readApp();
   // R1 batch 3: the toast stack offset injection lives in app/toast-manager.mjs.
   const toast = await readFile(resolve(root, "web/app/toast-manager.mjs"), "utf8");
   for (const name of anchorRefs) {

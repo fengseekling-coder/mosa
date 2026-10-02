@@ -12,7 +12,7 @@ import test from "node:test";
 import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
 const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
 const readAssetView = () => readFile(resolve(root, "web/app/asset-view.mjs"), "utf8");

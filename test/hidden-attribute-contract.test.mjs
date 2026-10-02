@@ -12,12 +12,12 @@ const root = resolve(import.meta.dirname, "..");
  * and an empty active-filter bar — so the pairing is asserted rather than
  * remembered.
  *
- * R21 起 web 与 desktop 的样式分开演进，这条契约对两端各自成立：每棵树用它的
- * index.html 静态壳和 app.mjs 动态渲染出的标记，对照同一棵树的 styles.css 检查。
+ * 界面合一后只剩 web 一棵树：用它的 index.html 静态壳和 app.mjs 动态渲染出的
+ * 标记，对照同一棵树的 styles.css 检查。
  */
 test("every hidden-toggled element with a display rule restates it for [hidden]", async () => {
   const offenders = [];
-  for (const tree of ["web/app", "desktop/app"]) {
+  for (const tree of ["web/app"]) {
     const [html, app, css] = await Promise.all([
       readFile(resolve(root, tree, "index.html"), "utf8"),
       readFile(resolve(root, tree, "app.mjs"), "utf8"),
