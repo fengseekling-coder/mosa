@@ -15,7 +15,7 @@ import { PAGE_HELPERS } from "./_page-helpers.mjs";
 const execFile = promisify(execFileCallback);
 
 export const name = "browse-sort-filter";
-export const description = "seed 130 img + 2 vid -> one-page first screen + load-more to 132 -> type/source/group filters -> combined + empty-clear -> sort switch + reload persistence -> injected list outage: error state + busy reset + recovery";
+export const description = "seed 130 img + 2 vid + 4 canonical-category img -> one-page first screen + load-more to 136 -> type/source/group filters + topbar category select (stacks, empty-clear resets) -> sort switch + reload persistence -> injected list outage: error state + busy reset + recovery";
 
 const PROJECT = "default";
 const GROUP_NAME = "bsfgroup";
@@ -63,6 +63,30 @@ function buildPlan({ withVideos }) {
     prompt: `browse sort filter video ${index}`,
     filePath: "",
   })) : [];
+  // 任务 34：顶栏分类下拉框的固定种子——canonical 分类的素材（区别于上面
+  // poster/icon 的非 canonical 值）。concept/reference 归 web-chatgpt 来源、
+  // product 归 codex-generated，用于断言「分类 + 类型/来源」的叠加；
+  // texture/other 不种：选中它们走空结果 → 清除筛选重置下拉框。
+  const categorySeeds = [
+    { id: "bsf-cat-product-a", sourceType: "codex-generated", category: "product" },
+    { id: "bsf-cat-product-b", sourceType: "codex-generated", category: "product" },
+    { id: "bsf-cat-concept", sourceType: "web-chatgpt", category: "concept" },
+    { id: "bsf-cat-reference", sourceType: "web-chatgpt", category: "reference" },
+  ];
+  for (const [offset, seed] of categorySeeds.entries()) {
+    images.push({
+      id: seed.id,
+      video: false,
+      seedIndex: 0,
+      createdAt: new Date(BASE_MS + (IMAGE_COUNT + 2 + offset) * 60_000).toISOString(),
+      sourceType: seed.sourceType,
+      category: seed.category,
+      theme: `kz${pad3(offset)}`,
+      group: "",
+      prompt: `browse sort filter category ${seed.category}`,
+      filePath: "",
+    });
+  }
   return { images, videos, all: [...images, ...videos] };
 }
 
@@ -96,6 +120,8 @@ function buildPageExpectations(plan, orders) {
     groupIds: ids(orders.newest.filter((entry) => entry.group === GROUP_NAME)),
     combinedIds: ids(orders.newest.filter((entry) => !entry.video
       && entry.sourceType === "web-chatgpt" && entry.prompt.includes(SEARCH_MARKER))),
+    categoryProductIds: ids(orders.newest.filter((entry) => entry.category === "product")),
+    categoryConceptIds: ids(orders.newest.filter((entry) => entry.category === "concept")),
   };
 }
 
@@ -187,6 +213,8 @@ async function fetchApiMirrors(ctx, origin, plan) {
     combined: await page({ limit: String(INITIAL_PAGE_SIZE), source: "web-chatgpt", mediaKind: "img", q: SEARCH_MARKER }),
     poster: await page({ limit: "250", category: "poster" }),
     icon: await page({ limit: "250", category: "icon" }),
+    categoryProduct: await page({ limit: "250", category: "product" }),
+    categoryConcept: await page({ limit: "250", category: "concept" }),
   };
   mirrors.fullIds = (mirrors.full.assets || []).map((asset) => asset.id);
   mirrors.created = new Map((mirrors.full.assets || []).map((asset) => [asset.id, asset.created_at]));
@@ -215,6 +243,9 @@ function assertMirrorsMatchPlan(mirrors, plan, orders, expect, videosReady) {
   const asSet = (list) => list.slice().sort().join(",");
   assertEqual(asSet(mirrors.poster), asSet(ids(plan.images.filter((entry) => entry.category === "poster"))), "category=poster partition");
   assertEqual(asSet(mirrors.icon), asSet(ids(plan.images.filter((entry) => entry.category === "icon"))), "category=icon partition");
+  // 任务 34：canonical 分类的服务端过滤（UI 下拉框的数值基准）。
+  assertEqual(mirrors.categoryProduct, ids(orders.newest.filter((entry) => entry.category === "product")), "API category=product listing");
+  assertEqual(mirrors.categoryConcept, ids(orders.newest.filter((entry) => entry.category === "concept")), "API category=concept listing");
 }
 
 function assertSessionOne(obs, plan, orders, expect, videosReady) {
@@ -295,6 +326,17 @@ function assertSessionTwo(obs, plan, orders, expect, videosReady) {
   assertEqual(obs.afterReset.sourceItem, { active: false, pressed: "false" }, "clear-filters deactivates the source facet");
   assertEqual(obs.afterReset.typeAll, { active: true, pressed: "true" }, "clear-filters resets the type filter");
   assertEqual(obs.afterReset.title, "所有素材", "clear-filters restores the view title");
+
+  // 任务 34：顶栏分类下拉框（canonical product/concept 种子，texture/other 留空）。
+  const cat = obs.categoryProduct;
+  if (!cat) throw new Error("category filter steps missing from session two");
+  assertEqual(cat, { value: "product", ids: expect.categoryProductIds }, "topbar category=product shows exactly its assets");
+  assertEqual(obs.categoryProductImg, { ids: expect.categoryProductIds, typeImg: { active: true, pressed: "true" } }, "category stacks with the img type filter");
+  assertEqual(obs.categoryProductAll.ids, expect.categoryProductIds, "category survives the type reset");
+  assertEqual(obs.categoryReset.value, "", "全部分类 clears the category facet");
+  assertEqual(obs.categoryConceptSource, { value: "concept", ids: expect.categoryConceptIds, sourceItem: { active: true, pressed: "true" } }, "category stacks with the source facet");
+  assertEqual(obs.categoryEmpty.value, "concept", "category selection persists into the empty state");
+  assertEqual(obs.categoryAfterClear, { value: "", sourceItem: { active: false, pressed: "false" } }, "clear-filters resets the category dropdown and the source facet");
 }
 
 function sessionOneSource(expect) {
@@ -506,7 +548,34 @@ function sessionTwoSource(expect) {
       typeAll: typePressed('all'),
       title: viewTitle(),
     };
-    return { reloaded, sourceItems, webSource, codexSource, groupState, categoryEntry, combined, emptyState, afterReset };
+    // 任务 34：顶栏分类下拉框。约定：与类型筛选叠加、与来源 facet 叠加
+    // （侧栏点来源会 clearFacets，所以分类要在来源之后选）、空结果清除筛选
+    // 时下拉框回到「全部分类」；不持久化（刷新回默认，类型筛选同款）。
+    const categoryValue = () => document.querySelector('#categorySelect')?.value ?? '';
+    setValue('#categorySelect', 'product');
+    await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds()) === JSON.stringify(expect.categoryProductIds), 'category=product filter', 20000);
+    const categoryProduct = { value: categoryValue(), ids: rootCardIds() };
+    click('.topbar-type-filters [data-type="img"]');
+    await waitFor(() => typePressed('img').active && JSON.stringify(rootCardIds()) === JSON.stringify(expect.categoryProductIds), 'category+type-img stack', 20000);
+    const categoryProductImg = { ids: rootCardIds(), typeImg: typePressed('img') };
+    click('.topbar-type-filters [data-type="all"]');
+    await waitFor(() => typePressed('all').active && JSON.stringify(rootCardIds()) === JSON.stringify(expect.categoryProductIds), 'category survives the type reset', 20000);
+    const categoryProductAll = { ids: rootCardIds() };
+    setValue('#categorySelect', '');
+    await waitFor(() => gallerySettled() && rootCardIds().length >= expect.initialCount, 'category reset restores the library', 20000);
+    const categoryReset = { value: categoryValue() };
+    click(sourceSelector('web-chatgpt'));
+    await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds()) === JSON.stringify(expect.webSourceIds), 'source facet before category stacking', 20000);
+    setValue('#categorySelect', 'concept');
+    await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds()) === JSON.stringify(expect.categoryConceptIds), 'category+source stack', 20000);
+    const categoryConceptSource = { value: categoryValue(), ids: rootCardIds(), sourceItem: navState(sourceButton('web-chatgpt')) };
+    setValue('#searchInput', '${SEARCH_MISS}');
+    await waitFor(() => document.querySelector('.gallery-empty-state') && document.querySelector('[data-action="empty-clear"]'), 'category+source+miss empty state', 20000);
+    const categoryEmpty = { value: categoryValue() };
+    click('[data-action="empty-clear"]');
+    await waitFor(() => gallerySettled() && rootCardIds().length >= expect.initialCount, 'clear-filters after category', 20000);
+    const categoryAfterClear = { value: categoryValue(), sourceItem: navState(sourceButton('web-chatgpt')) };
+    return { reloaded, sourceItems, webSource, codexSource, groupState, categoryEntry, combined, emptyState, afterReset, categoryProduct, categoryProductImg, categoryProductAll, categoryReset, categoryConceptSource, categoryEmpty, categoryAfterClear };
   })()`;
 }
 
@@ -614,7 +683,7 @@ export async function run(ctx) {
       videos: videosReady ? finalPlan.videos.length : 0,
       videosSkippedReason: videosReady ? "" : videoResult.reason,
       pagination: { firstPage: expect.initialCount, stages: one.stages },
-      filters: ["type-img", ...(videosReady ? ["type-video"] : []), "source-web-chatgpt", "source-codex-generated", `group-${GROUP_NAME}`, "combined-source-img-search", "empty-clear"],
+      filters: ["type-img", ...(videosReady ? ["type-video"] : []), "source-web-chatgpt", "source-codex-generated", `group-${GROUP_NAME}`, "combined-source-img-search", "empty-clear", "category-topbar"],
       sorts: ["newest", "oldest", "name"],
       sortPersistedAcrossReload: two.reloaded.sortValue === "name",
       errorState: {
@@ -622,7 +691,7 @@ export async function run(ctx) {
         rendererErrors: three.errorState.rendererErrors.length + three.recovered.rendererErrors.length,
         recoveredCards: three.recovered.cardCount,
       },
-      categoryUiEntry: false,
+      categoryUiEntry: "topbar-select",
     };
   } finally {
     await server.stop();

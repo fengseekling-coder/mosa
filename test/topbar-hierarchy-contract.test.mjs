@@ -41,7 +41,7 @@ function topbarBlock(html) {
   return html.slice(start, end);
 }
 
-const CONTROL_IDS = ["bridgeStatus", "sortSelect", "searchInput", "openInspectorBtn"];
+const CONTROL_IDS = ["bridgeStatus", "categorySelect", "sortSelect", "searchInput", "openInspectorBtn"];
 
 // 1. The topbar exposes exactly two regions: context and actions.
 test("1. topbar has context and actions regions", async () => {
@@ -78,22 +78,23 @@ test("3. utility group retains bridge semantics without a theme button", async (
   assert.equal(topbar.includes('id="themeToggle"'), false, "theme toggle must not be duplicated in the topbar");
 });
 
-// 4. The work group carries the V2 FilterBar (sort → search + type filters
-// in the context). 2026-08-18: V2-only token consolidation. The V2 design
-// removed the legacy #batchToggle and #filterToggle buttons (their affordances
-// merged into the V2 type-filter strip in `.topbar-context` and the
+// 4. The work group carries the V2 FilterBar (category → sort → search; type
+// filters stay in the context). 2026-08-18: V2-only token consolidation. The
+// V2 design removed the legacy #batchToggle and #filterToggle buttons (their
+// affordances merged into the V2 type-filter strip in `.topbar-context` and the
 // `.filter-panel` popover, which is now anchored from the `data-type` chips
-// instead of a dedicated toggle). The work group now keeps only sort + search.
-test("4. sort and search live in the work group", async () => {
+// instead of a dedicated toggle). 2026-10: the topbar gains the 任务 34 category
+// dropdown ahead of sort, sharing the .sort-control look.
+test("4. category, sort and search live in the work group", async () => {
   const topbar = topbarBlock(await readHtml());
   const workStart = topbar.indexOf('class="topbar-work-group"');
   const primaryStart = topbar.indexOf('class="topbar-primary-group"');
-  for (const marker of ['class="sort-control"', 'id="sortSelect"', 'id="searchInput"']) {
+  for (const marker of ['class="sort-control category-control"', 'class="sort-control"', 'id="categorySelect"', 'id="sortSelect"', 'id="searchInput"']) {
     const at = topbar.indexOf(marker);
     assert.ok(at > workStart && at < primaryStart, `${marker} must sit inside the work group`);
   }
-  // Work-group order: sort → search.
-  const positions = ['id="sortSelect"', 'id="searchInput"'].map((m) => topbar.indexOf(m));
+  // Work-group order: category → sort → search.
+  const positions = ['id="categorySelect"', 'id="sortSelect"', 'id="searchInput"'].map((m) => topbar.indexOf(m));
   for (let i = 1; i < positions.length; i += 1) {
     assert.ok(positions[i] > positions[i - 1], `V2 order violated at ${i}`);
   }

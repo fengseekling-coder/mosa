@@ -111,6 +111,7 @@ const els = {
   typeFilters: document.querySelector(".topbar-type-filters"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
   sortSelect: document.querySelector("#sortSelect"),
+  categorySelect: document.querySelector("#categorySelect"),
   settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), openInspectorBtn: document.querySelector("#openInspectorBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), stackRenameModal: document.querySelector("#stackRenameModal"), stackRenameModalTitle: document.querySelector("#stackRenameModalTitle"), stackRenameModalInput: document.querySelector("#stackRenameInput"), stackRenameModalClose: document.querySelector("#stackRenameModalClose"), cancelStackRenameBtn: document.querySelector("#cancelStackRenameBtn"), saveStackRenameBtn: document.querySelector("#saveStackRenameBtn"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"),
   viewTitle: document.querySelector("#viewTitle"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
@@ -972,7 +973,7 @@ async function resetLibraryRefinements() {
   state.nextCursor = null;
   if (state.viewMode === "asset") returnToLibrary();
   clearDetailSelection();
-  renderQuickFilters(); renderTypeFilters();
+  renderQuickFilters(); renderTypeFilters(); renderCategoryFilter();
   announceGalleryStatus(t("statusRefinementsCleared"));
   void loadAssets().then((applied) => {
     if (!applied) return;
@@ -1998,6 +1999,20 @@ function bindEvents() {
     renderTypeFilters();
     applyFilterChange();
   });
+  // V2 FilterBar 分类下拉框：与类型筛选同款约定——只动自己的 facet，能和
+  // 类型筛选、来源/分组 facet、搜索叠加；不持久化（类型筛选也不记）。
+  els.categorySelect?.addEventListener("change", async (event) => {
+    const nextCategory = String(event.target.value || "");
+    if ((state.facets.category || "") === nextCategory) return;
+    const intent = beginNavigationIntent();
+    if (!await authorizeNavigationIntent(intent)) {
+      renderCategoryFilter();
+      return;
+    }
+    discardDetailDraft();
+    state.facets.category = nextCategory;
+    applyFilterChange();
+  });
   els.settingsToggle?.addEventListener("click", toggleSettingsModal);
   els.settingsMenu?.addEventListener("change", async (event) => {
     const select = event.target.closest("[data-project-select]");
@@ -2028,6 +2043,8 @@ function bindEvents() {
       clearDetailSelection();
       gallerySelection.clear();
       if (els.searchInput) els.searchInput.value = "";
+      // switchProjectWorkspace 已把 facets 清空，下拉框同步回「全部分类」。
+      renderCategoryFilter();
       if (state.viewMode === "asset") returnToLibrary();
       startLibraryEventStream();
     } catch (error) {
@@ -2431,7 +2448,7 @@ function applyFilterChange() {
   // Phase 3A：结果集语义已变化，退出查看模式。
   if (state.viewMode === "asset") returnToLibrary();
   clearDetailSelection();
-  renderQuickFilters(); renderTypeFilters(); loadAssets();
+  renderQuickFilters(); renderTypeFilters(); renderCategoryFilter(); loadAssets();
 }
 
 async function showRelatedGenerations(asset, mode) {
@@ -2513,6 +2530,12 @@ function renderTypeFilters() {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   });
+}
+
+/** V2 FilterBar 分类下拉框：把 state.facets.category 同步回控件（facet 被侧栏
+ * 导航 / 清除筛选 / 项目切换重置后，下拉框要跟着回到「全部分类」）。 */
+function renderCategoryFilter() {
+  if (els.categorySelect) els.categorySelect.value = state.facets.category || "";
 }
 
 /** The sidebar groups automatic assets by their actual capture / bridge source. */
