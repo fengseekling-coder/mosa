@@ -672,7 +672,10 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
         asset.medium_url && asset.medium_url !== asset.image_url ? `${escapeHtml(asset.medium_url)} 960w` : "",
         asset.preview_url && asset.preview_url !== asset.image_url ? `${escapeHtml(asset.preview_url)} 1600w` : "",
       ].filter(Boolean).join(", ");
-      return `<img class="detail-image" src="${escapeHtml(url)}"${srcset ? ` srcset="${srcset}" sizes="360px"` : ""} alt="${escapeHtml(title)}" title="${escapeHtml(t("viewFullImage"))}" decoding="async" />`;
+      // 任务 36：图片包进键盘可及的预览入口（视频分支在上方，不包——视频不走
+      // 预览弹窗）。aria-label 用 viewFullImage 给读屏一个明确的名称；尺寸与
+      // 焦点样式由 .detail-preview-entry 的规则负责，img 自身规则不变。
+      return `<button type="button" class="detail-preview-entry" aria-label="${escapeHtml(t("viewFullImage"))}" title="${escapeHtml(t("viewFullImage"))}"><img class="detail-image" src="${escapeHtml(url)}"${srcset ? ` srcset="${srcset}" sizes="360px"` : ""} alt="${escapeHtml(title)}" decoding="async" /></button>`;
     }
     const thumbSrcset = [
       asset.thumbnail_url && asset.thumbnail_url !== asset.image_url ? `${escapeHtml(asset.thumbnail_url)} 400w` : "",
