@@ -43,8 +43,46 @@ test("markup. only user tags carry a remove button; the source tag stays a plain
   assert.match(tagsSection, /<span class="detail-tag" data-tag-value="\$\{escapeHtml\(tag\)\}"><span class="detail-tag-label">\$\{escapeHtml\(tag\)\}<\/span><button class="detail-tag-remove" type="button" data-action="remove-tag" data-tag-value="\$\{escapeHtml\(tag\)\}" aria-label="\$\{escapeHtml\(t\("removeTag", \{ tag \}\)\)\}">×<\/button><\/span>/,
     "each user tag ends with a real <button> × carrying type, action, value, and i18n aria-label");
   assert.equal(count(tagsSection, 'type="button" data-action="remove-tag"'), 1, "exactly one remove-button template");
-  // 显示上限不变：删掉一个后第 10 个自然补位。
-  assert.match(tagsSection, /\.slice\(0, 9\)/, "the 9-tag display cap stays untouched");
+  // 显示上限不变：删掉一个后第 10 个自然补位；超过上限时由 +N 按钮收起（任务 35）。
+  assert.match(tagsSection, /allTags\.slice\(0, DETAIL_TAGS_VISIBLE_LIMIT\)/, "the 9-tag display cap stays, spelled via the named limit constant");
+  assert.match(inspector, /export const DETAIL_TAGS_VISIBLE_LIMIT = 9;/, "the display cap stays a single named constant");
+});
+
+test("markup. the +N toggle is a real button with aria-expanded and i18n names", async () => {
+  const inspector = await read("web/app/inspector-markup.mjs");
+  const tagsSection = functionSlice(inspector, "detailTagsSectionMarkup");
+
+  assert.match(tagsSection, /<button class="detail-tags-toggle" type="button" data-action="toggle-tags" aria-expanded="\$\{expanded\}"/,
+    "the +N control is a real <button> with type, action, and aria-expanded");
+  assert.match(tagsSection, /aria-label="\$\{escapeHtml\(expanded \? t\("collapseTags"\) : t\("showMoreTags", \{ count: overflowCount \}\)\)\}"/,
+    "the accessible name carries the hidden count when collapsed and the collapse copy when expanded");
+  assert.match(tagsSection, /<span aria-hidden="true">\$\{expanded \? escapeHtml\(t\("collapseTagsShort"\)\) : `\+\$\{overflowCount\}`\}<\/span>/,
+    "the visible +N / short label is presentational");
+  assert.match(tagsSection, /const tags = expanded \? allTags : allTags\.slice\(0, DETAIL_TAGS_VISIBLE_LIMIT\);/,
+    "collapsed mode renders only the visible slice — hidden tags never enter the DOM, so no display:none bookkeeping");
+});
+
+test("app. the +N toggle flips the session flag, re-renders the row, and keeps focus on the toggle", async () => {
+  const app = await read("web/app/app.mjs");
+  const toggle = functionSlice(app, "toggleDetailTagsExpanded");
+
+  assert.match(toggle, /state\.detailTagsExpanded = !state\.detailTagsExpanded;/, "the session flag flips in place");
+  assert.match(toggle, /refreshDetailTagsSection\(asset, renderId\);/, "the row re-renders through the same path as tag writes");
+  assert.match(toggle, /querySelector\('\[data-action="toggle-tags"\]'\)\?\.focus\(\);/, "focus returns to the re-rendered toggle button");
+});
+
+test("app. adding past the cap auto-expands; the toggle is bound on full render and section refresh", async () => {
+  const app = await read("web/app/app.mjs");
+  const tagEditor = functionSlice(app, "openTagEditor");
+  const bindDetailEvents = functionSlice(app, "bindDetailEvents");
+  const refreshTags = functionSlice(app, "refreshDetailTagsSection");
+
+  assert.match(tagEditor, /assetTags\(result\.asset\)\.length > DETAIL_TAGS_VISIBLE_LIMIT\) state\.detailTagsExpanded = true;/,
+    "a collapsed row auto-expands when a new tag lands past the cap");
+  assert.match(bindDetailEvents, /querySelector\('\[data-action="toggle-tags"\]'\)\?\.addEventListener\("click", \(\) => toggleDetailTagsExpanded\(asset, renderId\)\);/,
+    "bindDetailEvents wires the initial toggle");
+  assert.match(refreshTags, /querySelector\('\[data-action="toggle-tags"\]'\)\?\.addEventListener\("click", \(\) => toggleDetailTagsExpanded\(asset, renderId\)\);/,
+    "refreshDetailTagsSection re-binds the re-rendered toggle");
 });
 
 test("app. removeDetailTag PATCHes assetTags minus the removed tag and updates state", async () => {
@@ -94,13 +132,21 @@ test("app. remove buttons are bound on full render and re-bound on section refre
 test("i18n. removeTag and tagRemoved are symmetric across zh and en", async () => {
   const i18n = await read("web/app/i18n.mjs");
 
-  for (const key of ["removeTag", "tagRemoved"]) {
+  for (const key of ["removeTag", "tagRemoved", "showMoreTags", "collapseTags", "collapseTagsShort"]) {
     assert.equal(count(i18n, `${key}:`), 2, `${key} exists exactly once per locale`);
   }
   assert.equal(count(i18n, 'removeTag: "删除标签「{tag}」"'), 1, "the zh aria-label names the tag");
   assert.equal(count(i18n, 'removeTag: "Remove tag \\"{tag}\\""'), 1, "the en aria-label names the tag");
   assert.equal(count(i18n, 'tagRemoved: "已删除标签"'), 1, "the zh success toast");
   assert.equal(count(i18n, 'tagRemoved: "Tag removed"'), 1, "the en success toast");
+  // The accessible name starts with the visible "+N" / "收起" / "Less" text so
+  // voice-control users can activate the toggle by what they see (WCAG 2.5.3).
+  assert.equal(count(i18n, 'showMoreTags: "+{count}，显示其余 {count} 个标签"'), 1, "the zh collapsed label carries the visible +N and the hidden count");
+  assert.equal(count(i18n, 'showMoreTags: "+{count}, show {count} more tags"'), 1, "the en collapsed label carries the visible +N and the hidden count");
+  assert.equal(count(i18n, 'collapseTags: "收起标签"'), 1, "the zh expanded label contains the visible 收起");
+  assert.equal(count(i18n, 'collapseTags: "Less, collapse tags"'), 1, "the en expanded label contains the visible Less");
+  assert.equal(count(i18n, 'collapseTagsShort: "收起"'), 1, "the zh expanded visible label");
+  assert.equal(count(i18n, 'collapseTagsShort: "Less"'), 1, "the en expanded visible label");
 });
 
 test("styles. the remove button hides by default, shows on hover/focus, and never uses display:none", async () => {

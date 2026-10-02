@@ -147,6 +147,62 @@ export async function run(ctx) {
     assertCondition(JSON.stringify(i1AfterDelete.tags) === JSON.stringify([config.tagA]),
       `UI tag deletion did not leave exactly tagA (got ${JSON.stringify(i1AfterDelete.tags)})`);
 
+    // S6c: tag overflow (任务 35) — 12 user tags collapse to the first 9 with a
+    // "+3" toggle; keyboard focus + Enter expands it, deleting from either half
+    // keeps the row and the counter consistent, the row resets to collapsed for a
+    // different asset, and an add landing past the cap auto-expands.
+    const overflowTags = Array.from({ length: 12 }, (_, index) => `insp-ov-${index + 1}-${stamp}`);
+    await ctx.api(first.origin, "PATCH", `/api/assets/default/${encodeURIComponent(ids.i1)}`, { tags: overflowTags });
+    const i1OverflowTags = (await getAsset(ctx, first, ids.i1)).tags;
+    assertCondition(i1OverflowTags.length === 12, `server did not keep 12 tags: ${JSON.stringify(i1OverflowTags)}`);
+    const overflowConfig = {
+      ...config, i1: ids.i1, i2: ids.i2, expectedAll: i1OverflowTags, extraTag: `insp-ov-x-${stamp}`,
+    };
+    const overflow = await ctx.runInPage(first, tagOverflowSource(overflowConfig));
+    assertCondition(JSON.stringify(overflow.collapsed.chips) === JSON.stringify(i1OverflowTags.slice(0, 9)),
+      `collapsed row must show the first 9 of 12: ${JSON.stringify(overflow.collapsed.chips)}`);
+    assertCondition(overflow.collapsed.toggle?.expanded === "false" && overflow.collapsed.toggle.text === "+3",
+      `collapsed overflow toggle is wrong: ${JSON.stringify(overflow.collapsed.toggle)}`);
+    assertCondition(overflow.collapsed.toggle.label.includes("3"), `collapsed toggle aria-label must carry the hidden count: ${JSON.stringify(overflow.collapsed.toggle)}`);
+    // The accessible name must contain the visible text, so voice control can
+    // target the toggle by what is on screen (WCAG 2.5.3 label in name).
+    for (const state of [overflow.collapsed.toggle, overflow.expanded.toggle]) {
+      assertCondition(state?.label.toLowerCase().includes(String(state?.text || "").toLowerCase()),
+        `toggle aria-label must contain its visible text: ${JSON.stringify(state)}`);
+    }
+    assertCondition(overflow.keyboardFocus === true, "the +N toggle is not keyboard-focusable");
+    assertCondition(JSON.stringify(overflow.expanded.chips) === JSON.stringify(i1OverflowTags),
+      `expanded row must show all 12 tags: ${JSON.stringify(overflow.expanded.chips)}`);
+    assertCondition(overflow.expanded.toggle?.expanded === "true" && ["收起", "Less"].includes(overflow.expanded.toggle.text),
+      `expanded toggle is wrong: ${JSON.stringify(overflow.expanded.toggle)}`);
+    assertCondition(JSON.stringify(overflow.afterHiddenDelete.chips) === JSON.stringify(i1OverflowTags.filter((tag) => tag !== overflow.removedHidden)),
+      `deleting an expanded-only tag left wrong chips: ${JSON.stringify(overflow.afterHiddenDelete.chips)}`);
+    assertCondition(overflow.afterHiddenDelete.toggle.expanded === "true", "deleting a tag collapsed the row; expansion must survive tag writes");
+    const elevenTags = i1OverflowTags.filter((tag) => tag !== overflow.removedHidden);
+    assertCondition(JSON.stringify(overflow.collapsedAgain.chips) === JSON.stringify(elevenTags.slice(0, 9)),
+      `re-collapsed row must show the first 9 of 11: ${JSON.stringify(overflow.collapsedAgain.chips)}`);
+    assertCondition(overflow.collapsedAgain.toggle.text === "+2", `re-collapsed toggle must read +2: ${JSON.stringify(overflow.collapsedAgain.toggle)}`);
+    const tenTags = elevenTags.filter((tag) => tag !== overflow.removedVisible);
+    assertCondition(JSON.stringify(overflow.afterVisibleDelete.chips) === JSON.stringify(tenTags.slice(0, 9)),
+      `deleting a visible tag must slide the next hidden tag in: ${JSON.stringify(overflow.afterVisibleDelete.chips)}`);
+    assertCondition(overflow.afterVisibleDelete.toggle.text === "+1", `toggle must read +1 after the visible delete: ${JSON.stringify(overflow.afterVisibleDelete.toggle)}`);
+    assertCondition(overflow.afterVisibleDelete.focusAction === "remove-tag" && overflow.afterVisibleDelete.focusChip === tenTags[8],
+      `focus must land on the slid-in tag's remove button: ${JSON.stringify(overflow.afterVisibleDelete)}`);
+    assertCondition(JSON.stringify(overflow.afterSwitchBack.chips) === JSON.stringify(tenTags.slice(0, 9)) && overflow.afterSwitchBack.toggle.expanded === "false",
+      `returning to the asset must reset the row to collapsed: ${JSON.stringify(overflow.afterSwitchBack)}`);
+    assertCondition(overflow.afterAdd.chips.length === 11 && overflow.afterAdd.toggle.expanded === "true",
+      `adding past the cap must auto-expand the row: ${JSON.stringify(overflow.afterAdd)}`);
+    // API 复查只能在整段源码跑完后取一次终态（中间态留在页面侧断言里）；
+    // 服务端会重排标签顺序，这里按集合比较。
+    const i1FinalTags = await getAsset(ctx, first, ids.i1);
+    const expectedFinalTags = [...tenTags, overflowConfig.extraTag];
+    assertCondition(JSON.stringify([...i1FinalTags.tags].sort()) === JSON.stringify(expectedFinalTags.slice().sort()),
+      `the overflow branch did not persist the expected final tags: ${JSON.stringify(i1FinalTags.tags)}`);
+    // Restore I1's tags so S7 and the restart phase keep their preconditions.
+    await ctx.api(first.origin, "PATCH", `/api/assets/default/${encodeURIComponent(ids.i1)}`, { tags: [config.tagA] });
+    assertCondition(JSON.stringify((await getAsset(ctx, first, ids.i1)).tags) === JSON.stringify([config.tagA]),
+      "restoring I1.tags after the overflow branch failed");
+
     // S7: search by tag text through the topbar search box.
     const search = await ctx.runInPage(first, tagSearchSource({ ...config, i1: ids.i1 }));
     assertCondition(JSON.stringify(search.tagAResults) === JSON.stringify([ids.i1]),
@@ -469,6 +525,63 @@ function removeTagSource(config) {
     const chipsAfter = tagChips();
     const focusAfter = document.activeElement?.dataset?.action || '';
     return { chipsAfter, focusAfter, confirmOpen: confirmOpen() };
+  })()`;
+}
+
+// 12-tag overflow branch (任务 35): the 9-cap with a "+N" toggle, keyboard
+// expand, deletes from both halves, per-asset reset, add-past-cap auto-expand.
+// The sandboxed renderer cannot synthesize a trusted Enter keystroke (browsers
+// only activate buttons from trusted events), so the keydown is dispatched to
+// document the keyboard path and activation goes through the same click
+// handler; focusability of the real button is asserted separately.
+function tagOverflowSource(config) {
+  return `(async () => {
+    const config = ${JSON.stringify(config)};
+    ${PAGE_HELPERS}
+    ${INSPECTOR_HELPERS}
+    const toggle = () => panel()?.querySelector('[data-action="toggle-tags"]');
+    const toggleInfo = () => {
+      const node = toggle();
+      return node ? {
+        expanded: node.getAttribute('aria-expanded'),
+        text: node.textContent.trim(),
+        label: node.getAttribute('aria-label') || '',
+      } : null;
+    };
+    const chipRemoveButton = (tagValue) => panel()?.querySelector('.detail-tag[data-tag-value="' + CSS.escape(tagValue) + '"] [data-action="remove-tag"]');
+    const focusedChip = () => document.activeElement?.closest('.detail-tag')?.dataset.tagValue || '';
+    await waitCards(3);
+    await openDetailFor(config.i1);
+    const collapsed = { chips: tagChips(), toggle: toggleInfo() };
+    toggle().focus();
+    const keyboardFocus = document.activeElement === toggle();
+    toggle().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    toggle().click();
+    await waitFor(() => toggleInfo()?.expanded === 'true', 'tags expanded via Enter');
+    const expanded = { chips: tagChips(), toggle: toggleInfo() };
+    // Expanded: delete a tag that was hidden while collapsed.
+    const removedHidden = config.expectedAll[9];
+    chipRemoveButton(removedHidden).click();
+    await waitFor(() => !panel()?.querySelector('.detail-tag[data-tag-value="' + CSS.escape(removedHidden) + '"]'), 'hidden tag removed');
+    const afterHiddenDelete = { chips: tagChips(), toggle: toggleInfo() };
+    // Collapse, then delete a visible tag: the next hidden tag slides in.
+    toggle().click();
+    await waitFor(() => toggleInfo()?.expanded === 'false', 'tags collapsed again');
+    const collapsedAgain = { chips: tagChips(), toggle: toggleInfo() };
+    const removedVisible = config.expectedAll[8];
+    chipRemoveButton(removedVisible).click();
+    await waitFor(() => !panel()?.querySelector('.detail-tag[data-tag-value="' + CSS.escape(removedVisible) + '"]'), 'visible tag removed');
+    const afterVisibleDelete = { chips: tagChips(), toggle: toggleInfo(), focusAction: document.activeElement?.dataset?.action || '', focusChip: focusedChip() };
+    // Switch away and back: the row must come back collapsed.
+    await clickCard(config.i2);
+    await waitFor(() => detailOpen() && detailImageSrc().includes(config.i2), 'detail shows i2');
+    await clickCard(config.i1);
+    await waitFor(() => detailOpen() && detailImageSrc().includes(config.i1), 'detail shows i1 again');
+    const afterSwitchBack = { chips: tagChips(), toggle: toggleInfo() };
+    // Collapsed and adding past the cap: auto-expand so the new tag is visible.
+    await addTagViaEditor(config.extraTag);
+    const afterAdd = { chips: tagChips(), toggle: toggleInfo() };
+    return { collapsed, keyboardFocus, expanded, removedHidden, removedVisible, afterHiddenDelete, collapsedAgain, afterVisibleDelete, afterSwitchBack, afterAdd };
   })()`;
 }
 

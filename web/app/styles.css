@@ -2452,6 +2452,44 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   background: #f0f0f2;
   color: #5b5b61;
 }
+/* —— 「+N」展开 / 收起（任务 35）：与「添加标签」同规格的实心小胶囊；深色保持
+   token 写法，浅色作用域用 R21 浅色值（#f0f0f2 / #5b5b61）。浅色覆盖特异性更高
+   会吞掉上面的 hover 颜色，按既有做法在浅色作用域内补回；键盘焦点环走全局
+   button:focus-visible（见文件顶部），不另立规则。 —— */
+.mosa-v2 .detail .detail-tags-toggle {
+  display: inline-flex;
+  box-sizing: border-box;
+  height: auto;
+  min-height: 22px;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: var(--r21-s1) var(--r21-s2);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--inspector-radius-sm);
+  color: var(--color-accent);
+  background: transparent;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .mosa-v2 .detail .detail-tags-toggle:hover {
+    color: var(--color-text-primary);
+    background: var(--app-hover);
+  }
+}
+:root[data-theme="light"] .mosa-v2 .detail .detail-tags-toggle {
+  border-color: transparent;
+  background: #f0f0f2;
+  color: #5b5b61;
+}
+@media (hover: hover) and (pointer: fine) {
+  :root[data-theme="light"] .mosa-v2 .detail .detail-tags-toggle:hover {
+    color: var(--color-text-primary);
+    background: var(--app-hover);
+  }
+}
 
 /* —— 提示词 / 用户指令框（R21 .prompt-box：距小标题 12 由区块 gap 承担，
    内边距 12、圆角 8、10.5px、行高 1.58；浅色 #f3f3f5 / #4a4a50、无边框） —— */
