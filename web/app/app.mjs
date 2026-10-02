@@ -4548,7 +4548,12 @@ function closeSettingsModal({ restoreFocus = true } = {}) {
     settingsSyncTimer = null;
     settingsSyncScheduled = false;
   }
-  if (restoreFocus && state.settingsReturnFocus instanceof HTMLElement && state.settingsReturnFocus.isConnected) state.settingsReturnFocus.focus();
+  const returnTarget = state.settingsReturnFocus;
+  if (restoreFocus && returnTarget instanceof HTMLElement && returnTarget.isConnected) {
+    // ≤767px 时「设置」按钮在移动端抽屉里，打开设置时抽屉已收起并 inert，
+    // 焦点落不回去；改还给打开抽屉的菜单按钮。
+    (returnTarget.closest("[inert]") ? els.mobileNavToggle : returnTarget)?.focus();
+  }
   state.settingsReturnFocus = null;
 }
 function toggleSettingsModal() { if (els.settingsMenu?.hidden) openSettingsModal(); else closeSettingsModal(); }
