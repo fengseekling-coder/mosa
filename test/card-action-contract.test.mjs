@@ -7,9 +7,8 @@ import test from "node:test";
 import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
-const readDesktopApp = () => readFile(resolve(root, "desktop/app/app.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
 /** Extracts a `{...}` block starting at the marker, honouring nested braces. */
@@ -115,7 +114,7 @@ test("6. both quick actions have aria-label accessible names", async () => {
 // 7. The CSS .card-actions/.card-action-btn selectors match the real DOM classes.
 test("7. CSS selectors match the rendered DOM classes", async () => {
   const css = await readCss();
-  const app = await readDesktopApp();
+  const app = await readApp();
   assert.match(css, /\.card-actions \{/, "styles.css must style .card-actions");
   assert.match(css, /\.card-action-btn \{/, "styles.css must style .card-action-btn");
   assert.ok(app.includes('class="card-actions"') && app.includes('class="card-action-btn'),
@@ -369,7 +368,7 @@ test("32. icon visual size is decoupled from and smaller than the click area", a
   assert.ok(iconWidth >= 14 && iconWidth <= 16, `icon visual size should stay around 14-16px (got ${iconWidth}px)`);
   assert.ok(iconWidth < clickSize && iconHeight < clickSize,
     `icon ${iconWidth}x${iconHeight} must be smaller than the ${clickSize}px click area`);
-  const app = await readDesktopApp();
+  const app = await readApp();
   const fav = /const favBtn = `<button([\s\S]*?)<\/button>`;/.exec(app);
   const copy = /const copyBtn = `<button([\s\S]*?)<\/button>`;/.exec(app);
   for (const [name, template] of [["favorite", fav[1]], ["copy", copy[1]]]) {

@@ -22,7 +22,7 @@ const libraryDir = join(temp, "library");
 const userData = join(temp, "user-data");
 await mkdir(libraryDir, { recursive: true });
 await mkdir(userData, { recursive: true });
-const expectedIdentity = JSON.parse(await readFile(resolve(rootDir, "desktop", "app", "build-identity.json"), "utf8"));
+const expectedIdentity = JSON.parse(await readFile(resolve(rootDir, "web", "app", "build-identity.json"), "utf8"));
 let activeLaunch = null;
 
 try {

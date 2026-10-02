@@ -130,65 +130,29 @@ test("theme switching is owned by settings instead of a duplicate topbar control
     "settings appearance controls must remain interactive");
 });
 
-test("settings popover remains inside the visible desktop viewport", async () => {
-  const css = await readFile(resolve(root, "desktop/app/styles.css"), "utf8");
-  const match = /\.settings-menu \{([^}]*)\}/.exec(css);
-  assert.ok(match, "expected a settings-menu CSS rule");
-
-  const rule = match[1];
-  assert.match(rule, /position:\s*fixed/, "the popover must escape the clipping sidebar");
-  assert.match(rule, /left:\s*8px/, "the popover must have a visible left edge");
-  assert.match(rule, /bottom:\s*44px/, "the popover must leave room for its trigger");
-  assert.match(rule, /max-height:\s*calc\(100vh - 56px\)/, "the popover must fit vertically");
-  assert.match(rule, /overflow-y:\s*auto/, "long settings content must scroll inside the popover");
-});
-
 test("settings is the single surface for preferences, storage, and about", async () => {
-  const [html, app, css, desktopApp] = await Promise.all([
+  const [html, app, css] = await Promise.all([
     readFile(resolve(root, "web/app/index.html"), "utf8"),
     readFile(resolve(root, "web/app/app.mjs"), "utf8"),
-    readFile(resolve(root, "desktop/app/styles.css"), "utf8"),
-    readFile(resolve(root, "desktop/app/app.mjs"), "utf8"),
+    readFile(resolve(root, "web/app/styles.css"), "utf8"),
   ]);
 
   assert.doesNotMatch(html, /accountModal|accountToggle/, "standalone About UI is removed");
   assert.doesNotMatch(app, /openAccountModal|closeAccountModal|trapAccountModalFocus/, "standalone About behavior is removed");
   assert.doesNotMatch(css, /account-modal-card|account-modal-overlay/, "standalone About styles are removed");
   assert.match(app, /data-settings-library-path/, "the local library path is visible in the unified Settings surface");
-  // R21 两栏设置把「本地优先」说明放进了 Web 端左栏；这条反模式断言改锁桌面端。
-  assert.doesNotMatch(desktopApp, /settingsLocalFirst|preferencesSubtitle|settings-header-mark|headerIcon/,
-    "the frozen desktop Settings keeps avoiding redundant explanatory copy and decorative header chrome");
+  // R21 两栏设置把「本地优先」说明放进左栏（由 web-r21-settings 锁定其存在）；
+  // 这条反模式断言只禁其余的冗余说明文案与装饰性标题 chrome。
+  assert.doesNotMatch(app, /preferencesSubtitle|settings-header-mark|headerIcon/,
+    "Settings keeps avoiding redundant explanatory copy and decorative header chrome");
+  assert.doesNotMatch(app, /captureActivitySection|captureActivityMarkup|captureTaskRowMarkup|capture-task-panel/,
+    "Settings does not expose the web-capture runtime activity log");
   assert.match(app, /data-change-library/, "Settings exposes library relocation when the desktop bridge supports it");
   assert.match(app, /state\.libraryRoot \|\| state\.libraryPath/, "Settings opens the library root rather than only the active project folder");
   assert.match(app, /function openSettingsModal\(\)[\s\S]*?renderSettingsMenu\(\);[\s\S]*?els\.settingsMenu\.hidden = false/,
     "Settings refreshes live path and summary data every time it opens");
   assert.match(app, /requestAnimationFrame\(\(\) => els\.settingsMenu\?\.querySelector\("\.settings-modal-card"\)\?\.focus\(\)\)/,
     "Settings initially focuses the dialog container without forcing a close-button focus ring");
-});
-
-test("the frozen desktop settings keeps the single compact surface without category navigation", async () => {
-  const app = await readFile(resolve(root, "desktop/app/app.mjs"), "utf8");
-
-  assert.doesNotMatch(app, /SETTINGS_SECTIONS|settingsSection|settings-section-tabs|settings-modal-rail/,
-    "desktop Settings must not keep category state or a navigation rail");
-  assert.doesNotMatch(app, /role="tab"|role="tabpanel"|data-settings-section/,
-    "the frozen desktop Settings has no fake multi-page tab semantics");
-  assert.doesNotMatch(app, /handleSettingsMenuKeydown\(event\)[\s\S]*?\[role="tab"\]/,
-    "desktop settings keeps no category keyboard branch");
-  assert.match(app, /section\(t\("appearance"\), appearanceRows\)/,
-    "appearance controls render directly in the unified surface");
-  assert.match(app, /section\(t\("storageDataSection"\), storageRows\)/,
-    "storage controls render directly in the unified surface");
-  assert.doesNotMatch(app, /section\(t\("captureActivitySection"\)/,
-    "Settings does not expose web-capture runtime activity");
-  assert.doesNotMatch(app, /captureActivityMarkup|captureTaskRowMarkup|capture-task-panel/,
-    "the capture activity log renderer is removed from the Settings surface");
-  assert.match(app, /section\(t\("aboutSection"\), aboutRow, "settings-about-block"\)/,
-    "about information renders directly in the unified surface");
-  assert.match(app, /const aboutRow = row\([\s\S]*?t\("version"\)/,
-    "the About section presents version information directly instead of repeating the product name");
-  assert.doesNotMatch(app, /settings-section-rows/,
-    "settings groups do not wrap rows in visible card containers");
 });
 
 test("settings avoids full rerenders for normal interactions and keeps radio keyboard navigation", async () => {
@@ -210,34 +174,22 @@ test("settings avoids full rerenders for normal interactions and keeps radio key
   // 这里只锁与结构无关的行为：segmented 键盘导航、状态同步仍走 Web 端。
 });
 
-test("settings dialog uses the compact unified geometry", async () => {
-  const css = await readFile(resolve(root, "desktop/app/styles.css"), "utf8");
+test("settings dialog keeps scroll containment, thumb mechanics and material fallbacks", async () => {
+  // R21 两栏几何（792×592、左栏 168、行 56 高、分段控件 156×32 等）由
+  // web-r21-settings 锁定；这里只锁与几何无关的结构行为，全部取 web 现值。
+  const css = await readFile(resolve(root, "web/app/styles.css"), "utf8");
 
   assert.match(css, /\.mosa-v2 \.settings-menu \{[\s\S]*?padding: 24px;[\s\S]*?backdrop-filter: blur\(18px\)/,
     "the modal scrim uses grid-aligned padding and a restrained material blur");
-  assert.match(css, /\.mosa-v2 \.settings-modal-card \{[\s\S]*?width: min\(520px, 100%\);[\s\S]*?max-height: min\(560px, calc\(100dvh - 48px\)\);[\s\S]*?border-radius: 20px;/,
-    "the dialog is compact, single-column, and viewport constrained");
-  assert.match(css, /\.mosa-v2 \.settings-modal-card \{[^}]*display: flex;[^}]*flex-direction: column;[^}]*overflow: hidden;/,
-    "the settings card owns the height constraint and lays out header plus scroll body vertically");
-  assert.match(css, /\.mosa-v2 \.settings-modal-body \{[^}]*min-height: 0;[^}]*flex: 1 1 auto;[^}]*overflow-y: auto;/,
+  assert.match(css, /\.mosa-v2 \.settings-modal-body \{ min-height: 0; flex: 1 1 auto; overflow-y: auto;/,
     "the settings body scrolls within the card so the final About and update controls remain reachable");
   assert.doesNotMatch(css, /\.mosa-v2 \.settings-modal-body \{[^}]*max-height:/,
     "the settings body never uses a viewport height larger than the clipped card");
-  assert.match(css, /\.mosa-v2 \.settings-modal-row \{[^}]*grid-template-columns: 24px minmax\(0, 1fr\) 164px;[^}]*min-height: 52px;[^}]*padding: 8px 0;/,
-    "setting rows use one stable three-column alignment grid");
-  assert.match(css, /\.mosa-v2 \.settings-block \+ \.settings-block \{[^}]*padding-top: 18px;[^}]*border-top: 1px solid var\(--color-border-subtle\);/,
-    "settings sections are separated by spacing plus one quiet structural rule");
-  assert.match(css, /\.mosa-v2 \.settings-block > h3 \{[^}]*font-size: 12px;[^}]*font-weight: 650;/,
-    "section labels have a distinct hierarchy above individual setting rows");
-  assert.match(css, /\.mosa-v2 \.settings-block > h3::before \{[^}]*width: 3px;[^}]*height: 12px;/,
-    "section labels use one restrained accent marker instead of another container");
-  assert.match(css, /\.mosa-v2 \.settings-menu \.segmented \{[^}]*width: 164px;[^}]*height: 30px;[^}]*padding: 2px;[^}]*border-radius: 999px;/,
-    "segmented controls use one compact pill track");
   assert.match(css, /\.mosa-v2 \.settings-menu \.segmented-thumb \{[^}]*width: calc\(\(100% - 4px\) \/ 2\);[^}]*transition: transform 180ms/,
     "the selected segment is represented by one smoothly sliding thumb");
   assert.match(css, /\.mosa-v2 \.settings-menu \.segmented\[data-active-index="1"\] \.segmented-thumb \{ transform: translateX\(100%\); \}/,
     "the thumb moves to the second option without rebuilding the dialog");
-  assert.match(css, /\.mosa-v2 \.settings-text-action \{[^}]*border: 0;[^}]*background: transparent;/,
+  assert.match(css, /\.mosa-v2 \.settings-text-action \{ display: inline-flex; min-height: 28px;[^}]*border: 0;[^}]*background: transparent;/,
     "secondary actions stay visually flat instead of adding nested button boxes");
   assert.match(css, /\.mosa-v2 \.settings-menu\[data-refreshing="true"\] \.settings-modal-card \{ transition: none; \}/,
     "visible Settings rebuilds cannot replay the entrance transition");

@@ -49,9 +49,9 @@ const desktopPlatform = desktopPlatformAdapter();
 // when packaged. Deriving it from the module location keeps both modes on a
 // single source of truth instead of the app path API.
 const appRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
-// Desktop app uses its own UI directory
+// Desktop shell serves the shared web UI (same directory as the browser).
 const expectedServiceIdentity = Object.freeze({
-  ...getBuildIdentity(join(appRoot, "desktop", "app")),
+  ...getBuildIdentity(join(appRoot, "web", "app")),
   serviceProtocolVersion: MOSA_SERVICE_PROTOCOL_VERSION,
 });
 // `desktopDataDir` is the *actual* userData after Chromium applied the QA
@@ -1212,8 +1212,8 @@ async function ensureDesktopService() {
           userDataDir: desktopDataDir,
           settings: await visualModelManager.runtimeConfig(),
         },
-        // Desktop uses desktop/app for its UI
-        appDir: join(appRoot, "desktop", "app"),
+        // Desktop serves the same web UI as the browser
+        appDir: join(appRoot, "web", "app"),
         assetsRoot: join(libraryDir, "assets"),
         generatedImagesDir: join(libraryDir, "imports"),
         webCaptureToken,

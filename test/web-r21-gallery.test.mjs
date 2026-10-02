@@ -1,7 +1,6 @@
 // R21（Web 端）画廊与卡片契约：只读 web/app/styles.css 与 web/app/app.mjs，
 // 锁定本任务定下的 R21 值（设计稿 MOSA_UI_Integrated_R21_4px_Grid；瀑布流保留，
-// 只调间距/圆角/选中态/卡片信息）。另守护 desktop/app/styles.css 的画廊值不被
-// 误改（--gallery-gap 12、缩略图圆角 12）。R21 新颜色只出现在浅色作用域。
+// 只调间距/圆角/选中态/卡片信息）。R21 新颜色只出现在浅色作用域。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -10,7 +9,6 @@ import test from "node:test";
 const root = resolve(import.meta.dirname, "..");
 const readWebCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 const readWebApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
-const readDesktopCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 
 test("R21 gallery spacing: one shared 16px gap and the 20/24/32 padding", async () => {
   const css = await readWebCss();
@@ -69,12 +67,4 @@ test("web estimate uses the measured 61px info height; the span math is unchange
   assert.match(estimate, /Math\.max\(48, Math\.ceil\(mediaHeight \+ infoHeight \+ gap\)\)/);
   // 间距单一来源：估算只读 --gallery-gap。
   assert.match(estimate, /getPropertyValue\("--gallery-gap"\)/);
-});
-
-test("desktop gallery keeps its own values: 12px gap and 12px thumb radius", async () => {
-  const css = await readDesktopCss();
-  assert.match(css, /--gallery-gap: 12px;/, "desktop --gallery-gap must stay 12px");
-  assert.match(css, /\.mosa-v2 \.asset-card \.thumb, [^}]*\{ border-radius: 12px; \}/,
-    "desktop thumb radius must stay 12px");
-  assert.doesNotMatch(css, /--gallery-gap: 16px;/, "desktop must not pick up the R21 gap");
 });

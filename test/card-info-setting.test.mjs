@@ -1,4 +1,4 @@
-// 任务 20 契约：设置里的「素材卡片信息」开关（web/app 与 desktop/app 两端行为一致）。
+// 任务 20 契约：设置里的「素材卡片信息」开关（界面合一后只读 web/app 这一份）。
 // 密度设置已在 9c7457e 删除且不得回归（名字与 density 无关）；新的开关：
 // state.showCardInfo 只在本地存储 mosa.card-info === "show" 时为真（默认隐藏），
 // 设置行用现有 segmented 控件（data-card-info-opt），renderGrid 把开关状态写到
@@ -11,7 +11,7 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 const read = (path) => readFile(resolve(root, path), "utf8");
-const TREES = ["web/app", "desktop/app"];
+const TREES = ["web/app"];
 
 /** Slices a top-level module function up to the next top-level function. */
 function functionSlice(source, name) {
@@ -104,22 +104,7 @@ test("the virtual span cache key and its prune prefix carry the switch state", a
   }
 });
 
-test("estimatedGalleryCardSpan reserves the info-row height only while the switch is on", async () => {
-  // R21 起两树各自估算：Web 信息区按新样式实测 61px（12 顶距 + 18 标题行 + 4 +
-  // 15 元信息行 + 12 底部留白）；桌面端维持 44px。
-  const estimateHeights = { "web/app": 61, "desktop/app": 44 };
-  for (const tree of TREES) {
-    const app = await read(`${tree}/app.mjs`);
-    const estimate = functionSlice(app, "estimatedGalleryCardSpan");
-    const height = estimateHeights[tree];
-    assert.match(estimate, new RegExp(`const infoHeight = state\\.showCardInfo \\? ${height} : 0;`),
-      `${tree}: the estimate must add the ${height}px info-row height only when card info is shown`);
-    assert.match(estimate, /Math\.max\(48, Math\.ceil\(mediaHeight \+ infoHeight \+ gap\)\)/,
-      `${tree}: the estimate must include the info height in the span`);
-  }
-});
-
-test("styles.css keeps the default-hide rule and adds the show override in both trees", async () => {
+test("styles.css keeps the default-hide rule and adds the show override", async () => {
   for (const tree of TREES) {
     const css = await read(`${tree}/styles.css`);
     assert.match(css, /\.mosa-v2 \.asset-card-info \{ display: none; \}/,
@@ -129,7 +114,7 @@ test("styles.css keeps the default-hide rule and adds the show override in both 
   }
 });
 
-test("i18n carries the three card-info keys in zh and en in both trees", async () => {
+test("i18n carries the three card-info keys in zh and en", async () => {
   for (const tree of TREES) {
     const i18n = await read(`${tree}/i18n.mjs`);
     for (const [key, zh, en] of [

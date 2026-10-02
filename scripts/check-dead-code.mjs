@@ -6,11 +6,8 @@
 // but must not raise false positives on dynamic class construction
 // (`version-depth-${depth}`) or prose references.
 //
-// The two UI trees (`web/app/`, `desktop/app/`) are deliberate copies of one
-// shell. A symbol or module kept alive only by its twin's text is NOT alive:
-// each tree must establish its own consumers, so dead code copied into both
-// trees is still reported. Files outside the UI trees consume either tree
-// normally.
+// There is a single UI tree (`web/app/`), shared by the browser and the
+// Electron shell. Files outside it consume it normally.
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
@@ -21,28 +18,19 @@ const execFileAsync = promisify(execFile);
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
-const SOURCE_DIRS = ["lib", "web/app", "desktop/app", "desktop", "mcp", "scripts"];
-const UI_TREES = ["web/app", "desktop/app"];
+const SOURCE_DIRS = ["lib", "web/app", "desktop", "mcp", "scripts"];
+const UI_TREE = "web/app";
 const SOURCE_EXTENSIONS = new Set([".mjs", ".ts", ".js", ".cjs"]);
 const TEXT_EXTENSIONS = new Set([
   ".mjs", ".ts", ".js", ".cjs", ".json", ".md", ".html", ".css", ".yml", ".yaml", ".svg", ".sh",
 ]);
 const MIN_SYMBOL_LENGTH = 3;
 
-function uiTreeOf(path) {
-  return UI_TREES.find((tree) => path.startsWith(`${tree}/`)) || null;
-}
-
 // Paths whose text can vouch for a file's liveness: everything except the
-// file itself and, for UI-tree files, the twin tree.
+// file itself. (Before the UI trees were unified this also excluded the twin
+// tree; with a single tree there is no twin left to exclude.)
 function consumerPathsFor(path, allPaths) {
-  const ownTree = uiTreeOf(path);
-  return allPaths.filter((other) => {
-    if (other === path) return false;
-    if (!ownTree) return true;
-    const otherTree = uiTreeOf(other);
-    return !otherTree || otherTree === ownTree;
-  });
+  return allPaths.filter((other) => other !== path);
 }
 
 // Intentionally retained items the scanners cannot attribute to a consumer.
@@ -59,7 +47,6 @@ const DEAD_CSS_EXCEPTIONS = new Set();
 // which the class-attribute interpolation check cannot see.
 const DEAD_CSS_EXCEPTION_PREFIXES = [
   "web/app/styles.css::generation-depth-",
-  "desktop/app/styles.css::generation-depth-",
 ];
 
 const DECLARATION_EXPORT_RE = /export\s+(?:async\s+)?(?:function\s*\*?|const|let|var|(?:abstract\s+)?class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/g;
@@ -162,18 +149,18 @@ export function analyzeDeadCode({ files, sourceDirs = SOURCE_DIRS, cssFiles = nu
     }
   }
 
-  // Every tracked stylesheet in the UI trees is scanned — derived from the
-  // file list, so adding a stylesheet to a tree cannot slip past the gate.
-  // A UI tree that ships files but no styles.css is a broken tree.
+  // Every tracked stylesheet in the UI tree is scanned — derived from the
+  // file list, so adding a stylesheet to the tree cannot slip past the gate.
+  // A UI tree that ships stylesheets but no styles.css is a broken tree.
   const cssPaths = cssFiles
     ? cssFiles.filter((path) => files.has(path))
-    : UI_TREES.flatMap((tree) => {
-        const treeFiles = allPaths.filter((path) => path.startsWith(`${tree}/`) && path.endsWith(".css"));
-        if (treeFiles.length > 0 && !treeFiles.includes(`${tree}/styles.css`)) {
-          throw new Error(`${tree} has stylesheets but is missing ${tree}/styles.css.`);
+    : (() => {
+        const treeFiles = allPaths.filter((path) => path.startsWith(`${UI_TREE}/`) && path.endsWith(".css"));
+        if (treeFiles.length > 0 && !treeFiles.includes(`${UI_TREE}/styles.css`)) {
+          throw new Error(`${UI_TREE} has stylesheets but is missing ${UI_TREE}/styles.css.`);
         }
         return treeFiles;
-      });
+      })();
   const nonCssCorpus = [...files.entries()]
     .filter(([path]) => !cssPaths.includes(path))
     .map(([, text]) => text)
@@ -202,13 +189,13 @@ export function analyzeDeadCode({ files, sourceDirs = SOURCE_DIRS, cssFiles = nu
 
 async function main() {
   // UI tree files must be tracked or ignored. An untracked stylesheet or
-  // module in web/app or desktop/app is invisible to this gate, the build
-  // identity, and a fresh clone — exactly how a referenced-but-untracked UI
-  // file ships broken. Fail closed on any untracked entry (`??`); staged or
-  // modified files are already visible to the scanners below.
+  // module in web/app is invisible to this gate, the build identity, and a
+  // fresh clone — exactly how a referenced-but-untracked UI file ships
+  // broken. Fail closed on any untracked entry (`??`); staged or modified
+  // files are already visible to the scanners below.
   const { stdout: untrackedOutput } = await execFileAsync(
     "git",
-    ["status", "--porcelain", "--untracked-files=all", "--", "web/app", "desktop/app"],
+    ["status", "--porcelain", "--untracked-files=all", "--", "web/app"],
     { cwd: root },
   );
   const untrackedEntries = untrackedOutput.split("\n").filter((line) => line.startsWith("??"));
@@ -220,8 +207,13 @@ async function main() {
   }
 
   const { stdout } = await execFileAsync("git", ["ls-files"], { cwd: root });
+  // Tracked files whose working-tree copy is already deleted (pending commit)
+  // have no content to scan; the index lags the tree until then.
+  const { stdout: deletedStdout } = await execFileAsync("git", ["ls-files", "--deleted"], { cwd: root });
+  const deletedPaths = new Set(deletedStdout.split("\n").filter(Boolean));
   const files = new Map();
   for (const path of stdout.split("\n").filter(Boolean)) {
+    if (deletedPaths.has(path)) continue;
     if (!TEXT_EXTENSIONS.has(path.slice(path.lastIndexOf(".")))) continue;
     files.set(path, await readFile(join(root, path), "utf8"));
   }

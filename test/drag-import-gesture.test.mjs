@@ -210,13 +210,11 @@ test("skipped-only imports toast as info while real failures stay errors", async
 });
 
 test("gallery and sidebar drops hand their filtered-out count to the importer", async () => {
-  for (const tree of ["web/app", "desktop/app"]) {
-    const app = await readFile(resolve(root, tree, "app.mjs"), "utf8");
-    assert.match(app, /batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\), skipped: unsupported \}\)/,
-      `${tree}: gallery drop reports skipped unsupported files`);
-    assert.match(app, /batchImporter\.enqueue\(files, \{ metadata: \{ group \}, stackId: "", skipped: unsupported \}\)/,
-      `${tree}: sidebar group drop reports skipped unsupported files`);
-  }
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
+  assert.match(app, /batchImporter\.enqueue\(files, \{ metadata: currentDropImportMetadata\(\), skipped: unsupported \}\)/,
+    "gallery drop reports skipped unsupported files");
+  assert.match(app, /batchImporter\.enqueue\(files, \{ metadata: \{ group \}, stackId: "", skipped: unsupported \}\)/,
+    "sidebar group drop reports skipped unsupported files");
 });
 
 test("desktop native drag bridge validates library paths in main process", async () => {

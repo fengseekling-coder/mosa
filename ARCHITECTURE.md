@@ -46,12 +46,12 @@ MOSA 是一个本地优先的创意资产库。它把图像和视频原件、可
 
 ### 2.1 客户端
 
-两套独立的 UI 树均为原生浏览器模块，不依赖前端打包器或组件运行时：
+只有一份 UI 树，全部为原生浏览器模块，不依赖前端打包器或组件运行时：
 
-- `web/app/` — 网页端 UI，由 `server.mjs`（`lib/mosa-runtime.mjs` 默认 appDir）经同源静态服务提供。
-- `desktop/app/` — 桌面端 UI，由 Electron 壳显式指定并打包进应用（forge 包内唯一 UI 路径）。
+- `web/app/` — 浏览器端与桌面端共用的 UI，由 `server.mjs`
+  （`lib/mosa-runtime.mjs` 默认 appDir）经同源静态服务提供。
 
-两棵树当前互为副本，可独立演化；共享逻辑应下沉到 `lib/` 后双向引用。每棵树内部：
+该树内部：
 
 - `index.html` 提供 DOM 结构和入口。
 - `app.mjs` 负责页面状态、事件绑定、导航和 API 调用。
@@ -61,13 +61,13 @@ MOSA 是一个本地优先的创意资产库。它把图像和视频原件、可
 - `theme-init.mjs` 在首屏前应用主题；`index.html` 通过同源静态服务加载
   模块和样式。
 
-两棵树的全部文件都会进入 `uiFingerprint`（`lib/build-identity.mjs` 对
+树内全部文件都会进入 `uiFingerprint`（`lib/build-identity.mjs` 对
 appDir 下除 `build-identity.json` 外的每个文件取哈希），并被
-`scripts/check-dead-code.mjs` 按树独立扫描：UI 树文件必须被 git 跟踪，
-孪生树的文本不算作另一棵树的消费者。
+`scripts/check-dead-code.mjs` 扫描：UI 树文件必须被 git 跟踪。
 
 Electron 桌面壳由 `desktop/main.mjs`、`desktop/preload.cjs` 和
-`desktop/service-manager.mjs` 组成。它加载 `desktop/app/` UI，并通过受限的
+`desktop/service-manager.mjs` 组成。它与浏览器端共用同一份 `web/app/` UI
+（打包进应用，forge 包内唯一 UI 路径），并通过受限的
 preload API 处理桌面能力（例如文件导入暂存、在系统文件管理器中定位原件、通知和受控更新）；业务数据
 仍由同一个本地 HTTP 运行时提供。
 

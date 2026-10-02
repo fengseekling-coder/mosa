@@ -1,8 +1,6 @@
 // R21（Web 端）shell 契约：全局 token、侧边栏、顶栏。只读 web/app/styles.css，
 // 锁定本任务定下的 R21 值（设计稿 MOSA_UI_Integrated_R21_4px_Grid）。
-// 任务 19 已把旧的数值类样式测试分流到桌面端；这里反向锁 Web 端，并守护
-// desktop/app/styles.css 的两个 shell token 不被误改。深色规格未定：
-// R21 的新颜色必须只出现在浅色作用域里，深色 token 保持现状。
+// 深色规格未定：R21 的新颜色必须只出现在浅色作用域里，深色 token 保持现状。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -10,7 +8,6 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 const readWebCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
-const readDesktopCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 
 /** Extracts a `{...}` block starting at the marker, honouring nested braces. */
 function blockAfter(source, marker) {
@@ -106,10 +103,4 @@ test("R21 topbar: type filters, sort control and search box", async () => {
   assert.match(css, /\.topbar-search \{ display: flex; box-sizing: border-box; min-width: 0; flex: 0 1 256px; align-items: center; gap: 8px; width: 256px; height: var\(--control-sm\);/);
   assert.match(css, /--control-sm: 32px;/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.topbar-search \{ background: #f4f4f5; \}/);
-});
-
-test("desktop styles keep their own shell sizes (56px topbar, 220px sidebar)", async () => {
-  const css = await readDesktopCss();
-  assert.match(css, /--topbar-height: 56px;/, "desktop --topbar-height must stay 56px");
-  assert.match(css, /--sidebar-width: 220px;/, "desktop --sidebar-width must stay 220px");
 });

@@ -19,7 +19,7 @@ const readAssetView = () => readFile(resolve(root, "web/app/asset-view.mjs"), "u
 const readConfirmDialog = () => readFile(resolve(root, "web/app/confirm-dialog.mjs"), "utf8");
 const readInspectorMarkup = () => readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8");
 const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
-const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 const count = (source, needle) => source.split(needle).length - 1;
 

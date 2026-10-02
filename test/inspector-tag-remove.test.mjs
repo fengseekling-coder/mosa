@@ -6,7 +6,7 @@ import test from "node:test";
 // 检视器用户标签删除契约：用户标签 chip 内的 × 按钮（data-action="remove-tag"）直接
 // 删除并整体 PATCH tags（与 openTagEditor submit 同一保存语义），来源标签纯展示无
 // 删除入口；保存期间禁用按钮，成功后刷新标签区并把焦点交还给下一个标签。
-// Node 标准库、零网络、源码切片断言；web/app 与 desktop/app 两份拷贝逐字节一致。
+// Node 标准库、零网络、源码切片断言；界面合一后只读 web/app 这一份。
 
 const root = resolve(import.meta.dirname, "..");
 const read = (path) => readFile(resolve(root, path), "utf8");
@@ -150,7 +150,7 @@ test("i18n. removeTag and tagRemoved are symmetric across zh and en", async () =
 });
 
 test("styles. the remove button hides by default, shows on hover/focus, and never uses display:none", async () => {
-  const css = await read("desktop/app/styles.css");
+  const css = await read("web/app/styles.css");
   const removeRule = sliceBetween(css, ".detail-tag-remove {", "}\n");
   const revealRule = sliceBetween(css, ".detail-tag:hover .detail-tag-remove", "}\n");
   const touchBlock = sliceBetween(css, "@media (hover: none), (pointer: coarse) {", "}\n");

@@ -1,9 +1,9 @@
-// Web UI baseline contract（R21 前置）。web/app 与 desktop/app 的样式自 R21 起
-// 分开演进：锁定具体设计数值的契约已分流到桌面端样式，web 端样式允许按 R21
-// 设计稿自由改版。本文件只守 web/app/styles.css 与具体数值无关的基线规则——
-// 改版可以换颜色、换尺寸、换选择器，但不许丢掉这些底层能力。任何具体数值
-// （按钮最小尺寸、顶栏高度、断点等）都不属于这里。
-// [hidden] 配对契约见 test/hidden-attribute-contract.test.mjs（两端各查一遍）。
+// Web UI baseline contract。web/app 是唯一一份界面样式（桌面端复用这份）：
+// 锁定具体设计数值的契约在 web-r21-* 各文件与样式快照里，本文件只守
+// web/app/styles.css 与具体数值无关的基线规则——改版可以换颜色、换尺寸、
+// 换选择器，但不许丢掉这些底层能力。任何具体数值（按钮最小尺寸、顶栏高度、
+// 断点等）都不属于这里。
+// [hidden] 配对契约见 test/hidden-attribute-contract.test.mjs。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";

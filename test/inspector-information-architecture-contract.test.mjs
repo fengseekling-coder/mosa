@@ -15,11 +15,9 @@ import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
-const readDesktopApp = () => readFile(resolve(root, "desktop/app/app.mjs"), "utf8");
-const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 const readI18n = () => readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
 const readInspectorMarkup = () => readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8");
-const readDesktopInspectorMarkup = () => readFile(resolve(root, "desktop/app/inspector-markup.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 const count = (source, needle) => source.split(needle).length - 1;
 
@@ -69,7 +67,7 @@ const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(
 // 2. No detail tablist. 3. No detail tab. 4. No detail tabpanel.
 // 5. Nine semantic sections exist. 6. Their order matches the V2 spec.
 test("1-6. single-column architecture, tab roles removed, V2 sections in approved order", async () => {
-  const [app, inspector, css] = await Promise.all([readDesktopApp(), readInspectorMarkup(), readCss()]);
+  const [app, inspector, css] = await Promise.all([readApp(), readInspectorMarkup(), readCss()]);
 
   // 1. Single column: one inspector shell with one header and one scroll container.
   const renderDetail = functionSlice(app, "renderDetail");
@@ -115,7 +113,9 @@ test("1-6. single-column architecture, tab roles removed, V2 sections in approve
   assert.match(css, /--inspector-unit:\s*4px/);
   assert.doesNotMatch(app, /detail-overview-card/, "the inspector must not add an extra outer card wrapper around overview content");
   assert.match(css, /\.mosa-v2 \.detail-inspector-scroll > \.inspector-section \{[\s\S]*?flex: 0 0 auto;/, "semantic sections must not shrink out of the flex scroll column");
-  assert.match(css, /\.mosa-v2 \.detail-inspector-scroll \{[\s\S]*?gap: 0;[\s\S]*?padding: 0 0 var\(--inspector-space-6\);/);
+  // R21（web-r21-inspector-head）把滚动列的底部留白换成 28px 的 --r21-s7，
+  // 由该契约锁定；这里继续锁区块之间不留缝（gap: 0）。
+  assert.match(css, /\.mosa-v2 \.detail-inspector-scroll \{[^}]*gap: 0;/);
   assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-section \{[\s\S]*?border-top: 1px solid var\(--inspector-divider\);[\s\S]*?border-radius: 0;[\s\S]*?background: transparent;/);
   assert.doesNotMatch(blockAfter(css, ".mosa-v2 .detail-inspector {"), /animation:/, "persistent shell itself never replays the materialize animation");
   assert.match(css, /\.mosa-v2 \.detail\.detail-entering \.detail-inspector \{[\s\S]*?animation: inspector-materialize/, "materialize animation is limited to a closed-to-open transition");
@@ -125,13 +125,14 @@ test("1-6. single-column architecture, tab roles removed, V2 sections in approve
 // 7. File-facts section exists. 8. Missing facts fall back to notRecorded.
 // 9. No fabricated 0×0 dimensions. 10. No fabricated file size.
 test("7-10. file facts are honest — notRecorded fallbacks, no fabrication", async () => {
-  // R21 检视器头部：web 头部重排为两栏键值；旧 detail-facts 结构锁桌面端读取。
-  const [app, inspector, i18n, css, inspectorDesktop] = await Promise.all([readApp(), readInspectorMarkup(), readI18n(), readCss(), readDesktopInspectorMarkup()]);
+  // R21 检视器头部：web 头部重排为两栏键值；旧 detail-facts 结构与宽图几何
+  // 已随桌面端一起退役，由 web-r21-inspector-head 的「detailFileSectionMarkup
+  // keeps every e2e-critical anchor…」与「R21 head layout」两条契约锁定。
+  const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
 
   // 7. Section with an asset-metadata group and the V2 fact-tag values.
   const fileSection = functionSlice(inspector, "detailFileSectionMarkup");
   assert.ok(fileSection.includes('data-inspector-section="file"'));
-  assert.match(functionSlice(inspectorDesktop, "detailFileSectionMarkup"), /class="detail-facts" role="group" aria-label="\$\{escapeHtml\(t\("assetMetadata"\)\)\}"/);
   assert.ok(fileSection.includes('["fileDimensions", fileDimensionsText(asset)]'));
   assert.ok(fileSection.includes('["fileFormat", fileFormatText(asset)]'));
   assert.ok(fileSection.includes('["fileSize", fileSizeText(asset)]'));
@@ -164,12 +165,9 @@ test("7-10. file facts are honest — notRecorded fallbacks, no fabrication", as
   assert.equal(helpers.fileSizeText(capturedAsset), "584 KB");
   assert.equal(helpers.fileDimensionsText({ business_fields: { width: 0, height: 1376 } }), null);
 
-  // Preview geometry keeps the real ratio for 2:3, 3:4 and wider assets. Only
-  // assets taller than 9:16 are capped to a 9:16 viewport and filled with cover.
-  // R21：web 头部换 132×132 方图后删除了宽高比属性，这段宽图几何锁桌面端。
-  assert.match(inspectorDesktop, /return assetAspect >= MIN_DETAIL_PREVIEW_ASPECT \? `\$\{width\} \/ \$\{height\}` : "9 \/ 16";/);
-  assert.match(css, /\.mosa-v2 \.detail \.detail-overview \.detail-image-wrap \{[\s\S]*?aspect-ratio: var\(--detail-preview-aspect, 9 \/ 16\);[\s\S]*?overflow: hidden;/);
-  assert.match(css, /\.mosa-v2 \.detail \.detail-overview \.detail-image \{[\s\S]*?object-fit: cover;/);
+  // Preview geometry: R21 把头部预览改为 132×132 方图（asset-mini，object-fit:
+  // cover），旧的宽图 aspect-ratio 属性与 detail-image-wrap 结构在 web 端已删除，
+  // 由 web-r21-inspector-head 的「R21 head layout」契约锁定。
 });
 
 // 11. Favorite button belongs to the Overview. 12. It uses aria-pressed.
@@ -177,13 +175,11 @@ test("7-10. file facts are honest — notRecorded fallbacks, no fabrication", as
 test("11-13. V2 Overview favorite control uses aria-pressed and toggleFavorite", async () => {
   const app = await readApp();
   const inspector = await readInspectorMarkup();
-  // R21：web 头部重排后，旧 title-row 结构锁桌面端（web 的收藏位置由新契约文件锁定）。
-  const inspectorDesktop = await readDesktopInspectorMarkup();
+  // R21：web 头部重排后收藏按钮仍在头部（asset-name-row 内，按钮只显图标），
+  // 由 web-r21-inspector-head 的 e2e 锚点契约与「the last-declared header rules」
+  // 契约（.mosa-v2 .asset-name-row .detail-fav-btn）锁定。
 
-  const overview = functionSlice(inspectorDesktop, "detailFileSectionMarkup");
   const favoriteButton = functionSlice(inspector, "detailFavoriteButtonMarkup");
-  assert.ok(overview.includes('class="detail-overview-title-row"'), "favorite shares the title row");
-  assert.ok(overview.includes("${detailFavoriteButtonMarkup(asset)}"), "overview renders the favorite control");
   assert.ok(functionSlice(inspector, "detailFileSectionMarkup").includes("${detailFavoriteButtonMarkup(asset)}"), "web head still renders the favorite control");
   assert.ok(favoriteButton.includes('data-action="toggle-favorite"'), "favorite button present");
   assert.ok(favoriteButton.includes('aria-pressed="${favorite}"'), "pressed state is exposed");

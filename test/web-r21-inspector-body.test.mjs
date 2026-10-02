@@ -2,8 +2,6 @@
 // 锁定：区块左右内边距 24 与 1px 分隔线、小标题 10.5px/590、标签 4/8 内边距与
 // 10px 字号、提示词框四项、参考图 3 列网格、来源卡边框/圆角/按钮行、表单控件
 // 高 32/圆角 8、本任务新增字号下限 10px，以及浅色覆盖后 hover/active 语义补回。
-// 桌面端守护：对应的旧规则（.prompt-box、.detail-tag、.meta-key/.meta-val、.two、
-// .inspector-section）保持原值不变。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -11,7 +9,6 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 const readWebCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
-const readDesktopCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
 
 // 同一选择器在样式表里出现多次时，浏览器用的是最后一组；任务 24 的规则全部
 // 追加在文件末尾，这里一律按「最后一次出现」取块（写法同 web-r21-inspector-head）。
@@ -194,14 +191,4 @@ test("every font size added by this task stays at or above the 10px floor", asyn
   for (const size of sizes) {
     assert.ok(size >= 10, `every added font-size must stay >= 10px (got ${size}px)`);
   }
-});
-
-test("desktop inspector keeps its legacy body values", async () => {
-  const css = await readDesktopCss();
-  assert.match(css, /^\.prompt-box, \.path-box \{ overflow: auto; padding: 9px 10px; border: 1px solid var\(--color-border-subtle\); border-radius: var\(--radius-control\); background: var\(--app-card\); font-family: var\(--font-family-mono\); font-size: 11px;/m);
-  assert.match(css, /^\.detail-tag \{ display: inline-flex; height: 24px; max-width: 120px; flex: 0 0 auto; align-items: center; overflow: hidden; padding: 0 8px; border: 1px solid var\(--color-border-subtle\); border-radius: 999px;/m);
-  assert.match(css, /^\.meta-key \{ color: var\(--color-text-secondary\); font-size: 11px; \}/m);
-  assert.match(css, /^\.meta-val \{ overflow: hidden; color: var\(--color-text-primary\); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; \}/m);
-  assert.match(css, /^\.two \{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; \}/m);
-  assert.match(css, /^\.inspector-section \{ padding: 12px 16px 14px; border-top: 1px solid var\(--color-border-subtle\); \}/m);
 });

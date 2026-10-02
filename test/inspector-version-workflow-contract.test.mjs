@@ -15,7 +15,7 @@ const root = resolve(import.meta.dirname, "..");
 const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
 const readAssetView = () => readFile(resolve(root, "web/app/asset-view.mjs"), "utf8");
 const readInspectorMarkup = () => readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8");
-const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 const readI18n = () => readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 const count = (source, needle) => source.split(needle).length - 1;
@@ -351,11 +351,9 @@ test("styles. picker and recipe-change styling stay within the Phase 4B boundary
 });
 
 test("inspector re-render re-binds the version compare selects", async () => {
-  for (const tree of ["web/app", "desktop/app"]) {
-    const app = await readFile(resolve(tree, "app.mjs"), "utf8");
-    // renderDetail rebuilds the compare selects from cached history; without
-    // this rebind they silently stop responding after a version switch.
-    assert.match(app, /bindVersionHistoryEvents\(cachedHistory\);[\s\S]{0,300}?bindVersionCompareEvents\(cachedHistory, asset\.id\);/,
-      `${tree}: renderDetail must re-bind version compare events`);
-  }
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
+  // renderDetail rebuilds the compare selects from cached history; without
+  // this rebind they silently stop responding after a version switch.
+  assert.match(app, /bindVersionHistoryEvents\(cachedHistory\);[\s\S]{0,300}?bindVersionCompareEvents\(cachedHistory, asset\.id\);/,
+    "renderDetail must re-bind version compare events");
 });

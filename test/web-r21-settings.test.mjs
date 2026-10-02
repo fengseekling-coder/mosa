@@ -1,10 +1,10 @@
 // R21（Web 端）设置弹窗两栏契约（任务 25）：只读 web/app/app.mjs、
-// web/app/styles.css、web/app/i18n.mjs 与 desktop/app/app.mjs。
+// web/app/styles.css 与 web/app/i18n.mjs。
 // 锁定：两栏框架（168px 左栏 + 1fr 内容）、tablist/tab/tabpanel 语义、
 // 四个 data-settings-page 及每页应含的控件、#settingsModalTitle 与
 // data-settings-close 仍在、↑↓ Home End 键盘处理、state.settingsPage 默认
 // general、R21 主要尺寸（792×592、左栏 168、导航 32 高、行最小 56 高、
-// 分段控件 32 高）、本任务新增字号下限 10px；桌面端仍是单栏。
+// 分段控件 32 高）、本任务新增字号下限 10px。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -14,7 +14,6 @@ const root = resolve(import.meta.dirname, "..");
 const readWebApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
 const readWebCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 const readWebI18n = () => readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
-const readDesktopApp = () => readFile(resolve(root, "desktop/app/app.mjs"), "utf8");
 
 // 同一选择器可能出现多次，浏览器用最后一组；任务 25 的规则全部追加在文件末尾，
 // 这里按「最后一次出现」取块（写法同 web-r21-inspector-body，允许逗号分组）。
@@ -210,14 +209,4 @@ test("web i18n carries the four category names, page descriptions and local-firs
     const matches = i18n.match(new RegExp(`${key}: "`, "g")) || [];
     assert.equal(matches.length, 2, `${key} must exist in both locales`);
   }
-});
-
-test("the frozen desktop settings stays a single-pane dialog without tab semantics", async () => {
-  const desktop = await readDesktopApp();
-  const markup = /els\.settingsMenu\.innerHTML = `([\s\S]*?)`;/.exec(desktop)?.[1] || "";
-  assert.ok(markup.includes("settings-modal-card"), "desktop settings template must exist");
-  assert.doesNotMatch(markup, /role="tablist"|role="tab"|role="tabpanel"|data-settings-page|data-settings-panel/,
-    "desktop renderSettingsMenu must stay single-pane");
-  // 桌面端仍是 settings-block 堆叠分段的单栏渲染器。
-  assert.match(desktop, /class="settings-block\$\{extraClass/, "desktop settings keeps its stacked sections");
 });

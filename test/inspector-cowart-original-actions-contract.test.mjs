@@ -13,7 +13,7 @@ const root = resolve(import.meta.dirname, "..");
 const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
 const readAssetView = () => readFile(resolve(root, "web/app/asset-view.mjs"), "utf8");
 const readInspectorMarkup = () => readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8");
-const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 const readI18n = () => readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
 const readPreload = () => readFile(resolve(root, "desktop/preload.cjs"), "utf8");
 const readMain = () => readFile(resolve(root, "desktop/main.mjs"), "utf8");

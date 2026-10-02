@@ -15,7 +15,7 @@ import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
-const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
 const readApiClient = () => readFile(resolve(root, "web/app/api-client.mjs"), "utf8");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
