@@ -87,6 +87,32 @@ test("stack members page by stable manual position without changing the total", 
   );
 });
 
+// Once a project has a Stack, the plain root gallery takes the collapsed fast
+// path. Its cursors must carry the same time-filter key the parser checks, or
+// page two and boundary-aware row reconciliation both fail with 400.
+test("collapsed root gallery cursors page and bound row reconciliation once a Stack exists", async (t) => {
+  const store = await createFixtureStore(t);
+  await store.createAssetStack("default", ["a", "b"], { coverAssetId: "a" });
+
+  for (const sort of ["newest", "oldest", "name"]) {
+    const first = await store.listAssetPage({ projectId: "default", limit: 2, sort, collapseStacks: true });
+    assert.equal(first.assets.length, 2, `${sort}: first page`);
+    assert.equal(typeof first.page.nextCursor, "string", `${sort}: first page has a cursor`);
+
+    const second = await store.listAssetPage({ projectId: "default", limit: 2, sort, cursor: first.page.nextCursor, collapseStacks: true });
+    assert.equal(second.assets.length, 1, `${sort}: second page holds the remaining node`);
+    assert.equal(second.page.nextCursor, null, `${sort}: second page is the last`);
+    const seen = [...first.assets, ...second.assets].map((asset) => asset.id).sort();
+    assert.deepEqual(seen, ["a", "c", "d"], `${sort}: every root node appears exactly once`);
+
+    const bounded = await store.listGalleryRowsForAssets(
+      { projectId: "default", sort, collapseStacks: true, boundaryCursor: first.page.nextCursor },
+      [second.assets[0].id],
+    );
+    assert.deepEqual(bounded.afterCursorRowIds, [second.assets[0].id], `${sort}: row past the boundary is deferred`);
+  }
+});
+
 test("reordering changes the cover, adding appends, and one remaining member dissolves automatically", async (t) => {
   const store = await createFixtureStore(t);
   const stack = await store.createAssetStack("default", ["a", "b", "c"], { coverAssetId: "b" });
