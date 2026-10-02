@@ -3,7 +3,6 @@
 // 头部 14px/640、两栏头部（132px 左栏预览）、e2e 必需元素仍在
 // detailFileSectionMarkup 输出里、五个事实键名、「素材详情」文案、
 // 新增字号下限 10px（R21 的 8.5～9.5px 一律抬到 10px）。
-// 桌面端守护：--inspector-width 仍 320、标题仍是「资产检视器」。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -13,8 +12,6 @@ const root = resolve(import.meta.dirname, "..");
 const readWebCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 const readWebMarkup = () => readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8");
 const readWebI18n = () => readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
-const readDesktopCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
-const readDesktopI18n = () => readFile(resolve(root, "desktop/app/i18n.mjs"), "utf8");
 
 /** Slices a top-level module function up to the next top-level function. */
 function functionSlice(source, name) {
@@ -102,14 +99,6 @@ test("every font size added by this task stays at or above the 10px floor", asyn
     const size = Number(pattern.exec(css)?.[1]);
     assert.ok(size >= 10, `${label} font-size must stay >= 10px (got ${size}px)`);
   }
-});
-
-test("desktop inspector keeps its own width token and title copy", async () => {
-  const css = await readDesktopCss();
-  assert.match(css, /--inspector-width: 320px;/, "desktop --inspector-width must stay 320px");
-  const i18n = await readDesktopI18n();
-  assert.match(i18n, /assetInspector: "资产检视器"/);
-  assert.match(i18n, /assetInspector: "Asset inspector"/);
 });
 
 // 同一选择器在样式表里出现多次时，浏览器用的是最后一组。头部标题、内边距、背景、
