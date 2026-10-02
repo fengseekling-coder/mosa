@@ -721,7 +721,9 @@ test("infinite scroll rearms deterministically after an appended page replaces t
   const scrolling = sliceBetween(app, "let infiniteScrollObserver = null;", "/**\n * Placeholders sized like real cards");
   assert.match(scrolling, /function requestInfiniteScrollAppend\(requestKey, preloadDistance\)/);
   assert.match(scrolling, /finally\(\(\) => \{[\s\S]*?isLoadingMore = false;[\s\S]*?requestAnimationFrame/);
-  assert.match(scrolling, /sentinelInInfiniteScrollWarmZone\(nextGrid, nextSentinel, preloadDistance\)/);
+  // Before the first scroll the rearm check uses the viewport only, matching the
+  // observer's first-page guard; afterwards it uses the full preload distance.
+  assert.match(scrolling, /sentinelInInfiniteScrollWarmZone\(nextGrid, nextSentinel, infiniteScrollFirstPageGuard \? 0 : preloadDistance\)/);
   assert.match(scrolling, /requestKey !== assetRequestKey\(currentAssetRequest\(\)\)/,
     "a stale result-set observer cannot continue pagination after filters or project change");
 });
