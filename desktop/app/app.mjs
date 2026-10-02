@@ -170,7 +170,7 @@ const apiClient = createApiClient({
   prewarmAssetMedia,
   refreshSelectedStackInspector,
 });
-const { apiFetch, loadProjects, loadStats, switchProjectWorkspace, loadAssets, refreshLibraryIfChanged, refreshAssetPageTotalInBackground, performFullGalleryReconciliation, reconcileLibraryRevision, noteLibraryRevision, getLibraryRevisionBaseline, setLibraryDeltaApplier, fetchLibraryChanges, resetAssetPrefetch, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion } = apiClient;
+const { apiFetch, loadProjects, loadStats, switchProjectWorkspace, loadAssets, refreshLibraryIfChanged, refreshAssetPageTotalInBackground, performFullGalleryReconciliation, reconcileLibraryRevision, noteLibraryRevision, getLibraryRevisionBaseline, setLibraryDeltaApplier, fetchLibraryChanges, resetAssetPrefetch, requestAssetPage, currentAssetRequest, assetRequestKey, assetListVersion, setGalleryBusy } = apiClient;
 
 // ===== New element references =====
 Object.assign(els, {

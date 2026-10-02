@@ -1,8 +1,10 @@
 // Pluggable flow: seed a >130-asset library through the API (predictable
 // created_at / sort_name / source / category / group), then drive the gallery
 // UI through load-more pagination, type filters, sidebar smart groups (source),
-// the manual-group section, combined refinement + empty-state reset, and sort
-// switching with its mosa.asset-sort persistence across a page reload.
+// the manual-group section, combined refinement + empty-state reset, sort
+// switching with its mosa.asset-sort persistence across a page reload, and an
+// injected gallery-list outage asserting the error state renders and the grid
+// busy flag resets (plus recovery once the outage is lifted).
 
 import { execFile as execFileCallback } from "node:child_process";
 import { join } from "node:path";
@@ -13,7 +15,7 @@ import { PAGE_HELPERS } from "./_page-helpers.mjs";
 const execFile = promisify(execFileCallback);
 
 export const name = "browse-sort-filter";
-export const description = "seed 130 img + 2 vid -> one-page first screen + load-more to 132 -> type/source/group filters -> combined + empty-clear -> sort switch + reload persistence";
+export const description = "seed 130 img + 2 vid -> one-page first screen + load-more to 132 -> type/source/group filters -> combined + empty-clear -> sort switch + reload persistence -> injected list outage: error state + busy reset + recovery";
 
 const PROJECT = "default";
 const GROUP_NAME = "bsfgroup";
@@ -453,6 +455,79 @@ function sessionTwoSource(expect) {
   })()`;
 }
 
+function assertSessionThree(obs, expect) {
+  if (!obs?.errorState) throw new Error("error-state step returned no observation");
+  const errorState = obs.errorState;
+  if (errorState.galleryListFailures < 1) throw new Error("injected outage never failed a gallery list request");
+  if (!errorState.hasErrorState || !errorState.hasRetry) {
+    throw new Error(`gallery error state did not render: ${JSON.stringify(errorState)}`);
+  }
+  if (errorState.message !== "e2e injected gallery outage") {
+    throw new Error(`error state did not surface the failure message: ${JSON.stringify(errorState)}`);
+  }
+  if (errorState.ariaBusy !== "false") {
+    throw new Error(`#assetGrid stayed busy after the error render (setGalleryBusy regression): ${JSON.stringify(errorState)}`);
+  }
+  if (errorState.rendererErrors.length) {
+    throw new Error(`error render produced renderer errors: ${JSON.stringify(errorState.rendererErrors)}`);
+  }
+  const recovered = obs.recovered;
+  if (!recovered) throw new Error("recovery step returned no observation");
+  if (recovered.ariaBusy !== "false") throw new Error(`gallery stayed busy after recovery: ${JSON.stringify(recovered)}`);
+  if (recovered.cardCount < expect.initialCount) throw new Error(`gallery recovery restored only ${recovered.cardCount} cards`);
+  if (recovered.rendererErrors.length) throw new Error(`gallery recovery produced renderer errors: ${JSON.stringify(recovered.rendererErrors)}`);
+}
+
+// Session three faults the gallery list transport (GET /api/assets?..., the
+// endpoint loadAssets -> requestAssetPage drives) at the fetch boundary and
+// reloads through the real sort control. The error state must render and
+// #assetGrid's aria-busy must land back on "false" — the exact path where
+// renderErrorState used to throw on the missing setGalleryBusy export, leaving
+// the grid busy and killing the caller's tail (e.g. the init status message).
+function sessionThreeSource(expect) {
+  return `(async () => {
+    const expect = ${JSON.stringify(expect)};
+    ${PAGE_HELPERS}
+    const gridElement = () => document.querySelector('#assetGrid');
+    const errorStateNode = () => gridElement().querySelector('.error-state');
+    // The driver executes this script once the page loaded, but the first
+    // gallery request may still be in flight: wait it out so the injection
+    // cannot fault the initial load instead of the one we trigger.
+    await waitFor(() => gallerySettled() && rootCardIds().length >= expect.initialCount, 'gallery ready before the injected outage', 30000);
+    const originalFetch = window.fetch.bind(window);
+    let galleryListFailures = 0;
+    window.fetch = (input, init) => {
+      const url = typeof input === 'string' ? input : (input && input.url) || String(input);
+      const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+      if (method === 'GET' && url.indexOf('/api/assets?') === 0) {
+        galleryListFailures += 1;
+        return Promise.resolve(new Response(JSON.stringify({ error: 'e2e injected gallery outage' }), { status: 500, headers: { 'content-type': 'application/json' } }));
+      }
+      return originalFetch(input, init);
+    };
+    setValue('#sortSelect', 'oldest');
+    await waitFor(() => errorStateNode(), 'error state renders after the injected outage', 20000);
+    const errorState = {
+      galleryListFailures,
+      hasErrorState: Boolean(errorStateNode()),
+      hasRetry: Boolean(errorStateNode()?.querySelector('[data-action="retry"]')),
+      message: errorStateNode()?.querySelector('span')?.textContent || '',
+      ariaBusy: gridElement().getAttribute('aria-busy'),
+      cardCount: rootCardIds().length,
+      rendererErrors: rendererErrors.slice(0, 3),
+    };
+    window.fetch = originalFetch;
+    setValue('#sortSelect', 'newest');
+    await waitFor(() => gallerySettled() && !errorStateNode() && rootCardIds().length >= expect.initialCount, 'gallery recovers after the outage is lifted', 20000);
+    const recovered = {
+      ariaBusy: gridElement().getAttribute('aria-busy'),
+      cardCount: rootCardIds().length,
+      rendererErrors: rendererErrors.slice(0, 3),
+    };
+    return { errorState, recovered };
+  })()`;
+}
+
 export async function run(ctx) {
   await ctx.prepare();
   const ffmpegProbe = await resolveFfmpeg();
@@ -475,6 +550,9 @@ export async function run(ctx) {
     const two = await ctx.runInPage(server, sessionTwoSource(expect));
     assertSessionTwo(two, finalPlan, orders, expect, videosReady);
 
+    const three = await ctx.runInPage(server, sessionThreeSource(expect));
+    assertSessionThree(three, expect);
+
     return {
       seeded: finalPlan.all.length,
       images: finalPlan.images.length,
@@ -484,6 +562,11 @@ export async function run(ctx) {
       filters: ["type-img", ...(videosReady ? ["type-video"] : []), "source-web-chatgpt", "source-codex-generated", `group-${GROUP_NAME}`, "combined-source-img-search", "empty-clear"],
       sorts: ["newest", "oldest", "name"],
       sortPersistedAcrossReload: two.reloaded.sortValue === "name",
+      errorState: {
+        ariaBusyReset: three.errorState.ariaBusy === "false",
+        rendererErrors: three.errorState.rendererErrors.length + three.recovered.rendererErrors.length,
+        recoveredCards: three.recovered.cardCount,
+      },
       categoryUiEntry: false,
     };
   } finally {
