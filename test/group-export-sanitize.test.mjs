@@ -2,19 +2,11 @@
 // 路径或只有本机服务能解析的 /library/... 链接。清洗规则在 app/utils.mjs 的
 // sanitizeAssetForExport：只按字段名删除（*_path、*_url、*_dir、path、
 // prompt_file），递归处理嵌套对象与数组；用户写的内容（提示词、标签、业务字段
-// 文字）与 asset（库内文件名）必须原样保留。web/app 与 desktop/app 双树各有
-// 一份拷贝；自 R21 分流起不再断言两份逐字节一致，但同一套行为契约必须对两份
-// 实现各跑一遍（web 侧 / desktop 侧）。
+// 文字）与 asset（库内文件名）必须原样保留。界面合一后只读 web/app 这一份实现。
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { sanitizeAssetForExport as sanitizeWebAssetForExport } from "../web/app/utils.mjs";
-import { sanitizeAssetForExport as sanitizeDesktopAssetForExport } from "../desktop/app/utils.mjs";
-
-const implementations = [
-  ["web/app/utils.mjs", sanitizeWebAssetForExport],
-  ["desktop/app/utils.mjs", sanitizeDesktopAssetForExport],
-];
+import { sanitizeAssetForExport } from "../web/app/utils.mjs";
 
 // 覆盖接口返回的全部路径/链接字段形态：顶层文件路径、顶层运行时 URL、
 // 遗留 prompt_file，以及嵌套在 source、references、business_fields 里的同类字段。
@@ -180,20 +172,18 @@ function expectDoesNotMutateItsInput(sanitizeAssetForExport) {
   assert.equal(asset.image_path.startsWith("/Users/someone"), true, "the in-memory API object stays untouched");
 }
 
-for (const [tree, sanitizeAssetForExport] of implementations) {
-  test(`group export sanitize removes every path and url field by name, recursively (${tree})`, () => {
-    expectRemovesEveryPathFieldByName(sanitizeAssetForExport);
-  });
+test("group export sanitize removes every path and url field by name, recursively", () => {
+  expectRemovesEveryPathFieldByName(sanitizeAssetForExport);
+});
 
-  test(`group export sanitize keeps user content, metadata, and the asset file name (${tree})`, () => {
-    expectKeepsUserContentMetadataAndAssetName(sanitizeAssetForExport);
-  });
+test("group export sanitize keeps user content, metadata, and the asset file name", () => {
+  expectKeepsUserContentMetadataAndAssetName(sanitizeAssetForExport);
+});
 
-  test(`cowart-bridge source fields: _dir/_path/_url removed, id and tool kept (${tree})`, () => {
-    expectCowartBridgeSourceFields(sanitizeAssetForExport);
-  });
+test("cowart-bridge source fields: _dir/_path/_url removed, id and tool kept", () => {
+  expectCowartBridgeSourceFields(sanitizeAssetForExport);
+});
 
-  test(`group export sanitize does not mutate its input (${tree})`, () => {
-    expectDoesNotMutateItsInput(sanitizeAssetForExport);
-  });
-}
+test("group export sanitize does not mutate its input", () => {
+  expectDoesNotMutateItsInput(sanitizeAssetForExport);
+});

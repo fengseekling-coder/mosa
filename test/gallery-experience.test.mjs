@@ -5,12 +5,11 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
-const readDesktopApp = () => readFile(resolve(root, "desktop/app/app.mjs"), "utf8");
 const readApiClient = () => readFile(resolve(root, "web/app/api-client.mjs"), "utf8");
 const readI18n = () => readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
 const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
 const readInspectorMarkup = () => readFile(resolve(root, "web/app/inspector-markup.mjs"), "utf8");
-const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 
 /** WCAG relative luminance for an opaque sRGB hex colour. */
 function relativeLuminance(hex) {
@@ -107,7 +106,7 @@ test("gallery never falls back to a full-resolution original while thumbnails ar
 });
 
 test("video cards lazily reveal a first-frame poster and adopt the real media aspect ratio", async () => {
-  const [app, inspector, css] = await Promise.all([readDesktopApp(), readInspectorMarkup(), readCss()]);
+  const [app, inspector, css] = await Promise.all([readApp(), readInspectorMarkup(), readCss()]);
 
   assert.match(inspector, /function videoThumbAspectAttributes\(asset\)/);
   assert.match(inspector, /data-gallery-video-src="\$\{escapeHtml\(asset\.image_url\)\}" preload="none"/);
@@ -127,7 +126,7 @@ test("video cards lazily reveal a first-frame poster and adopt the real media as
 });
 
 test("separates loading, failed, empty and populated gallery states", async () => {
-  const [app, css, apiClient] = await Promise.all([readDesktopApp(), readCss(), readApiClient()]);
+  const [app, css, apiClient] = await Promise.all([readApp(), readCss(), readApiClient()]);
 
   assert.match(app, /galleryStatus: "loading"/);
   assert.match(app, /if \(state\.galleryStatus === "loading"\) \{ els\.assetGrid\.innerHTML = gallerySkeletonMarkup\(\); restoreGridFallbackFocus\(\); return; \}/);
@@ -161,7 +160,7 @@ test("separates loading, failed, empty and populated gallery states", async () =
 });
 
 test("pins the gallery to image-only cards with no density setting", async () => {
-  const [app, css, config] = await Promise.all([readDesktopApp(), readCss(), readFile(resolve(root, "web/app/config.mjs"), "utf8")]);
+  const [app, css, config] = await Promise.all([readApp(), readCss(), readFile(resolve(root, "web/app/config.mjs"), "utf8")]);
 
   // The card density setting is gone: the V2 gallery shows images only, so
   // there is no segmented control, no persisted density and no density state.
@@ -171,12 +170,11 @@ test("pins the gallery to image-only cards with no density setting", async () =>
   assert.doesNotMatch(config, /GALLERY_DENSITIES/);
   assert.match(app, /data-appearance-opt/);
   // Card markup keeps the info block: it is hidden by default and shown only
-  // while the 任务 20 card-info setting is on, and the masonry estimate
-  // reserves the 44px info-row height only in that state.
+  // while the 任务 20 card-info setting is on. R21 把瀑布流估算的 info 行高实测为
+  // 61px（原 44），由 web-r21-gallery「web estimate uses the measured 61px」锁定。
   assert.match(css, /\.asset-card-info \{ display: none;/);
   assert.match(css, /\.mosa-v2 \.grid\[data-card-info="show"\] \.asset-card-info \{ display: block; \}/);
   assert.doesNotMatch(css, /\[data-density/);
-  assert.match(app, /const infoHeight = state\.showCardInfo \? 44 : 0;/, "the masonry estimate reserves the info-row height only while the card-info setting is on");
   // The card keeps its short title, source, date and a group/version badge.
   assert.match(app, /class="asset-card-title"/);
   assert.match(app, /class="asset-card-meta"/);
@@ -191,9 +189,9 @@ test("pins the gallery to image-only cards with no density setting", async () =>
   assert.match(app, /function setupMasonryLayout\(options = \{\}\) \{[\s\S]*?layoutMasonry\(layoutTargets\);/);
   assert.match(app, /if \(card\) scheduleMasonryLayout\(card\);/);
   assert.doesNotMatch(app, /addEventListener\("load",\s*schedule/);
-  // Gallery spacing is one 4px-based token in both axes. The masonry grid keeps
-  // row-gap at zero and reserves the same visual gap in each computed row span.
-  assert.match(css, /--gallery-gap:\s*12px;/);
+  // Gallery spacing shares one token across the masonry estimate and the
+  // marquee hit geometry; R21 把值定为 16px，由 web-r21-gallery「R21 gallery
+  // spacing」锁定，这里只锁两条消费链读同一个 token。
   assert.match(css, /\.grid \{[^}]*column-gap: var\(--gallery-gap\); row-gap: 0;/);
   assert.match(css, /\.mosa-v2 \.asset-card \{ margin-bottom: 0;/);
   assert.match(app, /getPropertyValue\("--gallery-gap"\)/);

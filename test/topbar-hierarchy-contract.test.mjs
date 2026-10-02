@@ -16,7 +16,7 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 const readHtml = () => readFile(resolve(root, "web/app/index.html"), "utf8");
-const readCss = () => readFile(resolve(root, "desktop/app/styles.css"), "utf8");
+const readCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 const readApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
 /** Extracts a `{...}` block starting at the marker, honouring nested braces. */
@@ -256,14 +256,14 @@ test("19. title min-width and ellipsis contracts exist", async () => {
   assert.match(count, /flex: 0 0 auto/, "count must never cover the title");
 });
 
-// 20. The topbar height still references the token. V2 (2026-08-07) deliberately
-// changed the token's value from 52px to 56px to fix an 8pt-grid violation the
-// original design audit flagged; the token indirection itself is what this locks.
+// 20. The topbar height still references the token. V2 (2026-08-07) moved the
+// token to 56px and R21 (2026-09) moved it to 64px on the web shell (locked by
+// web-r21-shell's shared-shell-size test); the token indirection itself is what
+// this locks.
 test("20. topbar height still references the token", async () => {
   const css = await readCss();
   const { block } = extractBlock(css, ".topbar {");
   assert.match(block, /height: var\(--topbar-height\)/, ".topbar must consume --topbar-height");
-  assert.match(css, /--topbar-height: 56px;/, "the V2 56px token value must be in place");
 });
 
 // 21. No overflow / ellipsis menu was introduced.

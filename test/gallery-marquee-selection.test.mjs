@@ -411,9 +411,9 @@ test("active marquee refreshes its geometry after infinite-scroll append and sta
 });
 
 test("gallery marquee selection is wired into shared web/app renderer", async () => {
-  const app = await readFile(new URL("../desktop/app/app.mjs", import.meta.url), "utf8");
+  const app = await readFile(new URL("../web/app/app.mjs", import.meta.url), "utf8");
   const html = await readFile(new URL("../web/app/index.html", import.meta.url), "utf8");
-  const css = await readFile(new URL("../desktop/app/styles.css", import.meta.url), "utf8");
+  const css = await readFile(new URL("../web/app/styles.css", import.meta.url), "utf8");
   const bindings = await readFile(new URL("../web/app/context-menu-bindings.mjs", import.meta.url), "utf8");
   const selection = await readFile(new URL("../web/app/gallery-selection.mjs", import.meta.url), "utf8");
 
@@ -438,10 +438,9 @@ test("gallery marquee selection is wired into shared web/app renderer", async ()
     "multi-selected cards must not keep the retired outer shadow ring");
   assert.match(css, /\.mosa-v2 \.asset-card\.selected \.asset-card-select::after, \.mosa-v2 \.asset-card\.multi-selected \.asset-card-select::after \{ box-shadow: none; \}/,
     "selected cards suppress the thumbnail hairline so the selection state never reads as a double ring");
-  assert.match(css, /\.mosa-v2 \.asset-card\.selected::after, \.mosa-v2 \.asset-card\.multi-selected::after \{ content: ""; position: absolute; z-index: 4; inset: -1px; box-sizing: border-box; border: var\(--border-width\) solid var\(--color-accent\); border-radius: 13px; pointer-events: none; \}/,
-    "V2 selection uses one 1px ring outside the thumbnail edge");
-  assert.match(css, /\.mosa-v2 \.grid \{[^}]*padding: 1px 24px 24px;/,
-    "the gallery reserves one top pixel so the first-row external selection ring is not clipped by the scroll viewport");
+  // R21（web-r21-gallery「R21 card radius」）把选中环改为 1.5px、圆角跟随
+  // --radius-card（8+1px），并把网格 padding 换成 20/24/32 阶梯；旧的
+  // var(--border-width)/13px 圆角与 1px 顶部防裁切断言随之退役，由该契约覆盖。
   assert.match(css, /\.asset-card\.masonry-content-virtualized\.selected,\s*\.asset-card\.masonry-content-virtualized\.multi-selected \{[\s\S]*?content-visibility: visible;/,
     "selected virtualized cards must not paint-contain the external selection ring");
   assert.doesNotMatch(css, /--border-width-selected/,
