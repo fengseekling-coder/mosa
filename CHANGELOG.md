@@ -4,6 +4,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+- Box (marquee) selection now selects exactly the cards it covers. Previously, when one asset was open in the Inspector, a box selection somewhere else also pulled that asset into the selection. Hold Shift while dragging to add to the current selection instead.
 - Secondary text in the light theme now meets WCAG AA contrast (4.5:1). This covers sidebar counts and section titles, the search placeholder, empty-state hints, and the descriptions in Settings. The shared light grey went from `#85858b` (about 3.4:1) to `#67676d` (about 5.2:1 on the gallery background); the dark theme is unchanged.
 - The Inspector now follows changes made elsewhere — another window, the MCP server or the CLI. Favorites, tags and other metadata edited outside the current window used to update the gallery card but leave the open Inspector stale until another asset was selected. Starring a gallery card now also lights up the Inspector's favorite button when that asset is open, and keyboard focus stays on the same Inspector control after such a refresh.
 - Thumbnails, medium images and previews are now written atomically. If MOSA is quit, crashes or loses power while generating them, the gallery keeps the previous complete images instead of showing a half-written one.
