@@ -402,6 +402,29 @@ function settingsLifecycleSource(config) {
     await waitFor(() => document.documentElement.dataset.theme === 'dark', 'dark theme reapplied');
     theme.bodyBgDarkAgain = bodyBg();
 
+    // 任务 42：主题预览卡的方向键切换——焦点在卡上时 ←/→ 直接切换主题并生效。
+    // 走合成 KeyboardEvent（与设置弹窗里 tabs 键盘段同一手法：命中同一 keydown 处理）。
+    const arrowTheme = {};
+    const themeCards = () => [...document.querySelectorAll('#settingsMenu [data-appearance-opt]')];
+    const tabStopCard = themeCards().find((card) => card.tabIndex === 0);
+    tabStopCard.focus();
+    arrowTheme.focusLandsOnActiveCard = document.activeElement === opt('dark');
+    arrowTheme.groupRole = tabStopCard.closest('[role="radiogroup"]')?.getAttribute('aria-label') || '';
+    arrowTheme.previewHidden = tabStopCard.querySelector('.settings-theme-preview')?.getAttribute('aria-hidden');
+    arrowTheme.activeCardMarked = Boolean(opt('dark').querySelector('.settings-theme-check')?.offsetParent);
+    tabStopCard.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+    await waitFor(() => document.documentElement.dataset.theme === 'light', 'ArrowLeft flips to light');
+    arrowTheme.afterArrowLeft = document.documentElement.dataset.theme;
+    arrowTheme.focusFollowsToLight = document.activeElement === opt('light');
+    arrowTheme.lightCardChecked = opt('light').getAttribute('aria-checked');
+    arrowTheme.lightCardTabIndex = opt('light').tabIndex;
+    arrowTheme.darkCardTabIndexAfter = opt('dark').tabIndex;
+    opt('light').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    await waitFor(() => document.documentElement.dataset.theme === 'dark', 'ArrowRight flips back to dark');
+    arrowTheme.afterArrowRight = document.documentElement.dataset.theme;
+    arrowTheme.darkCardCheckedAgain = opt('dark').getAttribute('aria-checked');
+    theme.arrowKeys = arrowTheme;
+
     // Density setting is gone: the menu renders no data-density-opt control
     // and the grid carries no density attribute (image-only gallery).
     const density = {

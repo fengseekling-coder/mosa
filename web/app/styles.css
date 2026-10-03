@@ -442,10 +442,10 @@ body.asset-stack-dragging { cursor: grabbing; user-select: none; }
    （任务 20 的开关）。R21：距缩略图 12（padding-top，计入卡片实际高度）、标题
    12px/620 单行省略、元信息 10px 普通字体单行省略与标题间距 4、底部留白 12
    （同样计入实际高度——16 的画廊间距 + 12 = R21 的 28 视觉竖距）。
-   浅色元信息 #8d8d92 与深色现状（--color-text-secondary）由主题覆盖/本规则分工。 */
+   浅色元信息 #6e6e73（R21 稿为 #8d8d92，3.06:1 不达 AA，10-02 加深到 4.70:1）与深色现状（--color-text-secondary）由主题覆盖/本规则分工。 */
 .asset-card-info { display: none; padding: var(--r21-s3) 2px; }
 .asset-card-title { overflow: hidden; color: var(--color-text-primary); font-size: 12px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
-/* 浅色下 R21 指定 #8d8d92（见文件末尾画廊主题覆盖）；深色维持 --color-text-secondary。 */
+/* 浅色下用 #6e6e73（见文件末尾画廊主题覆盖；R21 稿 #8d8d92 对比度不足）；深色维持 --color-text-secondary。 */
 .asset-card-meta { display: flex; flex-wrap: nowrap; gap: 2px 7px; margin-top: var(--r21-s1); overflow: hidden; color: var(--color-text-secondary); font-size: 10px; white-space: nowrap; }
 .asset-card-meta > * { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .asset-card-badge { overflow: hidden; max-width: 96px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1203,7 +1203,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 /* R21 画廊新颜色（仅浅色；深色保持现状）：缩略图占位底色、选中框颜色、元信息文字。 */
 :root[data-theme="light"] .mosa-v2 .asset-card .thumb { background: #ececef; }
 :root[data-theme="light"] .mosa-v2 .asset-card.selected::after, :root[data-theme="light"] .mosa-v2 .asset-card.multi-selected::after { border-color: #4d4dff; }
-:root[data-theme="light"] .mosa-v2 .asset-card-meta { color: #8d8d92; }
+:root[data-theme="light"] .mosa-v2 .asset-card-meta { color: #6e6e73; }
 .mosa-v2 .card-actions { top: 8px; right: 8px; gap: 0; opacity: 1; }
 .mosa-v2 .card-action-btn {
   position: relative;
@@ -1278,9 +1278,12 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .head-facts .meta-row { display: contents; }
 .mosa-v2 .detail .head-facts .meta-key { min-width: 0; font-size: 10px; line-height: 14px; }
 .mosa-v2 .detail .head-facts .meta-val { min-width: 0; overflow: hidden; font-size: 10px; line-height: 14px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-:root[data-theme="light"] .mosa-v2 .detail .head-facts .meta-key { color: #a0a0a6; }
+/* 任务 41：键名从 R21 稿的 #a0a0a6（2.35:1）加深到 #707076——在检视器面板
+   #fbfbfc 上实测 4.76:1（≥4.5），仍比值 #636369（5.77:1）淡一档；深色走上方 token。 */
+:root[data-theme="light"] .mosa-v2 .detail .head-facts .meta-key { color: #707076; }
 :root[data-theme="light"] .mosa-v2 .detail .head-facts .meta-val { color: #636369; }
-:root[data-theme="light"] .mosa-v2 .detail .asset-kind { color: #8d8d93; }
+/* 任务 43：头部来源行同为面板上的辅助文字，随键名一起加深到 AA（4.76:1）。 */
+:root[data-theme="light"] .mosa-v2 .detail .asset-kind { color: #707076; }
 /* #detailTitle receives programmatic focus when the inspector opens so screen
    readers land in the new context.  It is not an interactive control, and a
    persistent ring here reads as a text cursor in the V2 title row. */
@@ -2188,6 +2191,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .prompt-provenance,
 .mosa-v2 .detail .detail-reference-value,
 .mosa-v2 .detail .detail-prompt-box .empty-copy,
+.mosa-v2 .detail .detail-instruction-box .empty-copy,
 .mosa-v2 .detail .detail-reference-thumb-fallback,
 .mosa-v2 .detail .detail-reference-thumb-empty {
   color: var(--color-text-secondary);
@@ -2196,8 +2200,11 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   font-size: 11px;
   line-height: 16px;
 }
+/* 用户指令框的「未提供用户指令」与提示词框占位同级：此前漏在这两条规则外，
+   深色下落到全局 tertiary（4.43:1），补进来后与提示词框占位一致。 */
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-value,
-:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box .empty-copy {
+:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box .empty-copy,
+:root[data-theme="dark"] .mosa-v2 .detail .detail-instruction-box .empty-copy {
   color: var(--color-text-secondary);
 }
 .mosa-v2 .detail .generation-tree-hint {
@@ -2330,6 +2337,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .settings-modal-card,
   .mosa-v2 .settings-modal-close,
   .mosa-v2 .settings-text-action,
+  .mosa-v2 .settings-theme-preview,
   .image-preview-modal,
   .image-preview-stage,
   .drag-overlay,
@@ -2348,6 +2356,10 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .settings-modal-close:active,
   .mosa-v2 .settings-menu .segmented-btn:active,
   .mosa-v2 .settings-text-action:active {
+    transform: none;
+  }
+  /* 任务 42：主题卡悬停位移在减少动效时一并关闭。 */
+  .mosa-v2 .settings-theme-card:hover .settings-theme-preview {
     transform: none;
   }
 }
@@ -2422,12 +2434,36 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-source-copy .section-head-copy svg {
   width: 12px;
   height: 12px;
+  /* 任务 41：按钮带文字后图标不参与压缩。 */
+  flex: 0 0 auto;
 }
+/* 任务 43：区块小标题/字段名随键名一起加深到 AA——#8d8d93 只有 3.19:1，
+   #707076 在面板 #fbfbfc 上 4.76:1；层级仍靠 10.5px/590 与正文的字号字重区分。 */
 :root[data-theme="light"] .mosa-v2 .detail :is(.detail-prompt-head h3, .detail-prompt-subhead h4, .detail-source-summary > span, .detail-disclosure > summary, .detail-fields .field > span) {
-  color: #8d8d93;
+  color: #707076;
 }
+/* 任务 41：复制按钮带文字后按 AA 校色——R21 稿 .copy 的 #929297 在面板 #fbfbfc
+   上只有 2.99:1，加深到 #6e6e73（4.90:1）；来源摘要 strong 同块受益。深色维持
+   下方既有深色规则（#d1d1d6）。 */
 :root[data-theme="light"] .mosa-v2 .detail :is(.detail-prompt-head .section-head-copy, .detail-copy-sub, .detail-source-copy .section-head-copy, .detail-source-summary > strong) {
-  color: #929297;
+  color: #6e6e73;
+}
+
+/* —— 任务 41：带文字的复制按钮（R21 .copy）：图标 12 + 4px 间距 + 文字，
+   10.5px / 450；宽度随文字自适应（原 28px 方钮放开），左右 8px 内边距承托
+   hover 底色与焦点环；悬停/active/禁用/焦点环全部沿用既有规则，不在此重复。 —— */
+.mosa-v2 .detail .detail-prompt-head .section-head-copy,
+.mosa-v2 .detail .detail-copy-sub,
+.mosa-v2 .detail .detail-source-copy .section-head-copy {
+  display: inline-flex;
+  width: auto;
+  min-width: 0;
+  flex: 0 0 auto;
+  gap: var(--r21-s1);
+  align-items: center;
+  padding: 0 var(--inspector-space-2);
+  font-size: 10.5px;
+  font-weight: 450;
 }
 
 /* —— 标签（R21 .tag：内边距 4 8、圆角 8、字号 10；浅色 #f0f0f2 / #5b5b61）。
@@ -2512,9 +2548,11 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   background: #f3f3f5;
   color: #4a4a50;
 }
+/* 任务 43：框内「未记录」占位在 #f3f3f5 上要 4.5:1——复用复制按钮的 #6e6e73
+   （4.51:1），仍比框内正文 #4a4a50 淡一档。 */
 :root[data-theme="light"] .mosa-v2 .detail .detail-prompt-box .empty-copy,
 :root[data-theme="light"] .mosa-v2 .detail .detail-instruction-box .empty-copy {
-  color: #929297;
+  color: #6e6e73;
 }
 
 /* —— 参考图（R21 .ref-grid / .ref-thumb / .ref-count）：3 列网格、间距 8、
@@ -2565,11 +2603,13 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 :root[data-theme="light"] .mosa-v2 .detail .detail-reference-row {
   background: #f3f3f5;
 }
+/* 任务 43：参考图行的标签/值都在 #f3f3f5 块底上，统一加深到 #6e6e73（4.51:1）；
+   标签 590 粗、值 450 粗，层级靠字重不靠色差。 */
 :root[data-theme="light"] .mosa-v2 .detail :is(.detail-reference-summary .detail-reference-label, .detail-reference-row .detail-reference-label) {
-  color: #8d8d93;
+  color: #6e6e73;
 }
 :root[data-theme="light"] .mosa-v2 .detail :is(.detail-reference-summary .detail-reference-value, .detail-reference-row .detail-reference-value) {
-  color: #929297;
+  color: #6e6e73;
 }
 
 /* —— 来源信息（R21 .context-card / .context-facts / .context-actions）：
@@ -2599,8 +2639,10 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   border-color: #e7e7ea;
   background: #fafafa;
 }
+/* 任务 43：来源卡键名 #a0a0a6 在卡底 #fafafa 上只有 2.49:1，加深到 #707076（4.66:1），
+   仍比值 #66666c（5.37:1）淡一档。 */
 :root[data-theme="light"] .mosa-v2 .detail .detail-source-content .meta-key {
-  color: #a0a0a6;
+  color: #707076;
 }
 :root[data-theme="light"] .mosa-v2 .detail .detail-source-content .meta-val {
   color: #66666c;
@@ -2701,6 +2743,90 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   color: var(--color-accent);
 }
 
+/* —— 任务 41：版本历史竖线时间轴（R21 .version-tree / .ver）。
+   画法：每行画自己那一段——li 相对定位，::before 落在本行圆点的 x 中轴
+   （按钮左内边距 8 + 圆点外沿 8 / 2 = 12px），top 上探一个行距把 grid gap
+   补成连续竖线；首行从圆点中心（距行顶 16px）起、末行画到圆点中心止、
+   单行不画线。圆点 position:relative 压在线上方：线穿行不穿点。
+   缩进走既有 li margin-left，::before 随 li 平移，线与圆点永远同轴，
+   不因层级缩进断成错位的几截。行内为三栏 grid：版本号 / 说明 / 时间，
+   列距 8（R21 .ver 的 gap 7 按 4px 网格取 8）；行距仍是上面的 12px gap。 —— */
+.mosa-v2 .detail .version-timeline-item {
+  position: relative;
+}
+.mosa-v2 .detail .version-timeline-item::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--r21-s3));
+  bottom: 0;
+  left: 12px;
+  width: 1px;
+  background: var(--color-border-subtle);
+}
+.mosa-v2 .detail .version-timeline-item:first-child::before {
+  top: 16px;
+}
+.mosa-v2 .detail .version-timeline-item:last-child::before {
+  bottom: calc(100% - 16px);
+}
+.mosa-v2 .detail .version-timeline-item:only-child::before {
+  content: none;
+}
+.mosa-v2 .detail .version-marker {
+  position: relative;
+  box-sizing: border-box;
+  border-width: 1px;
+}
+.mosa-v2 .detail .version-content {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: var(--r21-s2);
+  align-items: baseline;
+}
+.mosa-v2 .detail .version-title strong {
+  font-family: var(--font-family-mono);
+  font-weight: 650;
+}
+.mosa-v2 .detail .version-change {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 2px var(--r21-s1);
+  align-items: center;
+  line-height: 1.4;
+}
+.mosa-v2 .detail .version-content time {
+  font-size: 10px;
+  white-space: nowrap;
+  text-align: right;
+}
+:root[data-theme="light"] .mosa-v2 .detail .version-timeline-item::before {
+  background: #dcdce1;
+}
+:root[data-theme="light"] .mosa-v2 .detail .version-marker {
+  border-color: #a8a8ae;
+  background: #ffffff;
+}
+:root[data-theme="light"] .mosa-v2 .detail .version-timeline-item.selected .version-marker {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px #e8e8ff;
+}
+:root[data-theme="dark"] .mosa-v2 .detail .version-timeline-item.selected .version-marker {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+:root[data-theme="light"] .mosa-v2 .detail .version-title strong {
+  color: #58585e;
+}
+:root[data-theme="light"] .mosa-v2 .detail .version-timeline-item.selected .version-title strong {
+  color: var(--color-accent);
+}
+:root[data-theme="light"] .mosa-v2 .detail .version-change {
+  color: #64646a;
+}
+:root[data-theme="light"] .mosa-v2 .detail .version-content time {
+  color: #67676d;
+}
+
 /* —— 配方与编辑表单：标签文字同小标题；输入框高 32、内边距 0 12（多行 12）、
    圆角 8；浅色 #f3f3f5 无边框——焦点环走既有 box-shadow（border 透明后仍可见）。 —— */
 .mosa-v2 .detail .detail-fields .field > span {
@@ -2752,13 +2878,25 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   border-radius: var(--inspector-radius-sm);
   font-size: 10px;
 }
+/* 任务 43：「图片位置」键名同来源卡键名，加深到 #707076（面板上 4.76:1）。 */
 :root[data-theme="light"] .mosa-v2 .detail .more-location .meta-key {
-  color: #a0a0a6;
+  color: #707076;
 }
 :root[data-theme="light"] .mosa-v2 .detail .more-location .path-box {
   border-color: transparent;
   background: #f3f3f5;
   color: #66666c;
+}
+
+/* —— 任务 43：检视器里走全局 --color-text-tertiary（浅色 #85858b，3.55:1）的
+   辅助文字，在浅色作用域内单独加深——变量本身不动（侧栏/画廊等仍在用）。
+   状态行与「未记录」都在面板 #fbfbfc 上，用键名同款 #707076（4.76:1），
+   与任务 41 的「用途 → 颜色」保持一致：面板辅助 #707076、#f3f3f5 面上 #6e6e73。 —— */
+:root[data-theme="light"] .mosa-v2 .detail :is(.version-history-status, .generation-history-status, .recipe-history-status) {
+  color: #707076;
+}
+:root[data-theme="light"] .mosa-v2 .detail :is(.head-facts, .detail-source-content) .empty-copy {
+  color: #707076;
 }
 
 /* —— 浅色覆盖特异性更高，会吞掉上方 hover/active 的颜色：按原语义补回。 —— */
@@ -3061,6 +3199,203 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   background: #fff;
   font-weight: 590;
   box-shadow: 0 0 0 1px #e2e2e5 inset;
+}
+
+/* —— 任务 42：主题预览卡（R21 .theme-choices / .theme-choice，只做浅色、深色两张）。
+   布局：标题行在上，两卡等宽占满内容宽度、间距 12。两张预览图是"画出来的图"，
+   配色固定、不随当前主题变（浅色卡在深色主题下仍是浅色样子）——因此这两套
+   结构色不写主题作用域；标签文字与选中环走主题 token（新文字色只在浅色作用域），
+   选中环用 accent 的 color-mix（设计稿 rgba(90,90,255,.12) 的 token 化，深色同样可辨）。
+   选中除颜色外有右上角勾号徽章（非颜色标志）；悬停上移 1px，减少动效时不位移。 —— */
+.mosa-v2 .settings-modal-row.settings-theme-row {
+  row-gap: 12px;
+}
+.mosa-v2 .settings-theme-row .settings-row-control {
+  grid-column: 1 / -1;
+  width: auto;
+}
+.mosa-v2 .settings-theme-choices {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--r21-s3);
+}
+.mosa-v2 .settings-theme-card {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.mosa-v2 .settings-theme-preview {
+  position: relative;
+  display: grid;
+  height: 72px;
+  grid-template-rows: 16px minmax(0, 1fr);
+  border: 1px solid;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 120ms var(--ease-standard), box-shadow 120ms var(--ease-standard), transform 120ms var(--ease-standard);
+}
+@media (hover: hover) and (pointer: fine) {
+  .mosa-v2 .settings-theme-card:hover .settings-theme-preview {
+    transform: translateY(-1px);
+  }
+}
+.mosa-v2 .settings-theme-chrome {
+  position: relative;
+  display: block;
+  border-bottom: 1px solid;
+}
+.mosa-v2 .settings-theme-chrome i {
+  position: absolute;
+  top: 6px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+}
+.mosa-v2 .settings-theme-chrome i:nth-child(1) { left: 8px; }
+.mosa-v2 .settings-theme-chrome i:nth-child(2) { left: 16px; }
+.mosa-v2 .settings-theme-chrome i:nth-child(3) { left: 24px; }
+.mosa-v2 .settings-theme-body {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: 23% minmax(0, 1fr) 23%;
+}
+.mosa-v2 .settings-theme-nav,
+.mosa-v2 .settings-theme-canvas,
+.mosa-v2 .settings-theme-aside {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.mosa-v2 .settings-theme-nav i {
+  position: absolute;
+  left: 10px;
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+}
+.mosa-v2 .settings-theme-nav i:nth-child(1) { top: 8px; width: 22px; }
+.mosa-v2 .settings-theme-nav i:nth-child(2) { top: 20px; width: 34px; }
+.mosa-v2 .settings-theme-grid {
+  position: absolute;
+  inset: 8px 12px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.mosa-v2 .settings-theme-grid i {
+  display: block;
+  border-radius: 4px;
+}
+.mosa-v2 .settings-theme-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: none;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--color-accent-contrast);
+  background: var(--color-accent);
+}
+.mosa-v2 .settings-theme-check svg {
+  width: 8px;
+  height: 8px;
+  display: block;
+}
+.mosa-v2 .settings-theme-label {
+  display: block;
+  margin-top: 8px;
+  color: var(--color-text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+}
+:root[data-theme="light"] .mosa-v2 .settings-theme-label {
+  color: #2a2a2e;
+}
+/* 浅色卡（固定配色，照 R21 .theme-choice.light）。 */
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-preview {
+  border-color: #d8d8dd;
+  background: #f6f6f7;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-chrome {
+  border-bottom-color: #d8d8dd;
+  background: #ededf0;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-chrome i {
+  background: #c3c3c9;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav {
+  background: #efeff1;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-canvas {
+  background: #f9f9fa;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-aside {
+  background: #f2f2f4;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav i:nth-child(1) {
+  background: #bdbdc4;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav i:nth-child(2) {
+  background: #c4c4cb;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i {
+  background: #dbdbe0;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i:nth-child(2),
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i:nth-child(5) {
+  background: #c8c8cf;
+}
+/* 深色卡（固定配色，照 R21 .theme-choice.dark）。 */
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-preview {
+  border-color: #303036;
+  background: #151518;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-chrome {
+  border-bottom-color: #303036;
+  background: #1d1d21;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-chrome i {
+  background: #595960;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav {
+  background: #18181c;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-canvas {
+  background: #101013;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-aside {
+  background: #17171a;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav i:nth-child(1) {
+  background: #55555c;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav i:nth-child(2) {
+  background: #44444b;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i {
+  background: #313138;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i:nth-child(2),
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i:nth-child(5) {
+  background: #505058;
+}
+/* 选中态写在两套固定配色之后：上面的配色块与它同特异性（都含
+   [data-appearance-opt="…"] 或 .active），后者会赢——accent 边框必须压过
+   预览图的常态边色。勾号徽章同样在此收口。 */
+.mosa-v2 .settings-theme-card.active .settings-theme-preview {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 15%, transparent);
+}
+.mosa-v2 .settings-theme-card.active .settings-theme-check {
+  display: grid;
 }
 
 /* 窄窗口（<840px，R21 未给规格的降级）：宽度取视口 - 32，高度自适应封顶；
