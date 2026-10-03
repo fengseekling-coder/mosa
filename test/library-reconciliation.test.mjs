@@ -24,6 +24,7 @@ function createHarness({
   deltaResponse = null,
   failDeltaFetch = false,
   nextCursor = null,
+  isDetailEditorActive = () => false,
 } = {}) {
   const state = {
     project: "default",
@@ -56,6 +57,7 @@ function createHarness({
     prunedSelectionIds: [],
     totalRefreshes: 0,
     prefetchResets: 0,
+    renderDetailCalls: 0,
   };
   let baseline = "1";
   const reconciler = createLibraryReconciler({
@@ -96,8 +98,8 @@ function createHarness({
         }
       },
     },
-    renderDetail: () => {},
-    isDetailEditorActive: () => false,
+    renderDetail: () => { calls.renderDetailCalls += 1; },
+    isDetailEditorActive,
     refreshSelectedStackInspector: () => {},
     syncViewerAfterGalleryChanges: () => {},
     refreshPageTotal: async () => { calls.totalRefreshes += 1; return true; },
@@ -169,6 +171,107 @@ test("asset-updated patches the target card in place without any reload", async 
   assert.deepEqual(harness.state.assets.map((asset) => asset.id), ["a", "b"], "order unchanged");
   assert.equal(harness.state.assets[1].prompt, "changed");
   assert.deepEqual(harness.calls.commits.at(-1).updatedIds, ["b"]);
+});
+
+// ===== 检视器跟随外部修改（任务 49） =====
+// 纯选中打开检视器时 selectAsset 把 state.detailAsset 置 null，检视器从
+// state.assets 渲染。外部 asset-updated 到达时，重画判断必须按"检视器正
+// 显示的是不是这个素材"（selectedId + detailOpen），不能依赖 detailAsset 有值。
+
+test("an external update to the selected asset re-renders the open inspector while detailAsset is null", async () => {
+  const harness = createHarness({
+    initialAssets: [row("a", "2026-01-01"), row("b", "2025-01-01")],
+    galleryRows: () => ({ rows: [{ ...row("a", "2026-01-01", { updated_at: "2026-01-02" }), favorite: true }], rowByAssetId: { a: "a" } }),
+  });
+  harness.state.selectedId = "a";
+  harness.state.detailOpen = true;
+  await harness.reconciler.applyChangeDelta({
+    changes: [{ revision: 2, kind: "asset-updated", entityType: "asset", entityId: "a", flags: ["favorite"] }],
+    revision: "2",
+    complete: true,
+  });
+  assert.equal(harness.calls.renderDetailCalls, 1, "the open inspector must re-render with the fresh row");
+  assert.equal(harness.state.detailAsset, null, "detailAsset stays null: the inspector renders from state.assets");
+  assert.equal(harness.state.assets[0].favorite, true);
+});
+
+test("a populated detailAsset for the same asset is swapped for the fresh row before re-rendering", async () => {
+  const harness = createHarness({
+    initialAssets: [row("a", "2026-01-01")],
+    galleryRows: () => ({ rows: [{ ...row("a", "2026-01-01", { updated_at: "2026-01-02" }), tags: ["ext"] }], rowByAssetId: { a: "a" } }),
+  });
+  harness.state.selectedId = "a";
+  harness.state.detailOpen = true;
+  harness.state.detailAsset = row("a", "2026-01-01");
+  await harness.reconciler.applyChangeDelta({
+    changes: [{ revision: 2, kind: "asset-updated", entityType: "asset", entityId: "a", flags: ["tags"] }],
+    revision: "2",
+    complete: true,
+  });
+  assert.equal(harness.calls.renderDetailCalls, 1, "existing behavior: re-render with fresh data");
+  assert.equal(harness.state.detailAsset?.tags?.[0], "ext", "detailAsset must hold the fresh row, not the stale one");
+});
+
+test("an editor-active inspector is not re-rendered by an external update", async () => {
+  const harness = createHarness({
+    initialAssets: [row("a", "2026-01-01")],
+    galleryRows: () => ({ rows: [{ ...row("a", "2026-01-01", { updated_at: "2026-01-02" }) }], rowByAssetId: { a: "a" } }),
+    isDetailEditorActive: () => true,
+  });
+  harness.state.selectedId = "a";
+  harness.state.detailOpen = true;
+  await harness.reconciler.applyChangeDelta({
+    changes: [{ revision: 2, kind: "asset-updated", entityType: "asset", entityId: "a", flags: ["tags"] }],
+    revision: "2",
+    complete: true,
+  });
+  assert.equal(harness.calls.renderDetailCalls, 0, "a user draft must never be destroyed by an external push");
+});
+
+test("a closed inspector and an unrelated updated asset each skip the inspector re-render", async () => {
+  const harness = createHarness({
+    initialAssets: [row("a", "2026-01-01"), row("b", "2025-01-01")],
+    galleryRows: (body) => ({
+      rows: [{ ...row(body.assetIds[0], "2026-01-01", { updated_at: "2026-01-02" }) }],
+      rowByAssetId: Object.fromEntries(body.assetIds.map((id) => [id, id])),
+    }),
+  });
+  // 检视器关着：更新选中素材也不重画。
+  harness.state.selectedId = "a";
+  harness.state.detailOpen = false;
+  await harness.reconciler.applyChangeDelta({
+    changes: [{ revision: 2, kind: "asset-updated", entityType: "asset", entityId: "a" }],
+    revision: "2",
+    complete: true,
+  });
+  // 被更新的不是选中素材：检视器开着也不重画。
+  harness.state.selectedId = "b";
+  harness.state.detailOpen = true;
+  await harness.reconciler.applyChangeDelta({
+    changes: [{ revision: 3, kind: "asset-updated", entityType: "asset", entityId: "a" }],
+    revision: "3",
+    complete: true,
+  });
+  assert.equal(harness.calls.renderDetailCalls, 0, "no re-render when the inspector is closed or shows another asset");
+});
+
+test("a local favorite toggle's echoed journal row must not re-render the inspector", async () => {
+  // toggleFavorite 先把 state.assets 替换成服务端结果；随后推回来的同一变更
+  // 行签名一致 → 不进 updatedIds → 检视器与卡片都不整块重画（就地 patch 负责）。
+  const freshRow = { ...row("a", "2026-01-01", { updated_at: "2026-01-02" }), favorite: true };
+  const harness = createHarness({
+    initialAssets: [freshRow],
+    galleryRows: () => ({ rows: [freshRow], rowByAssetId: { a: "a" } }),
+  });
+  harness.state.selectedId = "a";
+  harness.state.detailOpen = true;
+  await harness.reconciler.applyChangeDelta({
+    changes: [{ revision: 2, kind: "asset-updated", entityType: "asset", entityId: "a", flags: ["favorite"] }],
+    revision: "2",
+    complete: true,
+  });
+  assert.deepEqual(harness.calls.commits.at(-1).updatedIds, [], "identical row signature must not enter updatedIds");
+  assert.equal(harness.calls.renderDetailCalls, 0, "the local toggle's echo must not wholesale re-render the inspector");
 });
 
 test("a row whose sort key and content both change is moved and re-rendered", async () => {

@@ -275,6 +275,44 @@ const batchImporter = createBatchImporter({
 
 const nativeAssetDrag = createNativeAssetDrag({ els, state, showToast, t });
 
+// 外部修改重画检视器时焦点不能丢：整块 innerHTML 替换前记下焦点控件的稳定
+// data-* 描述，重画后按描述找回新按钮；找不到回落 #detailTitle（renderDetail
+// 自身的 hadPanelFocus 处理兜底），绝不落到 body。
+function detailFocusDescriptor(element) {
+  const attributes = {};
+  for (const [key, value] of Object.entries(element.dataset || {})) attributes[key] = value;
+  return Object.keys(attributes).length ? { attributes } : null;
+}
+
+function detailFocusSelectors({ attributes }) {
+  const dataName = (key) => key.replace(/[A-Z]/g, (character) => `-${character.toLowerCase()}`);
+  const selector = (subset) => Object.entries(subset)
+    .map(([key, value]) => `[data-${dataName(key)}="${CSS.escape(value)}"]`)
+    .join("");
+  const candidates = [selector(attributes)];
+  // 全属性找不到（外部改了标签值等）时放宽到主 action 属性。
+  if (attributes.action) candidates.push(selector({ action: attributes.action }));
+  return candidates;
+}
+
+function renderDetailPreservingFocus() {
+  const panel = els.detailPanel;
+  const active = document.activeElement;
+  const descriptor = active instanceof HTMLElement && panel?.contains(active)
+    ? detailFocusDescriptor(active)
+    : null;
+  renderDetail();
+  if (!descriptor) return;
+  for (const selector of detailFocusSelectors(descriptor)) {
+    const replacement = panel?.querySelector(selector);
+    if (replacement) {
+      replacement.focus({ preventScroll: true });
+      return;
+    }
+  }
+  (panel?.querySelector("#detailTitle") || panel)?.focus?.({ preventScroll: true });
+}
+
 // ===== Library Change 增量 reconciliation =====
 // 数据层（library-reconciliation.mjs）负责 classify → fetch affected → reconcile
 // → advance revision；本模块注入定向 DOM 提交与渲染回调。普通库变更走这条
@@ -293,7 +331,7 @@ const librarySync = createLibraryReconciler({
   performFullReconciliation: performFullGalleryReconciliation,
   commitGalleryChanges: commitIncrementalGalleryChanges,
   gallerySelection,
-  renderDetail,
+  renderDetail: () => renderDetailPreservingFocus(),
   isDetailEditorActive,
   refreshSelectedStackInspector,
   refreshSelectedGenerationHistory: async () => {
@@ -676,8 +714,10 @@ async function toggleFavorite(id, event) {
       const gridButton = els.assetGrid?.querySelector(`.card-favorite[data-fav-id="${CSS.escape(id)}"]`);
       // Only patch the Inspector button when it actually renders this asset;
       // otherwise a favorite toggle on one card would overwrite the star of a
-      // different asset currently open in the detail panel.
-      const detailShowsAsset = state.detailAsset?.id === id && state.detailAsset?.project_id === projectId;
+      // different asset currently open in the detail panel. A plain selection
+      // keeps state.detailAsset null (the inspector renders from state.assets),
+      // so "is the inspector showing this asset" keys off the selection.
+      const detailShowsAsset = state.detailOpen && state.selectedId === id && state.project === projectId;
       const detailButton = detailShowsAsset ? els.detailPanel?.querySelector('[data-action="toggle-favorite"]') : null;
       if (trigger instanceof HTMLElement && trigger.isConnected) applyFavoriteButtonState(trigger, favorite);
       if (gridButton instanceof HTMLElement && gridButton !== trigger) applyFavoriteButtonState(gridButton, favorite);

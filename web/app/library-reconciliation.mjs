@@ -468,8 +468,11 @@ export function createLibraryReconciler({
       if (state.detailOpen && !isDetailEditorActive?.()) renderDetail?.();
     } else if (state.selectedId && outcome?.updatedIds?.includes(state.selectedId)) {
       const fresh = state.assets.find((asset) => asset.id === state.selectedId);
-      if (fresh && state.detailAsset?.id === fresh.id) {
-        state.detailAsset = fresh;
+      if (fresh) {
+        // A populated detailAsset for this asset is swapped for the fresh row;
+        // a null detailAsset (plain selection — the inspector renders from
+        // state.assets) must not block the re-render below.
+        if (state.detailAsset?.id === fresh.id) state.detailAsset = fresh;
         if (state.detailOpen && !isDetailEditorActive?.()) renderDetail?.();
       }
     }
