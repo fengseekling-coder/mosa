@@ -216,7 +216,6 @@
   --z-popover: 30;
   --z-dropdown: 40;
   --z-dropdown-submenu: 45;
-  --z-bottom-bar: 50;
   --z-overlay: 90;
   --z-modal: 100;
   --z-media-viewer: 110;
@@ -354,8 +353,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 /* ===== 瀑布流图库（CSS grid 1px 行高 + JS span 计算，行优先、分页友好） ===== */
 .grid { display: grid; flex: 1; min-width: 0; grid-auto-flow: row; grid-auto-rows: 1px; grid-template-columns: repeat(4, minmax(0, 1fr)); align-content: start; column-gap: var(--gallery-gap); row-gap: 0; overflow: auto; padding: var(--space-2) 20px var(--space-3); background: var(--app-bg); }
-/* Selection-bar compensation follows the single live selection state. */
-.shell:has(.grid.selection-active) .detail { padding-bottom: var(--statusbar-height); }
 @media (max-width: 1400px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
@@ -460,17 +457,9 @@ body.asset-stack-dragging { cursor: grabbing; user-select: none; }
 .gallery-virtual-extent { height: 1px; min-height: 1px; overflow-anchor: none; pointer-events: none; visibility: hidden; }
 
 /* ===== 左键框选 / 多选 ===== */
-.grid.selection-active { padding-bottom: calc(var(--statusbar-height) + var(--space-2)); }
 .marquee-selection-box { position: fixed; z-index: var(--z-popover); border: 1px solid var(--color-accent); border-radius: 3px; background: color-mix(in srgb, var(--color-accent) 14%, transparent); pointer-events: none; }
 body.marquee-selecting { cursor: crosshair; user-select: none; }
 body.marquee-selecting .grid { cursor: crosshair; }
-.selection-bar { position: absolute; z-index: var(--z-bottom-bar); right: 16px; bottom: 12px; left: 16px; display: flex; min-height: var(--statusbar-height); align-items: center; justify-content: space-between; gap: var(--space-2); padding: 8px 12px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-panel); background: var(--color-surface-raised); box-shadow: var(--shadow-popover); }
-.selection-bar[hidden] { display: none; }
-.selection-bar-count { min-width: 0; color: var(--color-text-secondary); font-size: 12px; font-weight: 550; font-variant-numeric: tabular-nums; }
-.selection-bar-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
-.selection-bar-btn { height: 28px; padding: 0 10px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); color: var(--color-text-secondary); background: var(--app-card); cursor: pointer; font-size: 12px; font-weight: 500; }
-.selection-bar-btn.quiet { border-color: transparent; background: transparent; }
-.selection-bar-btn:disabled { cursor: default; opacity: .48; }
 .stack-back { display: inline-grid; width: 28px; height: 28px; flex: 0 0 auto; place-items: center; padding: 0; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; }
 .stack-back:hover { color: var(--color-text-primary); background: var(--app-hover); }
 .stack-back[hidden] { display: none; }
@@ -1822,6 +1811,18 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 
 .context-menu-item.danger:focus {
   background: var(--color-danger-subtle);
+}
+
+/* 选区信息表头（已选 N 项）：纯展示、不可聚焦，弱化成辅助色但仍与菜单项同节奏。 */
+.context-menu-heading {
+  padding: 8px 12px 4px;
+  color: var(--color-text-secondary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  user-select: none;
 }
 
 .context-menu-icon {

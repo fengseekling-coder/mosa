@@ -222,18 +222,10 @@ export function createGallerySelection({
       });
     }
 
-    const count = selectedIds.size;
-    if (els.selectionBar) els.selectionBar.hidden = count === 0;
-    els.assetGrid?.classList.toggle("selection-active", count > 0);
-    if (els.selectionCount) els.selectionCount.textContent = t("batchSelected", { count });
-    if (els.selectionSelectAll) els.selectionSelectAll.disabled = selectAllInFlight || !state.pageTotal || count >= state.pageTotal;
-    if (els.selectionClear) els.selectionClear.disabled = count === 0;
-    if (els.selectionStack) {
-      const includesExistingStack = ensureStackSelectionMap().size > 0;
-      els.selectionStack.disabled = state.scope === "trash" || state.storageKind !== "sqlite" || count < 2 || includesExistingStack;
-    }
-    if (els.selectionRemoveFromStack) els.selectionRemoveFromStack.disabled = count === 0;
-    return count;
+    // 底部批量栏已按右键菜单统一方案移除：选区状态只反映在卡片高亮
+    // （.selection-active 驱动卡片操作钮隐藏）与屏幕阅读器播报里。
+    els.assetGrid?.classList.toggle("selection-active", selectedIds.size > 0);
+    return selectedIds.size;
   }
 
   function announceSelection() {
@@ -698,8 +690,6 @@ export function createGallerySelection({
       if (event.target.closest?.(".asset-card")) event.preventDefault();
     });
     window.addEventListener("blur", cancelPointerGesture);
-    els.selectionSelectAll?.addEventListener("click", () => { void selectAll({ announce: true }); });
-    els.selectionClear?.addEventListener("click", () => clear({ announce: true }));
   }
 
   return {

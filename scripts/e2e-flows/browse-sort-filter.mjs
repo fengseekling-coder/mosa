@@ -308,7 +308,8 @@ function assertSessionTwo(obs, plan, orders, expect, videosReady) {
   assertEqual(obs.groupState.item, { active: true, pressed: "true" }, "group item highlighted");
   assertEqual(obs.groupState.title, GROUP_NAME, "view title names the open group");
 
-  if (obs.categoryEntry.heading !== "素材分类" || obs.categoryEntry.hasCategoryControl
+  // 侧栏手动分组标题随任务 51 命名统一从“素材分类”改为“分组”。
+  if (obs.categoryEntry.heading !== "分组" || obs.categoryEntry.hasCategoryControl
     || obs.categoryEntry.filterValues.includes("category")) {
     throw new Error(`unexpected category filter entry: ${JSON.stringify(obs.categoryEntry)}`);
   }

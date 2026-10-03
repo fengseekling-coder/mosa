@@ -522,9 +522,17 @@ test("gallery marquee selection is wired into shared web/app renderer", async ()
   assert.match(app, /state\.viewMode === "library" && state\.selectedIds\?\.size/);
   assert.match(app, /gallerySelection\.syncRenderedSelection\(\)/);
 
-  assert.match(html, /id="selectionBar"/);
-  assert.match(html, /id="selectionSelectAll"/);
-  assert.match(html, /id="selectionClear"/);
+  // 底部批量栏已按右键菜单统一方案移除：全选/取消选择走右键菜单（⌘A/Esc
+  // 快捷键标注见 context-menu-actions.mjs selectAllMenuItem/deselectAllMenuItem），
+  // DOM 与 CSS 都不允许残留批量栏。
+  assert.doesNotMatch(html, /id="selectionBar"/);
+  assert.doesNotMatch(html, /id="selectionSelectAll"|id="selectionClear"/);
+  assert.doesNotMatch(css, /\.selection-bar\b/);
+  const contextActionsSource = await readFile(new URL("../web/app/context-menu-actions.mjs", import.meta.url), "utf8");
+  assert.match(contextActionsSource, /function selectAllMenuItem\(\)/);
+  assert.match(contextActionsSource, /function deselectAllMenuItem\(\)/);
+  assert.match(contextActionsSource, /gallerySelection\?\.clear\?\.\(\{ announce: true \}\)/,
+    "取消选择菜单项复用与 Esc 相同的选区清理管线");
   assert.match(css, /\.marquee-selection-box \{/);
   assert.match(css, /\.asset-card\.multi-selected \.asset-card-select/);
   assert.match(css, /\.asset-card\.multi-selected \.card-check/);
@@ -545,7 +553,7 @@ test("gallery marquee selection is wired into shared web/app renderer", async ()
     "gallery card markup must not keep the retired gradient scrim node");
   assert.doesNotMatch(css, /\.card-scrim/,
     "retired gradient scrim CSS must be deleted instead of disabled by overrides");
-  assert.match(css, /\.selection-bar \{/);
+  assert.doesNotMatch(css, /\.selection-bar \{/);
   assert.match(css, /\.grid \{[^}]*grid-auto-rows: 1px;[^}]*column-gap: var\(--gallery-gap\);[^}]*row-gap: 0;/,
     "marquee/masonry geometry assumptions are locked to the CSS grid contract");
   assert.match(app, /const gap = Number\.parseFloat\(styles\.getPropertyValue\("--gallery-gap"\)\) \|\| Number\.parseFloat\(styles\.columnGap\) \|\| 0;/,
