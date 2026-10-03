@@ -33,7 +33,7 @@
   /* --- V2 text & border --- */
   --color-text-primary: #1d1d1f;
   --color-text-secondary: #525252;
-  --color-text-tertiary: #85858b;
+  --color-text-tertiary: #67676d;
   --color-text-inverse: #ffffff;
   --color-canvas: var(--app-bg);
   --color-surface: var(--app-sidebar);
@@ -1180,7 +1180,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 :root[data-theme="light"] .mosa-v2 .sidebar { background: #fbfbfc; border-right-color: #e7e7ea; }
 :root[data-theme="light"] .mosa-v2 .nav-item, :root[data-theme="light"] .mosa-v2 .settings-trigger { color: #55555a; }
 :root[data-theme="light"] .mosa-v2 .nav-item.active { background: #ececef; color: var(--color-text-primary); }
-:root[data-theme="light"] .mosa-v2 .nav-label { color: #8b8b91; }
 :root[data-theme="light"] .mosa-v2 .type-filter.active { background: #f0f0f2; color: #303034; }
 :root[data-theme="light"] .mosa-v2 .sort-control select { background: #f4f4f5; }
 :root[data-theme="light"] .mosa-v2 .topbar-search { background: #f4f4f5; }
@@ -2888,8 +2887,8 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   color: #66666c;
 }
 
-/* —— 任务 43：检视器里走全局 --color-text-tertiary（浅色 #85858b，3.55:1）的
-   辅助文字，在浅色作用域内单独加深——变量本身不动（侧栏/画廊等仍在用）。
+/* —— 任务 43：检视器里走全局 --color-text-tertiary 的辅助文字，在浅色作用域内
+   单独加深（当时变量是 #85858b、3.55:1；任务 50 已把变量本身加深到 #67676d）。
    状态行与「未记录」都在面板 #fbfbfc 上，用键名同款 #707076（4.76:1），
    与任务 41 的「用途 → 颜色」保持一致：面板辅助 #707076、#f3f3f5 面上 #6e6e73。 —— */
 :root[data-theme="light"] .mosa-v2 .detail :is(.version-history-status, .generation-history-status, .recipe-history-status) {
@@ -3109,9 +3108,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   font-size: 10.5px;
   line-height: 15px;
 }
-:root[data-theme="light"] .mosa-v2 .settings-page-desc {
-  color: #919197;
-}
 .mosa-v2 .settings-group {
   overflow: hidden;
   border: 1px solid var(--color-border-subtle);
@@ -3148,9 +3144,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   font-size: 10px;
   line-height: 14px;
 }
-:root[data-theme="light"] .mosa-v2 .settings-row-copy p {
-  color: #9a9aa0;
-}
 .mosa-v2 .settings-path {
   max-width: 352px;
   overflow: hidden;
@@ -3160,7 +3153,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   white-space: nowrap;
 }
 :root[data-theme="light"] .mosa-v2 .settings-path {
-  color: #8e8e94;
+  color: var(--color-text-tertiary);
 }
 .mosa-v2 .settings-text-action {
   box-sizing: border-box;
