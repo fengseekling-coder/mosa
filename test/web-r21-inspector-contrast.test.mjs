@@ -1,0 +1,52 @@
+// 任务 43 契约：检视器里其余低对比度文字在浅色作用域加深到 ≥4.5:1（WCAG AA）。
+// 只读 web/app/styles.css。锁定：每一处的新颜色、新颜色只出现在浅色作用域、
+// 全局 token --color-text-tertiary 的值未被改动（侧栏/画廊等仍在用）。
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import test from "node:test";
+
+const root = resolve(import.meta.dirname, "..");
+const readWebCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
+
+// 找出声明体里用到某个色值的所有规则的选择器；用于锁「新颜色只在浅色作用域」。
+function selectorsUsingColor(css, hex) {
+  const selectors = [];
+  const pattern = /([^{}]+)\{([^{}]*)\}/g;
+  let match;
+  while ((match = pattern.exec(css))) {
+    if (match[2].includes(hex)) selectors.push(match[1]);
+  }
+  return selectors;
+}
+
+test("task-43 recolours: every AA-darkened spot carries its new value in the light scope", async () => {
+  const css = await readWebCss();
+  // 面板（#fbfbfc）上的辅助文字统一 #707076（4.76:1）。
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \.asset-kind \{ color: #707076; \}/);
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \.more-location \.meta-key \{\n  color: #707076;\n\}/);
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.version-history-status, \.generation-history-status, \.recipe-history-status\) \{\n  color: #707076;\n\}/);
+  // 文件信息与来源区的「未记录」都在面板上，同用 #707076。
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.head-facts, \.detail-source-content\) \.empty-copy \{\n  color: #707076;\n\}/);
+  // #f3f3f5 面上的占位与参考图行文字统一 #6e6e73（4.58:1）。
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-prompt-box \.empty-copy,\n:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-instruction-box \.empty-copy \{\n  color: #6e6e73;\n\}/);
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-reference-summary \.detail-reference-label, \.detail-reference-row \.detail-reference-label\) \{\n  color: #6e6e73;\n\}/);
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-reference-summary \.detail-reference-value, \.detail-reference-row \.detail-reference-value\) \{\n  color: #6e6e73;\n\}/);
+});
+
+test("the AA greys stay in the light scope and the tertiary token keeps its value", async () => {
+  const css = await readWebCss();
+  // #707076 全库只允许出现在浅色作用域。
+  for (const selector of selectorsUsingColor(css, "#707076")) {
+    assert.match(selector, /data-theme="light"/, `#707076 must stay inside :root[data-theme="light"] (selector: ${selector.trim().split("\n").at(-1)})`);
+  }
+  // #6e6e73 的本任务新增块已由上一条测试的锚定正则逐条要求 light 前缀；它另在
+  // 主题无关的 V2 基础规则（.detail .meta-key/.meta-val 等，深色有覆盖）中合法存在，
+  // 不做全局断言。旧色值不得再出现在任何声明体里（注释里的引用不算）。
+  for (const hex of ["#8d8d93", "#929297"]) {
+    assert.equal(selectorsUsingColor(css, hex).length, 0, `${hex} must be gone from declarations`);
+  }
+  // --color-text-tertiary 的两个主题值原样保留（本任务只加检视器内的浅色覆盖）。
+  assert.match(css, /--color-text-tertiary: #85858b;/, "light tertiary token value unchanged");
+  assert.match(css, /--color-text-tertiary: #a0a0a6;/, "dark tertiary token value unchanged");
+});

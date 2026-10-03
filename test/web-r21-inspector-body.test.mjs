@@ -3,6 +3,7 @@
 // 10px 字号、提示词框四项、参考图 3 列网格、来源卡边框/圆角/按钮行、表单控件
 // 高 32/圆角 8、本任务新增字号下限 10px，以及浅色覆盖后 hover/active 语义补回。
 // 任务 41：区块小标题复制按钮改带文字后按 AA 校色（#929297 → #6e6e73）。
+// 任务 43：小标题与来源卡键名随 AA 加深（#8d8d93 → #707076、#a0a0a6 → #707076）。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -49,7 +50,8 @@ test("section titles read as R21 sec-head (10.5px/590) with copy buttons in .cop
   const disclosure = lastBlock(css, ".mosa-v2 .detail .detail-disclosure > summary");
   assert.match(disclosure, /font-size: 10\.5px;/);
   assert.match(disclosure, /font-weight: 590;/);
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-prompt-head h3, \.detail-prompt-subhead h4, \.detail-source-summary > span, \.detail-disclosure > summary, \.detail-fields \.field > span\) \{\n  color: #8d8d93;\n\}/);
+  // 任务 43：小标题随 AA 加深 #8d8d93 → #707076（面板 #fbfbfc 上 4.76:1）。
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-prompt-head h3, \.detail-prompt-subhead h4, \.detail-source-summary > span, \.detail-disclosure > summary, \.detail-fields \.field > span\) \{\n  color: #707076;\n\}/);
   // 任务 41：复制按钮带文字后按 AA 校色——R21 稿 #929297 只有 2.99:1，加深为 #6e6e73
   // （面板 #fbfbfc 上 4.90:1）；同一 :is 块里的来源摘要 strong 一并达标。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-prompt-head \.section-head-copy, \.detail-copy-sub, \.detail-source-copy \.section-head-copy, \.detail-source-summary > strong\) \{\n  color: #6e6e73;\n\}/);
@@ -119,7 +121,8 @@ test("source facts render as an R21 context card with an equal-split action row"
   const metaVal = lastBlock(css, ".mosa-v2 .detail .detail-source-content .meta-val");
   assert.match(metaVal, /text-align: right;/, "source values must right-align like R21 context-facts");
   assert.match(metaVal, /overflow-wrap: normal;/, "source values must stay single-line with ellipsis");
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-source-content \.meta-key \{\n  color: #a0a0a6;\n\}/);
+  // 任务 43：来源卡键名随 AA 加深 #a0a0a6 → #707076（卡底 #fafafa 上 4.71:1）。
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-source-content \.meta-key \{\n  color: #707076;\n\}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-source-content \.meta-val \{\n  color: #66666c;\n\}/);
   const nav = lastBlock(css, ".mosa-v2 .detail .detail-source-content .generation-navigation");
   assert.match(nav, /display: grid;/);

@@ -1282,7 +1282,8 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
    #fbfbfc 上实测 4.76:1（≥4.5），仍比值 #636369（5.77:1）淡一档；深色走上方 token。 */
 :root[data-theme="light"] .mosa-v2 .detail .head-facts .meta-key { color: #707076; }
 :root[data-theme="light"] .mosa-v2 .detail .head-facts .meta-val { color: #636369; }
-:root[data-theme="light"] .mosa-v2 .detail .asset-kind { color: #8d8d93; }
+/* 任务 43：头部来源行同为面板上的辅助文字，随键名一起加深到 AA（4.76:1）。 */
+:root[data-theme="light"] .mosa-v2 .detail .asset-kind { color: #707076; }
 /* #detailTitle receives programmatic focus when the inspector opens so screen
    readers land in the new context.  It is not an interactive control, and a
    persistent ring here reads as a text cursor in the V2 title row. */
@@ -2432,8 +2433,10 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   /* 任务 41：按钮带文字后图标不参与压缩。 */
   flex: 0 0 auto;
 }
+/* 任务 43：区块小标题/字段名随键名一起加深到 AA——#8d8d93 只有 3.19:1，
+   #707076 在面板 #fbfbfc 上 4.76:1；层级仍靠 10.5px/590 与正文的字号字重区分。 */
 :root[data-theme="light"] .mosa-v2 .detail :is(.detail-prompt-head h3, .detail-prompt-subhead h4, .detail-source-summary > span, .detail-disclosure > summary, .detail-fields .field > span) {
-  color: #8d8d93;
+  color: #707076;
 }
 /* 任务 41：复制按钮带文字后按 AA 校色——R21 稿 .copy 的 #929297 在面板 #fbfbfc
    上只有 2.99:1，加深到 #6e6e73（4.90:1）；来源摘要 strong 同块受益。深色维持
@@ -2541,9 +2544,11 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   background: #f3f3f5;
   color: #4a4a50;
 }
+/* 任务 43：框内「未记录」占位在 #f3f3f5 上要 4.5:1——复用复制按钮的 #6e6e73
+   （4.51:1），仍比框内正文 #4a4a50 淡一档。 */
 :root[data-theme="light"] .mosa-v2 .detail .detail-prompt-box .empty-copy,
 :root[data-theme="light"] .mosa-v2 .detail .detail-instruction-box .empty-copy {
-  color: #929297;
+  color: #6e6e73;
 }
 
 /* —— 参考图（R21 .ref-grid / .ref-thumb / .ref-count）：3 列网格、间距 8、
@@ -2594,11 +2599,13 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 :root[data-theme="light"] .mosa-v2 .detail .detail-reference-row {
   background: #f3f3f5;
 }
+/* 任务 43：参考图行的标签/值都在 #f3f3f5 块底上，统一加深到 #6e6e73（4.51:1）；
+   标签 590 粗、值 450 粗，层级靠字重不靠色差。 */
 :root[data-theme="light"] .mosa-v2 .detail :is(.detail-reference-summary .detail-reference-label, .detail-reference-row .detail-reference-label) {
-  color: #8d8d93;
+  color: #6e6e73;
 }
 :root[data-theme="light"] .mosa-v2 .detail :is(.detail-reference-summary .detail-reference-value, .detail-reference-row .detail-reference-value) {
-  color: #929297;
+  color: #6e6e73;
 }
 
 /* —— 来源信息（R21 .context-card / .context-facts / .context-actions）：
@@ -2628,8 +2635,10 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   border-color: #e7e7ea;
   background: #fafafa;
 }
+/* 任务 43：来源卡键名 #a0a0a6 在卡底 #fafafa 上只有 2.49:1，加深到 #707076（4.66:1），
+   仍比值 #66666c（5.37:1）淡一档。 */
 :root[data-theme="light"] .mosa-v2 .detail .detail-source-content .meta-key {
-  color: #a0a0a6;
+  color: #707076;
 }
 :root[data-theme="light"] .mosa-v2 .detail .detail-source-content .meta-val {
   color: #66666c;
@@ -2865,13 +2874,25 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   border-radius: var(--inspector-radius-sm);
   font-size: 10px;
 }
+/* 任务 43：「图片位置」键名同来源卡键名，加深到 #707076（面板上 4.76:1）。 */
 :root[data-theme="light"] .mosa-v2 .detail .more-location .meta-key {
-  color: #a0a0a6;
+  color: #707076;
 }
 :root[data-theme="light"] .mosa-v2 .detail .more-location .path-box {
   border-color: transparent;
   background: #f3f3f5;
   color: #66666c;
+}
+
+/* —— 任务 43：检视器里走全局 --color-text-tertiary（浅色 #85858b，3.55:1）的
+   辅助文字，在浅色作用域内单独加深——变量本身不动（侧栏/画廊等仍在用）。
+   状态行与「未记录」都在面板 #fbfbfc 上，用键名同款 #707076（4.76:1），
+   与任务 41 的「用途 → 颜色」保持一致：面板辅助 #707076、#f3f3f5 面上 #6e6e73。 —— */
+:root[data-theme="light"] .mosa-v2 .detail :is(.version-history-status, .generation-history-status, .recipe-history-status) {
+  color: #707076;
+}
+:root[data-theme="light"] .mosa-v2 .detail :is(.head-facts, .detail-source-content) .empty-copy {
+  color: #707076;
 }
 
 /* —— 浅色覆盖特异性更高，会吞掉上方 hover/active 的颜色：按原语义补回。 —— */
