@@ -1,6 +1,11 @@
-import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, unlink } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import sharp from "./sharp-runtime.js";
+import {
+  derivativeTempFileName,
+  publishDerivativeFile,
+  removeStaleDerivativeTempFiles,
+} from "./derivative-temp-file.js";
 
 const MAX_DERIVATIVE_INPUT_PIXELS = 40_000_000;
 
@@ -45,6 +50,15 @@ async function generateDerivatives(job: DerivativeProcessorJob) {
     mkdir(dirname(job.mediumPath), { recursive: true }),
     mkdir(dirname(job.thumbnailPath), { recursive: true }),
   ]);
+  const targets = [
+    { finalPath: job.thumbnailPath, size: 400, quality: 78 },
+    { finalPath: job.mediumPath, size: 960, quality: 82 },
+    { finalPath: job.previewPath, size: 1600, quality: 84 },
+  ];
+  await removeStaleDerivativeTempFiles(
+    targets.map((target) => dirname(target.finalPath)),
+    targets.map((target) => basename(target.finalPath)),
+  );
   const sharpInputOptions = { animated: false, limitInputPixels: MAX_DERIVATIVE_INPUT_PIXELS } as const;
   const metadata = await sharp(job.original_path, sharpInputOptions).metadata();
   const orientation = Number(metadata.orientation) || 1;
@@ -52,9 +66,24 @@ async function generateDerivatives(job: DerivativeProcessorJob) {
   const width = swapsAxes ? Number(metadata.height) : Number(metadata.width);
   const height = swapsAxes ? Number(metadata.width) : Number(metadata.height);
 
-  await sharp(job.original_path, sharpInputOptions).rotate().resize({ width: 400, height: 400, fit: "inside", withoutEnlargement: true }).webp({ quality: 78 }).toFile(job.thumbnailPath);
-  await sharp(job.original_path, sharpInputOptions).rotate().resize({ width: 960, height: 960, fit: "inside", withoutEnlargement: true }).webp({ quality: 82 }).toFile(job.mediumPath);
-  await sharp(job.original_path, sharpInputOptions).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).webp({ quality: 84 }).toFile(job.previewPath);
+  // Write every derivative to a temp file first, then rename them into place
+  // only once all three encoded successfully. If anything fails, this run's
+  // temp files are removed so the previous complete finals stay untouched.
+  const staged = targets.map((target) => ({
+    ...target,
+    tempPath: join(dirname(target.finalPath), derivativeTempFileName(basename(target.finalPath))),
+  }));
+  try {
+    for (const target of staged) {
+      await sharp(job.original_path, sharpInputOptions).rotate().resize({ width: target.size, height: target.size, fit: "inside", withoutEnlargement: true }).webp({ quality: target.quality }).toFile(target.tempPath);
+    }
+    for (const target of staged) {
+      await publishDerivativeFile(target.tempPath, target.finalPath);
+    }
+  } catch (error) {
+    await Promise.all(staged.map((target) => unlink(target.tempPath).catch(() => {})));
+    throw error;
+  }
 
   return {
     previewPath: job.previewPath,
