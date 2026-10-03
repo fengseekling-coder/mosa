@@ -1,0 +1,136 @@
+import assert from "node:assert/strict";
+import { access, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import test from "node:test";
+import { createMcpWorkspace, startMcpServer, writePngFixture } from "./helpers/mcp-server-harness.mjs";
+
+async function setupServerWithFixture(t, fixtureName = "fixture.png") {
+  const workspace = await createMcpWorkspace(t);
+  const imagePath = await writePngFixture(join(workspace.imagesDir, fixtureName), { color: "#243047" });
+  const server = startMcpServer(t, workspace);
+  return { workspace, imagePath, server };
+}
+
+function assertBusinessError(result, code) {
+  assert.equal(result.isError, true, "the failure is a tool-level isError result");
+  assert.deepEqual(result.structuredContent.error.code, code);
+  assert.equal(typeof result.content?.[0]?.text, "string", "the failure carries text content");
+}
+
+test("asset_get returns the saved asset with its recipe, and reports unknown ids as ASSET_NOT_FOUND", async (t) => {
+  const { imagePath, server } = await setupServerWithFixture(t);
+
+  const created = await server.callToolStrict("asset_create", {
+    assetId: "gettable",
+    imagePath,
+    prompt: "a red cube on marble",
+    style: "editorial",
+  });
+  assert.equal(created.structuredContent.asset.id, "gettable");
+
+  const fetched = await server.callToolStrict("asset_get", { assetId: "gettable" });
+  const asset = fetched.structuredContent.asset;
+  assert.equal(asset.id, "gettable");
+  assert.equal(asset.prompt, "a red cube on marble");
+  assert.equal(asset.style, "editorial");
+  assert.equal(asset.image_path, created.structuredContent.asset.image_path);
+  await access(asset.image_path); // the managed copy exists on disk
+
+  const missing = await server.callTool("asset_get", { assetId: "ghost" });
+  assertBusinessError(missing, "ASSET_NOT_FOUND");
+});
+
+test("asset_update_metadata persists tags, favorite, and rating without touching the prompt", async (t) => {
+  const { imagePath, server } = await setupServerWithFixture(t);
+  await server.callToolStrict("asset_create", { assetId: "curated", imagePath, prompt: "first prompt" });
+
+  const updated = await server.callToolStrict("asset_update_metadata", {
+    assetId: "curated",
+    tags: ["alpha", "beta"],
+    favorite: true,
+    rating: 4,
+    recipe_change_summary: "curated batch",
+  });
+  assert.equal(updated.structuredContent.asset.favorite, true);
+  assert.equal(updated.structuredContent.asset.rating, 4);
+
+  const fetched = await server.callToolStrict("asset_get", { assetId: "curated" });
+  const asset = fetched.structuredContent.asset;
+  assert.deepEqual(asset.tags, ["alpha", "beta"]);
+  assert.equal(asset.favorite, true);
+  assert.equal(asset.rating, 4);
+  assert.equal(asset.prompt, "first prompt", "metadata edits do not rewrite the prompt");
+
+  const missing = await server.callTool("asset_update_metadata", { assetId: "ghost", favorite: true });
+  assertBusinessError(missing, "ASSET_NOT_FOUND");
+});
+
+test("asset_attach_prompt writes and replaces the full recipe of an asset", async (t) => {
+  const { imagePath, server } = await setupServerWithFixture(t);
+  await server.callToolStrict("asset_create", { assetId: "unprompted", imagePath });
+
+  const before = await server.callToolStrict("asset_get", { assetId: "unprompted" });
+  assert.equal(before.structuredContent.asset.prompt, "");
+
+  await server.callToolStrict("asset_attach_prompt", { assetId: "unprompted", prompt: "attached full prompt" });
+  const attached = await server.callToolStrict("asset_get", { assetId: "unprompted" });
+  assert.equal(attached.structuredContent.asset.prompt, "attached full prompt");
+
+  await server.callToolStrict("asset_attach_prompt", { assetId: "unprompted", prompt: "replaced prompt" });
+  const replaced = await server.callToolStrict("asset_get", { assetId: "unprompted" });
+  assert.equal(replaced.structuredContent.asset.prompt, "replaced prompt");
+
+  const missing = await server.callTool("asset_attach_prompt", { assetId: "ghost", prompt: "anything" });
+  assertBusinessError(missing, "ASSET_NOT_FOUND");
+});
+
+test("asset_archive hides the asset from asset_list while keeping it and its file retrievable", async (t) => {
+  const { imagePath, server } = await setupServerWithFixture(t);
+  await server.callToolStrict("asset_create", { assetId: "keepme", imagePath });
+  const tossed = await server.callToolStrict("asset_create", { assetId: "tossme", imagePath });
+
+  const archived = await server.callToolStrict("asset_archive", { assetId: "tossme" });
+  assert.equal(archived.structuredContent.asset.archived, true);
+
+  const list = await server.callToolStrict("asset_list", { projectId: "default" });
+  const listedIds = list.structuredContent.assets.map((asset) => asset.id);
+  assert.deepEqual(listedIds, ["keepme"], "the archived asset left the active list");
+
+  const stillThere = await server.callToolStrict("asset_get", { assetId: "tossme" });
+  assert.equal(stillThere.structuredContent.asset.archived, true);
+  await access(tossed.structuredContent.asset.image_path); // soft delete keeps the original file
+
+  const missing = await server.callTool("asset_archive", { assetId: "ghost" });
+  assertBusinessError(missing, "ASSET_NOT_FOUND");
+});
+
+test("asset_duplicate creates an independent copy and leaves the original untouched", async (t) => {
+  const { imagePath, server } = await setupServerWithFixture(t);
+  const created = await server.callToolStrict("asset_create", {
+    assetId: "origin",
+    imagePath,
+    prompt: "origin prompt",
+  });
+  const originalPath = created.structuredContent.asset.image_path;
+  const originalBytes = await readFile(originalPath);
+
+  const duplicated = await server.callToolStrict("asset_duplicate", { assetId: "origin", assetIdNew: "copy-one" });
+  const copy = duplicated.structuredContent.asset;
+  assert.equal(copy.id, "copy-one");
+  assert.equal(copy.parent_asset_id, null, "the duplicate starts a new version root");
+  assert.notEqual(copy.image_path, originalPath, "the copy manages its own media file");
+  assert.deepEqual(await readFile(copy.image_path), originalBytes, "the copy carries the same image bytes");
+  assert.equal(copy.source.content_sha256, created.structuredContent.asset.source.content_sha256);
+
+  const origin = await server.callToolStrict("asset_get", { assetId: "origin" });
+  assert.equal(origin.structuredContent.asset.id, "origin");
+  assert.equal(origin.structuredContent.asset.prompt, "origin prompt");
+  assert.equal(origin.structuredContent.asset.image_path, originalPath);
+  assert.deepEqual(await readFile(originalPath), originalBytes, "the original media file was not modified");
+
+  const both = await server.callToolStrict("asset_list", { projectId: "default" });
+  assert.deepEqual(both.structuredContent.assets.map((asset) => asset.id).sort(), ["copy-one", "origin"]);
+
+  const missing = await server.callTool("asset_duplicate", { assetId: "ghost" });
+  assertBusinessError(missing, "ASSET_NOT_FOUND");
+});
