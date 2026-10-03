@@ -126,10 +126,17 @@ test("09 trash scope blocks paste import on both the shared handler and the Elec
 
 test("10 trash scope hides the clipboard paste context-menu item", async () => {
   const actions = await readWebActions();
-  const emptyMenu = sliceBetween(actions, "function getEmptyGridMenu()", "label: t(\"refreshLibrary\")");
+  const emptyMenu = sliceBetween(actions, "function getEmptyGridMenu()", "return {\n    getNavItemMenu,");
   assert.match(emptyMenu, /const pasteItem = state\.scope === "trash" \? \[\] : \[\{/,
     "the paste item is excluded from the empty-grid menu in the read-only trash scope");
-  assert.match(emptyMenu, /\.\.\.pasteItem,/);
+  assert.match(emptyMenu, /\.\.\.pasteItem,/,
+    "the gallery and stack-interior blank menus keep the paste entry");
+  // 回收站空白分支（全选、刷新 ｜ 清空回收站）整段不得出现粘贴或分组入口。
+  const trashBranch = sliceBetween(emptyMenu, "if (state.scope === \"trash\") {", "if (state.activeStackId) {");
+  assert.doesNotMatch(trashBranch, /pasteFromClipboard/);
+  assert.doesNotMatch(trashBranch, /createGroup/);
+  assert.match(trashBranch, /t\("emptyTrash"\)/,
+    "the trash blank menu surfaces Empty Trash as its danger action");
 });
 
 test("11 trash empty state never advertises the drag/paste import hint", async () => {

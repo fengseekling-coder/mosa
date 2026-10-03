@@ -174,12 +174,16 @@ test("visual stack behavior is wired into the shared web renderer", async () => 
   assert.doesNotMatch(stackController, /create.*folder|folder.*create/i);
 
   assert.match(selection, /state\.assetStackDragCandidate/);
-  assert.match(selection, /includesExistingStack/);
-  assert.match(selection, /state\.storageKind !== "sqlite"/);
+  // 含堆叠选区不能再堆叠的守卫随底部批量栏退役，搬到右键菜单
+  // stackSelected 项的可见性里；JSON 存储守卫同批迁移到菜单项置灰。
+  assert.doesNotMatch(selection, /selectionStack|selectionRemoveFromStack|selectionSelectAll|selectionClear|selectionBar/,
+    "the removed selection bar must not leave sync residue in gallery-selection");
+  assert.match(contextActions, /label: t\("stackSelected"\)[\s\S]{0,400}?disabled: state\.storageKind !== "sqlite" \|\| stackMutationInFlight\(\),/,
+    "the context-menu stack action keeps the storage and in-flight guards the bar used to carry");
 
   assert.match(contextActions, /if \(options\.stackNode && asset\?\.stack\?\.id && logicalSelectionCount\(selectedAssets, options\) === 1\)/);
   assert.match(contextActions, /mosa:open-stack/);
-  assert.match(contextActions, /openStackRenameModal\(\{/,
+  assert.match(contextActions, /openStackRenameModal\?\.\(\{/,
     "the Stack menu routes rename through the shared rename modal collector");
   assert.match(contextActions, /applyStackGroupMutation\(projectId, stackId, groupName\)/,
     "the collapsed Stack context menu can move the whole Stack to a navigation group");
@@ -211,8 +215,18 @@ test("visual stack behavior is wired into the shared web renderer", async () => 
   assert.match(contextBindings, /selectionCount: selectedIds\.size/);
 
   assert.match(html, /id="stackBack"/);
-  assert.match(html, /id="selectionStack"/);
-  assert.match(html, /id="selectionRemoveFromStack"/);
+  // 底部批量栏已移除：堆叠/移出堆叠走右键菜单，由 actions 路由回控制器。
+  assert.doesNotMatch(html, /id="selectionStack"|id="selectionRemoveFromStack"/);
+  assert.match(contextActions, /label: t\("stackSelected"\)[\s\S]{0,400}?action: async \(\) => \{\s*await assetStacks\?\.createStackFromSelection\?\.\(\);/,
+    "the multi-selection context menu stacks through the controller's own guard chain");
+  assert.match(contextActions, /label: t\("removeFromStack"\)[\s\S]{0,400}?action: async \(\) => \{\s*await assetStacks\?\.removeSelectedFromStack\?\.\(\);/,
+    "stack-interior context menus remove members through the controller");
+  assert.match(contextActions, /label: t\("backToLibrary"\)[\s\S]{0,300}?await assetStacks\?\.exitStack\?\.\(\);/,
+    "the stack-interior empty-grid menu exits through the shared exit pipeline");
+  assert.match(contextActions, /onRenamed: \(nextName\) => \{/,
+    "in-stack rename refreshes the active stack summary and chrome after the shared dialog succeeds");
+  assert.match(contextActions, /onDissolved: \(\) => assetStacks\?\.exitStack\?\.\(\)/,
+    "in-stack dissolve reuses the shared confirmation and then exits through the shared pipeline");
   assert.match(html, /id="stackRenameModal"/,
     "stack rename reuses the shared modal-overlay/modal-card shell");
   assert.match(html, /id="stackRenameInput"/);
@@ -234,10 +248,11 @@ test("visual stack behavior is wired into the shared web renderer", async () => 
   assert.match(css, /\.asset-card\.is-stack\.is-video \.video-badge/);
   assert.match(css, /\.stack-inspector-grid \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
 
-  assert.match(i18n, /stackAssets: "堆叠"/);
+  assert.match(i18n, /stackSelected: "堆叠所选"/);
   assert.match(i18n, /stackInspectorTitle: "堆叠检视器"/);
   assert.match(i18n, /stackOrderChanged: "堆叠内容已发生变化，已刷新，请重新拖动排序"/);
-  assert.match(i18n, /stackAssets: "Stack"/);
+  assert.match(i18n, /stackSelected: "Stack selected"/);
+  assert.doesNotMatch(i18n, /stackAssets:/, "the retired selection-bar label must not survive as a dead i18n key");
   assert.match(i18n, /stackInspectorTitle: "Stack inspector"/);
   assert.match(i18n, /stackOrderChanged: "The stack changed while you were reordering it\. It has been refreshed; drag again\."/);
   assert.match(i18n, /operationInProgress:/);

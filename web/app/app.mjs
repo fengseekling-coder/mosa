@@ -195,12 +195,6 @@ Object.assign(els, {
   assetZoomOut: document.querySelector("#assetZoomOut"),
   assetZoomIn: document.querySelector("#assetZoomIn"),
   assetZoomFit: document.querySelector("#assetZoomFit"),
-  selectionBar: document.querySelector("#selectionBar"),
-  selectionCount: document.querySelector("#selectionCount"),
-  selectionSelectAll: document.querySelector("#selectionSelectAll"),
-  selectionClear: document.querySelector("#selectionClear"),
-  selectionStack: document.querySelector("#selectionStack"),
-  selectionRemoveFromStack: document.querySelector("#selectionRemoveFromStack"),
   stackBack: document.querySelector("#stackBack"),
   emptyTrashBtn: document.querySelector("#emptyTrashBtn"),
   assetZoomValue: document.querySelector("#assetZoomValue"),
@@ -1591,8 +1585,34 @@ const contextMenuActions = createContextMenuActions({
   copyOriginalImage: writeClipboardImage,
   isVideoAsset,
   pasteClipboardImage: window.electronAPI?.pasteImage ? pasteClipboardImage : null,
+  assetStacks,
+  emptyTrash: emptyTrashWithConfirmation,
   gallerySelection,
 });
+
+// 顶栏“清空回收站”按钮与回收站空白处右键菜单共用的同一段确认 + 批量删除。
+async function emptyTrashWithConfirmation() {
+  if (state.scope !== "trash" || !Number(state.groups?.trash || 0)) return;
+  const confirmed = await requestConfirmation({
+    title: t("emptyTrashTitle"),
+    description: t("emptyTrashDescription"),
+    confirmLabel: t("emptyTrash"),
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  await runAction(async () => {
+    await releaseAssetMediaForDeletion(state.assets);
+    const result = await apiFetch("/api/trash", { method: "DELETE", body: { projectId: state.project } });
+    if (result.partial) {
+      showToast(t("trashPartialDelete", { count: result.failed?.length || 0 }), "error");
+    } else {
+      showToast(t("trashEmptied"), "success");
+    }
+    clearDetailSelection();
+    gallerySelection.clear();
+    await Promise.all([loadStats(), loadAssets()]);
+  });
+}
 
 async function releaseAssetMediaForDeletion(assets = []) {
   const ids = new Set(assets.map((asset) => asset?.id).filter(Boolean));
@@ -1946,28 +1966,7 @@ function bindEvents() {
     }
     void openAssetView(id, selectButton);
   });
-  els.emptyTrashBtn?.addEventListener("click", async () => {
-    if (state.scope !== "trash" || !Number(state.groups?.trash || 0)) return;
-    const confirmed = await requestConfirmation({
-      title: t("emptyTrashTitle"),
-      description: t("emptyTrashDescription"),
-      confirmLabel: t("emptyTrash"),
-      tone: "danger",
-    });
-    if (!confirmed) return;
-    await runAction(async () => {
-      await releaseAssetMediaForDeletion(state.assets);
-      const result = await apiFetch("/api/trash", { method: "DELETE", body: { projectId: state.project } });
-      if (result.partial) {
-        showToast(t("trashPartialDelete", { count: result.failed?.length || 0 }), "error");
-      } else {
-        showToast(t("trashEmptied"), "success");
-      }
-      clearDetailSelection();
-      gallerySelection.clear();
-      await Promise.all([loadStats(), loadAssets()]);
-    });
-  });
+  els.emptyTrashBtn?.addEventListener("click", () => { void emptyTrashWithConfirmation(); });
   els.openInspectorBtn?.addEventListener("click", openDetailSurfaceManually);
   els.quickFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) void setFilter(button.dataset.filter); });
   els.smartGroupsToggle?.addEventListener("click", () => setSidebarSectionCollapsed("smart", !state.sidebarSmartCollapsed));

@@ -25,6 +25,10 @@ export function createContextMenu() {
     menu.className = "context-menu";
     menu.setAttribute("role", "menu");
     menu.setAttribute("tabindex", "-1");
+    // 选区表头（已选 N 项）的数量同时写进菜单 accessible name：读屏打开菜单时
+    // 先播报“已选 N 项”，不依赖逐项遍历到 presentation 表头。
+    const headingItem = items.find((item) => item.heading);
+    if (headingItem) menu.setAttribute("aria-label", headingItem.heading);
 
     items.forEach((item, index) => {
       if (item.separator) {
@@ -32,6 +36,18 @@ export function createContextMenu() {
         separator.className = "context-menu-separator";
         separator.setAttribute("role", "separator");
         menu.appendChild(separator);
+        return;
+      }
+
+      // 表头行（已选 N 项）：纯展示不可点。不带 .context-menu-item 类，键盘
+      // 导航与“聚焦首个可用项”都不会命中它；role=presentation 使其不进入
+      // menuitem 语义，文本仍随菜单内容被读屏读到（aria-label 双保险）。
+      if (item.heading) {
+        const heading = document.createElement("div");
+        heading.className = "context-menu-heading";
+        heading.setAttribute("role", "presentation");
+        heading.textContent = item.heading;
+        menu.appendChild(heading);
         return;
       }
 
