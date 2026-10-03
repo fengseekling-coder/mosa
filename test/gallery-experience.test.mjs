@@ -230,8 +230,9 @@ test("keeps meaningful labels above the WCAG AA body-text floor", async () => {
     assert.ok(ratio >= 4.5, `--color-text-secondary is ${ratio.toFixed(2)}:1 on --${token}, needs >= 4.5`);
   }
 
-  // The tertiary token is deliberately below the floor for decorative use
-  assert.ok(contrastRatio(textTertiary, appBg) < 4.5, "--color-text-tertiary is expected to remain decorative");
+  // 任务 50：tertiary 承载有意义文字（侧栏计数、占位、提示），浅色已加深到 AA。
+  const tertiaryOnAppBg = contrastRatio(textTertiary, appBg);
+  assert.ok(tertiaryOnAppBg >= 4.5, `--color-text-tertiary is ${tertiaryOnAppBg.toFixed(2)}:1 on --app-bg, needs >= 4.5`);
 
   // Counts, dates and metadata keys use --color-text-secondary for content
   for (const rule of [
