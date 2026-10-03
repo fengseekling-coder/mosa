@@ -20,6 +20,7 @@
   ];
   const MIN_EDGE = 480; // px — drop small UI logos
   const MIN_BYTES = 20 * 1024; // server also enforces this
+  const PROVEN_GENERATION_MIN_EDGE = 256; // matches the provenGeneration tier in isArchiveWorthyCandidate
   const COMPOSER_SELECTOR = 'form, [data-type="unified-composer"], [data-testid="composer"]';
   const CHATGPT_TURN_SELECTOR = '[data-testid^="conversation-turn-"]';
   const CHATGPT_USER_SELECTOR = '[data-message-author-role="user"], [data-content-search-unit-key$=":user"]';
@@ -486,6 +487,10 @@
     if (!manual && isComposerNode(img)) return false;
     const src = img.currentSrc || img.src || "";
     if (!src || isBlockedUrl(src)) return false;
+    // A proven gallery blob is collected before any size gate: an unclicked
+    // thumbnail has naturalWidth 0 and a ~54px display size, and its real
+    // size is enforced from the decoded blob bytes later.
+    if (!manual && src.startsWith("blob:") && isProvenGalleryBlobImage(img)) return true;
     const w = img.naturalWidth || img.width || 0;
     const h = img.naturalHeight || img.height || 0;
     const explicitGeneratedImage = hasGeneratedImageDomMarker(img);
@@ -532,13 +537,17 @@
       if (!looksLikeGeneratedImage(img, { manual })) continue;
       const src = img.currentSrc || img.src;
       if (!src || byKey.has(src)) continue;
+      // A proven gallery blob that has not decoded yet reports no meaningful
+      // size: keep it unknown so the size gate cannot drop the unclicked
+      // thumbnail and the real decoded size is enforced from the bytes later.
+      const provenGalleryBlob = !manual && src.startsWith("blob:") && isProvenGalleryBlobImage(img);
       byKey.set(src, {
         key: src,
         el: img,
         imageUrl: src.startsWith("data:") ? "" : src,
         dataUrl: src.startsWith("data:") ? src : "",
-        width: img.naturalWidth || img.width || 0,
-        height: img.naturalHeight || img.height || 0,
+        width: provenGalleryBlob ? (img.naturalWidth || 0) : (img.naturalWidth || img.width || 0),
+        height: provenGalleryBlob ? (img.naturalHeight || 0) : (img.naturalHeight || img.height || 0),
       });
     }
     // CSS-background discovery is kept only for an explicit manual save. The
@@ -826,6 +835,24 @@
   function hasObservedGenerationEvidence(candidate) {
     if (isReferenceCandidate(candidate)) return false;
     return Boolean(findGenerationEvidenceForCandidate(candidate));
+  }
+
+  /**
+   * A gallery blob: URL that the page hook mapped to an estuary file id and
+   * the registry proved to be a generation output. Its bytes live in the page,
+   * so capture never needs the lazy thumbnail <img> to finish decoding.
+   */
+  function isProvenGalleryBlobUrl(value) {
+    const src = String(value || "").trim();
+    if (!src.startsWith("blob:")) return false;
+    if (!blobAssetIdForUrl(src)) return false;
+    return Boolean(findGenerationEvidenceForImage(src));
+  }
+
+  function isProvenGalleryBlobImage(image) {
+    if (!(image instanceof HTMLImageElement)) return false;
+    if (isComposerNode(image) || isReferenceCandidate({ el: image })) return false;
+    return isProvenGalleryBlobUrl(image.currentSrc || image.src || "");
   }
 
   function referenceCandidatesForGeneration(candidate) {
@@ -1579,6 +1606,9 @@
     }
 
     const originalUrl = candidate.imageUrl || candidate.key || "";
+    // A proven gallery blob is page-local: read its original bytes directly
+    // instead of waiting for the lazy thumbnail <img> to decode.
+    if (isProvenGalleryBlobUrl(originalUrl)) return originalBytesFromUrl(originalUrl);
     const originalPromise = /^https:/i.test(originalUrl)
       ? originalBytesFromUrl(originalUrl).then((value) => ({ value }), () => null)
       : null;
@@ -1615,6 +1645,21 @@
       binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
     }
     return btoa(binary);
+  }
+
+  /** Real pixel size of image bytes, decoded once and released immediately. */
+  async function decodedImageDimensions(imageBase64, mimeType) {
+    try {
+      const binary = atob(String(imageBase64 || ""));
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: mimeType || "image/png" }));
+      const dimensions = { width: bitmap.width, height: bitmap.height };
+      bitmap.close?.();
+      return dimensions;
+    } catch {
+      return null;
+    }
   }
 
   function canAttempt(candidate, { force = false } = {}) {
@@ -1689,6 +1734,18 @@
         if (!silentSkip) showToast(`已跳过小文件 ${(approxBytes / 1024).toFixed(0)}KB（logo）`, true);
         setStatus("跳过小文件");
         return null;
+      }
+
+      // A proven gallery blob's <img> may never decode, so its reported size
+      // is unknown. Enforce the proven-generation floor on the real decoded
+      // pixel size instead of trusting display dimensions.
+      if (!reference && !manual && isProvenGalleryBlobUrl(imageRef)) {
+        const dimensions = await decodedImageDimensions(imageBase64, mimeType);
+        if (dimensions && Math.min(dimensions.width, dimensions.height) < PROVEN_GENERATION_MIN_EDGE) {
+          markSizeFailure(candidate);
+          setStatus("跳过小文件");
+          return null;
+        }
       }
 
       // Auto may still save without caption (prompt empty / not-available). Manual always saves.
@@ -2222,7 +2279,9 @@
         if (!canAttempt(candidate)) return false;
         if (!isArchiveWorthyCandidate(candidate)) return false;
         if (candidate.el instanceof HTMLImageElement) {
-          if (!candidate.el.complete) return false;
+          // A proven gallery blob reads its bytes from the blob: URL, so an
+          // undecoded lazy gallery thumbnail is still archivable.
+          if (!candidate.el.complete && !isProvenGalleryBlobImage(candidate.el)) return false;
         }
         if (hasObservedGenerationEvidence(candidate)) return true;
         if (isRecoverableGenerationCandidate(candidate)) scheduleGenerationEvidenceRecovery(candidate);

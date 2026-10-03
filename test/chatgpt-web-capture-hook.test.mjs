@@ -178,7 +178,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.15.19");
+  assert.equal(manifest.version, "0.15.20");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://flow.google.com/*", "https://aistudio.google.com/*"],
@@ -1791,7 +1791,7 @@ test("binds prompt and asset when one image call splits them across nested reque
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.15.19");
+  assert.equal(manifest.version, "0.15.20");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
@@ -3199,4 +3199,300 @@ test("content-side blob-asset validation drops cross-origin urls and malformed i
   }
   assert.equal(lookup.blobAssetIds.size, 400);
   assert.equal(lookup.blobAssetIds.has("blob:https://chatgpt.com/mosa-4"), false);
+});
+
+// Proven gallery blob auto-capture: a multi-image gallery thumbnail that was
+// never clicked must still be archived. Drives the real enqueue → ingest
+// pipeline in a vm with a fake DOM, the real registry, and stubbed page APIs.
+
+const GALLERY_FILE_ID = "file-qae2e000001";
+const GALLERY_BLOB_URL = "blob:https://chatgpt.com/gallery-thumb-test";
+const GALLERY_CAPTION = "Model caption: 未点开缩略图的提示词，柔软形态与织物质感实验。";
+
+function galleryGenerationEvidence() {
+  return {
+    assetId: GALLERY_FILE_ID,
+    prompt: GALLERY_CAPTION,
+    promptStatus: "visible-caption",
+    promptPriority: 425,
+    promptScope: "output",
+    conversationId: "conversation-test",
+    messageId: "output-message",
+    generationStatus: "completed",
+    isGeneration: true,
+  };
+}
+
+function currentChatGptAutoCaptureHarness() {
+  const constants = [
+    "BLOCK_URL_HINTS", "GENERATION_HOST_HINTS", "MIN_EDGE", "MIN_BYTES", "PROVEN_GENERATION_MIN_EDGE",
+    "COMPOSER_SELECTOR", "CHATGPT_TURN_SELECTOR", "CHATGPT_USER_SELECTOR", "CHATGPT_MESSAGE_SELECTOR", "STYLE_HINTS",
+    "MAX_BLOB_ASSETS", "SESSION_CACHE_MAX", "SIZE_FAILURE_LIMIT", "SIZE_FAILURE_BACKOFF_MS",
+    "AUTO_STABILITY_DELAY_MS", "AUTO_IN_PROGRESS_STALE_MS", "AUTO_PARTIAL_FALLBACK_MS", "DOM_MEDIA_GRACE_MS",
+  ].map((name) => new RegExp(`const ${name} = [^;]+;`).exec(contentSource)?.[0]);
+  assert.ok(constants.every(Boolean), "auto-capture constants should be extractable from content.js");
+
+  const names = [
+    "rememberSet", "rememberMap", "rememberCandidate",
+    "isBlockedUrl", "chatGptImageProxyInfo", "normalizeAssetId", "isTrustedBlobAssetUrl", "normalizeBlobAssetId",
+    "rememberBlobAsset", "blobAssetIdForUrl", "imageLookupKeys", "isLikelyGeneratedUrl",
+    "conversationIdFromUrl", "currentConversationId",
+    "hasGeneratedImageDomMarker", "isComposerNode", "conversationTurnForNode", "turnContainsRole", "nearestPrecedingUserScope",
+    "isReferenceCandidate", "isRecoverableGenerationCandidate", "looksLikeGeneratedImage",
+    "isProvenGalleryBlobUrl", "isProvenGalleryBlobImage", "collectDomCandidates", "domCandidateForImage", "enqueueDomCandidateForImage",
+    "findBoundPromptForImage", "findGenerationEvidenceForImage", "findGenerationEvidenceForCandidate", "hasObservedGenerationEvidence",
+    "candidateLookupKeys", "candidateOperationKey", "candidateSizeSignature", "renderedPixelSignature",
+    "markSizeFailure", "isSizeFailureBlocked", "normalizeGenerationStatus", "isTerminalGenerationStatus",
+    "isSavedCandidate", "rememberSavedCandidate", "savedGenerationStatusForCandidate", "rememberSavedPrompt",
+    "clearAutoStability", "scheduleAutoStabilityRetry", "autoCandidateReadiness",
+    "isArchiveWorthyCandidate", "canAttempt", "enqueueAuto", "ingestCandidate", "findCandidateForMeta", "resolvePrompt",
+    "bytesFromUrlOrImg", "waitForRenderedCandidate", "renderedCandidateFor", "originalBytesFromUrl", "canvasBytesFromImage",
+    "arrayBufferToBase64", "decodedImageDimensions",
+    "userMessageForCandidate", "messageScopeForCandidate", "domCaptionForCandidate", "messageIdsForCandidate", "messageIdForCandidate",
+    "buildStoredPrompt", "cleanPromptText", "extractPlaceHints", "promptMentionsPlace", "looksLikeGenerationCaption", "isWeakChatPrompt",
+    "scorePromptText", "promptQuality", "metaPromptQuality",
+  ];
+  const source = names.map((name) => {
+    const match = new RegExp(`\\n {2}(?:async )?function ${name}\\([\\s\\S]*?\\n {2}\\}`).exec(contentSource);
+    assert.ok(match, `missing ${name}`);
+    return match[0];
+  }).join("\n");
+
+  // Blob bytes big enough to pass the 20KB MIN_BYTES floor; the decoded pixel
+  // size is what the tests control through context.decodedSize.
+  class FakeBlob {
+    constructor(parts = [], opts = {}) { this.type = opts?.type || ""; }
+    async arrayBuffer() { return new Uint8Array(30_000).fill(7).buffer; }
+  }
+  const userNode = {
+    innerText: "Make the lettering blue and keep the background red.",
+    matches: () => false,
+    closest: () => null,
+    compareDocumentPosition: () => 4,
+  };
+  const composerScope = { matches: () => true, querySelector: () => null };
+  const messageNode = { getAttribute: () => "output-message" };
+  class GalleryImage {
+    constructor({ src, complete = false, naturalWidth = 0, naturalHeight = 0, width = 54, height = 54, scope = null } = {}) {
+      this.src = src;
+      this.currentSrc = src;
+      this.complete = complete;
+      this.naturalWidth = naturalWidth;
+      this.naturalHeight = naturalHeight;
+      this.width = width;
+      this.height = height;
+      this.__scope = scope; // "composer" | "user" | null
+    }
+
+    closest(selector) {
+      const s = String(selector || "");
+      if (s.includes("data-chatgpt-search-message-ids")) return messageNode;
+      if (this.__scope === "composer" && s.includes("unified-composer")) return composerScope;
+      if (this.__scope === "user" && s.includes('data-message-author-role="user"')) return userNode;
+      return null;
+    }
+
+    getAttribute() { return ""; }
+  }
+
+  const context = {
+    HTMLImageElement: GalleryImage, Node: { DOCUMENT_POSITION_FOLLOWING: 4 },
+    URL, Date, JSON, Math, Set, Map, String, Promise, Uint8Array, ArrayBuffer, Error,
+    btoa: globalThis.btoa, atob: globalThis.atob,
+    location: { href: "https://chatgpt.com/c/conversation-test", origin: "https://chatgpt.com", pathname: "/c/conversation-test" },
+    blobAssetIds: new Map(), networkMeta: [],
+    inFlight: new Set(), queuedAutoKeys: new Set(), savedKeys: new Set(), savedIdentityKeys: new Set(),
+    capturedCandidates: new Map(), savedPromptRanks: new Map(), referenceSyncKeys: new Set(),
+    failedNetworkIdentityKeys: new Set(), promptUpgradeInFlight: new Set(),
+    failedAt: new Map(), sizeFailureStates: new Map(),
+    autoStabilityStates: new Map(), autoStabilityTimers: new Map(), savedGenerationStatuses: new Map(),
+    conversationEpoch: 0, activeConversationId: "conversation-test", autoCapture: true,
+    generationRegistry: null,
+    images: [], fetchCalls: [], ingestMessages: [], statusTexts: [], toasts: [], scheduledTimers: [],
+    Blob: FakeBlob,
+    fetch: async (url) => {
+      context.fetchCalls.push(String(url));
+      return { ok: true, blob: async () => new FakeBlob([], { type: "image/png" }) };
+    },
+    runtimeSend: async (message) => {
+      context.ingestMessages.push(message);
+      return { ok: true, result: { status: "imported" } };
+    },
+    showToast: (message) => { context.toasts.push(message); },
+    setStatus: (text) => { context.statusTexts.push(text); },
+    scheduleScan: () => {},
+    scheduleGenerationEvidenceRecovery: () => {},
+    schedulePromptUpgrade: () => {},
+    schedulePromptRecovery: () => {},
+    clearPromptRecovery: () => {},
+    requestCurrentConversationRefresh: () => false,
+    stageGenerationReferences: async () => ({ generationContextId: "", stagedReferences: 0 }),
+    withAutoCaptureSlot: async (task) => task(),
+    setTimeout: (fn, ms) => { context.scheduledTimers.push({ fn, ms }); return 0; },
+    clearTimeout: () => {},
+    document: {
+      querySelectorAll: (selector) => (String(selector).includes('data-content-search-unit-key$=":user"')
+        ? [userNode]
+        : (String(selector) === "img" ? context.images : [])),
+      createElement: () => ({ width: 0, height: 0, getContext: () => null }),
+    },
+    decodedSize: { width: 1024, height: 1024 },
+    createImageBitmapCalls: [],
+    closedBitmaps: 0,
+    createImageBitmap: async (blob) => {
+      context.createImageBitmapCalls.push(blob);
+      return { width: context.decodedSize.width, height: context.decodedSize.height, close: () => { context.closedBitmaps += 1; } };
+    },
+  };
+  vm.runInNewContext(`${constants.join("\n")}\n${source}`, context, { filename: "content-auto-capture.js" });
+  const registry = createGenerationRegistryHarness({ imageLookupKeys: context.imageLookupKeys });
+  context.generationRegistryForPage = () => registry;
+  return { context, registry, userNode, GalleryImage };
+}
+
+async function flushAutoCapture(times = 10) {
+  for (let index = 0; index < times; index += 1) await setImmediate();
+}
+
+test("an unclicked proven gallery thumbnail is archived from its blob bytes without loading the img", async () => {
+  const { context, registry, userNode } = currentChatGptAutoCaptureHarness();
+  assert.equal(context.rememberBlobAsset({ blobUrl: GALLERY_BLOB_URL, assetId: GALLERY_FILE_ID })?.assetId, GALLERY_FILE_ID);
+  registry.remember(galleryGenerationEvidence());
+  // naturalWidth 0 / complete false: the lazy thumbnail never decoded; 54px is only its display size.
+  context.images.push(new context.HTMLImageElement({ src: GALLERY_BLOB_URL }));
+
+  const candidates = context.collectDomCandidates();
+  assert.equal(candidates.length, 1, "the unloaded proven thumbnail is collected");
+  assert.equal(candidates[0].width, 0, "the unknown size stays unknown instead of the 54px display size");
+
+  assert.equal(context.enqueueDomCandidateForImage(GALLERY_BLOB_URL, "blob-asset"), true, "the blob-asset trigger finds the thumbnail");
+  await flushAutoCapture();
+
+  assert.equal(context.ingestMessages.length, 1, "exactly one mosa.ingest is sent");
+  const payload = context.ingestMessages[0].payload;
+  assert.equal(payload.imageUrl, GALLERY_BLOB_URL);
+  assert.equal(payload.prompt, GALLERY_CAPTION, "the caption bound to this file id is kept");
+  assert.equal(payload.userMessage, userNode.innerText, "the user's own message still travels the existing path");
+  assert.ok(payload.imageBase64.length > 0);
+  assert.deepEqual(context.fetchCalls, [GALLERY_BLOB_URL], "bytes come from the page-local blob: URL");
+  assert.equal(context.createImageBitmapCalls.length, 1, "the real size is decoded from the bytes");
+  assert.equal(context.closedBitmaps, 1, "the decoded bitmap is released");
+  assert.equal(context.scheduledTimers.length, 0, "archiving does not wait for the img to render");
+});
+
+test("a gallery thumbnail without a mapping or without generation evidence stays filtered", async () => {
+  // Generation evidence present, blob mapping missing.
+  const withoutMapping = currentChatGptAutoCaptureHarness();
+  withoutMapping.registry.remember(galleryGenerationEvidence());
+  withoutMapping.context.images.push(new withoutMapping.context.HTMLImageElement({ src: GALLERY_BLOB_URL }));
+  assert.equal(withoutMapping.context.collectDomCandidates().length, 0, "no mapping means no proven gallery blob");
+
+  // Blob mapping present, generation evidence missing, still unloaded.
+  const withoutEvidence = currentChatGptAutoCaptureHarness();
+  withoutEvidence.context.rememberBlobAsset({ blobUrl: GALLERY_BLOB_URL, assetId: GALLERY_FILE_ID });
+  const thumb = new withoutEvidence.context.HTMLImageElement({ src: GALLERY_BLOB_URL });
+  withoutEvidence.context.images.push(thumb);
+  assert.equal(withoutEvidence.context.isProvenGalleryBlobImage(thumb), false);
+  assert.equal(withoutEvidence.context.collectDomCandidates().length, 0, "a mapped blob without generation evidence stays filtered");
+  assert.equal(withoutEvidence.context.enqueueDomCandidateForImage(GALLERY_BLOB_URL, "blob-asset"), false);
+  await flushAutoCapture();
+  assert.equal(withoutEvidence.context.ingestMessages.length, 0);
+
+  // A loaded large mapped blob without evidence keeps today's behavior:
+  // collected by size, then rejected at enqueue time for missing evidence.
+  const loadedWithoutEvidence = currentChatGptAutoCaptureHarness();
+  loadedWithoutEvidence.context.rememberBlobAsset({ blobUrl: GALLERY_BLOB_URL, assetId: GALLERY_FILE_ID });
+  loadedWithoutEvidence.context.images.push(new loadedWithoutEvidence.context.HTMLImageElement({
+    src: GALLERY_BLOB_URL, complete: true, naturalWidth: 1024, naturalHeight: 1024, width: 680, height: 680,
+  }));
+  const candidates = loadedWithoutEvidence.context.collectDomCandidates();
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].width, 1024);
+  loadedWithoutEvidence.context.enqueueAuto(candidates[0], "dom-scan");
+  await flushAutoCapture();
+  assert.equal(loadedWithoutEvidence.context.ingestMessages.length, 0, "no evidence means no auto archive");
+});
+
+test("a proven gallery blob whose decoded size is below the proven floor is not archived", async () => {
+  const { context, registry } = currentChatGptAutoCaptureHarness();
+  context.rememberBlobAsset({ blobUrl: GALLERY_BLOB_URL, assetId: GALLERY_FILE_ID });
+  registry.remember(galleryGenerationEvidence());
+  context.images.push(new context.HTMLImageElement({ src: GALLERY_BLOB_URL }));
+  context.decodedSize = { width: 200, height: 200 };
+
+  context.enqueueDomCandidateForImage(GALLERY_BLOB_URL, "blob-asset");
+  await flushAutoCapture();
+
+  assert.equal(context.createImageBitmapCalls.length, 1, "the bytes were decoded");
+  assert.equal(context.ingestMessages.length, 0, "a 200px decoded proven blob stays out");
+  assert.ok(context.sizeFailureStates.get(`asset:${GALLERY_FILE_ID}`), "the small proven blob is recorded as a size failure");
+});
+
+test("the displayed gallery image and its thumbnail share one blob identity and archive once", async () => {
+  const { context, registry } = currentChatGptAutoCaptureHarness();
+  context.rememberBlobAsset({ blobUrl: GALLERY_BLOB_URL, assetId: GALLERY_FILE_ID });
+  registry.remember(galleryGenerationEvidence());
+  // The page shows the large image and the 54px thumbnail of the SAME blob URL.
+  context.images.push(new context.HTMLImageElement({ src: GALLERY_BLOB_URL }));
+  context.images.push(new context.HTMLImageElement({
+    src: GALLERY_BLOB_URL, complete: true, naturalWidth: 1024, naturalHeight: 1024, width: 680, height: 680,
+  }));
+
+  const candidates = context.collectDomCandidates();
+  assert.equal(candidates.length, 1, "one blob: URL is one candidate no matter how many <img> show it");
+
+  context.enqueueAuto(candidates[0], "dom-scan");
+  await flushAutoCapture();
+  assert.equal(context.ingestMessages.length, 1);
+
+  // A later trigger for the other <img> must not archive a second time.
+  assert.equal(context.enqueueDomCandidateForImage(GALLERY_BLOB_URL, "blob-asset"), true);
+  await flushAutoCapture();
+  assert.equal(context.ingestMessages.length, 1, "the shared asset identity dedupes the second <img>");
+});
+
+test("composer and reference images with a valid blob mapping are never archived", async () => {
+  const { context, registry } = currentChatGptAutoCaptureHarness();
+  context.rememberBlobAsset({ blobUrl: GALLERY_BLOB_URL, assetId: GALLERY_FILE_ID });
+  registry.remember(galleryGenerationEvidence());
+  const composerImage = new context.HTMLImageElement({
+    src: GALLERY_BLOB_URL, complete: true, naturalWidth: 1024, naturalHeight: 1024, width: 680, height: 680, scope: "composer",
+  });
+  const referenceImage = new context.HTMLImageElement({
+    src: GALLERY_BLOB_URL, complete: true, naturalWidth: 1024, naturalHeight: 1024, width: 680, height: 680, scope: "user",
+  });
+  context.images.push(composerImage, referenceImage);
+
+  assert.equal(context.isProvenGalleryBlobImage(composerImage), false, "composer images are never proven gallery blobs");
+  assert.equal(context.isProvenGalleryBlobImage(referenceImage), false, "reference images are never proven gallery blobs");
+
+  const candidates = context.collectDomCandidates();
+  assert.equal(candidates.some((candidate) => candidate.el === composerImage), false, "composer images are not collected");
+
+  // A large user-turn reference still reaches the candidate list by size, but
+  // the auto path refuses it like any other reference.
+  const reference = candidates.find((candidate) => candidate.el === referenceImage);
+  assert.ok(reference, "size-based collection is unchanged for references");
+  context.enqueueAuto(reference, "dom-scan");
+  await flushAutoCapture();
+  assert.equal(context.ingestMessages.length, 0, "references with a mapping are not archived");
+});
+
+test("generation evidence arriving after the blob mapping still picks up the unclicked thumbnail", async () => {
+  const { context, registry } = currentChatGptAutoCaptureHarness();
+  context.rememberBlobAsset({ blobUrl: GALLERY_BLOB_URL, assetId: GALLERY_FILE_ID });
+  context.images.push(new context.HTMLImageElement({ src: GALLERY_BLOB_URL }));
+
+  // The mapping arrives first; nothing is proven yet.
+  assert.equal(context.collectDomCandidates().length, 0);
+
+  // The live stream later binds the caption to this file id.
+  const meta = galleryGenerationEvidence();
+  registry.remember(meta);
+  const candidate = context.findCandidateForMeta(context.imageLookupKeys(meta.imageUrl || "", meta));
+  assert.ok(candidate, "the metadata trigger finds the unloaded thumbnail");
+  context.enqueueAuto(candidate, "metadata-recovered");
+  await flushAutoCapture();
+  assert.equal(context.ingestMessages.length, 1);
+  assert.equal(context.ingestMessages[0].payload.prompt, GALLERY_CAPTION);
 });
