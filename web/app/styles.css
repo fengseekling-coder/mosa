@@ -2332,6 +2332,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .settings-modal-card,
   .mosa-v2 .settings-modal-close,
   .mosa-v2 .settings-text-action,
+  .mosa-v2 .settings-theme-preview,
   .image-preview-modal,
   .image-preview-stage,
   .drag-overlay,
@@ -2350,6 +2351,10 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .settings-modal-close:active,
   .mosa-v2 .settings-menu .segmented-btn:active,
   .mosa-v2 .settings-text-action:active {
+    transform: none;
+  }
+  /* 任务 42：主题卡悬停位移在减少动效时一并关闭。 */
+  .mosa-v2 .settings-theme-card:hover .settings-theme-preview {
     transform: none;
   }
 }
@@ -3169,6 +3174,203 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   background: #fff;
   font-weight: 590;
   box-shadow: 0 0 0 1px #e2e2e5 inset;
+}
+
+/* —— 任务 42：主题预览卡（R21 .theme-choices / .theme-choice，只做浅色、深色两张）。
+   布局：标题行在上，两卡等宽占满内容宽度、间距 12。两张预览图是"画出来的图"，
+   配色固定、不随当前主题变（浅色卡在深色主题下仍是浅色样子）——因此这两套
+   结构色不写主题作用域；标签文字与选中环走主题 token（新文字色只在浅色作用域），
+   选中环用 accent 的 color-mix（设计稿 rgba(90,90,255,.12) 的 token 化，深色同样可辨）。
+   选中除颜色外有右上角勾号徽章（非颜色标志）；悬停上移 1px，减少动效时不位移。 —— */
+.mosa-v2 .settings-modal-row.settings-theme-row {
+  row-gap: 12px;
+}
+.mosa-v2 .settings-theme-row .settings-row-control {
+  grid-column: 1 / -1;
+  width: auto;
+}
+.mosa-v2 .settings-theme-choices {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--r21-s3);
+}
+.mosa-v2 .settings-theme-card {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.mosa-v2 .settings-theme-preview {
+  position: relative;
+  display: grid;
+  height: 72px;
+  grid-template-rows: 16px minmax(0, 1fr);
+  border: 1px solid;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 120ms var(--ease-standard), box-shadow 120ms var(--ease-standard), transform 120ms var(--ease-standard);
+}
+@media (hover: hover) and (pointer: fine) {
+  .mosa-v2 .settings-theme-card:hover .settings-theme-preview {
+    transform: translateY(-1px);
+  }
+}
+.mosa-v2 .settings-theme-chrome {
+  position: relative;
+  display: block;
+  border-bottom: 1px solid;
+}
+.mosa-v2 .settings-theme-chrome i {
+  position: absolute;
+  top: 6px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+}
+.mosa-v2 .settings-theme-chrome i:nth-child(1) { left: 8px; }
+.mosa-v2 .settings-theme-chrome i:nth-child(2) { left: 16px; }
+.mosa-v2 .settings-theme-chrome i:nth-child(3) { left: 24px; }
+.mosa-v2 .settings-theme-body {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: 23% minmax(0, 1fr) 23%;
+}
+.mosa-v2 .settings-theme-nav,
+.mosa-v2 .settings-theme-canvas,
+.mosa-v2 .settings-theme-aside {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.mosa-v2 .settings-theme-nav i {
+  position: absolute;
+  left: 10px;
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+}
+.mosa-v2 .settings-theme-nav i:nth-child(1) { top: 8px; width: 22px; }
+.mosa-v2 .settings-theme-nav i:nth-child(2) { top: 20px; width: 34px; }
+.mosa-v2 .settings-theme-grid {
+  position: absolute;
+  inset: 8px 12px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.mosa-v2 .settings-theme-grid i {
+  display: block;
+  border-radius: 4px;
+}
+.mosa-v2 .settings-theme-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: none;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--color-accent-contrast);
+  background: var(--color-accent);
+}
+.mosa-v2 .settings-theme-check svg {
+  width: 8px;
+  height: 8px;
+  display: block;
+}
+.mosa-v2 .settings-theme-label {
+  display: block;
+  margin-top: 8px;
+  color: var(--color-text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+}
+:root[data-theme="light"] .mosa-v2 .settings-theme-label {
+  color: #2a2a2e;
+}
+/* 浅色卡（固定配色，照 R21 .theme-choice.light）。 */
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-preview {
+  border-color: #d8d8dd;
+  background: #f6f6f7;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-chrome {
+  border-bottom-color: #d8d8dd;
+  background: #ededf0;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-chrome i {
+  background: #c3c3c9;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav {
+  background: #efeff1;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-canvas {
+  background: #f9f9fa;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-aside {
+  background: #f2f2f4;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav i:nth-child(1) {
+  background: #bdbdc4;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav i:nth-child(2) {
+  background: #c4c4cb;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i {
+  background: #dbdbe0;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i:nth-child(2),
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i:nth-child(5) {
+  background: #c8c8cf;
+}
+/* 深色卡（固定配色，照 R21 .theme-choice.dark）。 */
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-preview {
+  border-color: #303036;
+  background: #151518;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-chrome {
+  border-bottom-color: #303036;
+  background: #1d1d21;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-chrome i {
+  background: #595960;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav {
+  background: #18181c;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-canvas {
+  background: #101013;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-aside {
+  background: #17171a;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav i:nth-child(1) {
+  background: #55555c;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav i:nth-child(2) {
+  background: #44444b;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i {
+  background: #313138;
+}
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i:nth-child(2),
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i:nth-child(5) {
+  background: #505058;
+}
+/* 选中态写在两套固定配色之后：上面的配色块与它同特异性（都含
+   [data-appearance-opt="…"] 或 .active），后者会赢——accent 边框必须压过
+   预览图的常态边色。勾号徽章同样在此收口。 */
+.mosa-v2 .settings-theme-card.active .settings-theme-preview {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 15%, transparent);
+}
+.mosa-v2 .settings-theme-card.active .settings-theme-check {
+  display: grid;
 }
 
 /* 窄窗口（<840px，R21 未给规格的降级）：宽度取视口 - 32，高度自适应封顶；

@@ -337,9 +337,11 @@ function applyDarkMode() {
 
 // Phase 5A / F-12：segmented radiogroup 状态同步——aria-checked/tabindex 跟随 .active class，
 // 颜色不是唯一选中表达；组内永远保留恰好一个 Tab 停靠点。
+// 任务 42：主题预览卡组（.settings-theme-choices）复用同一套同步——组选择器扩一项，
+// 按钮统一按 [role="radio"] 取，不复制第二套同步代码（.segmented-btn 本就是 role=radio）。
 function syncSegmentedRadios(container) {
-  container?.querySelectorAll(".segmented").forEach((group) => {
-    const buttons = [...group.querySelectorAll(".segmented-btn")];
+  container?.querySelectorAll(".segmented, .settings-theme-choices").forEach((group) => {
+    const buttons = [...group.querySelectorAll(".segmented-btn, [role=\"radio\"]")];
     let anyChecked = false;
     let activeIndex = -1;
     for (const button of buttons) {
@@ -1279,6 +1281,13 @@ function renderSettingsMenu({ force = false } = {}) {
     const buttons = options.map((option) => radio(option.value === selectedValue, attribute, option.value, option.label)).join("");
     return `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(ariaLabel)}" data-active-index="${activeIndex}"><span class="segmented-thumb" aria-hidden="true"></span>${buttons}</div>`;
   };
+  // 任务 42：主题行改为 R21 预览卡（只有浅色/深色两张；设计稿的「跟随系统」MOSA
+  // 无此模式，不渲染）。语义与分段按钮一致：radiogroup + radio + aria-checked +
+  // roving tabindex + data-appearance-opt，状态同步复用 syncSegmentedRadios（组选择
+  // 器扩到 .settings-theme-choices，不另立第二套）。预览图 aria-hidden，卡的可访问
+  // 名称来自可见标签（浅色/深色）；选中除颜色外还有右上角勾号徽章这个非颜色标志。
+  const themeChoiceCard = (selected, attribute, value, label) => `<button class="settings-theme-card${selected ? " active" : ""}" type="button" role="radio" aria-checked="${selected}" tabindex="${selected ? 0 : -1}" ${attribute}="${value}"><span class="settings-theme-preview" aria-hidden="true"><span class="settings-theme-chrome"><i></i><i></i><i></i></span><span class="settings-theme-body"><span class="settings-theme-nav"><i></i><i></i></span><span class="settings-theme-canvas"><span class="settings-theme-grid"><i></i><i></i><i></i><i></i><i></i><i></i></span></span><span class="settings-theme-aside"></span></span><span class="settings-theme-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span></span><span class="settings-theme-label">${label}</span></button>`;
+  const themeChoices = (ariaLabel, attribute, selectedValue, options) => `<div class="settings-theme-choices" role="radiogroup" aria-label="${escapeHtml(ariaLabel)}">${options.map((option) => themeChoiceCard(option.value === selectedValue, attribute, option.value, option.label)).join("")}</div>`;
   const row = (icon, title, subtitle, control = "", extraClass = "") => `<div class="settings-modal-row${extraClass ? ` ${extraClass}` : ""}"><div class="settings-row-icon" aria-hidden="true">${icon}</div><div class="settings-row-copy"><h4>${title}</h4>${subtitle ? `<p>${subtitle}</p>` : ""}</div>${control ? `<div class="settings-row-control">${control}</div>` : ""}</div>`;
   const visualLocale = state.locale === "en" ? "en" : "zh";
   const path = escapeHtml(state.libraryRoot || state.libraryPath || state.codexImagesDir || "—");
@@ -1288,7 +1297,7 @@ function renderSettingsMenu({ force = false } = {}) {
     ? `<div class="settings-inline-actions"><button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button><button class="settings-text-action" type="button" data-change-library${state.libraryMoveInProgress ? " disabled" : ""}>${state.libraryMoveInProgress ? t("changingLocation") : t("change")}</button></div>`
     : `<button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button>`;
   const appearanceRows = [
-    row(settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("themeMode"), "", segmented(t("themeMode"), "data-appearance-opt", state.darkMode ? "dark" : "light", [{ value: "light", label: t("themeLight") }, { value: "dark", label: t("themeDark") }])),
+    row(settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("themeMode"), "", themeChoices(t("themeMode"), "data-appearance-opt", state.darkMode ? "dark" : "light", [{ value: "light", label: t("themeLight") }, { value: "dark", label: t("themeDark") }]), "settings-theme-row"),
     row(settingIcon("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"), t("cardInfo"), "", segmented(t("cardInfo"), "data-card-info-opt", state.showCardInfo ? "show" : "hide", [{ value: "show", label: t("cardInfoShow") }, { value: "hide", label: t("cardInfoHide") }])),
     row(settingIcon("M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("interfaceLanguage"), "", segmented(t("interfaceLanguage"), "data-locale", visualLocale, [{ value: "zh", label: "中文" }, { value: "en", label: "EN" }]))
   ].join("");
