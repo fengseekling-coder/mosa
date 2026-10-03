@@ -44,6 +44,11 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({
     width: windowSizeMatch ? Number(windowSizeMatch[1]) : 1280,
     height: windowSizeMatch ? Number(windowSizeMatch[2]) : 800,
+    // A requested size is the page's viewport. Without this, Windows applies it
+    // to the outer frame and a 640 request yields innerWidth 624. The default
+    // 1280x800 keeps its historical outer-frame meaning so existing flows are
+    // unchanged.
+    useContentSize: Boolean(windowSizeMatch),
     show: false,
     webPreferences: {
       contextIsolation: true,
