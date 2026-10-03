@@ -210,3 +210,77 @@ test("web i18n carries the four category names, page descriptions and local-firs
     assert.equal(matches.length, 2, `${key} must exist in both locales`);
   }
 });
+
+// 任务 42：主题行改为 R21 预览卡（浅色/深色两张；无「跟随系统」）。
+test("theme row renders two R21 preview cards with full radio semantics", async () => {
+  const body = await settingsRenderBody();
+  const appearanceRows = /const appearanceRows = \[([\s\S]*?)\]\.join\(""\);/.exec(body)?.[1] || "";
+  // 主题行用 themeChoices 预览卡（签名与 segmented 同构），仍锁 state.darkMode 驱动。
+  assert.match(appearanceRows, /themeChoices\(t\("themeMode"\), "data-appearance-opt", state\.darkMode \? "dark" : "light", \[\{ value: "light", label: t\("themeLight"\) \}, \{ value: "dark", label: t\("themeDark"\) \}\]\)/);
+  assert.doesNotMatch(appearanceRows, /跟随系统|followSystem|value: "system"/, "MOSA has no follow-system mode");
+  // 卡片语义：role=radio + aria-checked + roving tabindex + data-appearance-opt；
+  // 预览图 aria-hidden；可访问名称来自可见标签；勾号徽章是选中态的非颜色标志。
+  const cardMarkup = /const themeChoiceCard = \(selected, attribute, value, label\) => `([\s\S]*?)`;\n/.exec(body)?.[1] || "";
+  assert.ok(cardMarkup, "expected the themeChoiceCard template");
+  assert.match(cardMarkup, /class="settings-theme-card\$\{selected \? " active" : ""\}" type="button" role="radio" aria-checked="\$\{selected\}" tabindex="\$\{selected \? 0 : -1\}"/);
+  assert.match(cardMarkup, /<span class="settings-theme-preview" aria-hidden="true">/);
+  assert.match(cardMarkup, /class="settings-theme-check"><svg /);
+  assert.match(cardMarkup, /<span class="settings-theme-label">\$\{label\}<\/span>/);
+  // 组容器：radiogroup 可访问名称为主题模式。
+  assert.match(body, /const themeChoices = \(ariaLabel, attribute, selectedValue, options\) => `<div class="settings-theme-choices" role="radiogroup" aria-label="\$\{escapeHtml\(ariaLabel\)\}">/);
+  // 状态同步复用同一套 syncSegmentedRadios（组选择器扩项，不另立第二套）。
+  const app = await readWebApp();
+  assert.match(app, /querySelectorAll\("\.segmented, \.settings-theme-choices"\)/);
+  assert.match(app, /querySelectorAll\("\.segmented-btn, \[role=\\"radio\\"\]"\)/);
+});
+
+test("theme preview cards lock the R21 swatches, hover lift and the check-mark selected marker", async () => {
+  const css = await readWebCss();
+  // 布局：两列等宽、间距 12；缩略框 72 高、16px 标题栏、12 圆角。
+  const choices = lastBlock(css, ".mosa-v2 .settings-theme-choices");
+  assert.match(choices, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+  assert.match(choices, /gap: var\(--r21-s3\);/);
+  const preview = lastBlock(css, ".mosa-v2 .settings-theme-preview");
+  assert.match(preview, /height: 72px;/);
+  assert.match(preview, /grid-template-rows: 16px minmax\(0, 1fr\);/);
+  assert.match(preview, /border-radius: 12px;/);
+  const body_ = lastBlock(css, ".mosa-v2 .settings-theme-body");
+  assert.match(body_, /grid-template-columns: 23% minmax\(0, 1fr\) 23%;/);
+  // 选中：accent 边 + 浅 accent 外圈；勾号徽章默认隐藏、active 显示（非颜色标志）。
+  const activePreview = lastBlock(css, ".mosa-v2 .settings-theme-card.active .settings-theme-preview");
+  assert.match(activePreview, /border-color: var\(--color-accent\);/);
+  assert.match(activePreview, /box-shadow: 0 0 0 1px color-mix\(in srgb, var\(--color-accent\) 15%, transparent\);/);
+  const check = lastBlock(css, ".mosa-v2 .settings-theme-check");
+  assert.match(check, /display: none;/);
+  assert.match(check, /color: var\(--color-accent-contrast\);/);
+  assert.match(check, /background: var\(--color-accent\);/);
+  const checkActive = lastBlock(css, ".mosa-v2 .settings-theme-card.active .settings-theme-check");
+  assert.match(checkActive, /display: grid;/, "the check-mark badge is the non-colour selected marker");
+  // 悬停上移 1px（限定精确指针），prefers-reduced-motion 下不位移。
+  assert.match(css, /@media \(hover: hover\) and \(pointer: fine\) \{[^}]*\.mosa-v2 \.settings-theme-card:hover \.settings-theme-preview \{[^}]*transform: translateY\(-1px\);/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.mosa-v2 \.settings-theme-card:hover \.settings-theme-preview \{\n    transform: none;\n  \}/);
+  // 两套固定预览配色的关键值（浅色卡在深色主题下也保持浅色样子）。
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-preview \{\n  border-color: #d8d8dd;\n  background: #f6f6f7;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-chrome \{\n  border-bottom-color: #d8d8dd;\n  background: #ededf0;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-nav \{\n  background: #efeff1;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-canvas \{\n  background: #f9f9fa;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-grid i \{\n  background: #dbdbe0;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-preview \{\n  border-color: #303036;\n  background: #151518;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-chrome \{\n  border-bottom-color: #303036;\n  background: #1d1d21;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-nav \{\n  background: #18181c;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-canvas \{\n  background: #101013;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-grid i \{\n  background: #313138;\n\}/);
+  // 标签 11px/600；新文字色只在浅色作用域；任务 42 新增字号 ≥10px。
+  const label = lastBlock(css, ".mosa-v2 .settings-theme-label");
+  assert.match(label, /font-size: 11px;/);
+  assert.match(label, /font-weight: 600;/);
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.settings-theme-label \{\n  color: #2a2a2e;\n\}/);
+  const marker = css.indexOf("任务 42");
+  assert.notEqual(marker, -1, "the task 42 block must exist");
+  const added = css.slice(marker);
+  const sizes = [...added.matchAll(/font-size: (\d+(?:\.\d+)?)px/g)].map((match) => Number(match[1]));
+  assert.ok(sizes.length >= 1, "expected task 42 font sizes to be pinned");
+  for (const size of sizes) {
+    assert.ok(size >= 10, `task 42 font sizes must stay >= 10px (got ${size}px)`);
+  }
+});
