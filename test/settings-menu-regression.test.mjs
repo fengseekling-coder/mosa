@@ -196,3 +196,15 @@ test("settings dialog keeps scroll containment, thumb mechanics and material fal
   assert.match(css, /@media \(prefers-reduced-transparency: reduce\) \{[\s\S]*?\.mosa-v2 \.settings-menu,[\s\S]*?\.mosa-v2 \.settings-modal-card \{[^}]*backdrop-filter: none;/,
     "the settings material has a solid accessibility fallback");
 });
+
+test("closing Settings returns focus to the mobile nav toggle when the trigger sits in the collapsed drawer", async () => {
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
+  const close = /function closeSettingsModal\([^)]*\) \{[\s\S]*?\n\}/.exec(app)?.[0] || "";
+  assert.ok(close, "closeSettingsModal must exist");
+  // ≤767px: the Settings trigger lives in the mobile drawer, which closes and
+  // turns inert as Settings opens, so focus cannot land back on it.
+  assert.match(close, /returnTarget\.closest\("\[inert\]"\) \? els\.mobileNavToggle : returnTarget/,
+    "an inert return target falls back to the visible mobile nav toggle");
+  assert.match(app, /if \(event\.target\.closest\("\.nav-item, \.settings-trigger"\)\) setMobileNavOpen\(false\);/,
+    "the drawer still closes when Settings opens from it (the reason the fallback exists)");
+});

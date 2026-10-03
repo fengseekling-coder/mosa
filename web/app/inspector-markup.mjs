@@ -19,7 +19,11 @@ import { selectVersionComparisonPair } from "./version-compare.mjs";
 export const DETAIL_TAGS_VISIBLE_LIMIT = 9;
 
 export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
-  const COPY_ICON_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg>`;
+  // 任务 41：复制按钮带文字（R21 .copy）：图标 12×12 + 4px 间距 + 文字标签；
+  // 可访问名称仍由各按钮的 aria-label 承担完整动作名，可见文字只是短标签
+  // （aria-hidden，读屏不会把它读成动作名）。
+  const COPY_ICON_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg>`;
+  const COPY_ACTION_LABEL = `<span aria-hidden="true">${t("copyAction")}</span>`;
 
   function persistedPositiveNumber(asset, ...keys) {
     for (const source of [asset, asset?.business_fields]) {
@@ -253,9 +257,9 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     // sits beside the caption Prompt as a switchable view, never replacing it.
     const requestPrompt = String(source.generation_request_prompt || "").trim();
     const copyButton = asset.prompt
-      ? `<button class="section-head-copy" type="button" data-action="copy-prompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}">${COPY_ICON_SVG}</button>`
+      ? `<button class="section-head-copy" type="button" data-action="copy-prompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}">${COPY_ICON_SVG}${COPY_ACTION_LABEL}</button>`
       : requestPrompt
-        ? `<button class="section-head-copy" type="button" data-action="copy-prompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}" disabled>${COPY_ICON_SVG}</button>`
+        ? `<button class="section-head-copy" type="button" data-action="copy-prompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}" disabled>${COPY_ICON_SVG}${COPY_ACTION_LABEL}</button>`
         : "";
     const promptTitle = requestPrompt
       ? `<h3 class="detail-prompt-switch"><button class="detail-prompt-toggle is-active" type="button" aria-pressed="true" data-prompt-variant="1">${t("prompt")}</button><button class="detail-prompt-toggle" type="button" aria-pressed="false" data-prompt-variant="2">${t("prompt2")}</button></h3>`
@@ -270,7 +274,7 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     // V2 keeps the user-instruction pair at a fixed position even when the
     // upstream source has none.  This preserves the 224px composition instead
     // of letting a legacy recipe disclosure rise into the V2 first view.
-    const userInstructionMarkup = `<div class="detail-prompt-subhead"><h4>${t("userInstruction")}</h4><button class="detail-copy-sub" type="button" data-action="copy-instruction" aria-label="${escapeHtml(t("userInstruction"))}"${userInstruction ? "" : " disabled"}>${COPY_ICON_SVG}</button></div><div class="prompt-box detail-instruction-box">${instructionText}</div>`;
+    const userInstructionMarkup = `<div class="detail-prompt-subhead"><h4>${t("userInstruction")}</h4><button class="detail-copy-sub" type="button" data-action="copy-instruction" aria-label="${escapeHtml(t("copyUserInstruction"))}"${userInstruction ? "" : " disabled"}>${COPY_ICON_SVG}${COPY_ACTION_LABEL}</button></div><div class="prompt-box detail-instruction-box">${instructionText}</div>`;
     const referenceRow = `<div data-prompt-references>${promptReferencesMarkup(asset)}</div>`;
     return `<section class="inspector-section detail-prompt-section" data-inspector-section="prompt"><div class="detail-prompt-head">${promptTitle}${copyButton}</div>${requestPromptBox}<div class="prompt-box detail-prompt-box" role="textbox" aria-readonly="true" data-prompt-panel="1">${promptText}</div>${promptProvenance}${userInstructionMarkup}${referenceRow}<details class="detail-disclosure"><summary>${t("recipeAndEditing")}</summary><div class="disclosure-content detail-fields">${editRecipeFieldsMarkup(asset)}<label class="field recipe-change-field"><span>${t("recipeChangeSummary")}</span><textarea data-recipe-change rows="2" placeholder="${escapeHtml(t("recipeChangePlaceholder"))}"></textarea></label><div class="recipe-save-actions"><button class="recipe-save-btn secondary" type="button" data-action="save-recipe">${t("saveRecipe")}</button><span class="detail-autosave-status" data-autosave-status role="status" aria-live="polite"></span></div></div></details></section>`;
   }
@@ -291,7 +295,7 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
       : `<p class="empty-copy">${t("notRecorded")}</p>`;
     // 复制来源入口仅在有明确可复制值（原始路径）时渲染；取值与点击复制共用 sourceCopyValue。
     const copyButton = sourceCopyValue(source)
-      ? `<button class="section-head-copy" type="button" data-action="copy-source" title="${t("copyOriginalPath")}" aria-label="${t("copyOriginalPath")}">${COPY_ICON_SVG}</button>`
+      ? `<button class="section-head-copy" type="button" data-action="copy-source" title="${t("copyOriginalPath")}" aria-label="${t("copyOriginalPath")}">${COPY_ICON_SVG}${COPY_ACTION_LABEL}</button>`
       : "";
     const conversationId = String(source.conversation_id || "").trim();
     const messageId = String(source.message_id || "").trim();
@@ -370,13 +374,18 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return `<section class="inspector-section" data-inspector-section="more"><div class="more-location"><span class="meta-key">${t("imageLocation")}</span><div class="path-box detail-path-box"${imagePath ? ` title="${escapeHtml(asset.image_path)}"` : ""}>${locationValue}</div></div></section>`;
   }
 
+  // 任务 41：版本历史改为 R21 竖线时间轴的三栏行（版本号 / 说明 / 时间，见
+  // styles.css 的 .version-content 三栏 grid 与 .version-timeline-item::before 竖线）。
+  // 「当前版本 / 已归档」标记从版本号格移到说明格尾部：版本号格只放 strong，
+  // 各行三栏的列位才能对齐（选中行不再因多一枚徽标把说明列顶右）。行的可交互
+  // 契约不变：button[data-version-id] + aria-current + time[datetime] + 深度类。
   function versionHistoryMarkup(history, selectedId) {
     const versions = history?.versions || [];
     return `<ol class="version-timeline" aria-label="${escapeHtml(t("versionHistory"))}">${versions.map((version) => {
       const selected = version.id === selectedId;
       const depth = Math.min(Math.max(Number(version.version_depth) || 0, 0), 6);
       const change = version.version_change || (version.version_index === 1 ? t("initialVersion") : t("noVersionChange"));
-      return `<li class="version-timeline-item version-depth-${depth}${selected ? " selected" : ""}"><button type="button" data-version-id="${escapeHtml(version.id)}"${selected ? ' aria-current="true"' : ""}><span class="version-marker" aria-hidden="true"></span><span class="version-content"><span class="version-title"><strong>${escapeHtml(t("versionLabel", { number: version.version_index }))}</strong>${selected ? `<span class="version-current">${t("currentVersion")}</span>` : ""}${version.archived ? `<span class="version-archived">${t("archivedVersion")}</span>` : ""}</span><span class="version-change">${escapeHtml(change)}</span><time datetime="${escapeHtml(version.created_at || "")}">${escapeHtml(formatDate(version.created_at))}</time></span></button></li>`;
+      return `<li class="version-timeline-item version-depth-${depth}${selected ? " selected" : ""}"><button type="button" data-version-id="${escapeHtml(version.id)}"${selected ? ' aria-current="true"' : ""}><span class="version-marker" aria-hidden="true"></span><span class="version-content"><span class="version-title"><strong>${escapeHtml(t("versionLabel", { number: version.version_index }))}</strong></span><span class="version-change">${escapeHtml(change)}${selected ? `<span class="version-current">${t("currentVersion")}</span>` : ""}${version.archived ? `<span class="version-archived">${t("archivedVersion")}</span>` : ""}</span><time datetime="${escapeHtml(version.created_at || "")}">${escapeHtml(formatDate(version.created_at))}</time></span></button></li>`;
     }).join("")}</ol>`;
   }
 
