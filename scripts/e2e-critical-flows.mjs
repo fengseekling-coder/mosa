@@ -213,17 +213,28 @@ function createFlowContext(flowName) {
     },
     // Evaluates `source` (an async IIFE expression string) in a sandboxed
     // Electron window on the server's UI and returns the value it resolves.
-    async runInPage(server, source) {
+    // E2E-only capability: `{ windowSize: [width, height] }` sizes the renderer
+    // window (via MOSA_E2E_WEB_WINDOW_SIZE) for narrow-viewport flows; omitted
+    // keeps the historical 1280x800.
+    async runInPage(server, source, { windowSize } = {}) {
       const sourceFile = join(root, `flow-${flowName}-${++sourceCounter}.js`);
       await writeFile(sourceFile, source, "utf8");
+      const env = {
+        ...process.env,
+        MOSA_E2E_WEB_TARGET_URL: `${server.origin}/#mosa-client-token=${encodeURIComponent(QA_CLIENT_TOKEN)}`,
+        MOSA_E2E_WEB_USER_DATA: dirs.userDataDir,
+        MOSA_E2E_WEB_SOURCE_FILE: sourceFile,
+      };
+      if (windowSize !== undefined) {
+        if (!Array.isArray(windowSize) || windowSize.length !== 2
+          || !windowSize.every((value) => Number.isInteger(value) && value > 0)) {
+          throw new Error(`runInPage windowSize must be [width, height] positive integers, got ${JSON.stringify(windowSize)}`);
+        }
+        env.MOSA_E2E_WEB_WINDOW_SIZE = `${windowSize[0]}x${windowSize[1]}`;
+      }
       const output = await runCommand(electronBinary, [...ELECTRON_QA_FLAGS, webDriver], {
         cwd: rootDir,
-        env: {
-          ...process.env,
-          MOSA_E2E_WEB_TARGET_URL: `${server.origin}/#mosa-client-token=${encodeURIComponent(QA_CLIENT_TOKEN)}`,
-          MOSA_E2E_WEB_USER_DATA: dirs.userDataDir,
-          MOSA_E2E_WEB_SOURCE_FILE: sourceFile,
-        },
+        env,
       });
       return JSON.parse(String(output || "null").split(/\r?\n/).filter(Boolean).at(-1) || "null");
     },
