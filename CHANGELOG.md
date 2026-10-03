@@ -4,6 +4,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+- Fixed navigation being unreachable in windows 701–767px wide. In that range the sidebar collapses into a drawer, but the Inspector stayed pinned open, which hid the drawer button. The Inspector now pins only from 768px up, so in narrower windows it can be closed and the drawer button is available.
 - Right-click menus are now consistent everywhere, and every selection action lives in them; the bottom selection bar is gone.
   - Every asset menu uses the same section order: open, copy, organize, history and export, selection, and Trash last.
   - With several assets selected, the menu starts with "N selected" and offers Stack selected, Select all (⌘A) and Deselect (Esc).

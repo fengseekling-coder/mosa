@@ -47,7 +47,12 @@ function sourceTypeLabel(type) {
 }
 
 const preference = safeStorageGet("mosa.ui-language") || "system";
-const INSPECTOR_DOCKED_MEDIA = "(min-width: 701px)";
+// The inspector docks as a fixed right column only where the desktop layout
+// applies. This must match the ≤767px drawer breakpoint (MOBILE_NAVIGATION_QUERY
+// and styles.css): docking at 701–767 force-opened the inspector, and the drawer
+// stylesheet hides the drawer toggle while the inspector is open, so navigation
+// became unreachable in that band.
+const INSPECTOR_DOCKED_MEDIA = "(min-width: 768px)";
 
 function isInspectorDocked() {
   return typeof window.matchMedia === "function" && window.matchMedia(INSPECTOR_DOCKED_MEDIA).matches;
