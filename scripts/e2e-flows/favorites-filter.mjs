@@ -5,7 +5,7 @@
 import { PAGE_HELPERS } from "./_page-helpers.mjs";
 
 export const name = "favorites-filter";
-export const description = "API-seeded favorite -> Favorites quick filter -> restart -> still filtered";
+export const description = "API-seeded favorite -> card star click re-lights the open inspector -> Favorites quick filter -> restart -> still filtered";
 
 export async function run(ctx) {
   await ctx.prepare();
@@ -45,7 +45,31 @@ function favoritesSource(config) {
   return `(async () => {
     const config = ${JSON.stringify(config)};
     ${PAGE_HELPERS}
+    const panel = () => document.querySelector('#detailPanel');
+    const detailOpen = () => panel()?.getAttribute('aria-hidden') === 'false';
+    const detailFavButton = () => panel()?.querySelector('[data-action="toggle-favorite"]');
     await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two seeded cards');
+
+    // Card star click while the same asset is open in the inspector: the
+    // inspector's own favorite button must follow immediately (the local
+    // toggle patches every visible favorite button for the shown asset, keyed
+    // on the selection, not on state.detailAsset being populated).
+    document.querySelector(cardSelector(config.plainId) + ' .asset-card-select').click();
+    await waitFor(() => detailOpen(), 'inspector opens for the plain asset', 15000);
+    document.querySelector(cardSelector(config.plainId) + ' .card-favorite').click();
+    await waitFor(() => {
+      const button = detailFavButton();
+      return Boolean(button) && button.getAttribute('aria-pressed') === 'true' && button.classList.contains('is-fav');
+    }, 'inspector star follows the card star click', 15000);
+    // Toggle back from the inspector's own button (idempotent reset + covers
+    // the inspector-originated path), then run the original filter assertions.
+    detailFavButton().click();
+    await waitFor(() => {
+      const button = detailFavButton();
+      return Boolean(button) && button.getAttribute('aria-pressed') === 'false' && !button.classList.contains('is-fav');
+    }, 'inspector star clears via its own button', 15000);
+    await waitFor(() => gallerySettled(), 'gallery settles after the toggle pair', 15000);
+
     const allIds = rootCardIds();
     click('#quickFilters .nav-item[data-filter="favorite"]');
     await waitFor(() => gallerySettled() && rootCardIds().length === 1, 'favorites filter applied');
