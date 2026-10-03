@@ -1411,6 +1411,77 @@
     }
   }
 
+  // The multi-image gallery renders generated images as blob: URLs, which
+  // carry no file id. The page loads them as estuary/content?id=file_X ->
+  // Response.blob() -> URL.createObjectURL(), so tag that Blob with its file id
+  // and report the blob: URL it becomes. Only the `id` parameter is read; the
+  // signature and token parameters never leave the URL. Both hooks return the
+  // original result unchanged and swallow their own errors.
+  const blobAssetIds = new WeakMap();
+
+  function estuaryFileIdFromUrl(value) {
+    try {
+      const url = new URL(String(value || ""), location.origin);
+      if (url.origin !== location.origin || url.pathname !== "/backend-api/estuary/content") return "";
+      const id = url.searchParams.get("id") || "";
+      return /^file[-_][A-Za-z0-9]{6,}$/i.test(id) ? id : "";
+    } catch {
+      return "";
+    }
+  }
+
+  try {
+    const OriginalResponseBlob = Response.prototype.blob;
+    if (typeof OriginalResponseBlob === "function") {
+      Response.prototype.blob = function mosaResponseBlob(...args) {
+        const promise = OriginalResponseBlob.apply(this, args);
+        if (!isCaptureEnabled()) return promise;
+        try {
+          const assetId = estuaryFileIdFromUrl(this?.url);
+          if (!assetId) return promise;
+          return promise.then((blob) => {
+            try {
+              if (blob && typeof Blob === "function" && blob instanceof Blob) blobAssetIds.set(blob, assetId);
+            } catch {
+              // A failed tag only loses this mapping; the page still gets its Blob.
+            }
+            return blob;
+          });
+        } catch {
+          return promise;
+        }
+      };
+    }
+  } catch {
+    // No Response in this environment.
+  }
+
+  try {
+    const OriginalCreateObjectURL = URL.createObjectURL;
+    if (typeof OriginalCreateObjectURL === "function") {
+      URL.createObjectURL = function mosaCreateObjectURL(...args) {
+        const result = OriginalCreateObjectURL.apply(this, args);
+        try {
+          const [obj] = args;
+          if (
+            isCaptureEnabled()
+            && typeof result === "string"
+            && result.startsWith("blob:")
+            && obj && typeof Blob === "function" && obj instanceof Blob
+          ) {
+            const assetId = blobAssetIds.get(obj);
+            if (assetId) post("blob-asset", { blobUrl: result, assetId });
+          }
+        } catch {
+          // A failed report never affects the blob: URL the page receives.
+        }
+        return result;
+      };
+    }
+  } catch {
+    // No URL.createObjectURL in this environment.
+  }
+
   window.fetch = async function mosaFetch(...args) {
     const response = await originalFetch.apply(this, args);
     if (!isCaptureEnabled()) return response;

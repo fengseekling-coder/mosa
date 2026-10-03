@@ -19,8 +19,35 @@ function createHookHarness(payload, conversationId = "conversation-test", option
   const events = [];
   const requestedUrls = [];
   const requestedInits = [];
+  const createdObjectUrls = [];
   let messageListener = null;
   const documentElement = { dataset: {} };
+  // The blob-asset hooks need the page's Blob, Response and URL.createObjectURL.
+  class HookBlob {
+    constructor(parts = [], opts = {}) {
+      this.size = (parts || []).reduce((sum, part) => sum + (typeof part === "string" ? part.length : 0), 0);
+      this.type = opts?.type || "";
+    }
+  }
+  class HookResponse {
+    constructor(body, init = {}) {
+      this.url = String(init?.url || "");
+      this.__mosaBody = body;
+    }
+
+    async blob() {
+      return new HookBlob([this.__mosaBody], { type: "image/png" });
+    }
+  }
+  class HookURL extends URL {
+    static createObjectURL(obj) {
+      const blobUrl = `blob:https://chatgpt.com/mosa-hook-${createdObjectUrls.length}-test`;
+      createdObjectUrls.push({ blobUrl, blob: obj });
+      return blobUrl;
+    }
+
+    static revokeObjectURL() {}
+  }
   const window = {
     fetch: async (url, init) => {
       requestedUrls.push(String(url));
@@ -65,7 +92,9 @@ function createHookHarness(payload, conversationId = "conversation-test", option
     Object,
     Set,
     String,
-    URL,
+    URL: HookURL,
+    Blob: HookBlob,
+    Response: HookResponse,
     XMLHttpRequest: MockXHR,
     // Base64 and UTF-8 decoding are page APIs the hook needs for socket frames.
     atob: globalThis.atob,
@@ -96,6 +125,10 @@ function createHookHarness(payload, conversationId = "conversation-test", option
     events,
     requestedUrls,
     requestedInits,
+    createdObjectUrls,
+    blobClass: HookBlob,
+    responseClass: HookResponse,
+    urlClass: HookURL,
     async harvest(init, url = "https://chatgpt.com/backend-api/conversation/test") {
       await window.fetch(url, init);
       await setImmediate();
@@ -122,17 +155,17 @@ function generationEvents(harness) {
   return harness.events.filter((event) => event.type === "generation-meta" && event.payload?.prompt);
 }
 
-function createGenerationRegistryHarness() {
+function createGenerationRegistryHarness({ imageLookupKeys } = {}) {
   const sandbox = {};
   vm.runInNewContext(generationRegistrySource, sandbox, { filename: "generation-registry.js" });
   return sandbox.MosaGenerationRegistry.createGenerationRegistry({
-    imageLookupKeys: (imageUrl, meta = {}) => {
+    imageLookupKeys: imageLookupKeys || ((imageUrl, meta = {}) => {
       const keys = [];
       if (meta.imageKey) keys.push(meta.imageKey);
       if (meta.assetId) keys.push(`asset:${meta.assetId}`);
       if (imageUrl) keys.push(`url:${imageUrl}`);
       return [...new Set(keys)];
-    },
+    }),
     promptQuality: (entry) => Number(entry.promptPriority || 0) * 1_000_000 + String(entry.prompt || "").length,
   });
 }
@@ -145,7 +178,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.15.18");
+  assert.equal(manifest.version, "0.15.19");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://flow.google.com/*", "https://aistudio.google.com/*"],
@@ -1242,12 +1275,22 @@ test("clears the legacy development Token and verifies the real ingest authoriza
 });
 
 function loadImageLookupKeys() {
-  const source = ["chatGptImageProxyInfo", "normalizeAssetId", "imageLookupKeys"].map((name) => {
+  // imageLookupKeys reads the blob: -> file id table through blobAssetIdForUrl,
+  // so extract those helpers too and run the existing checks with an empty table.
+  const source = ["chatGptImageProxyInfo", "normalizeAssetId", "isTrustedBlobAssetUrl", "normalizeBlobAssetId", "rememberBlobAsset", "blobAssetIdForUrl", "imageLookupKeys"].map((name) => {
     const match = new RegExp(`\\n {2}function ${name}\\([\\s\\S]*?\\n {2}\\}`).exec(contentSource);
     assert.ok(match, `${name} should be extractable from content.js`);
     return match[0];
   }).join("\n");
-  const context = { Set, String, URL, location: { href: "https://chatgpt.com/c/demo" } };
+  const context = {
+    Set,
+    Map,
+    String,
+    URL,
+    location: { origin: "https://chatgpt.com", href: "https://chatgpt.com/c/demo" },
+    blobAssetIds: new Map(),
+    MAX_BLOB_ASSETS: 400,
+  };
   vm.runInNewContext(source, context, { filename: "content-lookup.js" });
   return context.imageLookupKeys;
 }
@@ -1748,7 +1791,7 @@ test("binds prompt and asset when one image call splits them across nested reque
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.15.18");
+  assert.equal(manifest.version, "0.15.19");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
@@ -2292,7 +2335,7 @@ function currentChatGptContentHarness() {
   const names = [
     "conversationIdFromUrl", "currentConversationId", "conversationTurnForNode", "turnContainsRole", "nearestPrecedingUserScope",
     "userMessageForCandidate", "messageIdsForCandidate", "messageIdForCandidate", "messageScopeForCandidate", "domCaptionForCandidate",
-    "chatGptImageProxyInfo", "normalizeAssetId", "imageLookupKeys", "candidateLookupKeys",
+    "chatGptImageProxyInfo", "normalizeAssetId", "isTrustedBlobAssetUrl", "normalizeBlobAssetId", "blobAssetIdForUrl", "imageLookupKeys", "candidateLookupKeys",
     "findGenerationEvidenceForCandidate", "resolvePrompt", "buildStoredPrompt", "cleanPromptText",
     "extractPlaceHints", "promptMentionsPlace", "looksLikeGenerationCaption", "isWeakChatPrompt",
     "scorePromptText", "normalizeGenerationStatus",
@@ -2321,7 +2364,9 @@ function currentChatGptContentHarness() {
   const registry = createGenerationRegistryHarness();
   const context = {
     HTMLImageElement: TestImage, Node: { DOCUMENT_POSITION_FOLLOWING: 4 },
-    URL, location: { href: "https://chatgpt.com/c/conversation-test", pathname: "/c/conversation-test" },
+    URL, location: { href: "https://chatgpt.com/c/conversation-test", origin: "https://chatgpt.com", pathname: "/c/conversation-test" },
+    blobAssetIds: new Map(),
+    MAX_BLOB_ASSETS: 400,
     activeConversationId: "conversation-test",
     document: { querySelectorAll: (selector) => selector.includes('data-content-search-unit-key$=":user"') ? [userNode] : [] },
     STYLE_HINTS: [],
@@ -2880,4 +2925,278 @@ test("keeps the capture toast compact in the viewport corner", () => {
   assert.match(toastCss, /font:\s*600 12px/);
   assert.doesNotMatch(toastCss, /left:\s*50%/);
   assert.doesNotMatch(toastCss, /translateX\(\s*-50%\s*\)/);
+});
+
+// Multi-image gallery: blob: images bind their prompts through the estuary file id.
+
+const BATCH_CONVERSATION = "conversation-batch-e2e";
+const BATCH_TOOL = "t2uay3k.sj1i4kz";
+// [file id, that image's Model caption]; captions stay long enough for looksLikePrompt.
+const BATCH_FILES = [
+  ["file-qae2e000001", "Model caption: 第一张的提示词，冰蓝色雕塑与金属质感练习。"],
+  ["file-qae2e000002", "Model caption: 第二张的提示词，暖橙色块构成与材质研究。"],
+  ["file-qae2e000003", "Model caption: 第三张的提示词，黑白极简形态的构成练习。"],
+  ["file-qae2e000004", "Model caption: 第四张的提示词，柔软形态与织物质感实验。"],
+];
+// Request prompts in the batch call, distinct from every caption so leaks are visible.
+const BATCH_REQUEST_PROMPTS = [
+  "request-prompt-alpha：一整段与四张图都不同的发起调用提示词甲。",
+  "request-prompt-bravo：一整段与四张图都不同的发起调用提示词乙。",
+  "request-prompt-charlie：一整段与四张图都不同的发起调用提示词丙。",
+  "request-prompt-delta：一整段与四张图都不同的发起调用提示词丁。",
+];
+
+function batchPointer(fileId) {
+  return {
+    content_type: "image_asset_pointer",
+    asset_pointer: `sediment://${fileId}`,
+    metadata: { dalle: { gen_id: `gen-${fileId.slice(-4)}` }, generation: { gen_id: `gen-${fileId.slice(-4)}` } },
+  };
+}
+
+async function feedBatchGalleryTurn(harness) {
+  // The tool call: four batch_requests, in request order.
+  await harness.socketFrame(JSON.stringify({
+    conversation_id: BATCH_CONVERSATION,
+    message: {
+      id: "msg-init-batch",
+      author: { role: "assistant" },
+      recipient: BATCH_TOOL,
+      content: {
+        content_type: "code",
+        text: JSON.stringify({ batch_requests: BATCH_REQUEST_PROMPTS.map((requestPrompt) => ({ prompt: requestPrompt, size: "1024x1024" })) }),
+      },
+      metadata: { parent_id: "msg-user-batch", turn_exchange_id: "turn-batch-1" },
+    },
+  }));
+  // Four tool messages arrive in completion order, each parented to the previous one;
+  // every caption travels with its own file id.
+  const completionOrder = [1, 0, 3, 2];
+  let previousId = "msg-init-batch";
+  for (const [step, fileIndex] of completionOrder.entries()) {
+    const [fileId, caption] = BATCH_FILES[fileIndex];
+    await harness.socketFrame(JSON.stringify({
+      conversation_id: BATCH_CONVERSATION,
+      message: {
+        id: `msg-tool-batch-${step}`,
+        author: { role: "tool", name: BATCH_TOOL },
+        content: { content_type: "multimodal_text", parts: [batchPointer(fileId), caption] },
+        metadata: { parent_id: previousId, turn_exchange_id: "turn-batch-1", finished_successfully: true },
+      },
+    }));
+    previousId = `msg-tool-batch-${step}`;
+  }
+  // The tool status note, which is not a prompt.
+  await harness.socketFrame(JSON.stringify({
+    conversation_id: BATCH_CONVERSATION,
+    message: {
+      id: "msg-status-batch",
+      author: { role: "tool", name: BATCH_TOOL },
+      content: { content_type: "text", parts: ["Generated images from the last model call were saved at /mnt/data."] },
+      metadata: { turn_exchange_id: "turn-batch-1", finished_successfully: true },
+    },
+  }));
+  // The final message starts empty, gains images in completion order, and is
+  // reordered into request order only by its last update.
+  const finalMessage = (parts) => ({
+    conversation_id: BATCH_CONVERSATION,
+    message: {
+      id: "msg-final-batch",
+      author: { role: "tool", name: BATCH_TOOL },
+      content: { content_type: "multimodal_text", parts },
+      metadata: { turn_exchange_id: "turn-batch-1", finished_successfully: true },
+    },
+  });
+  await harness.socketFrame(JSON.stringify(finalMessage([])));
+  await harness.socketFrame(JSON.stringify(finalMessage([batchPointer(BATCH_FILES[1][0]), batchPointer(BATCH_FILES[0][0])])));
+  await harness.socketFrame(JSON.stringify(finalMessage(BATCH_FILES.map(([fileId]) => batchPointer(fileId)))));
+}
+
+async function postBlobAssetsForBatch(harness) {
+  for (const [fileId] of BATCH_FILES) {
+    const response = new harness.responseClass("", {
+      url: `https://chatgpt.com/backend-api/estuary/content?id=${fileId}&ts=1700000000&p=probe&cid=${BATCH_CONVERSATION}&sig=sig-value&v=2`,
+    });
+    const blob = await response.blob();
+    harness.urlClass.createObjectURL(blob);
+  }
+  await setImmediate();
+  return harness.events.filter((event) => event.type === "blob-asset").map((event) => event.payload);
+}
+
+function loadContentLookupWithBlobAssets() {
+  const names = ["chatGptImageProxyInfo", "normalizeAssetId", "isTrustedBlobAssetUrl", "normalizeBlobAssetId", "rememberBlobAsset", "blobAssetIdForUrl", "imageLookupKeys"];
+  const source = names.map((name) => {
+    const match = new RegExp(`\\n {2}function ${name}\\([\\s\\S]*?\\n {2}\\}`).exec(contentSource);
+    assert.ok(match, `${name} should be extractable from content.js`);
+    return match[0];
+  }).join("\n");
+  const context = {
+    Set,
+    Map,
+    String,
+    URL,
+    location: { origin: "https://chatgpt.com", href: "https://chatgpt.com/c/demo" },
+    blobAssetIds: new Map(),
+    MAX_BLOB_ASSETS: 400,
+  };
+  vm.runInNewContext(source, context, { filename: "content-blob-lookup.js" });
+  return context;
+}
+
+function batchGenerationMetas(harness) {
+  return harness.events.filter((event) => event.type === "generation-meta" && event.payload).map((event) => event.payload);
+}
+
+// Mirrors findBoundPromptForImage in content.js: the registry first, then a reverse
+// scan of metadata, both through the real imageLookupKeys.
+function resolveBoundPromptForBlob(lookup, registry, metas, blobUrl) {
+  const wanted = lookup.imageLookupKeys(blobUrl);
+  const registryResolved = registry.resolvedForImage(blobUrl);
+  if (registryResolved?.prompt) return { via: "registry", prompt: registryResolved.prompt };
+  for (let index = metas.length - 1; index >= 0; index -= 1) {
+    const meta = metas[index];
+    if (!meta.prompt) continue;
+    if (lookup.imageLookupKeys(meta.imageUrl || "", meta).some((key) => wanted.includes(key))) {
+      return { via: "network-meta", prompt: meta.prompt };
+    }
+  }
+  return { via: "none", prompt: "" };
+}
+
+test("page hook maps the estuary blob download chain to file ids and posts blob-asset", async () => {
+  const harness = createHookHarness({});
+  const response = new harness.responseClass("", {
+    url: "https://chatgpt.com/backend-api/estuary/content?id=file-qae2e000001&ts=1700000000&p=probe&cid=conversation-batch-e2e&sig=sig-value&v=2",
+  });
+  const blob = await response.blob();
+  assert.ok(blob instanceof harness.blobClass, "the page still receives its Blob");
+  const blobUrl = harness.urlClass.createObjectURL(blob);
+  const event = harness.events.find((item) => item.type === "blob-asset");
+  assert.ok(event, "blob-asset should be posted through the page bridge");
+  // Objects from another vm context fail deepEqual on prototype; compare keys instead.
+  assert.equal(Object.keys(event.payload).sort().join(","), "assetId,blobUrl", "only blobUrl and the id parameter are sent");
+  assert.equal(event.payload.blobUrl, blobUrl);
+  assert.equal(event.payload.assetId, "file-qae2e000001");
+  assert.ok(!["sig", "ts", "p", "cid", "v"].some((key) => key in event.payload), "no signature or token parameter leaks into the message");
+});
+
+test("page hook ignores non-estuary, id-less, non-file and cross-origin sources and keeps page calls intact", async () => {
+  const harness = createHookHarness({});
+  const sources = [
+    "https://chatgpt.com/backend-api/files/download/file-qae2e000001",
+    "https://chatgpt.com/backend-api/estuary/content?ts=1&sig=only-signature",
+    "https://chatgpt.com/backend-api/estuary/content?id=abc123def456",
+    "https://evil.example/backend-api/estuary/content?id=file-qae2e000001",
+  ];
+  for (const url of sources) {
+    const response = new harness.responseClass("", { url });
+    const blob = await response.blob();
+    const blobUrl = harness.urlClass.createObjectURL(blob);
+    assert.ok(blobUrl.startsWith("blob:https://chatgpt.com/"), "createObjectURL keeps working");
+  }
+  assert.equal(harness.events.filter((item) => item.type === "blob-asset").length, 0);
+  // With capture off nothing is tagged or reported, and page calls still work.
+  const disabled = createHookHarness({}, "conversation-test", { captureEnabled: false });
+  const response = new disabled.responseClass("", { url: "https://chatgpt.com/backend-api/estuary/content?id=file-qae2e000001" });
+  const blob = await response.blob();
+  disabled.urlClass.createObjectURL(blob);
+  assert.equal(disabled.events.filter((item) => item.type === "blob-asset").length, 0);
+});
+
+test("page hook blob mapping survives hook-internal errors without touching the page", async () => {
+  const harness = createHookHarness({});
+  const response = new harness.responseClass("", {});
+  Object.defineProperty(response, "url", {
+    get() {
+      throw new Error("synthetic read failure");
+    },
+  });
+  const blob = await response.blob();
+  assert.ok(blob instanceof harness.blobClass, "the original blob result is preserved");
+  const blobUrl = harness.urlClass.createObjectURL(blob);
+  assert.ok(blobUrl.startsWith("blob:"));
+  assert.equal(harness.events.filter((item) => item.type === "blob-asset").length, 0);
+  // A rejected blob() still rejects for the page.
+  class RejectingResponse extends harness.responseClass {
+    async blob() {
+      throw new Error("network died");
+    }
+  }
+  await assert.rejects(new RejectingResponse("", { url: "https://chatgpt.com/backend-api/estuary/content?id=file-qae2e000001" }).blob(), /network died/);
+});
+
+test("multi-image gallery binds every blob to its own caption via the estuary file id", async () => {
+  const harness = createHookHarness({});
+  const lookup = loadContentLookupWithBlobAssets();
+  const registry = createGenerationRegistryHarness({ imageLookupKeys: lookup.imageLookupKeys });
+  await feedBatchGalleryTurn(harness);
+  const payloads = await postBlobAssetsForBatch(harness);
+  assert.equal(payloads.length, 4);
+  for (const payload of payloads) assert.ok(lookup.rememberBlobAsset(payload), "each mapping passes content-side validation");
+
+  const metas = batchGenerationMetas(harness);
+  for (const meta of metas) registry.remember(meta);
+  const blobUrls = harness.createdObjectUrls.map((entry) => entry.blobUrl);
+  assert.equal(blobUrls.length, 4);
+  for (const [index, [fileId, caption]] of BATCH_FILES.entries()) {
+    const blobUrl = blobUrls[index];
+    const wanted = lookup.imageLookupKeys(blobUrl);
+    assert.ok(wanted.includes(`asset:${fileId}`), `blob ${index} must carry its own file id key`);
+    const outcome = resolveBoundPromptForBlob(lookup, registry, metas, blobUrl);
+    assert.equal(outcome.prompt, caption, `image ${index} must get its own caption by file id, not by position`);
+    assert.ok(!outcome.prompt.includes("Generated images from the last"), "the tool status sentence is never a caption");
+  }
+});
+
+test("the same gallery without blob-asset mappings still fails closed on prompts", async () => {
+  const harness = createHookHarness({});
+  const lookup = loadContentLookupWithBlobAssets();
+  const registry = createGenerationRegistryHarness({ imageLookupKeys: lookup.imageLookupKeys });
+  await feedBatchGalleryTurn(harness);
+  const metas = batchGenerationMetas(harness);
+  for (const meta of metas) registry.remember(meta);
+  for (const [index, [fileId]] of BATCH_FILES.entries()) {
+    const blobUrl = `blob:https://chatgpt.com/unmapped-${index}-test`;
+    const wanted = lookup.imageLookupKeys(blobUrl);
+    assert.equal(wanted.some((key) => key === `asset:${fileId}`), false, "no file id key without the mapping");
+    assert.ok(!registry.resolvedForImage(blobUrl)?.prompt, "the registry must not hand out any prompt");
+    const bound = metas.find((meta) => meta.prompt && lookup.imageLookupKeys(meta.imageUrl || "", meta).some((key) => wanted.includes(key)));
+    assert.equal(bound, undefined, "no caption may bind to an unmapped blob");
+  }
+});
+
+test("batch_requests with 4 entries leaves the request prompt empty instead of guessing", async () => {
+  const harness = createHookHarness({});
+  await feedBatchGalleryTurn(harness);
+  const metas = batchGenerationMetas(harness);
+  assert.ok(metas.length >= 8, "tool captions and final-message asset events should be emitted");
+  for (const meta of metas) {
+    assert.equal(meta.generationRequestPrompt || "", "", "no per-image request prompt may be assigned in a batch turn");
+    for (const requestPrompt of BATCH_REQUEST_PROMPTS) {
+      assert.notEqual(meta.prompt || "", requestPrompt, "no image may receive a sibling request prompt");
+    }
+    assert.ok(!(meta.prompt || "").includes("batch_requests"), "the raw batch JSON must never become a prompt");
+  }
+  const captions = metas.filter((meta) => meta.prompt).map((meta) => meta.prompt);
+  assert.equal(captions.length, 4, "exactly the four tool captions survive as prompts");
+  assert.deepEqual(new Set(captions).size, 4, "all four captions stay distinct");
+});
+
+test("content-side blob-asset validation drops cross-origin urls and malformed ids", () => {
+  const lookup = loadContentLookupWithBlobAssets();
+  assert.equal(lookup.rememberBlobAsset({ blobUrl: "blob:https://evil.example/mosa-1", assetId: "file-qae2e000001" }), null, "cross-origin blob is dropped");
+  assert.equal(lookup.rememberBlobAsset({ blobUrl: "blob:https://chatgpt.com/mosa-2", assetId: "sediment://file-qae2e000002" }), null, "pointer-shaped id is dropped");
+  assert.equal(lookup.rememberBlobAsset({ blobUrl: "https://chatgpt.com/backend-api/estuary/content?id=file-qae2e000003", assetId: "file-qae2e000003" }), null, "non-blob url is dropped");
+  const ok = lookup.rememberBlobAsset({ blobUrl: "blob:https://chatgpt.com/mosa-4", assetId: "file-qae2e000004" });
+  assert.equal(ok?.blobUrl, "blob:https://chatgpt.com/mosa-4");
+  assert.equal(ok?.assetId, "file-qae2e000004");
+  assert.ok(lookup.imageLookupKeys("blob:https://chatgpt.com/mosa-4").includes("asset:file-qae2e000004"));
+  assert.equal(lookup.imageLookupKeys("blob:https://evil.example/mosa-1").some((key) => key.startsWith("asset:")), false);
+  // The table is bounded and drops the oldest entries first.
+  for (let index = 0; index < 400; index += 1) {
+    lookup.rememberBlobAsset({ blobUrl: `blob:https://chatgpt.com/overflow-${index}`, assetId: "file-qae2e000004" });
+  }
+  assert.equal(lookup.blobAssetIds.size, 400);
+  assert.equal(lookup.blobAssetIds.has("blob:https://chatgpt.com/mosa-4"), false);
 });

@@ -71,6 +71,9 @@
   const autoStabilityTimers = new Map();
   const savedGenerationStatuses = new Map();
   const SESSION_CACHE_MAX = 4096;
+  /** blob: URL -> estuary file id, from the page hook's blob-asset messages. */
+  const blobAssetIds = new Map();
+  const MAX_BLOB_ASSETS = 400;
   let generationRegistry = null;
   const failedAt = new Map(); // key -> timestamp, retry after cooldown
   const sizeFailureStates = new Map(); // stable image identity -> bounded small-file retry state
@@ -274,6 +277,44 @@
     return /^[a-z0-9][a-z0-9._:-]{2,200}$/i.test(raw) ? raw : "";
   }
 
+  // The page hook reports which estuary file each blob: URL was made from.
+  // Accept only same-origin blob: URLs and file_ ids; the mapping only adds an
+  // asset:<fileId> lookup key so the existing bindings match by file id.
+  function isTrustedBlobAssetUrl(value) {
+    const raw = String(value || "").trim();
+    if (!/^blob:/i.test(raw)) return false;
+    try {
+      // Some engines report "null" as a blob: URL's origin, so compare the
+      // inner URL's origin instead.
+      const inner = new URL(raw.slice(5));
+      const origin = location.origin || new URL(location.href).origin;
+      return inner.origin === origin && /^\/[A-Za-z0-9._:-]+$/.test(inner.pathname);
+    } catch {
+      return false;
+    }
+  }
+
+  function normalizeBlobAssetId(value) {
+    const raw = String(value || "").trim();
+    return /^file[-_][A-Za-z0-9]{6,}$/i.test(raw) ? raw : "";
+  }
+
+  function rememberBlobAsset(payload) {
+    const blobUrl = String(payload?.blobUrl || "").trim();
+    const assetId = normalizeBlobAssetId(payload?.assetId);
+    if (!isTrustedBlobAssetUrl(blobUrl) || !assetId) return null;
+    blobAssetIds.delete(blobUrl);
+    blobAssetIds.set(blobUrl, assetId);
+    while (blobAssetIds.size > MAX_BLOB_ASSETS) blobAssetIds.delete(blobAssetIds.keys().next().value);
+    return { blobUrl, assetId };
+  }
+
+  function blobAssetIdForUrl(value) {
+    const url = String(value || "").trim();
+    if (!isTrustedBlobAssetUrl(url)) return "";
+    return blobAssetIds.get(url) || "";
+  }
+
   function imageLookupKeys(imageUrl, meta = {}) {
     const keys = [];
     const explicitKey = String(meta.imageKey || "").trim();
@@ -283,6 +324,11 @@
 
     const direct = String(imageUrl || "").trim();
     if (/^(?:estuary|asset|url):/.test(direct)) keys.push(direct);
+    // A gallery blob: URL matches its generation through the reported file id.
+    if (/^blob:/i.test(direct)) {
+      const mappedAssetId = blobAssetIdForUrl(direct);
+      if (mappedAssetId) keys.push(`asset:${mappedAssetId}`);
+    }
     const proxy = chatGptImageProxyInfo(direct);
     if (proxy) {
       keys.push(proxy.imageKey, `asset:${proxy.assetId}`);
@@ -2322,6 +2368,12 @@
       if (!isLikelyGeneratedUrl(imageUrl)) return;
       if (w > 0 && h > 0 && (w < MIN_EDGE || h < MIN_EDGE)) return;
       enqueueDomCandidateForImage(imageUrl, "dom-hook");
+    }
+
+    // The image may render before its mapping arrives; re-check that one image.
+    if (data.type === "blob-asset" && data.payload) {
+      const mapping = rememberBlobAsset(data.payload);
+      if (mapping && autoCapture) enqueueDomCandidateForImage(mapping.blobUrl, "blob-asset");
     }
   });
 
