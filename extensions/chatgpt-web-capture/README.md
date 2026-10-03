@@ -1,4 +1,4 @@
-# MOSA Web Capture（0.15.19）
+# MOSA Web Capture（0.15.20）
 
 把 **ChatGPT、Gemini、Flow 和 Google AI Studio 网页**中用户可见的生成媒体归档到本机 MOSA。ChatGPT 支持图片提示词关联；Flow 与 Google AI Studio 同时支持已识别的视频，Gemini、Flow 与 Google AI Studio 的页面可见 Prompt 均明确标为未验证。
 
@@ -58,6 +58,8 @@ ChatGPT 网页捕获现在会把“媒体”和“生成事件”分开记录。
 自 `0.15.18` 起，新会话在地址栏尚未出现 `/c/<conversationId>` 时，实时 transport 中已经观察到的 conversation identity 会先作为当前会话身份使用；随后 URL 获得同一 ID 只做身份补全，不再清空 live-only 的 Model caption、ImageGen request Prompt 或 generation registry。ChatGPT 的 `blob:` 输出若所在 DOM wrapper 同时列出 displayed/commentary 等多个 message ID，只有这些 ID 全部能唯一归并到同一个 Generation Attempt 时才允许绑定；跨 retry/失败 Attempt 或存在未知 message ID 时仍保持 fail-closed。
 
 自 `0.15.19` 起，ChatGPT 新版"一轮多张图"画廊（大图 + 缩略图条，页面上只有同源 `blob:` 地址、同一消息 ID 重复 N 次）不再因此全部丢失 Model caption。页面取生成图的固定链路是 `fetch /backend-api/estuary/content?id=file_X` → `Response.blob()` → `URL.createObjectURL()`；page-hook 会把"下载得到的 Blob → 文件编号 file_X"记进 WeakMap，并在 `createObjectURL` 时经既有页面通道发出 `blob-asset` 消息，内容脚本只在校验同源 `blob:` 与 `file_` 形态编号后把 `blob:` 地址补进图片身份键。绑定因此直接按文件编号对上实时推送里各图的 caption，不再依赖消息 ID（消息 ID 在多次生成时按设计放弃绑定）；对应关系只发送 `id` 这一个参数，`sig`/`p`/`cid`/`ts` 等签名或令牌参数不读取、不保存、不发送。批量请求（`batch_requests` 多条）下的"提示词2"（`generation_request_prompt`）保持留空：页面上没有能把某张图可靠对应到第几条请求的证据（final 消息中途的图片顺序是完成顺序），宁可缺也不配错。
+
+自 `0.15.20` 起，画廊里没点开的图也会入库：只要某个 `blob:` 地址有文件编号映射且注册表里有该文件编号的生成证据，缩略图不再要求 `<img>` 加载完成——字节直接按 `blob:` 地址从页面内存读取，真实宽高由解码后的字节判定（仍套用"已证明生成图"的 256px 最小边），大图与缩略图共用同一 `blob:` 身份，依旧只入库一次。
 
 MOSA 会在本地为同一 ChatGPT conversation 的 Generation Event 计算“关系候选”，但不会自动写成正式父子边。明确复用先前生成图的 provider asset ID 是强证据；“再改一下 / 把背景换黑 / 保持其他不变”等修改型用户指令、相邻生成和时间距离只能作为辅助信号。候选必须由用户确认后才进入正式生成树；只因为两张图前后出现，不会自动建立版本关系。
 
