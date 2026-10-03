@@ -417,13 +417,13 @@ body.asset-stack-dragging { cursor: grabbing; user-select: none; }
 .asset-card .thumb-video-frame.is-frame-ready { opacity: 1; }
 .asset-card .video-badge { position: absolute; right: var(--space-1); bottom: var(--space-1); display: inline-flex; width: 26px; height: 26px; align-items: center; justify-content: center; border: 1px solid rgb(255 255 255 / .58); border-radius: 50%; color: var(--color-media-backdrop); background: rgb(255 255 255 / .72); box-shadow: 0 2px 8px rgb(0 0 0 / .12); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); font-size: 11px; line-height: 1; }
 
-/* 卡片快捷操作（Phase 1C 契约，Phase 1C.1 收口）：.card-actions > button.card-action-btn.card-favorite /
-   .card-quick-copy，28px 悬浮按钮组（IconButton 原语消费方；与 Phase 1B 兼容档 .icon-button 的
+/* 卡片快捷操作（Phase 1C 契约，Phase 1C.1 收口）：.card-actions > button.card-action-btn.card-favorite，
+   28px 悬浮按钮组（R21 去掉了原来的快捷复制按钮，复制提示词在右键菜单和检视器里）（IconButton 原语消费方；与 Phase 1B 兼容档 .icon-button 的
    28×28 点击面积对齐，不低于兼容档；32px 标准档 --control-sm 的迁移登记 Phase 2 评估）。
    点击面积 28×28 与图标视觉尺寸 14px 分离；定位于缩略图右上，与左上角批量复选框无交叠。
    容器恒为 pointer-events: none，命中测试直达卡片本体，可点性仅由可见的子按钮承担。
    背景/边框/阴影全部消费语义 Token，保证深浅主题与复杂图片上均清晰；无随机黑白 rgba、无毛玻璃。
-   子按钮级渐进披露（收藏卡默认仅星标常显；hover/focus-within/selected 双按钮显现；触摸回退；
+   子按钮级渐进披露（收藏卡默认仅星标常显；hover/focus-within/selected 时显现；触摸回退；
    批量 disabled 抑制）见文末「卡片快捷操作披露契约（Phase 1C）」节；hover/active 状态色经
    Phase 1B 按钮原语契约节统一消费。 */
 .card-actions { position: absolute; z-index: var(--z-card-overlay); top: var(--space-1); right: var(--space-1); display: flex; gap: var(--space-1); pointer-events: none; }
@@ -1001,10 +1001,9 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
    visibility:hidden / hidden 属性 / tabindex="-1" —— 键盘 Tab 始终可达快捷操作，
    焦点进入时 :focus-within 立即令操作区可见；披露不改变几何，无布局位移。
    Phase 1C.1 收口：披露粒度从整个 .card-actions 容器下沉到子按钮——
-   · 普通未选中卡：收藏与快速复制默认均收敛；
-   · 收藏卡：默认仅星标（.is-fav）常显表达收藏状态，快速复制仍渐进披露，
-     收藏数量增加后不再满屏双按钮；星标仍可直接点击取消收藏；
-   · hover / focus-within / selected：两个按钮均显现（F-07 批准验收的三条路径）。 */
+   · 普通未选中卡：收藏按钮默认收敛；
+   · 收藏卡：星标（.is-fav）常显表达收藏状态，仍可直接点击取消收藏；
+   · hover / focus-within / selected：按钮显现（F-07 批准验收的三条路径）。 */
 @media (hover: hover) and (pointer: fine) {
   .card-action-btn { opacity: 0; pointer-events: none; }
   .card-action-btn.card-favorite.is-fav { opacity: 1; pointer-events: auto; }
@@ -1214,7 +1213,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .card-favorite:not(.is-fav):hover { color: rgb(255 255 255 / .88); background: transparent; opacity: 1; }
   .mosa-v2 .card-favorite.is-fav:hover { color: var(--color-danger); background: transparent; opacity: .82; }
 }
-.mosa-v2 .card-quick-copy { display: none; }
 .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--gallery-gap); padding: 0; }.mosa-v2 .asset-skeleton { border-radius: 8px; background: linear-gradient(100deg, var(--app-search) 30%, var(--app-search-focus) 45%, var(--app-search) 60%); }.mosa-v2 .gallery-empty-state, .mosa-v2 .error-state { color: var(--color-text-tertiary); }.mosa-v2 .empty-state-actions .btn-primary { background: #2424ff; }
 
 .mosa-v2 .settings-menu { border: 1px solid rgb(255 255 255 / .68); border-radius: 16px; background: rgb(from var(--app-menu) r g b / .92); box-shadow: 0 18px 42px -10px rgb(0 0 0 / .16); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); }

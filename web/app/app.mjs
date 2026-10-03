@@ -1913,17 +1913,6 @@ function bindEvents() {
       void toggleFavorite(favoriteButton.dataset.favId, event);
       return;
     }
-    const copyButton = event.target.closest(".card-quick-copy");
-    if (copyButton) {
-      event.stopPropagation();
-      void runAction(async () => {
-        const assetId = copyButton.closest(".asset-card")?.dataset.id;
-        const asset = state.assets.find((item) => item.id === assetId);
-        await writeClipboardText(asset?.prompt || "");
-        showToast(t("copySuccess"), "success");
-      });
-      return;
-    }
     const selectButton = event.target.closest(".asset-card-select");
     if (selectButton) {
       // A browser emits the second click before dblclick. Let the dedicated
@@ -3898,11 +3887,9 @@ function renderGrid() {
   const focusedAssetId = focusedCard?.dataset.id || null;
   const focusedAction = focusedElement?.classList.contains("card-favorite")
     ? "favorite"
-    : focusedElement?.classList.contains("card-quick-copy")
-      ? "copy"
-      : focusedElement?.classList.contains("asset-card-select")
-        ? "select"
-        : null;
+    : focusedElement?.classList.contains("asset-card-select")
+      ? "select"
+      : null;
   const cardInfo = state.showCardInfo ? "show" : "hide";
   els.assetGrid.dataset.cardInfo = cardInfo;
   els.assetGrid.dataset.loadedAssets = String(state.assets.length);
@@ -4000,9 +3987,7 @@ function renderGrid() {
       const card = els.assetGrid?.querySelector(`.asset-card[data-id="${CSS.escape(focusedAssetId)}"]`);
       const replacement = focusedAction === "favorite"
         ? card?.querySelector(".card-favorite")
-        : focusedAction === "copy"
-          ? card?.querySelector(".card-quick-copy")
-          : card?.querySelector(".asset-card-select");
+        : card?.querySelector(".asset-card-select");
       if (replacement instanceof HTMLElement) replacement.focus({ preventScroll: true });
       else els.assetGrid?.focus({ preventScroll: true });
     });
@@ -4046,14 +4031,14 @@ function buildGalleryCardEntry(asset, ordinal, animateCard) {
   const info = `<div class="asset-card-info"><p class="asset-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</p><p class="asset-card-meta"><span>${escapeHtml(sourceLabel)}</span><span>${escapeHtml(date)}</span>${badgeMarkup}</p></div>`;
   const isFav = asset.favorite;
   const favoriteLabel = isFav ? t("removeFavorite") : t("addFavorite");
-  // Phase 1C/1C.1 契约：.card-actions > button.card-action-btn.card-favorite / .card-quick-copy，
+  // Phase 1C/1C.1 契约：.card-actions > button.card-action-btn.card-favorite，
   // 业务 class 与 data 属性全部保留（现有事件绑定依赖）；aria-pressed 表达收藏态。
+  // 卡片上原有的快捷复制按钮随 R21 去掉：复制提示词在右键菜单和检视器里。
   const favBtn = `<button class="card-action-btn card-favorite${isFav ? " is-fav" : ""}" type="button" data-fav-id="${escapeHtml(asset.id)}" aria-pressed="${Boolean(isFav)}" aria-label="${escapeHtml(favoriteLabel)}" title="${escapeHtml(favoriteLabel)}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.95 5.97 6.59.96-4.77 4.65 1.13 6.57L12 17.57l-5.9 3.08 1.13-6.57-4.77-4.65 6.59-.96L12 2.5z"/></svg></button>`;
-  const copyBtn = `<button class="card-action-btn card-quick-copy" type="button" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button>`;
   // Trash cards expose restore/permanent-delete through the Trash actions,
-  // so do not render favorite/copy controls there at all. Removing the
+  // so do not render the favorite control there at all. Removing the
   // focusable controls from the markup is safer than hiding them with CSS.
-  const cardActions = state.scope === "trash" ? "" : `<div class="card-actions">${favBtn}${copyBtn}</div>`;
+  const cardActions = state.scope === "trash" ? "" : `<div class="card-actions">${favBtn}</div>`;
   const stackBadge = isStack
     ? `<span class="asset-stack-count" aria-hidden="true">${stackHasPartialMatch ? `${stackMatchCount}/${Number(asset.stack.count)}` : Number(asset.stack.count)}</span>`
     : "";

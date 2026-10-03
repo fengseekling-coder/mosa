@@ -542,11 +542,9 @@ test("gallery card actions use grid-level delegation instead of per-card closure
   const render = sliceBetween(app, "function renderGrid()", "/** Routed through the state machine");
 
   assert.match(bind, /event\.target\.closest\("\.card-favorite"\)/);
-  assert.match(bind, /event\.target\.closest\("\.card-quick-copy"\)/);
   assert.match(bind, /event\.target\.closest\("\.asset-card-select"\)/);
   assert.match(bind, /els\.assetGrid\?\.addEventListener\("dblclick"/);
   assert.doesNotMatch(render, /querySelectorAll\("\.asset-card-select"\)\.forEach/);
-  assert.doesNotMatch(render, /querySelectorAll\("\.card-quick-copy"\)\.forEach/);
   assert.doesNotMatch(render, /querySelectorAll\("\.card-favorite"\)\.forEach/);
 });
 
