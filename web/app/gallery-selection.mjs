@@ -534,8 +534,10 @@ export function createGallerySelection({
     box.style.width = `${Math.max(0, clippedRight - clippedLeft)}px`;
     box.style.height = `${Math.max(0, clippedBottom - clippedTop)}px`;
 
+    // A plain marquee replaces the selection with exactly the swept cards; the
+    // card open in the Inspector joins only through Shift (additive), like
+    // Finder. Its single-selection highlight clears once the batch is non-empty.
     const next = pointer.additive ? new Set(pointer.additiveBaseSelection) : new Set();
-    if (!pointer.additive && pointer.promoteDetailId) next.add(pointer.promoteDetailId);
     // When a marquee starts on top of a card, that origin card is part of the
     // user's intended sweep even for a right-to-left / bottom-to-top drag.
     // Keeping it explicitly also avoids a one-pixel boundary miss at the exact
@@ -595,7 +597,6 @@ export function createGallerySelection({
     const startCard = event.target.closest?.(".asset-card");
     if (startCard && !event.shiftKey) return;
     const explicitSelection = ensureSelectionSet();
-    const promoteDetailId = explicitSelection.size ? "" : currentDetailSelectionId();
     pointer = {
       id: event.pointerId,
       startX: event.clientX,
@@ -606,7 +607,6 @@ export function createGallerySelection({
       baseSelection: new Set(explicitSelection),
       additiveBaseSelection: event.shiftKey ? additiveSelectionBase() : new Set(explicitSelection),
       baseStackNodes: new Map(ensureStackSelectionMap()),
-      promoteDetailId,
       startCardId: startCard?.dataset.id || "",
       dragging: false,
     };

@@ -1,6 +1,6 @@
 // 任务 43 契约：检视器里其余低对比度文字在浅色作用域加深到 ≥4.5:1（WCAG AA）。
 // 只读 web/app/styles.css。锁定：每一处的新颜色、新颜色只出现在浅色作用域、
-// 全局 token --color-text-tertiary 的值未被改动（侧栏/画廊等仍在用）。
+// 全局 token --color-text-tertiary 的值（浅色在任务 50 加深为 AA #67676d，深色保持原值）。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -46,8 +46,8 @@ test("the AA greys stay in the light scope and the tertiary token keeps its valu
   for (const hex of ["#8d8d93", "#929297"]) {
     assert.equal(selectorsUsingColor(css, hex).length, 0, `${hex} must be gone from declarations`);
   }
-  // --color-text-tertiary 的两个主题值原样保留（本任务只加检视器内的浅色覆盖）。
-  assert.match(css, /--color-text-tertiary: #85858b;/, "light tertiary token value unchanged");
+  // --color-text-tertiary：浅色在任务 50 加深到 AA #67676d，深色保持原值。
+  assert.match(css, /--color-text-tertiary: #67676d;/, "light tertiary token is the AA #67676d");
   assert.match(css, /--color-text-tertiary: #a0a0a6;/, "dark tertiary token value unchanged");
 });
 
