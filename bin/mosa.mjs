@@ -109,7 +109,7 @@ async function runThumbnails(values) {
   try {
     const migration = await store.migrationStatus();
     if (migration.migration_state !== "completed") throw new Error("Run `mosa migrate` successfully before rebuilding derivatives.");
-    const queued = await store.enqueueMissingDerivatives();
+    const queued = await store.enqueueMissingDerivatives({ mode: action });
     const worker = createDerivativeWorker({ store });
     worker.start();
     try {
@@ -119,7 +119,7 @@ async function runThumbnails(values) {
       while (true) {
         const status = await store.derivativeStatus();
         if (!status.pending && !status.running) {
-          console.log(JSON.stringify({ queued, status }, null, 2));
+          console.log(JSON.stringify({ queued, status, mode: action }, null, 2));
           process.exitCode = status.failed ? 1 : 0;
           break;
         }
@@ -179,5 +179,7 @@ function printHelp() {
   mosa restore --from <backup-dir> --to <empty-library-dir>
   mosa visual-model-verify --from <model-pack-dir>
   mosa thumbnails <rebuild|repair> [--library <path>]
+    rebuild  regenerate every eligible asset's derivatives from the original, present or not
+    repair   enqueue only assets with missing derivative metadata or derivative files missing on disk
 `);
 }

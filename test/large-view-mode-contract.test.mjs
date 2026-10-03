@@ -186,18 +186,16 @@ test("10. single click inspects, double click views, and Stack double click ente
 // 11. The card favourite quick action does not bubble.
 test("11. favourite quick action does not bubble", async () => {
   const app = await readApp();
-  const fav = sliceBetween(app, 'const favoriteButton = event.target.closest(".card-favorite")', 'const copyButton = event.target.closest(".card-quick-copy")');
+  const fav = sliceBetween(app, 'const favoriteButton = event.target.closest(".card-favorite")', 'const selectButton = event.target.closest(".asset-card-select")');
   assert.match(fav, /event\.stopPropagation\(\)/, "favourite click must not bubble to the card");
   assert.match(fav, /void toggleFavorite\(favoriteButton\.dataset\.favId, event\)/, "favourite click keeps its action");
 });
 
-// 12. The card copy quick action does not bubble.
-test("12. copy quick action does not bubble", async () => {
+// 12. R21 removed the card quick-copy button; copying a prompt lives in the
+//     right-click menu and the Inspector, so the grid has no copy handler.
+test("12. the removed card quick-copy has no grid handler", async () => {
   const app = await readApp();
-  const copy = sliceBetween(app, 'const copyButton = event.target.closest(".card-quick-copy")', 'const selectButton = event.target.closest(".asset-card-select")');
-  assert.match(copy, /event\.stopPropagation\(\)/, "copy click must not bubble to the card");
-  assert.match(copy, /const assetId = copyButton\.closest\("\.asset-card"\)\?\.dataset\.id;/, "copy resolves the owning asset without embedding its prompt in DOM");
-  assert.match(copy, /writeClipboardText\(asset\?\.prompt \|\| ""\)/, "copy click keeps its clipboard action");
+  assert.doesNotMatch(app, /card-quick-copy/, "no markup, handler or focus path may reference the removed button");
 });
 
 // 13. The return control is a native button whose accessible name contains the
@@ -383,16 +381,13 @@ test("30. shell three-mode contract preserved", async () => {
   assert.match(fallback, /\.asset-view \{ min-height: 56vh; \}/, "asset view follows the fallback min-height");
 });
 
-// 31. The card quick-action contract (favourite + copy, stopPropagation) is intact.
+// 31. The card quick-action contract (favourite, stopPropagation) is intact.
 test("31. card quick-action contract preserved", async () => {
   const app = await readApp();
-  assert.match(app, /<div class="card-actions">\$\{favBtn\}\$\{copyBtn\}<\/div>/, "card actions keep both quick buttons");
-  const fav = sliceBetween(app, 'const favoriteButton = event.target.closest(".card-favorite")', 'const copyButton = event.target.closest(".card-quick-copy")');
-  const copy = sliceBetween(app, 'const copyButton = event.target.closest(".card-quick-copy")', 'const selectButton = event.target.closest(".asset-card-select")');
+  assert.match(app, /<div class="card-actions">\$\{favBtn\}<\/div>/, "card actions keep the favourite button");
+  const fav = sliceBetween(app, 'const favoriteButton = event.target.closest(".card-favorite")', 'const selectButton = event.target.closest(".asset-card-select")');
   assert.match(fav, /event\.stopPropagation\(\)/, "favourite keeps its bubbling guard");
   assert.match(fav, /void toggleFavorite\(favoriteButton\.dataset\.favId, event\)/, "favourite keeps its action");
-  assert.match(copy, /event\.stopPropagation\(\)/, "copy keeps its bubbling guard");
-  assert.match(copy, /void runAction\(async \(\) => \{/, "copy keeps its async action wrapper");
 });
 
 // 32. The new CSS introduces no !important.

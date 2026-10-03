@@ -154,8 +154,6 @@ export function createAssetStackController({
     const inside = Boolean(state.activeStackId);
     if (els.stackBack) els.stackBack.hidden = !inside;
     if (els.sortSelect) els.sortSelect.closest(".sort-control")?.toggleAttribute("hidden", inside);
-    if (els.selectionStack) els.selectionStack.hidden = inside;
-    if (els.selectionRemoveFromStack) els.selectionRemoveFromStack.hidden = !inside;
     renderQuickFilters();
     updateViewTitle();
   }
@@ -163,10 +161,7 @@ export function createAssetStackController({
   function setMutationBusy(busy) {
     mutationInFlight = Boolean(busy);
     if (els.stackBack) els.stackBack.disabled = mutationInFlight;
-    if (mutationInFlight) {
-      if (els.selectionStack) els.selectionStack.disabled = true;
-      if (els.selectionRemoveFromStack) els.selectionRemoveFromStack.disabled = true;
-    } else {
+    if (!mutationInFlight) {
       gallerySelection.syncRenderedSelection({ prune: false });
     }
   }
@@ -688,8 +683,6 @@ export function createAssetStackController({
     window.addEventListener("pointercancel", (event) => endPointer(event, { canceled: true }));
     window.addEventListener("blur", () => { cancelPointerGesture(); });
     els.stackBack?.addEventListener("click", () => { void exitStack(); });
-    els.selectionStack?.addEventListener("click", () => { void createStackFromSelection(); });
-    els.selectionRemoveFromStack?.addEventListener("click", () => { void removeSelectedFromStack(); });
     window.addEventListener("mosa:active-stack-missing", (event) => {
       if (!state.activeStackId || event.detail?.stackId !== state.activeStackId) return;
       void exitStack();

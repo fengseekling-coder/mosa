@@ -47,7 +47,12 @@ function sourceTypeLabel(type) {
 }
 
 const preference = safeStorageGet("mosa.ui-language") || "system";
-const INSPECTOR_DOCKED_MEDIA = "(min-width: 701px)";
+// The inspector docks as a fixed right column only where the desktop layout
+// applies. This must match the ≤767px drawer breakpoint (MOBILE_NAVIGATION_QUERY
+// and styles.css): docking at 701–767 force-opened the inspector, and the drawer
+// stylesheet hides the drawer toggle while the inspector is open, so navigation
+// became unreachable in that band.
+const INSPECTOR_DOCKED_MEDIA = "(min-width: 768px)";
 
 function isInspectorDocked() {
   return typeof window.matchMedia === "function" && window.matchMedia(INSPECTOR_DOCKED_MEDIA).matches;
@@ -195,12 +200,6 @@ Object.assign(els, {
   assetZoomOut: document.querySelector("#assetZoomOut"),
   assetZoomIn: document.querySelector("#assetZoomIn"),
   assetZoomFit: document.querySelector("#assetZoomFit"),
-  selectionBar: document.querySelector("#selectionBar"),
-  selectionCount: document.querySelector("#selectionCount"),
-  selectionSelectAll: document.querySelector("#selectionSelectAll"),
-  selectionClear: document.querySelector("#selectionClear"),
-  selectionStack: document.querySelector("#selectionStack"),
-  selectionRemoveFromStack: document.querySelector("#selectionRemoveFromStack"),
   stackBack: document.querySelector("#stackBack"),
   emptyTrashBtn: document.querySelector("#emptyTrashBtn"),
   assetZoomValue: document.querySelector("#assetZoomValue"),
@@ -275,6 +274,44 @@ const batchImporter = createBatchImporter({
 
 const nativeAssetDrag = createNativeAssetDrag({ els, state, showToast, t });
 
+// 外部修改重画检视器时焦点不能丢：整块 innerHTML 替换前记下焦点控件的稳定
+// data-* 描述，重画后按描述找回新按钮；找不到回落 #detailTitle（renderDetail
+// 自身的 hadPanelFocus 处理兜底），绝不落到 body。
+function detailFocusDescriptor(element) {
+  const attributes = {};
+  for (const [key, value] of Object.entries(element.dataset || {})) attributes[key] = value;
+  return Object.keys(attributes).length ? { attributes } : null;
+}
+
+function detailFocusSelectors({ attributes }) {
+  const dataName = (key) => key.replace(/[A-Z]/g, (character) => `-${character.toLowerCase()}`);
+  const selector = (subset) => Object.entries(subset)
+    .map(([key, value]) => `[data-${dataName(key)}="${CSS.escape(value)}"]`)
+    .join("");
+  const candidates = [selector(attributes)];
+  // 全属性找不到（外部改了标签值等）时放宽到主 action 属性。
+  if (attributes.action) candidates.push(selector({ action: attributes.action }));
+  return candidates;
+}
+
+function renderDetailPreservingFocus() {
+  const panel = els.detailPanel;
+  const active = document.activeElement;
+  const descriptor = active instanceof HTMLElement && panel?.contains(active)
+    ? detailFocusDescriptor(active)
+    : null;
+  renderDetail();
+  if (!descriptor) return;
+  for (const selector of detailFocusSelectors(descriptor)) {
+    const replacement = panel?.querySelector(selector);
+    if (replacement) {
+      replacement.focus({ preventScroll: true });
+      return;
+    }
+  }
+  (panel?.querySelector("#detailTitle") || panel)?.focus?.({ preventScroll: true });
+}
+
 // ===== Library Change 增量 reconciliation =====
 // 数据层（library-reconciliation.mjs）负责 classify → fetch affected → reconcile
 // → advance revision；本模块注入定向 DOM 提交与渲染回调。普通库变更走这条
@@ -293,7 +330,7 @@ const librarySync = createLibraryReconciler({
   performFullReconciliation: performFullGalleryReconciliation,
   commitGalleryChanges: commitIncrementalGalleryChanges,
   gallerySelection,
-  renderDetail,
+  renderDetail: () => renderDetailPreservingFocus(),
   isDetailEditorActive,
   refreshSelectedStackInspector,
   refreshSelectedGenerationHistory: async () => {
@@ -676,8 +713,10 @@ async function toggleFavorite(id, event) {
       const gridButton = els.assetGrid?.querySelector(`.card-favorite[data-fav-id="${CSS.escape(id)}"]`);
       // Only patch the Inspector button when it actually renders this asset;
       // otherwise a favorite toggle on one card would overwrite the star of a
-      // different asset currently open in the detail panel.
-      const detailShowsAsset = state.detailAsset?.id === id && state.detailAsset?.project_id === projectId;
+      // different asset currently open in the detail panel. A plain selection
+      // keeps state.detailAsset null (the inspector renders from state.assets),
+      // so "is the inspector showing this asset" keys off the selection.
+      const detailShowsAsset = state.detailOpen && state.selectedId === id && state.project === projectId;
       const detailButton = detailShowsAsset ? els.detailPanel?.querySelector('[data-action="toggle-favorite"]') : null;
       if (trigger instanceof HTMLElement && trigger.isConnected) applyFavoriteButtonState(trigger, favorite);
       if (gridButton instanceof HTMLElement && gridButton !== trigger) applyFavoriteButtonState(gridButton, favorite);
@@ -1551,8 +1590,34 @@ const contextMenuActions = createContextMenuActions({
   copyOriginalImage: writeClipboardImage,
   isVideoAsset,
   pasteClipboardImage: window.electronAPI?.pasteImage ? pasteClipboardImage : null,
+  assetStacks,
+  emptyTrash: emptyTrashWithConfirmation,
   gallerySelection,
 });
+
+// 顶栏“清空回收站”按钮与回收站空白处右键菜单共用的同一段确认 + 批量删除。
+async function emptyTrashWithConfirmation() {
+  if (state.scope !== "trash" || !Number(state.groups?.trash || 0)) return;
+  const confirmed = await requestConfirmation({
+    title: t("emptyTrashTitle"),
+    description: t("emptyTrashDescription"),
+    confirmLabel: t("emptyTrash"),
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  await runAction(async () => {
+    await releaseAssetMediaForDeletion(state.assets);
+    const result = await apiFetch("/api/trash", { method: "DELETE", body: { projectId: state.project } });
+    if (result.partial) {
+      showToast(t("trashPartialDelete", { count: result.failed?.length || 0 }), "error");
+    } else {
+      showToast(t("trashEmptied"), "success");
+    }
+    clearDetailSelection();
+    gallerySelection.clear();
+    await Promise.all([loadStats(), loadAssets()]);
+  });
+}
 
 async function releaseAssetMediaForDeletion(assets = []) {
   const ids = new Set(assets.map((asset) => asset?.id).filter(Boolean));
@@ -1848,17 +1913,6 @@ function bindEvents() {
       void toggleFavorite(favoriteButton.dataset.favId, event);
       return;
     }
-    const copyButton = event.target.closest(".card-quick-copy");
-    if (copyButton) {
-      event.stopPropagation();
-      void runAction(async () => {
-        const assetId = copyButton.closest(".asset-card")?.dataset.id;
-        const asset = state.assets.find((item) => item.id === assetId);
-        await writeClipboardText(asset?.prompt || "");
-        showToast(t("copySuccess"), "success");
-      });
-      return;
-    }
     const selectButton = event.target.closest(".asset-card-select");
     if (selectButton) {
       // A browser emits the second click before dblclick. Let the dedicated
@@ -1906,28 +1960,7 @@ function bindEvents() {
     }
     void openAssetView(id, selectButton);
   });
-  els.emptyTrashBtn?.addEventListener("click", async () => {
-    if (state.scope !== "trash" || !Number(state.groups?.trash || 0)) return;
-    const confirmed = await requestConfirmation({
-      title: t("emptyTrashTitle"),
-      description: t("emptyTrashDescription"),
-      confirmLabel: t("emptyTrash"),
-      tone: "danger",
-    });
-    if (!confirmed) return;
-    await runAction(async () => {
-      await releaseAssetMediaForDeletion(state.assets);
-      const result = await apiFetch("/api/trash", { method: "DELETE", body: { projectId: state.project } });
-      if (result.partial) {
-        showToast(t("trashPartialDelete", { count: result.failed?.length || 0 }), "error");
-      } else {
-        showToast(t("trashEmptied"), "success");
-      }
-      clearDetailSelection();
-      gallerySelection.clear();
-      await Promise.all([loadStats(), loadAssets()]);
-    });
-  });
+  els.emptyTrashBtn?.addEventListener("click", () => { void emptyTrashWithConfirmation(); });
   els.openInspectorBtn?.addEventListener("click", openDetailSurfaceManually);
   els.quickFilters?.addEventListener("click", (event) => { const button = event.target.closest("[data-filter]"); if (button) void setFilter(button.dataset.filter); });
   els.smartGroupsToggle?.addEventListener("click", () => setSidebarSectionCollapsed("smart", !state.sidebarSmartCollapsed));
@@ -3854,11 +3887,9 @@ function renderGrid() {
   const focusedAssetId = focusedCard?.dataset.id || null;
   const focusedAction = focusedElement?.classList.contains("card-favorite")
     ? "favorite"
-    : focusedElement?.classList.contains("card-quick-copy")
-      ? "copy"
-      : focusedElement?.classList.contains("asset-card-select")
-        ? "select"
-        : null;
+    : focusedElement?.classList.contains("asset-card-select")
+      ? "select"
+      : null;
   const cardInfo = state.showCardInfo ? "show" : "hide";
   els.assetGrid.dataset.cardInfo = cardInfo;
   els.assetGrid.dataset.loadedAssets = String(state.assets.length);
@@ -3956,9 +3987,7 @@ function renderGrid() {
       const card = els.assetGrid?.querySelector(`.asset-card[data-id="${CSS.escape(focusedAssetId)}"]`);
       const replacement = focusedAction === "favorite"
         ? card?.querySelector(".card-favorite")
-        : focusedAction === "copy"
-          ? card?.querySelector(".card-quick-copy")
-          : card?.querySelector(".asset-card-select");
+        : card?.querySelector(".asset-card-select");
       if (replacement instanceof HTMLElement) replacement.focus({ preventScroll: true });
       else els.assetGrid?.focus({ preventScroll: true });
     });
@@ -4002,14 +4031,14 @@ function buildGalleryCardEntry(asset, ordinal, animateCard) {
   const info = `<div class="asset-card-info"><p class="asset-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</p><p class="asset-card-meta"><span>${escapeHtml(sourceLabel)}</span><span>${escapeHtml(date)}</span>${badgeMarkup}</p></div>`;
   const isFav = asset.favorite;
   const favoriteLabel = isFav ? t("removeFavorite") : t("addFavorite");
-  // Phase 1C/1C.1 契约：.card-actions > button.card-action-btn.card-favorite / .card-quick-copy，
+  // Phase 1C/1C.1 契约：.card-actions > button.card-action-btn.card-favorite，
   // 业务 class 与 data 属性全部保留（现有事件绑定依赖）；aria-pressed 表达收藏态。
+  // 卡片上原有的快捷复制按钮随 R21 去掉：复制提示词在右键菜单和检视器里。
   const favBtn = `<button class="card-action-btn card-favorite${isFav ? " is-fav" : ""}" type="button" data-fav-id="${escapeHtml(asset.id)}" aria-pressed="${Boolean(isFav)}" aria-label="${escapeHtml(favoriteLabel)}" title="${escapeHtml(favoriteLabel)}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.95 5.97 6.59.96-4.77 4.65 1.13 6.57L12 17.57l-5.9 3.08 1.13-6.57-4.77-4.65 6.59-.96L12 2.5z"/></svg></button>`;
-  const copyBtn = `<button class="card-action-btn card-quick-copy" type="button" data-i18n-title="copyPrompt" title="${t("copyPrompt")}" aria-label="${t("copyPrompt")}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9"/></svg></button>`;
   // Trash cards expose restore/permanent-delete through the Trash actions,
-  // so do not render favorite/copy controls there at all. Removing the
+  // so do not render the favorite control there at all. Removing the
   // focusable controls from the markup is safer than hiding them with CSS.
-  const cardActions = state.scope === "trash" ? "" : `<div class="card-actions">${favBtn}${copyBtn}</div>`;
+  const cardActions = state.scope === "trash" ? "" : `<div class="card-actions">${favBtn}</div>`;
   const stackBadge = isStack
     ? `<span class="asset-stack-count" aria-hidden="true">${stackHasPartialMatch ? `${stackMatchCount}/${Number(asset.stack.count)}` : Number(asset.stack.count)}</span>`
     : "";

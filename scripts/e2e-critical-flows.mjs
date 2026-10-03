@@ -134,10 +134,12 @@ async function runPluginFlows() {
     names.add(flow.name);
     if (!selected(flow.name)) continue;
     console.log(`[e2e] flow ${flow.name}: ${flow.description || file}`);
+    const ctx = createFlowContext(flow.name);
     try {
-      const summary = await flow.run(createFlowContext(flow.name));
+      const summary = await flow.run(ctx);
       if (summary !== undefined) console.log(`[e2e] flow ${flow.name} result ${JSON.stringify(summary)}`);
     } catch (error) {
+      console.error(ctx.serverDiagnostics());
       throw new Error(`E2E flow ${flow.name} failed: ${error?.message || error}`, { cause: error });
     }
     ran.push(flow.name);
@@ -147,6 +149,9 @@ async function runPluginFlows() {
 
 function createFlowContext(flowName) {
   const flowRoot = join(root, `flow-${flowName}`);
+  // Every server this flow starts, so a failed flow can report how each one
+  // ended. A connection error alone cannot tell a crash from a flow bug.
+  const servers = [];
   const dirs = {
     libraryDir: join(flowRoot, "library"),
     userDataDir: join(flowRoot, "user-data"),
@@ -157,6 +162,28 @@ function createFlowContext(flowName) {
     ...dirs,
     rootDir,
     token: QA_CLIENT_TOKEN,
+    // Failure report for every server this flow started: whether it is still
+    // running or how and when it exited, whether the flow itself stopped it,
+    // and the tail of its stderr/stdout.
+    serverDiagnostics() {
+      if (!servers.length) return `[e2e] flow ${flowName} started no servers`;
+      const now = Date.now();
+      const tail = (text, limit) => {
+        const value = String(text || "").trim();
+        return value.length > limit ? `…${value.slice(-limit)}` : value || "(empty)";
+      };
+      return servers.map((server, index) => {
+        const state = server.exit
+          ? `exited code=${server.exit.code} signal=${server.exit.signal} ${server.exit.at - server.startedAt}ms after start, ${now - server.exit.at}ms before this report`
+          : "still running";
+        const stoppedBy = server.stoppedByFlowAt ? `stopped by the flow ${server.stoppedByFlowAt - server.startedAt}ms after start` : "never stopped by the flow";
+        return [
+          `[e2e] flow ${flowName} server #${index + 1} port ${server.port}: ${state}; ${stoppedBy}`,
+          `[e2e]   stderr: ${tail(server.stderr(), 4000)}`,
+          `[e2e]   stdout: ${tail(server.stdout(), 2000)}`,
+        ].join("\n");
+      }).join("\n");
+    },
     async prepare() {
       await Promise.all(Object.values(dirs).map((dir) => mkdir(dir, { recursive: true })));
     },
@@ -180,38 +207,68 @@ function createFlowContext(flowName) {
         stdio: ["ignore", "pipe", "pipe"],
       });
       const stderr = collect(child.stderr);
+      const record = { port, startedAt: Date.now(), stoppedByFlowAt: 0, exit: null, stdout: collect(child.stdout), stderr };
+      child.once("exit", (code, signal) => { record.exit = { code, signal, at: Date.now() }; });
+      servers.push(record);
+      const stop = () => {
+        if (!record.stoppedByFlowAt) record.stoppedByFlowAt = Date.now();
+        return stopProcess(child);
+      };
       try {
         assertHealth(await waitForHealth(`http://127.0.0.1:${port}/api/health`, child), activeLibraryDir);
       } catch (error) {
-        await stopProcess(child);
+        await stop();
         throw new Error(`${error.message}\n${stderr().trim()}`, { cause: error });
       }
-      return { origin: `http://127.0.0.1:${port}`, stderr, stop: () => stopProcess(child) };
+      return { origin: `http://127.0.0.1:${port}`, stderr, stop };
     },
     // JSON API call with the QA client token; throws on a non-2xx status.
+    // A pooled keep-alive socket can be reused just as the server's idle
+    // timeout closes it, which surfaces as a bare "fetch failed". GETs are
+    // idempotent, so they get one retry; other methods rethrow with the
+    // socket-level cause so a recurrence is diagnosable.
     async api(origin, method, path, body) {
-      const response = await fetch(`${origin}${path}`, {
+      const send = () => fetch(`${origin}${path}`, {
         method,
         headers: { "x-mosa-client-token": QA_CLIENT_TOKEN, ...(body === undefined ? {} : { "content-type": "application/json" }) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
+      let response;
+      try {
+        response = await send();
+      } catch (error) {
+        if (!(error instanceof TypeError)) throw error;
+        if (method !== "GET") throw new Error(`${method} ${path} -> ${error.message} (${error.cause?.code || error.cause?.message || "no cause"})`, { cause: error });
+        response = await send();
+      }
       const text = await response.text();
       if (!response.ok) throw new Error(`${method} ${path} -> ${response.status}: ${text.slice(0, 300)}`);
       return text ? JSON.parse(text) : null;
     },
     // Evaluates `source` (an async IIFE expression string) in a sandboxed
     // Electron window on the server's UI and returns the value it resolves.
-    async runInPage(server, source) {
+    // E2E-only capability: `{ windowSize: [width, height] }` sizes the renderer
+    // window (via MOSA_E2E_WEB_WINDOW_SIZE) for narrow-viewport flows; omitted
+    // keeps the historical 1280x800.
+    async runInPage(server, source, { windowSize } = {}) {
       const sourceFile = join(root, `flow-${flowName}-${++sourceCounter}.js`);
       await writeFile(sourceFile, source, "utf8");
+      const env = {
+        ...process.env,
+        MOSA_E2E_WEB_TARGET_URL: `${server.origin}/#mosa-client-token=${encodeURIComponent(QA_CLIENT_TOKEN)}`,
+        MOSA_E2E_WEB_USER_DATA: dirs.userDataDir,
+        MOSA_E2E_WEB_SOURCE_FILE: sourceFile,
+      };
+      if (windowSize !== undefined) {
+        if (!Array.isArray(windowSize) || windowSize.length !== 2
+          || !windowSize.every((value) => Number.isInteger(value) && value > 0)) {
+          throw new Error(`runInPage windowSize must be [width, height] positive integers, got ${JSON.stringify(windowSize)}`);
+        }
+        env.MOSA_E2E_WEB_WINDOW_SIZE = `${windowSize[0]}x${windowSize[1]}`;
+      }
       const output = await runCommand(electronBinary, [...ELECTRON_QA_FLAGS, webDriver], {
         cwd: rootDir,
-        env: {
-          ...process.env,
-          MOSA_E2E_WEB_TARGET_URL: `${server.origin}/#mosa-client-token=${encodeURIComponent(QA_CLIENT_TOKEN)}`,
-          MOSA_E2E_WEB_USER_DATA: dirs.userDataDir,
-          MOSA_E2E_WEB_SOURCE_FILE: sourceFile,
-        },
+        env,
       });
       return JSON.parse(String(output || "null").split(/\r?\n/).filter(Boolean).at(-1) || "null");
     },

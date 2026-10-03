@@ -82,11 +82,13 @@ test("labels cards with title, source and date rather than the prompt", async ()
   assert.match(app, /const label = t\("cardAccessibleName", \{ title: title \|\| asset\.id, source: sourceLabel, date \}\)/);
   assert.match(app, /aria-label="\$\{escapeHtml\(label\)\}"/);
   // The prompt is still copyable and still lives in the detail panel, but it is
-  // not duplicated into every card's DOM as a data attribute.
+  // not duplicated into every card's DOM as a data attribute. R21 removed the
+  // card quick-copy button; copying lives in the Inspector and the right-click
+  // menu.
   assert.doesNotMatch(app, /data-copy=/);
-  assert.match(app, /const asset = state\.assets\.find\(\(item\) => item\.id === assetId\)/);
-  assert.match(app, /writeClipboardText\(asset\?\.prompt \|\| ""\)/);
-  assert.match(app, /aria-label="\$\{t\("copyPrompt"\)\}"/);
+  assert.match(inspector, /data-action="copy-prompt"/);
+  const menus = await readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8");
+  assert.match(menus, /label: t\("copyPrompt"\)/);
   assert.match(inspector, /<div class="prompt-box detail-prompt-box"[^>]*>\$\{promptText\}<\/div>/);
   // The old behaviour was to hand the raw theme/prompt straight to aria-label.
   assert.doesNotMatch(app, /aria-label="\$\{escapeHtml\(title\)\}">\$\{media\}/);
@@ -230,8 +232,9 @@ test("keeps meaningful labels above the WCAG AA body-text floor", async () => {
     assert.ok(ratio >= 4.5, `--color-text-secondary is ${ratio.toFixed(2)}:1 on --${token}, needs >= 4.5`);
   }
 
-  // The tertiary token is deliberately below the floor for decorative use
-  assert.ok(contrastRatio(textTertiary, appBg) < 4.5, "--color-text-tertiary is expected to remain decorative");
+  // 任务 50：tertiary 承载有意义文字（侧栏计数、占位、提示），浅色已加深到 AA。
+  const tertiaryOnAppBg = contrastRatio(textTertiary, appBg);
+  assert.ok(tertiaryOnAppBg >= 4.5, `--color-text-tertiary is ${tertiaryOnAppBg.toFixed(2)}:1 on --app-bg, needs >= 4.5`);
 
   // Counts, dates and metadata keys use --color-text-secondary for content
   for (const rule of [

@@ -49,46 +49,41 @@ function cardActionRules(css) {
 // 1. renderGrid() renders the .card-actions container.
 test("1. app.js renders the .card-actions container", async () => {
   const app = await readApp();
-  assert.match(app, /const cardActions = state\.scope === "trash" \? "" : `<div class="card-actions">\$\{favBtn\}\$\{copyBtn\}<\/div>`;/,
-    "renderGrid must wrap both quick actions in a single .card-actions container and omit them from Trash cards");
+  assert.match(app, /const cardActions = state\.scope === "trash" \? "" : `<div class="card-actions">\$\{favBtn\}<\/div>`;/,
+    "renderGrid must wrap the favorite quick action in a single .card-actions container and omit it from Trash cards");
   assert.match(app, /\$\{info\}\$\{cardActions\}<\/article>/,
     "the container must live inside the card article, after the info block");
 });
 
-// 2. Both quick actions sit inside that container (and only there).
-test("2. favorite and copy buttons are both inside .card-actions", async () => {
+// 2. The favorite quick action sits inside that container (and only there).
+// R21 removed the card quick-copy button: copying a prompt lives in the
+// right-click menu and the Inspector.
+test("2. the favorite button is inside .card-actions and the quick-copy button is gone", async () => {
   const app = await readApp();
   const container = /<div class="card-actions">([\s\S]*?)<\/div>/.exec(app);
   assert.ok(container, ".card-actions container must exist in the render template");
   assert.ok(container[1].includes("${favBtn}"), "favorite button must be inside .card-actions");
-  assert.ok(container[1].includes("${copyBtn}"), "quick-copy button must be inside .card-actions");
+  assert.doesNotMatch(app, /copyBtn|card-quick-copy/, "the removed card quick-copy button must not come back");
   // The buttons must not also be emitted loose inside the article template.
   const article = /markup: `<article([\s\S]*?)<\/article>`,/.exec(app);
   assert.ok(article, "article template must exist");
   assert.equal(article[1].includes("${favBtn}"), false, "favorite button must not be emitted outside the container");
-  assert.equal(article[1].includes("${copyBtn}"), false, "copy button must not be emitted outside the container");
 });
 
-// 3. Both buttons carry the shared .card-action-btn class plus their business class.
-test("3. both buttons carry .card-action-btn and keep their business classes", async () => {
+// 3. The favorite button carries the shared .card-action-btn class plus its business class.
+test("3. the favorite button carries .card-action-btn and keeps its business class", async () => {
   const app = await readApp();
   assert.match(app, /class="card-action-btn card-favorite/, "favorite keeps .card-favorite beside .card-action-btn");
-  assert.match(app, /class="card-action-btn card-quick-copy"/, "copy keeps .card-quick-copy beside .card-action-btn");
-  // Favorite keeps its mutation id. Copy resolves the prompt from card id at
-  // click time so long prompts are not duplicated into every DOM node.
   assert.match(app, /data-fav-id="\$\{escapeHtml\(asset\.id\)\}"/, "favorite keeps data-fav-id");
-  assert.doesNotMatch(app, /data-copy=/, "copy does not duplicate prompt text into the DOM");
-  assert.match(app, /const assetId = copyButton\.closest\("\.asset-card"\)\?\.dataset\.id;/, "copy resolves the asset id from its card");
+  assert.doesNotMatch(app, /data-copy=/, "cards do not duplicate prompt text into the DOM");
 });
 
-// 4. Both quick actions are native buttons with type="button" (no div/span fakes).
-test("4. both quick actions are native type=\"button\" buttons", async () => {
+// 4. The quick action is a native button with type="button" (no div/span fakes).
+test("4. the favorite quick action is a native type=\"button\" button", async () => {
   const app = await readApp();
   const fav = /const favBtn = `<button([\s\S]*?)<\/button>`;/.exec(app);
-  const copy = /const copyBtn = `<button([\s\S]*?)<\/button>`;/.exec(app);
-  assert.ok(fav && copy, "both quick actions must be rendered as <button> elements");
+  assert.ok(fav, "the favorite quick action must be rendered as a <button> element");
   assert.match(fav[1], /type="button"/, "favorite button needs type=\"button\"");
-  assert.match(copy[1], /type="button"/, "copy button needs type=\"button\"");
   assert.doesNotMatch(app, /<(div|span)[^>]*class="[^"]*card-action-btn/, "quick actions must not be faked with div/span");
 });
 
@@ -102,13 +97,11 @@ test("5. favorite button renders aria-pressed from the favorite state", async ()
     "favorite accessible name must describe the currently executable action");
 });
 
-// 6. Both quick actions have accessible names independent of title.
-test("6. both quick actions have aria-label accessible names", async () => {
+// 6. The quick action has an accessible name independent of title.
+test("6. the favorite quick action has an aria-label accessible name", async () => {
   const app = await readApp();
   const fav = /const favBtn = `<button([\s\S]*?)<\/button>`;/.exec(app);
-  const copy = /const copyBtn = `<button([\s\S]*?)<\/button>`;/.exec(app);
   assert.match(fav[1], /aria-label="\$\{escapeHtml\(favoriteLabel\)\}"/, "favorite needs an aria-label");
-  assert.match(copy[1], /aria-label="\$\{t\("copyPrompt"\)\}"/, "copy needs an aria-label");
 });
 
 // 7. The CSS .card-actions/.card-action-btn selectors match the real DOM classes.
@@ -204,9 +197,9 @@ test("15. reduced-motion contract covers the quick actions", async () => {
 });
 
 // 16. Event isolation: delegated favorite/copy handlers keep stopPropagation.
-test("16. favorite and copy listeners keep event isolation", async () => {
+test("16. the favorite listener keeps event isolation", async () => {
   const app = await readApp();
-  const delegatedGridHandler = /els\.assetGrid\?\.addEventListener\("click", (?:async )?\(event\) => \{[\s\S]*?const favoriteButton = event\.target\.closest\("\.card-favorite"\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?const copyButton = event\.target\.closest\("\.card-quick-copy"\);[\s\S]*?event\.stopPropagation\(\);/;
+  const delegatedGridHandler = /els\.assetGrid\?\.addEventListener\("click", (?:async )?\(event\) => \{[\s\S]*?const favoriteButton = event\.target\.closest\("\.card-favorite"\);[\s\S]*?event\.stopPropagation\(\);/;
   assert.match(app, delegatedGridHandler, "delegated quick actions must keep stopPropagation (no detail opening)");
   assert.doesNotMatch(app, /querySelectorAll\("\.card-(?:quick-copy|favorite)"\)\.forEach\([^\n]*addEventListener/,
     "renderGrid must not recreate per-card quick-action listeners");
@@ -279,14 +272,12 @@ test("20. no undefined CSS tokens are consumed", async () => {
 // ===== Phase 1C.1 收口契约 =====
 
 // 21. Favorited card: the copy button is NOT always visible — only the star marks the state.
-test("21. favorited card: quick-copy stays progressively disclosed", async () => {
+test("21. favorited card: no container-level always-visible rule", async () => {
   const css = await readCss();
   const section = disclosureSection(css);
   const { block } = extractBlock(section, "@media (hover: hover) and (pointer: fine) {");
   assert.ok(!section.includes(":has(.is-fav)"),
     "the container-level favorite reveal (:has) must be removed so the whole area no longer stays up");
-  assert.doesNotMatch(block, /card-quick-copy[^{]*\{[^}]*opacity: 1/,
-    "quick-copy must never get a default-visible rule on precise pointers");
   assert.doesNotMatch(block, /\.card-actions[^{]*\{[^}]*opacity: 1/,
     "no container-level always-visible rule may remain in the precise-pointer block");
 });
@@ -370,8 +361,7 @@ test("32. icon visual size is decoupled from and smaller than the click area", a
     `icon ${iconWidth}x${iconHeight} must be smaller than the ${clickSize}px click area`);
   const app = await readApp();
   const fav = /const favBtn = `<button([\s\S]*?)<\/button>`;/.exec(app);
-  const copy = /const copyBtn = `<button([\s\S]*?)<\/button>`;/.exec(app);
-  for (const [name, template] of [["favorite", fav[1]], ["copy", copy[1]]]) {
+  for (const [name, template] of [["favorite", fav[1]]]) {
     const inline = Number(/<svg width="(\d+)"/.exec(template)?.[1]);
     assert.equal(inline, iconWidth, `${name} inline SVG size must mirror the CSS icon size`);
     assert.ok(inline < clickSize, `${name} icon must stay smaller than the click area`);

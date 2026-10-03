@@ -610,6 +610,9 @@ function validateSchema(schema, value, path) {
 
 async function handleRequest(message) {
   const { id, method, params } = message;
+  // JSON-RPC notifications (no `id`, e.g. notifications/initialized) must never
+  // get a response; none of them needs handling here.
+  if (!Object.hasOwn(message, "id")) return;
   if (method === "initialize") {
     sendResult(id, {
       protocolVersion: params?.protocolVersion || "2025-11-25",

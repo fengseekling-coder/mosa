@@ -1,28 +1,36 @@
 // Pluggable e2e flow: gallery multi-selection (Ctrl/Cmd toggle, Shift range,
-// pointer marquee, Cmd/Ctrl+A, selection bar), batch favorite / move-to-group
-// through the multi-selection context menu, then the full Stack lifecycle
-// (selection-bar stacking, rename modal with empty-name rejection, enter /
-// remove member / return, restart persistence, dissolve with released-count
-// toast). Seed via API, assert on returned page facts in Node, audit every
-// mutation through the API, and restart the server on the same library before
-// dissolving so the stack rename and membership are proven to persist.
+// pointer marquee, Cmd/Ctrl+A), the unified context menus (selection heading,
+// batch favorite / move-to-group / 堆叠所选 / 取消选择 — the bottom selection bar
+// was removed by the context-menu unification), then the full Stack lifecycle
+// (stack-from-selection menu item, rename modal with empty-name rejection,
+// enter / remove members via 移出堆叠 / return, restart persistence, dissolve
+// from the stack-interior blank-area menu, Empty Trash from the trash
+// blank-area menu through its confirm dialog). Seed via API, assert on
+// returned page facts in Node, audit every mutation through the API, and
+// restart the server on the same library before dissolving so the stack rename
+// and membership are proven to persist.
 
 import { existsSync } from "node:fs";
 import { PAGE_HELPERS } from "./_page-helpers.mjs";
 
 export const name = "selection-and-stacks";
 export const description =
-  "selection: ctrl-toggle/shift-range/marquee/select-all/clear -> batch favorite+move-to-group -> stack create/rename/empty-name/open/remove/return -> restart -> dissolve -> API audit";
+  "selection: ctrl-toggle/shift-range/marquee/select-all/menu-deselect -> batch favorite+move-to-group+stack-selected via context menu -> stack rename/empty-name/open/multi-remove/return -> restart -> in-stack blank dissolve -> trash blank empty-trash -> API audit";
 
 // Menu labels verified against web/app/i18n.mjs (zh is the default locale):
-// addToFavorites=添加到收藏, moveToGroup=移动到分组, openStack=打开堆叠,
-// renameStack=重命名堆叠, dissolveStack=解散堆叠.
+// addToFavorites=添加到收藏, moveToGroup=移动到分组, stackSelected=堆叠所选,
+// removeFromStack=移出堆叠, deselectAll=取消选择, openStack=打开堆叠,
+// renameStack=重命名堆叠, dissolveStack=解散堆叠, emptyTrash=清空回收站.
 const MENU = {
   favorite: "添加到收藏",
   moveToGroup: "移动到分组",
+  stackSelected: "堆叠所选",
+  removeFromStack: "移出堆叠",
+  deselect: "取消选择",
   openStack: "打开堆叠",
   renameStack: "重命名堆叠",
   dissolveStack: "解散堆叠",
+  emptyTrash: "清空回收站",
 };
 
 // In-page helpers specific to this flow, interpolated after PAGE_HELPERS.
@@ -33,8 +41,10 @@ const SELECTION_HELPERS = String.raw`
   // multi-selection is active.
   const selectedCardIds = () => [...document.querySelectorAll('.asset-card.multi-selected')].map((card) => card.dataset.id).sort();
   const detailSelectedId = () => document.querySelector('.asset-card.selected')?.dataset.id || '';
-  const selectionCountText = () => document.querySelector('#selectionCount')?.textContent || '';
-  const selectionBarVisible = () => !document.querySelector('#selectionBar')?.hidden;
+  // 底部批量栏已移除：多选信息（已选 N 项）只在右键菜单的表头行里。
+  const menuInfoText = () => document.querySelector('.context-menu-heading')?.textContent || '';
+  const selectionBarAbsent = () => !document.querySelector('#selectionBar');
+  const menuLabels = () => [...document.querySelectorAll('.context-menu .context-menu-label')].map((node) => node.textContent || '');
   const allToastTexts = () => [...document.querySelectorAll('.toast-message')].map((node) => node.textContent || '');
   const stackNodeSelector = (stackId) => '#assetGrid > .asset-card.is-stack[data-stack-id="' + CSS.escape(stackId) + '"]';
   const stackNodeTitle = (stackId) => document.querySelector(stackNodeSelector(stackId) + ' .asset-card-title')?.textContent || '';
@@ -272,7 +282,7 @@ export async function run(ctx) {
     ids = { s1: s1.id, s2: s2.id, s3: s3.id, s4: s4.id, s5: s5.id, s6: s6.id, groupName: "S-Target", stackName: "S-Stack" };
     imagePaths = { s3: s3.imagePath, s4: s4.imagePath };
 
-    // ===== Page 1: ctrl toggle + shift range + select-all + clear =====
+    // ===== Page 1: ctrl toggle + shift range + menu deselect + select-all =====
     const p1 = await ctx.runInPage(first, source(ids, `
       await waitFor(() => gallerySettled() && rootCardIds().length === 6, 'six seeded cards');
       ctrlClickCard(config.s1);
@@ -282,23 +292,28 @@ export async function run(ctx) {
       shiftClickCard(config.s5);
       await waitFor(() => JSON.stringify(selectedCardIds()) === JSON.stringify([config.s3, config.s4, config.s5].sort()), 'range S3..S5 selected');
       const multiSelected = selectedCardIds();
-      const barVisibleAfterMulti = selectionBarVisible();
-      const countTextAfterMulti = selectionCountText();
       const detailSelectionDuringMulti = detailSelectedId();
+      // 右键菜单统一：底部批量栏不存在，选区信息只出现在菜单表头行。
+      const barAbsent = selectionBarAbsent();
+      const deselectItem = await openContextMenu(cardSelector(config.s3), MENU.deselect);
+      const infoAfterMulti = menuInfoText();
+      deselectItem.click();
+      await waitFor(() => selectedCardIds().length === 0, '取消选择 menu item clears the range selection');
       selectAllKeyboard();
-      await waitFor(() => selectionBarVisible() && selectedCardIds().length === 6, 'Cmd/Ctrl+A selects all six');
-      const countTextAfterSelectAll = selectionCountText();
-      click('#selectionClear');
-      await waitFor(() => !selectionBarVisible() && selectedCardIds().length === 0, 'selection bar clears');
-      return { multiSelected, barVisibleAfterMulti, countTextAfterMulti, detailSelectionDuringMulti, countTextAfterSelectAll };
+      await waitFor(() => selectedCardIds().length === 6, 'Cmd/Ctrl+A selects all six');
+      const deselectAllItem = await openContextMenu(cardSelector(config.s1), MENU.deselect);
+      const infoAfterSelectAll = menuInfoText();
+      deselectAllItem.click();
+      await waitFor(() => selectedCardIds().length === 0, '取消选择 menu item clears the select-all');
+      return { multiSelected, barAbsent, infoAfterMulti, detailSelectionDuringMulti, infoAfterSelectAll };
     `));
     expect(sameMembers(p1.multiSelected, [ids.s3, ids.s4, ids.s5]), `P1 shift-range selection: ${JSON.stringify(p1.multiSelected)}`);
-    expect(p1.barVisibleAfterMulti === true, `P1 selection bar visible: ${p1.barVisibleAfterMulti}`);
-    expect(p1.countTextAfterMulti === "已选 3 项", `P1 selection count text: ${p1.countTextAfterMulti}`);
+    expect(p1.barAbsent === true, `P1 selection bar removed from DOM: ${p1.barAbsent}`);
+    expect(p1.infoAfterMulti === "已选 3 项", `P1 menu selection heading: ${p1.infoAfterMulti}`);
     // 任务单写的是 .selected，但 shipped 代码里多选卡片带 .multi-selected，
     // .selected 只用于详情单选（gallery-selection.mjs cardSelectionFlags）。
     expect(p1.detailSelectionDuringMulti === "", `P1 no .selected card during multi-select: ${p1.detailSelectionDuringMulti}`);
-    expect(p1.countTextAfterSelectAll === "已选 6 项", `P1 select-all count text: ${p1.countTextAfterSelectAll}`);
+    expect(p1.infoAfterSelectAll === "已选 6 项", `P1 select-all menu heading: ${p1.infoAfterSelectAll}`);
 
     // ===== Page 2: marquee frames exactly S2+S4 =====
     const p2 = await ctx.runInPage(first, source(ids, `
@@ -316,10 +331,16 @@ export async function run(ctx) {
         const gridStyle = getComputedStyle(document.querySelector('#assetGrid'));
         throw new Error(error.message + ' marquee=' + JSON.stringify({ marqueeStrategy, marqueeLog, selected: selectedCardIds(), grid: grid && [Math.round(grid.left), Math.round(grid.top), Math.round(grid.right), Math.round(grid.bottom)], viewport: [innerWidth, innerHeight, devicePixelRatio], gridScroll: document.querySelector('#assetGrid')?.scrollTop, columns: gridStyle.gridTemplateColumns, padding: [gridStyle.paddingLeft, gridStyle.paddingTop], rects, placement }));
       }
-      return { marqueeStrategy, selected: selectedCardIds(), barVisible: selectionBarVisible(), countText: selectionCountText() };
+      const selected = selectedCardIds();
+      const deselectItem = await openContextMenu(cardSelector(config.s2), MENU.deselect);
+      const infoText = menuInfoText();
+      const barAbsent = selectionBarAbsent();
+      deselectItem.click();
+      await waitFor(() => selectedCardIds().length === 0, '取消选择 clears the marquee selection');
+      return { marqueeStrategy, selected, infoText, barAbsent };
     `));
     expect(sameMembers(p2.selected, [ids.s2, ids.s4]), `P2 marquee selection: ${JSON.stringify(p2.selected)}`);
-    expect(p2.barVisible === true && p2.countText === "已选 2 项", `P2 marquee bar/count: ${p2.barVisible} ${p2.countText}`);
+    expect(p2.barAbsent === true && p2.infoText === "已选 2 项", `P2 marquee menu heading: ${p2.barAbsent} ${p2.infoText}`);
 
     // ===== Page 3: batch favorite + move to group via the multi-selection menu =====
     const p3 = await ctx.runInPage(first, source(ids, `
@@ -341,34 +362,38 @@ export async function run(ctx) {
     expect(byId.get(ids.s1)?.group === "S-Target" && byId.get(ids.s2)?.group === "S-Target", `audit group S1/S2: ${JSON.stringify([byId.get(ids.s1)?.group, byId.get(ids.s2)?.group])}`);
     expect([ids.s3, ids.s4, ids.s5, ids.s6].every((id) => byId.get(id)?.favorite === false && byId.get(id)?.group === ""), "audit S3-S6 untouched by the batch");
 
-    // ===== Page 4: stack S3+S4+S5 from the selection bar =====
+    // ===== Page 4: stack S2+S3+S4+S5 from the 堆叠所选 menu item =====
+    // Four members so Page 6 can multi-select and remove two while the stack
+    // survives (the server auto-dissolves a stack below two members).
     const p4 = await ctx.runInPage(first, source(ids, `
       await waitFor(() => gallerySettled() && rootCardIds().length === 6, 'root gallery before stacking');
+      ctrlClickCard(config.s2);
+      await waitFor(() => selectedCardIds().length === 1, 'S2 selected for stack');
       ctrlClickCard(config.s3);
-      await waitFor(() => selectedCardIds().length === 1, 'S3 selected for stack');
+      await waitFor(() => selectedCardIds().length === 2, 'S2+S3 selected for stack');
       ctrlClickCard(config.s4);
-      await waitFor(() => selectedCardIds().length === 2, 'S3+S4 selected for stack');
+      await waitFor(() => selectedCardIds().length === 3, 'S2+S3+S4 selected for stack');
       ctrlClickCard(config.s5);
-      await waitFor(() => JSON.stringify(selectedCardIds()) === JSON.stringify([config.s3, config.s4, config.s5].sort()), 'S3+S4+S5 selected for stack');
+      await waitFor(() => JSON.stringify(selectedCardIds()) === JSON.stringify([config.s2, config.s3, config.s4, config.s5].sort()), 'S2..S5 selected for stack');
       const rootCountBeforeStack = rootCardIds().length;
-      click('#selectionStack');
+      await rightClickChoose(cardSelector(config.s3), [MENU.stackSelected]);
       const stackCard = await waitFor(() => document.querySelector('#assetGrid > .asset-card.is-stack'), 'Stack node appears');
       const stackId = stackCard.dataset.stackId;
-      await waitFor(() => gallerySettled() && rootCardIds().length === 4, 'root loses two cards (3 members -> 1 node)');
+      await waitFor(() => gallerySettled() && rootCardIds().length === 3, 'root loses three cards (4 members -> 1 node)');
       return {
         stackId,
         coverId: stackCard.dataset.id,
         stackCountShown: stackCard.querySelector('.asset-stack-count')?.textContent || '',
         rootCountBeforeStack,
         rootCountAfterStack: rootCardIds().length,
-        barVisibleAfterStack: selectionBarVisible(),
+        selectionAfterStack: selectedCardIds(),
       };
     `));
     expect(typeof p4.stackId === "string" && p4.stackId.startsWith("stack-"), `P4 stack id: ${p4.stackId}`);
-    expect([ids.s3, ids.s4, ids.s5].includes(p4.coverId), `P4 stack cover is a member: ${p4.coverId}`);
-    expect(p4.stackCountShown === "3", `P4 stack count badge: ${p4.stackCountShown}`);
-    expect(p4.rootCountBeforeStack === 6 && p4.rootCountAfterStack === 4, `P4 root count 6 -> 4: ${p4.rootCountBeforeStack} -> ${p4.rootCountAfterStack}`);
-    expect(p4.barVisibleAfterStack === false, `P4 selection bar hidden after stacking: ${p4.barVisibleAfterStack}`);
+    expect([ids.s2, ids.s3, ids.s4, ids.s5].includes(p4.coverId), `P4 stack cover is a member: ${p4.coverId}`);
+    expect(p4.stackCountShown === "4", `P4 stack count badge: ${p4.stackCountShown}`);
+    expect(p4.rootCountBeforeStack === 6 && p4.rootCountAfterStack === 3, `P4 root count 6 -> 3: ${p4.rootCountBeforeStack} -> ${p4.rootCountAfterStack}`);
+    expect(p4.selectionAfterStack.length === 0, `P4 stacking clears the selection: ${JSON.stringify(p4.selectionAfterStack)}`);
     ids.stackId = p4.stackId;
 
     // ===== Page 5: rename via the modal, then an empty name must be rejected =====
@@ -395,7 +420,7 @@ export async function run(ctx) {
     expect(p5.modalStillOpenAfterEmpty === true, `P5 modal stays open on empty name: ${p5.modalStillOpenAfterEmpty}`);
     expect(p5.titleAfterEmptyAttempt === "S-Stack", `P5 empty name not saved: ${p5.titleAfterEmptyAttempt}`);
 
-    // ===== Page 6: open the stack, remove S5 from inside, return =====
+    // ===== Page 6: open the stack, multi-select members and 移出堆叠, return =====
     let p6;
     try {
       p6 = await ctx.runInPage(first, source(ids, `
@@ -403,30 +428,31 @@ export async function run(ctx) {
       try {
         await waitFor(() => document.querySelector(stackNodeSelector(config.stackId)), 'Stack node before opening');
         await rightClickChoose(stackNodeSelector(config.stackId) + ' .asset-card-select', [MENU.openStack]);
-        await waitFor(() => !document.querySelector('#stackBack')?.hidden
-          && document.querySelector('#selectionStack')?.hidden
-          && !document.querySelector('#selectionRemoveFromStack')?.hidden
-          && gallerySettled(), 'entered stack view');
+        await waitFor(() => !document.querySelector('#stackBack')?.hidden && gallerySettled(), 'entered stack view');
         const memberIdsInside = rootCardIds();
         const viewTitleInside = document.querySelector('#viewTitle')?.textContent || '';
+        // 任务单：进堆叠多选成员 -> 右键“移出堆叠”（S4+S5 一起移出，剩 S2+S3）。
+        ctrlClickCard(config.s4);
+        await waitFor(() => selectedCardIds().length === 1, 'S4 selected inside stack');
         ctrlClickCard(config.s5);
-        await waitFor(() => JSON.stringify(selectedCardIds()) === JSON.stringify([config.s5]), 'S5 selected inside stack');
-        click('#selectionRemoveFromStack');
-        await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds().sort()) === JSON.stringify([config.s3, config.s4].sort()), 'S5 removed, 2 members left');
+        await waitFor(() => JSON.stringify(selectedCardIds()) === JSON.stringify([config.s4, config.s5].sort()), 'S4+S5 selected inside stack');
+        await rightClickChoose(cardSelector(config.s4), [MENU.removeFromStack]);
+        await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds().sort()) === JSON.stringify([config.s2, config.s3].sort()), 'S4+S5 removed, S2+S3 left');
         T28.snapshots.afterRemove = t28GalleryState();
         // The member count in the header refreshes in the background after an
         // in-place removal; it must not keep the count captured on entry.
         const viewTitleAfterRemove = await waitFor(() => {
           const title = document.querySelector('#viewTitle')?.textContent || '';
-          return title.includes('S-Stack') && title.includes('2') && !title.includes('3') ? title : '';
+          return title.includes('S-Stack') && title.includes('2') && !title.includes('4') ? title : '';
         }, 'stack title member count after removal');
         const removeToast = allToastTexts().find((text) => text.includes('已从堆叠移出')) || '';
         T28.snapshots.beforeBack = t28GalleryState();
         click('#stackBack');
         try {
           await waitFor(() => gallerySettled() && rootCardIds().length === 5
+            && document.querySelector(cardSelector(config.s4))
             && document.querySelector(cardSelector(config.s5))
-            && stackNodeCount(config.stackId) === '2', 'back at root with S5 restored');
+            && stackNodeCount(config.stackId) === '2', 'back at root with S4+S5 restored');
         } catch (error) {
           throw new Error(error.message + ' stackExitDiagnostics=' + t28Summary());
         }
@@ -457,18 +483,18 @@ export async function run(ctx) {
       }
       throw new Error(`selection-and-stacks Page 6 failed; serverAudit=${JSON.stringify(audit)}`, { cause: error });
     }
-    expect(sameMembers(p6.memberIdsInside, [ids.s3, ids.s4, ids.s5]), `P6 stack interior: ${JSON.stringify(p6.memberIdsInside)}`);
-    expect(p6.viewTitleInside.includes("S-Stack") && p6.viewTitleInside.includes("3"), `P6 view title inside stack: ${p6.viewTitleInside}`);
+    expect(sameMembers(p6.memberIdsInside, [ids.s2, ids.s3, ids.s4, ids.s5]), `P6 stack interior: ${JSON.stringify(p6.memberIdsInside)}`);
+    expect(p6.viewTitleInside.includes("S-Stack") && p6.viewTitleInside.includes("4"), `P6 view title inside stack: ${p6.viewTitleInside}`);
     expect(p6.viewTitleAfterRemove.includes("S-Stack") && p6.viewTitleAfterRemove.includes("2"), `P6 view title after removal: ${p6.viewTitleAfterRemove}`);
-    expect(p6.removeToast.includes("已从堆叠移出"), `P6 remove toast: ${p6.removeToast}`);
-    expect(sameMembers(p6.rootIdsAfterBack, [ids.s1, ids.s2, ids.s5, ids.s6, p6.nodeIdAfterBack]), `P6 root after return: ${JSON.stringify(p6.rootIdsAfterBack)}`);
-    expect(p6.rootIdsAfterBack.includes(ids.s5), `P6 S5 back at root: ${JSON.stringify(p6.rootIdsAfterBack)}`);
+    expect(p6.removeToast.includes("已从堆叠移出") && p6.removeToast.includes("2"), `P6 remove toast: ${p6.removeToast}`);
+    expect(sameMembers(p6.rootIdsAfterBack, [ids.s1, ids.s4, ids.s5, ids.s6, p6.nodeIdAfterBack]), `P6 root after return: ${JSON.stringify(p6.rootIdsAfterBack)}`);
+    expect(p6.rootIdsAfterBack.includes(ids.s4) && p6.rootIdsAfterBack.includes(ids.s5), `P6 S4+S5 back at root: ${JSON.stringify(p6.rootIdsAfterBack)}`);
 
     // ===== API audit of the stack before the restart =====
     const stackSummary = await ctx.api(first.origin, "GET", `/api/asset-stacks/${encodeURIComponent(ids.stackId)}?project=default`);
     expect(stackSummary?.stack?.name === "S-Stack" && stackSummary?.stack?.count === 2, `audit stack summary: ${JSON.stringify(stackSummary?.stack)}`);
     const stackMembers = await ctx.api(first.origin, "GET", `/api/asset-stacks/${encodeURIComponent(ids.stackId)}/assets?project=default&limit=250`);
-    expect(sameMembers((stackMembers?.assets || []).map((asset) => asset.id), [ids.s3, ids.s4]), `audit stack members: ${JSON.stringify(stackMembers?.assets?.map((asset) => asset.id))}`);
+    expect(sameMembers((stackMembers?.assets || []).map((asset) => asset.id), [ids.s2, ids.s3]), `audit stack members: ${JSON.stringify(stackMembers?.assets?.map((asset) => asset.id))}`);
   } finally {
     await first.stop();
   }
@@ -485,10 +511,11 @@ export async function run(ctx) {
       await waitFor(() => !document.querySelector('#stackBack')?.hidden && gallerySettled(), 'entered stack after restart');
       const memberIdsAfterRestart = rootCardIds();
       const viewTitleAfterRestart = document.querySelector('#viewTitle')?.textContent || '';
-      click('#stackBack');
-      await waitFor(() => gallerySettled() && rootCardIds().length === 5
-        && document.querySelector(stackNodeSelector(config.stackId)), 'returned to root after restart');
-      await rightClickChoose(stackNodeSelector(config.stackId) + ' .asset-card-select', [MENU.dissolveStack]);
+      // 任务单：堆叠内部空白处右键 -> “解散堆叠”（确认框照旧），解散后直接
+      // 退回素材库，不需要先点返回。
+      const blankItem = await openContextMenu('#assetGrid', MENU.dissolveStack);
+      const blankMenuLabels = menuLabels();
+      blankItem.click();
       const dissolveConfirmText = await answerConfirmDialog({ confirm: true });
       await waitFor(() => allToastTexts().some((text) => text.includes('已解散堆叠')), 'dissolve toast');
       const dissolveToast = allToastTexts().find((text) => text.includes('已解散堆叠')) || '';
@@ -504,15 +531,20 @@ export async function run(ctx) {
       const cardsAfterDissolve = captureCards();
       return {
         titleAfterRestart, countAfterRestart, memberIdsAfterRestart, viewTitleAfterRestart,
-        dissolveConfirmText, dissolveToast, cardsAfterDissolve,
+        blankMenuLabels, dissolveConfirmText, dissolveToast, cardsAfterDissolve,
         rootIdsAfterDissolve: rootCardIds(),
       };
     `));
-    // 任务单要求：重启后 Stack 仍叫 S-Stack，成员是 S3、S4。
+    // 任务单要求：重启后 Stack 仍叫 S-Stack，成员是 S2、S3（P6 已移出 S4/S5）。
     expect(p7.titleAfterRestart === "S-Stack", `restart node title: ${p7.titleAfterRestart}`);
     expect(p7.countAfterRestart === "2", `restart node count badge: ${p7.countAfterRestart}`);
-    expect(sameMembers(p7.memberIdsAfterRestart, [ids.s3, ids.s4]), `restart stack members: ${JSON.stringify(p7.memberIdsAfterRestart)}`);
+    expect(sameMembers(p7.memberIdsAfterRestart, [ids.s2, ids.s3]), `restart stack members: ${JSON.stringify(p7.memberIdsAfterRestart)}`);
     expect(p7.viewTitleAfterRestart.includes("S-Stack") && p7.viewTitleAfterRestart.includes("2"), `restart view title: ${p7.viewTitleAfterRestart}`);
+    // 堆叠内部空白处菜单：没有“新建分组”，有重命名/解散/返回素材库。
+    expect(p7.blankMenuLabels.includes("新建分组并移入") === false && p7.blankMenuLabels.includes("添加分组") === false,
+      `stack blank menu must not offer group creation: ${JSON.stringify(p7.blankMenuLabels)}`);
+    expect(p7.blankMenuLabels.includes("重命名堆叠") && p7.blankMenuLabels.includes("解散堆叠") && p7.blankMenuLabels.includes("返回素材库"),
+      `stack blank menu contents: ${JSON.stringify(p7.blankMenuLabels)}`);
     expect(p7.dissolveConfirmText.includes("不会删除"), `dissolve confirm text: ${p7.dissolveConfirmText}`);
     expect(p7.dissolveToast.includes("2"), `dissolve toast contains "2": ${p7.dissolveToast}`);
     expect(sameMembers(p7.rootIdsAfterDissolve, [ids.s1, ids.s2, ids.s3, ids.s4, ids.s5, ids.s6]), `root after dissolve: ${JSON.stringify(p7.rootIdsAfterDissolve)}`);
@@ -544,6 +576,35 @@ export async function run(ctx) {
         && !(p7.cardsAfterDissolve || []).some((card) => card.isStack),
       `dissolve leaves a ghost stack node (cards=${JSON.stringify(p7.cardsAfterDissolve)})`,
     );
+
+    // ===== Page 8: trash two assets, then Empty Trash from the blank-area menu =====
+    await ctx.api(second.origin, "POST", "/api/assets/batch", {
+      action: "trash", projectId: "default", assetIds: [ids.s4, ids.s5],
+    });
+    const p8 = await ctx.runInPage(second, source(ids, `
+      await waitFor(() => gallerySettled() && rootCardIds().length === 4, 'four root cards after trashing S4+S5');
+      click('#quickFilters .nav-item[data-filter="trash"]');
+      await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'trash lists the two trashed assets');
+      // 回收站空白处菜单：全选、刷新 ｜ 清空回收站；不得再出现“添加分组”
+      //（标签在 Node 端断言）。
+      const emptyItem = await openContextMenu('#assetGrid', MENU.emptyTrash);
+      const trashMenuLabels = menuLabels();
+      emptyItem.click();
+      const emptyConfirmText = await answerConfirmDialog({ confirm: true });
+      await waitFor(() => allToastTexts().some((text) => text.includes('回收站已清空')), 'trash emptied toast');
+      await waitFor(() => gallerySettled() && rootCardIds().length === 0, 'trash grid empty after empty-trash');
+      return { trashMenuLabels, emptyConfirmText };
+    `));
+    expect(p8.trashMenuLabels.includes("添加分组") === false,
+      `trash blank menu must not offer group creation: ${JSON.stringify(p8.trashMenuLabels)}`);
+    expect(p8.trashMenuLabels.includes(MENU.emptyTrash),
+      `trash blank menu surfaces Empty Trash: ${JSON.stringify(p8.trashMenuLabels)}`);
+    expect(p8.emptyConfirmText.includes("无法恢复"), `empty-trash confirm text: ${p8.emptyConfirmText}`);
+    const trashAfterEmpty = (await ctx.api(second.origin, "GET", "/api/assets?project=default&limit=250&trash=1")).assets || [];
+    expect(trashAfterEmpty.length === 0, `audit trash emptied: ${JSON.stringify(trashAfterEmpty.map((asset) => asset.id))}`);
+    const aliveAfterEmpty = (await ctx.api(second.origin, "GET", "/api/assets?project=default&limit=250")).assets || [];
+    expect(sameMembers(aliveAfterEmpty.map((asset) => asset.id), [ids.s1, ids.s2, ids.s3, ids.s6]),
+      `audit only S4/S5 permanently deleted: ${JSON.stringify(aliveAfterEmpty.map((asset) => asset.id))}`);
 
     return {
       assets: [ids.s1, ids.s2, ids.s3, ids.s4, ids.s5, ids.s6],

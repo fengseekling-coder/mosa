@@ -2,7 +2,8 @@
 // managed originals byte-for-byte in the driver's download capture directory
 // (scripts/e2e-web-driver.mjs auto-saves every download into
 // <userData>/downloads), a multi-selection containing a collapsed Stack must
-// keep the export item disabled and produce no download, and "导出分组" must
+// leave the export item out of the context menu entirely and produce no
+// download, and "导出分组" must
 // download mosa-group-<name>.json whose payload equals the /api/assets?group=
 // listing run through sanitizeAssetForExport — no local machine path or
 // /library/ URL survives anywhere in the exported tree.
@@ -20,14 +21,15 @@ import { sanitizeAssetForExport } from "../../web/app/utils.mjs";
 
 export const name = "export";
 export const description =
-  "export: single asset download == managed original -> batch export of 2 -> Stack-in-selection leaves export disabled with no download -> group export JSON == sanitized /api/assets?group= (no local paths/URLs)";
+  "export: single asset download == managed original -> batch export of 2 -> Stack-in-selection hides export with no download -> group export JSON == sanitized /api/assets?group= (no local paths/URLs)";
 
 // Menu labels verified against web/app/i18n.mjs (zh is the default locale):
-// exportAsset=导出素材, exportGroup=导出分组,
+// exportAsset=导出素材, exportGroup=导出分组, stackSelected=堆叠所选,
 // exportStarted=导出已开始, exportStartedMultiple=批量导出已开始.
 const MENU = {
   exportAsset: "导出素材",
   exportGroup: "导出分组",
+  stackSelected: "堆叠所选",
 };
 const TOAST = { started: "导出已开始", startedMultiple: "批量导出已开始" };
 
@@ -204,15 +206,15 @@ export async function run(ctx) {
     expect(JSON.stringify(await listDownloads(downloadsDir)) === JSON.stringify([e1Download, e1Repeat, e2Download].sort()),
       `batch export left unexpected downloads: ${JSON.stringify(await listDownloads(downloadsDir))}`);
 
-    // ===== Pass 3: multi-selection containing a Stack -> export disabled =====
-    const beforeDisabled = await listDownloads(downloadsDir);
+    // ===== Pass 3: multi-selection containing a Stack -> export is absent =====
+    const beforeHidden = await listDownloads(downloadsDir);
     const p3 = await ctx.runInPage(server, source(config, `
       await waitFor(() => gallerySettled() && rootCardIds().length === 3, 'gallery before stacking');
       ctrlClickCard(config.e2);
       await waitFor(() => selectedCardIds().length === 1, 'e2 selected for stack');
       ctrlClickCard(config.e3);
       await waitFor(() => JSON.stringify(selectedCardIds()) === JSON.stringify([config.e2, config.e3].sort()), 'e2+e3 selected for stack');
-      click('#selectionStack');
+      await clickMenuItem(MENU.stackSelected, cardSelector(config.e2));
       const stackCard = await waitFor(() => document.querySelector('#assetGrid > .asset-card.is-stack'), 'stack node appears');
       await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'root collapses to e1 + stack node');
       const coverId = stackCard.dataset.id;
@@ -220,19 +222,23 @@ export async function run(ctx) {
       await waitFor(() => selectedCardIds().length === 1, 'stack node multi-selected');
       ctrlClickCard(config.e1);
       await waitFor(() => JSON.stringify(selectedCardIds()) === JSON.stringify([coverId, config.e1].sort()), 'stack node + e1 multi-selected');
-      const disabled = await clickMenuItem(MENU.exportAsset, cardSelector(config.e1));
-      // The disabled button has no click listener (context-menu.mjs binds the
-      // action only when !item.disabled), so nothing runs: watch for a while
-      // and confirm no export toast appears.
-      await sleep(1500);
-      return { coverId, disabled, toasts: allToastTexts() };
+      // 右键菜单统一：选区含 Stack 时“导出素材/堆叠所选”整段不出现（不再置灰）。
+      const trigger = document.querySelector(cardSelector(config.e1) + ' .asset-card-select');
+      trigger.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+      await sleep(200);
+      const labels = [...document.querySelectorAll('.context-menu .context-menu-label')].map((node) => node.textContent || '');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      await sleep(100);
+      return { coverId, labels, toasts: allToastTexts() };
     `));
     expect(typeof p3.coverId === "string" && p3.coverId.startsWith("export-e"), `stack node cover id: ${p3.coverId}`);
-    expect(p3.disabled === true, `export item must be disabled with a Stack in the selection: ${JSON.stringify(p3)}`);
+    expect(p3.labels.includes(MENU.exportAsset) === false, `export item must be hidden with a Stack in the selection: ${JSON.stringify(p3.labels)}`);
+    expect(p3.labels.includes(MENU.stackSelected) === false, `stack-selected item must be hidden with a Stack in the selection: ${JSON.stringify(p3.labels)}`);
+    expect(p3.labels.includes("移到回收站") === true, `the mixed-selection menu still renders its danger zone: ${JSON.stringify(p3.labels)}`);
     expect(p3.toasts.some((text) => text.includes(TOAST.started) || text.includes(TOAST.startedMultiple)) === false,
-      `disabled export must not show an export toast: ${JSON.stringify(p3.toasts)}`);
-    expect(JSON.stringify(await listDownloads(downloadsDir)) === JSON.stringify(beforeDisabled.sort()),
-      `disabled export must not download anything: ${JSON.stringify(await listDownloads(downloadsDir))}`);
+      `hidden export must not show an export toast: ${JSON.stringify(p3.toasts)}`);
+    expect(JSON.stringify(await listDownloads(downloadsDir)) === JSON.stringify(beforeHidden.sort()),
+      `hidden export must not download anything: ${JSON.stringify(await listDownloads(downloadsDir))}`);
 
     // ===== Pass 4: group export via the sidebar group context menu =====
     const jsonName = `mosa-group-${safeFileToken(config.groupName)}.json`;

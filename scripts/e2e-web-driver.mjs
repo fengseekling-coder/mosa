@@ -30,19 +30,39 @@ if (flow === "trash" && !trashConfigSource) {
   console.error("usage (trash): MOSA_E2E_WEB_TRASH_CONFIG (JSON) is required");
   process.exit(2);
 }
+// E2E only: optional renderer window size override (narrow-viewport flows),
+// e.g. MOSA_E2E_WEB_WINDOW_SIZE="720x900". Unset keeps the historical 1280x800.
+const windowSizeMatch = /^([1-9]\d*)x([1-9]\d*)$/.exec(process.env.MOSA_E2E_WEB_WINDOW_SIZE || "");
+if (process.env.MOSA_E2E_WEB_WINDOW_SIZE && !windowSizeMatch) {
+  console.error(`Invalid MOSA_E2E_WEB_WINDOW_SIZE: ${process.env.MOSA_E2E_WEB_WINDOW_SIZE}`);
+  process.exit(2);
+}
 
 app.setPath("userData", resolve(userDataDir));
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: windowSizeMatch ? Number(windowSizeMatch[1]) : 1280,
+    height: windowSizeMatch ? Number(windowSizeMatch[2]) : 800,
+    // A requested size is the page's viewport. Without this, Windows applies it
+    // to the outer frame and a 640 request yields innerWidth 624. The default
+    // 1280x800 keeps its historical outer-frame meaning so existing flows are
+    // unchanged.
+    useContentSize: Boolean(windowSizeMatch),
     show: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+  // E2E only: a page script can request a mid-run window resize by
+  // console-logging "__MOSA_E2E_RESIZE__ <width>x<height>"; the page then waits
+  // for the resize event itself. Registered before load so early messages land.
+  win.webContents.on("console-message", (event, _level, legacyMessage) => {
+    const message = typeof event?.message === "string" ? event.message : legacyMessage;
+    const resize = /^__MOSA_E2E_RESIZE__ (\d+)x(\d+)$/.exec(String(message || "").trim());
+    if (resize) win.setContentSize(Number(resize[1]), Number(resize[2]));
   });
   // E2E only: the hidden window must never pop a save dialog (it would hang),
   // so every download is auto-saved into this run's sandboxed userData under

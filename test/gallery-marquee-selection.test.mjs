@@ -410,6 +410,102 @@ test("active marquee refreshes its geometry after infinite-scroll append and sta
   }
 });
 
+// Drives createGallerySelection's real pointer handlers against a fake grid:
+// whitespace pointerdown at `from`, pointermove to `to`, pointerup.
+function runMarquee({ selectedId = "", selectedIds = [], rects, from, to, shiftKey = false }) {
+  const originals = {
+    HTMLElement: globalThis.HTMLElement,
+    document: globalThis.document,
+    window: globalThis.window,
+    requestAnimationFrame: globalThis.requestAnimationFrame,
+    cancelAnimationFrame: globalThis.cancelAnimationFrame,
+  };
+  class FakeHTMLElement {
+    constructor() {
+      this.dataset = {};
+      this.classList = { add() {}, remove() {}, toggle() {}, contains() { return false; } };
+      this.style = {};
+      this.isConnected = true;
+    }
+    querySelector() { return null; }
+    querySelectorAll() { return []; }
+    setAttribute() {}
+    remove() { this.isConnected = false; }
+  }
+  const gridHandlers = new Map();
+  const windowHandlers = new Map();
+  const frames = [];
+  globalThis.HTMLElement = FakeHTMLElement;
+  globalThis.requestAnimationFrame = (callback) => frames.push(callback);
+  globalThis.cancelAnimationFrame = () => {};
+  globalThis.document = {
+    body: { classList: { add() {}, remove() {} }, append(node) { node.isConnected = true; } },
+    createElement() { return new FakeHTMLElement(); },
+  };
+  globalThis.window = { addEventListener(type, handler) { windowHandlers.set(type, handler); } };
+  try {
+    const grid = {
+      scrollLeft: 0,
+      scrollTop: 0,
+      childElementCount: 0,
+      classList: { toggle() {} },
+      addEventListener(type, handler) { gridHandlers.set(type, handler); },
+      getBoundingClientRect() { return { left: 0, right: 400, top: 0, bottom: 400 }; },
+      querySelectorAll() { return []; },
+      setPointerCapture() {},
+      releasePointerCapture() {},
+    };
+    const state = {
+      project: "default",
+      assets: rects.map(({ id }) => ({ id })),
+      selectedId,
+      selectedIds: new Set(selectedIds),
+      selectedStackNodes: new Map(),
+      selectionProject: "default",
+      selectionRequestKey: "",
+      activeStackId: "",
+      viewMode: "library",
+      scope: "all",
+      storageKind: "sqlite",
+      pageTotal: rects.length,
+    };
+    const selection = createGallerySelection({
+      els: { assetGrid: grid },
+      state,
+      t: (key) => key,
+      getCardSelectionRects: () => rects,
+      getCardSelectionGeometryVersion: () => 0,
+    });
+    selection.bind();
+    const whitespace = { closest() { return null; } };
+    gridHandlers.get("pointerdown")({
+      pointerId: 1, clientX: from[0], clientY: from[1], button: 0, isPrimary: true, pointerType: "mouse", shiftKey, target: whitespace,
+    });
+    windowHandlers.get("pointermove")({ pointerId: 1, clientX: to[0], clientY: to[1], preventDefault() {} });
+    while (frames.length) frames.shift()();
+    windowHandlers.get("pointerup")({ pointerId: 1 });
+    return new Set(state.selectedIds);
+  } finally {
+    Object.assign(globalThis, originals);
+  }
+}
+
+test("a plain marquee replaces the selection instead of keeping the card open in the Inspector", () => {
+  // Card a sits on the first row and is open in the Inspector (single
+  // selection); b and c are on the second row, which the marquee sweeps.
+  const rects = [
+    { id: "a", rect: { left: 10, right: 90, top: 10, bottom: 90 } },
+    { id: "b", rect: { left: 10, right: 90, top: 150, bottom: 230 } },
+    { id: "c", rect: { left: 110, right: 190, top: 150, bottom: 230 } },
+  ];
+  assert.deepEqual(runMarquee({ selectedId: "a", rects, from: [5, 180], to: [200, 200] }), new Set(["b", "c"]),
+    "only the swept cards are selected; the Inspector card is not pulled in");
+  assert.deepEqual(runMarquee({ selectedIds: ["a"], rects, from: [5, 180], to: [200, 200] }), new Set(["b", "c"]),
+    "an existing batch selection is replaced too");
+  assert.deepEqual(runMarquee({ selectedId: "a", rects, from: [5, 180], to: [60, 200], shiftKey: true }), new Set(["a", "b"]),
+    "Shift extends the selection, starting from the Inspector card");
+});
+
 test("gallery marquee selection is wired into shared web/app renderer", async () => {
   const app = await readFile(new URL("../web/app/app.mjs", import.meta.url), "utf8");
   const html = await readFile(new URL("../web/app/index.html", import.meta.url), "utf8");
@@ -426,9 +522,17 @@ test("gallery marquee selection is wired into shared web/app renderer", async ()
   assert.match(app, /state\.viewMode === "library" && state\.selectedIds\?\.size/);
   assert.match(app, /gallerySelection\.syncRenderedSelection\(\)/);
 
-  assert.match(html, /id="selectionBar"/);
-  assert.match(html, /id="selectionSelectAll"/);
-  assert.match(html, /id="selectionClear"/);
+  // 底部批量栏已按右键菜单统一方案移除：全选/取消选择走右键菜单（⌘A/Esc
+  // 快捷键标注见 context-menu-actions.mjs selectAllMenuItem/deselectAllMenuItem），
+  // DOM 与 CSS 都不允许残留批量栏。
+  assert.doesNotMatch(html, /id="selectionBar"/);
+  assert.doesNotMatch(html, /id="selectionSelectAll"|id="selectionClear"/);
+  assert.doesNotMatch(css, /\.selection-bar\b/);
+  const contextActionsSource = await readFile(new URL("../web/app/context-menu-actions.mjs", import.meta.url), "utf8");
+  assert.match(contextActionsSource, /function selectAllMenuItem\(\)/);
+  assert.match(contextActionsSource, /function deselectAllMenuItem\(\)/);
+  assert.match(contextActionsSource, /gallerySelection\?\.clear\?\.\(\{ announce: true \}\)/,
+    "取消选择菜单项复用与 Esc 相同的选区清理管线");
   assert.match(css, /\.marquee-selection-box \{/);
   assert.match(css, /\.asset-card\.multi-selected \.asset-card-select/);
   assert.match(css, /\.asset-card\.multi-selected \.card-check/);
@@ -449,7 +553,7 @@ test("gallery marquee selection is wired into shared web/app renderer", async ()
     "gallery card markup must not keep the retired gradient scrim node");
   assert.doesNotMatch(css, /\.card-scrim/,
     "retired gradient scrim CSS must be deleted instead of disabled by overrides");
-  assert.match(css, /\.selection-bar \{/);
+  assert.doesNotMatch(css, /\.selection-bar \{/);
   assert.match(css, /\.grid \{[^}]*grid-auto-rows: 1px;[^}]*column-gap: var\(--gallery-gap\);[^}]*row-gap: 0;/,
     "marquee/masonry geometry assumptions are locked to the CSS grid contract");
   assert.match(app, /const gap = Number\.parseFloat\(styles\.getPropertyValue\("--gallery-gap"\)\) \|\| Number\.parseFloat\(styles\.columnGap\) \|\| 0;/,
@@ -464,10 +568,10 @@ test("gallery marquee selection is wired into shared web/app renderer", async ()
   assert.match(selection, /const startCard = event\.target\.closest\?\.\("\.asset-card"\)/);
   assert.match(selection, /if \(startCard && !event\.shiftKey\) return/);
   assert.match(selection, /startCardId: startCard\?\.dataset\.id \|\| ""/);
-  assert.match(selection, /const promoteDetailId = explicitSelection\.size \? "" : currentDetailSelectionId\(\)/,
-    "starting a marquee from a single Inspector selection promotes that first card into the batch");
-  assert.match(selection, /if \(!pointer\.additive && pointer\.promoteDetailId\) next\.add\(pointer\.promoteDetailId\)/,
-    "plain marquee entry must not leave the visibly selected Inspector card outside the real batch selection");
+  assert.doesNotMatch(selection, /promoteDetailId/,
+    "a plain marquee replaces the selection; the Inspector card joins only through Shift");
+  assert.match(selection, /const next = pointer\.additive \? new Set\(pointer\.additiveBaseSelection\) : new Set\(\);/);
+  assert.match(selection, /additiveBaseSelection: event\.shiftKey \? additiveSelectionBase\(\) : new Set\(explicitSelection\)/);
   assert.match(selection, /if \(pointer\.startCardId\) next\.add\(pointer\.startCardId\)/);
   assert.match(selection, /pointer\.dragging = true;\s+captureDragGeometry\(\);\s+try \{ els\.assetGrid\?\.setPointerCapture/);
   assert.match(selection, /pointer\.startContentX/);

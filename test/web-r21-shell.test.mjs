@@ -32,7 +32,7 @@ test("R21 light-theme tokens and the shared shell sizes land in web styles", asy
   const light = css.slice(lightStart, lightEnd);
   assert.match(light, /--app-bg: #f6f6f7;/, "light --app-bg must be the R21 #f6f6f7");
   assert.match(light, /--color-text-primary: #1d1d1f;/, "light --color-text-primary must be the R21 #1d1d1f");
-  assert.match(light, /--color-text-tertiary: #85858b;/, "light --color-text-tertiary must be the R21 #85858b");
+  assert.match(light, /--color-text-tertiary: #67676d;/, "light --color-text-tertiary must be the AA-darkened #67676d (任务 50)");
   // 深色没有 R21 规格：token 保持现状。
   const darkStart = css.indexOf(':root[data-theme="dark"]');
   const darkEnd = css.indexOf("共享 Token");
@@ -75,9 +75,9 @@ test("R21 sidebar: light background, border, brand, nav items and group headings
   assert.match(css, /\.mosa-v2 \.nav-item\.active \{ color: var\(--color-text-primary\); background: var\(--app-chip-active\); font-weight: 570; \}/);
   // 浅色的灰色字色规则特异性高于 .nav-item.active，选中项必须在同一特异性下把字色改回主文字色。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.nav-item\.active \{ background: #ececef; color: var\(--color-text-primary\); \}/);
-  // 分组标题：11px / 600，浅色 #8b8b91。
+  // 分组标题：11px / 600；浅色不再有写死字色（任务 50 删除），回落到基础规则的 tertiary token。
   assert.match(css, /\.mosa-v2 \.nav-label \{ margin: 18px 0 6px; padding: 0 12px; color: var\(--color-text-tertiary\); font-size: 11px; font-weight: 600;/);
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.nav-label \{ color: #8b8b91; \}/);
+  assert.doesNotMatch(css, /:root\[data-theme="light"\] \.mosa-v2 \.nav-label \{/);
   // 分组之间的间距 20。
   assert.match(css, /\.mosa-v2 \.sidebar-group-heading \{ display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin: var\(--r21-s5\) 10px 2px; \}/);
   assert.match(css, /\.mosa-v2 \.sidebar-manual-group-heading \{ margin-top: var\(--r21-s5\); \}/);

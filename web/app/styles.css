@@ -33,7 +33,7 @@
   /* --- V2 text & border --- */
   --color-text-primary: #1d1d1f;
   --color-text-secondary: #525252;
-  --color-text-tertiary: #85858b;
+  --color-text-tertiary: #67676d;
   --color-text-inverse: #ffffff;
   --color-canvas: var(--app-bg);
   --color-surface: var(--app-sidebar);
@@ -216,7 +216,6 @@
   --z-popover: 30;
   --z-dropdown: 40;
   --z-dropdown-submenu: 45;
-  --z-bottom-bar: 50;
   --z-overlay: 90;
   --z-modal: 100;
   --z-media-viewer: 110;
@@ -354,8 +353,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 /* ===== 瀑布流图库（CSS grid 1px 行高 + JS span 计算，行优先、分页友好） ===== */
 .grid { display: grid; flex: 1; min-width: 0; grid-auto-flow: row; grid-auto-rows: 1px; grid-template-columns: repeat(4, minmax(0, 1fr)); align-content: start; column-gap: var(--gallery-gap); row-gap: 0; overflow: auto; padding: var(--space-2) 20px var(--space-3); background: var(--app-bg); }
-/* Selection-bar compensation follows the single live selection state. */
-.shell:has(.grid.selection-active) .detail { padding-bottom: var(--statusbar-height); }
 @media (max-width: 1400px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
@@ -420,13 +417,13 @@ body.asset-stack-dragging { cursor: grabbing; user-select: none; }
 .asset-card .thumb-video-frame.is-frame-ready { opacity: 1; }
 .asset-card .video-badge { position: absolute; right: var(--space-1); bottom: var(--space-1); display: inline-flex; width: 26px; height: 26px; align-items: center; justify-content: center; border: 1px solid rgb(255 255 255 / .58); border-radius: 50%; color: var(--color-media-backdrop); background: rgb(255 255 255 / .72); box-shadow: 0 2px 8px rgb(0 0 0 / .12); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); font-size: 11px; line-height: 1; }
 
-/* 卡片快捷操作（Phase 1C 契约，Phase 1C.1 收口）：.card-actions > button.card-action-btn.card-favorite /
-   .card-quick-copy，28px 悬浮按钮组（IconButton 原语消费方；与 Phase 1B 兼容档 .icon-button 的
+/* 卡片快捷操作（Phase 1C 契约，Phase 1C.1 收口）：.card-actions > button.card-action-btn.card-favorite，
+   28px 悬浮按钮组（R21 去掉了原来的快捷复制按钮，复制提示词在右键菜单和检视器里）（IconButton 原语消费方；与 Phase 1B 兼容档 .icon-button 的
    28×28 点击面积对齐，不低于兼容档；32px 标准档 --control-sm 的迁移登记 Phase 2 评估）。
    点击面积 28×28 与图标视觉尺寸 14px 分离；定位于缩略图右上，与左上角批量复选框无交叠。
    容器恒为 pointer-events: none，命中测试直达卡片本体，可点性仅由可见的子按钮承担。
    背景/边框/阴影全部消费语义 Token，保证深浅主题与复杂图片上均清晰；无随机黑白 rgba、无毛玻璃。
-   子按钮级渐进披露（收藏卡默认仅星标常显；hover/focus-within/selected 双按钮显现；触摸回退；
+   子按钮级渐进披露（收藏卡默认仅星标常显；hover/focus-within/selected 时显现；触摸回退；
    批量 disabled 抑制）见文末「卡片快捷操作披露契约（Phase 1C）」节；hover/active 状态色经
    Phase 1B 按钮原语契约节统一消费。 */
 .card-actions { position: absolute; z-index: var(--z-card-overlay); top: var(--space-1); right: var(--space-1); display: flex; gap: var(--space-1); pointer-events: none; }
@@ -460,17 +457,9 @@ body.asset-stack-dragging { cursor: grabbing; user-select: none; }
 .gallery-virtual-extent { height: 1px; min-height: 1px; overflow-anchor: none; pointer-events: none; visibility: hidden; }
 
 /* ===== 左键框选 / 多选 ===== */
-.grid.selection-active { padding-bottom: calc(var(--statusbar-height) + var(--space-2)); }
 .marquee-selection-box { position: fixed; z-index: var(--z-popover); border: 1px solid var(--color-accent); border-radius: 3px; background: color-mix(in srgb, var(--color-accent) 14%, transparent); pointer-events: none; }
 body.marquee-selecting { cursor: crosshair; user-select: none; }
 body.marquee-selecting .grid { cursor: crosshair; }
-.selection-bar { position: absolute; z-index: var(--z-bottom-bar); right: 16px; bottom: 12px; left: 16px; display: flex; min-height: var(--statusbar-height); align-items: center; justify-content: space-between; gap: var(--space-2); padding: 8px 12px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-panel); background: var(--color-surface-raised); box-shadow: var(--shadow-popover); }
-.selection-bar[hidden] { display: none; }
-.selection-bar-count { min-width: 0; color: var(--color-text-secondary); font-size: 12px; font-weight: 550; font-variant-numeric: tabular-nums; }
-.selection-bar-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
-.selection-bar-btn { height: 28px; padding: 0 10px; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); color: var(--color-text-secondary); background: var(--app-card); cursor: pointer; font-size: 12px; font-weight: 500; }
-.selection-bar-btn.quiet { border-color: transparent; background: transparent; }
-.selection-bar-btn:disabled { cursor: default; opacity: .48; }
 .stack-back { display: inline-grid; width: 28px; height: 28px; flex: 0 0 auto; place-items: center; padding: 0; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; }
 .stack-back:hover { color: var(--color-text-primary); background: var(--app-hover); }
 .stack-back[hidden] { display: none; }
@@ -1012,10 +1001,9 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
    visibility:hidden / hidden 属性 / tabindex="-1" —— 键盘 Tab 始终可达快捷操作，
    焦点进入时 :focus-within 立即令操作区可见；披露不改变几何，无布局位移。
    Phase 1C.1 收口：披露粒度从整个 .card-actions 容器下沉到子按钮——
-   · 普通未选中卡：收藏与快速复制默认均收敛；
-   · 收藏卡：默认仅星标（.is-fav）常显表达收藏状态，快速复制仍渐进披露，
-     收藏数量增加后不再满屏双按钮；星标仍可直接点击取消收藏；
-   · hover / focus-within / selected：两个按钮均显现（F-07 批准验收的三条路径）。 */
+   · 普通未选中卡：收藏按钮默认收敛；
+   · 收藏卡：星标（.is-fav）常显表达收藏状态，仍可直接点击取消收藏；
+   · hover / focus-within / selected：按钮显现（F-07 批准验收的三条路径）。 */
 @media (hover: hover) and (pointer: fine) {
   .card-action-btn { opacity: 0; pointer-events: none; }
   .card-action-btn.card-favorite.is-fav { opacity: 1; pointer-events: auto; }
@@ -1180,7 +1168,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 :root[data-theme="light"] .mosa-v2 .sidebar { background: #fbfbfc; border-right-color: #e7e7ea; }
 :root[data-theme="light"] .mosa-v2 .nav-item, :root[data-theme="light"] .mosa-v2 .settings-trigger { color: #55555a; }
 :root[data-theme="light"] .mosa-v2 .nav-item.active { background: #ececef; color: var(--color-text-primary); }
-:root[data-theme="light"] .mosa-v2 .nav-label { color: #8b8b91; }
 :root[data-theme="light"] .mosa-v2 .type-filter.active { background: #f0f0f2; color: #303034; }
 :root[data-theme="light"] .mosa-v2 .sort-control select { background: #f4f4f5; }
 :root[data-theme="light"] .mosa-v2 .topbar-search { background: #f4f4f5; }
@@ -1226,7 +1213,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .card-favorite:not(.is-fav):hover { color: rgb(255 255 255 / .88); background: transparent; opacity: 1; }
   .mosa-v2 .card-favorite.is-fav:hover { color: var(--color-danger); background: transparent; opacity: .82; }
 }
-.mosa-v2 .card-quick-copy { display: none; }
 .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--gallery-gap); padding: 0; }.mosa-v2 .asset-skeleton { border-radius: 8px; background: linear-gradient(100deg, var(--app-search) 30%, var(--app-search-focus) 45%, var(--app-search) 60%); }.mosa-v2 .gallery-empty-state, .mosa-v2 .error-state { color: var(--color-text-tertiary); }.mosa-v2 .empty-state-actions .btn-primary { background: #2424ff; }
 
 .mosa-v2 .settings-menu { border: 1px solid rgb(255 255 255 / .68); border-radius: 16px; background: rgb(from var(--app-menu) r g b / .92); box-shadow: 0 18px 42px -10px rgb(0 0 0 / .16); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); }
@@ -1823,6 +1809,18 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 
 .context-menu-item.danger:focus {
   background: var(--color-danger-subtle);
+}
+
+/* 选区信息表头（已选 N 项）：纯展示、不可聚焦，弱化成辅助色但仍与菜单项同节奏。 */
+.context-menu-heading {
+  padding: 8px 12px 4px;
+  color: var(--color-text-secondary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  user-select: none;
 }
 
 .context-menu-icon {
@@ -2888,8 +2886,8 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   color: #66666c;
 }
 
-/* —— 任务 43：检视器里走全局 --color-text-tertiary（浅色 #85858b，3.55:1）的
-   辅助文字，在浅色作用域内单独加深——变量本身不动（侧栏/画廊等仍在用）。
+/* —— 任务 43：检视器里走全局 --color-text-tertiary 的辅助文字，在浅色作用域内
+   单独加深（当时变量是 #85858b、3.55:1；任务 50 已把变量本身加深到 #67676d）。
    状态行与「未记录」都在面板 #fbfbfc 上，用键名同款 #707076（4.76:1），
    与任务 41 的「用途 → 颜色」保持一致：面板辅助 #707076、#f3f3f5 面上 #6e6e73。 —— */
 :root[data-theme="light"] .mosa-v2 .detail :is(.version-history-status, .generation-history-status, .recipe-history-status) {
@@ -3109,9 +3107,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   font-size: 10.5px;
   line-height: 15px;
 }
-:root[data-theme="light"] .mosa-v2 .settings-page-desc {
-  color: #919197;
-}
 .mosa-v2 .settings-group {
   overflow: hidden;
   border: 1px solid var(--color-border-subtle);
@@ -3148,9 +3143,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   font-size: 10px;
   line-height: 14px;
 }
-:root[data-theme="light"] .mosa-v2 .settings-row-copy p {
-  color: #9a9aa0;
-}
 .mosa-v2 .settings-path {
   max-width: 352px;
   overflow: hidden;
@@ -3160,7 +3152,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   white-space: nowrap;
 }
 :root[data-theme="light"] .mosa-v2 .settings-path {
-  color: #8e8e94;
+  color: var(--color-text-tertiary);
 }
 .mosa-v2 .settings-text-action {
   box-sizing: border-box;
