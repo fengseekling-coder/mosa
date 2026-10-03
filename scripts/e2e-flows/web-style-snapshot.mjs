@@ -43,6 +43,9 @@ const KEY_KINDS = {
   "shell.navItemRadius": "px",
   "shell.navItemActiveColor": "color",
   "shell.navItemActiveBackground": "color",
+  // 任务 50：浅色 tertiary 加深后锁侧栏计数与分组标题的实际字色。
+  "shell.navCountColor": "color",
+  "shell.navLabelColor": "color",
   // 顶栏控件
   "topbar.typeFilterHeight": "px",
   "topbar.typeFilterRadius": "px",
@@ -59,6 +62,7 @@ const KEY_KINDS = {
   "topbar.searchHeight": "px",
   "topbar.searchRadius": "px",
   "topbar.searchBackground": "color",
+  "topbar.searchPlaceholderColor": "color",
   // 画廊与卡片
   "gallery.gridPaddingTop": "px",
   "gallery.gridPaddingLeft": "px",
@@ -105,6 +109,7 @@ const KEY_KINDS = {
   "dark.bodyBackground": "color",
   "dark.bodyColor": "color",
   "dark.navItemActiveBackground": "color",
+  "dark.navLabelColor": "color",
   "dark.typeFilterActiveBackground": "color",
   "dark.thumbBackground": "color",
   "dark.selectionRingColor": "color",
@@ -330,6 +335,8 @@ function measurementSource({ plainAssetId }) {
     const navActive = styleOf(pick('#quickFilters .nav-item[data-filter="all"]'));
     R['shell.navItemActiveColor'] = navActive.color;
     R['shell.navItemActiveBackground'] = navActive.backgroundColor;
+    R['shell.navCountColor'] = styleOf(pick('#quickFilters .nav-item[data-filter="favorite"] .nav-count')).color;
+    R['shell.navLabelColor'] = styleOf(pick('.mosa-v2 .nav-label')).color;
 
     const typeNormal = pick('.type-filter[data-type="img"]');
     const typeNormalStyle = styleOf(typeNormal);
@@ -352,6 +359,7 @@ function measurementSource({ plainAssetId }) {
     R['topbar.searchHeight'] = rectOf(searchBox).height;
     R['topbar.searchRadius'] = searchStyle.borderTopLeftRadius;
     R['topbar.searchBackground'] = searchStyle.backgroundColor;
+    R['topbar.searchPlaceholderColor'] = styleOf(pick('.topbar-search input'), '::placeholder').color;
 
     // 任务 34：分类下拉框（复用 .sort-control 链，锁定与排序框同款外观）。
     const categorySelect = pick('#categorySelect');
@@ -456,6 +464,7 @@ function measurementSource({ plainAssetId }) {
       styleOf(pick('.type-filter[data-type="all"]')).backgroundColor,
       styleOf(pick('#assetGrid .thumb')).backgroundColor,
       styleOf(pick('.asset-card.selected'), '::after').borderColor,
+      styleOf(pick('.mosa-v2 .nav-label')).color,
     ], 'dark colours');
     const bodyDark = styleOf(document.body);
     R['dark.bodyBackground'] = bodyDark.backgroundColor;
@@ -464,6 +473,7 @@ function measurementSource({ plainAssetId }) {
     R['dark.typeFilterActiveBackground'] = styleOf(pick('.type-filter[data-type="all"]')).backgroundColor;
     R['dark.thumbBackground'] = styleOf(pick('#assetGrid .thumb')).backgroundColor;
     R['dark.selectionRingColor'] = styleOf(pick('.asset-card.selected'), '::after').borderColor;
+    R['dark.navLabelColor'] = styleOf(pick('.mosa-v2 .nav-label')).color;
 
     return R;
   })()`;
