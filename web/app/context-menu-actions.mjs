@@ -5,7 +5,7 @@
 
 import { sanitizeAssetForExport } from "./utils.mjs";
 
-export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, openStackRenameModal, loadAssets, getGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, gallerySelection }) {
+export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, openStackRenameModal, loadAssets, getGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, assetStacks, emptyTrash, gallerySelection }) {
   const { apiFetch } = apiClient;
   // getGroupColor falls back to the deterministic palette so call sites can rely
   // on a single source of truth for group colors (mirrors app.mjs colorForGroup).
@@ -374,13 +374,116 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     return collected;
   }
 
+  // ===== 统一分区拼装（方案第二节）=====
+  // 所有素材菜单的分区都从这里走：空分区整段不出现；只在两段之间补分隔线，
+  // 因此天然没有连续、开头或结尾的分隔线。
+  function buildSectionedMenu(sections) {
+    const items = [];
+    for (const section of sections) {
+      if (!Array.isArray(section) || !section.length) continue;
+      if (items.length) items.push({ separator: true });
+      items.push(...section);
+    }
+    return items;
+  }
+
+  // 选区信息表头：只在多选时出现，纯展示不可点（context-menu.mjs 按 heading
+  // 渲染，数量同时进菜单 aria-label）。
+  function selectionHeadingItem(count) {
+    return { heading: t("batchSelected", { count }) };
+  }
+
+  function selectAllMenuItem() {
+    return {
+      label: t("selectAll"),
+      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>',
+      shortcut: /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘A" : "Ctrl+A",
+      disabled: !state.pageTotal,
+      action: async () => {
+        await gallerySelection?.selectAll?.({ announce: true });
+      },
+    };
+  }
+
+  function deselectAllMenuItem() {
+    return {
+      label: t("deselectAll"),
+      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 9 6 6M15 9l-6 6"/></svg>',
+      shortcut: "Esc",
+      action: async () => {
+        gallerySelection?.clear?.({ announce: true });
+      },
+    };
+  }
+
+  // ===== 堆叠卡片菜单与堆叠内部空白处菜单共用的堆叠操作 =====
+  // 重命名：确认弹窗由共享 rename modal 收集，持久化与刷新只有这一份。
+  function openStackRenameDialog({ stackId, initialName, onRenamed } = {}) {
+    openStackRenameModal?.({
+      initialValue: String(initialName || ""),
+      confirmLabel: t("renameStack"),
+      onSubmit: async (nextName) => {
+        let succeeded = false;
+        await runAction(async () => {
+          await apiFetch(`/api/asset-stacks/${encodeURIComponent(stackId)}`, {
+            method: "PATCH",
+            body: { projectId: state.project, name: nextName },
+          });
+          succeeded = true;
+          showToast(t("stackRenamed"), "success");
+          // Node rows re-render through the incremental path; the member ids
+          // let every open window refresh its node card.
+          window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+            detail: { stackUpdated: { id: stackId } },
+          }));
+          if (onRenamed) await onRenamed(nextName);
+        });
+        return succeeded;
+      },
+    });
+  }
+
+  // 解散：确认 + DELETE + 计数 toast + 增量刷新只有这一份。堆叠内部空白处
+  // 通过 onDissolved 接 exitStack 退回素材库。
+  async function confirmAndDissolveStack({ stackId, stackCount = 0, onDissolved } = {}) {
+    const confirmed = await requestConfirmation({
+      title: t("dissolveStackTitle"),
+      description: t("dissolveStackDescription"),
+      confirmLabel: t("dissolveStack"),
+      tone: "warning",
+    });
+    if (!confirmed) return false;
+    await runAction(async () => {
+      const result = await apiFetch(`/api/asset-stacks/${encodeURIComponent(stackId)}`, {
+        method: "DELETE",
+        body: { projectId: state.project },
+      });
+      // The server echoes the member ids it released; prefer that over
+      // the possibly stale menu-time count.
+      const releasedCount = Array.isArray(result?.assetIds) && result.assetIds.length ? result.assetIds.length : stackCount;
+      showToast(t("stackDissolvedCount", { count: releasedCount }), "success");
+      window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+        detail: { stackDissolved: { id: stackId } },
+      }));
+      if (onDissolved) await onDissolved();
+    });
+    return true;
+  }
+
+  // 堆叠 mutation（拖拽/建堆/移出）进行中的置灰口径：菜单构建时读控制器的
+  // mutationInFlight，与原底部栏按钮的禁用口径一致。
+  const stackMutationInFlight = () => Boolean(assetStacks?.isBusy?.());
+
   /**
    * Get single asset context menu
    */
   function getAssetMenu(asset, selectedAssets = [], options = {}) {
     if (state.scope === "trash") {
       const selectionCount = logicalSelectionCount(selectedAssets, options);
-      return [
+      const isMultiple = selectionCount > 1;
+      return buildSectionedMenu([
+        ...(isMultiple ? [[selectionHeadingItem(selectionCount)]] : []),
+        [
         {
           label: selectionCount > 1 ? t("restoreAssets", { count: selectionCount }) : t("restoreAsset"),
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8v5h5"/><path d="M5.5 13a7 7 0 1 0 2-7"/></svg>',
@@ -402,7 +505,9 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             });
           },
         },
-        { separator: true },
+        ],
+        ...(isMultiple ? [[selectAllMenuItem(), deselectAllMenuItem()]] : []),
+        [
         {
           label: t("permanentDelete"),
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4h8v2m2 0-1 15H7L6 6"/><path d="M10 10v7M14 10v7"/></svg>',
@@ -439,7 +544,8 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             });
           },
         },
-      ];
+        ],
+      ]);
     }
     // Collapsed Stack node. Management actions follow the shared asset-menu
     // grammar: routine actions on top, structural actions after one separator,
@@ -467,42 +573,23 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           }));
         });
       };
-      return [
-        {
-          label: t("openStack"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16v12H4z"/><path d="m9 10 3 3 3-3"/></svg>',
-          action: async () => {
-            window.dispatchEvent(new CustomEvent("mosa:open-stack", { detail: { stackId, stack: asset.stack } }));
+      return buildSectionedMenu([
+        [
+          {
+            label: t("openStack"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16v12H4z"/><path d="m9 10 3 3 3-3"/></svg>',
+            action: async () => {
+              window.dispatchEvent(new CustomEvent("mosa:open-stack", { detail: { stackId, stack: asset.stack } }));
+            },
           },
-        },
-        {
-          label: t("renameStack"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>',
-          disabled: typeof openStackRenameModal !== "function",
-          action: async () => {
-            await openStackRenameModal({
-              initialValue: String(asset.stack.name || ""),
-              confirmLabel: t("renameStack"),
-              onSubmit: async (nextName) => {
-                let succeeded = false;
-                await runAction(async () => {
-                  await apiFetch(`/api/asset-stacks/${encodeURIComponent(stackId)}`, {
-                    method: "PATCH",
-                    body: { projectId: state.project, name: nextName },
-                  });
-                  succeeded = true;
-                  showToast(t("stackRenamed"), "success");
-                  // Node rows re-render through the incremental path; the
-                  // member ids let every open window refresh its node card.
-                  window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
-                    detail: { stackUpdated: { id: stackId } },
-                  }));
-                });
-                return succeeded;
-              },
-            });
+        ],
+        [
+          {
+            label: t("renameStack"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>',
+            disabled: typeof openStackRenameModal !== "function",
+            action: () => openStackRenameDialog({ stackId, initialName: asset.stack.name }),
           },
-        },
         {
           label: t("moveToGroup"),
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
@@ -537,36 +624,15 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             })),
           ],
         },
-        { separator: true },
-        {
-          label: t("dissolveStack"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 7h8M8 12h8M8 17h8"/><path d="M4 7h.01M4 12h.01M4 17h.01"/></svg>',
-          action: async () => {
-            const confirmed = await requestConfirmation({
-              title: t("dissolveStackTitle"),
-              description: t("dissolveStackDescription"),
-              confirmLabel: t("dissolveStack"),
-              tone: "warning",
-            });
-            if (!confirmed) return;
-            await runAction(async () => {
-              const result = await apiFetch(`/api/asset-stacks/${encodeURIComponent(stackId)}`, {
-                method: "DELETE",
-                body: { projectId: state.project },
-              });
-              // The server echoes the member ids it released; prefer that over
-              // the possibly stale menu-time count.
-              const releasedCount = Array.isArray(result?.assetIds) && result.assetIds.length ? result.assetIds.length : stackCount;
-              showToast(t("stackDissolvedCount", { count: releasedCount }), "success");
-              window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
-                detail: { stackDissolved: { id: stackId } },
-              }));
-            });
+          {
+            label: t("dissolveStack"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 7h8M8 12h8M8 17h8"/><path d="M4 7h.01M4 12h.01M4 17h.01"/></svg>',
+            action: () => confirmAndDissolveStack({ stackId, stackCount }),
           },
-        },
-        { separator: true },
-        {
-          label: t("moveToTrash"),
+        ],
+        [
+          {
+            label: t("moveToTrash"),
           icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/></svg>',
           danger: true,
           action: async () => {
@@ -634,78 +700,100 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             });
           },
         },
-      ];
+        ],
+      ]);
     }
     const selectionCount = logicalSelectionCount(selectedAssets, options);
     const isMultiple = selectionCount > 1;
-    const items = [];
+    const includesStackNodes = Boolean(isMultiple && gallerySelection?.hasSelectedStacks?.());
+    // 多选收藏看整个选区：全部已收藏才显示“取消收藏”，否则一律把全部设为收藏，
+    // 不再以右键命中的那一张的状态决定方向。单选时选区就是这一张，规则自然
+    // 退化为原有的按素材切换。
+    const favoriteNext = !(selectedAssets.length > 0 && selectedAssets.every((entry) => entry.favorite));
 
-    if (!isMultiple) {
-      // Single asset actions
-      items.push(
-        {
-          label: t("openInViewer"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>',
-          action: async () => {
-            window.dispatchEvent(new CustomEvent("mosa:open-asset-view", { detail: { assetId: asset.id } }));
+    // 分区内容（不适用的分区以 null 整段隐藏，顺序见 buildSectionedMenu）。
+    const openSection = !isMultiple
+      ? [
+          {
+            label: t("openInViewer"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>',
+            action: async () => {
+              window.dispatchEvent(new CustomEvent("mosa:open-asset-view", { detail: { assetId: asset.id } }));
+            },
           },
-        },
-        {
-          label: t("showInFinder"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04M12 22.08V12"/></svg>',
-          action: async () => {
-            await runAction(async () => {
+          {
+            label: t("showInFinder"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.27 6.96 8.73 5.04 8.73-5.04M12 22.08V12"/></svg>',
+            action: async () => {
+              await runAction(async () => {
+                try {
+                  await apiFetch("/api/open-folder", {
+                    method: "POST",
+                    body: { path: asset.image_path, reveal: true },
+                  });
+                } catch (error) {
+                  if (error.message.includes("Path not allowed")) throw new Error(t("showInFinderPathNotAllowed"));
+                  if (error.message.includes("does not exist")) throw new Error(t("showInFinderNotFound"));
+                  throw new Error(t("showInFinderFailed"));
+                }
+                showToast(t("shownInFinder"), "success");
+              });
+            },
+          },
+        ]
+      : null;
+
+    const copySection = !isMultiple
+      ? [
+          {
+            label: t("copyImage"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 4 4 2-2 5 5"/></svg>',
+            disabled: typeof copyOriginalImage !== "function" || Boolean(isVideoAsset?.(asset)) || !(asset.image_path || asset.image_url),
+            action: async () => {
               try {
-                await apiFetch("/api/open-folder", {
-                  method: "POST",
-                  body: { path: asset.image_path, reveal: true },
-                });
-              } catch (error) {
-                if (error.message.includes("Path not allowed")) throw new Error(t("showInFinderPathNotAllowed"));
-                if (error.message.includes("does not exist")) throw new Error(t("showInFinderNotFound"));
-                throw new Error(t("showInFinderFailed"));
+                await copyOriginalImage(asset);
+                showToast(t("imageCopied"), "success");
+              } catch {
+                showToast(t("copyImageFailed"), "error");
               }
-              showToast(t("shownInFinder"), "success");
-            });
+            },
           },
-        },
-        {
-          label: t("copyPath"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
-          action: async () => {
-            // SQLite store uses image_path (and inspector markup does the same);
-            // keep the contract consistent across every call site.
-            try {
-              await writeClipboardText(asset.image_path);
-              showToast(t("pathCopied"), "success");
-            } catch {
-              showToast(t("copyFailed"), "error");
-            }
+          {
+            label: t("copyPrompt"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+            disabled: !asset.prompt,
+            action: async () => {
+              try {
+                await writeClipboardText(asset.prompt || "");
+                showToast(t("promptCopied"), "success");
+              } catch {
+                showToast(t("copyFailed"), "error");
+              }
+            },
           },
-        },
-        {
-          label: t("copyImage"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 4 4 2-2 5 5"/></svg>',
-          disabled: typeof copyOriginalImage !== "function" || Boolean(isVideoAsset?.(asset)) || !(asset.image_path || asset.image_url),
-          action: async () => {
-            try {
-              await copyOriginalImage(asset);
-              showToast(t("imageCopied"), "success");
-            } catch {
-              showToast(t("copyImageFailed"), "error");
-            }
+          {
+            label: t("copyPath"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+            action: async () => {
+              // SQLite store uses image_path (and inspector markup does the same);
+              // keep the contract consistent across every call site.
+              try {
+                await writeClipboardText(asset.image_path);
+                showToast(t("pathCopied"), "success");
+              } catch {
+                showToast(t("copyFailed"), "error");
+              }
+            },
           },
-        },
-        { separator: true }
-      );
-    }
+        ]
+      : null;
 
-    // Favorite toggle
-    items.push({
-      label: asset.favorite ? t("removeFromFavorites") : t("addToFavorites"),
-      icon: asset.favorite
-        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>'
-        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>',
+    // Favorite toggle（整选区方向：全已收藏 → 取消收藏，否则 → 添加到收藏）
+    const favoriteItem = {
+      label: favoriteNext ? t("addToFavorites") : t("removeFromFavorites"),
+      icon: favoriteNext
+        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>'
+        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg>',
       action: async () => {
         const context = await selectedMutationContext(asset, selectedAssets, options);
         if (!context || !mutationContextIsCurrent(context)) return;
@@ -719,7 +807,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
                 action: "favorite",
                 projectId,
                 assetIds: ids,
-                favorite: !asset.favorite,
+                favorite: favoriteNext,
               },
             });
             if (!mutationContextIsCurrent(context)) return;
@@ -741,7 +829,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             }));
         });
       },
-    });
+    };
 
     // Move to group submenu
     const moveSelectionToGroup = (groupName) => async () => {
@@ -764,7 +852,9 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         }));
       });
     };
-    items.push({
+    const organizeSection = [
+      favoriteItem,
+      {
       label: t("moveToGroup"),
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
       submenu: [
@@ -812,58 +902,62 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           };
         }),
       ],
-    });
-
-    if (!isMultiple) {
-      items.push({ separator: true });
-
-      // Creation actions
-      items.push(
-        {
-          label: t("viewVersionHistory"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
-          action: async () => {
-            window.dispatchEvent(new CustomEvent("mosa:select-asset", { detail: { assetId: asset.id } }));
-          },
+      },
+    ];
+    // 堆叠整理项：堆叠内部是“移出堆叠”（单/多选都有），根画廊多选是“堆叠所选”。
+    // 选区含折叠 Stack 节点时“堆叠所选”不出现（不支持堆叠套堆叠）。
+    if (state.activeStackId) {
+      organizeSection.push({
+        label: t("removeFromStack"),
+        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M4.5 17.5h5"/></svg>',
+        disabled: stackMutationInFlight(),
+        action: async () => {
+          await assetStacks?.removeSelectedFromStack?.();
         },
-        {
-          label: t("copyPrompt"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
-          disabled: !asset.prompt,
-          action: async () => {
-            try {
-              await writeClipboardText(asset.prompt || "");
-              showToast(t("promptCopied"), "success");
-            } catch {
-              showToast(t("copyFailed"), "error");
-            }
-          },
-        }
-      );
-
-      items.push({ separator: true });
+      });
+    } else if (isMultiple && !includesStackNodes) {
+      organizeSection.push({
+        label: t("stackSelected"),
+        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg>',
+        disabled: state.storageKind !== "sqlite" || stackMutationInFlight(),
+        action: async () => {
+          await assetStacks?.createStackFromSelection?.();
+        },
+      });
     }
 
-    // Export
-    items.push({
-      label: t("exportAsset"),
-      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5-5 5 5"/><path d="M12 5v12"/></svg>',
-      disabled: isMultiple && (selectedAssets.length !== selectionCount || Boolean(gallerySelection?.hasSelectedStacks?.())),
-      action: async () => {
-        const assets = isMultiple ? selectedAssets : [asset];
-        await runAction(async () => {
-          for (const a of assets) {
-            downloadAssetFile(a);
-          }
-          showToast(isMultiple ? t("exportStartedMultiple") : t("exportStarted"), "success");
-        });
-      },
-    });
-
-    items.push({ separator: true });
+    // 历史与导出分区：单张=版本历史+导出；多选=仅导出。选区含折叠 Stack 节点
+    // 时导出整段不出现（不支持导出堆叠），不再置灰。
+    const historyExportSection = [];
+    if (!isMultiple) {
+      // 历史与导出分区（单张）：查看版本历史与导出同组。
+      historyExportSection.push({
+        label: t("viewVersionHistory"),
+        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+        action: async () => {
+          window.dispatchEvent(new CustomEvent("mosa:select-asset", { detail: { assetId: asset.id } }));
+        },
+      });
+    }
+    if (!includesStackNodes) {
+      historyExportSection.push({
+        label: t("exportAsset"),
+        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5-5 5 5"/><path d="M12 5v12"/></svg>',
+        disabled: isMultiple && selectedAssets.length !== selectionCount,
+        action: async () => {
+          const assets = isMultiple ? selectedAssets : [asset];
+          await runAction(async () => {
+            for (const a of assets) {
+              downloadAssetFile(a);
+            }
+            showToast(isMultiple ? t("exportStartedMultiple") : t("exportStarted"), "success");
+          });
+        },
+      });
+    }
 
     // Danger zone
-    items.push(
+    const moveToTrashItem =
       {
         label: t("moveToTrash"),
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/></svg>',
@@ -905,14 +999,23 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             }));
           });
         },
-      }
-    );
+      };
 
-    return items;
+    // 统一分区：选区信息 → 打开 → 复制 → 整理 → 历史与导出 → 选择 → 危险。
+    return buildSectionedMenu([
+      isMultiple ? [selectionHeadingItem(selectionCount)] : null,
+      openSection,
+      copySection,
+      organizeSection,
+      historyExportSection.length ? historyExportSection : null,
+      isMultiple ? [selectAllMenuItem(), deselectAllMenuItem()] : null,
+      [moveToTrashItem],
+    ]);
   }
 
   /**
-   * Get empty grid context menu
+   * Get empty grid context menu — 三种空白处场景（右键菜单统一方案第三节）：
+   * 画廊空白 / 堆叠内部空白 / 回收站空白，各自只保留适用分区。
    */
   function getEmptyGridMenu() {
     // 回收站是只读范围：不提供粘贴导入（拖拽与 Ctrl/Cmd+V 导入同样被禁用）。
@@ -925,35 +1028,104 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         if (pasted === false) showToast(t("clipboardNoImage"), "default");
       },
     }];
-    return [
-      {
-        label: t("createGroup"),
-        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 11v6M9 14h6"/></svg>',
-        action: async () => {
-          openGroupModal?.();
-        },
+    const refreshItem = {
+      label: t("refreshLibrary"),
+      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6m12-4a9 9 0 0 1-15 6.7L3 16"/></svg>',
+      action: async () => {
+        window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
+        showToast(t("refreshing"), "default");
       },
-      ...pasteItem,
-      { separator: true },
-      {
-        label: t("refreshLibrary"),
-        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6m12-4a9 9 0 0 1-15 6.7L3 16"/></svg>',
-        action: async () => {
-          window.dispatchEvent(new CustomEvent("mosa:refresh-assets"));
-          showToast(t("refreshing"), "default");
+    };
+
+    // 回收站空白：全选、刷新 ｜ 清空回收站（危险，确认弹窗照旧）。“添加分组”
+    // 在回收站没有意义，不再出现；顶栏“清空回收站”按钮保留。
+    if (state.scope === "trash") {
+      return buildSectionedMenu([
+        [
+          selectAllMenuItem(),
+          refreshItem,
+        ],
+        [
+          {
+            label: t("emptyTrash"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/></svg>',
+            danger: true,
+            disabled: typeof emptyTrash !== "function" || !Number(state.groups?.trash || 0),
+            action: async () => {
+              await emptyTrash?.();
+            },
+          },
+        ],
+      ]);
+    }
+
+    // 堆叠内部空白：返回素材库 ｜ 粘贴（进当前堆叠）｜ 当前堆叠的重命名与
+    // 解散（复用堆叠卡片菜单的共用实现）｜ 全选、刷新。堆叠里没有“新建分组”。
+    if (state.activeStackId) {
+      const stackId = state.activeStackId;
+      return buildSectionedMenu([
+        [
+          {
+            label: t("backToLibrary"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m15 18-6-6 6-6"/></svg>',
+            disabled: typeof assetStacks?.exitStack !== "function",
+            action: async () => {
+              await assetStacks?.exitStack?.();
+            },
+          },
+        ],
+        [
+          ...pasteItem,
+        ],
+        [
+          {
+            label: t("renameStack"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>',
+            disabled: typeof openStackRenameModal !== "function" || stackMutationInFlight(),
+            action: () => openStackRenameDialog({
+              stackId,
+              initialName: state.activeStackSummary?.name,
+              onRenamed: (nextName) => {
+                if (state.activeStackSummary) state.activeStackSummary = { ...state.activeStackSummary, name: nextName };
+                assetStacks?.syncChrome?.();
+              },
+            }),
+          },
+          {
+            label: t("dissolveStack"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 7h8M8 12h8M8 17h8"/><path d="M4 7h.01M4 12h.01M4 17h.01"/></svg>',
+            disabled: stackMutationInFlight(),
+            action: () => confirmAndDissolveStack({
+              stackId,
+              stackCount: Math.max(0, Number(state.activeStackSummary?.count || state.assets.length || 0)),
+              onDissolved: () => assetStacks?.exitStack?.(),
+            }),
+          },
+        ],
+        [
+          selectAllMenuItem(),
+          refreshItem,
+        ],
+      ]);
+    }
+
+    // 画廊空白：粘贴、新建分组 ｜ 全选、刷新素材库。
+    return buildSectionedMenu([
+      [
+        ...pasteItem,
+        {
+          label: t("createGroup"),
+          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 11v6M9 14h6"/></svg>',
+          action: async () => {
+            openGroupModal?.();
+          },
         },
-      },
-      { separator: true },
-      {
-        label: t("selectAll"),
-        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>',
-        shortcut: /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘A" : "Ctrl+A",
-        disabled: !state.pageTotal,
-        action: async () => {
-          await gallerySelection?.selectAll?.({ announce: true });
-        },
-      },
-    ];
+      ],
+      [
+        selectAllMenuItem(),
+        refreshItem,
+      ],
+    ]);
   }
 
   return {

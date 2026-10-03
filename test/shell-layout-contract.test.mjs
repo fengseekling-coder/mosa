@@ -140,8 +140,9 @@ test("11-14. shrink chain and honest overflow", async () => {
 // 16. Search focus stays scoped to the topbar.
 // 17. Detail scrolls vertically on its own — Phase 4A moved the independent
 //     y-scroller to .detail-inspector-scroll; the panel itself stays overflow:hidden.
-// 18. Selection-bar compensation consumes tokens and leaves no residue when off.
-test("15-18. overlay levels and selection-bar compensation", async () => {
+// 18. The retired selection bar leaves no residue: selection ops live in the
+//     context menus, and .selection-active keeps only the card-action hiding duty.
+test("15-18. overlay levels and retired selection-bar residue", async () => {
   const css = await readCss();
 
   assert.match(css, /--z-popover: 30;/);
@@ -156,8 +157,18 @@ test("15-18. overlay levels and selection-bar compensation", async () => {
   assert.match(inspectorScroll, /overflow-y: auto/);
 
   assert.match(css, /--statusbar-height: 48px;/);
-  assert.match(blockAfter(css, ".grid.selection-active {"), /padding-bottom: calc\(var\(--statusbar-height\) \+ var\(--space-2\)\)/);
-  assert.match(blockAfter(css, ".shell:has(.grid.selection-active) .detail {"), /padding-bottom: var\(--statusbar-height\)/);
+  // 右键菜单统一：底部批量栏退役——选区操作全部在右键菜单里，CSS 不再有
+  // 批量栏样式、让位 padding 与 bottom-bar z 层 token。
+  assert.doesNotMatch(css, /\.selection-bar\b/,
+    "the removed selection bar must not leave CSS residue");
+  assert.doesNotMatch(css, /--z-bottom-bar/,
+    "the retired bottom-bar z token must be deleted, not kept unused");
+  assert.doesNotMatch(css, /\.shell:has\(\.grid\.selection-active\)/,
+    "the detail panel no longer reserves bottom padding for a selection bar");
+  assert.doesNotMatch(blockAfter(css, ".grid {"), /padding-bottom: calc\(var\(--statusbar-height\)/,
+    "the grid no longer reserves bottom padding for a selection bar");
+  assert.match(css, /\.selection-active \.asset-card \.card-action-btn/,
+    "selection-active keeps its surviving duty: hiding card action buttons during multi-select");
   // Off-state keeps only the regular breathing room — no residual selection padding.
   assert.match(blockAfter(css, ".grid {"), /padding: var\(--space-2\) 20px var\(--space-3\)/);
   assert.doesNotMatch(css, /\.grid\.batch-active\b|\.batch-bar\b/,

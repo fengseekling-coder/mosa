@@ -5,6 +5,13 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 ## Unreleased
 
 - Fixed navigation being unreachable in windows 701–767px wide. In that range the sidebar collapses into a drawer, but the Inspector stayed pinned open, which hid the drawer button. The Inspector now pins only from 768px up, so in narrower windows it can be closed and the drawer button is available.
+- Right-click menus are now consistent everywhere, and every selection action lives in them; the bottom selection bar is gone.
+  - Every asset menu uses the same section order: open, copy, organize, history and export, selection, and Trash last.
+  - With several assets selected, the menu starts with "N selected" and offers Stack selected, Select all (⌘A) and Deselect (Esc).
+  - Inside a Stack, members offer Remove from stack. Right-clicking empty space inside a Stack offers Back to library, Rename stack and Dissolve stack.
+  - Right-clicking empty space in Trash offers Empty Trash and no longer shows Add group.
+  - Favoriting several assets now follows the whole selection: if every asset is already a favorite, the item removes them all; otherwise it adds them all.
+- Manual groups are now called "groups" everywhere. The sidebar heading changed from "素材分类" to "分组", and the English UI no longer mixes "collection" and "group". This also keeps them apart from the asset category field.
 - Box (marquee) selection now selects exactly the cards it covers. Previously, when one asset was open in the Inspector, a box selection somewhere else also pulled that asset into the selection. Hold Shift while dragging to add to the current selection instead.
 - Secondary text in the light theme now meets WCAG AA contrast (4.5:1). This covers sidebar counts and section titles, the search placeholder, empty-state hints, and the descriptions in Settings. The shared light grey went from `#85858b` (about 3.4:1) to `#67676d` (about 5.2:1 on the gallery background); the dark theme is unchanged.
 - The Inspector now follows changes made elsewhere — another window, the MCP server or the CLI. Favorites, tags and other metadata edited outside the current window used to update the gallery card but leave the open Inspector stale until another asset was selected. Starring a gallery card now also lights up the Inspector's favorite button when that asset is open, and keyboard focus stays on the same Inspector control after such a refresh.
