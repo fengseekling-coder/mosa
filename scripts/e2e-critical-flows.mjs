@@ -189,12 +189,24 @@ function createFlowContext(flowName) {
       return { origin: `http://127.0.0.1:${port}`, stderr, stop: () => stopProcess(child) };
     },
     // JSON API call with the QA client token; throws on a non-2xx status.
+    // A pooled keep-alive socket can be reused just as the server's idle
+    // timeout closes it, which surfaces as a bare "fetch failed". GETs are
+    // idempotent, so they get one retry; other methods rethrow with the
+    // socket-level cause so a recurrence is diagnosable.
     async api(origin, method, path, body) {
-      const response = await fetch(`${origin}${path}`, {
+      const send = () => fetch(`${origin}${path}`, {
         method,
         headers: { "x-mosa-client-token": QA_CLIENT_TOKEN, ...(body === undefined ? {} : { "content-type": "application/json" }) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
+      let response;
+      try {
+        response = await send();
+      } catch (error) {
+        if (!(error instanceof TypeError)) throw error;
+        if (method !== "GET") throw new Error(`${method} ${path} -> ${error.message} (${error.cause?.code || error.cause?.message || "no cause"})`, { cause: error });
+        response = await send();
+      }
       const text = await response.text();
       if (!response.ok) throw new Error(`${method} ${path} -> ${response.status}: ${text.slice(0, 300)}`);
       return text ? JSON.parse(text) : null;
