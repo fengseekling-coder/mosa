@@ -50,3 +50,10 @@ test("the AA greys stay in the light scope and the tertiary token keeps its valu
   assert.match(css, /--color-text-tertiary: #85858b;/, "light tertiary token value unchanged");
   assert.match(css, /--color-text-tertiary: #a0a0a6;/, "dark tertiary token value unchanged");
 });
+
+test("the user-instruction placeholder matches the prompt placeholder in the dark theme", async () => {
+  const css = await readWebCss();
+  // 深色下用户指令框「未提供用户指令」曾漏到全局 tertiary（4.43:1）；与提示词框占位同走 secondary。
+  assert.match(css, /:root\[data-theme="dark"\] \.mosa-v2 \.detail \.detail-reference-value,\n:root\[data-theme="dark"\] \.mosa-v2 \.detail \.detail-prompt-box \.empty-copy,\n:root\[data-theme="dark"\] \.mosa-v2 \.detail \.detail-instruction-box \.empty-copy \{\n  color: var\(--color-text-secondary\);\n\}/);
+  assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-box \.empty-copy,\n\.mosa-v2 \.detail \.detail-instruction-box \.empty-copy,\n/);
+});

@@ -2191,6 +2191,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .prompt-provenance,
 .mosa-v2 .detail .detail-reference-value,
 .mosa-v2 .detail .detail-prompt-box .empty-copy,
+.mosa-v2 .detail .detail-instruction-box .empty-copy,
 .mosa-v2 .detail .detail-reference-thumb-fallback,
 .mosa-v2 .detail .detail-reference-thumb-empty {
   color: var(--color-text-secondary);
@@ -2199,8 +2200,11 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   font-size: 11px;
   line-height: 16px;
 }
+/* 用户指令框的「未提供用户指令」与提示词框占位同级：此前漏在这两条规则外，
+   深色下落到全局 tertiary（4.43:1），补进来后与提示词框占位一致。 */
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-value,
-:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box .empty-copy {
+:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box .empty-copy,
+:root[data-theme="dark"] .mosa-v2 .detail .detail-instruction-box .empty-copy {
   color: var(--color-text-secondary);
 }
 .mosa-v2 .detail .generation-tree-hint {
