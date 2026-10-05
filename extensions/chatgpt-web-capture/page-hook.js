@@ -1306,6 +1306,334 @@
     }
   }
 
+  // ---- Live SSE streams (POST /backend-api/f/conversation) ----
+  //
+  // ChatGPT pushes some replies (for example GPT-5.6 Thinking image turns)
+  // through a streaming fetch response instead of the WebSocket, and aborts
+  // that request right after `data: [DONE]`. A buffered clone.text() read used
+  // to die with an AbortError and lose the whole turn. These helpers consume
+  // the clone incrementally and rebuild messages from the "delta encoding v1"
+  // patch stream while it arrives, so an interruption keeps everything the
+  // stream already delivered.
+
+  const SSE_STREAM_MAX_CHARS = 12_000_000; // same ceiling as harvest()'s buffered payloads
+
+  function conversationStreamPathname(value) {
+    try {
+      const path = new URL(String(value || ""), location.origin).pathname.toLowerCase();
+      return path === "/backend-api/conversation" || path === "/backend-api/f/conversation" ? path : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function createSseStreamHarvester(via) {
+    // Per-stream reconstruction state; concurrent streams never share it.
+    const state = {
+      currentMessage: null,
+      conversationId: "",
+      lastPatchPath: "",
+      pendingEmit: false,
+      completedEmitted: false,
+      decodedChars: 0,
+      sawDataLine: false,
+      skipped: false,
+      text: "",
+      buffer: "",
+    };
+
+    function emitCurrentMessage() {
+      if (!state.pendingEmit || !state.currentMessage) return;
+      state.pendingEmit = false;
+      walkObject({ message: state.currentMessage }, {
+        conversationId: state.conversationId || conversationIdFromLocation(),
+      });
+    }
+
+    function handleAdd(value) {
+      const message = value?.message;
+      if (!message || typeof message !== "object" || Array.isArray(message)) return;
+      // A stream may move on to the next message without a completion patch;
+      // flush the previous one so its rebuilt content is still bound.
+      emitCurrentMessage();
+      state.currentMessage = message;
+      if (typeof value.conversation_id === "string" && value.conversation_id) {
+        state.conversationId = value.conversation_id;
+      }
+      state.lastPatchPath = "";
+      state.pendingEmit = true;
+      state.completedEmitted = message.status === "finished_successfully";
+      emitCurrentMessage();
+    }
+
+    function isIndexSegment(segment) {
+      return /^(?:0|[1-9]\d*)$/.test(segment);
+    }
+
+    // Resolve the parent container of a /message/... patch path inside the
+    // current message. Missing containers are created so an append has
+    // somewhere to land; a scalar already sitting on the path means the patch
+    // does not fit and is ignored.
+    function targetForPath(path) {
+      if (!state.currentMessage || typeof state.currentMessage !== "object") return null;
+      const segments = String(path || "").split("/").filter((segment) => segment !== "");
+      if (segments[0] !== "message" || segments.length < 2) return null;
+      let container = state.currentMessage;
+      for (let index = 1; index < segments.length - 1; index += 1) {
+        const segment = segments[index];
+        const next = segments[index + 1];
+        let position = -1;
+        let child;
+        if (Array.isArray(container)) {
+          if (!isIndexSegment(segment)) return null;
+          position = Number(segment);
+          if (position >= container.length) return null;
+          child = container[position];
+        } else if (container && typeof container === "object") {
+          child = container[segment];
+        } else {
+          return null;
+        }
+        if (child === undefined || child === null) {
+          child = isIndexSegment(next) ? [] : {};
+          if (position >= 0) container[position] = child;
+          else container[segment] = child;
+        } else if (typeof child !== "object") {
+          return null;
+        }
+        container = child;
+      }
+      const last = segments[segments.length - 1];
+      if (Array.isArray(container)) {
+        return isIndexSegment(last) ? { container, key: Number(last) } : null;
+      }
+      return container && typeof container === "object" ? { container, key: last } : null;
+    }
+
+    function mergeDeltaObject(target, patch) {
+      let changed = false;
+      for (const [key, value] of Object.entries(patch)) {
+        const current = target[key];
+        if (
+          value && typeof value === "object" && !Array.isArray(value)
+          && current && typeof current === "object" && !Array.isArray(current)
+        ) {
+          if (mergeDeltaObject(current, value)) changed = true;
+        } else if (current !== value) {
+          target[key] = value;
+          changed = true;
+        }
+      }
+      return changed;
+    }
+
+    function appendAtPath(path, value) {
+      if (value === undefined) return false;
+      const target = targetForPath(path);
+      if (!target) return false;
+      const { container, key } = target;
+      if (Array.isArray(container) && key > container.length) return false;
+      const current = container[key];
+      if (typeof current === "string" && typeof value === "string") {
+        if (!value) return false;
+        container[key] = current + value;
+        return true;
+      }
+      if (current === undefined || current === null) {
+        container[key] = value;
+        return true;
+      }
+      if (
+        current && typeof current === "object" && !Array.isArray(current)
+        && value && typeof value === "object" && !Array.isArray(value)
+      ) {
+        return mergeDeltaObject(current, value);
+      }
+      return false;
+    }
+
+    function replaceAtPath(path, value) {
+      const target = targetForPath(path);
+      if (!target) return false;
+      const { container, key } = target;
+      if (Array.isArray(container) && key > container.length) return false;
+      if (container[key] === value) return false;
+      container[key] = value;
+      return true;
+    }
+
+    // One patch operation. Unknown operations and paths are ignored so the
+    // events after them still apply.
+    function applyPatchOp(op) {
+      if (!op || typeof op !== "object" || Array.isArray(op) || !Object.hasOwn(op, "v")) return false;
+      const rawPath = typeof op.p === "string" && op.p ? op.p : "";
+      if (!rawPath) {
+        // {"v":"..."} continues appending to the previous patch path.
+        return typeof op.v === "string" && state.lastPatchPath
+          ? appendAtPath(state.lastPatchPath, op.v)
+          : false;
+      }
+      state.lastPatchPath = rawPath;
+      const operation = typeof op.o === "string" && op.o ? op.o.toLowerCase() : "replace";
+      if (operation === "append") return appendAtPath(rawPath, op.v);
+      if (operation === "replace") return replaceAtPath(rawPath, op.v);
+      return false;
+    }
+
+    // Patches must not re-bind per token: content changes only arm the flush,
+    // which fires when the message completes or the stream ends.
+    function afterPatches(changed) {
+      if (!changed) return;
+      state.pendingEmit = true;
+      if (state.completedEmitted) return;
+      if (state.currentMessage?.status === "finished_successfully") {
+        state.completedEmitted = true;
+        emitCurrentMessage();
+      }
+    }
+
+    function handleStreamPayload(payload) {
+      let parsed;
+      try {
+        parsed = JSON.parse(payload);
+      } catch {
+        return;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return; // e.g. data: "v1"
+      const value = parsed.v;
+      // Message add: {"p":"","o":"add","v":{"message":...}} (o may be omitted).
+      if (
+        value && typeof value === "object" && !Array.isArray(value)
+        && value.message && typeof value.message === "object" && !Array.isArray(value.message)
+      ) {
+        handleAdd(value);
+        return;
+      }
+      // Batch patch: {"v":[{p,o,v},...]} (also seen as {"o":"patch","v":[...]}).
+      if (Array.isArray(value)) {
+        let changed = false;
+        for (const op of value) {
+          if (applyPatchOp(op)) changed = true;
+        }
+        afterPatches(changed);
+        return;
+      }
+      // Single patch: {"p":"/message/...","o":"append|replace","v":...}.
+      if (typeof parsed.p === "string" && parsed.p) {
+        afterPatches(applyPatchOp(parsed));
+        return;
+      }
+      // Bare {"v":"..."} continues appending to the previous patch path.
+      if (typeof value === "string" && !("p" in parsed) && !("o" in parsed) && state.lastPatchPath) {
+        afterPatches(applyPatchOp({ v: value }));
+        return;
+      }
+      if (parsed.type === "message_stream_complete") emitCurrentMessage();
+      // Plain objects (input_message, message_marker, resume tokens, ...) keep
+      // the ordinary buffered-path treatment.
+      walkObject(parsed, { conversationId: conversationIdFromLocation() });
+    }
+
+    function processDataLine(line) {
+      const payload = line.slice(5).trim();
+      if (!payload) return;
+      state.sawDataLine = true;
+      if (payload === "[DONE]") {
+        // The page aborts the request right after this marker; bind whatever
+        // the stream has rebuilt so far.
+        emitCurrentMessage();
+        return;
+      }
+      handleStreamPayload(payload);
+    }
+
+    function processEventBlock(block) {
+      for (const line of String(block || "").split("\n")) {
+        const trimmed = line.trim();
+        // event: / id: / retry: lines and comments carry no payload. Old
+        // (non-delta) streams put one complete object per data line; handling
+        // each data line on its own keeps them working unchanged.
+        if (trimmed.startsWith("data:")) processDataLine(trimmed);
+      }
+    }
+
+    function push(chunk) {
+      if (state.skipped) return false;
+      if (!state.sawDataLine) state.text += chunk;
+      state.decodedChars += chunk.length;
+      if (state.decodedChars > SSE_STREAM_MAX_CHARS) {
+        state.skipped = true;
+        post("harvest-skipped", { reason: "payload-too-large", size: state.decodedChars, via });
+        return false;
+      }
+      // A separator is at most 4 characters (\r\n\r\n) and every earlier one
+      // is already processed, so only the window near the new chunk can hold
+      // the next separator.
+      const from = Math.max(0, state.buffer.length - 3);
+      state.buffer += chunk;
+      let match = /\r?\n\r?\n/.exec(state.buffer.slice(from));
+      while (match) {
+        const cut = from + match.index;
+        const block = state.buffer.slice(0, cut);
+        state.buffer = state.buffer.slice(cut + match[0].length);
+        processEventBlock(block);
+        match = /\r?\n\r?\n/.exec(state.buffer);
+      }
+      return true;
+    }
+
+    function end() {
+      if (state.skipped) return;
+      const rest = state.buffer;
+      state.buffer = "";
+      if (rest.trim()) processEventBlock(rest);
+      // A body without any data line is not SSE (plain JSON on a stream
+      // endpoint): keep the old buffered treatment.
+      if (!state.sawDataLine) harvest(state.text, via);
+      emitCurrentMessage();
+    }
+
+    function abort() {
+      // Quietly keep every processed event; drop the partial one.
+      state.buffer = "";
+      emitCurrentMessage();
+    }
+
+    return { push, end, abort };
+  }
+
+  async function harvestResponseStream(response, via) {
+    const reader = response?.body?.getReader?.();
+    if (!reader) {
+      // No streaming body in this environment: keep the buffered path.
+      try {
+        harvest(await response.text(), via);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    const stream = createSseStreamHarvester(via);
+    const decoder = typeof TextDecoder === "function" ? new TextDecoder("utf-8") : null;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = typeof value === "string"
+          ? value
+          : decoder && value
+            ? decoder.decode(value, { stream: true })
+            : "";
+        if (!chunk) continue;
+        if (!stream.push(chunk)) break; // size ceiling: stop parsing this stream
+      }
+      stream.end();
+    } catch {
+      // The page aborts finished streams; keep what already arrived.
+      stream.abort();
+    }
+  }
+
   // Keep the original fetch so an explicit refresh cannot recurse through the
   // general fetch interceptor below.
   const originalFetch = window.fetch;
@@ -1493,7 +1821,13 @@
           || /backend-api|conversation/i.test(String(url));
         if (textLike && !/^image\//.test(contentType)) {
           const clone = response.clone();
-          if (/json/.test(contentType) && /\/backend-api\/(?:f\/)?conversations?\//i.test(String(url))) {
+          const isSseStream = contentType.includes("event-stream")
+            || Boolean(conversationStreamPathname(url));
+          if (isSseStream && clone.body && typeof clone.body.getReader === "function") {
+            // Streamed reply: parse while it arrives so the page aborting the
+            // finished request keeps every binding already delivered.
+            harvestResponseStream(clone, "fetch-sse").catch(() => {});
+          } else if (/json/.test(contentType) && /\/backend-api\/(?:f\/)?conversations?\//i.test(String(url))) {
             clone.json()
               .then((payload) => walkObject(payload, { conversationId: conversationIdFromLocation() }))
               .catch(() => {});

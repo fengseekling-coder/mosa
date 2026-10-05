@@ -4,6 +4,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+- ChatGPT replies pushed through the streaming conversation request (for example GPT-5.6 Thinking image turns) are now parsed while the stream arrives, so the generation bindings for new images survive the page aborting the request after `data: [DONE]`.
 - Fixed navigation being unreachable in windows 701–767px wide. In that range the sidebar collapses into a drawer, but the Inspector stayed pinned open, which hid the drawer button. The Inspector now pins only from 768px up, so in narrower windows it can be closed and the drawer button is available.
 - Right-click menus are now consistent everywhere, and every selection action lives in them; the bottom selection bar is gone.
   - Every asset menu uses the same section order: open, copy, organize, history and export, selection, and Trash last.
