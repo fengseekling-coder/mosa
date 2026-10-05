@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
+import Database from "better-sqlite3";
+import { PIXEL_HASH_VERSION, safePixelDigest } from "../lib/image-pixel-hash.js";
 import { createMcpWorkspace, startMcpServer, writePngFixture } from "./helpers/mcp-server-harness.mjs";
 
 async function setupServerWithFixture(t, fixtureName = "fixture.png") {
@@ -133,4 +135,38 @@ test("asset_duplicate creates an independent copy and leaves the original untouc
 
   const missing = await server.callTool("asset_duplicate", { assetId: "ghost" });
   assertBusinessError(missing, "ASSET_NOT_FOUND");
+});
+
+test("asset_get and asset_provenance_export carry the stored content and pixel hashes", async (t) => {
+  const { workspace, imagePath, server } = await setupServerWithFixture(t);
+  const pixelHash = await safePixelDigest(imagePath);
+  assert.match(pixelHash, /^[0-9a-f]{64}$/);
+
+  // The web-capture bridge is the production writer of pixel hashes; seed the
+  // same identity the same way so the export test covers a fully-hashed asset.
+  const created = await server.callToolStrict("asset_create", {
+    assetId: "hashed",
+    imagePath,
+    prompt: "hash export fixture",
+    source: { pixel_sha256: pixelHash, pixel_hash_version: PIXEL_HASH_VERSION },
+  });
+  assert.match(created.structuredContent.asset.content_sha256, /^[0-9a-f]{64}$/);
+
+  const fetched = await server.callToolStrict("asset_get", { assetId: "hashed" });
+  const asset = fetched.structuredContent.asset;
+  assert.match(asset.content_sha256, /^[0-9a-f]{64}$/, "asset_get exposes a real content hash");
+  assert.equal(asset.pixel_sha256, pixelHash, "asset_get exposes the pixel hash");
+
+  const db = new Database(join(workspace.libraryDir, "mosa.db"), { readonly: true });
+  const row = db.prepare("SELECT content_sha256, pixel_sha256 FROM assets WHERE project_id = ? AND id = ?").get("default", "hashed");
+  db.close();
+  assert.equal(asset.content_sha256, row.content_sha256, "the tool result matches the stored column");
+  assert.equal(asset.pixel_sha256, row.pixel_sha256);
+
+  const exported = await server.callToolStrict("asset_provenance_export", { assetId: "hashed" });
+  const bundleAsset = exported.structuredContent.bundle.asset;
+  assert.equal(bundleAsset.content_sha256, row.content_sha256, "the provenance bundle no longer blanks the content hash");
+  assert.match(bundleAsset.content_sha256, /^[0-9a-f]{64}$/);
+  assert.equal(bundleAsset.pixel_sha256, row.pixel_sha256);
+  assert.notEqual(bundleAsset.pixel_sha256, "");
 });
