@@ -1,6 +1,7 @@
 import { mkdir, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import sharp from "./sharp-runtime.js";
+import { extractImagePalette, type PaletteColor } from "./image-palette.js";
 import {
   derivativeTempFileName,
   publishDerivativeFile,
@@ -85,12 +86,24 @@ async function generateDerivatives(job: DerivativeProcessorJob) {
     throw error;
   }
 
+  // Palette rides along with successful derivatives, computed from the just
+  // published 400px thumbnail. It must never fail the derivative job: the
+  // extractor already returns [] instead of throwing, and this guard keeps a
+  // surprise error in it cosmetic as well.
+  let palette: PaletteColor[] = [];
+  try {
+    palette = await extractImagePalette(job.thumbnailPath);
+  } catch {
+    palette = [];
+  }
+
   return {
     previewPath: job.previewPath,
     mediumPath: job.mediumPath,
     thumbnailPath: job.thumbnailPath,
     width,
     height,
+    palette,
     processorPid: process.pid,
   };
 }
