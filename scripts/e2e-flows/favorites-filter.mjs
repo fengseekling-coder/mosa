@@ -53,18 +53,28 @@ function favoritesSource(config) {
     // Card star click while the same asset is open in the inspector: the
     // inspector's own favorite button must follow immediately (the local
     // toggle patches every visible favorite button for the shown asset, keyed
-    // on the selection, not on state.detailAsset being populated).
-    document.querySelector(cardSelector(config.plainId) + ' .asset-card-select').click();
-    await waitFor(() => detailOpen(), 'inspector opens for the plain asset', 15000);
-    document.querySelector(cardSelector(config.plainId) + ' .card-favorite').click();
-    await waitFor(() => {
-      const button = detailFavButton();
-      return Boolean(button) && button.getAttribute('aria-pressed') === 'true' && button.classList.contains('is-fav');
-    }, 'inspector star follows the card star click', 15000);
+    // on the selection, not on state.detailAsset being populated). Every click
+    // below goes through clickUntil: the favorite toggle itself re-renders the
+    // inspector/cards, so a plain query-and-click can land on a node the
+    // render has already replaced.
+    await clickUntil(
+      () => document.querySelector(cardSelector(config.plainId) + ' .asset-card-select'),
+      () => detailOpen(),
+      'inspector opens for the plain asset',
+      15000,
+    );
+    await clickUntil(
+      () => document.querySelector(cardSelector(config.plainId) + ' .card-favorite'),
+      () => {
+        const button = detailFavButton();
+        return Boolean(button) && button.getAttribute('aria-pressed') === 'true' && button.classList.contains('is-fav');
+      },
+      'inspector star follows the card star click',
+      15000,
+    );
     // Toggle back from the inspector's own button (idempotent reset + covers
     // the inspector-originated path), then run the original filter assertions.
-    detailFavButton().click();
-    await waitFor(() => {
+    await clickUntil(detailFavButton, () => {
       const button = detailFavButton();
       return Boolean(button) && button.getAttribute('aria-pressed') === 'false' && !button.classList.contains('is-fav');
     }, 'inspector star clears via its own button', 15000);

@@ -11,6 +11,8 @@ export const PAGE_HELPERS = String.raw`
   function pageDiagnostic() {
     return {
       cardCount: document.querySelectorAll('.asset-card').length,
+      firstCardIds: [...document.querySelectorAll('#assetGrid > .asset-card')].slice(0, 4).map((card) => card.dataset.id || ''),
+      galleryBusy: document.querySelector('#assetGrid')?.getAttribute('aria-busy') || '',
       selectedId: document.querySelector('.asset-card.selected')?.dataset.id || '',
       confirmOpen: document.querySelector('#confirmDialog')?.classList.contains('open') || false,
       openMenu: document.querySelector('.context-menu')?.textContent?.trim().slice(0, 160) || '',
@@ -52,6 +54,32 @@ export const PAGE_HELPERS = String.raw`
   const gallerySettled = () => document.querySelector('#assetGrid')?.getAttribute('aria-busy') === 'false';
   const cardSelector = (assetId) => '.asset-card[data-id="' + CSS.escape(assetId) + '"]';
   const rootCardIds = () => [...document.querySelectorAll('#assetGrid > .asset-card')].map((card) => card.dataset.id);
+  // "Wait for a state, then click" races the re-render that the state change
+  // itself triggers: the node satisfying the wait can be replaced before the
+  // dispatch lands, and a click on the detached node is silently lost. Retry
+  // as one unit — re-query the LIVE node, click it, check the post-condition —
+  // but click each node incarnation at most once, so a landed click on a
+  // toggle button is never double-applied while its state update is in flight.
+  async function clickUntil(target, condition, label, timeoutMs = 15000) {
+    const deadline = Date.now() + timeoutMs;
+    let clickedNode = null;
+    let lastError = null;
+    while (Date.now() < deadline) {
+      const element = typeof target === 'function' ? target() : document.querySelector(target);
+      if (element && element.isConnected && !element.disabled && element !== clickedNode) {
+        clickedNode = element;
+        try { element.click(); } catch (error) { lastError = error; }
+      }
+      try {
+        const value = await condition();
+        if (value) return value;
+      } catch (error) {
+        lastError = error;
+      }
+      await sleep(100);
+    }
+    throw new Error('clickUntil timed out for ' + label + (lastError ? ': ' + lastError.message : '') + ' diagnostic=' + JSON.stringify(pageDiagnostic()));
+  }
   // Background reconciliation may replace a card node between query and
   // dispatch, so query -> dispatch -> look for the item retries as one unit.
   async function openContextMenu(selector, label) {
