@@ -10,6 +10,26 @@
         using, so the whole file resolves to a single visual.
    ============================================================ */
 
+/* ===== GravityPort 字体：Lexend Deca（可变字重 100–900，本地打包，离线可用） =====
+   文件来自 @fontsource-variable/lexend-deca（SIL OFL 1.1，许可证见 fonts/OFL.txt）。
+   unicode-range 照抄 fontsource 自带的 latin / latin-ext 子集定义。 */
+@font-face {
+  font-family: "Lexend Deca";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/lexend-deca-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Lexend Deca";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/lexend-deca-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* ===== 设计令牌：浅色 ===== */
 :root[data-theme="light"] {
   color-scheme: light;
@@ -154,7 +174,7 @@
 
 /* ===== 共享 Token（无主题） ===== */
 :root {
-  --font-family-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-family-ui: "Lexend Deca", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-family-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   /* --- 字号（V2 13px body baseline） --- */
@@ -184,11 +204,11 @@
   /* --- 控件尺寸 --- */
   --control-sm: 32px;
   --control-md: 40px;
-  --sidebar-width: 216px;
-  --sidebar-width-narrow: 208px;
+  --sidebar-width: 280px;
+  --sidebar-width-narrow: 240px;
   --sidebar-width-compact: 56px;
-  --inspector-width: 344px;
-  --inspector-width-compact: 340px;
+  --inspector-width: 320px;
+  --inspector-width-compact: 320px;
   --topbar-height: 64px;
   --statusbar-height: 48px;
 
@@ -198,6 +218,8 @@
   --radius-panel: 16px;
   --radius-modal: 16px;
   --radius-pill: 999px;
+  /* GravityPort A1：检视器圆角卡片的外壳圆角。 */
+  --radius-shell-card: 32px;
   --border-width: 1px;
 
   /* --- 运行时注入 token 的兜底值 ---
@@ -247,7 +269,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .shell.details-open { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--inspector-width); }
 
 /* ===== 侧边栏 ===== */
-.sidebar { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; background: var(--app-sidebar); border-right: var(--border-width) solid var(--color-border-subtle); user-select: none; }
+.sidebar { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; background: var(--app-sidebar); user-select: none; }
 .brand { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; height: var(--topbar-height); padding: 0 16px; }
 .brand-info { min-width: 0; }
 .brand-info h1 { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
@@ -542,7 +564,7 @@ body.marquee-selecting .grid { cursor: crosshair; }
 /* ===== 详情面板 ===== */
 /* Phase 4A 单栏检视器滚动架构：.detail 自身不滚动；.detail-inspector-scroll 是右栏
    唯一纵向滚动容器；header 为实心固定区（无 sticky、无半透明毛玻璃）。 */
-.detail { display: none; min-width: 0; min-height: 0; overflow: hidden; background: var(--app-bg); border-left: var(--border-width) solid var(--color-border-subtle); }
+.detail { display: none; min-width: 0; min-height: 0; overflow: hidden; background: var(--app-bg); }
 .shell.details-open .detail { display: block; }
 .detail-inspector { display: flex; height: 100%; min-height: 0; flex-direction: column; }
 .detail-inspector-header { display: flex; min-height: var(--topbar-height); flex: 0 0 auto; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--color-border-subtle); color: var(--color-text-primary); background: var(--app-bg); font-size: 13px; font-weight: 600; }
@@ -1131,7 +1153,7 @@ body.mosa-v2 {
 :root[data-theme="dark"] body.mosa-v2 { --color-focus-ring: #8ab4ff; }
 .mosa-v2 .shell { grid-template-columns: var(--sidebar-width) minmax(0, 1fr); width: 100%; height: 100%; margin: 0; overflow: hidden; border: 0; border-radius: 0; background: var(--app-bg); box-shadow: none; }
 .mosa-v2 .shell.details-open { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--inspector-width); }
-.mosa-v2 .sidebar { position: relative; z-index: 2; overflow: visible; background: rgb(from var(--app-sidebar) r g b / .95); border-right: 1px solid var(--color-border-subtle); backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%); }
+.mosa-v2 .sidebar { position: relative; z-index: 2; overflow: visible; background: rgb(from var(--app-sidebar) r g b / .95); backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%); }
 .mosa-v2 .brand {
   /* Electron 的原生 macOS 三色按钮占用左上角（trafficLightPosition: 16, 18）。
      品牌主副标题收进同一个与顶栏同高的顶部区域，避免侧栏头部比主工具栏多占一行。 */
@@ -1165,7 +1187,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 
 /* R21 新颜色（仅浅色；R21 无深色规格，深色保持现状）。
    只覆盖浅色主题下的取值，深色继续走上面规则里的 token。 */
-:root[data-theme="light"] .mosa-v2 .sidebar { background: #fbfbfc; border-right-color: #e7e7ea; }
+:root[data-theme="light"] .mosa-v2 .sidebar { background: #fbfbfc; }
 :root[data-theme="light"] .mosa-v2 .nav-item, :root[data-theme="light"] .mosa-v2 .settings-trigger { color: #55555a; }
 :root[data-theme="light"] .mosa-v2 .nav-item.active { background: #ececef; color: var(--color-text-primary); }
 :root[data-theme="light"] .mosa-v2 .type-filter.active { background: #f0f0f2; color: #303034; }
@@ -1217,9 +1239,14 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 
 .mosa-v2 .settings-menu { border: 1px solid rgb(255 255 255 / .68); border-radius: 16px; background: rgb(from var(--app-menu) r g b / .92); box-shadow: 0 18px 42px -10px rgb(0 0 0 / .16); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); }
 
-.mosa-v2 .detail { display: none; min-width: 0; min-height: 0; overflow: auto; border-left: 1px solid var(--color-border-subtle); color: #1d1d1f; background: var(--app-bg); }
+.mosa-v2 .detail { display: none; min-width: 0; min-height: 0; overflow: auto; color: #1d1d1f; background: var(--app-bg); }
+/* GravityPort A1：桌面检视器圆角卡片（32px，--radius-shell-card）。刻意
+   放在下方 max-width:767px 媒体查询之前：≤767px 的既有 24px 浮层卡规格
+   （同特异性、靠后生效）继续赢，窄档行为不变；>767px 走 32px 卡片。
+   内容由 .detail 自身的 overflow:hidden 裁进圆角，滚动仍在 .detail-inspector-scroll 内。 */
+.mosa-v2 .detail { border-radius: var(--radius-shell-card); }
 .mosa-v2 .shell.details-open .detail { display: block; }
-:root[data-theme="dark"] .mosa-v2 .detail { color: #f5f5f7; border-left-color: rgb(255 255 255 / .10); background: var(--app-bg); }
+:root[data-theme="dark"] .mosa-v2 .detail { color: #f5f5f7; background: var(--app-bg); }
 :root[data-theme="dark"] body.mosa-v2 {
   --color-media-backdrop: rgb(0 0 0 / 0.92);
   --color-media-surface: rgb(28 28 30 / 0.85);
@@ -1894,7 +1921,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 }
 
 .mosa-v2 .detail {
-  border-left-color: var(--inspector-divider);
   background: var(--app-card);
 }
 .mosa-v2 .detail-inspector {
@@ -1947,7 +1973,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   background: var(--app-card);
 }
 /* R21 检视器外框新颜色（仅浅色；深色保持现状）：面板底色与左右边线。 */
-:root[data-theme="light"] .mosa-v2 .detail { background: #fbfbfc; border-left-color: #e7e7ea; }
+:root[data-theme="light"] .mosa-v2 .detail { background: #fbfbfc; }
 :root[data-theme="light"] .mosa-v2 .detail-inspector-header { border-bottom-color: #e7e7ea; }
 :root[data-theme="light"] .mosa-v2 .detail-inspector-scroll { background: #fbfbfc; }
 .mosa-v2 .detail-inspector-scroll > .inspector-section {

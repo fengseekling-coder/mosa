@@ -41,7 +41,7 @@ test("R21 light-theme tokens and the shared shell sizes land in web styles", asy
   assert.match(dark, /--color-text-primary: #f5f5f7;/, "dark --color-text-primary must stay untouched");
   // 共享 shell 尺寸 token。
   assert.match(css, /--topbar-height: 64px;/, "--topbar-height must be the R21 64px");
-  assert.match(css, /--sidebar-width: 216px;/, "--sidebar-width must be the R21 216px");
+  assert.match(css, /--sidebar-width: 280px;/, "--sidebar-width must be the GravityPort 280px");
   // R21 4px 结构网格阶梯（--mosa-s* 改名 --r21-*）。
   for (const [name, value] of [
     ["--r21-s1", "4px"], ["--r21-s2", "8px"], ["--r21-s3", "12px"], ["--r21-s4", "16px"],
@@ -54,10 +54,10 @@ test("R21 light-theme tokens and the shared shell sizes land in web styles", asy
   assert.match(css, /body \{ overflow: hidden;[^}]*font: 12px\/1\.5 var\(--font-family-ui\)/, "body base font-size must be the R21 12px");
 });
 
-test("R21 sidebar: light background, border, brand, nav items and group headings", async () => {
+test("R21 sidebar: light background, brand, nav items and group headings", async () => {
   const css = await readWebCss();
-  // 背景 / 右边线只覆盖浅色；深色继续走 .mosa-v2 .sidebar 里的 token。
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.sidebar \{ background: #fbfbfc; border-right-color: #e7e7ea; \}/);
+  // GravityPort A1 去掉侧栏右边线：浅色只覆盖背景；深色继续走 .mosa-v2 .sidebar 里的 token。
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.sidebar \{ background: #fbfbfc; \}/);
   assert.match(css, /\.mosa-v2 \.sidebar \{[^}]*background: rgb\(from var\(--app-sidebar\)/, "the dark fallback must keep the token-driven background");
   // 品牌区：与顶栏同高（token=64）、左右内边距 24、名称字重 700。
   const brand = blockAfter(css, ".mosa-v2 .brand {");

@@ -1,5 +1,5 @@
 // R21（Web 端）检视器外框与头部契约：只读 web/app/styles.css、
-// web/app/inspector-markup.mjs、web/app/i18n.mjs。锁定：344 宽度 token、
+// web/app/inspector-markup.mjs、web/app/i18n.mjs。锁定：320 宽度 token（GravityPort）、
 // 头部 14px/640、两栏头部（132px 左栏预览）、e2e 必需元素仍在
 // detailFileSectionMarkup 输出里、五个事实键名、「素材详情」文案、
 // 新增字号下限 10px（R21 的 8.5～9.5px 一律抬到 10px）。
@@ -24,11 +24,11 @@ function functionSlice(source, name) {
   return source.slice(start, next === -1 ? source.length : next);
 }
 
-test("R21 inspector frame: 344px width token, light panel colours, 28px scroll-end padding", async () => {
+test("R21 inspector frame: 320px width token, light panel colours, 28px scroll-end padding", async () => {
   const css = await readWebCss();
-  assert.match(css, /--inspector-width: 344px;/, "--inspector-width must be the R21 344px");
-  // 外框新颜色只覆盖浅色；深色继续走既有 token 规则。
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \{ background: #fbfbfc; border-left-color: #e7e7ea; \}/);
+  assert.match(css, /--inspector-width: 320px;/, "--inspector-width must be the GravityPort 320px");
+  // GravityPort A1 去掉检视器左边线：外框新颜色只覆盖浅色底色；深色继续走既有 token 规则。
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \{ background: #fbfbfc; \}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail-inspector-header \{ border-bottom-color: #e7e7ea; \}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail-inspector-scroll \{ background: #fbfbfc; \}/);
   // 底部留白 28（滚动列的内边距，符合外框规格）。
