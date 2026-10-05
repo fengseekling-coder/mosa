@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 import { createDerivativeWorker } from "../lib/derivative-worker.js";
-import { migrateLegacyLibrary, verifySqliteLibrary } from "../lib/library-migration.js";
+import { assertExistingSqliteLibrary, migrateLegacyLibrary, verifySqliteLibrary } from "../lib/library-migration.js";
 import { createLibraryBackup, restoreLibraryBackup, verifyLibraryBackup } from "../lib/library-backup.js";
 import { verifyVisualModelPack } from "../lib/visual-model-pack.mjs";
 
@@ -105,6 +105,13 @@ async function runThumbnails(values) {
     return;
   }
   const options = parseOptions(values);
+  // Refuse before any store is opened: thumbnails must never materialize a
+  // fresh mosa.db in a directory that holds no library.
+  try {
+    await assertExistingSqliteLibrary(options.library);
+  } catch (error) {
+    throw new Error(`${error.message} Run \`mosa migrate\` successfully before rebuilding derivatives.`);
+  }
   const store = createSqliteAssetStore({ managerDir, projectRoot, libraryDir: options.library, storage: "sqlite" });
   try {
     const migration = await store.migrationStatus();

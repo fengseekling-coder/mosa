@@ -1191,3 +1191,111 @@ test("derivative stream rejects inherited kind names", async (t) => {
     /Invalid derivative kind: toString/,
   );
 });
+
+test("SQLite metadata writes cannot resurrect a trashed asset into the search index", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-trash-fts-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const projectRoot = join(root, "project");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, ONE_PIXEL_PNG);
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir: join(root, "library") });
+  t.after(() => store.close());
+
+  const asset = await store.createAsset({ assetId: "quartz-keeper", imagePath: sourcePath, prompt: "quartzfallback lantern glow" });
+  const search = () => store.listAssetPage({ projectId: "default", query: "quartz", limit: 10 });
+  assert.equal((await search()).page.total, 1);
+
+  await store.deleteAsset("default", asset.id);
+  assert.equal((await search()).page.total, 0, "trashing removes the asset from the search index");
+
+  await store.updateMetadata("default", asset.id, { theme: "quartzfallback-edited", tags: ["quartzfallback"] });
+  const patched = await search();
+  assert.equal(patched.page.total, 0, "a metadata edit must not re-index a trashed asset");
+  assert.equal(patched.assets.length, 0);
+
+  const batch = await store.assignAssetsToGroup("default", [asset.id], "QuartzVault");
+  assert.deepEqual(batch.results, [{ id: asset.id, group: "QuartzVault" }]);
+  const afterBatch = await search();
+  assert.equal(afterBatch.page.total, 0, "a batch group move must not re-index a trashed asset");
+  assert.equal(afterBatch.assets.length, 0);
+
+  await store.restoreAsset("default", asset.id);
+  const restored = await search();
+  assert.equal(restored.page.total, 1, "restore re-indexes the asset");
+  assert.deepEqual(restored.assets.map((item) => item.id), [asset.id]);
+});
+
+test("SQLite one-time FTS cleanup purges legacy trashed-asset rows exactly once", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-sqlite-trash-fts-cleanup-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const projectRoot = join(root, "project");
+  const sourcePath = join(projectRoot, "generated-images", "fixture.png");
+  await mkdir(join(projectRoot, "generated-images"), { recursive: true });
+  await writeFile(sourcePath, ONE_PIXEL_PNG);
+  const libraryDir = join(root, "library");
+  const dbPath = sqliteDatabasePath(libraryDir);
+  const ftsRowCount = (assetId) => {
+    const raw = new Database(dbPath, { readonly: true });
+    try {
+      return raw.prepare("SELECT COUNT(*) AS count FROM asset_fts WHERE project_id = 'default' AND asset_id = ?").get(assetId).count;
+    } finally {
+      raw.close();
+    }
+  };
+  const openStore = () => createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir });
+
+  const store = openStore();
+  const asset = await store.createAsset({ assetId: "quartz-legacy", imagePath: sourcePath, prompt: "quartzfallback legacy dust" });
+  await store.deleteAsset("default", asset.id);
+  await store.close();
+
+  // Simulate a library written before the invariant existed: no cleanup marker
+  // in library_meta and a dirty FTS row left behind by a trashed-asset edit.
+  {
+    const raw = new Database(dbPath);
+    try {
+      raw.prepare("DELETE FROM library_meta WHERE key = 'fts_trash_row_cleanup_v1'").run();
+      raw.prepare("INSERT INTO asset_fts (project_id, asset_id, content) VALUES (?, ?, ?)")
+        .run("default", asset.id, "quartzfallback legacy dust");
+      // Same asset id under another project: the cleanup must match on
+      // (project_id, asset_id), never on the id alone.
+      raw.prepare("INSERT INTO asset_fts (project_id, asset_id, content) VALUES (?, ?, ?)")
+        .run("other-project", asset.id, "quartzfallback other project");
+    } finally {
+      raw.close();
+    }
+  }
+
+  const reopened = openStore();
+  const meta = await reopened.migrationStatus();
+  assert.ok(meta.fts_trash_row_cleanup_v1, "the cleanup records its completion in library_meta");
+  {
+    const raw = new Database(dbPath, { readonly: true });
+    try {
+      const counts = Object.fromEntries(raw.prepare("SELECT project_id, COUNT(*) AS count FROM asset_fts WHERE asset_id = ? GROUP BY project_id").all(asset.id).map((row) => [row.project_id, row.count]));
+      assert.equal(counts.default, undefined, "the dirty FTS row is purged on reopen");
+      assert.equal(counts["other-project"], 1, "a same-id row in another project is left alone");
+    } finally {
+      raw.close();
+    }
+  }
+  await reopened.close();
+
+  // With the marker present, reopening must not run the cleanup again — even
+  // if a dirty row reappears, the steady-state open leaves it alone.
+  {
+    const raw = new Database(dbPath);
+    try {
+      raw.prepare("INSERT INTO asset_fts (project_id, asset_id, content) VALUES (?, ?, ?)")
+        .run("default", asset.id, "quartzfallback legacy dust");
+    } finally {
+      raw.close();
+    }
+  }
+  const third = openStore();
+  const metaAfterThirdOpen = await third.migrationStatus();
+  assert.equal(metaAfterThirdOpen.fts_trash_row_cleanup_v1, meta.fts_trash_row_cleanup_v1, "the marker is written only once");
+  assert.equal(ftsRowCount(asset.id), 1, "the guard key prevents a second cleanup pass");
+  await third.close();
+});
