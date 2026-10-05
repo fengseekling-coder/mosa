@@ -4,6 +4,7 @@ import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_CONCURRENCY = 2;
+const MAX_CLAIM_BACKOFF_MS = 30000;
 const VIDEO_EXTENSIONS = new Set([".m4v", ".mov", ".mp4", ".webm"]);
 const DERIVATIVE_PROCESSOR_PATH = fileURLToPath(new URL("./derivative-processor.js", import.meta.url));
 
@@ -210,15 +211,18 @@ export function createDerivativeWorker(options: {
   store?: DerivativeStore;
   concurrency?: number;
   idleDelayMs?: number;
+  maxClaimBackoffMs?: number;
   processor?: DerivativeProcessor;
 } = {}): DerivativeWorker {
   const store = options.store;
   const processor = options.processor || createDerivativeProcessor();
   const concurrency = Math.max(1, Math.min(Number(options.concurrency) || DEFAULT_CONCURRENCY, DEFAULT_CONCURRENCY));
   const idleDelayMs = Math.max(250, Number(options.idleDelayMs) || 1000);
+  const maxClaimBackoffMs = Math.min(Math.max(1, Number(options.maxClaimBackoffMs) || MAX_CLAIM_BACKOFF_MS), MAX_CLAIM_BACKOFF_MS);
   let stopped = true;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let active = 0;
+  let claimFailures = 0;
   let stopWaiters: Array<() => void> = [];
 
   function settleStopWaiters(): void {
@@ -228,10 +232,29 @@ export function createDerivativeWorker(options: {
     for (const resolveStop of waiters) resolveStop();
   }
 
+  function claimRetryDelayMs(): number {
+    // Exponential backoff per consecutive claim failure, capped at 30s. A
+    // single transient failure retries after the normal idle delay.
+    return Math.min(idleDelayMs * 2 ** Math.max(0, claimFailures - 1), maxClaimBackoffMs);
+  }
+
   async function schedule(): Promise<void> {
     if (stopped || !store) return;
     while (active < concurrency && !stopped) {
-      const job = await store.claimDerivativeJob();
+      let job: DerivativeJob | null = null;
+      try {
+        job = await store.claimDerivativeJob();
+      } catch (error) {
+        // A failed claim (e.g. SQLITE_BUSY while another process writes the
+        // library) must never surface as an unhandled rejection: schedule()
+        // runs fire-and-forget (void), so a throw here would take down the
+        // whole runtime process. Log, back off, and let the timer below retry.
+        claimFailures += 1;
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[MOSA] derivative job claim failed (consecutive: ${claimFailures}); retrying in ${claimRetryDelayMs()}ms: ${message}`);
+        break;
+      }
+      claimFailures = 0;
       if (!job) break;
       active += 1;
       processDerivativeJob(store, job, { processor })
@@ -244,7 +267,7 @@ export function createDerivativeWorker(options: {
     }
     if (!stopped && active === 0) {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void schedule(), idleDelayMs);
+      timer = setTimeout(() => void schedule(), claimFailures > 0 ? claimRetryDelayMs() : idleDelayMs);
     }
   }
 
@@ -252,6 +275,7 @@ export function createDerivativeWorker(options: {
     start() {
       if (!store?.derivativesAvailable || !stopped) return;
       stopped = false;
+      claimFailures = 0;
       void schedule();
     },
     async stop() {
