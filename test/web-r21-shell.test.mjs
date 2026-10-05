@@ -59,28 +59,30 @@ test("R21 sidebar: light background, brand, nav items and group headings", async
   // GravityPort A1 去掉侧栏右边线：浅色只覆盖背景；深色继续走 .mosa-v2 .sidebar 里的 token。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.sidebar \{ background: #fbfbfc; \}/);
   assert.match(css, /\.mosa-v2 \.sidebar \{[^}]*background: rgb\(from var\(--app-sidebar\)/, "the dark fallback must keep the token-driven background");
-  // 品牌区：与顶栏同高（token=64）、左右内边距 24、名称字重 700。
+  // 品牌区：与顶栏同高（token=64）、GravityPort A2 起文字靠右（右内边距 20）、
+  // 名称 18px / 字重 500。
   const brand = blockAfter(css, ".mosa-v2 .brand {");
   assert.match(brand, /height: var\(--topbar-height\);/);
-  assert.match(brand, /padding: 0 24px;/);
-  assert.match(css, /\.mosa-v2 \.brand-info h1 \{[^}]*font-weight: 700;/);
-  // 导航区：上下结构不变，左右 12，品牌区到第一项 16；导航项间距 4。
-  assert.match(css, /\.mosa-v2 \.primary-nav \{ padding: 16px 12px 10px; \}/);
+  assert.match(brand, /justify-content: flex-end;/);
+  assert.match(brand, /padding: 0 20px;/);
+  assert.match(css, /\.mosa-v2 \.brand-info h1 \{ color: var\(--color-text-primary\); font-size: 18px; font-weight: 500;/);
+  // 导航区：上下结构不变，左右 20（GravityPort A2，项宽 280−40=240），品牌区到第一项 16；导航项间距 4。
+  assert.match(css, /\.mosa-v2 \.primary-nav \{ padding: 16px 20px 10px; \}/);
   assert.match(css, /\.mosa-v2 \.nav-list \{ gap: var\(--r21-s1\); \}/);
-  // 导航项：高 32、圆角 8、内边距 0 12（设置按钮与加号按钮共用这条圆角）。
-  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 32px; border-radius: 8px;/);
-  assert.match(css, /\.mosa-v2 \.nav-item \{ padding: 0 12px; \}/);
-  assert.match(css, /\.mosa-v2 \.settings-trigger \{ width: 100%; justify-content: flex-start; gap: 8px; padding: 0 12px; \}/);
+  // 导航项：高 36、圆角 8、内边距 0 12（设置按钮与加号按钮共用这条圆角）。
+  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 36px; border-radius: 8px;/);
+  assert.match(css, /\.mosa-v2 \.nav-item \{ padding: 0 12px; font-size: 13px; \}/);
+  assert.match(css, /\.mosa-v2 \.settings-trigger \{ width: 100%; justify-content: flex-start; gap: 8px; padding: 0 12px; font-size: 14px; \}/);
   // 选中导航项：字重 570，浅色底 #ececef。
   assert.match(css, /\.mosa-v2 \.nav-item\.active \{ color: var\(--color-text-primary\); background: var\(--app-chip-active\); font-weight: 570; \}/);
   // 浅色的灰色字色规则特异性高于 .nav-item.active，选中项必须在同一特异性下把字色改回主文字色。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.nav-item\.active \{ background: #ececef; color: var\(--color-text-primary\); \}/);
-  // 分组标题：11px / 600；浅色不再有写死字色（任务 50 删除），回落到基础规则的 tertiary token。
-  assert.match(css, /\.mosa-v2 \.nav-label \{ margin: 18px 0 6px; padding: 0 12px; color: var\(--color-text-tertiary\); font-size: 11px; font-weight: 600;/);
+  // 分组标题：12px / 600（GravityPort A2）；浅色不再有写死字色（任务 50 删除），回落到基础规则的 tertiary token。
+  assert.match(css, /\.mosa-v2 \.nav-label \{ margin: 18px 0 6px; padding: 0 12px; color: var\(--color-text-tertiary\); font-size: 12px; font-weight: 600;/);
   assert.doesNotMatch(css, /:root\[data-theme="light"\] \.mosa-v2 \.nav-label \{/);
-  // 分组之间的间距 20。
-  assert.match(css, /\.mosa-v2 \.sidebar-group-heading \{ display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin: var\(--r21-s5\) 10px 2px; \}/);
-  assert.match(css, /\.mosa-v2 \.sidebar-manual-group-heading \{ margin-top: var\(--r21-s5\); \}/);
+  // 分组之间的间距 24（GravityPort A2）。
+  assert.match(css, /\.mosa-v2 \.sidebar-group-heading \{ display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin: var\(--r21-s6\) 10px 2px; \}/);
+  assert.match(css, /\.mosa-v2 \.sidebar-manual-group-heading \{ margin-top: var\(--r21-s6\); \}/);
   // 导航项字色：浅色 #55555a。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.nav-item, :root\[data-theme="light"\] \.mosa-v2 \.settings-trigger \{ color: #55555a; \}/);
 });

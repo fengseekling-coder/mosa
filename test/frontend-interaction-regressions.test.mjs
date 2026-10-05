@@ -204,8 +204,8 @@ test("sidebar smart and manual groups collapse independently and keep compact na
   assert.match(app, /function syncSidebarSectionVisibility\(\)/);
   assert.match(app, /function setSidebarSectionCollapsed\(section, collapsed\)/);
   assert.match(app, /function startSidebarGroupCreate\(\) \{[\s\S]*?setSidebarSectionCollapsed\("manual", false\)/);
-  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 32px;/);
-  assert.match(css, /\.mosa-v2 \.sidebar-group-list \{ gap: 0;/);
+  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 36px;/);
+  assert.match(css, /\.mosa-v2 \.sidebar-group-list \{ gap: var\(--r21-s1\);/);
   assert.match(css, /\.mosa-v2 \.sidebar-section-toggle\[aria-expanded="false"\] \.sidebar-section-chevron \{ transform: rotate\(-90deg\); \}/);
 });
 
@@ -278,7 +278,7 @@ test("Unorganized replaces Recent in primary navigation and Trash remains a firs
     import(pathToFileURL(resolve(root, "web/app/i18n.mjs")).href).then((module) => module.default),
   ]);
   assert.match(config, /SCOPES = \["all", "favorite", "unorganized", "trash"\]/);
-  assert.match(html, /data-filter="unorganized"[\s\S]*?data-filter="trash"/, "Trash sits directly after Unorganized in the primary navigation");
+  assert.match(html, /data-filter="all"[\s\S]*?data-filter="unorganized"[\s\S]*?data-filter="favorite"[\s\S]*?data-filter="trash"/, "Primary navigation follows the GravityPort A2 order: all → unorganized → favorite → trash");
   assert.doesNotMatch(html, /data-filter="recent"/, "Recent is no longer a primary navigation destination");
   assert.equal(translations.zh.unorganized, "待整理");
   assert.equal(translations.en.unorganized, "Unorganized");

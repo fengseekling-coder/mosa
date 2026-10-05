@@ -46,6 +46,30 @@ function sourceTypeLabel(type) {
   return SOURCE_LABEL_KEYS[cleanType] ? t(SOURCE_LABEL_KEYS[cleanType]) : (cleanType || t("sourceUnknown"));
 }
 
+// 用户中心头像字母：取安装 ID 里第一个英文字母转大写（安装 ID 是 UUID，十六进制
+// 字母都落在 a–f）。拿不到 ID（浏览器版、接口缺失、返回空、无字母）一律回落 G。
+// 独立导出供契约测试直接求值。
+export function userCenterInitial(userId) {
+  const match = String(userId ?? "").match(/[a-zA-Z]/);
+  return match ? match[0].toUpperCase() : "G";
+}
+
+// 桌面版启动后异步取安装 ID：不阻塞启动，先显示 G，拿到后更新头像字母并记忆到
+// state（设置「关于」页的用户 ID 行据此渲染；打开着设置弹窗时原地重建一次）。
+async function hydrateUserCenter() {
+  if (!window.electronAPI?.getUserProfile || !els.userCenterAvatar) return;
+  try {
+    const profile = await window.electronAPI.getUserProfile();
+    const userId = String(profile?.userId || "").trim();
+    if (!userId) return;
+    state.userProfileId = userId;
+    els.userCenterAvatar.textContent = userCenterInitial(userId);
+    if (els.settingsMenu && !els.settingsMenu.hidden) renderSettingsMenu({ force: true });
+  } catch {
+    // 取不到就保持 G；「关于」页不出现用户 ID 行。
+  }
+}
+
 const preference = safeStorageGet("mosa.ui-language") || "system";
 // The inspector docks as a fixed right column only where the desktop layout
 // applies. This must match the ≤767px drawer breakpoint (MOBILE_NAVIGATION_QUERY
@@ -76,6 +100,8 @@ const state = {
   updateDownloadPercent: 0,
   visualModelStatus: null,
   darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null,
+  // 用户中心：安装 ID（桌面版经 user-profile IPC 取得，浏览器版恒空）。
+  userProfileId: "",
   // 设置弹窗当前分类（两栏标签页）。仅会话内记忆，不写本地存储；重建后停留原分类。
   settingsPage: "general",
   sidebarSmartCollapsed: safeStorageGet("mosa.sidebar-smart-collapsed") === "true",
@@ -121,7 +147,7 @@ const els = {
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
   sortSelect: document.querySelector("#sortSelect"),
   categorySelect: document.querySelector("#categorySelect"),
-  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), openInspectorBtn: document.querySelector("#openInspectorBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), stackRenameModal: document.querySelector("#stackRenameModal"), stackRenameModalTitle: document.querySelector("#stackRenameModalTitle"), stackRenameModalInput: document.querySelector("#stackRenameInput"), stackRenameModalClose: document.querySelector("#stackRenameModalClose"), cancelStackRenameBtn: document.querySelector("#cancelStackRenameBtn"), saveStackRenameBtn: document.querySelector("#saveStackRenameBtn"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"),
+  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), userCenterAvatar: document.querySelector("#userCenterAvatar"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), openInspectorBtn: document.querySelector("#openInspectorBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), stackRenameModal: document.querySelector("#stackRenameModal"), stackRenameModalTitle: document.querySelector("#stackRenameModalTitle"), stackRenameModalInput: document.querySelector("#stackRenameInput"), stackRenameModalClose: document.querySelector("#stackRenameModalClose"), cancelStackRenameBtn: document.querySelector("#cancelStackRenameBtn"), saveStackRenameBtn: document.querySelector("#saveStackRenameBtn"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"),
   viewTitle: document.querySelector("#viewTitle"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
 
@@ -1045,6 +1071,8 @@ async function resetLibraryRefinements() {
 async function init() {
     applyLanguage();
     applyDarkMode();
+    // 用户中心头像：异步取安装 ID，不阻塞启动（先显示 G）。
+    void hydrateUserCenter();
     nativeAssetDrag.bind();
     assetStacks.bind();
     gallerySelection.bind();
@@ -1365,6 +1393,12 @@ function renderSettingsMenu({ force = false } = {}) {
     "settings-visual-model-row",
   );
   const aboutRow = row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), `<span data-settings-version>${escapeHtml(updateVersionSummary())}</span>`, `<div data-settings-update-action>${updateVersionControlMarkup()}</div>`, "settings-about-row");
+  // 用户 ID 行（任务 69）：只在拿到安装 ID 时渲染（浏览器版没有这一行）。
+  // 值复用 .settings-path（等宽 + 省略号截断 + title 悬停看全量）；复制复用
+  // settings-text-action 与 writeClipboardText，成功提示走既有 toast。
+  const userIdRow = state.userProfileId
+    ? row(settingIcon("M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM9.5 10.5a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0ZM8 16c.6-1.6 2.2-2.4 3-2.4s2.4.8 3 2.4M14.5 9.5h2.5M14.5 12.5h2.5"), t("userId"), `<span class="settings-path" data-settings-user-id title="${escapeHtml(state.userProfileId)}">${escapeHtml(state.userProfileId)}</span>`, `<button class="settings-text-action" type="button" data-copy-user-id>${escapeHtml(t("copyAction"))}</button>`)
+    : "";
 
   // R21 两栏设置：左栏品牌 + 分类导航 + 本地优先说明，右栏标题栏 + 四个分类页。
   // 行内容复用既有 row()，控件与 data-* 属性不变；分类只在会话内记忆。
@@ -1372,7 +1406,7 @@ function renderSettingsMenu({ force = false } = {}) {
     { id: "general", label: t("settingsPageGeneral"), description: t("settingsPageGeneralDesc"), rows: appearanceRows, icon: settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0") },
     { id: "library", label: t("settingsPageLibrary"), description: t("settingsPageLibraryDesc"), rows: storageRows, icon: settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z") },
     { id: "visual", label: t("settingsPageVisual"), description: t("settingsPageVisualDesc"), rows: visualRows, icon: settingIcon("M5 7h14M7 4v6M17 4v6M6 14h12M8 11v6M16 11v6M5 20h14") },
-    { id: "about", label: t("settingsPageAbout"), description: t("settingsPageAboutDesc"), rows: aboutRow, icon: settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0") },
+    { id: "about", label: t("settingsPageAbout"), description: t("settingsPageAboutDesc"), rows: aboutRow + userIdRow, icon: settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0") },
   ];
   if (!settingsPages.some((page) => page.id === state.settingsPage)) state.settingsPage = "general";
   const activePage = state.settingsPage;
@@ -1397,7 +1431,7 @@ function describeSettingsFocus(element) {
   if (!(element instanceof HTMLElement) || !els.settingsMenu?.contains(element)) return null;
   const tab = element.closest("[data-settings-page]");
   if (tab) return { page: tab.dataset.settingsPage, control: null };
-  const attributes = ["data-appearance-opt", "data-card-info-opt", "data-locale", "data-open-library", "data-change-library", "data-check-updates", "data-cancel-update", "data-install-update", "data-download-latest", "data-visual-model-toggle", "data-visual-pack-install", "data-visual-pack-cancel", "data-visual-pack-remove", "data-settings-close"];
+  const attributes = ["data-appearance-opt", "data-card-info-opt", "data-locale", "data-open-library", "data-copy-user-id", "data-change-library", "data-check-updates", "data-cancel-update", "data-install-update", "data-download-latest", "data-visual-model-toggle", "data-visual-pack-install", "data-visual-pack-cancel", "data-visual-pack-remove", "data-settings-close"];
   for (const attribute of attributes) {
     const value = element.getAttribute(attribute);
     if (value !== null) return { page: state.settingsPage, control: `[${attribute}="${CSS.escape(value)}"]` };
@@ -2153,6 +2187,14 @@ function bindEvents() {
       await apiFetch("/api/open-folder", { method: "POST", body: { path } });
       showToast(t("openInFinder"), "success");
     });
+    const copyUserIdButton = event.target.closest("[data-copy-user-id]");
+    if (copyUserIdButton && state.userProfileId) {
+      runAction(async () => {
+        await writeClipboardText(state.userProfileId);
+        showToast(t("userIdCopied"), "success");
+      });
+      return;
+    }
     const changeLibraryButton = event.target.closest("[data-change-library]");
     if (changeLibraryButton && window.electronAPI?.changeLibraryLocation && !state.libraryMoveInProgress) {
       void (async () => {

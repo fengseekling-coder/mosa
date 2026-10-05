@@ -294,7 +294,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .add-group-button { display: flex; width: 100%; min-width: 0; height: 28px; align-items: center; gap: 8px; margin-top: 2px; padding: 0 8px; border: 0; border-radius: var(--radius-control); color: var(--color-accent-active); background: transparent; cursor: pointer; font-size: 13px; text-align: left; }
 .add-group-button svg { flex: 0 0 auto; }
 .sidebar-spacer { display: none; }
-.sidebar-footer { flex: 0 0 auto; padding: 8px; border-top: 1px solid var(--color-border-subtle); }
+.sidebar-footer { flex: 0 0 auto; padding: 8px; }
 .settings-wrap { position: relative; }
 .settings-trigger { display: flex; width: 100%; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 13px; text-align: left; }
 .settings-trigger[aria-expanded="true"] { color: var(--color-text-primary); background: var(--app-hover); }
@@ -1078,10 +1078,11 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   .shell.details-open .nav-item,
   .shell.details-open .add-group-button,
   .shell.details-open .settings-trigger { position: relative; justify-content: center; gap: 0; padding-right: 0; padding-left: 0; }
-  /* Keep the visible labels available to assistive technology in rail mode. */
+  /* Keep the visible labels available to assistive technology in rail mode.
+     用户中心头像例外：紧凑图标栏下头像（带字母圆点）就是按钮的可见图标。 */
   .shell.details-open .nav-item-text,
   .shell.details-open .add-group-button span,
-  .shell.details-open .settings-trigger span { position: absolute; overflow: hidden; width: 1px; height: 1px; padding: 0; margin: -1px; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  .shell.details-open .settings-trigger span:not(.user-center-avatar) { position: absolute; overflow: hidden; width: 1px; height: 1px; padding: 0; margin: -1px; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   .shell.details-open .sidebar-group-list { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--color-border-subtle); }
 }
 
@@ -1155,25 +1156,36 @@ body.mosa-v2 {
 .mosa-v2 .shell.details-open { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--inspector-width); }
 .mosa-v2 .sidebar { position: relative; z-index: 2; overflow: visible; background: rgb(from var(--app-sidebar) r g b / .95); backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%); }
 .mosa-v2 .brand {
-  /* Electron 的原生 macOS 三色按钮占用左上角（trafficLightPosition: 16, 18）。
-     品牌主副标题收进同一个与顶栏同高的顶部区域，避免侧栏头部比主工具栏多占一行。 */
+  /* GravityPort A2：品牌行与顶栏同高，文字靠右对齐（右内边距 20px）。
+     Electron 的原生 macOS 三色按钮占用左上角（trafficLightPosition: 16, 18），
+     靠右排版后文字远离左上角安全区，最窄档也不与三色按钮重叠。 */
   box-sizing: border-box;
+  justify-content: flex-end;
   gap: 10px;
   height: var(--topbar-height);
-  padding: 0 24px;
+  padding: 0 20px;
 }
 .mosa-v2 .brand { position: relative; }
 .mosa-v2 .brand-info { display: flex; min-width: 0; flex-direction: column; justify-content: center; }
-.mosa-v2 .brand-info h1 { color: var(--color-text-primary); font-size: 16px; font-weight: 700; line-height: 20px; letter-spacing: 0; }
-html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
-.mosa-v2 .brand .sidebar-library-title { margin: 0; padding: 0; color: var(--color-text-tertiary); font-size: 10px; font-weight: 400; line-height: 12px; letter-spacing: .04em; text-transform: uppercase; }
-.mosa-v2 .primary-nav { padding: 16px 12px 10px; }.mosa-v2 .nav-list { gap: var(--r21-s1); }
-.mosa-v2 .nav-item, .mosa-v2 .add-group-button, .mosa-v2 .settings-trigger { min-height: 32px; border-radius: 8px; color: var(--color-text-secondary); font-size: 13px; font-weight: 400; }
-.mosa-v2 .nav-item { padding: 0 12px; }
+.mosa-v2 .brand-info h1 { color: var(--color-text-primary); font-size: 18px; font-weight: 500; line-height: 20px; letter-spacing: 0; }
+/* 副标题（创作资产库）在 GravityPort 品牌行中不再展示；元素与 i18n 键保留。 */
+.mosa-v2 .brand .sidebar-library-title { display: none; }
+.mosa-v2 .primary-nav { padding: 16px 20px 10px; }.mosa-v2 .nav-list { gap: var(--r21-s1); }
+/* 导航项（固定入口 + 两组分组项 + 底部用户中心）共用 36px 高 / 8px 圆角 / 字重 400。
+   字号按区块区分：固定入口与用户中心 14px，分组项 13px（见下）。 */
+.mosa-v2 .nav-item, .mosa-v2 .add-group-button, .mosa-v2 .settings-trigger { min-height: 36px; border-radius: 8px; color: var(--color-text-secondary); font-weight: 400; letter-spacing: 0; }
+.mosa-v2 .nav-item { padding: 0 12px; font-size: 13px; }
+.mosa-v2 .nav-list .nav-item { font-size: 14px; }
+/* 固定入口/用户中心文字仅中文界面加 0.2em 字距（html lang 由 applyLanguage 写入 zh-CN/en）。 */
+html[lang^="zh"] .mosa-v2 .nav-list .nav-item .nav-item-text { letter-spacing: .2em; }
 .mosa-v2 .nav-item.active { color: var(--color-text-primary); background: var(--app-chip-active); font-weight: 570; }.mosa-v2 .nav-item.active::before { display: none; }
-.mosa-v2 .nav-count { color: var(--color-text-tertiary); font-size: 10px; }.mosa-v2 .nav-label { margin: 18px 0 6px; padding: 0 12px; color: var(--color-text-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
-.mosa-v2 .sidebar-group-list { gap: 0; }.mosa-v2 .sidebar-group-list[hidden] { display: none; }.mosa-v2 .sidebar-group-list .nav-item { padding-left: 12px; }.mosa-v2 .add-group-button { justify-content: flex-start; gap: 8px; padding: 0 10px; }
-.mosa-v2 .sidebar-footer { padding: 12px; border-top: 0; }.mosa-v2 .settings-trigger { width: 100%; justify-content: flex-start; gap: 8px; padding: 0 12px; }
+.mosa-v2 .nav-count { color: var(--color-text-tertiary); font-size: 12px; font-weight: 300; }.mosa-v2 .nav-label { margin: 18px 0 6px; padding: 0 12px; color: var(--color-text-tertiary); font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.mosa-v2 .sidebar-group-list { gap: var(--r21-s1); }.mosa-v2 .sidebar-group-list[hidden] { display: none; }.mosa-v2 .sidebar-group-list .nav-item { padding-left: 12px; }.mosa-v2 .add-group-button { justify-content: flex-start; gap: 8px; padding: 0 10px; }
+.mosa-v2 .sidebar-footer { padding: 12px 20px; border-top: 0; }.mosa-v2 .settings-trigger { width: 100%; justify-content: flex-start; gap: 8px; padding: 0 12px; font-size: 14px; }
+html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spacing: .2em; }
+/* 用户中心 24px 字母头像：底色/字色用现有强调色 token（subtle 底 + accent 字）。
+   字母由 userCenterInitial() 写入，启动默认 G，拿到安装 ID 后异步更新。 */
+.mosa-v2 .settings-trigger .user-center-avatar { display: inline-flex; width: 24px; height: 24px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 50%; color: var(--color-accent); background: var(--color-accent-subtle); font-size: 12px; font-weight: 600; line-height: 1; }
 .mosa-v2 .topbar-context { align-items: center; gap: 12px; }
 .mosa-v2 .title-row { align-items: center; }
 .mosa-v2 .topbar-type-filters { margin-left: 0; gap: 4px; }
@@ -1381,9 +1393,9 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 
 /* Manual asset categories live directly below Smart groups. Creation is an
    inline sidebar action rather than a modal detour. */
-.mosa-v2 .sidebar-group-heading { display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin: var(--r21-s5) 10px 2px; }
+.mosa-v2 .sidebar-group-heading { display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin: var(--r21-s6) 10px 2px; }
 .mosa-v2 .sidebar-group-heading .nav-label { margin: 0; padding: 0; }
-.mosa-v2 .sidebar-manual-group-heading { margin-top: var(--r21-s5); }
+.mosa-v2 .sidebar-manual-group-heading { margin-top: var(--r21-s6); }
 .mosa-v2 .sidebar-section-toggle { display: flex; min-width: 0; flex: 1; align-items: center; justify-content: space-between; gap: 6px; height: 28px; padding: 0; border: 0; border-radius: 5px; color: inherit; background: transparent; cursor: pointer; text-align: left; }
 .mosa-v2 .sidebar-section-toggle .nav-label { flex: 1; }
 .mosa-v2 .sidebar-section-chevron { flex: 0 0 auto; color: var(--color-text-tertiary); transition: transform .14s var(--ease-standard); }
@@ -1639,7 +1651,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .group-modal-card .modal-footer { justify-content: flex-end; padding: 12px 20px 20px; border-top: 0; }
 .mosa-v2 .group-modal-card .btn-primary, .mosa-v2 .group-modal-card .btn-secondary { min-width: 76px; height: 34px; border-radius: 8px; }
 .mosa-v2 .nav-group-item { gap: 8px; }
-.mosa-v2 .nav-group-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--group-color); }
+.mosa-v2 .nav-group-dot { width: 12px; height: 12px; flex: 0 0 12px; border-radius: 50%; background: var(--group-color); }
 
 @media (hover: hover) and (pointer: fine) {
   .mosa-v2 .group-color-swatch:not(.selected):hover { transform: scale(1.08); }

@@ -52,7 +52,7 @@
   "shell.navItemActiveBackground": "#ececef",
   "shell.navItemActiveColor": "#1d1d1f",
   "shell.navItemColor": "#55555a",
-  "shell.navItemHeight": 32,
+  "shell.navItemHeight": 36,
   "shell.navItemRadius": 8,
   "shell.navLabelColor": "#67676d",
   "shell.sidebarWidth": 280,

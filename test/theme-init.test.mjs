@@ -87,10 +87,11 @@ test("theme-init falls back to light when localStorage is unavailable", () => {
   assert.equal(runThemeScript(throwingStore).theme, "light", "read failure -> light fallback");
 });
 
-test("brand safe-area offset remains desktop-only", async () => {
+test("brand row no longer carries a traffic-light offset (right-aligned since GravityPort A2)", async () => {
   const css = await readFile(join(repositoryRoot, "web", "app", "styles.css"), "utf8");
   assert.match(css, /\.mosa-v2 \.brand-info h1 \{ color: var\(--color-text-primary\);/);
-  assert.match(css, /html\.electron-shell body\.mosa-v2 \.brand-info h1 \{ margin-left: 76px; \}/);
+  // 品牌文字靠右后不再需要为三色按钮让位：任何 margin-left 补偿都不允许回来。
+  assert.doesNotMatch(css, /electron-shell[^{]*brand-info h1[^{]*\{[^}]*margin-left/);
   assert.doesNotMatch(css, /(?:^|\n)\.mosa-v2 \.brand-info h1 \{[^}]*margin-left/);
 });
 

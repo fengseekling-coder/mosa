@@ -1,6 +1,6 @@
 export default {
   zh: {
-    appTitle: "MOSA — 创作资产库",
+    appTitle: "GravityPort",
     brandSubtitle: "创作资产库",
     library: "素材库",
     allAssets: "所有素材",
@@ -8,6 +8,10 @@ export default {
     recent: "最近使用",
     unorganized: "待整理",
     trash: "回收站",
+    userCenter: "用户中心",
+    userCenterOpenSettings: "用户中心，打开设置",
+    userId: "用户 ID",
+    userIdCopied: "用户 ID 已复制",
     source: "来源",
     groups: "分组",
     smartGroups: "智能分组",
@@ -597,7 +601,7 @@ export default {
     notGrouped: "未分组",
   },
   en: {
-    appTitle: "MOSA — Creative Asset Library",
+    appTitle: "GravityPort",
     brandSubtitle: "Creative asset library",
     library: "Library",
     allAssets: "All assets",
@@ -605,6 +609,10 @@ export default {
     recent: "Recent",
     unorganized: "Unorganized",
     trash: "Trash",
+    userCenter: "Account",
+    userCenterOpenSettings: "Account, open settings",
+    userId: "User ID",
+    userIdCopied: "User ID copied",
     source: "Source",
     groups: "Groups",
     smartGroups: "Smart groups",

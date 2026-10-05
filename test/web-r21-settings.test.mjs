@@ -65,7 +65,7 @@ test("each category page holds exactly its own rows and controls", async () => {
   assert.match(body, /\{ id: "general", label: t\("settingsPageGeneral"\), description: t\("settingsPageGeneralDesc"\), rows: appearanceRows,/);
   assert.match(body, /\{ id: "library", label: t\("settingsPageLibrary"\), description: t\("settingsPageLibraryDesc"\), rows: storageRows,/);
   assert.match(body, /\{ id: "visual", label: t\("settingsPageVisual"\), description: t\("settingsPageVisualDesc"\), rows: visualRows,/);
-  assert.match(body, /\{ id: "about", label: t\("settingsPageAbout"\), description: t\("settingsPageAboutDesc"\), rows: aboutRow,/);
+  assert.match(body, /\{ id: "about", label: t\("settingsPageAbout"\), description: t\("settingsPageAboutDesc"\), rows: aboutRow \+ userIdRow,/);
   // 常规与外观：主题、素材卡片信息、界面语言。
   const appearanceRows = /const appearanceRows = \[([\s\S]*?)\]\.join\(""\);/.exec(body)?.[1] || "";
   assert.match(appearanceRows, /data-appearance-opt/);
@@ -84,9 +84,13 @@ test("each category page holds exactly its own rows and controls", async () => {
   // 本地视觉能力：视觉模型状态行；关于 MOSA：版本 / 更新行。
   const visualRows = /const visualRows = row\(([\s\S]*?)\);\n  const aboutRow/.exec(body)?.[1] || "";
   assert.match(visualRows, /data-settings-visual-model/);
-  const aboutRow = /const aboutRow = row\(([\s\S]*?)\);\n\n  \/\/ R21 两栏设置/.exec(body)?.[1] || "";
+  const aboutRow = /const aboutRow = row\(([\s\S]*?)\);\n  \/\/ 用户 ID 行/.exec(body)?.[1] || "";
   assert.match(aboutRow, /data-settings-version/);
   assert.match(aboutRow, /data-settings-update-action/);
+  // 关于 MOSA：版本 / 更新行之后是用户 ID 行（任务 69；仅桌面版拿到 ID 时渲染）。
+  const userIdRow = /const userIdRow = state\.userProfileId\s*\n\s*\? row\(([\s\S]*?)\)\n\s*: "";/.exec(body)?.[1] || "";
+  assert.match(userIdRow, /data-settings-user-id/);
+  assert.match(userIdRow, /data-copy-user-id/);
   // 控件不串页。
   assert.doesNotMatch(storageRows, /data-appearance-opt|data-locale/);
   assert.doesNotMatch(appearanceRows, /data-settings-library-path|data-settings-version/);
