@@ -99,3 +99,16 @@ test("10 closeDetailSurface only sets detailManuallyClosed outside navigation cl
   assert.match(close, /if \(!navigation\) state\.detailManuallyClosed = true;/, "navigation closes must not mark the inspector manually closed");
   assert.equal(count(close, "state.detailManuallyClosed = true"), 1, "the manual-close flag is set from exactly one guarded place");
 });
+
+test("restoring the root snapshot after a stack exit ends the gallery busy state", async () => {
+  const stacks = await readFile(new URL("../web/app/asset-stacks.mjs", import.meta.url), "utf8");
+  const start = stacks.indexOf("async function restoreRootFromSnapshot");
+  assert.notEqual(start, -1);
+  const body = stacks.slice(start, stacks.indexOf("async function exitStack", start));
+  assert.match(body, /state\.galleryStatus = "ready";[\s\S]*setGalleryBusy\(false\)/,
+    "a stale in-stack request never clears aria-busy, so the snapshot restore must");
+  const app = await readFile(new URL("../web/app/app.mjs", import.meta.url), "utf8");
+  const factory = app.slice(app.indexOf("createAssetStackController({"), app.indexOf("});", app.indexOf("createAssetStackController({")));
+  assert.match(factory, /\bsetGalleryBusy,/, "setGalleryBusy must be injected into the stack controller");
+});
+

@@ -356,6 +356,7 @@ const assetStacks = createAssetStackController({
   renderQuickFilters,
   renderTypeFilters,
   renderCategoryFilter,
+  setGalleryBusy,
   updateViewTitle,
   showToast,
   closeDetailSurface,

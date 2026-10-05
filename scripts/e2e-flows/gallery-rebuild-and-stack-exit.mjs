@@ -148,9 +148,8 @@ function pageSource(config) {
     await waitFor(() => typeState('all').pressed && typeState('all').active && gallerySettled(), 'all type pressed inside stack');
     facts.typeAllPressedInsideStack = typeState('all').pressed;
     facts.stackCardsAfterAllFilter = rootCardIds().length;
-    // 必须等这次堆叠内请求真正落定（空结果 + settled）再点返回：若带飞行中
-    // 请求退出，快照恢复路径会让该 stale 请求按设计不清 aria-busy（既有产品
-    // 行为，见回报），流程会卡在假加载中。
+    // 这里等堆叠内请求落定再返回，让 54-3 的断言只看快照恢复；请求还在飞行中
+    // 就返回的情形由下面的「快速返回」一步单独覆盖。
     setValue('#categorySelect', config.stackCategory);
     await waitFor(() => gallerySettled() && categoryValue() === config.stackCategory && rootCardIds().length === 0, 'stack category filters the members out');
 
@@ -191,6 +190,16 @@ function pageSource(config) {
     click('#stackBack');
     await waitFor(() => document.querySelector('#stackBack')?.hidden === true && gallerySettled() && rootCardIds().length === 3, 'back at root for rebuild loop');
     facts.backAtRootAfterFinalExit = true;
+
+    // ===== 快速返回：堆叠内改筛选的请求还没返回就退出，画廊不能卡在加载中 =====
+    await waitFor(() => Boolean(stackNode()), 'stack node visible for quick exit');
+    stackNode().querySelector('.asset-card-select')
+      .dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, detail: 2 }));
+    await waitFor(() => !document.querySelector('#stackBack')?.hidden && gallerySettled(), 'entered stack for quick exit');
+    setValue('#categorySelect', config.stackCategory);
+    click('#stackBack');
+    await waitFor(() => document.querySelector('#stackBack')?.hidden === true && gallerySettled() && rootCardIds().length === 3, 'quick exit with an in-flight stack request settles');
+    facts.quickExitSettled = true;
 
     // ===== 反复重建：命中/不命中交替各 10 次（55-1） =====
     for (let round = 0; round < 10; round += 1) {

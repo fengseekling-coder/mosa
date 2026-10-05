@@ -44,6 +44,7 @@ export function createAssetStackController({
   renderQuickFilters,
   renderTypeFilters,
   renderCategoryFilter,
+  setGalleryBusy,
   updateViewTitle,
   showToast,
   closeDetailSurface,
@@ -247,6 +248,9 @@ export function createAssetStackController({
     state.loadedAssetCount = Math.max(0, Number(root.loadedAssetCount) || 0);
     state.galleryStatus = "ready";
     state.galleryError = null;
+    // 堆叠内的请求可能还没返回：它已不是当前请求，按设计不会清 aria-busy，
+    // 而快照恢复不再发请求，所以这里必须自己结束忙碌态，否则画廊永久显示加载中。
+    if (typeof setGalleryBusy === "function") setGalleryBusy(false);
     // 回放逗留期间积压的 delta（幂等；此时 currentAssetRequest 已恢复为 root 请求）。
     // 提交由下方的整体 renderGrid 完成，这里只做数据 reconcile。
     if (typeof librarySync?.applyRootSnapshotPendingChanges === "function") {
