@@ -68,6 +68,34 @@ function normalizedPlatform(platform) {
   return "other";
 }
 
+// Mints (once) or reads back the anonymous installation UUID and always leaves
+// a persisted profile on disk, so a later real report still qualifies as
+// first_launch with the same identifier. Purely local userData bookkeeping:
+// callers must never treat a returned id as permission to report.
+export function ensureInstallationId({ userDataDir, makeInstallationId = randomUUID } = {}) {
+  if (!userDataDir) return "";
+  try {
+    const path = profilePath(userDataDir);
+    const existing = readProfile(path);
+    if (existing) return existing.installationId;
+    const installationId = String(makeInstallationId());
+    if (!INSTALLATION_ID_PATTERN.test(installationId)) return "";
+    const profile = {
+      schemaVersion: ANONYMOUS_USAGE_PROFILE_SCHEMA_VERSION,
+      installationId,
+      firstReportedAt: 0,
+      lastReportedAt: 0,
+      lastReportedDay: "",
+    };
+    // Persist before any report so an offline retry keeps the same anonymous
+    // installation identifier instead of creating a new one.
+    if (!writeProfile(path, profile)) return "";
+    return installationId;
+  } catch {
+    return "";
+  }
+}
+
 export function prepareAnonymousUsage({
   userDataDir,
   enabled = true,
@@ -83,18 +111,11 @@ export function prepareAnonymousUsage({
   const path = profilePath(userDataDir);
   let profile = readProfile(path);
   if (!profile) {
-    const installationId = String(makeInstallationId());
-    if (!INSTALLATION_ID_PATTERN.test(installationId)) return { telemetry: null, commit: () => false };
-    profile = {
-      schemaVersion: ANONYMOUS_USAGE_PROFILE_SCHEMA_VERSION,
-      installationId,
-      firstReportedAt: 0,
-      lastReportedAt: 0,
-      lastReportedDay: "",
-    };
-    // Persist before the network request so an offline retry keeps the same
-    // anonymous installation identifier instead of creating a new one.
-    if (!writeProfile(path, profile)) return { telemetry: null, commit: () => false };
+    if (!ensureInstallationId({ userDataDir, makeInstallationId })) {
+      return { telemetry: null, commit: () => false };
+    }
+    profile = readProfile(path);
+    if (!profile) return { telemetry: null, commit: () => false };
   }
 
   const reportDay = analyticsDayKey(now, analyticsTimeZone);

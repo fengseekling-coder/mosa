@@ -12,7 +12,7 @@ import { getDesktopText, getNotificationTextForAssetsImported, getUpdateNotifica
 import { loadOrCreateMosaClientToken, loadOrCreateWebCaptureToken, MOSA_WEB_CAPTURE_DEFAULT_ORIGINS } from "./web-capture-pairing.mjs";
 import { desktopPlatformAdapter } from "./platform/index.mjs";
 import { checkForMosaUpdate, MOSA_DOWNLOAD_PAGE_URL, reportAnonymousUsage } from "./update-service.mjs";
-import { prepareAnonymousUsage } from "./anonymous-usage.mjs";
+import { ensureInstallationId, prepareAnonymousUsage } from "./anonymous-usage.mjs";
 import { mosaClientTokenFingerprint, resolveAllowedFolderPath } from "../lib/server-security.js";
 import { isUrlLikePath } from "../lib/path-safety.mjs";
 import { copyLibraryForRelocation, validateRelocationTarget } from "../lib/library-relocation.mjs";
@@ -152,6 +152,12 @@ if (!guard.ok) {
   process.exitCode = 1;
   throw new Error(`ISOLATION_GUARD_REJECTED: ${guard.field} ${guard.reason}`);
 }
+
+// The user-center identity is minted on every launch, before any window
+// exists and outside every packaged/QA/telemetry gate: it is local-only
+// userData bookkeeping and never implies a report. After the first launch
+// this is a read that returns the same stored UUID.
+const desktopUserId = ensureInstallationId({ userDataDir: desktopDataDir });
 
 const MAX_CLIPBOARD_TEXT_LENGTH = 1_000_000;
 const MAX_NATIVE_DRAG_FILES = 512;
@@ -611,6 +617,13 @@ function registerIPC() {
     currentLocale = locale;
     buildMenu();
     return true;
+  });
+
+  ipcMain.handle("user-profile", async (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      return { userId: "" };
+    }
+    return { userId: desktopUserId };
   });
 
   ipcMain.handle("visual-model-state", async (event, refresh = false) => {
