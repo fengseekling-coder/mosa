@@ -18,7 +18,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { finalizeCopiedSqliteLibrary } from "./library-relocation.mjs";
 // @ts-ignore - .mjs module with separate declarations.
 import { sqliteDatabasePath } from "./sqlite-asset-store.mjs";
-import { verifySqliteLibrary } from "./library-migration.js";
+import { assertExistingSqliteLibrary, verifySqliteLibrary } from "./library-migration.js";
 
 const BACKUP_FORMAT = "mosa-library-backup-v1";
 const MANIFEST_NAME = "backup-manifest.json";
@@ -40,8 +40,11 @@ export async function createLibraryBackup(options: {
   const libraryDir = resolveRequired(options.libraryDir, "libraryDir");
   const destinationDir = resolveRequired(options.destinationDir, "destinationDir");
   assertSeparateRoots(libraryDir, destinationDir);
+  // Source checks must run before any destination side effect: an unmigrated
+  // or missing library produces no destination directory and no `.partial-*`.
+  await assertExistingSqliteLibrary(libraryDir);
+  await assertMigrationCompleted(libraryDir);
   await assertDirectoryTargetAvailable(destinationDir);
-  await assertSqliteLibrary(libraryDir);
 
   const stagingDir = `${destinationDir}.partial-${randomUUID()}`;
   await mkdir(stagingDir, { recursive: true });
@@ -83,6 +86,15 @@ export async function createLibraryBackup(options: {
     if (verification.ok !== true) throw new Error("Backup snapshot failed MOSA library verification.");
 
     const files = await describeBackupFiles(destinationDir);
+    // Run the exact read-only audit that `backup-verify` will run later, before
+    // the completion marker is written: a published backup must never fail a
+    // subsequent backup-verify. A failure here cleans up via the catch below.
+    // File hashes were computed from these exact bytes a moment ago by
+    // describeBackupFiles, so re-hashing here would only double the read I/O.
+    const snapshot = await verifyBackupSnapshot(destinationDir, files, { rehashFiles: false });
+    if (snapshot.failures.length) {
+      throw new Error(`Backup snapshot failed backup verification: ${JSON.stringify(snapshot.failures)}`);
+    }
     const manifest: BackupManifest = {
       format: BACKUP_FORMAT,
       createdAt: new Date().toISOString(),
@@ -108,7 +120,6 @@ export async function verifyLibraryBackup(options: {
   managerDir?: string;
 }): Promise<{ ok: boolean; backupDir: string; files: number; bytes: number; failures: Array<Record<string, unknown>>; library?: Record<string, unknown> }> {
   const backupDir = resolveRequired(options.backupDir, "backupDir");
-  const failures: Array<Record<string, unknown>> = [];
   let manifest: BackupManifest;
   try {
     manifest = JSON.parse(await readFile(join(backupDir, MANIFEST_NAME), "utf8")) as BackupManifest;
@@ -119,14 +130,33 @@ export async function verifyLibraryBackup(options: {
     return { ok: false, backupDir, files: 0, bytes: 0, failures: [{ reason: "manifest-format" }] };
   }
 
-  for (const entry of manifest.files) {
+  const snapshot = await verifyBackupSnapshot(backupDir, manifest.files);
+  return {
+    ok: snapshot.failures.length === 0,
+    backupDir,
+    files: manifest.files.length,
+    bytes: manifest.files.reduce((sum, file) => sum + Number(file.size || 0), 0),
+    failures: snapshot.failures,
+    library: snapshot.library,
+  };
+}
+
+/**
+ * The single verification standard for a backup snapshot's contents: every
+ * manifest entry must match the bytes on disk, reference attachments must be
+ * intact, and a read-only pass over the snapshot database must accept it.
+ * Both verifyLibraryBackup and the publish gate of createLibraryBackup run
+ * this, so the two never drift apart.
+ */
+async function verifyBackupSnapshot(backupDir: string, files: BackupFile[], { rehashFiles = true }: { rehashFiles?: boolean } = {}): Promise<{ failures: Array<Record<string, unknown>>; library?: Record<string, unknown> }> {
+  const failures: Array<Record<string, unknown>> = [];
+  for (const entry of files) {
     try {
       const path = safeBackupPath(backupDir, entry.path);
       const info = await lstat(path);
       if (!info.isFile() || info.isSymbolicLink()) throw new Error("not a regular file");
       if (info.size !== entry.size) throw new Error(`size ${info.size} != ${entry.size}`);
-      const hash = await sha256File(path);
-      if (hash !== entry.sha256) throw new Error("sha256 mismatch");
+      if (rehashFiles && await sha256File(path) !== entry.sha256) throw new Error("sha256 mismatch");
     } catch (error) {
       failures.push({ path: entry.path, reason: "file-integrity", detail: errorMessage(error) });
     }
@@ -141,14 +171,7 @@ export async function verifyLibraryBackup(options: {
       failures.push({ reason: "library-verification", detail: errorMessage(error) });
     }
   }
-  return {
-    ok: failures.length === 0,
-    backupDir,
-    files: manifest.files.length,
-    bytes: manifest.files.reduce((sum, file) => sum + Number(file.size || 0), 0),
-    failures,
-    library,
-  };
+  return { failures, library };
 }
 
 async function verifyBackupSqliteReadOnly(libraryDir: string): Promise<Record<string, unknown>> {
@@ -237,9 +260,16 @@ export async function restoreLibraryBackup(options: {
   }
 }
 
-async function assertSqliteLibrary(libraryDir: string): Promise<void> {
-  const info = await stat(sqliteDatabasePath(libraryDir));
-  if (!info.isFile()) throw new Error("MOSA SQLite database is missing.");
+async function assertMigrationCompleted(libraryDir: string): Promise<void> {
+  const database = new Database(sqliteDatabasePath(libraryDir), { readonly: true, fileMustExist: true });
+  try {
+    const state = database.prepare("SELECT value FROM library_meta WHERE key = 'migration_state'").get()?.value;
+    if (state !== "completed") {
+      throw new Error(`Source library migration is not complete (migration_state: ${String(state)}). Run \`mosa migrate\` on this library before backing it up.`);
+    }
+  } finally {
+    database.close();
+  }
 }
 
 async function assertDirectoryTargetAvailable(path: string): Promise<void> {

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import test from "node:test";
+
+import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 
@@ -38,4 +42,50 @@ test("backup and restore never infer destructive destination paths", () => {
   const visualModelVerify = runCli(["visual-model-verify"]);
   assert.notEqual(visualModelVerify.status, 0);
   assert.match(`${visualModelVerify.stdout}${visualModelVerify.stderr}`, /visual-model-verify requires --from/);
+});
+
+test("mosa backup refuses an unmigrated library and exits non-zero", () => {
+  const root = mkdtempSync(join(tmpdir(), "mosa-cli-unmigrated-"));
+  const projectRoot = join(root, "project");
+  const libraryDir = join(root, "library");
+  // No initializeFreshLibrary: the database stays migration_state="unmigrated".
+  const store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir });
+  store.close();
+
+  const backup = runCli(["backup", "--library", libraryDir, "--to", join(root, "bk")]);
+  assert.notEqual(backup.status, 0);
+  assert.match(`${backup.stdout}${backup.stderr}`, /mosa migrate/);
+  assert.equal(existsSync(join(root, "bk")), false, "no backup directory is created");
+});
+
+test("verify and thumbnails refuse to materialize a library in an empty or missing directory", () => {
+  const root = mkdtempSync(join(tmpdir(), "mosa-cli-nolib-"));
+
+  const missing = join(root, "never-created");
+  const verifyMissing = runCli(["verify", "--library", missing]);
+  assert.notEqual(verifyMissing.status, 0);
+  assert.equal(JSON.parse(verifyMissing.stdout).error.includes("is not a MOSA SQLite library"), true, verifyMissing.stdout);
+  assert.equal(existsSync(missing), false, "a missing library directory is not created");
+
+  const empty = join(root, "empty");
+  mkdirSync(empty, { recursive: true });
+  const verifyEmpty = runCli(["verify", "--library", empty]);
+  assert.notEqual(verifyEmpty.status, 0);
+  const emptyReport = JSON.parse(verifyEmpty.stdout);
+  assert.equal(emptyReport.ok, false);
+  assert.equal(emptyReport.error.includes("is not a MOSA SQLite library"), true, verifyEmpty.stdout);
+  assert.equal(existsSync(join(empty, "mosa.db")), false, "verify must not create mosa.db in an empty directory");
+
+  const legacy = join(root, "legacy");
+  mkdirSync(join(legacy, "assets", "legacyproj", "metadata"), { recursive: true });
+  writeFileSync(join(legacy, "assets", "legacyproj", "metadata", "img.json"), JSON.stringify({ id: "img", asset: "img.png" }));
+  const verifyLegacy = runCli(["verify", "--library", legacy]);
+  assert.notEqual(verifyLegacy.status, 0);
+  assert.equal(JSON.parse(verifyLegacy.stdout).error.includes("mosa migrate"), true, verifyLegacy.stdout);
+  assert.equal(existsSync(join(legacy, "mosa.db")), false, "verify must not create mosa.db in a legacy JSON library");
+
+  const thumbnails = runCli(["thumbnails", "repair", "--library", empty]);
+  assert.notEqual(thumbnails.status, 0);
+  assert.match(`${thumbnails.stdout}${thumbnails.stderr}`, /is not a MOSA/);
+  assert.equal(existsSync(join(empty, "mosa.db")), false, "thumbnails must not create mosa.db in an empty directory");
 });
