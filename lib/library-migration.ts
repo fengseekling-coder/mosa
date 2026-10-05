@@ -77,8 +77,72 @@ export async function migrateLegacyLibrary(options: { managerDir?: string; legac
 }
 
 export async function verifySqliteLibrary(options: { projectRoot?: string; managerDir?: string; libraryDir?: string } = {}): Promise<Record<string, unknown>> {
-  const store = createSqliteAssetStore({ projectRoot: resolve(options.projectRoot || process.cwd()), managerDir: resolve(options.managerDir || process.cwd()), libraryDir: resolve(options.libraryDir!), storage: "sqlite" }) as unknown as { verifyLibrary(): Promise<Record<string, unknown>>; migrationStatus(): Promise<unknown>; listMigrationIssues(): Promise<MigrationIssue[]>; close(): void; };
+  const libraryDir = resolve(options.libraryDir!);
+  const presence = await sqliteLibraryPresence(libraryDir);
+  if (presence !== "present") {
+    // Keep the report contract (callers parse JSON) without materializing a
+    // fresh mosa.db: an addressable-but-empty location verifies as unmigrated.
+    return {
+      ok: false,
+      assets: 0,
+      error: describeMissingSqliteLibrary(libraryDir, presence),
+      migration: { migration_state: "unmigrated" },
+      migrationIssues: [],
+    };
+  }
+  const store = createSqliteAssetStore({ projectRoot: resolve(options.projectRoot || process.cwd()), managerDir: resolve(options.managerDir || process.cwd()), libraryDir, storage: "sqlite" }) as unknown as { verifyLibrary(): Promise<Record<string, unknown>>; migrationStatus(): Promise<unknown>; listMigrationIssues(): Promise<MigrationIssue[]>; close(): void; };
   try { const [verification, status, issues] = await Promise.all([store.verifyLibrary(), store.migrationStatus(), store.listMigrationIssues()]); return { ...verification, migration: status, migrationIssues: issues }; } finally { store.close(); }
+}
+
+/**
+ * Refuse to open a directory that holds no SQLite library yet, so read-only
+ * commands (backup source / thumbnails) cannot materialize a fresh unmigrated
+ * `mosa.db` as a side effect of merely pointing at a missing or empty
+ * directory. A legacy JSON library earns a pointed hint to migrate first;
+ * anything else is simply not a MOSA library.
+ */
+export async function assertExistingSqliteLibrary(libraryDir: string): Promise<void> {
+  const root = resolve(libraryDir);
+  const presence = await sqliteLibraryPresence(root);
+  if (presence === "present") return;
+  throw new Error(describeMissingSqliteLibrary(root, presence));
+}
+
+function describeMissingSqliteLibrary(root: string, presence: "present" | "legacy" | "absent"): string {
+  if (presence === "legacy") {
+    return `"${root}" holds a legacy JSON library; run \`mosa migrate\` before running this command against it.`;
+  }
+  return `"${root}" is not a MOSA SQLite library (no mosa.db); nothing was created or modified.`;
+}
+
+async function sqliteLibraryPresence(root: string): Promise<"present" | "legacy" | "absent"> {
+  const databaseInfo = await stat(join(root, "mosa.db")).catch((error: unknown) => {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code === "ENOENT" || code === "ENOTDIR") return null;
+    throw error;
+  });
+  if (databaseInfo?.isFile()) return "present";
+  return (await looksLikeLegacyJsonLibrary(root)) ? "legacy" : "absent";
+}
+
+async function looksLikeLegacyJsonLibrary(root: string): Promise<boolean> {
+  let projects;
+  try { projects = await readdir(join(root, "assets"), { withFileTypes: true }); } catch { return false; }
+  const hasEntry = async (path: string, want: "file" | "directory"): Promise<boolean> => {
+    try {
+      const info = await stat(path);
+      return want === "file" ? info.isFile() : info.isDirectory();
+    } catch { return false; }
+  };
+  for (const project of projects) {
+    if (!project.isDirectory()) continue;
+    const projectDir = join(root, "assets", project.name);
+    for (const marker of ["metadata", "images", "prompts"]) {
+      if (await hasEntry(join(projectDir, marker), "directory")) return true;
+    }
+    if (await hasEntry(join(projectDir, "groups.json"), "file")) return true;
+  }
+  return false;
 }
 
 async function backupLegacyJson({ libraryDir, legacyAssetsRoot }: { libraryDir: string; legacyAssetsRoot: string }): Promise<string> {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -251,4 +251,76 @@ test("copyLibraryForRelocation clears the copied files when finalizing fails", a
   assert.deepEqual((await readdir(sourceLibraryDir)).sort(), entriesBefore);
   assert.equal(await readFile(join(sourceLibraryDir, "default", "original", "payload.bin"), "utf8"), "source bytes",
     "the source payload is untouched");
+});
+
+// ===== Real-location matching: symlinked and differently cased source paths =====
+
+test("finalizeCopiedSqliteLibrary rebases managed paths when the source is addressed through a symlink", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-relocation-symlink-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const sourceLibraryDir = await seedRelocatableLibrary(root, "link-source", "linked");
+  const sourceLink = join(root, "link-source-alias");
+  await symlink(sourceLibraryDir, sourceLink);
+  const destinationLibraryDir = join(root, "destination-library");
+  await cp(sourceLibraryDir, destinationLibraryDir, { recursive: true });
+
+  const finalized = await finalizeCopiedSqliteLibrary({ sourceLibraryDir: sourceLink, destinationLibraryDir });
+  assert.equal(finalized.checkedAssets, 1);
+  assert.equal(finalized.updatedAssets, 1, "the managed path is rebased even when the source is reached through a symlink");
+
+  const copiedDatabase = new Database(sqliteDatabasePath(destinationLibraryDir), { readonly: true });
+  const copiedRow = copiedDatabase.prepare("SELECT original_path FROM assets WHERE project_id = 'default' AND id = 'linked'").get();
+  copiedDatabase.close();
+  assert.equal(copiedRow.original_path.startsWith(resolve(destinationLibraryDir)), true);
+  assert.equal((await readFile(copiedRow.original_path)).equals(ONE_PIXEL_PNG), true);
+
+  // The relocated copy must survive the original library disappearing.
+  await rename(sourceLibraryDir, join(root, "link-source-gone"));
+  const relocatedStore = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir: destinationLibraryDir });
+  t.after(() => relocatedStore.close());
+  const relocated = await relocatedStore.getAsset("default", "linked");
+  assert.equal((await readFile(relocated.image_path)).equals(ONE_PIXEL_PNG), true);
+  assert.equal((await relocatedStore.verifyLibrary()).ok, true);
+});
+
+test("finalizeCopiedSqliteLibrary matches a differently cased spelling of the source library", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-relocation-case-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const sourceLibraryDir = await seedRelocatableLibrary(root, "case-source", "cased");
+  const caseVariant = sourceLibraryDir.replace(/case-source$/, "CASE-SOURCE");
+  const resolvable = await stat(caseVariant).then(() => true, () => false);
+  if (!resolvable) {
+    t.skip("volume is case-sensitive; case-insensitive aliasing does not apply here");
+  } else {
+    const destinationLibraryDir = join(root, "destination-library");
+    await cp(sourceLibraryDir, destinationLibraryDir, { recursive: true });
+    const finalized = await finalizeCopiedSqliteLibrary({ sourceLibraryDir: caseVariant, destinationLibraryDir });
+    assert.equal(finalized.checkedAssets, 1);
+    assert.equal(finalized.updatedAssets, 1, "the managed path is rebased for a case-insensitive alias of the source");
+
+    const copiedDatabase = new Database(sqliteDatabasePath(destinationLibraryDir), { readonly: true });
+    const copiedRow = copiedDatabase.prepare("SELECT original_path FROM assets WHERE project_id = 'default' AND id = 'cased'").get();
+    copiedDatabase.close();
+    assert.equal(copiedRow.original_path.startsWith(resolve(destinationLibraryDir)), true);
+    assert.equal((await readFile(copiedRow.original_path)).equals(ONE_PIXEL_PNG), true);
+  }
+});
+
+test("copyLibraryForRelocation rebases managed paths when the source is a symlinked path", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-relocation-copy-link-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const sourceLibraryDir = await seedRelocatableLibrary(root, "copy-link-source", "copy-linked");
+  const sourceLink = join(root, "copy-link-alias");
+  await symlink(sourceLibraryDir, sourceLink);
+  const destinationLibraryDir = join(root, "copy-link-destination");
+
+  const result = await copyLibraryForRelocation({ sourceLibraryDir: sourceLink, destinationLibraryDir });
+  assert.equal(result.checkedAssets, 1);
+  assert.equal(result.updatedAssets, 1);
+
+  const copiedDatabase = new Database(sqliteDatabasePath(destinationLibraryDir), { readonly: true });
+  const copiedRow = copiedDatabase.prepare("SELECT original_path FROM assets WHERE project_id = 'default' AND id = 'copy-linked'").get();
+  copiedDatabase.close();
+  assert.equal(copiedRow.original_path.startsWith(resolve(destinationLibraryDir)), true);
+  assert.equal((await readFile(copiedRow.original_path)).equals(ONE_PIXEL_PNG), true);
 });

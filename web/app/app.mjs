@@ -354,6 +354,9 @@ const assetStacks = createAssetStackController({
   renderGrid,
   gallerySelection,
   renderQuickFilters,
+  renderTypeFilters,
+  renderCategoryFilter,
+  setGalleryBusy,
   updateViewTitle,
   showToast,
   closeDetailSurface,
@@ -656,11 +659,15 @@ function setupPasteImport() {
     if (target instanceof Element && target.closest("input, textarea, select, [contenteditable]")) return;
     // 回收站是只读范围：不允许任何导入（含粘贴）。
     if (state.scope === "trash") return;
+    // 浮层（确认框/建组/分组统计/堆叠重命名/设置/大图预览）打开时不导入。
+    // settings/preview/groupModal 三项字面量被 frontend-interaction-regressions
+    // 的粘贴契约锁定，不能并入 hasBlockingOverlay；统一判定以 hasBlockingOverlay
+    // 为权威兜底（额外覆盖分组统计与堆叠重命名）。
     if (confirmDialogState.pending
       || !els.settingsMenu?.hidden
       || !els.imagePreviewModal?.hidden
       || els.groupModal?.classList.contains("open")
-      || els.stackRenameModal?.classList.contains("open")) return;
+      || hasBlockingOverlay()) return;
     const items = event.clipboardData?.items;
     if (!items) return;
     const files = [];
@@ -788,6 +795,14 @@ function setMobileNavOpen(open, { restoreFocus = false } = {}) {
 }
 function syncMobileNavigation() { setMobileNavOpen(false); }
 
+// IME 组字（composition）期间的键属于输入法本身：拼音输入里 Enter 是“上屏”，
+// 不是提交。所有“文本输入框里按 Enter 就提交”的 keydown 处理必须先过这里，
+// 命中时直接 return 且不 preventDefault——事件要留给输入法，组字结束后的
+// 正常 Enter 行为不变。keyCode 229 兜底部分环境未回填 isComposing 的情况。
+function isImeComposing(event) {
+  return event.isComposing === true || event.keyCode === 229;
+}
+
 // ===== Keyboard Shortcuts =====
 function setupKeyboardShortcuts() {
   document.addEventListener("keydown", (event) => {
@@ -797,17 +812,21 @@ function setupKeyboardShortcuts() {
     // M1 兜底：右键菜单打开期间键盘归菜单独占（菜单本身以捕获阶段消费并阻断
     // 冒泡）。一次 Escape 只关菜单，方向键只移动菜单焦点，不连带关 Inspector
     // 或切换画廊选中。
+    // 菜单的 keydown 监听为防“打开事件自关”延迟到 setTimeout(0) 才注册；这个
+    // 空窗里的 Escape 会落进下面的 isOpen() 早退被吞——所以在早退之前先关菜单，
+    // 语义与菜单自己的 Escape 分支一致（preventDefault + 归还焦点）。
+    if (event.key === "Escape" && contextMenu.isOpen()) {
+      event.preventDefault();
+      contextMenu.hide({ restoreFocus: true });
+      return;
+    }
     if (contextMenu.isOpen()) return;
     // The gallery owns ⌘/Ctrl+A now that marquee selection is available. Paste
     // is let through in both modes: the document paste handler imports
     // clipboard images, so preventDefault() here would suppress it entirely.
     if ((event.metaKey || event.ctrlKey) && (event.key === "a" || event.key === "A" || event.key === "v" || event.key === "V")) {
       if (event.target.matches?.("input, textarea, select, [contenteditable]")) return;
-      if (confirmDialogState.pending
-        || els.groupModal?.classList.contains("open")
-        || els.stackRenameModal?.classList.contains("open")
-        || !els.imagePreviewModal?.hidden
-        || !els.settingsMenu?.hidden) return;
+      if (hasBlockingOverlay()) return;
       if ((event.key === "a" || event.key === "A") && state.viewMode === "library" && state.assets.length) {
         event.preventDefault();
         void gallerySelection.selectAll({ announce: true });
@@ -837,11 +856,7 @@ function setupKeyboardShortcuts() {
       else els.assetGrid?.focus({ preventScroll: true });
       return;
     }
-    if (event.key === "/" && state.viewMode === "library"
-      && els.imagePreviewModal?.hidden
-      && els.settingsMenu?.hidden
-      && !els.groupModal?.classList.contains("open")
-      && !els.stackRenameModal?.classList.contains("open")) { event.preventDefault(); els.searchInput?.focus(); return; }
+    if (event.key === "/" && state.viewMode === "library" && !hasBlockingOverlay()) { event.preventDefault(); els.searchInput?.focus(); return; }
     if (event.key === "Escape") {
       // Phase 3A 运行时修复：bindEvents 先行注册的 Modal 焦点陷阱已消费本次 Escape
       // （preventDefault）时，本链不得再继续向下穿透（否则会关 Modal 同时退出查看模式）。
@@ -915,9 +930,7 @@ function setupKeyboardShortcuts() {
       && state.viewMode === "library"
       && galleryEnterAssetId
       && !state.selectedIds?.size
-      && els.imagePreviewModal?.hidden
-      && !hasBlockingOverlay()
-      && els.settingsMenu?.hidden) {
+      && !hasBlockingOverlay()) {
       const asset = state.assets.find((item) => item.id === galleryEnterAssetId)
         || (galleryEnterAssetId === state.selectedId ? selectedAsset() : null);
       if (asset) {
@@ -1488,8 +1501,10 @@ function handleLibraryKeyboardNavigation(event) {
 // router. The name is retained for the Phase 3 contract seam; it does not add a
 // second document listener or a second shortcut manager.
 function bindKeyboardNav(event) {
-  if (confirmDialogState.pending || els.groupModal?.classList.contains("open") || els.stackRenameModal?.classList.contains("open")) return;
-  if (!els.imagePreviewModal?.hidden || !els.settingsMenu?.hidden) return;
+  // 浮层（确认框/建组/分组统计/堆叠重命名/设置/大图预览）打开时方向键不归画廊。
+  // confirmDialogState.pending 字面量被 confirm-dialog-contract「Escape consumed
+  // first」锁定，需与统一判定并排保留。
+  if (confirmDialogState.pending || hasBlockingOverlay()) return;
   if (event.target.closest?.("[contenteditable]")) return;
   if (event.target.closest?.("[role='tab']")) return;
   // Phase 3A：箭头键画廊导航仅属库内模式；查看模式下不切换选中资产（上一张/下一张属 Phase 3C）。
@@ -2020,6 +2035,7 @@ function bindEvents() {
   els.sidebarManualGroupList?.addEventListener("keydown", (event) => {
     if (!event.target.closest("[data-sidebar-group-input]")) return;
     if (event.key === "Enter") {
+      if (isImeComposing(event)) return; // 组字中的 Enter 是上屏，不提交
       event.preventDefault();
       void commitSidebarGroupEdit();
     } else if (event.key === "Escape") {
@@ -2266,7 +2282,9 @@ function bindEvents() {
   els.cancelStackRenameBtn?.addEventListener("click", () => closeStackRenameModal());
   els.stackRenameModal?.addEventListener("click", (event) => { if (event.target === els.stackRenameModal) closeStackRenameModal(); });
   els.stackRenameModalInput?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") { event.preventDefault(); void saveStackRename(); }
+    if (event.key !== "Enter" || isImeComposing(event)) return;
+    event.preventDefault();
+    void saveStackRename();
   });
   els.saveStackRenameBtn?.addEventListener("click", () => { void saveStackRename(); });
   els.groupModal?.addEventListener("click", (event) => {
@@ -2274,7 +2292,9 @@ function bindEvents() {
     if (swatch) selectGroupColor(swatch.dataset.groupColor);
   });
   els.groupNameInput?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") { event.preventDefault(); void saveGroup(); }
+    if (event.key !== "Enter" || isImeComposing(event)) return;
+    event.preventDefault();
+    void saveGroup();
   });
   els.closeGroupStatsModal?.addEventListener("click", closeGroupStatsModal);
   els.groupStatsCloseBtn?.addEventListener("click", closeGroupStatsModal);
@@ -3227,6 +3247,19 @@ function releaseObservedGalleryMedia(card) {
   card.querySelectorAll("img, video").forEach((media) => galleryMediaObserver.unobserve(media));
 }
 
+// Both observers hold strong references, so every path that wholesale-discard
+// gallery DOM (status early-exits, full rebuilds, card replacement) must
+// release the card observer and the media observer together before dropping
+// the nodes. `root` may be the grid or a single card.
+function releaseGalleryObservers(root) {
+  if (!root) return;
+  const cards = root.matches?.(".asset-card") ? [root] : [...root.querySelectorAll(".asset-card")];
+  for (const card of cards) {
+    galleryCardVirtualObserver?.unobserve(card);
+    releaseObservedGalleryMedia(card);
+  }
+}
+
 function setupGalleryMediaVirtualization(roots = null) {
   const grid = els.assetGrid;
   if (!grid || !("IntersectionObserver" in window)) return;
@@ -3788,7 +3821,10 @@ function reconcileAssetCards(entries) {
     || element.classList.contains("asset-load-more")
     || element.classList.contains("infinite-scroll-sentinel")
     || element.classList.contains("gallery-virtual-extent");
-  if ([...grid.children].some((element) => !galleryChild(element))) grid.replaceChildren();
+  if ([...grid.children].some((element) => !galleryChild(element))) {
+    releaseGalleryObservers(grid);
+    grid.replaceChildren();
+  }
 
   const existingCardList = [...grid.querySelectorAll(":scope > .asset-card")];
   const existingOrder = existingCardList.map((card) => card.dataset.id || "");
@@ -3813,7 +3849,7 @@ function reconcileAssetCards(entries) {
       if (!replacement) continue;
       if (card) {
         if (card.contains(document.activeElement)) replacedFocusedCard = true;
-        releaseObservedGalleryMedia(card);
+        releaseGalleryObservers(card);
         card.replaceWith(replacement);
       }
       card = replacement;
@@ -3828,7 +3864,7 @@ function reconcileAssetCards(entries) {
   existingCards.forEach((card) => {
     if (!keptCards.has(card)) {
       if (card.contains(document.activeElement)) replacedFocusedCard = true;
-      releaseObservedGalleryMedia(card);
+      releaseGalleryObservers(card);
       if (card.dataset.id) galleryCardVirtualNodes.delete(card.dataset.id);
       card.remove();
     }
@@ -3901,9 +3937,12 @@ function renderGrid() {
   // Loading, failed, empty and populated are four distinct renders; the empty
   // state is only reachable once a request has actually answered with nothing.
   if (state.galleryStatus === "loading" || state.galleryStatus === "error" || !state.assets.length) galleryCardVirtualNodes.clear();
+  // 释放必须先于丢弃；下一行与被契约测试钉住的单行 skeleton 分支保持同条件并列。
+  if (state.galleryStatus === "loading") releaseGalleryObservers(els.assetGrid);
   if (state.galleryStatus === "loading") { els.assetGrid.innerHTML = gallerySkeletonMarkup(); restoreGridFallbackFocus(); return; }
   if (state.galleryStatus === "error") {
     const message = state.galleryError?.message || "";
+    releaseGalleryObservers(els.assetGrid);
     els.assetGrid.innerHTML = `<div class="error-state"><p>${escapeHtml(t("loadFailed"))}</p><span>${escapeHtml(message)}</span><button type="button" data-action="retry">${escapeHtml(t("retry"))}</button></div>`;
     gallerySelection.syncRenderedSelection();
     restoreGridFallbackFocus();
@@ -3912,6 +3951,7 @@ function renderGrid() {
   if (!state.assets.length) {
     // F-08：零结果不再一律谎称「素材库为空」——判定由集中式 helper 按
     // 全库总数、query、facets、scope、分组分流，五类空态共用一个壳。
+    releaseGalleryObservers(els.assetGrid);
     els.assetGrid.innerHTML = galleryEmptyMarkup();
     gallerySelection.syncRenderedSelection();
     announceEmptyState(els.assetGrid.querySelector(".gallery-empty-state")?.dataset.emptyKind);
@@ -4462,12 +4502,14 @@ function discardDetailDraft() {
   if (rights) delete rights.dataset.referenceDirty;
 }
 
-async function closeDetailSurface() {
+// navigation: true 用于进出堆叠这类程序化导航——关闭检视器但不算「用户手动
+// 关闭」，否则之后选中卡片不再自动打开检视器（54-5）。
+async function closeDetailSurface({ navigation = false } = {}) {
   if (!await confirmDetailNavigation(null)) return false;
   discardDetailDraft();
   if (state.viewMode === "asset") returnToLibrary();
   else {
-    state.detailManuallyClosed = true;
+    if (!navigation) state.detailManuallyClosed = true;
     setDetailOpen(false, { allowDockedClose: true });
     if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId && asset.project_id === state.project)) clearDetailSelection();
   }
@@ -4548,8 +4590,13 @@ function setDetailOpen(open, { allowDockedClose = false } = {}) {
 
 // ===== Asset view（大图查看器，已提取至 asset-view.mjs，R1 批次 4）=====
 
+// 全应用唯一的“浮层打开中”判定：确认框、建组/分组统计、堆叠重命名、设置、
+// 大图预览。粘贴导入、⌘A/⌘V、/、Enter 进大图、画廊方向键等后台快捷键守卫
+// 一律以这里为准，不许各自维护手写清单。except 传入口自身的浮层名，用于
+// “打开前查重”类调用（如 openGroupModal 查 "group"）。
 function hasBlockingOverlay(except = "") {
   return [
+    ["confirm", Boolean(confirmDialogState.pending)],
     ["group", Boolean(els.groupModal?.classList.contains("open")) || Boolean(els.groupStatsModal?.classList.contains("open"))],
     ["rename", Boolean(els.stackRenameModal?.classList.contains("open"))],
     ["settings", Boolean(els.settingsMenu && !els.settingsMenu.hidden)],

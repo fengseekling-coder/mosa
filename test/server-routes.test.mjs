@@ -718,3 +718,67 @@ test("rejects non-loopback Host headers (DNS rebinding guard)", async (t) => {
   const localhost = await rawRequest(`localhost:${port}`, "/api/health");
   assert.equal(localhost.statusCode, 200, "localhost Host keeps working");
 });
+
+test("JSON write routes reject non-object bodies with 400 INVALID_JSON_BODY_TYPE instead of 500", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-null-body-"));
+  const clientToken = "0".repeat(64);
+  const server = spawn(process.execPath, ["server.mjs"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      MOSA_PORT: "0",
+      MOSA_PROJECT_DIR: root,
+      MOSA_LIBRARY_DIR: join(root, "library"),
+      MOSA_DISABLE_BRIDGES: "codex,grok,cowart,cowartDiscovery",
+      MOSA_CLIENT_TOKEN: clientToken,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stderrOutput = "";
+  server.stderr.setEncoding("utf8");
+  server.stderr.on("data", (chunk) => { stderrOutput += chunk; });
+  t.after(async () => {
+    if (server.exitCode === null) {
+      const exited = once(server, "exit");
+      server.kill("SIGTERM");
+      await exited;
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  const port = await waitForServerPort(server);
+  await waitForServer(port, server);
+
+  const postJson = (method, path, body) => fetch(`http://127.0.0.1:${port}${path}`, {
+    method,
+    headers: { "x-mosa-client-token": clientToken },
+    body,
+  });
+
+  const probes = [
+    ["POST", "/api/groups"],
+    ["POST", "/api/assets/batch"],
+    ["PATCH", "/api/assets/default/no-such-asset"],
+    ["POST", "/api/asset-stacks"],
+    ["PATCH", "/api/group-order"],
+    ["POST", "/api/open-folder"],
+  ];
+  for (const [method, path] of probes) {
+    for (const rawBody of ["null", "123", '"x"']) {
+      const response = await postJson(method, path, rawBody);
+      const payload = await response.json();
+      assert.equal(response.status, 400, `${method} ${path} body=${rawBody} must be a 400`);
+      assert.equal(payload.code, "INVALID_JSON_BODY_TYPE", `${method} ${path} body=${rawBody} must carry the type error code`);
+      assert.match(payload.error, /Request body must be a JSON object/);
+    }
+  }
+
+  // An absent body still normalizes to {} — the routes keep their existing
+  // validation behavior for empty bodies.
+  const emptyBatch = await postJson("POST", "/api/assets/batch", "");
+  assert.deepEqual(await emptyBatch.json(), { error: "Unknown batch action: undefined" });
+  const emptyGroups = await postJson("POST", "/api/groups", "");
+  assert.equal(emptyGroups.status, 400);
+  assert.equal((await emptyGroups.json()).code, "GROUP_NAME_REQUIRED");
+
+  assert.ok(!stderrOutput.includes("MOSA request failed"), "no probe may reach the 500 failure logger");
+});
