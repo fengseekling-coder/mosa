@@ -354,6 +354,8 @@ const assetStacks = createAssetStackController({
   renderGrid,
   gallerySelection,
   renderQuickFilters,
+  renderTypeFilters,
+  renderCategoryFilter,
   updateViewTitle,
   showToast,
   closeDetailSurface,
@@ -3244,6 +3246,19 @@ function releaseObservedGalleryMedia(card) {
   card.querySelectorAll("img, video").forEach((media) => galleryMediaObserver.unobserve(media));
 }
 
+// Both observers hold strong references, so every path that wholesale-discard
+// gallery DOM (status early-exits, full rebuilds, card replacement) must
+// release the card observer and the media observer together before dropping
+// the nodes. `root` may be the grid or a single card.
+function releaseGalleryObservers(root) {
+  if (!root) return;
+  const cards = root.matches?.(".asset-card") ? [root] : [...root.querySelectorAll(".asset-card")];
+  for (const card of cards) {
+    galleryCardVirtualObserver?.unobserve(card);
+    releaseObservedGalleryMedia(card);
+  }
+}
+
 function setupGalleryMediaVirtualization(roots = null) {
   const grid = els.assetGrid;
   if (!grid || !("IntersectionObserver" in window)) return;
@@ -3805,7 +3820,10 @@ function reconcileAssetCards(entries) {
     || element.classList.contains("asset-load-more")
     || element.classList.contains("infinite-scroll-sentinel")
     || element.classList.contains("gallery-virtual-extent");
-  if ([...grid.children].some((element) => !galleryChild(element))) grid.replaceChildren();
+  if ([...grid.children].some((element) => !galleryChild(element))) {
+    releaseGalleryObservers(grid);
+    grid.replaceChildren();
+  }
 
   const existingCardList = [...grid.querySelectorAll(":scope > .asset-card")];
   const existingOrder = existingCardList.map((card) => card.dataset.id || "");
@@ -3830,7 +3848,7 @@ function reconcileAssetCards(entries) {
       if (!replacement) continue;
       if (card) {
         if (card.contains(document.activeElement)) replacedFocusedCard = true;
-        releaseObservedGalleryMedia(card);
+        releaseGalleryObservers(card);
         card.replaceWith(replacement);
       }
       card = replacement;
@@ -3845,7 +3863,7 @@ function reconcileAssetCards(entries) {
   existingCards.forEach((card) => {
     if (!keptCards.has(card)) {
       if (card.contains(document.activeElement)) replacedFocusedCard = true;
-      releaseObservedGalleryMedia(card);
+      releaseGalleryObservers(card);
       if (card.dataset.id) galleryCardVirtualNodes.delete(card.dataset.id);
       card.remove();
     }
@@ -3918,9 +3936,12 @@ function renderGrid() {
   // Loading, failed, empty and populated are four distinct renders; the empty
   // state is only reachable once a request has actually answered with nothing.
   if (state.galleryStatus === "loading" || state.galleryStatus === "error" || !state.assets.length) galleryCardVirtualNodes.clear();
+  // 释放必须先于丢弃；下一行与被契约测试钉住的单行 skeleton 分支保持同条件并列。
+  if (state.galleryStatus === "loading") releaseGalleryObservers(els.assetGrid);
   if (state.galleryStatus === "loading") { els.assetGrid.innerHTML = gallerySkeletonMarkup(); restoreGridFallbackFocus(); return; }
   if (state.galleryStatus === "error") {
     const message = state.galleryError?.message || "";
+    releaseGalleryObservers(els.assetGrid);
     els.assetGrid.innerHTML = `<div class="error-state"><p>${escapeHtml(t("loadFailed"))}</p><span>${escapeHtml(message)}</span><button type="button" data-action="retry">${escapeHtml(t("retry"))}</button></div>`;
     gallerySelection.syncRenderedSelection();
     restoreGridFallbackFocus();
@@ -3929,6 +3950,7 @@ function renderGrid() {
   if (!state.assets.length) {
     // F-08：零结果不再一律谎称「素材库为空」——判定由集中式 helper 按
     // 全库总数、query、facets、scope、分组分流，五类空态共用一个壳。
+    releaseGalleryObservers(els.assetGrid);
     els.assetGrid.innerHTML = galleryEmptyMarkup();
     gallerySelection.syncRenderedSelection();
     announceEmptyState(els.assetGrid.querySelector(".gallery-empty-state")?.dataset.emptyKind);
@@ -4479,12 +4501,14 @@ function discardDetailDraft() {
   if (rights) delete rights.dataset.referenceDirty;
 }
 
-async function closeDetailSurface() {
+// navigation: true 用于进出堆叠这类程序化导航——关闭检视器但不算「用户手动
+// 关闭」，否则之后选中卡片不再自动打开检视器（54-5）。
+async function closeDetailSurface({ navigation = false } = {}) {
   if (!await confirmDetailNavigation(null)) return false;
   discardDetailDraft();
   if (state.viewMode === "asset") returnToLibrary();
   else {
-    state.detailManuallyClosed = true;
+    if (!navigation) state.detailManuallyClosed = true;
     setDetailOpen(false, { allowDockedClose: true });
     if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId && asset.project_id === state.project)) clearDetailSelection();
   }

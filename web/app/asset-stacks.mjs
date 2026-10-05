@@ -42,6 +42,8 @@ export function createAssetStackController({
   renderGrid,
   gallerySelection,
   renderQuickFilters,
+  renderTypeFilters,
+  renderCategoryFilter,
   updateViewTitle,
   showToast,
   closeDetailSurface,
@@ -181,7 +183,8 @@ export function createAssetStackController({
 
   async function enterStack(stackId, initialSummary = null) {
     if (!stackId || state.activeStackId) return false;
-    if (typeof closeDetailSurface === "function" && !await closeDetailSurface()) return false;
+    // 导航进入堆叠不是用户手动关闭检视器（54-5）。
+    if (typeof closeDetailSurface === "function" && !await closeDetailSurface({ navigation: true })) return false;
     const selectionSnapshot = gallerySelection.snapshotSelection?.() || {
       selectedIds: [...(state.selectedIds instanceof Set ? state.selectedIds : new Set())],
       stackNodes: [...(state.selectedStackNodes instanceof Map ? state.selectedStackNodes : new Map())],
@@ -259,7 +262,8 @@ export function createAssetStackController({
 
   async function exitStack() {
     if (!state.activeStackId) return false;
-    if (typeof closeDetailSurface === "function" && !await closeDetailSurface()) return false;
+    // 导航退出堆叠不是用户手动关闭检视器（54-5）。
+    if (typeof closeDetailSurface === "function" && !await closeDetailSurface({ navigation: true })) return false;
     const snapshot = state.stackReturnSnapshot || {};
     state.activeStackId = "";
     state.activeStackSummary = null;
@@ -273,6 +277,10 @@ export function createAssetStackController({
     gallerySelection.clear();
     if (els.searchInput) els.searchInput.value = state.query;
     if (els.sortSelect) els.sortSelect.value = state.sort;
+    // 快照恢复了 mediaKind/facets 状态，但类型按钮与分类下拉要显式重渲染，
+    // 否则控件仍显示堆叠内的选择且点击同值按钮被 handler 早退（54-3）。
+    if (typeof renderTypeFilters === "function") renderTypeFilters();
+    if (typeof renderCategoryFilter === "function") renderCategoryFilter();
     syncChrome();
     let loaded = await restoreRootFromSnapshot(snapshot);
     if (!loaded) {
