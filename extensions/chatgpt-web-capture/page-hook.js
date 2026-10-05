@@ -6,14 +6,51 @@
   if (window.__mosaPageHookInstalled) return;
   window.__mosaPageHookInstalled = true;
   let captureEnabled = false;
-  const bridgeChannel = globalThis.crypto?.randomUUID?.()
-    || `mosa-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  // Threat model: injected page scripts that run after document_start must
+  // neither learn the bridge identity nor forge capture events. Publishing a
+  // channel name in the DOM failed the first half, and every window message
+  // failed the second. A MessagePort is transferred exactly once, as a
+  // transient window message that later-running scripts never observe. This
+  // does not (and cannot) defend against code that runs before the hook or
+  // rewrites page built-ins such as Response.prototype: both share this realm.
+  let commandPort = null;
+  let commandPortPost = null;
+  let portConfirmed = false;
+
+  function onPortMessage(event) {
+    const data = event?.data;
+    if (data?.source !== "mosa-chatgpt-capture") return;
+    if (data.type === "hook-port-ack") {
+      portConfirmed = true;
+      return;
+    }
+    if (data.type === "set-capture-enabled") {
+      captureEnabled = data.payload?.enabled === true;
+      post("capture-state", { enabled: captureEnabled });
+      return;
+    }
+    if (data.type === "refresh-current-conversation") refreshCurrentConversation().catch(() => {});
+  }
+
+  function handPortToContent() {
+    const channel = new MessageChannel();
+    commandPort = channel.port1;
+    // Bind postMessage at hand-off time: a later page rewrite of the port
+    // object cannot reroute hook traffic.
+    commandPortPost = commandPort.postMessage.bind(commandPort);
+    commandPort.addEventListener("message", onPortMessage);
+    commandPort.start?.();
+    window.postMessage(
+      { source: "mosa-chatgpt-capture", type: "hook-port" },
+      location.origin,
+      [channel.port2],
+    );
+  }
 
   function markReady() {
     if (document.documentElement) {
       try {
         document.documentElement.dataset.mosaPageHook = "1";
-        document.documentElement.dataset.mosaPageHookChannel = bridgeChannel;
       } catch {
         // The hook itself still works in test/minimal document environments.
       }
@@ -22,6 +59,7 @@
     document.addEventListener("DOMContentLoaded", markReady, { once: true });
   }
   markReady();
+  handPortToContent();
 
   const PROMPT_KEY_ALIASES = new Map([
     ["prompt", "prompt"],
@@ -65,7 +103,7 @@
 
   function post(type, payload) {
     try {
-      window.postMessage({ source: "mosa-chatgpt-capture", channel: bridgeChannel, type, payload }, "*");
+      commandPortPost?.({ type, payload });
     } catch {
       // ignore
     }
@@ -1702,19 +1740,16 @@
     post("conversation-refresh-failed", { status: lastStatus, soft });
   }
 
-  // The payload is intentionally ignored. The page hook derives the ID from
-  // location, so a page script cannot make the extension fetch another chat.
+  // Commands no longer arrive over window messages: any page script could
+  // forge those. Only the request for a (replacement) port is accepted here,
+  // and only until the content script confirmed the first port.
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     const data = event.data;
     if (data?.source !== "mosa-chatgpt-capture") return;
-    if (data.channel !== bridgeChannel) return;
-    if (data.type === "set-capture-enabled") {
-      captureEnabled = data.payload?.enabled === true;
-      post("capture-state", { enabled: captureEnabled });
-      return;
-    }
-    if (data.type === "refresh-current-conversation") refreshCurrentConversation().catch(() => {});
+    if (data.type !== "hook-port-request") return;
+    if (portConfirmed) return;
+    handPortToContent();
   });
 
   function isInterestingResponseUrl(value) {

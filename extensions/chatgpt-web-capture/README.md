@@ -1,4 +1,4 @@
-# MOSA Web Capture（0.15.21）
+# MOSA Web Capture（0.15.22）
 
 把 **ChatGPT、Gemini、Flow 和 Google AI Studio 网页**中用户可见的生成媒体归档到本机 MOSA。ChatGPT 支持图片提示词关联；Flow 与 Google AI Studio 同时支持已识别的视频，Gemini、Flow 与 Google AI Studio 的页面可见 Prompt 均明确标为未验证。
 
@@ -62,6 +62,8 @@ ChatGPT 网页捕获现在会把“媒体”和“生成事件”分开记录。
 自 `0.15.20` 起，画廊里没点开的图也会入库：只要某个 `blob:` 地址有文件编号映射且注册表里有该文件编号的生成证据，缩略图不再要求 `<img>` 加载完成——字节直接按 `blob:` 地址从页面内存读取，真实宽高由解码后的字节判定（仍套用"已证明生成图"的 256px 最小边），大图与缩略图共用同一 `blob:` 身份，依旧只入库一次。
 
 自 `0.15.21` 起，ChatGPT 通过流式请求（`POST /backend-api/f/conversation` 的 SSE）推送的回复改为边收边解析：按 `delta encoding v1` 的 add 与补丁事件在流中重建消息，图片的生成 ID、资源 ID 与消息 ID 在事件到达时立即绑定，页面在 `[DONE]` 之后中止请求也不再丢失整轮内容；补丁支持 append（含对象合并与 `/message/content/parts/N` 数组下标）、replace 与跨事件续接 append，遇到不认识的补丁直接忽略，单条流沿用 12MB 解析上限。旧的缓冲解析与非 SSE 的 JSON 响应路径保持不变。
+
+自 `0.15.22` 起，page-hook 与内容脚本之间改用一次性移交的私有 `MessagePort` 通信，不再把通道名写在 DOM 里，页面上后注入的脚本既拿不到通道也无法伪造采集事件；同时 provider 页面的内容脚本向 background 请求设置时只拿到 `autoCapture` 一个字段，Token 不再下发到页面环境。
 
 MOSA 会在本地为同一 ChatGPT conversation 的 Generation Event 计算“关系候选”，但不会自动写成正式父子边。明确复用先前生成图的 provider asset ID 是强证据；“再改一下 / 把背景换黑 / 保持其他不变”等修改型用户指令、相邻生成和时间距离只能作为辅助信号。候选必须由用户确认后才进入正式生成树；只因为两张图前后出现，不会自动建立版本关系。
 

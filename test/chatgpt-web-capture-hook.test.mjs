@@ -15,12 +15,79 @@ const optionsHtml = await readFile(new URL("../extensions/chatgpt-web-capture/op
 const providerPolicySource = await readFile(new URL("../extensions/chatgpt-web-capture/provider-policy.js", import.meta.url), "utf8");
 const providerSource = await readFile(new URL("../extensions/chatgpt-web-capture/provider-sites.js", import.meta.url), "utf8");
 
+// Minimal MessageChannel stand-in: two entangled ports. Messages are
+// delivered synchronously while a listener is attached and queue otherwise,
+// which mirrors how the real content script behaves once it has adopted the
+// port without making every existing harness test await a task boundary.
+class MockMessagePort {
+  constructor() {
+    this._peer = null;
+    this._pending = [];
+    this._listeners = [];
+    this._onmessage = null;
+  }
+
+  _entangle(peer) {
+    this._peer = peer;
+  }
+
+  postMessage(data) {
+    assert.ok(this._peer, "mock port must be entangled before postMessage");
+    this._peer._deliver({ data });
+  }
+
+  _deliver(event) {
+    if (!this._listeners.length && !this._onmessage) {
+      this._pending.push(event);
+      return;
+    }
+    for (const listener of [...this._listeners]) listener(event);
+    if (this._onmessage) this._onmessage(event);
+  }
+
+  addEventListener(type, listener) {
+    if (type !== "message") return;
+    this._listeners.push(listener);
+    this._flushPending();
+  }
+
+  get onmessage() {
+    return this._onmessage;
+  }
+
+  set onmessage(handler) {
+    this._onmessage = handler;
+    this._flushPending();
+  }
+
+  start() {
+    this._flushPending();
+  }
+
+  _flushPending() {
+    if (!this._listeners.length && !this._onmessage) return;
+    while (this._pending.length) this._deliver(this._pending.shift());
+  }
+}
+
+class MockMessageChannel {
+  constructor() {
+    this.port1 = new MockMessagePort();
+    this.port2 = new MockMessagePort();
+    this.port1._entangle(this.port2);
+    this.port2._entangle(this.port1);
+  }
+}
+
 function createHookHarness(payload, conversationId = "conversation-test", options = {}) {
   const events = [];
   const requestedUrls = [];
   const requestedInits = [];
   const createdObjectUrls = [];
-  let messageListener = null;
+  const windowMessages = [];
+  const hookPortOffers = [];
+  const windowMessageListeners = [];
+  let contentPort = null;
   const documentElement = { dataset: {} };
   // The blob-asset hooks need the page's Blob, Response and URL.createObjectURL.
   class HookBlob {
@@ -48,6 +115,17 @@ function createHookHarness(payload, conversationId = "conversation-test", option
 
     static revokeObjectURL() {}
   }
+  function adoptContentPort(port) {
+    contentPort = port;
+    port.addEventListener("message", (portEvent) => {
+      events.push(portEvent.data);
+    });
+    // content.js confirms the first port immediately; tests can suppress the
+    // ack to exercise the hook's port-request fallback.
+    if (options.ack !== false) {
+      port.postMessage({ source: "mosa-chatgpt-capture", type: "hook-port-ack" });
+    }
+  }
   const window = {
     fetch: async (url, init) => {
       requestedUrls.push(String(url));
@@ -63,9 +141,19 @@ function createHookHarness(payload, conversationId = "conversation-test", option
       };
     },
     addEventListener: (type, listener) => {
-      if (type === "message") messageListener = listener;
+      if (type === "message") windowMessageListeners.push(listener);
     },
-    postMessage: (event) => events.push(event),
+    postMessage: (event, targetOrigin, transfer) => {
+      windowMessages.push({ event, targetOrigin, transfer });
+      if (
+        event?.source === "mosa-chatgpt-capture"
+        && event?.type === "hook-port"
+        && transfer?.[0] instanceof MockMessagePort
+      ) {
+        hookPortOffers.push(event);
+        adoptContentPort(transfer[0]);
+      }
+    },
     WebSocket: class MockWebSocket {
       constructor(url) {
         this.url = url;
@@ -96,6 +184,7 @@ function createHookHarness(payload, conversationId = "conversation-test", option
     Blob: HookBlob,
     Response: HookResponse,
     XMLHttpRequest: MockXHR,
+    MessageChannel: MockMessageChannel,
     // Base64 and UTF-8 decoding are page APIs the hook needs for socket frames.
     atob: globalThis.atob,
     TextDecoder: globalThis.TextDecoder,
@@ -106,18 +195,11 @@ function createHookHarness(payload, conversationId = "conversation-test", option
     window,
   }, { filename: "page-hook.js" });
 
-  const bridgeChannel = String(documentElement.dataset.mosaPageHookChannel || "");
-  assert.ok(bridgeChannel, "page hook should publish a per-document bridge channel");
-
-  if (options.captureEnabled !== false && messageListener) {
-    messageListener({
-      source: window,
-      data: {
-        source: "mosa-chatgpt-capture",
-        channel: bridgeChannel,
-        type: "set-capture-enabled",
-        payload: { enabled: true },
-      },
+  if (options.captureEnabled !== false && contentPort) {
+    contentPort.postMessage({
+      source: "mosa-chatgpt-capture",
+      type: "set-capture-enabled",
+      payload: { enabled: true },
     });
   }
 
@@ -126,9 +208,22 @@ function createHookHarness(payload, conversationId = "conversation-test", option
     requestedUrls,
     requestedInits,
     createdObjectUrls,
+    windowMessages,
+    hookPortOffers,
+    documentElement,
     blobClass: HookBlob,
     responseClass: HookResponse,
     urlClass: HookURL,
+    dispatchWindowMessage(data, eventOverrides = {}) {
+      for (const listener of [...windowMessageListeners]) {
+        listener({ source: window, data, ...eventOverrides });
+      }
+    },
+    async sendToPageHook(data) {
+      assert.ok(contentPort, "page hook should have handed a port to the content script");
+      contentPort.postMessage(data);
+      await setImmediate();
+    },
     async harvest(init, url = "https://chatgpt.com/backend-api/conversation/test") {
       await window.fetch(url, init);
       await setImmediate();
@@ -140,11 +235,8 @@ function createHookHarness(payload, conversationId = "conversation-test", option
       await setImmediate();
     },
     async refreshCurrentConversation() {
-      assert.ok(messageListener, "page hook should listen for refresh requests");
-      messageListener({
-        source: window,
-        data: { source: "mosa-chatgpt-capture", channel: bridgeChannel, type: "refresh-current-conversation" },
-      });
+      assert.ok(contentPort, "page hook should listen for refresh requests");
+      contentPort.postMessage({ source: "mosa-chatgpt-capture", type: "refresh-current-conversation" });
       await setImmediate();
       await setImmediate();
     },
@@ -178,7 +270,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.15.21");
+  assert.equal(manifest.version, "0.15.22");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://flow.google.com/*", "https://aistudio.google.com/*"],
@@ -1250,19 +1342,169 @@ test("background reports only bounded retry-queue diagnostics to the local task 
   assert.match(backgroundSource, /lastSeenRetryRequestId/);
 });
 
-test("ChatGPT page bridge rejects messages outside the current document channel", () => {
-  assert.match(hookSource, /mosaPageHookChannel = bridgeChannel/);
-  assert.match(hookSource, /data\.channel !== bridgeChannel/);
-  assert.match(contentSource, /function pageHookChannel\(\)/);
-  assert.match(contentSource, /data\.channel !== channel/);
+test("ChatGPT page bridge only trusts the first privately transferred port", () => {
+  // page-hook: commands arrive only through the transferred port; the only
+  // window message it still accepts is a port request, from the same window,
+  // and only until the first port has been confirmed. No channel name is
+  // published in the DOM anymore.
+  assert.doesNotMatch(hookSource, /mosaPageHookChannel/);
+  assert.match(hookSource, /commandPortPost = commandPort\.postMessage\.bind\(commandPort\)/);
+  assert.match(hookSource, /commandPort\.addEventListener\("message", onPortMessage\)/);
+  assert.match(hookSource, /window\.addEventListener\("message", \(event\) => \{/);
+  assert.match(hookSource, /if \(event\.source !== window\) return;/);
+  assert.match(hookSource, /if \(data\.type !== "hook-port-request"\) return;/);
+  assert.match(hookSource, /if \(portConfirmed\) return;/);
+  assert.match(hookSource, /post\("capture-state", \{ enabled: captureEnabled \}\)/);
+  // content.js: only event.source === window hook-port transfers with a port
+  // are accepted, only the first port is adopted, and the ack goes back
+  // through that port.
+  assert.doesNotMatch(contentSource, /mosaPageHookChannel/);
+  assert.match(contentSource, /window\.addEventListener\("message", \(event\) => \{/);
+  assert.match(contentSource, /if \(event\.source !== window\) return;/);
+  assert.match(contentSource, /if \(data\.type !== "hook-port"\) return;/);
+  assert.match(contentSource, /if \(hookPort \|\| !event\.ports\?\.\[0\]\) return;/);
+  assert.match(contentSource, /type: "hook-port-ack"/);
   assert.match(contentSource, /function syncPageHookCaptureEnabled\(attempt = 0\)/);
   assert.match(contentSource, /function desiredPageHookCaptureEnabled\(\)/);
   assert.match(contentSource, /return autoCapture \|\| Date\.now\(\) < manualHookLeaseUntil/);
   assert.match(contentSource, /pageHookCaptureAck === desired/);
   assert.match(contentSource, /const retryDelays = \[25, 100, 300, 750, 1_500, 2_500\]/);
   assert.match(contentSource, /data\.type === "capture-state"/);
-  assert.match(hookSource, /post\("capture-state", \{ enabled: captureEnabled \}\)/);
   assert.match(contentSource, /DOMContentLoaded", \(\) => syncPageHookCaptureEnabled\(\)/);
+});
+
+test("the page hook publishes one private port instead of a DOM channel", () => {
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", { captureEnabled: false, ack: false });
+
+  assert.equal(harness.documentElement.dataset.mosaPageHook, "1");
+  assert.equal("mosaPageHookChannel" in harness.documentElement.dataset, false);
+  assert.equal(harness.hookPortOffers.length, 1);
+  assert.equal(harness.windowMessages.length, 1, "the hand-off is the hook's only window message");
+  const offer = harness.windowMessages[0];
+  assert.equal(offer.event.source, "mosa-chatgpt-capture");
+  assert.equal(offer.event.type, "hook-port");
+  assert.equal(offer.targetOrigin, "https://chatgpt.com");
+  assert.ok(offer.transfer?.[0] instanceof MockMessagePort, "the hand-off must transfer a MessagePort");
+});
+
+test("generation events travel only through the private port", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    mapping: {
+      poster: {
+        message: {
+          id: "message-poster",
+          author: { role: "tool", name: "image_gen" },
+          content: {
+            parts: [
+              { asset_pointer: "sediment://file-poster" },
+            ],
+          },
+          metadata: { dalle: { prompt: "A silkscreen poster of a lighthouse in fog" } },
+        },
+      },
+    },
+  });
+
+  await harness.harvest();
+
+  assert.ok(generationEvents(harness).length > 0, "the harvest should still produce generation events");
+  assert.equal(harness.hookPortOffers.length, 1);
+  for (const entry of harness.windowMessages) {
+    if (entry.event?.source !== "mosa-chatgpt-capture") continue;
+    assert.equal(entry.event.type, "hook-port", "no capture message other than the port hand-off may use window.postMessage");
+  }
+});
+
+test("forged window messages cannot enable capture or trigger a refresh", async () => {
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", { captureEnabled: false });
+
+  // Old-format forgeries, with or without a channel field, must be inert.
+  harness.dispatchWindowMessage({
+    source: "mosa-chatgpt-capture",
+    channel: "forged-channel",
+    type: "set-capture-enabled",
+    payload: { enabled: true },
+  });
+  harness.dispatchWindowMessage({
+    source: "mosa-chatgpt-capture",
+    type: "refresh-current-conversation",
+    payload: { conversationId: "conversation-test" },
+  });
+  await harness.harvest();
+  assert.equal(generationEvents(harness).length, 0, "a window message must not enable capture");
+  assert.deepEqual(harness.requestedUrls.filter((url) => url.includes("/conversations/")), [], "a window message must not trigger a conversation refresh");
+
+  // The same commands through the real port keep working.
+  await harness.sendToPageHook({ source: "mosa-chatgpt-capture", type: "set-capture-enabled", payload: { enabled: true } });
+  harness.dispatchWindowMessage({
+    source: "mosa-chatgpt-capture",
+    type: "refresh-current-conversation",
+    payload: { conversationId: "conversation-test" },
+  });
+  await setImmediate();
+  assert.deepEqual(harness.requestedUrls.filter((url) => url.includes("/conversations/")), []);
+  await harness.refreshCurrentConversation();
+  assert.deepEqual(harness.requestedUrls.filter((url) => url.includes("/conversations/")), [
+    "https://chatgpt.com/backend-api/conversations/conversation-test",
+  ]);
+});
+
+test("before confirmation a port request mints a replacement port", () => {
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", { captureEnabled: false, ack: false });
+  assert.equal(harness.hookPortOffers.length, 1);
+
+  harness.dispatchWindowMessage({ source: "mosa-chatgpt-capture", type: "hook-port-request" });
+  assert.equal(harness.hookPortOffers.length, 2);
+  assert.equal(harness.windowMessages[1].event.type, "hook-port");
+  assert.notEqual(
+    harness.windowMessages[1].transfer?.[0],
+    harness.windowMessages[0].transfer?.[0],
+    "the replacement must be a fresh port",
+  );
+
+  // Non-mosaic markers and other window commands mint nothing.
+  harness.dispatchWindowMessage({ source: "other-extension", type: "hook-port-request" });
+  harness.dispatchWindowMessage({ source: "mosa-chatgpt-capture", type: "set-capture-enabled", payload: { enabled: true } });
+  assert.equal(harness.hookPortOffers.length, 2);
+});
+
+test("a port request from another window is ignored even before confirmation", () => {
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", { captureEnabled: false, ack: false });
+
+  harness.dispatchWindowMessage(
+    { source: "mosa-chatgpt-capture", type: "hook-port-request" },
+    { source: {} },
+  );
+  assert.equal(harness.hookPortOffers.length, 1);
+});
+
+test("after confirmation the page hook ignores further port requests", async () => {
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", { captureEnabled: false });
+  assert.equal(harness.hookPortOffers.length, 1);
+  await setImmediate();
+
+  harness.dispatchWindowMessage({ source: "mosa-chatgpt-capture", type: "hook-port-request" });
+  await setImmediate();
+  assert.equal(harness.hookPortOffers.length, 1, "a confirmed port must never be replaced");
+
+  // The confirmed port keeps carrying commands.
+  await harness.sendToPageHook({ source: "mosa-chatgpt-capture", type: "set-capture-enabled", payload: { enabled: true } });
+  assert.equal(harness.events.some((event) => event.type === "capture-state" && event.payload?.enabled === true), true);
+});
+
+test("provider content scripts only receive the autoCapture setting", () => {
+  const handlerStart = backgroundSource.indexOf('if (message.type === "mosa.getSettings")');
+  const handlerEnd = backgroundSource.indexOf('if (message.type === "mosa.probeFlowMedia")', handlerStart);
+  assert.ok(handlerStart >= 0 && handlerEnd > handlerStart);
+  const handler = backgroundSource.slice(handlerStart, handlerEnd);
+  assert.match(handler, /extensionPageSender\(sender\)\s*\?\s*settings\s*:\s*\{\s*autoCapture: settings\.autoCapture,?\s*\}/);
+  const providerResponse = handler
+    .replace(/extensionPageSender\(sender\)\s*\?\s*settings\s*:/, "")
+    .replace(/\/\/[^\n]*/g, "");
+  assert.doesNotMatch(providerResponse, /mosaToken|mosaBaseUrl/, "the provider-page settings response must not expose the Token or base URL");
+  // The sender gate itself is unchanged: extension pages and provider pages only.
+  assert.match(backgroundSource, /return extensionPageSender\(sender\) \|\| Boolean\(pageSenderContext\(sender\)\);/);
 });
 
 test("clears the legacy development Token and verifies the real ingest authorization path", () => {
@@ -1791,7 +2033,7 @@ test("binds prompt and asset when one image call splits them across nested reque
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.15.21");
+  assert.equal(manifest.version, "0.15.22");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
