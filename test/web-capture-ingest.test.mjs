@@ -285,6 +285,100 @@ test("deduplicated ChatGPT output advances generation status from partial to com
   assert.equal(events[0].provider_generation_call_id, "gen-status");
 });
 
+test("re-observing an archived image without any identifier adds no generation event", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-reident-unmarked-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  t.after(() => store.close?.());
+  await store.ensureProject("default");
+  const tempRoot = join(libraryDir, ".web-capture-tmp");
+
+  const first = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: {
+      provider: "chatgpt",
+      imageBase64: SAMPLE_PNG_BASE64,
+      mimeType: "image/jpeg",
+      conversationId: "reident-conversation",
+      messageId: "turn-first",
+      generationContextId: "chatgpt:reident-conversation:call-first",
+      providerAssetId: "file-first",
+    },
+  });
+  assert.equal(first.status, "imported");
+
+  // The pre-#142 bug: a page re-observation of the same pixels with no
+  // provider identity appended a phantom generation record on every capture.
+  const reObservation = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: {
+      provider: "chatgpt",
+      imageBase64: SAMPLE_PNG_BASE64,
+      mimeType: "image/jpeg",
+      user_message: "some nearby turn's text",
+      capturedAt: "2026-09-01T00:00:00.000Z",
+    },
+  });
+  assert.equal(reObservation.status, "skipped");
+  assert.ok(String(reObservation.reason || "").startsWith("already-archived"), `unexpected reason: ${reObservation.reason}`);
+  const events = await store.listGenerationEvents("default", { assetId: first.asset.id });
+  assert.equal(events.length, 1, "the unidentified re-observation must not append a generation record");
+});
+
+test("re-observing an archived image with a message id still records the generation", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-reident-marked-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  t.after(() => store.close?.());
+  await store.ensureProject("default");
+  const tempRoot = join(libraryDir, ".web-capture-tmp");
+
+  const first = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: {
+      provider: "chatgpt",
+      imageBase64: SAMPLE_PNG_BASE64,
+      mimeType: "image/jpeg",
+      conversationId: "marked-conversation",
+      messageId: "turn-a",
+      generationContextId: "chatgpt:marked-conversation:call-a",
+      providerAssetId: "file-a",
+      capturedAt: "2026-09-01T00:00:00.000Z",
+    },
+  });
+  assert.equal(first.status, "imported");
+
+  const reObservation = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: {
+      provider: "chatgpt",
+      imageBase64: SAMPLE_PNG_BASE64,
+      mimeType: "image/jpeg",
+      conversationId: "marked-conversation",
+      messageId: "turn-b",
+      generationContextId: "chatgpt:marked-conversation:call-b",
+      providerAssetId: "file-b",
+      capturedAt: "2026-09-01T01:00:00.000Z",
+    },
+  });
+  assert.equal(reObservation.status, "skipped");
+  const events = await store.listGenerationEvents("default", { assetId: first.asset.id });
+  assert.equal(events.length, 2, "an identified re-observation records its generation as before");
+  assert.deepEqual(events.map((event) => event.message_id).sort(), ["turn-a", "turn-b"]);
+});
+
 test("completed ChatGPT bytes replace an earlier provisional asset with the same provider asset id", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-provisional-replace-"));
   deferTestPathRemoval(root, { recursive: true, force: true });
