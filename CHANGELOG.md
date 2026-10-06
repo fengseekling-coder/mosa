@@ -4,6 +4,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+- Web Capture extension 0.15.23: ChatGPT image-to-image turns archive their uploaded reference images again; the user turn is now split into an attachment unit and a text unit, and reference lookup merges every user unit of the same message while the assistant's generated gallery stays excluded.
 - Web Capture extension 0.15.22: the ChatGPT page hook now talks to the extension over a private MessagePort instead of a channel name exposed in the DOM, and content scripts only receive the settings they need.
 - ChatGPT replies pushed through the streaming conversation request (for example GPT-5.6 Thinking image turns) are now parsed while the stream arrives, so the generation bindings for new images survive the page aborting the request after `data: [DONE]`.
 - Fixed navigation being unreachable in windows 701–767px wide. In that range the sidebar collapses into a drawer, but the Inspector stayed pinned open, which hid the drawer button. The Inspector now pins only from 768px up, so in narrower windows it can be closed and the drawer button is available.
