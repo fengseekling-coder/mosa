@@ -34,6 +34,10 @@ const desktopLibraryDir = join(root, "desktop-library");
 const stackLibraryDir = join(root, "stack-library");
 const trashLibraryDir = join(root, "trash-library");
 const generatedDir = join(root, "generated-images");
+// Seeded fixtures live outside generated-images: that folder is the Codex images
+// dir, where the first sub-folder is read as one Codex task and images of the
+// same task stack automatically. Flows that need a Codex source pass sourceType.
+const fixturesRoot = join(root, "fixtures");
 const webUserData = join(root, "web-user-data");
 const desktopUserData = join(root, "desktop-user-data");
 const stackUserData = join(root, "stack-user-data");
@@ -42,7 +46,7 @@ const trashUserData = join(root, "trash-user-data");
 // 只剩 Stack 流程的 seedStackAssets 还在用。
 const webFixturePath = join(generatedDir, "critical-flow.png");
 const stackFixturePath = join(generatedDir, "stack-flow.png");
-const trashFixtureDir = join(generatedDir, "trash-flow");
+const trashFixtureDir = join(fixturesRoot, "trash-flow");
 const stamp = Date.now().toString(36);
 const webSearchTerm = `MOSA E2E WEB ${stamp}`;
 const webRecipeChange = `web-recipe-${stamp}`;
@@ -155,7 +159,7 @@ function createFlowContext(flowName) {
   const dirs = {
     libraryDir: join(flowRoot, "library"),
     userDataDir: join(flowRoot, "user-data"),
-    fixturesDir: join(generatedDir, `flow-${flowName}`),
+    fixturesDir: join(fixturesRoot, `flow-${flowName}`),
   };
   let sourceCounter = 0;
   const ctx = {
