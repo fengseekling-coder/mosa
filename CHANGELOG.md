@@ -4,6 +4,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+- Searching the library now lists every matching image on its own instead of grouping matches into stacks; clearing the search brings stacks back.
 - The desktop app now creates a fixed, anonymous installation ID on every installation and provides it to the user interface.
 - Re-observing an already archived image no longer appends a blank generation record to its history. On upgrade, user instructions that earlier captures overwrote with a message from another turn are restored from the image's first saved prompt, and the duplicate blank generation records from those repeated captures are removed.
 - Stacks of images captured from one ChatGPT conversation are now named automatically after the conversation title. Naming happens when the images are captured and, for stacks created before this update, when the old conversation is opened again in the browser. Stacks you named yourself are never renamed, and neither are stacks mixing several conversations or non-capture images.
