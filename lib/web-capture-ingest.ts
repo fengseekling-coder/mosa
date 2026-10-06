@@ -83,7 +83,7 @@ interface Store {
   assetsRoot?: string;
   [key: string]: unknown;
 }
-interface WebCaptureInput { provider?: string; mediaKind?: string; media_kind?: string; mimeType?: string; mime_type?: string; imageBase64?: string; image_base64?: string; imageBytes?: Buffer | Uint8Array; mediaBase64?: string; media_base64?: string; mediaBytes?: Buffer | Uint8Array; width?: number; height?: number; durationSeconds?: number; duration_seconds?: number; prompt?: string; prompt_status?: string; promptStatus?: string; prompt_source?: string; promptSource?: string; prompt_priority?: number; promptPriority?: number; prompt_scope?: string; promptScope?: string; generation_status?: string; generationStatus?: string; user_message?: string; userMessage?: string; generation_request_prompt?: string; generationRequestPrompt?: string; pageUrl?: string; page_url?: string; sourceMediaUrl?: string; source_media_url?: string; finalMediaUrl?: string; final_media_url?: string; conversationId?: string; conversation_id?: string; messageId?: string; message_id?: string; generationContextId?: string; generation_context_id?: string; providerToolCallId?: string; provider_tool_call_id?: string; providerGenerationCallId?: string; provider_generation_call_id?: string; providerResponseId?: string; provider_response_id?: string; providerAssetId?: string; provider_asset_id?: string; model?: string; capturedAt?: string; captured_at?: string; captureMode?: string; capture_mode?: string; assetId?: string; is_reference?: boolean; isReference?: boolean; extensionVersion?: string; extension_version?: string; }
+interface WebCaptureInput { provider?: string; mediaKind?: string; media_kind?: string; mimeType?: string; mime_type?: string; imageBase64?: string; image_base64?: string; imageBytes?: Buffer | Uint8Array; mediaBase64?: string; media_base64?: string; mediaBytes?: Buffer | Uint8Array; width?: number; height?: number; durationSeconds?: number; duration_seconds?: number; prompt?: string; prompt_status?: string; promptStatus?: string; prompt_source?: string; promptSource?: string; prompt_priority?: number; promptPriority?: number; prompt_scope?: string; promptScope?: string; generation_status?: string; generationStatus?: string; user_message?: string; userMessage?: string; generation_request_prompt?: string; generationRequestPrompt?: string; pageUrl?: string; page_url?: string; sourceMediaUrl?: string; source_media_url?: string; finalMediaUrl?: string; final_media_url?: string; conversationId?: string; conversation_id?: string; generationSessionTitle?: string; generation_session_title?: string; messageId?: string; message_id?: string; generationContextId?: string; generation_context_id?: string; providerToolCallId?: string; provider_tool_call_id?: string; providerGenerationCallId?: string; provider_generation_call_id?: string; providerResponseId?: string; provider_response_id?: string; providerAssetId?: string; provider_asset_id?: string; model?: string; capturedAt?: string; captured_at?: string; captureMode?: string; capture_mode?: string; assetId?: string; is_reference?: boolean; isReference?: boolean; extensionVersion?: string; extension_version?: string; }
 interface IngestResult { status: string; reason?: string; asset?: StoredAsset; attachment?: ReferenceAttachment; contentHash: string; upgraded?: boolean; recipeMerged?: boolean; replacedAssetId?: string; }
 interface WebCaptureIngest { ingest(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; ingestFile(input: WebCaptureInput, mediaFilePath: string, authToken?: string): Promise<IngestResult>; upgradeMetadata(input: WebCaptureInput, authToken?: string): Promise<IngestResult>; status(): Record<string, unknown>; updateClientStatus(input: Metadata, authToken?: string): Record<string, unknown>; requestRetry(): Record<string, unknown>; assertToken(provided: string): void; readReference(projectId: string, fileName: string): Promise<{ stream: NodeJS.ReadableStream; fileName: string }>; pruneReferences(projectId: string, referencedIds: Iterable<string>): Promise<{ removed: number; retained: number; failed: number }>; tempRoot: string; token: string; }
 
@@ -394,6 +394,7 @@ async function ingestWebCaptureUnlocked(options: { store: Store; referenceStore?
   const pixelHash = imageMetadata.pixelHash || "";
   const projectAssets = onceProjectListing(store, projectId);
   const pageUrl = String(input.pageUrl || input.page_url || "").trim(); const conversationId = String(input.conversationId || input.conversation_id || "").trim();
+  const generationSessionTitle = String(input.generationSessionTitle || input.generation_session_title || "").trim().slice(0, 200);
   const sourceMediaUrl = sanitizeStoredMediaUrl(input.sourceMediaUrl || input.source_media_url);
   const finalMediaUrl = sanitizeStoredMediaUrl(input.finalMediaUrl || input.final_media_url);
   const messageId = String(input.messageId || input.message_id || "").trim(); const model = String(input.model || "").trim();
@@ -478,7 +479,10 @@ async function ingestWebCaptureUnlocked(options: { store: Store; referenceStore?
       provider,
     });
     const asset = await maybeStoreRequestPrompt(store, upgraded || mergedRecipe.asset, requestPrompt) || upgraded || mergedRecipe.asset;
-    await recordCapturedGeneration(store, asset, {
+    const titledAsset = generationSessionTitle
+      ? await maybeStoreSessionTitle(store, asset, generationSessionTitle) || asset
+      : asset;
+    await recordCapturedGeneration(store, titledAsset, {
       projectId,
       provider,
       generationContextId,
@@ -498,7 +502,7 @@ async function ingestWebCaptureUnlocked(options: { store: Store; referenceStore?
       references: asset.references,
       capturedAt,
     });
-    const sameBytes = asset.source?.content_sha256 === contentHash;
+    const sameBytes = titledAsset.source?.content_sha256 === contentHash;
     return {
       status: "skipped",
       reason: upgraded
@@ -506,7 +510,7 @@ async function ingestWebCaptureUnlocked(options: { store: Store; referenceStore?
         : mergedRecipe.merged
           ? "already-archived-recipe-merged"
           : sameBytes ? "already-archived-same-content" : "already-archived-same-pixels",
-      asset,
+      asset: titledAsset,
       contentHash,
       upgraded: Boolean(upgraded),
       recipeMerged: mergedRecipe.merged,
@@ -589,6 +593,7 @@ async function ingestWebCaptureUnlocked(options: { store: Store; referenceStore?
         model: model || null,
         page_url: pageUrl || null,
         conversation_id: conversationId || null,
+        ...(generationSessionTitle ? { generation_session_title: generationSessionTitle } : {}),
         message_id: messageId || null,
         capture_session_id: captureSessionId || null,
         generation_batch_id: generationBatchId || null,
@@ -1504,6 +1509,18 @@ async function maybeStoreRequestPrompt(store: Store, existing: StoredAsset, requ
   if (String(existing.source?.generation_request_prompt || "").trim()) return null;
   return store.updateMetadata(existing.project_id, existing.id, {
     source: { ...(existing.source || {}), generation_request_prompt: requestPrompt },
+  });
+}
+
+// A session title learned late names stacks; it must never rewrite one the
+// asset already carries. Only an empty slot is backfilled, and because the
+// recipe digest never covers generation_session_title, the store dedupes the
+// snapshot by digest — this write adds no recipe snapshot.
+async function maybeStoreSessionTitle(store: Store, existing: StoredAsset, title: string): Promise<StoredAsset | null> {
+  if (!title || typeof store.updateMetadata !== "function") return null;
+  if (String(existing.source?.generation_session_title || "").trim()) return null;
+  return store.updateMetadata(existing.project_id, existing.id, {
+    source: { ...(existing.source || {}), generation_session_title: title },
   });
 }
 

@@ -136,6 +136,7 @@ function senderAllowedForMessage(message, sender) {
   const context = pageSenderContext(sender);
   if (!context) return false;
   if (message.type === "mosa.fetchImage") return context.provider === "chatgpt";
+  if (message.type === "mosa.reportSessionTitle") return context.provider === "chatgpt";
   if (message.type === "mosa.probeFlowMedia") return context.provider === "flow";
   if (["mosa.beginVideoTransfer", "mosa.videoTransferChunk", "mosa.commitVideoTransfer", "mosa.abortVideoTransfer"].includes(message.type)) {
     return context.provider === "flow" || context.provider === "google-ai-studio";
@@ -311,6 +312,39 @@ function reportCaptureQueueStatus() {
     queueStatusReportPromise = undefined;
   });
   return queueStatusReportPromise;
+}
+
+// Stack naming: at most one report per (conversation, title) per browser
+// session. The sent-set lives in the service worker, so a browser restart
+// (worker restart) allows one fresh attempt; a failed or rejected POST is
+// still remembered as sent — no retries, no capture-queue detour. Without a
+// pairing token nothing is sent and nothing is remembered, so a later pairing
+// can still report the title.
+const reportedSessionTitles = new Set();
+
+async function reportSessionTitleOnce(payload = {}) {
+  const provider = String(payload?.provider || "chatgpt").trim().toLowerCase() || "chatgpt";
+  const conversationId = String(payload?.conversationId || "").trim();
+  const title = String(payload?.title || "").trim().slice(0, 200);
+  if (!conversationId || !title) return { reported: false, reason: "empty" };
+  const key = `${conversationId}\u001f${title}`;
+  if (reportedSessionTitles.has(key)) return { reported: false, reason: "already-reported" };
+  const settings = await getSettings();
+  const token = String(settings.mosaToken || "").trim();
+  if (!token) return { reported: false, reason: "no-token" };
+  const baseUrl = normalizeBaseUrl(settings.mosaBaseUrl || DEFAULTS.mosaBaseUrl);
+  reportedSessionTitles.add(key);
+  try {
+    const response = await fetchWithTimeout(`${baseUrl}/api/ingest/web-capture-session-title`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ provider, conversationId, title }),
+      cache: "no-cache",
+    }, 3_000);
+    return { reported: response.ok, status: response.status };
+  } catch (error) {
+    return { reported: false, reason: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 async function enqueueCapture(payload) {
@@ -536,6 +570,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ok: false,
         error: error instanceof Error ? error.message : String(error),
       }));
+    return true;
+  }
+
+  if (message.type === "mosa.reportSessionTitle") {
+    // Best effort stack naming: never surface failures to the page.
+    reportSessionTitleOnce(message.payload)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch(() => sendResponse({ ok: true, reported: false }));
     return true;
   }
 
@@ -993,6 +1035,7 @@ function captureRequestPayload(payload, { mediaKind, mimeType, mediaUrl = "", fi
     sourceMediaUrl: sanitizeProvenanceUrl(mediaUrl || payload.sourceMediaUrl || ""),
     finalMediaUrl: sanitizeProvenanceUrl(finalMediaUrl || payload.finalMediaUrl || ""),
     conversationId: payload.conversationId || "",
+    generation_session_title: String(payload.generationSessionTitle || payload.generation_session_title || "").trim().slice(0, 200),
     messageId: payload.messageId || "",
     generationContextId: payload.generationContextId || "",
     providerToolCallId: payload.providerToolCallId || "",

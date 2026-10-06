@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
 import { deferTestPathRemoval } from "./test-cleanup.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,8 @@ import { performance } from "node:perf_hooks";
 import Database from "better-sqlite3";
 
 import { createSqliteAssetStore, CURRENT_SCHEMA_VERSION } from "../lib/sqlite-asset-store.mjs";
+import { createWebCaptureIngest } from "../lib/web-capture-ingest.js";
+import { handleBridgeRoute } from "../lib/api/bridge-routes.mjs";
 import {
   CANONICAL_SOURCE_TYPES,
   GENERATION_SESSION_SOURCE_RULES,
@@ -734,4 +737,176 @@ test("5k-library backfill and single ingest stay fast with session keys", { skip
   assert.ok(backfillMs < 3000, `5k backfill open ${backfillMs.toFixed(1)}ms exceeded 3000ms`);
   assert.ok(sessionIngestMs < 500, `session ingest ${sessionIngestMs.toFixed(1)}ms exceeded 500ms`);
   assert.ok(freshIngestMs < 500, `plain ingest ${freshIngestMs.toFixed(1)}ms exceeded 500ms`);
+});
+
+// --- applySessionTitle: naming an existing stack from a reported title (77) ---
+
+test("applySessionTitle names an unnamed auto stack and announces one stack-updated change", async (t) => {
+  const { store, sourcePath, libraryDir } = await createFixtureStore(t);
+  await ingest(store, sourcePath, "n1", "2026-06-01T00:00:00.000Z", chatgptSource("conv-apply-auto"));
+  await ingest(store, sourcePath, "n2", "2026-06-02T00:00:00.000Z", chatgptSource("conv-apply-auto"));
+  const stack = await stackOf(store, "default");
+  assert.equal(stack.name, "", "precondition: the auto stack has no name yet");
+  const sortNameBefore = new Database(join(libraryDir, "mosa.db"))
+    .prepare("SELECT sort_name FROM asset_stacks WHERE project_id = 'default' AND id = ?").get(stack.id).sort_name;
+
+  const revisionBefore = (await store.listLibraryChangesSince("default", 0)).currentRevision;
+  const outcome = await store.applySessionTitle("default", "web-chatgpt:conv-apply-auto", "  Reported Title  ");
+  assert.deepEqual(outcome, { stackId: stack.id, renamed: true });
+  const summary = await store.getAssetStack("default", stack.id);
+  assert.equal(summary.name, "Reported Title");
+
+  const row = new Database(join(libraryDir, "mosa.db"))
+    .prepare("SELECT name, sort_name FROM asset_stacks WHERE project_id = 'default' AND id = ?").get(stack.id);
+  assert.notEqual(row.sort_name, sortNameBefore, "sort_name is recomputed with the name");
+  assert.equal(row.name, "Reported Title");
+
+  const changes = (await store.listLibraryChangesSince("default", revisionBefore)).changes
+    .filter((change) => change.kind === "stack-updated");
+  assert.equal(changes.length, 1, "exactly one stack-updated announcement");
+  assert.equal(changes[0].entityId, stack.id);
+});
+
+test("applySessionTitle names an unnamed manual stack that holds only this session", async (t) => {
+  const { store, sourcePath } = await createFixtureStore(t);
+  await ingest(store, sourcePath, "q1", "2026-06-01T00:00:00.000Z", chatgptSource("conv-apply-manual"));
+  await ingest(store, sourcePath, "q2", "2026-06-01T01:00:00.000Z", chatgptSource("conv-apply-manual"));
+  const [auto] = await stackNodesOf(store, "default");
+  await store.dissolveAssetStack("default", auto.id);
+  const manual = await store.createAssetStack("default", ["q1", "q2"], { coverAssetId: "q1" });
+
+  const outcome = await store.applySessionTitle("default", "web-chatgpt:conv-apply-manual", "Single Session");
+  assert.deepEqual(outcome, { stackId: manual.id, renamed: true });
+  assert.equal((await store.getAssetStack("default", manual.id)).name, "Single Session");
+});
+
+test("applySessionTitle refuses a manual stack mixing sessions, a locked name, and any existing name", async (t) => {
+  const { store, sourcePath } = await createFixtureStore(t);
+  // Mixed manual stack.
+  await ingest(store, sourcePath, "m1", "2026-06-01T00:00:00.000Z", chatgptSource("conv-apply-mixed"));
+  await ingest(store, sourcePath, "stranger", "2026-06-01T06:00:00.000Z", { type: "local-file" });
+  const mixed = await store.createAssetStack("default", ["m1", "stranger"], { coverAssetId: "m1" });
+  assert.deepEqual(
+    await store.applySessionTitle("default", "web-chatgpt:conv-apply-mixed", "Mixed Chat"),
+    { stackId: mixed.id, renamed: false },
+    "a mixed manual stack keeps its empty name",
+  );
+  assert.equal((await store.getAssetStack("default", mixed.id)).name, "");
+
+  // User-renamed (locked) stack.
+  await ingest(store, sourcePath, "l1", "2026-06-02T00:00:00.000Z", chatgptSource("conv-apply-locked"));
+  await ingest(store, sourcePath, "l2", "2026-06-02T01:00:00.000Z", chatgptSource("conv-apply-locked"));
+  const locked = await stackOf(store, "default");
+  await store.renameAssetStack("default", locked.id, "Hand Named");
+  assert.deepEqual(
+    await store.applySessionTitle("default", "web-chatgpt:conv-apply-locked", "Reported Title"),
+    { stackId: locked.id, renamed: false },
+    "name_locked freezes reported titles too",
+  );
+  assert.equal((await store.getAssetStack("default", locked.id)).name, "Hand Named");
+
+  // Auto stack that already carries a session title (unlocked but named).
+  await ingest(store, sourcePath, "t1", "2026-06-03T00:00:00.000Z", chatgptSource("conv-apply-named", { conversation_title: "First Title" }));
+  await ingest(store, sourcePath, "t2", "2026-06-03T01:00:00.000Z", chatgptSource("conv-apply-named"));
+  const named = (await stackNodesOf(store, "default")).find((node) => node.id !== locked.id && node.id !== mixed.id);
+  assert.equal((await store.getAssetStack("default", named.id)).name, "First Title");
+  assert.deepEqual(
+    await store.applySessionTitle("default", "web-chatgpt:conv-apply-named", "Second Title"),
+    { stackId: named.id, renamed: false },
+    "a stack that already has a name is never re-named",
+  );
+  assert.equal((await store.getAssetStack("default", named.id)).name, "First Title");
+});
+
+test("applySessionTitle with no target stack, no session key, or no title does nothing", async (t) => {
+  const { store, sourcePath } = await createFixtureStore(t);
+  await ingest(store, sourcePath, "z1", "2026-06-01T00:00:00.000Z", chatgptSource("conv-apply-none"));
+  await ingest(store, sourcePath, "z2", "2026-06-01T01:00:00.000Z", chatgptSource("conv-apply-none"));
+  const stack = await stackOf(store, "default");
+
+  assert.deepEqual(
+    await store.applySessionTitle("default", "web-chatgpt:conv-never-seen", "Ghost Chat"),
+    { stackId: "", renamed: false },
+    "no stack holds this session yet",
+  );
+  assert.deepEqual(await store.applySessionTitle("default", "", "No Session"), { stackId: "", renamed: false });
+  assert.deepEqual(await store.applySessionTitle("default", "web-chatgpt:conv-apply-none", "   "), { stackId: "", renamed: false });
+  assert.equal((await store.getAssetStack("default", stack.id)).name, "", "the named session's stack stayed unnamed");
+});
+
+// --- the /api/ingest/web-capture-session-title bridge route ---
+
+function sessionTitleJsonRequest(body, headers = {}) {
+  const req = new EventEmitter();
+  req.method = "POST";
+  req.headers = headers;
+  queueMicrotask(() => {
+    req.emit("data", Buffer.from(JSON.stringify(body)));
+    req.emit("end");
+  });
+  return req;
+}
+
+function stubJsonResponse() {
+  return {
+    statusCode: 0,
+    headers: {},
+    body: "",
+    setHeader(name, value) {
+      this.headers[String(name).toLowerCase()] = value;
+    },
+    end(payload = "") {
+      this.body += payload;
+    },
+  };
+}
+
+test("the session-title route names stacks with a token and rejects missing tokens and bad ids", async (t) => {
+  const { store, sourcePath, libraryDir } = await createFixtureStore(t, "mosa-session-title-route-");
+  await ingest(store, sourcePath, "r1", "2026-06-01T00:00:00.000Z", chatgptSource("conv-apply-route"));
+  await ingest(store, sourcePath, "r2", "2026-06-01T01:00:00.000Z", chatgptSource("conv-apply-route"));
+  const stack = await stackOf(store, "default");
+  const capture = createWebCaptureIngest({
+    store,
+    libraryDir,
+    projectId: "default",
+    token: "route-secret",
+    allowedOrigins: ["chrome-extension://example-extension"],
+  });
+  const url = new URL("http://127.0.0.1:43517/api/ingest/web-capture-session-title");
+  const call = async (body, headers = {}) => {
+    const routeResponse = stubJsonResponse();
+    const claimed = await handleBridgeRoute({
+      req: sessionTitleJsonRequest(body, headers),
+      res: routeResponse,
+      url,
+      context: { store, webCaptureIngest: capture },
+    });
+    return { claimed, routeResponse };
+  };
+
+  await assert.rejects(
+    call({ provider: "chatgpt", conversationId: "conv-apply-route", title: "No Token" }),
+    (error) => error.statusCode === 401,
+    "a missing bearer token is unauthorized",
+  );
+  await assert.rejects(
+    call({ provider: "chatgpt", conversationId: "not a conversation id!", title: "Bad Id" }, { authorization: "Bearer route-secret" }),
+    (error) => error.statusCode === 400,
+    "an unusable conversation id is a client error",
+  );
+  await assert.rejects(
+    call({ provider: "flow", conversationId: "conv-apply-route", title: "Wrong Provider" }, { authorization: "Bearer route-secret" }),
+    (error) => error.statusCode === 400,
+    "only chatgpt carries a reported title today",
+  );
+
+  const { claimed, routeResponse: res } = await call(
+    { provider: "chatgpt", conversationId: "conv-apply-route", title: "Route Named" },
+    { authorization: "Bearer route-secret" },
+  );
+  assert.equal(claimed, true, "the route claims its path");
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(JSON.parse(res.body), { stackId: stack.id, renamed: true });
+  assert.equal((await store.getAssetStack("default", stack.id)).name, "Route Named");
 });
