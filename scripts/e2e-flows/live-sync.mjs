@@ -444,12 +444,27 @@ function hiddenSegmentSource(config) {
       if (card && !hiddenCardSeenAt) hiddenCardSeenAt = Date.now();
       return Boolean(card);
     }, 'MCP-written card appears after returning to the foreground (visibility fallback refresh)', ${PAGE_WAIT_MS});
+    // The asserted signal is the sidebar count after the foreground return. On a
+    // timeout, also record what the server's navigation endpoint reports, so a
+    // failure tells a stale server count apart from a UI that never re-rendered.
     let hiddenCountSeenAt = 0;
-    await waitFor(() => {
-      const ok = allCount() === String(initialAllCount + 1);
-      if (ok && !hiddenCountSeenAt) hiddenCountSeenAt = Date.now();
-      return ok;
-    }, 'all-assets count increments after the foreground return', ${PAGE_WAIT_MS});
+    try {
+      await waitFor(() => {
+        const ok = allCount() === String(initialAllCount + 1);
+        if (ok && !hiddenCountSeenAt) hiddenCountSeenAt = Date.now();
+        return ok;
+      }, 'all-assets count increments after the foreground return', ${PAGE_WAIT_MS});
+    } catch (error) {
+      let serverNavigation = null;
+      try {
+        const response = await fetch('/api/navigation?project=default', { headers: { 'x-mosa-client-token': config.clientToken } });
+        serverNavigation = { status: response.status, total: (await response.json())?.navigation?.total ?? null };
+      } catch (fetchError) {
+        serverNavigation = { error: String(fetchError?.message || fetchError) };
+      }
+      throw new Error(error.message + ' serverNavigation=' + JSON.stringify(serverNavigation)
+        + ' uiAllCount=' + JSON.stringify(allCount()) + ' expected=' + (initialAllCount + 1));
+    }
   ${pageEpilogue(['hiddenCardSeenAt', 'hiddenCountSeenAt'])}`;
 }
 

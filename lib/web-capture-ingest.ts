@@ -482,26 +482,32 @@ async function ingestWebCaptureUnlocked(options: { store: Store; referenceStore?
     const titledAsset = generationSessionTitle
       ? await maybeStoreSessionTitle(store, asset, generationSessionTitle) || asset
       : asset;
-    await recordCapturedGeneration(store, titledAsset, {
-      projectId,
-      provider,
-      generationContextId,
-      providerToolCallId,
-      providerGenerationCallId,
-      providerResponseId,
-      providerAssetId,
-      conversationId,
-      messageId,
-      generationBatchId,
-      model,
-      userMessage,
-      prompt,
-      promptStatus: normalizedPromptStatus,
-      promptScope,
-      generationStatus,
-      references: asset.references,
-      capturedAt,
-    });
+    // A re-observation of an already-archived image without any provider
+    // identity used to append a fresh generation event on every capture (its
+    // occurrence:<time> id never matches), so the history showed phantom
+    // regenerations. Only identified observations may record an event.
+    if (providerGenerationCallId || generationContextId || messageId || providerAssetId) {
+      await recordCapturedGeneration(store, titledAsset, {
+        projectId,
+        provider,
+        generationContextId,
+        providerToolCallId,
+        providerGenerationCallId,
+        providerResponseId,
+        providerAssetId,
+        conversationId,
+        messageId,
+        generationBatchId,
+        model,
+        userMessage,
+        prompt,
+        promptStatus: normalizedPromptStatus,
+        promptScope,
+        generationStatus,
+        references: asset.references,
+        capturedAt,
+      });
+    }
     const sameBytes = titledAsset.source?.content_sha256 === contentHash;
     return {
       status: "skipped",

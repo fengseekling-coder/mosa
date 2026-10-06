@@ -412,7 +412,15 @@ function sessionOneSource(expect) {
     // With videos seeded, the pre-render grid cannot satisfy the img prefix,
     // so this also proves the filter's re-render landed before the stability
     // gate (a slow response could otherwise pass stability on the old grid).
-    await waitFor(() => isPrefix(rootCardIds(), expect.imgOrder), 'img filter page renders', 20000);
+    // gallerySettled pins the wait to the filter's own request having landed
+    // (busy=false); a bare prefix check alone could spin on a grid the
+    // background reconciliation keeps mutating and never judge the final
+    // order, and an empty grid would satisfy isPrefix vacuously.
+    await waitFor(
+      () => typePressed('img').active && gallerySettled() && isPrefix(rootCardIds(), expect.imgOrder),
+      'img filter page renders',
+      20000,
+    );
     await waitForStableCardLayout('img filter switch');
     const imgFirstPageIds = rootCardIds();
     if (imgFirstPageIds.length !== expect.initialCount) {
