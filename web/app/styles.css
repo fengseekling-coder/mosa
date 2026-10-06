@@ -185,7 +185,9 @@
   --space-2: 16px;
   --space-3: 24px;
   /* R21：画廊横竖间距共用一个值（瀑布流高度估算与框选命中都只读它）。 */
-  --gallery-gap: 16px;
+  /* R21：画廊横竖间距共用一个值（瀑布流高度估算与框选命中都只读它）。
+     任务 70 返工 1（设计稿还原）：16 → 4。 */
+  --gallery-gap: 4px;
 
   /* --- R21 4px 结构网格阶梯（命名照 R21 设计稿的 --mosa-s*，前缀 --r21-） --- */
   --r21-s1: 4px;
@@ -319,15 +321,27 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
    bar must be draggable; every interactive child opts out. No-op on Windows,
    which keeps its native title bar. */
 .topbar { -webkit-app-region: drag; }
-.topbar button, .topbar input, .topbar select, .topbar a, .topbar label, .topbar .type-filter, .topbar .topbar-search, .topbar .topbar-utility-group, .topbar .topbar-work-group { -webkit-app-region: no-drag; }
-/* Phase 2B / F-18：顶栏语义分组。context=范围标题+类型筛选（占据剩余空间，可截断）；
-   actions 内 utility/work/primary 三个操作组，组间 --space-1，组内 6px（延续既有 .topbar-right 运行值）；
+.topbar button, .topbar input, .topbar select, .topbar a, .topbar label, .topbar .topbar-search, .topbar .topbar-utility-group, .topbar .topbar-work-group { -webkit-app-region: no-drag; }
+/* Phase 2B / F-18：顶栏语义分组。context=后退/前进导航组+视觉隐藏的范围标题
+   （占据剩余空间）；GravityPort A3 起中间是绝对居中的 .topbar-size-group 缩略图
+   滑杆；actions 内 utility/work/primary 三个操作组，组间 --space-1，组内 6px；
    primary 前一道细分隔线（Border Token）标出唯一主操作，无卡片容器/阴影/渐变。 */
 .topbar-context { display: flex; min-width: 0; flex: 1 1 auto; align-items: baseline; }
-/* V2 FilterBar：类型筛选（全部/图片/视频）位于范围标题右侧，安静中性。 */
-.topbar-type-filters { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; margin-left: var(--space-2); }
-.type-filter { display: inline-flex; align-items: center; gap: 6px; height: var(--control-sm); padding: 0 12px; border: 0; border-radius: 6px; color: var(--color-text-secondary); background: transparent; font-size: 12px; cursor: pointer; }
-.type-filter.active { color: var(--color-text-primary); background: var(--app-chip-active); font-weight: 500; }
+/* GravityPort A3（任务 70）：左侧后退/前进按钮组（样式沿用 .toolbar-icon，
+   28×28 / 16px 图标），按钮间距 4px；#stackBack 显示时排在前进按钮右边。 */
+.topbar-nav-group { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; }
+/* GravityPort A3（任务 70 返工 1，设计稿还原）：滑杆组居中 = 窗口中线（检视器
+   开关都一样，app.mjs 写行内 left）；放不下时退让到左右两组之间的空白居中，
+   都放不下才写 hidden。display:none 的组量不到宽度，三态判定由 app.mjs 全程
+   同步完成；这里的 50% 只是 JS 跑起来前的兜底。 */
+.topbar-size-group { position: absolute; top: 50%; left: 50%; display: flex; align-items: center; gap: 8px; transform: translate(-50%, -50%); }
+.topbar-size-group[hidden] { display: none; }
+/* 设计稿对照（任务 70 返工 1）：滑轨 2px 高 / 圆角 1；滑块 24×12 横向胶囊
+   （圆角 6，margin-top 把 12px 滑块压回 2px 滑轨正中）。颜色沿用现有 token：
+   轨道 --color-border-subtle（明暗自适应），滑块 --color-accent。 */
+.topbar-size-slider { box-sizing: border-box; width: 120px; height: 28px; margin: 0; padding: 0; border: 0; accent-color: var(--color-accent); -webkit-appearance: none; appearance: none; background: transparent; }
+.topbar-size-slider::-webkit-slider-runnable-track { height: 2px; border-radius: 1px; background: var(--color-border-subtle); }
+.topbar-size-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 24px; height: 12px; margin-top: -5px; border-radius: 6px; background: var(--color-accent); }
 /* V2 FilterBar：唯一搜索框位于顶栏右侧（筛选之后），256px 定宽、32px 高；
    图标装饰（aria-hidden），accessible name 由 input aria-label 提供；
    清除沿用原生 type="search"；焦点态只改变底色，不增加外扩描边或光晕。 */
@@ -947,10 +961,6 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   :where(.icon-button.quiet, .section-head-copy):not(:disabled):not([aria-disabled="true"]):hover {
     color: var(--color-text-primary); background: var(--app-hover);
   }
-  /* V2 FilterBar 类型筛选：未选中项 hover 加底色（选中态由 .active 守卫排除）。 */
-  .type-filter:not(.active):not(:disabled):not([aria-disabled="true"]):hover {
-    color: var(--color-text-primary); background: var(--app-chip);
-  }
   /* MenuItem：bg-3 填充（选中态由 .active/.selected 守卫排除） */
   :where(.nav-item:not(.active), .settings-trigger, .settings-menu button, .version-timeline-item:not(.selected) > button):not(:disabled):not([aria-disabled="true"]):hover {
     color: var(--color-text-primary); background: var(--app-hover);
@@ -1124,7 +1134,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   .asset-card:hover { transform: none; }
   .card-actions, .card-action-btn { transition: none; }
   .asset-skeleton { animation: none; background: var(--app-hover); }
-  .nav-item, .type-filter, .topbar-search { transition: none; }
+  .nav-item, .topbar-search { transition: none; }
   .toast { transition: none; transform: none; }
   .asset-view-control, .asset-view-fit, .asset-view-nav-btn { transition: none; }
   .segmented-btn, .segmented-thumb, .toolbar-icon, .toolbar-filter, .create-button, .icon-button,
@@ -1146,6 +1156,9 @@ body.mosa-v2 {
   --color-media-surface: rgb(28 28 30 / 0.82);
   --color-media-border: rgb(255 255 255 / 0.18);
   --color-media-text: #ffffff;
+  /* GravityPort A3：画廊列数由 JS 按「滑杆目标宽 + 画廊内容宽」算出后写进
+     #assetGrid 的行内 --gallery-columns；这里只是 CSS 默认值（首帧/JS 未跑时）。 */
+  --gallery-columns: 5;
   background: var(--app-bg);
   color: var(--color-text-primary);
   font-family: var(--font-family-ui);
@@ -1188,12 +1201,7 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .settings-trigger .user-center-avatar { display: inline-flex; width: 24px; height: 24px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 50%; color: var(--color-accent); background: var(--color-accent-subtle); font-size: 12px; font-weight: 600; line-height: 1; }
 .mosa-v2 .topbar-context { align-items: center; gap: 12px; }
 .mosa-v2 .title-row { align-items: center; }
-.mosa-v2 .topbar-type-filters { margin-left: 0; gap: 4px; }
-.mosa-v2 .type-filter { height: 28px; gap: 6px; padding: 0 12px; border-radius: 8px; font-size: 10.5px; }
-/* R21：类型筛选是纯文字分段，Web 端用 CSS 隐藏按钮里的图标。 */
-.mosa-v2 .type-filter svg { display: none; }
-.mosa-v2 .type-filter.active { background: var(--app-chip-active); font-weight: 580; }
-.mosa-v2 .topbar-search { flex: 0 1 152px; width: 152px; }
+.mosa-v2 .topbar-search { flex: 0 1 144px; width: 144px; }
 .mosa-v2 .topbar-search input { box-sizing: border-box; border: 0; background: transparent; font-size: 12px; }
 .mosa-v2 .topbar-search input:focus, .mosa-v2 .topbar-search input:focus-visible { border-color: transparent; box-shadow: none; outline: 0; }
 
@@ -1202,21 +1210,34 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 :root[data-theme="light"] .mosa-v2 .sidebar { background: #fbfbfc; }
 :root[data-theme="light"] .mosa-v2 .nav-item, :root[data-theme="light"] .mosa-v2 .settings-trigger { color: #55555a; }
 :root[data-theme="light"] .mosa-v2 .nav-item.active { background: #ececef; color: var(--color-text-primary); }
-:root[data-theme="light"] .mosa-v2 .type-filter.active { background: #f0f0f2; color: #303034; }
 :root[data-theme="light"] .mosa-v2 .sort-control select { background: #f4f4f5; }
 :root[data-theme="light"] .mosa-v2 .topbar-search { background: #f4f4f5; }
 :root[data-theme="light"] .mosa-v2 .topbar-search:focus-within { background: var(--app-search-focus); }
 
 .mosa-v2 .library { background: var(--app-bg); }
-.mosa-v2 .topbar { box-sizing: border-box; gap: 8px; height: var(--topbar-height); min-height: var(--topbar-height); padding: 0 24px; border: 0; background: transparent; }
+/* GravityPort A3：滑杆组绝对定位于顶栏，topbar 自己成为包含块。任务 70 返工 1
+   （设计稿还原）：滑杆组居中对准「窗口中线」由 app.mjs 写行内 left（检视器
+   开关都一样），这里的 50% 只是 JS 跑起来前的兜底。 */
+.mosa-v2 .topbar { position: relative; box-sizing: border-box; gap: 8px; height: var(--topbar-height); min-height: var(--topbar-height); padding: 0 20px; border: 0; background: transparent; }
 .mosa-v2 .topbar-context { flex: 1 1 auto; align-items: center; }.mosa-v2 .title-row { display: flex; align-items: baseline; gap: 8px; }
 .mosa-v2 .title-row h2 { color: var(--color-text-primary); font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+/* GravityPort A3：后退/前进与滑杆两侧按钮回到 28×28 无边框安静档
+   （.toolbar-icon 的 mosa-v2 32px 带边框外观只属于右侧工作区控件）。 */
+.mosa-v2 .topbar-nav-group .toolbar-icon, .mosa-v2 .topbar-size-group .toolbar-icon { width: 28px; height: 28px; flex: 0 0 auto; border: 0; border-radius: var(--radius-control); background: transparent; }
 .mosa-v2 .topbar-actions { gap: 8px; }.mosa-v2 .topbar-utility-group { display: contents; }.mosa-v2 .topbar-work-group { gap: 4px; }.mosa-v2 .topbar-primary-group { display: flex; }
 .mosa-v2 .toolbar-filter, .mosa-v2 .toolbar-icon, .mosa-v2 .sort-control select { height: 32px; border: 1px solid var(--color-border-subtle); border-radius: 8px; color: var(--color-text-secondary); background: var(--app-input); box-shadow: none; font-size: 12px; }
 .mosa-v2 .toolbar-filter { gap: 6px; padding: 0 10px; }.mosa-v2 .toolbar-filter[aria-pressed="true"] { color: var(--color-text-primary); background: var(--app-chip-active); }
-.mosa-v2 .sort-control select { min-width: 96px; padding: 0 26px 0 12px; }
+.mosa-v2 .sort-control select { min-width: 88px; padding: 0 26px 0 12px; }
+/* 任务 70 返工 1（设计稿还原）：顶栏右侧控件 24 高、在 64 高顶栏里竖向居中
+   （y20–44）。共用 32px 规则不动，只用 .topbar-actions 限定范围，顶栏以外
+   用到这些类的地方不受影响；搜索框 input 是 height:100% 跟随盒子。点击区域
+   变小是「先还原」的拍板，不在本单里自作主张加大。 */
+.mosa-v2 .topbar-actions .toolbar-filter, .mosa-v2 .topbar-actions .toolbar-icon, .mosa-v2 .topbar-actions .sort-control select, .mosa-v2 .topbar-actions .topbar-search { height: 24px; }
 .mosa-v2 .create-button { height: 32px; gap: 6px; padding: 0 12px; border-radius: 8px; color: #fff; background: #2424ff; box-shadow: 0 4px 8px -3px rgb(36 36 255 / .28); font-size: 12px; }
-.mosa-v2 .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); column-gap: var(--gallery-gap); row-gap: 0; padding: var(--r21-s5) var(--r21-s6) var(--r21-s8); background: transparent; }
+/* GravityPort A3：列数由 --gallery-columns 驱动（app.mjs 按「滑杆目标宽 +
+   画廊内容宽」计算后写在 #assetGrid 行内，上限 10；≤767px 档固定 2 列不变，
+   写在下方 max-width:767px 媒体查询里，行内变量改变不了它）。 */
+.mosa-v2 .grid { grid-template-columns: repeat(var(--gallery-columns), minmax(0, 1fr)); column-gap: var(--gallery-gap); row-gap: 0; padding: 0 20px var(--r21-s8); background: transparent; }
 .mosa-v2 #assetGrid:focus-visible { outline: none; }
 .mosa-v2 .asset-card { margin-bottom: 0; transition: transform 200ms var(--ease-standard), box-shadow 200ms var(--ease-standard); }
 .mosa-v2 .asset-card-select { border-radius: var(--radius-card); background: var(--app-card); box-shadow: none; }.mosa-v2 .asset-card-select::after { border-radius: var(--radius-card); box-shadow: inset 0 0 0 1px rgb(0 0 0 / .04); }.mosa-v2 .asset-card.selected .asset-card-select::after, .mosa-v2 .asset-card.multi-selected .asset-card-select::after { box-shadow: none; }.mosa-v2 .asset-card.selected::after, .mosa-v2 .asset-card.multi-selected::after { content: ""; position: absolute; z-index: 4; inset: -1px; box-sizing: border-box; border: 1.5px solid var(--color-accent); border-radius: calc(var(--radius-card) + 1px); pointer-events: none; }
@@ -1247,7 +1268,7 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   .mosa-v2 .card-favorite:not(.is-fav):hover { color: rgb(255 255 255 / .88); background: transparent; opacity: 1; }
   .mosa-v2 .card-favorite.is-fav:hover { color: var(--color-danger); background: transparent; opacity: .82; }
 }
-.mosa-v2 .gallery-skeleton { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--gallery-gap); padding: 0; }.mosa-v2 .asset-skeleton { border-radius: 8px; background: linear-gradient(100deg, var(--app-search) 30%, var(--app-search-focus) 45%, var(--app-search) 60%); }.mosa-v2 .gallery-empty-state, .mosa-v2 .error-state { color: var(--color-text-tertiary); }.mosa-v2 .empty-state-actions .btn-primary { background: #2424ff; }
+.mosa-v2 .gallery-skeleton { grid-template-columns: repeat(var(--gallery-columns), minmax(0, 1fr)); gap: var(--gallery-gap); padding: 0; }.mosa-v2 .asset-skeleton { border-radius: 8px; background: linear-gradient(100deg, var(--app-search) 30%, var(--app-search-focus) 45%, var(--app-search) 60%); }.mosa-v2 .gallery-empty-state, .mosa-v2 .error-state { color: var(--color-text-tertiary); }.mosa-v2 .empty-state-actions .btn-primary { background: #2424ff; }
 
 .mosa-v2 .settings-menu { border: 1px solid rgb(255 255 255 / .68); border-radius: 16px; background: rgb(from var(--app-menu) r g b / .92); box-shadow: 0 18px 42px -10px rgb(0 0 0 / .16); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); }
 
@@ -1375,12 +1396,10 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .detail-group-section { order: 6; }
 .mosa-v2 .detail [data-inspector-section="more"] { order: 7; }
 
-/* The V2 FilterBar begins with type filters; the retained heading is still
-   present for accessibility and runtime state, but is not a second visual
-   toolbar title. */
-.mosa-v2 .title-row { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
-.mosa-v2 .title-row:has(#stackBack:not([hidden])) { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; display: flex; }
-.mosa-v2 .title-row:has(#stackBack:not([hidden])) h2 { display: none; }
+/* GravityPort A3：范围标题（#viewTitle）恒为视觉隐藏——元素与内容保留，
+   读屏仍能读到当前范围；隐藏由 index.html 里的 .visually-hidden 类承担
+   （堆叠返回按钮 #stackBack 已移入左侧 .topbar-nav-group，原 :has 解除隐藏
+   的例外规则随之删除）。 */
 
 /* V2 Gallery's neutral zero-result recovery state. */
 .mosa-v2 .grid:has(.gallery-empty-state) { display: flex; }
@@ -1480,8 +1499,10 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .toast { border-left: 0; border-radius: 12px; color: #fff; background: rgb(28 28 30 / .94); box-shadow: 0 10px 28px rgb(0 0 0 / .22); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }.mosa-v2 .toast.success { box-shadow: inset 3px 0 0 #34c759, 0 10px 28px rgb(0 0 0 / .22); }.mosa-v2 .toast.error { box-shadow: inset 3px 0 0 #ff453a, 0 10px 28px rgb(0 0 0 / .22); }
 @keyframes v2-detail-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
-@media (max-width: 1400px) { .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-@media (max-width: 900px) { .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(3, minmax(0, 1fr)); }.mosa-v2 .topbar-search { width: 180px; } }
+/* GravityPort A3：>767px 的画廊列数由 --gallery-columns 计算接管，按宽度减列的
+   mosa-v2 媒体查询（原 ≤1400→4 列、≤900→3 列、≥1280→5 列、≤1279→3 列）移除；
+   ≤767px 档保持固定 2 列（见下方各窄档媒体查询）。 */
+@media (max-width: 900px) { .mosa-v2 .topbar-search { width: 180px; } }
 @media (max-width: 700px) {
   .mosa-v2 .shell { width: 100%; height: 100%; margin: 0; border: 0; border-radius: 0; grid-template-columns: 64px minmax(0, 1fr); }
   .mosa-v2 .brand { justify-content: center; padding: 0; }
@@ -1671,13 +1692,8 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
    icon-rail behaviour; no desktop control is merely squeezed into mobile. */
 .mobile-nav-toggle, .mobile-nav-close, .mobile-nav-scrim { display: none; }
 
-@media (min-width: 1280px) {
-  .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-}
-
-@media (max-width: 1279px) {
-  .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
+/* GravityPort A3：>767px 列数交给 --gallery-columns（原 1280/1279 两档减列
+   媒体查询移除，断点登记表保持不变）。 */
 
 @media (max-width: 767px) {
   .mosa-v2 .shell, .mosa-v2 .shell.details-open {
@@ -1769,6 +1785,10 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
     gap: 10px;
     padding: 12px 16px;
   }
+  /* GravityPort A3（任务 70 返工）：窄档只隐藏前进/后退（.nav-history-button）
+     与缩略图滑杆；同在 .topbar-nav-group 里的 #stackBack 不在隐藏名单，进堆叠
+     后照常可见可点。 */
+  .mosa-v2 .topbar-nav-group .nav-history-button, .mosa-v2 .topbar-size-group { display: none; }
   .mosa-v2 .topbar-context, .mosa-v2 .topbar-actions, .mosa-v2 .topbar-work-group { box-sizing: border-box; width: 100%; }
   .mosa-v2 .topbar-context { flex: 0 0 auto; padding-left: 52px; }
   .mosa-v2 .topbar-actions { display: block; }

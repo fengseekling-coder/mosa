@@ -20,12 +20,66 @@ import { bindContextMenuEvents } from "./context-menu-bindings.mjs";
 import { createGallerySelection } from "./gallery-selection.mjs";
 import { createAssetStackController } from "./asset-stacks.mjs";
 import { createLibraryReconciler } from "./library-reconciliation.mjs";
+import { createNavigationHistory } from "./navigation-history.mjs";
 import { collectDroppedFiles, createBatchImporter, dropErrorMessage } from "./batch-import.mjs";
 import { createNativeAssetDrag } from "./native-asset-drag.mjs";
 let libraryRefreshTimer = null;
 let settingsSyncTimer = null;
 let settingsSyncScheduled = false;
 const TRASH_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+
+// ===== GravityPort A3：缩略图大小滑杆与画廊列数（任务 70）=====
+// 目标卡宽 120–400px、步长 20、默认 200（1440 宽、检视器关闭时约 5 列）；
+// 列数 = max(1, min(上限, floor((内容宽 + 列间距) / (目标宽 + 列间距))))。
+// 独立导出供契约测试直接求值。
+const GALLERY_SIZE_STORAGE_KEY = "mosa.gallery-card-size";
+const GALLERY_SIZE_MIN = 120;
+const GALLERY_SIZE_MAX = 400;
+const GALLERY_SIZE_STEP = 20;
+const GALLERY_SIZE_DEFAULT = 200;
+const GALLERY_MAX_COLUMNS = 10;
+
+export function computeGalleryColumnCount(contentWidth, targetCardWidth, gap, maxColumns = GALLERY_MAX_COLUMNS) {
+  const width = Number(contentWidth);
+  const target = Number(targetCardWidth);
+  const gapValue = Number(gap) || 0;
+  if (!Number.isFinite(width) || width <= 0) return 1;
+  if (!Number.isFinite(target) || target <= 0) return 1;
+  const cap = Number.isFinite(maxColumns) && maxColumns >= 1 ? Math.floor(maxColumns) : GALLERY_MAX_COLUMNS;
+  return Math.max(1, Math.min(cap, Math.floor((width + gapValue) / (target + gapValue))));
+}
+
+// 滑杆组三态判定（任务 70 返工 1，用户 10-06 拍板）：能放下时滑杆组中心对准
+// 整个窗口的中线（centerX = 窗口中线换算到顶栏坐标系，检视器开关都一样）；
+// 放不下（与左右两组各留 12px 呼吸边距）时退让到左组右缘与右组左缘之间的
+// 空白里居中；连空白都放不下（空白 < 组宽 + 24）才隐藏。坐标一律是顶栏
+// border-box 内的 px：centered/recentered 都返回行内 left（CSS 的 50% 是顶栏
+// 中线、不等于窗口中线，只作 JS 跑起来前的兜底），hidden 返回 null（删行内
+// 值）。独立导出供契约测试直接求值。
+export const TOPBAR_SIZE_GROUP_MARGIN = 12;
+
+export function computeTopbarSizeGroupPlacement(centerX, leftGroupRight, rightGroupLeft, groupWidth, margin = TOPBAR_SIZE_GROUP_MARGIN) {
+  if (!Number.isFinite(centerX) || !Number.isFinite(groupWidth) || groupWidth <= 0
+    || !Number.isFinite(leftGroupRight) || !Number.isFinite(rightGroupLeft) || rightGroupLeft < leftGroupRight) {
+    return { mode: "hidden", left: null };
+  }
+  if (centerX - groupWidth / 2 >= leftGroupRight + margin && centerX + groupWidth / 2 <= rightGroupLeft - margin) {
+    return { mode: "centered", left: centerX };
+  }
+  if (rightGroupLeft - leftGroupRight - margin * 2 >= groupWidth) {
+    return { mode: "recentered", left: (leftGroupRight + rightGroupLeft) / 2 };
+  }
+  return { mode: "hidden", left: null };
+}
+
+function clampGalleryCardSize(value) {
+  const raw = Number(value);
+  if (!Number.isFinite(raw) || raw <= 0) return GALLERY_SIZE_DEFAULT;
+  const stepped = Math.round((raw - GALLERY_SIZE_MIN) / GALLERY_SIZE_STEP) * GALLERY_SIZE_STEP + GALLERY_SIZE_MIN;
+  return Math.min(GALLERY_SIZE_MAX, Math.max(GALLERY_SIZE_MIN, stepped));
+}
+
+let galleryTargetCardWidth = clampGalleryCardSize(safeStorageGet(GALLERY_SIZE_STORAGE_KEY));
 
 function trashRemainingDays(deletedAt) {
   const deletedAtMs = Date.parse(String(deletedAt || ""));
@@ -144,6 +198,8 @@ const applyLanguage = createLanguageApplier({
 const els = {
   searchInput: document.querySelector("#searchInput"), quickFilters: document.querySelector("#quickFilters"),
   typeFilters: document.querySelector(".topbar-type-filters"),
+  navHistoryBack: document.querySelector("#navHistoryBack"), navHistoryForward: document.querySelector("#navHistoryForward"),
+  topbarSizeGroup: document.querySelector("#topbarSizeGroup"), gallerySizeSlider: document.querySelector("#gallerySizeSlider"), gallerySizeMinus: document.querySelector("#gallerySizeMinus"), gallerySizePlus: document.querySelector("#gallerySizePlus"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
   sortSelect: document.querySelector("#sortSelect"),
   categorySelect: document.querySelector("#categorySelect"),
@@ -882,6 +938,14 @@ function setupKeyboardShortcuts() {
       else els.assetGrid?.focus({ preventScroll: true });
       return;
     }
+    // GravityPort A3：后退/前进（任务 70）。macOS ⌘[ / ⌘]，其他平台 Alt+← / Alt+→；
+    // 输入控件已被上方守卫拦截，contenteditable 在 resolveNavHistoryShortcut 里排除。
+    const navHistoryDirection = resolveNavHistoryShortcut(event);
+    if (navHistoryDirection !== 0 && !hasBlockingOverlay()) {
+      event.preventDefault();
+      void navigateGalleryHistory(navHistoryDirection);
+      return;
+    }
     if (event.key === "/" && state.viewMode === "library" && !hasBlockingOverlay()) { event.preventDefault(); els.searchInput?.focus(); return; }
     if (event.key === "Escape") {
       // Phase 3A 运行时修复：bindEvents 先行注册的 Modal 焦点陷阱已消费本次 Escape
@@ -1058,6 +1122,7 @@ async function resetLibraryRefinements() {
   if (state.viewMode === "asset") returnToLibrary();
   clearDetailSelection();
   renderQuickFilters(); renderTypeFilters(); renderCategoryFilter();
+  recordNavigationPosition();
   announceGalleryStatus(t("statusRefinementsCleared"));
   void loadAssets().then((applied) => {
     if (!applied) return;
@@ -1083,6 +1148,13 @@ async function init() {
     setupPasteImport();
     setupKeyboardShortcuts();
     setupImageZoomPan();
+    // GravityPort A3：初始浏览位置入历史（后退到头=启动时的范围）；滑杆恢复
+    // 本地存储值并首次计算列数/滑杆组可见性。
+    navHistory.clear();
+    navHistory.push(captureNavigationSnapshot());
+    syncNavHistoryButtons();
+    applyGalleryCardSize(galleryTargetCardWidth);
+    syncGallerySizeGroupVisibility();
     renderGrid();
     // Desktop V2 starts with the Inspector as the third column. Calling the
     // existing state transition before data loading prevents a visible
@@ -1871,6 +1943,10 @@ function updateViewTitle() {
             : t("searchAll");
   }
   if (els.emptyTrashBtn) els.emptyTrashBtn.hidden = state.scope !== "trash" || Number(state.groups?.trash || 0) === 0;
+  // GravityPort A3：范围变化总会经过这里（渲染/进出堆叠/语言切换），历史按钮
+  // 的 disabled 态与滑杆组的重叠隐藏随之同步。
+  syncNavHistoryButtons();
+  syncGallerySizeGroupVisibility();
 }
 
 async function clearSearchQuery() {
@@ -1880,6 +1956,7 @@ async function clearSearchQuery() {
   discardDetailDraft();
   state.query = "";
   if (els.searchInput) els.searchInput.value = "";
+  recordNavigationPosition();
   applyFilterChange();
   return true;
 }
@@ -1904,12 +1981,154 @@ async function authorizeNavigationIntent(intent) {
   return isNavigationIntentCurrent(intent);
 }
 
+// ===== GravityPort A3：浏览位置历史（任务 70）=====
+// 记录范围/来源/分组/分类/搜索的位置变化；排序不算位置。恢复走现有
+// applyFilterChange 流程且不产生新记录；在中间位置的新导航由 navigation-history
+// 模块截断前进记录。只存内存，上限 50，不写本地存储。
+const navHistory = createNavigationHistory();
+
+function captureNavigationSnapshot() {
+  return {
+    scope: state.scope,
+    facets: { ...state.facets },
+    mediaKind: state.mediaKind,
+    query: state.query,
+  };
+}
+
+function navigationSnapshotsEqual(a, b) {
+  if (!a || !b) return false;
+  return a.scope === b.scope
+    && a.mediaKind === b.mediaKind
+    && a.query === b.query
+    && FACET_KEYS.every((key) => (a.facets?.[key] || "") === (b.facets?.[key] || ""));
+}
+
+// 堆叠内部不是画廊浏览位置：进出堆叠走 #stackBack，历史按钮在堆叠里禁用。
+function recordNavigationPosition() {
+  if (state.activeStackId) return;
+  const snapshot = captureNavigationSnapshot();
+  if (navigationSnapshotsEqual(navHistory.current(), snapshot)) return;
+  navHistory.push(snapshot);
+  syncNavHistoryButtons();
+}
+
+function syncNavHistoryButtons() {
+  const inStack = Boolean(state.activeStackId);
+  if (els.navHistoryBack) els.navHistoryBack.disabled = inStack || !navHistory.canBack();
+  if (els.navHistoryForward) els.navHistoryForward.disabled = inStack || !navHistory.canForward();
+}
+
+function restoreNavigationSnapshot(entry) {
+  discardDetailDraft();
+  state.scope = entry.scope || "all";
+  state.facets = Object.fromEntries(FACET_KEYS.map((key) => [key, String(entry.facets?.[key] || "")]));
+  state.mediaKind = entry.mediaKind || "all";
+  state.query = entry.query || "";
+  state.nextCursor = null;
+  if (els.searchInput) els.searchInput.value = state.query;
+  if (state.viewMode === "asset") returnToLibrary();
+  clearDetailSelection();
+  syncNavHistoryButtons();
+  applyFilterChange();
+}
+
+// 先 peek 再过未保存编辑确认（authorizeNavigationIntent），确认通过才消费光标：
+// 取消确认时光标不能已经移动。
+async function navigateGalleryHistory(direction) {
+  if (state.activeStackId) return false;
+  const entry = direction < 0 ? navHistory.peekBack() : navHistory.peekForward();
+  if (!entry) return false;
+  const intent = beginNavigationIntent();
+  if (!await authorizeNavigationIntent(intent)) return false;
+  if (direction < 0) navHistory.back();
+  else navHistory.forward();
+  restoreNavigationSnapshot(entry);
+  return true;
+}
+
+function resolveNavHistoryShortcut(event) {
+  if (event.target.closest?.("[contenteditable], video")) return 0;
+  const isMac = /Mac/i.test(navigator.platform || navigator.userAgent || "");
+  if (isMac) {
+    if ((event.metaKey || event.ctrlKey) && event.key === "[") return -1;
+    if ((event.metaKey || event.ctrlKey) && event.key === "]") return 1;
+    return 0;
+  }
+  if (event.altKey && !event.ctrlKey && !event.metaKey) {
+    if (event.key === "ArrowLeft") return -1;
+    if (event.key === "ArrowRight") return 1;
+  }
+  return 0;
+}
+
+// ===== GravityPort A3：缩略图大小滑杆 → 画廊列数（任务 70）=====
+// --gallery-columns 写在 #assetGrid 行内；≤767px 的固定 2 列媒体查询不受它影响。
+// 列数变化后走 scheduleMasonryLayout()（全量重放置：瀑布流几何、框选命中、
+// 虚拟窗口同步都由既有管线接管）。
+function syncGalleryColumns() {
+  const grid = els.assetGrid;
+  if (!grid) return;
+  const styles = getComputedStyle(grid);
+  const gap = Number.parseFloat(styles.getPropertyValue("--gallery-gap")) || Number.parseFloat(styles.columnGap) || 0;
+  const paddingX = (Number.parseFloat(styles.paddingLeft) || 0) + (Number.parseFloat(styles.paddingRight) || 0);
+  const next = computeGalleryColumnCount(grid.clientWidth - paddingX, galleryTargetCardWidth, gap);
+  if (grid.style.getPropertyValue("--gallery-columns") === String(next)) return;
+  grid.style.setProperty("--gallery-columns", String(next));
+  scheduleMasonryLayout();
+}
+
+function applyGalleryCardSize(value, { persist = false } = {}) {
+  galleryTargetCardWidth = clampGalleryCardSize(value);
+  if (els.gallerySizeSlider) els.gallerySizeSlider.value = String(galleryTargetCardWidth);
+  if (persist) safeStorageSet(GALLERY_SIZE_STORAGE_KEY, String(galleryTargetCardWidth));
+  syncGalleryColumns();
+}
+
+// 滑杆组三态（居中 / 退让居中 / 隐藏）由 computeTopbarSizeGroupPlacement 判定，
+// 居中 = 窗口中线（检视器开关都一样），不挤压右侧控件。hidden（display:none）
+// 量不到宽度：先临时摆回布局再量，全程同步、不经过绘制帧，三种状态切换不闪
+// 烁。居中/退让都写行内 left（hidden 删掉行内值，不留旧位置）。≤767px 档 CSS
+// 直接隐藏，JS 只负责维持 hidden 一致。
+function syncGallerySizeGroupVisibility() {
+  const group = els.topbarSizeGroup;
+  if (!group) return;
+  if (isMobileNavigationViewport()) {
+    group.hidden = true;
+    group.style.removeProperty("left");
+    return;
+  }
+  const wasHidden = group.hidden;
+  if (wasHidden) group.hidden = false;
+  const barRect = group.parentElement?.getBoundingClientRect();
+  // 左右各量「实际内容组」：.topbar-context 是 flex:1 的占位容器（撑满剩余
+  // 空间），量它会永远判重叠；.topbar-nav-group 才是按钮簇的真实宽度。
+  const leftRect = els.navHistoryBack?.closest(".topbar-nav-group")?.getBoundingClientRect();
+  const rightRect = els.searchInput?.closest(".topbar-actions")?.getBoundingClientRect();
+  const groupWidth = group.offsetWidth;
+  const placement = computeTopbarSizeGroupPlacement(
+    barRect ? window.innerWidth / 2 - barRect.left : NaN,
+    leftRect && barRect ? leftRect.right - barRect.left : NaN,
+    rightRect && barRect ? rightRect.left - barRect.left : NaN,
+    groupWidth,
+  );
+  if (placement.left === null) group.style.removeProperty("left");
+  else group.style.left = `${placement.left}px`;
+  group.hidden = placement.mode === "hidden";
+}
+
 function bindEvents() {
   syncMobileNavigation();
   syncSidebarSectionVisibility();
   els.mobileNavToggle?.addEventListener("click", () => setMobileNavOpen(true));
   els.mobileNavClose?.addEventListener("click", () => setMobileNavOpen(false, { restoreFocus: true }));
   els.mobileNavScrim?.addEventListener("click", () => setMobileNavOpen(false, { restoreFocus: true }));
+  // GravityPort A3：后退/前进按钮与缩略图大小滑杆（任务 70）。
+  els.navHistoryBack?.addEventListener("click", () => { void navigateGalleryHistory(-1); });
+  els.navHistoryForward?.addEventListener("click", () => { void navigateGalleryHistory(1); });
+  els.gallerySizeSlider?.addEventListener("input", (event) => applyGalleryCardSize(event.target.value, { persist: true }));
+  els.gallerySizeMinus?.addEventListener("click", () => applyGalleryCardSize(galleryTargetCardWidth - GALLERY_SIZE_STEP, { persist: true }));
+  els.gallerySizePlus?.addEventListener("click", () => applyGalleryCardSize(galleryTargetCardWidth + GALLERY_SIZE_STEP, { persist: true }));
   els.sidebar?.addEventListener("click", (event) => {
     if (!isMobileNavigationViewport()) return;
     if (event.target.closest(".nav-item, .settings-trigger")) setMobileNavOpen(false);
@@ -1924,6 +2143,7 @@ function bindEvents() {
     discardDetailDraft();
     state.query = nextQuery;
     state.nextCursor = null;
+    recordNavigationPosition();
     // Phase 3A：结果集语义已变化，退出查看模式（快照 requestKey 随之失效，恢复自动降级）。
     if (state.viewMode === "asset") returnToLibrary();
     clearDetailSelection();
@@ -2107,6 +2327,7 @@ function bindEvents() {
     }
     discardDetailDraft();
     state.facets.category = nextCategory;
+    recordNavigationPosition();
     applyFilterChange();
   });
   els.settingsToggle?.addEventListener("click", toggleSettingsModal);
@@ -2139,6 +2360,10 @@ function bindEvents() {
       clearDetailSelection();
       gallerySelection.clear();
       if (els.searchInput) els.searchInput.value = "";
+      // 项目切换是新的工作区：浏览位置历史随之清空（快照不跨项目恢复）。
+      navHistory.clear();
+      navHistory.push(captureNavigationSnapshot());
+      syncNavHistoryButtons();
       // switchProjectWorkspace 已把 facets 清空，下拉框同步回「全部分类」。
       renderCategoryFilter();
       if (state.viewMode === "asset") returnToLibrary();
@@ -2378,7 +2603,7 @@ function bindEvents() {
   // Settings 的 segmented radiogroup 在持久根节点上统一处理方向键。
   // 绑定在持久的 #settingsMenu 元素上：innerHTML 重建不会叠加监听器（全应用唯一一套）。
   els.settingsMenu?.addEventListener("keydown", handleSettingsMenuKeydown);
-  window.addEventListener("resize", () => { syncMobileNavigation(); if (state.imagePreviewId) fitImagePreview(); });
+  window.addEventListener("resize", () => { syncMobileNavigation(); syncGallerySizeGroupVisibility(); if (state.imagePreviewId) fitImagePreview(); });
 
   bindContextMenuEvents({
     state,
@@ -2543,6 +2768,7 @@ async function setFilter(type, value = "", intent = beginNavigationIntent()) {
   if (!await authorizeNavigationIntent(intent)) return;
   discardDetailDraft();
   if (!setSidebarNavigationState(type, value)) return;
+  recordNavigationPosition();
   applyFilterChange();
 }
 
@@ -2571,6 +2797,7 @@ async function showRelatedGenerations(asset, mode) {
   clearFacets();
   state.facets.conversation = conversationId;
   if (mode === "batch") state.facets.generationBatch = messageId;
+  recordNavigationPosition();
   applyFilterChange();
 }
 
@@ -3670,6 +3897,9 @@ function setupMasonryLayout(options = {}) {
       const width = entries[0]?.contentRect?.width ?? grid.clientWidth;
       if (Math.abs(width - masonryObservedWidth) < 0.5) return;
       masonryObservedWidth = width;
+      // GravityPort A3：画廊宽度变化先重算列数（滑杆目标宽不变、内容宽变了），
+      // 列数真的变了时 syncGalleryColumns 自己会再排一次 masonry。
+      syncGalleryColumns();
       scheduleMasonryLayout();
     });
     masonryResizeObserver.observe(grid);
@@ -4599,6 +4829,9 @@ function setDetailOpen(open, { allowDockedClose = false } = {}) {
   // never replays a full-panel fade/translate animation.
   els.detailPanel?.classList.toggle("detail-entering", state.detailOpen && !wasOpen);
   if (state.detailOpen) setMobileNavOpen(false);
+  // GravityPort A3：检视器开关改变画廊内容宽 → 列数与滑杆组可见性都要重算。
+  syncGalleryColumns();
+  syncGallerySizeGroupVisibility();
   if (state.detailOpen) {
     if (!wasOpen) {
       const activeEl = document.activeElement;

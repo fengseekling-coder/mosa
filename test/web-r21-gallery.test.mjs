@@ -10,13 +10,16 @@ const root = resolve(import.meta.dirname, "..");
 const readWebCss = () => readFile(resolve(root, "web/app/styles.css"), "utf8");
 const readWebApp = () => readFile(resolve(root, "web/app/app.mjs"), "utf8");
 
-test("R21 gallery spacing: one shared 16px gap and the 20/24/32 padding", async () => {
+test("R21 gallery spacing: one shared 4px gap and the 0/20/32 padding (design restore)", async () => {
   const css = await readWebCss();
   // 横竖共用一个值：瀑布流估算（app.mjs）与框选命中（gallerySelectionRects）都只读它。
-  assert.match(css, /--gallery-gap: 16px;/, "--gallery-gap must be the R21 16px");
-  assert.match(css, /\.mosa-v2 \.grid \{ grid-template-columns: repeat\(5, minmax\(0, 1fr\)\); column-gap: var\(--gallery-gap\); row-gap: 0; padding: var\(--r21-s5\) var\(--r21-s6\) var\(--r21-s8\); background: transparent; \}/,
-    "the V2 grid padding must be 20/24/32 via the R21 ladder");
-  // 阶梯值对齐：s5=20 / s6=24 / s8=32 / s4=16。
+  // 任务 70 返工 1（设计稿还原）：16 → 4。
+  assert.match(css, /--gallery-gap: 4px;/, "--gallery-gap must be the design-restored 4px");
+  // 任务 70（GravityPort A3）：列数改由 --gallery-columns 驱动（app.mjs 按滑杆
+  // 目标宽计算）；返工 1 对照稿子：顶部 0（第一行贴顶栏）、左右 20、底部 32 不变。
+  assert.match(css, /\.mosa-v2 \.grid \{ grid-template-columns: repeat\(var\(--gallery-columns\), minmax\(0, 1fr\)\); column-gap: var\(--gallery-gap\); row-gap: 0; padding: 0 20px var\(--r21-s8\); background: transparent; \}/,
+    "the V2 grid padding must be 0/20/32 (design restore)");
+  // 阶梯值对齐：s5=20 / s6=24 / s8=32 / s4=16（token 本身不动，检视器等仍在用）。
   for (const [name, value] of [["--r21-s5", "20px"], ["--r21-s6", "24px"], ["--r21-s8", "32px"], ["--r21-s4", "16px"]]) {
     assert.match(css, new RegExp(`${name}: ${value};`), `${name} must stay ${value}`);
   }

@@ -161,14 +161,17 @@
              asset-view（专用大图查看模式）。app.js setViewMode 以 hidden + inert + aria-hidden
              组合切换：退出布局、Tab 顺序与辅助技术树；既有内容保持原缩进以最小化 diff。 -->
         <section class="library-view" id="libraryView">
-        <!-- V2 FilterBar 顶栏：左=.topbar-context（范围标题+类型筛选），右=.topbar-actions
-             work 组只保留排序与搜索框；
-             utility 组只保留不可见的桥接状态语义；主题切换统一收敛到设置面板，primary 组提供按需显示的资产监视器入口。
-             顶栏不再重复提供主题按钮；无隐藏复制控件、无溢出菜单。#bridgeStatusMeta 全档位
-             visually-hidden（降噪）：不占可见布局但保留辅助技术语义；
-             #statusText 独立于被隐藏的 utility 组，持续保留 aria-live 播报。 -->
+        <!-- GravityPort A3 顶栏三段（任务 70，按稿子精简）：左=.topbar-context 内
+             .topbar-nav-group（后退/前进 + 堆叠返回），中=.topbar-size-group 缩略图大小
+             滑杆（绝对居中，与左右重叠时由 JS 隐藏），右=.topbar-actions（分类、排序、
+             搜索框；utility 组只保留不可见的桥接状态语义，primary 组是清空回收站 /
+             打开检视器）。类型筛选（全部/图片/视频）从顶栏移除：mediaKind 状态与
+             后端语义保留，renderTypeFilters 容忍容器不存在。范围标题 #viewTitle 连同
+             .title-row 一起视觉隐藏（读屏仍能读到当前范围）。#statusText 独立于被隐藏的
+             utility 组，持续保留 aria-live 播报。 -->
         <header class="topbar">
-          <div class="topbar-context"><div class="title-row"><button class="stack-back" id="stackBack" type="button" hidden data-i18n-aria-label="backToStackLibrary" aria-label="返回素材库"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button><h2 id="viewTitle">全部素材</h2></div><div class="topbar-type-filters" role="group" data-i18n-aria-label="typeFilter" aria-label="类型筛选"><button class="type-filter active" type="button" data-type="all" aria-pressed="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="14.5" width="6" height="6" rx="1"/><rect x="3.5" y="14.5" width="6" height="6" rx="1"/></svg><span data-i18n="allTypes">全部</span></button><button class="type-filter" type="button" data-type="img" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m4 18 5.5-5 3.5 3 2.5-2.5L20 18"/></svg><span data-i18n="typeImages">图片</span></button><button class="type-filter" type="button" data-type="video" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3Z"/></svg><span data-i18n="typeVideos">视频</span></button></div></div>
+          <div class="topbar-context"><div class="topbar-nav-group"><button class="toolbar-icon nav-history-button" id="navHistoryBack" type="button" disabled data-i18n-aria-label="navHistoryBack" aria-label="后退"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button><button class="toolbar-icon nav-history-button" id="navHistoryForward" type="button" disabled data-i18n-aria-label="navHistoryForward" aria-label="前进"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button><button class="stack-back" id="stackBack" type="button" hidden data-i18n-aria-label="backToStackLibrary" aria-label="返回素材库"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button></div><div class="title-row visually-hidden"><h2 id="viewTitle">全部素材</h2></div></div>
+          <div class="topbar-size-group" id="topbarSizeGroup" hidden><button class="toolbar-icon" id="gallerySizeMinus" type="button" data-i18n-aria-label="thumbSizeDecrease" aria-label="缩小缩略图"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14"/></svg></button><input class="topbar-size-slider" id="gallerySizeSlider" type="range" min="120" max="400" step="20" value="200" data-i18n-aria-label="thumbSize" aria-label="缩略图大小" /><button class="toolbar-icon" id="gallerySizePlus" type="button" data-i18n-aria-label="thumbSizeIncrease" aria-label="放大缩略图"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div>
           <div class="topbar-actions">
             <span class="visually-hidden" id="statusText" role="status" aria-live="polite" aria-relevant="text" aria-atomic="true"></span>
             <div class="topbar-utility-group">

@@ -87,21 +87,49 @@ test("R21 sidebar: light background, brand, nav items and group headings", async
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.nav-item, :root\[data-theme="light"\] \.mosa-v2 \.settings-trigger \{ color: #55555a; \}/);
 });
 
-test("R21 topbar: type filters, sort control and search box", async () => {
+test("R21 topbar: nav history buttons, size slider, sort control and search box", async () => {
   const css = await readWebCss();
   // 顶栏高度走 token（64px 在 token 测试里已锁）。
   assert.match(css, /\.mosa-v2 \.topbar \{[^}]*height: var\(--topbar-height\);/);
-  // 类型筛选：纯文字分段，高 28、10.5px、圆角 8、内边距 0 12；图标 CSS 隐藏。
-  assert.match(css, /\.mosa-v2 \.type-filter \{ height: 28px; gap: 6px; padding: 0 12px; border-radius: 8px; font-size: 10\.5px; \}/);
-  assert.match(css, /\.mosa-v2 \.type-filter svg \{ display: none; \}/);
-  assert.match(css, /\.mosa-v2 \.type-filter\.active \{ background: var\(--app-chip-active\); font-weight: 580; \}/);
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.type-filter\.active \{ background: #f0f0f2; color: #303034; \}/);
+  // GravityPort A3（任务 70）：类型筛选（全部/图片/视频）从顶栏移除——CSS 规则
+  // 一并删干净（dead-code 门也会拦没标记消费的类），这里锁「不得回来」。
+  assert.doesNotMatch(css, /\.type-filter|\.topbar-type-filters/, "the retired type-filter rules must not come back");
+  // 后退/前进与滑杆两侧按钮：28×28 / 16px 图标（.toolbar-icon 基类）、圆角 8
+  // （--radius-control）、无边框透明底；mosa-v2 的 32px 带边框外观只属于右侧控件。
+  assert.match(css, /\.topbar-nav-group \{ display: flex; flex: 0 0 auto; align-items: center; gap: 4px; \}/);
+  assert.match(css, /\.mosa-v2 \.topbar-nav-group \.toolbar-icon, \.mosa-v2 \.topbar-size-group \.toolbar-icon \{ width: 28px; height: 28px; flex: 0 0 auto; border: 0; border-radius: var\(--radius-control\); background: transparent; \}/);
+  // 缩略图大小滑杆：相对顶栏绝对居中，滑轨宽 120，accent 走既有 token。
+  assert.match(css, /\.topbar-size-group \{ position: absolute; top: 50%; left: 50%; display: flex; align-items: center; gap: 8px; transform: translate\(-50%, -50%\); \}/);
+  assert.match(css, /\.topbar-size-slider \{ box-sizing: border-box; width: 120px; height: 28px; margin: 0; padding: 0; border: 0; accent-color: var\(--color-accent\); -webkit-appearance: none; appearance: none; background: transparent; \}/);
+  // 返工 1 对照稿子：轨道 2px 高/圆角 1，滑块 24×12 横向胶囊圆角 6，颜色走 token。
+  assert.match(css, /\.topbar-size-slider::-\webkit-slider-runnable-track \{ height: 2px; border-radius: 1px; background: var\(--color-border-subtle\); \}/);
+  assert.match(css, /\.topbar-size-slider::-\webkit-slider-thumb \{ -webkit-appearance: none; appearance: none; width: 24px; height: 12px; margin-top: -5px; border-radius: 6px; background: var\(--color-accent\); \}/);
+  // 窄档（≤767px）只隐藏前进/后退与滑杆（任务 70 返工：不再整组隐藏）。
+  assert.match(css, /@media \(max-width: 767px\) \{[\s\S]*?\.mosa-v2 \.topbar-nav-group \.nav-history-button, \.mosa-v2 \.topbar-size-group \{ display: none; \}/);
+  // 窄屏规则不得隐藏 #stackBack：进堆叠后返回按钮窄屏可见可点（剥掉注释
+  // 只看规则，注释里提到 #stackBack 不算）。
+  const narrowAt = css.indexOf("@media (max-width: 767px)");
+  assert.ok(narrowAt > -1, "the narrow-screen media query must exist");
+  let narrowDepth = 0;
+  let narrowEnd = -1;
+  for (let i = css.indexOf("{", narrowAt); i < css.length; i += 1) {
+    if (css[i] === "{") narrowDepth += 1;
+    if (css[i] === "}") {
+      narrowDepth -= 1;
+      if (narrowDepth === 0) { narrowEnd = i + 1; break; }
+    }
+  }
+  const narrowRules = css.slice(narrowAt, narrowEnd).replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.doesNotMatch(narrowRules, /#stackBack/, "the narrow-screen rules must not hide #stackBack");
   // 排序框：约 96 宽、高 32（既有规则）、左内边距 12、浅色底 #f4f4f5。
-  assert.match(css, /\.mosa-v2 \.sort-control select \{ min-width: 96px; padding: 0 26px 0 12px; \}/);
+  assert.match(css, /\.mosa-v2 \.sort-control select \{ min-width: 88px; padding: 0 26px 0 12px; \}/);
   assert.match(css, /\.mosa-v2 \.toolbar-filter, \.mosa-v2 \.toolbar-icon, \.mosa-v2 \.sort-control select \{ height: 32px;/);
+  // 任务 70 返工 1（设计稿还原）：顶栏右侧控件压到 24 高——只限 .topbar-actions
+  // 范围，共用 32px 规则和顶栏以外用到这些类的地方不动。
+  assert.match(css, /\.mosa-v2 \.topbar-actions \.toolbar-filter, \.mosa-v2 \.topbar-actions \.toolbar-icon, \.mosa-v2 \.topbar-actions \.sort-control select, \.mosa-v2 \.topbar-actions \.topbar-search \{ height: 24px; \}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.sort-control select \{ background: #f4f4f5; \}/);
   // 搜索框：宽 152、高 32（--control-sm）、浅色底 #f4f4f5。
-  assert.match(css, /\.mosa-v2 \.topbar-search \{ flex: 0 1 152px; width: 152px; \}/);
+  assert.match(css, /\.mosa-v2 \.topbar-search \{ flex: 0 1 144px; width: 144px; \}/);
   assert.match(css, /\.topbar-search \{ display: flex; box-sizing: border-box; min-width: 0; flex: 0 1 256px; align-items: center; gap: 8px; width: 256px; height: var\(--control-sm\);/);
   assert.match(css, /--control-sm: 32px;/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.topbar-search \{ background: #f4f4f5; \}/);

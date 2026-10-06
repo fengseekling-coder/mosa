@@ -1,13 +1,14 @@
 // 任务 61：画廊重建不泄漏观察节点 + 退出堆叠后筛选控件/检视器行为正确的运行时验证。
-// 54-3 退出堆叠后类型按钮/分类下拉要恢复快照态且可继续切换；54-5 进出堆叠是
-// 导航，不算「用户手动关闭检视器」，之后单击卡片仍自动打开检视器；55-1 反复
-// 重建（搜索命中/不命中交替）后画廊仍正常。观察器泄漏量不在页面断言（审查
-// 脚本 t-leak.mjs 在页面加载前注入计数），这里锁界面事实 + 接口复查。
+// 54-3 退出堆叠后分类下拉要恢复快照态且可继续切换（任务 70 起类型按钮已从顶栏
+// 移除，该契约的 UI 面只剩分类下拉）；54-5 进出堆叠是导航，不算「用户手动关闭
+// 检视器」，之后单击卡片仍自动打开检视器；55-1 反复重建（搜索命中/不命中交替）
+// 后画廊仍正常。观察器泄漏量不在页面断言（审查脚本 t-leak.mjs 在页面加载前注入
+// 计数），这里锁界面事实 + 接口复查。
 
 import { PAGE_HELPERS } from "./_page-helpers.mjs";
 
 export const name = "gallery-rebuild-and-stack-exit";
-export const description = "stack exit restores type/category controls and keeps inspector auto-open on card click; alternating hit/miss searches rebuild the gallery cleanly";
+export const description = "stack exit restores the category select and keeps inspector auto-open on card click; alternating hit/miss searches rebuild the gallery cleanly";
 
 const HIT_TERM = "rebuildprobe";
 const MISS_TERM = "zznomatchzz";
@@ -84,16 +85,12 @@ export async function run(ctx) {
 function assertFacts(facts) {
   const expectations = {
     rootCardsBeforeFilters: 3,
-    typeImgPressedAtRoot: true,
     filteredCardCount: 3,
     enteredStack: true,
-    typeAllPressedInsideStack: true,
-    stackCardsAfterAllFilter: 2,
-    typeImgPressedAfterExit: true,
-    typeAllNotPressedAfterExit: true,
+    stackCardsAfterCategoryFilter: 0,
     categoryAfterExit: ROOT_CATEGORY,
-    typeAllSwitchesAfterExit: true,
-    cardCountAfterTypeAllSwitch: 3,
+    categorySwitchesAfterExit: true,
+    cardCountAfterCategoryReset: 3,
     rootInspectorAutoOpened: true,
     enteredStackWithInspectorOpen: true,
     stackMemberInspectorAutoOpened: true,
@@ -118,22 +115,21 @@ function pageSource(config) {
     ${PAGE_HELPERS}
     const facts = { hitRounds: 0, missRounds: 0 };
     const assert = (ok, label) => { if (!ok) throw new Error('gallery-rebuild-and-stack-exit: ' + label + ' diagnostic=' + JSON.stringify(pageDiagnostic())); };
-    const typeState = (value) => {
-      const button = document.querySelector('.topbar-type-filters [data-type="' + value + '"]');
-      return { pressed: button?.getAttribute('aria-pressed') === 'true', active: button?.classList.contains('active') || false };
-    };
     const categoryValue = () => document.querySelector('#categorySelect')?.value ?? '';
     const stackNode = () => document.querySelector('#assetGrid > .asset-card.is-stack[data-stack-id="' + CSS.escape(config.stackId) + '"]');
 
     await waitFor(() => gallerySettled() && rootCardIds().length === 3, 'three root cards (stack node + two plain)');
     facts.rootCardsBeforeFilters = rootCardIds().length;
 
-    // ===== 根视图：图片类型 + product 分类 =====
-    click('.topbar-type-filters [data-type="img"]');
-    await waitFor(() => typeState('img').pressed && typeState('img').active && gallerySettled(), 'img type pressed at root');
-    facts.typeImgPressedAtRoot = typeState('img').pressed;
+    // ===== 根视图：product 分类（任务 70：类型筛选入口已移除，只走分类下拉）=====
+    // change 处理函数先 await 导航授权才 applyFilterChange，而两种分类的卡片数
+    // 相同、下拉值又是同步改的——结果态区分不了新旧请求。先装 busy 记录器再
+    // setValue：记录到一次 busy=true（这次 change 真的发出了画廊请求）且画廊
+    // 重新空闲，筛选才算已应用。
+    let busyTransitions = watchGalleryBusyTransitions();
     setValue('#categorySelect', config.rootCategory);
-    await waitFor(() => gallerySettled() && rootCardIds().length === 3 && categoryValue() === config.rootCategory, 'category filter keeps every card');
+    await waitFor(() => galleryRequestRecordedBusy(busyTransitions) && gallerySettled()
+      && rootCardIds().length === 3 && categoryValue() === config.rootCategory, 'category filter keeps every card');
     facts.filteredCardCount = rootCardIds().length;
 
     // ===== 双击进入堆叠 =====
@@ -143,35 +139,38 @@ function pageSource(config) {
     await waitFor(() => !document.querySelector('#stackBack')?.hidden && gallerySettled(), 'entered stack view');
     facts.enteredStack = true;
 
-    // ===== 堆叠内：切「全部」、换分类 =====
-    click('.topbar-type-filters [data-type="all"]');
-    await waitFor(() => typeState('all').pressed && typeState('all').active && gallerySettled(), 'all type pressed inside stack');
-    facts.typeAllPressedInsideStack = typeState('all').pressed;
-    facts.stackCardsAfterAllFilter = rootCardIds().length;
-    // 这里等堆叠内请求落定再返回，让 54-3 的断言只看快照恢复；请求还在飞行中
-    // 就返回的情形由下面的「快速返回」一步单独覆盖。
+    // ===== 堆叠内：换分类（concept 把成员筛掉）=====
     setValue('#categorySelect', config.stackCategory);
     await waitFor(() => gallerySettled() && categoryValue() === config.stackCategory && rootCardIds().length === 0, 'stack category filters the members out');
+    facts.stackCardsAfterCategoryFilter = rootCardIds().length;
 
     // ===== 返回退出堆叠：控件恢复快照态（54-3） =====
     click('#stackBack');
     await waitFor(() => document.querySelector('#stackBack')?.hidden === true && gallerySettled(), 'exited stack view');
-    facts.typeImgPressedAfterExit = typeState('img').pressed;
-    facts.typeAllNotPressedAfterExit = !typeState('all').pressed;
+    // exitStack 的 rAF 收尾（滚动/选中恢复 + 焦点回落到封面卡）在隐藏窗口里被
+    // 节流：不等它落地就点卡会被迟到的恢复覆盖（实测）。焦点回到卡片或
+    // 画格即代表 rAF 已执行。
+    await waitFor(() => Boolean(document.activeElement?.closest?.('.asset-card'))
+      || document.activeElement === document.querySelector('#assetGrid'), 'stack exit restored focus');
     facts.categoryAfterExit = categoryValue();
-    assert(facts.typeImgPressedAfterExit, 'img button must be pressed again after stack exit');
     assert(facts.categoryAfterExit === config.rootCategory, 'category select must show the pre-enter value');
-    // 按钮没有失步：高亮「图片」时点「全部」要能切过去（handler 早退即卡死）。
-    click('.topbar-type-filters [data-type="all"]');
-    await waitFor(() => typeState('all').pressed && gallerySettled() && rootCardIds().length === 3, 'type all switches after exit');
-    facts.typeAllSwitchesAfterExit = typeState('all').pressed;
-    facts.cardCountAfterTypeAllSwitch = rootCardIds().length;
+    // 下拉没有失步：恢复「product」后要能继续切走再切回（handler 早退即卡死）。
+    // 切走/切回的等待与首切同理：busy 记录器证明这次 change 发出了请求。
+    busyTransitions = watchGalleryBusyTransitions();
+    setValue('#categorySelect', '');
+    await waitFor(() => galleryRequestRecordedBusy(busyTransitions) && gallerySettled()
+      && categoryValue() === '' && rootCardIds().length === 3, 'category switches after exit');
+    facts.categorySwitchesAfterExit = true;
+    facts.cardCountAfterCategoryReset = rootCardIds().length;
+    busyTransitions = watchGalleryBusyTransitions();
+    setValue('#categorySelect', config.rootCategory);
+    await waitFor(() => galleryRequestRecordedBusy(busyTransitions) && gallerySettled()
+      && rootCardIds().length === 3 && categoryValue() === config.rootCategory, 'category restored for the inspector steps');
 
     // ===== 退出堆叠后单击卡片自动打开检视器（54-5） =====
-    const plainCard = document.querySelector(cardSelector(config.plainId) + ' .asset-card-select');
-    assert(Boolean(plainCard), 'plain card present after exit');
-    plainCard.click();
-    await waitFor(() => document.body.classList.contains('detail-open'), 'inspector auto-opens on plain card click');
+    const cardNow = () => document.querySelector(cardSelector(config.plainId) + ' .asset-card-select');
+    cardNow().click();
+    await waitFor(() => document.querySelector('#openInspectorBtn')?.hidden === true, 'inspector auto-opens on plain card click');
     facts.rootInspectorAutoOpened = true;
 
     // ===== 检视器开着时双击进堆叠（导航关闭），单击成员卡自动打开 =====

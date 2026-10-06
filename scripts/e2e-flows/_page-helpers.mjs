@@ -50,6 +50,23 @@ export const PAGE_HELPERS = String.raw`
     return element;
   }
   const gallerySettled = () => document.querySelector('#assetGrid')?.getAttribute('aria-busy') === 'false';
+  // Records every aria-busy transition of #assetGrid from this point on. The
+  // busy phase of a localhost request can be shorter than one waitFor poll, so
+  // a flow that must prove "this filter change really issued a gallery request"
+  // installs the recorder BEFORE setValue and then waits for
+  // galleryRequestRecordedBusy(transitions). Polling aria-busy alone can miss
+  // the true phase entirely; a recorded 'true' can only come from a request
+  // that started after installation (stale completions never clear a newer
+  // request's busy state, so settled + recorded busy = this change applied).
+  function watchGalleryBusyTransitions() {
+    const grid = document.querySelector('#assetGrid');
+    if (!grid) throw new Error('Missing #assetGrid for the busy watcher');
+    const transitions = [];
+    new MutationObserver(() => transitions.push(grid.getAttribute('aria-busy') || ''))
+      .observe(grid, { attributes: true, attributeFilter: ['aria-busy'] });
+    return transitions;
+  }
+  const galleryRequestRecordedBusy = (transitions) => transitions.includes('true');
   const cardSelector = (assetId) => '.asset-card[data-id="' + CSS.escape(assetId) + '"]';
   const rootCardIds = () => [...document.querySelectorAll('#assetGrid > .asset-card')].map((card) => card.dataset.id);
   // Background reconciliation may replace a card node between query and

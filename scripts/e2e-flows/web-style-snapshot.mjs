@@ -47,12 +47,16 @@ const KEY_KINDS = {
   "shell.navCountColor": "color",
   "shell.navLabelColor": "color",
   // 顶栏控件
-  "topbar.typeFilterHeight": "px",
-  "topbar.typeFilterRadius": "px",
-  "topbar.typeFilterBackground": "color",
-  "topbar.typeFilterFontSize": "font",
-  "topbar.typeFilterActiveBackground": "color",
-  "topbar.typeFilterActiveColor": "color",
+  // 任务 70（GravityPort A3）：类型筛选从顶栏移除，原 topbar.typeFilter* 六键
+  // 删除；新增后退/前进按钮与缩略图大小滑杆键。
+  "topbar.navHistoryButtonWidth": "px",
+  "topbar.navHistoryButtonHeight": "px",
+  "topbar.navHistoryButtonRadius": "px",
+  "topbar.navHistoryButtonBackground": "color",
+  "topbar.sizeGroupWindowCenterOffset": "px",
+  "topbar.sizeGroupInlineLeft": "px",
+  "topbar.sizeSliderWidth": "px",
+  "topbar.sizeSliderAccentColor": "color",
   "topbar.sortSelectHeight": "px",
   "topbar.sortSelectRadius": "px",
   "topbar.sortSelectBackground": "color",
@@ -69,6 +73,7 @@ const KEY_KINDS = {
   "gallery.gridPaddingRight": "px",
   "gallery.gridPaddingBottom": "px",
   "gallery.gridColumnGap": "px",
+  "gallery.gridColumnCount": "font",
   "gallery.cardGapX": "px",
   "gallery.thumbRadius": "px",
   "gallery.thumbBackground": "color",
@@ -110,7 +115,6 @@ const KEY_KINDS = {
   "dark.bodyColor": "color",
   "dark.navItemActiveBackground": "color",
   "dark.navLabelColor": "color",
-  "dark.typeFilterActiveBackground": "color",
   "dark.thumbBackground": "color",
   "dark.selectionRingColor": "color",
 };
@@ -338,15 +342,43 @@ function measurementSource({ plainAssetId }) {
     R['shell.navCountColor'] = styleOf(pick('#quickFilters .nav-item[data-filter="favorite"] .nav-count')).color;
     R['shell.navLabelColor'] = styleOf(pick('.mosa-v2 .nav-label')).color;
 
-    const typeNormal = pick('.type-filter[data-type="img"]');
-    const typeNormalStyle = styleOf(typeNormal);
-    R['topbar.typeFilterHeight'] = rectOf(typeNormal).height;
-    R['topbar.typeFilterRadius'] = typeNormalStyle.borderTopLeftRadius;
-    R['topbar.typeFilterBackground'] = typeNormalStyle.backgroundColor;
-    R['topbar.typeFilterFontSize'] = typeNormalStyle.fontSize;
-    const typeActive = styleOf(pick('.type-filter[data-type="all"]'));
-    R['topbar.typeFilterActiveBackground'] = typeActive.backgroundColor;
-    R['topbar.typeFilterActiveColor'] = typeActive.color;
+    // 任务 70 返工 1（GravityPort A3，用户 10-06 拍板）：后退/前进按钮 + 缩略图
+    // 大小滑杆三态（居中 = 窗口中线 / 退让居中 / 隐藏）。实测：1280 关检视器 →
+    // 居中（行内 left = 640-280 = 360，窗口中线在顶栏坐标系的位置，与控件宽度
+    // 无关）；1440 关检视器 → 居中（left = 720-280 = 440，窗口中心偏差 0）。
+    // 先关检视器锁这两态，再借驱动只把窗口临时放大到 1440 量滑杆真实几何，
+    // 量完还原 1280（回到窗口居中）。
+    const navHistoryButton = pick('#navHistoryBack');
+    const navHistoryStyle = styleOf(navHistoryButton);
+    R['topbar.navHistoryButtonWidth'] = rectOf(navHistoryButton).width;
+    R['topbar.navHistoryButtonHeight'] = rectOf(navHistoryButton).height;
+    R['topbar.navHistoryButtonRadius'] = navHistoryStyle.borderTopLeftRadius;
+    R['topbar.navHistoryButtonBackground'] = navHistoryStyle.backgroundColor;
+    const detailCloseForSlider = pick('#detailPanel .detail-close');
+    if (pick('#detailPanel').getAttribute('aria-hidden') === 'false') detailCloseForSlider.click();
+    await waitFor(() => pick('#detailPanel').getAttribute('aria-hidden') === 'true', 'inspector closed for slider keys');
+    // 居中态的行内 left 必须等于「窗口中线 − 顶栏左缘」（barRect.left）。
+    const windowCenterInBar = () => window.innerWidth / 2 - rectOf(pick('.mosa-v2 .topbar')).left;
+    await waitFor(() => pick('#topbarSizeGroup').hidden === false
+      && Math.abs(Number.parseFloat(pick('#topbarSizeGroup').style.left || 'NaN') - windowCenterInBar()) <= 0.75, 'size group window-centered (inline left) at 1280');
+    R['topbar.sizeGroupInlineLeft'] = Number.parseFloat(pick('#topbarSizeGroup').style.left);
+    console.log('__MOSA_E2E_RESIZE__ 1440x800');
+    await waitFor(() => window.innerWidth >= 1440, 'window resized to 1440');
+    await waitFor(() => !pick('#topbarSizeGroup').hidden
+      && Math.abs(Number.parseFloat(pick('#topbarSizeGroup').style.left || 'NaN') - windowCenterInBar()) <= 0.75, 'size group window-centered at 1440');
+    const topbarRect = rectOf(pick('.mosa-v2 .topbar'));
+    const sizeGroupRect = rectOf(pick('#topbarSizeGroup'));
+    R['topbar.sizeGroupWindowCenterOffset'] = Math.abs((sizeGroupRect.left + sizeGroupRect.width / 2) - (topbarRect.left + windowCenterInBar()));
+    const sizeSlider = pick('#gallerySizeSlider');
+    R['topbar.sizeSliderWidth'] = rectOf(sizeSlider).width;
+    R['topbar.sizeSliderAccentColor'] = styleOf(sizeSlider).accentColor;
+    console.log('__MOSA_E2E_RESIZE__ 1280x800');
+    await waitFor(() => window.innerWidth <= 1280 && pick('#topbarSizeGroup').hidden === false
+      && Math.abs(Number.parseFloat(pick('#topbarSizeGroup').style.left || 'NaN') - windowCenterInBar()) <= 0.75, 'window restored; the size group window-centers again at 1280');
+    // 手动关闭置了 detailManuallyClosed：后续「点卡片自动开检视器」的步骤要求
+    // 非手动关闭态——用真实入口（#openInspectorBtn）重新打开把它清掉。
+    click('#openInspectorBtn');
+    await waitFor(() => pick('#detailPanel').getAttribute('aria-hidden') === 'false', 'inspector reopened after slider keys');
 
     const sortSelect = pick('#sortSelect');
     const sortStyle = styleOf(sortSelect);
@@ -374,6 +406,9 @@ function measurementSource({ plainAssetId }) {
     R['gallery.gridPaddingRight'] = gridStyle.paddingRight;
     R['gallery.gridPaddingBottom'] = gridStyle.paddingBottom;
     R['gallery.gridColumnGap'] = gridStyle.columnGap;
+    // 任务 70：列数由 --gallery-columns 驱动（1280 宽、检视器关、滑杆默认 200
+    // → 内容宽 952 → 4 列）。
+    R['gallery.gridColumnCount'] = gridStyle.gridTemplateColumns.split(/\\s+/).filter(Boolean).length;
     R['gallery.cardGapX'] = firstRowGapX();
     const thumb = pick('#assetGrid .thumb');
     const thumbStyle = styleOf(thumb);
@@ -461,7 +496,6 @@ function measurementSource({ plainAssetId }) {
       styleOf(document.body).backgroundColor,
       styleOf(document.body).color,
       styleOf(pick('#quickFilters .nav-item[data-filter="all"]')).backgroundColor,
-      styleOf(pick('.type-filter[data-type="all"]')).backgroundColor,
       styleOf(pick('#assetGrid .thumb')).backgroundColor,
       styleOf(pick('.asset-card.selected'), '::after').borderColor,
       styleOf(pick('.mosa-v2 .nav-label')).color,
@@ -470,7 +504,6 @@ function measurementSource({ plainAssetId }) {
     R['dark.bodyBackground'] = bodyDark.backgroundColor;
     R['dark.bodyColor'] = bodyDark.color;
     R['dark.navItemActiveBackground'] = styleOf(pick('#quickFilters .nav-item[data-filter="all"]')).backgroundColor;
-    R['dark.typeFilterActiveBackground'] = styleOf(pick('.type-filter[data-type="all"]')).backgroundColor;
     R['dark.thumbBackground'] = styleOf(pick('#assetGrid .thumb')).backgroundColor;
     R['dark.selectionRingColor'] = styleOf(pick('.asset-card.selected'), '::after').borderColor;
     R['dark.navLabelColor'] = styleOf(pick('.mosa-v2 .nav-label')).color;
