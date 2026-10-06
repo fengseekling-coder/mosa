@@ -22,6 +22,7 @@ const EXPECTED_API_KEYS = [
   "changeLibraryLocation",
   "checkForUpdates",
   "downloadAndInstallUpdate",
+  "getUserProfile",
   "getVisualModelState",
   "installVisualPack",
   "onMenuSearch",
@@ -80,9 +81,10 @@ test("preload path, module format, security settings, and API surface are stable
   assert.doesNotMatch(preload, /openExternal|sendSync|\.send\(/, "generic IPC is not exposed");
   // The preload exposes only narrow, named request channels. Update actions
   // accept no URL from the renderer; the main process owns the fixed website.
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 16, "only the sixteen approved invoke channels remain");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 17, "only the seventeen approved invoke channels remain");
   assert.deepEqual(sortedApiKeys(preload), EXPECTED_API_KEYS);
   assert.match(preload, /startNativeDrag: \(paths\) => ipcRenderer\.invoke\("start-native-file-drag", paths\)/);
+  assert.match(preload, /getUserProfile: \(\) => ipcRenderer\.invoke\("user-profile"\)/);
   assert.match(preload, /writeClipboardImage: \(path\) => ipcRenderer\.invoke\("write-clipboard-image", path\)/);
   assert.match(preload, /writeClipboardText: \(text\) => ipcRenderer\.invoke\("write-clipboard-text", text\)/);
   assert.match(preload, /checkForUpdates: \(notify = false\) =>[\s\S]*?ipcRenderer\.invoke\("check-for-updates", notify === true\)/);
@@ -138,6 +140,19 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(main, /shell\.openExternal\(MOSA_DOWNLOAD_PAGE_URL\)/);
   assert.match(main, /if \(isolationContext\.qaRun\) return Promise\.resolve\(\{ status: "disabled", currentVersion \}\)/,
     "QA/E2E update checks must stay offline and deterministic");
+
+  // The user-center identity is minted unconditionally at startup: the exact
+  // top-level line proves it sits outside every isPackaged/QA/telemetry gate,
+  // and its position before app.whenReady() proves it runs before any window.
+  assert.match(main, /^const desktopUserId = ensureInstallationId\(\{ userDataDir: desktopDataDir \}\);$/m);
+  assert.ok(
+    main.indexOf("const desktopUserId = ensureInstallationId({ userDataDir: desktopDataDir })") < main.indexOf("app.whenReady()"),
+    "the installation id must be minted before the window lifecycle, outside every packaged/QA/telemetry gate",
+  );
+  assert.match(main, /ipcMain\.handle\("user-profile"/);
+  const userProfileHandler = main.slice(main.indexOf('ipcMain.handle("user-profile"'), main.indexOf("\n  });", main.indexOf('ipcMain.handle("user-profile"')));
+  assert.match(userProfileHandler, /event\.sender !== mainWindow\.webContents/);
+  assert.match(userProfileHandler, /return \{ userId: desktopUserId \}/);
 
   assert.doesNotMatch(preload, /showItemInFolder|show-item-in-folder/);
   assert.doesNotMatch(main, /ipcMain\.handle\("show-item-in-folder"/);

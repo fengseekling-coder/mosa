@@ -134,6 +134,7 @@ test("package metadata stays frozen and the runtime preload preserves its approv
     "changeLibraryLocation",
     "checkForUpdates",
     "downloadAndInstallUpdate",
+    "getUserProfile",
     "getVisualModelState",
     "installVisualPack",
     "onMenuSearch",
@@ -149,7 +150,7 @@ test("package metadata stays frozen and the runtime preload preserves its approv
     "writeClipboardImage",
     "writeClipboardText",
   ]);
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 16, "preload keeps the sixteen approved invoke channels");
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 17, "preload keeps the seventeen approved invoke channels");
   assert.match(preload, /checkForUpdates: \(notify = false\) =>[\s\S]*?ipcRenderer\.invoke\("check-for-updates", notify === true\)/);
   assert.doesNotMatch(preload, /shell\s*[:.]/, "renderer still receives no generic shell capability");
   // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/
