@@ -105,14 +105,14 @@
     <!-- The V2 navigation becomes an explicit drawer below the reference's
          desktop breakpoint.  It is intentionally a sibling of the app shell:
          the scrim can cover the library without clipping at the rounded shell. -->
-    <button class="mobile-nav-toggle" id="mobileNavToggle" type="button" aria-label="打开导航" aria-controls="appSidebar" aria-expanded="false">
+    <button class="mobile-nav-toggle" id="mobileNavToggle" type="button" data-i18n-aria-label="openNavigation" aria-label="打开导航" aria-controls="appSidebar" aria-expanded="false">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
     </button>
-    <button class="mobile-nav-scrim" id="mobileNavScrim" type="button" aria-label="关闭导航" hidden></button>
+    <button class="mobile-nav-scrim" id="mobileNavScrim" type="button" data-i18n-aria-label="closeNavigation" aria-label="关闭导航" hidden></button>
 
     <div class="shell" id="appShell">
       <aside class="sidebar" id="appSidebar" aria-label="GravityPort">
-        <button class="mobile-nav-close" id="mobileNavClose" type="button" aria-label="关闭导航">
+        <button class="mobile-nav-close" id="mobileNavClose" type="button" data-i18n-aria-label="closeNavigation" aria-label="关闭导航">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
         </button>
         <div class="brand">

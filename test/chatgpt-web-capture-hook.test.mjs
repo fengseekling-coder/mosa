@@ -15,12 +15,79 @@ const optionsHtml = await readFile(new URL("../extensions/chatgpt-web-capture/op
 const providerPolicySource = await readFile(new URL("../extensions/chatgpt-web-capture/provider-policy.js", import.meta.url), "utf8");
 const providerSource = await readFile(new URL("../extensions/chatgpt-web-capture/provider-sites.js", import.meta.url), "utf8");
 
+// Minimal MessageChannel stand-in: two entangled ports. Messages are
+// delivered synchronously while a listener is attached and queue otherwise,
+// which mirrors how the real content script behaves once it has adopted the
+// port without making every existing harness test await a task boundary.
+class MockMessagePort {
+  constructor() {
+    this._peer = null;
+    this._pending = [];
+    this._listeners = [];
+    this._onmessage = null;
+  }
+
+  _entangle(peer) {
+    this._peer = peer;
+  }
+
+  postMessage(data) {
+    assert.ok(this._peer, "mock port must be entangled before postMessage");
+    this._peer._deliver({ data });
+  }
+
+  _deliver(event) {
+    if (!this._listeners.length && !this._onmessage) {
+      this._pending.push(event);
+      return;
+    }
+    for (const listener of [...this._listeners]) listener(event);
+    if (this._onmessage) this._onmessage(event);
+  }
+
+  addEventListener(type, listener) {
+    if (type !== "message") return;
+    this._listeners.push(listener);
+    this._flushPending();
+  }
+
+  get onmessage() {
+    return this._onmessage;
+  }
+
+  set onmessage(handler) {
+    this._onmessage = handler;
+    this._flushPending();
+  }
+
+  start() {
+    this._flushPending();
+  }
+
+  _flushPending() {
+    if (!this._listeners.length && !this._onmessage) return;
+    while (this._pending.length) this._deliver(this._pending.shift());
+  }
+}
+
+class MockMessageChannel {
+  constructor() {
+    this.port1 = new MockMessagePort();
+    this.port2 = new MockMessagePort();
+    this.port1._entangle(this.port2);
+    this.port2._entangle(this.port1);
+  }
+}
+
 function createHookHarness(payload, conversationId = "conversation-test", options = {}) {
   const events = [];
   const requestedUrls = [];
   const requestedInits = [];
   const createdObjectUrls = [];
-  let messageListener = null;
+  const windowMessages = [];
+  const hookPortOffers = [];
+  const windowMessageListeners = [];
+  let contentPort = null;
   const documentElement = { dataset: {} };
   // The blob-asset hooks need the page's Blob, Response and URL.createObjectURL.
   class HookBlob {
@@ -48,6 +115,17 @@ function createHookHarness(payload, conversationId = "conversation-test", option
 
     static revokeObjectURL() {}
   }
+  function adoptContentPort(port) {
+    contentPort = port;
+    port.addEventListener("message", (portEvent) => {
+      events.push(portEvent.data);
+    });
+    // content.js confirms the first port immediately; tests can suppress the
+    // ack to exercise the hook's port-request fallback.
+    if (options.ack !== false) {
+      port.postMessage({ source: "mosa-chatgpt-capture", type: "hook-port-ack" });
+    }
+  }
   const window = {
     fetch: async (url, init) => {
       requestedUrls.push(String(url));
@@ -63,9 +141,19 @@ function createHookHarness(payload, conversationId = "conversation-test", option
       };
     },
     addEventListener: (type, listener) => {
-      if (type === "message") messageListener = listener;
+      if (type === "message") windowMessageListeners.push(listener);
     },
-    postMessage: (event) => events.push(event),
+    postMessage: (event, targetOrigin, transfer) => {
+      windowMessages.push({ event, targetOrigin, transfer });
+      if (
+        event?.source === "mosa-chatgpt-capture"
+        && event?.type === "hook-port"
+        && transfer?.[0] instanceof MockMessagePort
+      ) {
+        hookPortOffers.push(event);
+        adoptContentPort(transfer[0]);
+      }
+    },
     WebSocket: class MockWebSocket {
       constructor(url) {
         this.url = url;
@@ -96,6 +184,7 @@ function createHookHarness(payload, conversationId = "conversation-test", option
     Blob: HookBlob,
     Response: HookResponse,
     XMLHttpRequest: MockXHR,
+    MessageChannel: MockMessageChannel,
     // Base64 and UTF-8 decoding are page APIs the hook needs for socket frames.
     atob: globalThis.atob,
     TextDecoder: globalThis.TextDecoder,
@@ -106,18 +195,11 @@ function createHookHarness(payload, conversationId = "conversation-test", option
     window,
   }, { filename: "page-hook.js" });
 
-  const bridgeChannel = String(documentElement.dataset.mosaPageHookChannel || "");
-  assert.ok(bridgeChannel, "page hook should publish a per-document bridge channel");
-
-  if (options.captureEnabled !== false && messageListener) {
-    messageListener({
-      source: window,
-      data: {
-        source: "mosa-chatgpt-capture",
-        channel: bridgeChannel,
-        type: "set-capture-enabled",
-        payload: { enabled: true },
-      },
+  if (options.captureEnabled !== false && contentPort) {
+    contentPort.postMessage({
+      source: "mosa-chatgpt-capture",
+      type: "set-capture-enabled",
+      payload: { enabled: true },
     });
   }
 
@@ -126,9 +208,22 @@ function createHookHarness(payload, conversationId = "conversation-test", option
     requestedUrls,
     requestedInits,
     createdObjectUrls,
+    windowMessages,
+    hookPortOffers,
+    documentElement,
     blobClass: HookBlob,
     responseClass: HookResponse,
     urlClass: HookURL,
+    dispatchWindowMessage(data, eventOverrides = {}) {
+      for (const listener of [...windowMessageListeners]) {
+        listener({ source: window, data, ...eventOverrides });
+      }
+    },
+    async sendToPageHook(data) {
+      assert.ok(contentPort, "page hook should have handed a port to the content script");
+      contentPort.postMessage(data);
+      await setImmediate();
+    },
     async harvest(init, url = "https://chatgpt.com/backend-api/conversation/test") {
       await window.fetch(url, init);
       await setImmediate();
@@ -140,11 +235,8 @@ function createHookHarness(payload, conversationId = "conversation-test", option
       await setImmediate();
     },
     async refreshCurrentConversation() {
-      assert.ok(messageListener, "page hook should listen for refresh requests");
-      messageListener({
-        source: window,
-        data: { source: "mosa-chatgpt-capture", channel: bridgeChannel, type: "refresh-current-conversation" },
-      });
+      assert.ok(contentPort, "page hook should listen for refresh requests");
+      contentPort.postMessage({ source: "mosa-chatgpt-capture", type: "refresh-current-conversation" });
       await setImmediate();
       await setImmediate();
     },
@@ -178,7 +270,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.15.20");
+  assert.equal(manifest.version, "0.15.22");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://flow.google.com/*", "https://aistudio.google.com/*"],
@@ -1250,19 +1342,169 @@ test("background reports only bounded retry-queue diagnostics to the local task 
   assert.match(backgroundSource, /lastSeenRetryRequestId/);
 });
 
-test("ChatGPT page bridge rejects messages outside the current document channel", () => {
-  assert.match(hookSource, /mosaPageHookChannel = bridgeChannel/);
-  assert.match(hookSource, /data\.channel !== bridgeChannel/);
-  assert.match(contentSource, /function pageHookChannel\(\)/);
-  assert.match(contentSource, /data\.channel !== channel/);
+test("ChatGPT page bridge only trusts the first privately transferred port", () => {
+  // page-hook: commands arrive only through the transferred port; the only
+  // window message it still accepts is a port request, from the same window,
+  // and only until the first port has been confirmed. No channel name is
+  // published in the DOM anymore.
+  assert.doesNotMatch(hookSource, /mosaPageHookChannel/);
+  assert.match(hookSource, /commandPortPost = commandPort\.postMessage\.bind\(commandPort\)/);
+  assert.match(hookSource, /commandPort\.addEventListener\("message", onPortMessage\)/);
+  assert.match(hookSource, /window\.addEventListener\("message", \(event\) => \{/);
+  assert.match(hookSource, /if \(event\.source !== window\) return;/);
+  assert.match(hookSource, /if \(data\.type !== "hook-port-request"\) return;/);
+  assert.match(hookSource, /if \(portConfirmed\) return;/);
+  assert.match(hookSource, /post\("capture-state", \{ enabled: captureEnabled \}\)/);
+  // content.js: only event.source === window hook-port transfers with a port
+  // are accepted, only the first port is adopted, and the ack goes back
+  // through that port.
+  assert.doesNotMatch(contentSource, /mosaPageHookChannel/);
+  assert.match(contentSource, /window\.addEventListener\("message", \(event\) => \{/);
+  assert.match(contentSource, /if \(event\.source !== window\) return;/);
+  assert.match(contentSource, /if \(data\.type !== "hook-port"\) return;/);
+  assert.match(contentSource, /if \(hookPort \|\| !event\.ports\?\.\[0\]\) return;/);
+  assert.match(contentSource, /type: "hook-port-ack"/);
   assert.match(contentSource, /function syncPageHookCaptureEnabled\(attempt = 0\)/);
   assert.match(contentSource, /function desiredPageHookCaptureEnabled\(\)/);
   assert.match(contentSource, /return autoCapture \|\| Date\.now\(\) < manualHookLeaseUntil/);
   assert.match(contentSource, /pageHookCaptureAck === desired/);
   assert.match(contentSource, /const retryDelays = \[25, 100, 300, 750, 1_500, 2_500\]/);
   assert.match(contentSource, /data\.type === "capture-state"/);
-  assert.match(hookSource, /post\("capture-state", \{ enabled: captureEnabled \}\)/);
   assert.match(contentSource, /DOMContentLoaded", \(\) => syncPageHookCaptureEnabled\(\)/);
+});
+
+test("the page hook publishes one private port instead of a DOM channel", () => {
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", { captureEnabled: false, ack: false });
+
+  assert.equal(harness.documentElement.dataset.mosaPageHook, "1");
+  assert.equal("mosaPageHookChannel" in harness.documentElement.dataset, false);
+  assert.equal(harness.hookPortOffers.length, 1);
+  assert.equal(harness.windowMessages.length, 1, "the hand-off is the hook's only window message");
+  const offer = harness.windowMessages[0];
+  assert.equal(offer.event.source, "mosa-chatgpt-capture");
+  assert.equal(offer.event.type, "hook-port");
+  assert.equal(offer.targetOrigin, "https://chatgpt.com");
+  assert.ok(offer.transfer?.[0] instanceof MockMessagePort, "the hand-off must transfer a MessagePort");
+});
+
+test("generation events travel only through the private port", async () => {
+  const harness = createHookHarness({
+    conversation_id: "conversation-test",
+    mapping: {
+      poster: {
+        message: {
+          id: "message-poster",
+          author: { role: "tool", name: "image_gen" },
+          content: {
+            parts: [
+              { asset_pointer: "sediment://file-poster" },
+            ],
+          },
+          metadata: { dalle: { prompt: "A silkscreen poster of a lighthouse in fog" } },
+        },
+      },
+    },
+  });
+
+  await harness.harvest();
+
+  assert.ok(generationEvents(harness).length > 0, "the harvest should still produce generation events");
+  assert.equal(harness.hookPortOffers.length, 1);
+  for (const entry of harness.windowMessages) {
+    if (entry.event?.source !== "mosa-chatgpt-capture") continue;
+    assert.equal(entry.event.type, "hook-port", "no capture message other than the port hand-off may use window.postMessage");
+  }
+});
+
+test("forged window messages cannot enable capture or trigger a refresh", async () => {
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", { captureEnabled: false });
+
+  // Old-format forgeries, with or without a channel field, must be inert.
+  harness.dispatchWindowMessage({
+    source: "mosa-chatgpt-capture",
+    channel: "forged-channel",
+    type: "set-capture-enabled",
+    payload: { enabled: true },
+  });
+  harness.dispatchWindowMessage({
+    source: "mosa-chatgpt-capture",
+    type: "refresh-current-conversation",
+    payload: { conversationId: "conversation-test" },
+  });
+  await harness.harvest();
+  assert.equal(generationEvents(harness).length, 0, "a window message must not enable capture");
+  assert.deepEqual(harness.requestedUrls.filter((url) => url.includes("/conversations/")), [], "a window message must not trigger a conversation refresh");
+
+  // The same commands through the real port keep working.
+  await harness.sendToPageHook({ source: "mosa-chatgpt-capture", type: "set-capture-enabled", payload: { enabled: true } });
+  harness.dispatchWindowMessage({
+    source: "mosa-chatgpt-capture",
+    type: "refresh-current-conversation",
+    payload: { conversationId: "conversation-test" },
+  });
+  await setImmediate();
+  assert.deepEqual(harness.requestedUrls.filter((url) => url.includes("/conversations/")), []);
+  await harness.refreshCurrentConversation();
+  assert.deepEqual(harness.requestedUrls.filter((url) => url.includes("/conversations/")), [
+    "https://chatgpt.com/backend-api/conversations/conversation-test",
+  ]);
+});
+
+test("before confirmation a port request mints a replacement port", () => {
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", { captureEnabled: false, ack: false });
+  assert.equal(harness.hookPortOffers.length, 1);
+
+  harness.dispatchWindowMessage({ source: "mosa-chatgpt-capture", type: "hook-port-request" });
+  assert.equal(harness.hookPortOffers.length, 2);
+  assert.equal(harness.windowMessages[1].event.type, "hook-port");
+  assert.notEqual(
+    harness.windowMessages[1].transfer?.[0],
+    harness.windowMessages[0].transfer?.[0],
+    "the replacement must be a fresh port",
+  );
+
+  // Non-mosaic markers and other window commands mint nothing.
+  harness.dispatchWindowMessage({ source: "other-extension", type: "hook-port-request" });
+  harness.dispatchWindowMessage({ source: "mosa-chatgpt-capture", type: "set-capture-enabled", payload: { enabled: true } });
+  assert.equal(harness.hookPortOffers.length, 2);
+});
+
+test("a port request from another window is ignored even before confirmation", () => {
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", { captureEnabled: false, ack: false });
+
+  harness.dispatchWindowMessage(
+    { source: "mosa-chatgpt-capture", type: "hook-port-request" },
+    { source: {} },
+  );
+  assert.equal(harness.hookPortOffers.length, 1);
+});
+
+test("after confirmation the page hook ignores further port requests", async () => {
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", { captureEnabled: false });
+  assert.equal(harness.hookPortOffers.length, 1);
+  await setImmediate();
+
+  harness.dispatchWindowMessage({ source: "mosa-chatgpt-capture", type: "hook-port-request" });
+  await setImmediate();
+  assert.equal(harness.hookPortOffers.length, 1, "a confirmed port must never be replaced");
+
+  // The confirmed port keeps carrying commands.
+  await harness.sendToPageHook({ source: "mosa-chatgpt-capture", type: "set-capture-enabled", payload: { enabled: true } });
+  assert.equal(harness.events.some((event) => event.type === "capture-state" && event.payload?.enabled === true), true);
+});
+
+test("provider content scripts only receive the autoCapture setting", () => {
+  const handlerStart = backgroundSource.indexOf('if (message.type === "mosa.getSettings")');
+  const handlerEnd = backgroundSource.indexOf('if (message.type === "mosa.probeFlowMedia")', handlerStart);
+  assert.ok(handlerStart >= 0 && handlerEnd > handlerStart);
+  const handler = backgroundSource.slice(handlerStart, handlerEnd);
+  assert.match(handler, /extensionPageSender\(sender\)\s*\?\s*settings\s*:\s*\{\s*autoCapture: settings\.autoCapture,?\s*\}/);
+  const providerResponse = handler
+    .replace(/extensionPageSender\(sender\)\s*\?\s*settings\s*:/, "")
+    .replace(/\/\/[^\n]*/g, "");
+  assert.doesNotMatch(providerResponse, /mosaToken|mosaBaseUrl/, "the provider-page settings response must not expose the Token or base URL");
+  // The sender gate itself is unchanged: extension pages and provider pages only.
+  assert.match(backgroundSource, /return extensionPageSender\(sender\) \|\| Boolean\(pageSenderContext\(sender\)\);/);
 });
 
 test("clears the legacy development Token and verifies the real ingest authorization path", () => {
@@ -1791,7 +2033,7 @@ test("binds prompt and asset when one image call splits them across nested reque
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.15.20");
+  assert.equal(manifest.version, "0.15.22");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
@@ -2833,6 +3075,354 @@ test("harvests a caption from the live WebSocket stream", async () => {
     prompt: caption,
     promptStatus: "visible-caption",
   }]);
+});
+
+// ---- Streaming SSE fetch responses (delta encoding v1) ----
+
+const STREAM_ABORT_ERROR = Object.assign(new Error("The user aborted a request."), { name: "AbortError" });
+
+function chunkText(text, size = 40) {
+  const pieces = [];
+  for (let index = 0; index < text.length; index += size) pieces.push(text.slice(index, index + size));
+  return pieces;
+}
+
+/** A fetch Response stub whose body streams the given pieces through getReader(). */
+function streamingResponse(pieces, {
+  url = "https://chatgpt.com/backend-api/f/conversation",
+  contentType = "text/event-stream",
+  failAfter = null,
+  error = STREAM_ABORT_ERROR,
+  stall = false,
+} = {}) {
+  let cursor = 0;
+  const reader = {
+    read: async () => {
+      if (stall) await setImmediate();
+      if (failAfter !== null && cursor >= failAfter) throw error;
+      if (cursor >= pieces.length) return { done: true, value: undefined };
+      const value = pieces[cursor];
+      cursor += 1;
+      return { done: false, value };
+    },
+  };
+  const headers = new Map([["content-type", contentType]]);
+  const response = {
+    ok: true,
+    status: 200,
+    url,
+    headers: { get: (name) => headers.get(String(name).toLowerCase()) ?? null },
+    body: { getReader: () => reader },
+    clone: () => response,
+  };
+  return response;
+}
+
+function deltaEvent(data) {
+  return `event: delta\ndata: ${JSON.stringify(data)}`;
+}
+
+function sseEventsText(events) {
+  return `${events.join("\n\n")}\n\n`;
+}
+
+/** A synthetic delta encoding v1 image turn: user input, code call, tool image. */
+function deltaV1StreamEvents({
+  codePrompt = "A misty mountain valley travel poster in flat vector style",
+  codeAppendixCount = 2,
+  codeMessageId = "message-code",
+  codeStatusFinished = false,
+  toolAssetId = "file-poster",
+  toolGenId = "generation-poster",
+  toolMessageId = "message-tool-image",
+  toolCaptionAppended = null,
+  toolExtraPatches = [],
+  toolStatusFinished = false,
+  withDoneMarker = true,
+} = {}) {
+  const codeArgsText = JSON.stringify({ prompt: codePrompt, aspect_ratio: "2:3" });
+  const pieceLength = Math.ceil(codeArgsText.length / codeAppendixCount);
+  const codePieces = [];
+  for (let index = 0; index < codeArgsText.length; index += pieceLength) {
+    codePieces.push(codeArgsText.slice(index, index + pieceLength));
+  }
+  const toolMessage = {
+    id: toolMessageId,
+    author: { role: "tool", name: "image_gen.text2im", metadata: {} },
+    recipient: "all",
+    channel: "commentary",
+    content: {
+      content_type: "multimodal_text",
+      parts: [{
+        content_type: "image_asset_pointer",
+        asset_pointer: `sediment://${toolAssetId}`,
+        size: { width: 1024, height: 1536 },
+        metadata: { dalle: { gen_id: toolGenId, prompt: "" } },
+      }],
+    },
+    status: "in_progress",
+    metadata: { turn_exchange_id: "turn-poster", parent_id: codeMessageId, image_gen_title: "Generated image" },
+  };
+  const events = [
+    "event: delta_encoding\ndata: \"v1\"",
+    deltaEvent({
+      type: "input_message",
+      message: {
+        id: "message-user",
+        author: { role: "user", metadata: {} },
+        content: { content_type: "text", parts: ["Draw a poster of a misty mountain valley"] },
+        status: "finished_successfully",
+        metadata: {},
+      },
+    }),
+    deltaEvent({
+      p: "",
+      o: "add",
+      v: {
+        message: {
+          id: codeMessageId,
+          author: { role: "assistant", name: null, metadata: {} },
+          recipient: "image_gen.text2im",
+          channel: "commentary",
+          content: { content_type: "code", language: "json", text: codePieces[0] },
+          status: "in_progress",
+          metadata: { turn_exchange_id: "turn-poster" },
+        },
+        conversation_id: "conversation-test",
+      },
+    }),
+    // All but the last piece arrive as path appends; the last one arrives as a
+    // bare {"v":"..."} continuation of the previous patch path.
+    ...codePieces.slice(1, -1).map((piece) => deltaEvent({ p: "/message/content/text", o: "append", v: piece })),
+    ...(codePieces.length > 1 ? [deltaEvent({ v: codePieces.at(-1) })] : []),
+  ];
+  if (codeStatusFinished) {
+    events.push(deltaEvent({ p: "/message/status", o: "replace", v: "finished_successfully" }));
+  }
+  events.push(deltaEvent({ o: "add", v: { message: toolMessage, conversation_id: "conversation-test" } }));
+  if (toolCaptionAppended !== null) {
+    events.push(deltaEvent({ p: "/message/content/parts/1", o: "append", v: toolCaptionAppended }));
+  }
+  for (const patch of toolExtraPatches) events.push(deltaEvent(patch));
+  if (toolStatusFinished) {
+    events.push(deltaEvent({ p: "/message/status", o: "replace", v: "finished_successfully" }));
+  }
+  if (withDoneMarker) events.push("data: [DONE]");
+  return events;
+}
+
+function streamedHarness(events, { pieces = null, abortAtEnd = false, ...responseOptions } = {}) {
+  const streamPieces = pieces || chunkText(sseEventsText(events));
+  return createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", {
+    respond: () => streamingResponse(streamPieces, {
+      ...responseOptions,
+      ...(abortAtEnd ? { failAfter: streamPieces.length } : {}),
+    }),
+  });
+}
+
+function imageOutputsFor(harness, assetId) {
+  return harness.events
+    .filter((event) => event.type === "generation-meta" && event.payload?.assetId === assetId)
+    .map((event) => event.payload);
+}
+
+test("rebuilds a delta encoding v1 stream and binds the generated image immediately", async () => {
+  const harness = streamedHarness(deltaV1StreamEvents());
+  await harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/f/conversation");
+
+  const outputs = imageOutputsFor(harness, "file-poster");
+  assert.equal(outputs.length, 1);
+  const payload = outputs[0];
+  assert.equal(payload.messageId, "message-tool-image");
+  assert.equal(payload.providerGenerationCallId, "generation-poster");
+  assert.equal(payload.imageKey, "estuary:conversation-test:file-poster");
+  assert.equal(payload.isGeneration, true);
+});
+
+test("keeps the rebuilt bindings when the page aborts the stream after [DONE]", async () => {
+  const harness = streamedHarness(deltaV1StreamEvents(), { abortAtEnd: true });
+  await harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/f/conversation");
+
+  const payload = imageOutputsFor(harness, "file-poster")[0];
+  assert.ok(payload, "an AbortError after [DONE] must not discard the parsed turn");
+  assert.equal(payload.messageId, "message-tool-image");
+  assert.equal(payload.providerGenerationCallId, "generation-poster");
+  assert.equal(payload.imageKey, "estuary:conversation-test:file-poster");
+});
+
+test("keeps the emitted image binding when the stream is aborted before [DONE]", async () => {
+  const caption = "Model caption: A misty mountain valley travel poster in flat vector style with cinematic light.";
+  const events = deltaV1StreamEvents({ toolCaptionAppended: caption, withDoneMarker: false });
+  const pieces = chunkText(sseEventsText(events));
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", {
+    respond: () => streamingResponse(pieces, { failAfter: pieces.length }),
+  });
+  await harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/f/conversation");
+
+  assert.deepEqual(imageOutputsFor(harness, "file-poster").map((payload) => [payload.prompt, payload.promptStatus]), [
+    ["", "not-available"],
+    [caption, "visible-caption"],
+  ]);
+});
+
+test("binds a caption that arrives as a parts patch to the image output", async () => {
+  const caption = "Model caption: A misty mountain valley travel poster in flat vector style with cinematic light.";
+  const harness = streamedHarness(deltaV1StreamEvents({ toolCaptionAppended: caption, toolStatusFinished: true }));
+  await harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/f/conversation");
+
+  assert.deepEqual(imageOutputsFor(harness, "file-poster").map((payload) => [payload.prompt, payload.promptStatus]), [
+    ["", "not-available"],
+    [caption, "visible-caption"],
+  ]);
+});
+
+test("rebuilds the generation request prompt from appended code text", async () => {
+  const requestPrompt = "A misty mountain valley travel poster in flat vector style, saffron temples, red typography";
+
+  async function toolRequestPromptFor(codePrompt) {
+    const runHarness = streamedHarness(deltaV1StreamEvents({ codePrompt, codeAppendixCount: 4, codeStatusFinished: true }));
+    await runHarness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/f/conversation");
+    return imageOutputsFor(runHarness, "file-poster")[0]?.generationRequestPrompt;
+  }
+
+  assert.equal(await toolRequestPromptFor(requestPrompt), requestPrompt);
+  assert.equal(await toolRequestPromptFor(null), "", "a null prompt argument yields an empty request prompt");
+});
+
+test("rebuilds concurrent streams independently", async () => {
+  const captionA = "Model caption: Stream one poster with warm desert light and bold editorial typography.";
+  const captionB = "Model caption: Stream two poster with cool neon light and thin vector linework.";
+  const harness = createHookHarness({ conversation_id: "conversation-test", mapping: {} }, "conversation-test", {
+    respond: (url) => {
+      if (String(url).includes("/f/conversation")) {
+        return streamingResponse(chunkText(sseEventsText(deltaV1StreamEvents({
+          codeMessageId: "message-code-a",
+          toolAssetId: "file-poster-a",
+          toolGenId: "generation-a",
+          toolMessageId: "message-tool-a",
+          toolCaptionAppended: captionA,
+          toolStatusFinished: true,
+        }))), { stall: true, url: "https://chatgpt.com/backend-api/f/conversation" });
+      }
+      if (String(url).endsWith("/backend-api/conversation")) {
+        return streamingResponse(chunkText(sseEventsText(deltaV1StreamEvents({
+          codeMessageId: "message-code-b",
+          toolAssetId: "file-poster-b",
+          toolGenId: "generation-b",
+          toolMessageId: "message-tool-b",
+          toolCaptionAppended: captionB,
+          toolStatusFinished: true,
+        }))), { stall: true, url: "https://chatgpt.com/backend-api/conversation" });
+      }
+      return null;
+    },
+  });
+
+  await Promise.all([
+    harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/f/conversation"),
+    harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/conversation"),
+  ]);
+  for (let index = 0; index < 200; index += 1) await setImmediate();
+
+  const finalA = imageOutputsFor(harness, "file-poster-a").at(-1);
+  const finalB = imageOutputsFor(harness, "file-poster-b").at(-1);
+  assert.equal(finalA.prompt, captionA);
+  assert.equal(finalA.messageId, "message-tool-a");
+  assert.equal(finalB.prompt, captionB);
+  assert.equal(finalB.messageId, "message-tool-b");
+  assert.equal(harness.events.some((event) => (
+    event.payload?.assetId === "file-poster-b" && event.payload?.prompt === captionA
+  )), false, "stream A's caption must not land on stream B's image");
+});
+
+test("keeps parsing old-format SSE where every data line is a complete object", async () => {
+  const prompt = "Create a teal poster with embossed lettering and soft studio light.";
+  const lines = [
+    `data: ${JSON.stringify({
+      type: "input_message",
+      message: {
+        id: "message-old-user",
+        author: { role: "user" },
+        content: { content_type: "text", parts: ["Draw a teal poster"] },
+      },
+    })}`,
+    `data: ${JSON.stringify({
+      conversation_id: "conversation-test",
+      message: {
+        id: "message-old-tool",
+        author: { role: "tool", name: "image_gen" },
+        status: "finished_successfully",
+        metadata: { image_gen_title: "Generated image" },
+        content: {
+          content_type: "multimodal_text",
+          parts: [{
+            content_type: "image_asset_pointer",
+            asset_pointer: "sediment://file-old-format",
+            metadata: { dalle: { gen_id: "generation-old", prompt } },
+          }],
+        },
+      },
+    })}`,
+  ];
+  // No blank lines between events: the whole body is one partial block until EOF.
+  const harness = streamedHarness(null, { pieces: chunkText(`${lines.join("\n")}\n`) });
+  await harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/f/conversation");
+
+  const payload = imageOutputsFor(harness, "file-old-format")[0];
+  assert.ok(payload, "old-format SSE over fetch must still be harvested");
+  assert.equal(payload.prompt, prompt);
+  assert.equal(payload.promptStatus, "generation-tool-prompt");
+});
+
+test("keeps the buffered JSON treatment for non-SSE bodies on the stream endpoint", async () => {
+  const body = currentChatGptConversation("Create an amber poster with grainy typography and warm backlight.");
+  const harness = streamedHarness(null, { pieces: chunkText(JSON.stringify(body)), contentType: "application/json" });
+  await harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/f/conversation");
+
+  const payload = imageOutputsFor(harness, "file-current-output")[0];
+  assert.ok(payload, "a plain JSON body on the stream endpoint is still harvested");
+  assert.equal(payload.promptStatus, "generation-tool-prompt");
+});
+
+test("ignores unknown patch operations and keeps applying later events", async () => {
+  const captionBase = "Model caption: A misty mountain valley travel poster in flat vector style";
+  const events = deltaV1StreamEvents({
+    toolCaptionAppended: captionBase,
+    toolExtraPatches: [
+      { p: "/message/content/parts/1", o: "frobnicate", v: "junk" },
+      { p: "/message/unknown/deep/path", o: "append", v: "junk" },
+      { o: "patch", v: [
+        { p: "/message/recipient", o: "splice", v: [0, 1] },
+        { p: "/message/content/parts/1", o: "append", v: " with soft light." },
+      ] },
+    ],
+    toolStatusFinished: true,
+  });
+  const harness = streamedHarness(events);
+  await harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/f/conversation");
+
+  const outputs = imageOutputsFor(harness, "file-poster");
+  assert.equal(outputs.length, 2);
+  assert.deepEqual([outputs[1].prompt, outputs[1].promptStatus], [
+    `${captionBase} with soft light.`,
+    "visible-caption",
+  ]);
+});
+
+test("stops parsing a stream past the harvest size ceiling but keeps earlier bindings", async () => {
+  const text = sseEventsText(deltaV1StreamEvents());
+  const harness = streamedHarness(null, { pieces: [text, "x".repeat(12_000_001)] });
+  await harness.harvest({ method: "POST" }, "https://chatgpt.com/backend-api/f/conversation");
+
+  const skipped = harness.events.find((event) => event.type === "harvest-skipped");
+  assert.ok(skipped, "an oversized stream must be reported once");
+  assert.equal(skipped.payload.reason, "payload-too-large");
+  assert.ok(skipped.payload.size > 12_000_000);
+  assert.equal(harness.events.filter((event) => event.type === "harvest-skipped").length, 1);
+  const payload = imageOutputsFor(harness, "file-poster")[0];
+  assert.ok(payload, "bindings processed before the ceiling survive");
+  assert.equal(payload.messageId, "message-tool-image");
 });
 
 test("accepts an unmarked caption in the image tool message", async () => {
