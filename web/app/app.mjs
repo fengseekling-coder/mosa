@@ -12,7 +12,8 @@ import { createApiClient, mosaMutationHeaders } from "./api-client.mjs";
 import { createConfirmDialog } from "./confirm-dialog.mjs";
 import { createImagePreviewViewer } from "./image-preview.mjs";
 import { createAssetViewer } from "./asset-view.mjs";
-import { createInspectorMarkup, DETAIL_TAGS_VISIBLE_LIMIT } from "./inspector-markup.mjs";
+import { createInspectorMarkup, DETAIL_TAGS_VISIBLE_LIMIT, inspectorPaletteSwatches, generationContextRows } from "./inspector-markup.mjs";
+import { createInspectorOverlay } from "./inspector-overlay.mjs";
 import { assetTags, derivePromptTags, uniqueTags } from "./tag-utils.mjs";
 import { createContextMenu } from "./context-menu.mjs";
 import { createContextMenuActions } from "./context-menu-actions.mjs";
@@ -956,6 +957,8 @@ function setupKeyboardShortcuts() {
       if (els.stackRenameModal?.classList.contains("open")) { closeStackRenameModal(); event.preventDefault(); return; }
       // Escape 先关最上层 Modal，再退出查看模式，不得穿透。
       if (!els.settingsMenu?.hidden) { closePanel(els.settingsMenu, els.settingsToggle); event.preventDefault(); return; }
+      // GravityPort A4a：检视器浮层打开时 Esc 只关浮层（焦点回「查看」），不动检视器。
+      if (inspectorOverlay.isOpen()) { event.preventDefault(); inspectorOverlay.close(); return; }
       if (state.viewMode === "library" && state.selectedIds?.size) {
         gallerySelection.clear({ announce: true });
         event.preventDefault();
@@ -1041,11 +1044,17 @@ const { resetImageZoom, zoomImage, panImagePreview, setupImageZoomPan,
   IMAGE_PREVIEW_ZOOM_STEP, IMAGE_PREVIEW_PAN_STEP } = imagePreview;
 // ===== Inspector markup（检视器区块 markup helper，已提取至 inspector-markup.mjs，R1 批次 4）=====
 const inspectorMarkup = createInspectorMarkup({ state, t, referenceRightsMarkup });
-const { detailFileSectionMarkup, detailPromptSectionMarkup, detailSourceSectionMarkup,
-  detailVersionSectionMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup,
-  detailMoreSectionMarkup, versionPickerMarkup, versionCompareMarkup, versionHistoryMarkup,
-  generationHistoryMarkup, recipeHistoryMarkup, sourceCopyValue, isVideoAsset,
+const { detailFileSectionMarkup, detailPromptSectionMarkup,
+  detailPaletteSectionMarkup, detailReferenceSectionMarkup, detailVersionContextSectionMarkup,
+  generationContextBoxMarkup, detailVersionSectionMarkup, detailTagsSectionMarkup, versionPickerMarkup, versionCompareMarkup, versionHistoryMarkup,
+  generationHistoryMarkup, recipeHistoryMarkup, isVideoAsset,
   assetMediaPreviewMarkup, stackInspectorMarkup, promptReferencesMarkup } = inspectorMarkup;
+// ===== Inspector overlay（GravityPort A4a：参考图 / 版本树浮层控制器）=====
+// 任务 73 返工 1：isSuspended 按 hasBlockingOverlay 的既有清单判断「浮层上面还有
+// 更高层的弹窗」（确认框、图片预览、建组/分组统计、堆叠重命名、设置——即
+// hasBlockingOverlay 排除浮层自身后的全部成员）；为真时浮层的 keydown/pointerdown
+// 完全让位，Esc/Tab/点击由上层弹窗自己处理。
+const inspectorOverlay = createInspectorOverlay({ panel: els.detailPanel, t, isSuspended: () => hasBlockingOverlay("gpOverlay") });
 
 // ===== Asset view（大图查看器，已提取至 asset-view.mjs，R1 批次 4）=====
 const assetViewer = createAssetViewer({ els, state, t, announceGalleryStatus, selectedAsset, isVideoAsset,
@@ -4848,6 +4857,9 @@ function setDetailOpen(open, { allowDockedClose = false } = {}) {
     // runs while the window is hidden or frame-throttled.
     if (!wasOpen) els.detailPanel?.querySelector("#detailTitle")?.focus();
   } else {
+    // GravityPort A4a：检视器关闭时浮层一并关闭（不还焦点给「查看」——焦点走
+    // 检视器既有的 detailReturnFocus 链）。
+    inspectorOverlay.close({ restoreFocus: false });
     const returnEl = state.detailReturnFocus;
     const returnAssetId = state.detailReturnFocusAssetId;
     state.detailReturnFocus = null;
@@ -4876,6 +4888,8 @@ function hasBlockingOverlay(except = "") {
     ["rename", Boolean(els.stackRenameModal?.classList.contains("open"))],
     ["settings", Boolean(els.settingsMenu && !els.settingsMenu.hidden)],
     ["preview", Boolean(els.imagePreviewModal && !els.imagePreviewModal.hidden)],
+    // GravityPort A4a：检视器浮层（参考图/版本树）打开时全局快捷键一并静默。
+    ["gpOverlay", inspectorOverlay.isOpen()],
   ].some(([name, open]) => name !== except && open);
 }
 function openSettingsModal() {
@@ -5319,14 +5333,25 @@ let detailRenderedAssetId = null;
 function ensureDetailInspectorShell() {
   let inspector = els.detailPanel?.querySelector(":scope > .detail-inspector");
   if (!inspector && els.detailPanel) {
-    els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span data-detail-header-label></span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll"></div></div>`;
+    // GravityPort A4a：外壳追加两个持久槽——底部「素材路径」胶囊（不随内容滚动，
+    // 内容由 renderDetailPathbar 按素材填充）与浮层容器（参考图 / 版本树共用，
+    // 内容由 renderDetailOverlays 填充；hidden 切换开合，见 inspector-overlay.mjs）。
+    els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span data-detail-header-label></span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll"></div><div class="detail-pathbar" data-detail-pathbar hidden></div><div class="gp-inspector-overlay" data-gp-overlay role="dialog" aria-modal="true" aria-labelledby="gpInspectorOverlayTitle" tabindex="-1" hidden><div class="gp-inspector-overlay-card"><div class="gp-inspector-overlay-head"><h3 id="gpInspectorOverlayTitle" data-gp-overlay-title></h3><button class="gp-inspector-overlay-close" type="button" data-action="close-inspector-overlay" aria-label="${t("close")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="gp-inspector-overlay-body" data-gp-overlay-body="reference" hidden></div><div class="gp-inspector-overlay-body" data-gp-overlay-body="version" hidden></div></div></div></div>`;
     inspector = els.detailPanel.querySelector(":scope > .detail-inspector");
     inspector?.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => { void closeDetailSurface(); });
+    inspector?.querySelector("[data-detail-pathbar]")?.addEventListener("click", (event) => {
+      const button = event.target.closest?.('[data-action="open-asset-location"]');
+      if (button) revealAssetAtPath(button.dataset.assetPath || "");
+    });
+    inspector?.querySelector("[data-gp-overlay]")?.addEventListener("click", (event) => {
+      if (event.target.closest?.("[data-action='close-inspector-overlay']")) inspectorOverlay.close();
+    });
   }
   const scroller = inspector?.querySelector(".detail-inspector-scroll") || null;
   const headerLabel = inspector?.querySelector("[data-detail-header-label]") || null;
   const closeButton = inspector?.querySelector('[data-action="close-detail"]') || null;
-  return { inspector, scroller, headerLabel, closeButton };
+  const pathbar = inspector?.querySelector("[data-detail-pathbar]") || null;
+  return { inspector, scroller, headerLabel, closeButton, pathbar };
 }
 
 function renderDetailInspectorContent(headerText, markup) {
@@ -5360,6 +5385,10 @@ function renderDetail({ syncAssetView = true } = {}) {
   if (stackDetail) {
     const previousRenderedId = detailRenderedAssetId;
     detailRenderedAssetId = `stack:${stackDetail.id}`;
+    // 堆叠检视器不带素材路径栏；素材浮层随进出堆叠自动关闭。
+    inspectorOverlay.close({ restoreFocus: false });
+    const { pathbar } = ensureDetailInspectorShell();
+    if (pathbar) pathbar.hidden = true;
     const scroller = renderDetailInspectorContent(t("stackInspectorTitle"), stackInspectorMarkup(stackDetail));
     if (scroller && previousRenderedId !== detailRenderedAssetId) scroller.scrollTop = 0;
     bindStackInspectorMediaFallbacks(els.detailPanel);
@@ -5370,18 +5399,31 @@ function renderDetail({ syncAssetView = true } = {}) {
     : null;
   if (!asset) {
     detailRenderedAssetId = null;
+    inspectorOverlay.close({ restoreFocus: false });
+    const { pathbar } = ensureDetailInspectorShell();
+    if (pathbar) pathbar.hidden = true;
     const scroller = renderDetailInspectorContent(t("assetInspector"), `<div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t(state.assets.length ? "noSelection" : "noAssets")}</p><span>${t(state.assets.length ? "noSelectionHint" : "noAssetsHint")}</span></div>`);
     if (scroller) scroller.scrollTop = 0;
     return;
   }
   // 任务 35：「+N」展开状态只跟随当前素材——换素材渲染（首次打开/从别的素材或空态
   // 切回来）回到折叠；同素材重渲染（detailRenderedAssetId === asset.id）保留现状。
-  if (detailRenderedAssetId !== asset.id) state.detailTagsExpanded = false;
+  if (detailRenderedAssetId !== asset.id) {
+    state.detailTagsExpanded = false;
+    // GravityPort A4a：切换素材时浮层自动关闭（同素材重渲染——收藏/自动保存刷新
+    // ——不打断，浮层内容随本次渲染整体重建）。
+    inspectorOverlay.close({ restoreFocus: false });
+  }
   const cachedHistory = versionHistoryForAsset(asset);
   const cachedRecipeHistory = recipeHistoryForAsset(asset) || recipeHistoryFromAsset(asset);
   const cachedGenerationHistory = generationHistoryForAsset(asset);
   // Library v2 保持单层详情容器：语义区块直接进入唯一滚动列，不再额外包卡片壳。
-  const scroller = renderDetailInspectorContent(t("assetInspector"), `${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailMoreSectionMarkup(asset)}`);
+  // GravityPort A4a 区块序：头部(file) → 标签(tags) → 色板(palette) → 提示词(prompt)
+  // → 参考图(reference) → 版本树与上下文(version)。配方编辑/来源信息/独立分组/
+  // 图片位置/独立版本区块已从界面拿掉（helper 保留实现）。
+  const scroller = renderDetailInspectorContent(t("assetInspector"), `${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPaletteSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailReferenceSectionMarkup(asset)}${detailVersionContextSectionMarkup(asset, cachedGenerationHistory)}`);
+  renderDetailPathbar(asset);
+  renderDetailOverlays(asset, cachedHistory, cachedGenerationHistory);
   const previewAspect = els.detailPanel.querySelector("[data-detail-preview-aspect]");
   if (previewAspect?.dataset.detailPreviewAspect) {
     previewAspect.style.setProperty("--detail-preview-aspect", previewAspect.dataset.detailPreviewAspect);
@@ -5421,6 +5463,59 @@ function renderDetail({ syncAssetView = true } = {}) {
   if (!cachedGenerationHistory) void loadGenerationHistory(asset);
 }
 
+// GravityPort A4a：底部固定「素材路径」胶囊——左边标签、中间单行省略路径（悬停
+// title 展示全路径）、右边「打开」（与右键菜单「在 Finder 中显示」同一动作）。
+// 堆叠检视器与空态不渲染（renderDetail 的对应分支里 hidden）。路径不存在时「打开」禁用。
+function renderDetailPathbar(asset) {
+  const { pathbar } = ensureDetailInspectorShell();
+  if (!pathbar) return;
+  const imagePath = String(asset.image_path || "").trim();
+  pathbar.hidden = false;
+  pathbar.innerHTML = `<div class="detail-pathbar-pill"><span class="detail-pathbar-label">${escapeHtml(t("assetPathLabel"))}</span><span class="detail-pathbar-path"${imagePath ? ` title="${escapeHtml(imagePath)}"` : ""}>${imagePath ? escapeHtml(imagePath) : `<span class="empty-copy">${escapeHtml(t("notRecorded"))}</span>`}</span><button class="detail-pathbar-open" type="button" data-action="open-asset-location" data-asset-path="${escapeHtml(imagePath)}"${imagePath ? "" : " disabled"} aria-label="${escapeHtml(t("openPathAction"))}">${escapeHtml(t("openPathAction"))}</button></div>`;
+}
+
+// 「打开」与右键菜单「在 Finder 中显示」完全同源：同一 /api/open-folder 端点、
+// 同样的错误映射与成功提示，不另写打开逻辑（桌面端落到 shell.showItemInFolder，
+// 浏览器端走同一服务端行为）。
+async function revealAssetAtPath(imagePath) {
+  const path = String(imagePath || "").trim();
+  if (!path) return;
+  await runAction(async () => {
+    try {
+      await apiFetch("/api/open-folder", {
+        method: "POST",
+        body: { path, reveal: true },
+      });
+    } catch (error) {
+      if (error.message.includes("Path not allowed")) throw new Error(t("showInFinderPathNotAllowed"));
+      if (error.message.includes("does not exist")) throw new Error(t("showInFinderNotFound"));
+      throw new Error(t("showInFinderFailed"));
+    }
+    showToast(t("shownInFinder"), "success");
+  });
+}
+
+// GravityPort A4a：填充两个浮层主体。参考图浮层 = 参考图权利编辑器（原来源区块
+// 内的 data-reference-rights / data-reference-rights-section 结构原样搬入，行为
+// 不变）；版本树浮层 = 版本选择器 + 生成树 + 版本对比 + 版本历史（原独立版本区块
+// 内容，行为不变）。事件绑定不用在这里做——renderDetail 随后的 panel 级
+// bind* 调用按 els.detailPanel 全面板查询，天然覆盖浮层内的 region。每次
+// renderDetail 整体重建——浮层打开且焦点在浮层里时，回落到浮层卡片。
+function renderDetailOverlays(asset, cachedHistory, cachedGenerationHistory) {
+  const referenceBody = inspectorOverlay.body("reference");
+  if (referenceBody) {
+    referenceBody.innerHTML = `<div class="detail-reference-overlay" data-reference-rights-section><div data-reference-rights>${referenceRightsMarkup(asset)}</div></div>`;
+  }
+  const versionBody = inspectorOverlay.body("version");
+  if (versionBody) {
+    versionBody.innerHTML = detailVersionSectionMarkup(asset, cachedHistory, null, cachedGenerationHistory);
+  }
+  const overlayRoot = els.detailPanel.querySelector("[data-gp-overlay]");
+  if (inspectorOverlay.isOpen() && overlayRoot?.contains(document.activeElement)) {
+    overlayRoot.focus({ preventScroll: true });
+  }
+}
+
 function bindDetailHeaderContext(asset) {
   const scroller = els.detailPanel?.querySelector(".detail-inspector-scroll");
   const overview = scroller?.querySelector('[data-inspector-section="file"]');
@@ -5450,10 +5545,22 @@ async function loadGenerationHistory(asset, options = {}) {
     if (requestId !== generationHistoryRequestSequence || `${state.project}\u0000${state.selectedId}` !== selectedKey) return;
     state.generationHistory = result.history;
     renderGenerationHistoryRegion(result.history, asset.id, null, options);
+    // GravityPort A4a：检视器「版本树与上下文」盒与浮层树共用一次请求，各自刷新。
+    renderGenerationContextRegion(result.history, asset.id);
   } catch (error) {
     if (requestId !== generationHistoryRequestSequence || `${state.project}\u0000${state.selectedId}` !== selectedKey) return;
     renderGenerationHistoryRegion(null, asset.id, error);
+    renderGenerationContextRegion(null, asset.id, error);
   }
+}
+// GravityPort A4a：版本树与上下文盒的异步刷新（markup 与区块渲染共用
+// generationContextBoxMarkup，保证两处一致；出错时按空态处理）。
+function renderGenerationContextRegion(history, selectedId, error = null) {
+  const region = els.detailPanel?.querySelector("[data-generation-context]");
+  if (!region || state.selectedId !== selectedId) return;
+  region.innerHTML = error
+    ? `<p class="empty-copy detail-version-context-empty">${escapeHtml(t("generationHistoryEmpty"))}</p>`
+    : generationContextBoxMarkup(history, selectedId);
 }
 function renderGenerationHistoryRegion(history, selectedId, error = null, options = {}) {
   const region = els.detailPanel?.querySelector("[data-generation-history]");
@@ -5699,7 +5806,12 @@ function bindGenerationHistoryEvents(history, selectedAssetId) {
           tone: "warning",
           returnFocus: button,
         });
-        if (!confirmed || !isCurrentDetailSelection(originProjectId, activeSelectedAssetId)) return;
+        if (!confirmed || !isCurrentDetailSelection(originProjectId, activeSelectedAssetId)) {
+          // 任务 73 返工 1：取消时确认框已把焦点还给浮层里的删除按钮；确认后生成树
+          // 整段重建、原按钮被替换——确认框的兜底焦点会落到浮层外，拉回浮层容器。
+          inspectorOverlay.restoreFocusInside();
+          return;
+        }
         button.disabled = true;
         try {
           await apiFetch("/api/generation-relations", {
@@ -5711,6 +5823,8 @@ function bindGenerationHistoryEvents(history, selectedAssetId) {
           if (current?.id === activeSelectedAssetId) await loadGenerationHistory(current, { openGenerationIds: openGenerationNodeIds(region) });
         } finally {
           if (button.isConnected) button.disabled = false;
+          // 同上：确认路径在重建后把焦点拉回浮层（浮层仍开着，绝不落到 body）。
+          inspectorOverlay.restoreFocusInside();
         }
       });
     }
@@ -5851,15 +5965,19 @@ async function loadRecipeHistory(asset) {
 }
 function renderRecipeHistoryRegion(history, asset, error = null) {
   const region = els.detailPanel?.querySelector("[data-recipe-history]");
-  if (!region || !isCurrentDetailSelection(asset.project_id, asset.id)) return;
-  region.innerHTML = error
-    ? `<p class="recipe-history-status error" role="status">${escapeHtml(t("recipeSnapshotLoadFailed"))}: ${escapeHtml(error.message)}</p>`
-    : recipeHistoryMarkup(history);
-  bindRecipeHistoryEvents(history, asset);
+  if (region) {
+    if (!isCurrentDetailSelection(asset.project_id, asset.id)) return;
+    region.innerHTML = error
+      ? `<p class="recipe-history-status error" role="status">${escapeHtml(t("recipeSnapshotLoadFailed"))}: ${escapeHtml(error.message)}</p>`
+      : recipeHistoryMarkup(history);
+    bindRecipeHistoryEvents(history, asset);
+  }
   // The rights editor reads the active snapshot's references, and the panel is
   // built before this history arrives. Gallery rows deliberately omit recipe
   // relations, so without redrawing here the editor stays empty on first open
   // even when the asset has references.
+  // GravityPort A4a：配方快照历史不再有独立界面 region（函数体保留），但参考图
+  // 权利编辑器与参考图缩略图盒仍依赖配方历史到位后的这次刷新。
   renderReferenceRightsRegion(asset);
   renderPromptReferencesRegion(asset, error);
 }
@@ -5870,6 +5988,20 @@ function renderPromptReferencesRegion(asset, error = null) {
     ? `<div class="detail-reference-row detail-reference-error" role="status"><span class="detail-reference-label">${escapeHtml(t("referenceImage"))}</span><span class="detail-reference-value">${escapeHtml(t("referenceLoadFailed"))}</span></div>`
     : promptReferencesMarkup(asset);
   bindReferenceThumbnailFallbacks(region);
+  // GravityPort A4a：整块重建把「查看」按钮换成了新节点，重绑浮层入口。
+  bindInspectorOverlayTriggers(els.detailPanel);
+}
+// GravityPort A4a：浮层「查看」入口的绑定（逐按钮直绑；幂等——重复调用只对
+// 尚未绑定的按钮生效）。
+function bindInspectorOverlayTriggers(panel) {
+  panel?.querySelector('[data-action="open-reference-overlay"]:not([data-overlay-bound])')?.addEventListener("click", (event) => {
+    inspectorOverlay.open("reference", t("referenceImage"), event.currentTarget);
+  });
+  panel?.querySelector('[data-action="open-reference-overlay"]')?.setAttribute("data-overlay-bound", "true");
+  panel?.querySelector('[data-action="open-version-overlay"]:not([data-overlay-bound])')?.addEventListener("click", (event) => {
+    inspectorOverlay.open("version", t("versionTreeTitle"), event.currentTarget);
+  });
+  panel?.querySelector('[data-action="open-version-overlay"]')?.setAttribute("data-overlay-bound", "true");
 }
 function bindReferenceThumbnailFallbacks(root) {
   root?.querySelectorAll?.("[data-reference-thumb-img]").forEach((image) => {
@@ -5940,9 +6072,20 @@ function bindDetailEvents(asset, renderId) {
     button.addEventListener("click", () => removeDetailTag(panel, button, asset, renderId));
   });
   panel.querySelector('[data-action="toggle-tags"]')?.addEventListener("click", () => toggleDetailTagsExpanded(asset, renderId));
-  panel.querySelector('[data-action="copy-source"]')?.addEventListener("click", () => runAction(async () => { await writeClipboardText(sourceCopyValue(asset.source)); showToast(t("originalPathCopied"), "success"); }));
-  panel.querySelector('[data-action="view-generation-session"]')?.addEventListener("click", () => { void showRelatedGenerations(asset, "session"); });
-  panel.querySelector('[data-action="view-generation-batch"]')?.addEventListener("click", () => { void showRelatedGenerations(asset, "batch"); });
+  // GravityPort A4a：色块点击复制 hex（aria-label「复制颜色 #…」由 markup 提供）。
+  // 数据上色经 CSSOM 写入（markup 无内联 style，沿用既有卫生约束）。
+  panel.querySelectorAll('[data-action="copy-swatch"]').forEach((button) => {
+    button.style.background = String(button.dataset.swatchColor || "transparent");
+    button.addEventListener("click", () => runAction(async () => {
+      await writeClipboardText(String(button.dataset.swatchColor || ""));
+      showToast(t("copySuccess"), "success");
+    }));
+  });
+  // GravityPort A4a：「查看」打开浮层（参考图 / 版本树与上下文，同一时间只开一个；
+  // Esc / 点外面 / 关闭按钮都走 inspector-overlay 控制器，焦点回到触发按钮）。
+  // 绑定在 bindInspectorOverlayTriggers：renderPromptReferencesRegion 整块重建
+  // 参考图区块后也要重绑（那里不含版本树入口，重复调用无副作用）。
+  bindInspectorOverlayTriggers(panel);
   if (!isVideoAsset(asset)) {
     // 任务 36：预览入口是 button（inspector-markup assetMediaPreviewMarkup 的
     // detail 分支），关闭弹窗时 openImagePreview 记录的 returnFocus 就是它，

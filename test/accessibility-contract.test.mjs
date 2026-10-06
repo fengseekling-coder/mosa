@@ -76,7 +76,7 @@ test("keeps the gallery source-aware and the inspector optional", async () => {
   const i18n = await readFile(resolve(root, "web/app/i18n.mjs"), "utf8");
   assert.match(i18n, /userInstruction: "用户指令"/);
   assert.match(i18n, /webPromptUnavailable: "网页来源未暴露原始生图提示词"/);
-  assert.match(inspector, /const userInstructionMarkup = `<div class="detail-prompt-subhead">/);
+  assert.match(inspector, /const instructionMarkup = `<div class="detail-prompt-subhead">/);
   // Global bridge health ignores Grok-only failures while still exposing Grok metadata.
   assert.match(app, /const hasError = codex\?\.lastError \|\| cowart\?\.lastError;/);
   assert.doesNotMatch(app, /const hasError = codex\?\.lastError \|\| grok\?\.lastError \|\| cowart\?\.lastError;/);

@@ -136,11 +136,11 @@ export async function run(ctx) {
       `card meta must show the ChatGPT web source label (got ${JSON.stringify(liveResult?.cardMetaSpans)})`);
     assertEqual(liveResult?.detailPrompt, PROMPT_CAPTION, "inspector prompt box must show the caption prompt");
     assertEqual(liveResult?.detailRequestPrompt, PROMPT_REQUEST, "inspector request-prompt box must show the ChatGPT image-tool prompt kept beside the caption");
-    assertEqual(liveResult?.sourceLabel, "ChatGPT 网页版", "inspector source summary must show the ChatGPT web source name");
-    const sourceRowValues = (liveResult?.sourceRows || []).map((row) => row.value);
-    assertOk(sourceRowValues.includes(CONVERSATION_CHATGPT), `inspector source rows must contain the conversation id (got ${JSON.stringify(liveResult?.sourceRows)})`);
-    assertOk(sourceRowValues.includes(MESSAGE_CHATGPT), "inspector source rows must contain the message id");
-    assertOk(sourceRowValues.includes(MODEL_CHATGPT), "inspector source rows must contain the model");
+    assertEqual(liveResult?.sourceLabel, "ChatGPT 网页版", "inspector head source line must show the ChatGPT web source name");
+    assertEqual(liveResult?.sourceSectionAbsent, true, "A4a: the source section must stay removed from the inspector");
+    assertEqual(liveResult?.assetConversationId, CONVERSATION_CHATGPT, "the captured asset must carry the conversation id");
+    assertEqual(liveResult?.assetMessageId, MESSAGE_CHATGPT, "the captured asset must carry the message id (API)");
+    assertEqual(liveResult?.assetModel, MODEL_CHATGPT, "the captured asset must carry the model (API)");
     assertSameArray(liveResult?.sourceFilterCardIds, [chatgptAssetId], "sidebar source filter must narrow the gallery to the captured card");
     assertEqual(liveResult?.sourceFilterNavCount, "1", "sidebar source nav count for the captured source type");
 
@@ -446,11 +446,16 @@ function liveCaptureSource(config) {
     await waitFor(() => detailOpen() && selectedId() === assetId, 'inspector opens for the captured asset', 15000);
     const detailPrompt = panel()?.querySelector('.prompt-box.detail-prompt-box[data-prompt-panel="1"]')?.textContent?.trim() || '';
     const detailRequestPrompt = panel()?.querySelector('.prompt-box.detail-prompt-box[data-prompt-panel="2"]')?.textContent?.trim() || '';
-    const sourceLabel = panel()?.querySelector('[data-inspector-section="source"] summary strong')?.textContent?.trim() || '';
-    const sourceRows = [...(panel()?.querySelectorAll('[data-inspector-section="source"] .meta-row') || [])].map((row) => ({
-      key: row.querySelector('.meta-key')?.textContent || '',
-      value: row.querySelector('.meta-val')?.textContent || '',
-    }));
+    // GravityPort A4a：来源区块（summary + meta 表）已从检视器拿掉——来源名改从
+    // 头部「来源 · 日期」行读取,并锁「来源区块不再渲染」;conversation id 改经
+    // API 验证（Node 侧）。
+    const headSourceLine = panel()?.querySelector('.asset-kind')?.textContent?.trim() || '';
+    const sourceLabel = headSourceLine.split('·')[0]?.trim() || '';
+    const sourceSectionAbsent = !panel()?.querySelector('[data-inspector-section="source"]');
+    const assetSource = await fetch('/api/assets/default/' + encodeURIComponent(assetId)).then((r) => r.json()).then((body) => body?.asset?.source || {});
+    const assetConversationId = assetSource.conversation_id || '';
+    const assetMessageId = assetSource.message_id || '';
+    const assetModel = assetSource.model || '';
 
     const sourceNav = () => document.querySelector('#sidebarGroupList button[data-filter="source"][data-value="web-chatgpt"]');
     await waitFor(() => sourceNav() && sourceNav().querySelector('.nav-count')?.textContent === '1',
@@ -482,7 +487,10 @@ function liveCaptureSource(config) {
       detailPrompt,
       detailRequestPrompt,
       sourceLabel,
-      sourceRows,
+      sourceSectionAbsent,
+      assetConversationId,
+      assetMessageId,
+      assetModel,
       sourceFilterNavCount,
       sourceFilterCardIds: rootCardIds(),
       duplicateHttpStatus: duplicateResponse.status,

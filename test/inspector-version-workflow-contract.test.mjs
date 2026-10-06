@@ -41,10 +41,11 @@ function sliceBetween(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-// Library v2 keeps favorite inside the file overview, leaving seven semantic sections.
-const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "more"];
+// Library v2 keeps favorite inside the file overview. GravityPort A4a：滚动列六区块
+// + 版本树浮层壳（"version-overlay"）。
+const SECTION_ORDER = ["file", "tags", "palette", "prompt", "reference", "version"];
 // Exact helper-call sequence inside the renderDetail single-column composition.
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailMoreSectionMarkup(asset)}";
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPaletteSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailReferenceSectionMarkup(asset)}${detailVersionContextSectionMarkup(asset, cachedGenerationHistory)}";
 
 // 1. Native select exists. 2-3. No hand-rolled listbox / version popover.
 // 4. Picker lives inside the version section. 5. Current version is selected.
@@ -63,9 +64,10 @@ test("1-5. native version picker inside the version section", async () => {
   assert.doesNotMatch(app, /role="option"/, "no custom option roles");
   assert.doesNotMatch(picker, /popover|dropdown|listbox|role="menu"/i, "no custom version popover");
 
-  // 4. The picker region sits inside the version inspector section, before the disclosures.
+  // 4. The picker region sits inside the version tree overlay content, before
+  // the disclosures (A4a：版本工作流整体搬进浮层，行为不变).
   const versionSection = functionSlice(inspector, "detailVersionSectionMarkup");
-  assert.ok(versionSection.includes('data-inspector-section="version"'), "section id stays version");
+  assert.ok(versionSection.includes('data-inspector-section="version-overlay"'), "overlay content keeps its own section marker");
   assert.ok(versionSection.includes('class="version-picker" data-version-picker'), "picker region rendered inside the version section");
   assert.ok(versionSection.indexOf("data-version-picker") < versionSection.indexOf("data-version-history"), "picker precedes the history disclosure");
 
@@ -213,20 +215,19 @@ test("20-23. switch preserves viewer state, scroll, and lands focus", async () =
   assert.match(pickerRegion, /if \(hadFocus\) region\.querySelector\("\[data-version-select\]"\)\?\.focus\(\{ preventScroll: true \}\);/, "picker re-render restores focus to the new select");
 });
 
-// 24. data-recipe-change lives inside the recipe disclosure. 25-30. The removed
+// 24. A4a：配方编辑界面整个拿掉（helper 与自动保存链保留）。25-30. The removed
 // save-as-version composer stays absent from the inspector and its event path.
-// Recipe auto-save remains the only inspector save flow.
-test("24-30. recipe save remains and save-as-version UI stays removed", async () => {
+test("24-30. recipe editing UI stays removed; auto-save pipeline retained", async () => {
   const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
   const promptSection = functionSlice(inspector, "detailPromptSectionMarkup");
 
-  // 24. The recipe-change textarea sits inside the recipe disclosure, between
-  // the recipe fields and the save-recipe button.
-  assert.ok(promptSection.indexOf('t("recipeAndEditing")') > -1, "recipe disclosure heading intact");
-  assert.ok(promptSection.indexOf("data-recipe-change") > promptSection.indexOf("${editRecipeFieldsMarkup(asset)}"), "recipe-change follows the recipe fields");
-  assert.ok(promptSection.indexOf("data-recipe-change") < promptSection.indexOf('data-action="save-recipe"'), "recipe-change precedes the save button");
-  assert.match(promptSection, /<label class="field recipe-change-field"><span>\$\{t\("recipeChangeSummary"\)\}<\/span>/, "recipe-change field label");
-  assert.match(promptSection, /<textarea data-recipe-change rows="2" placeholder="\$\{escapeHtml\(t\("recipeChangePlaceholder"\)\)\}"><\/textarea>/, "recipe-change textarea");
+  // 24. The recipe disclosure is gone from the prompt section; the retained
+  // helper keeps its fields for a future comeback.
+  assert.ok(promptSection.indexOf('t("recipeAndEditing")') === -1, "recipe disclosure heading must not come back");
+  assert.doesNotMatch(promptSection, /data-recipe-change|data-action="save-recipe"/, "recipe-change textarea and save button must not come back");
+  const editFields = functionSlice(inspector, "editRecipeFieldsMarkup");
+  assert.match(editFields, /data-edit="prompt"/, "retained recipe fields keep their bindings");
+  assert.match(editFields, /data-edit="business_fields"/, "retained recipe fields keep their bindings");
 
   // 25-27. The bottom save-as-version composer and its client event path stay
   // removed. Version history remains read-only in this inspector.
@@ -234,8 +235,8 @@ test("24-30. recipe save remains and save-as-version UI stays removed", async ()
   assert.doesNotMatch(inspector, /data-version-change|detail-regenerate-composer|detail-save-version/);
   assert.doesNotMatch(app, /data-action="save-version"|savingVersion|version_change: versionChange/);
 
-  // 28-30. Recipe auto-save remains isolated from the versions API. save-recipe
-  // is a manual flush trigger; the actual PATCH lives in persistInspectorDraft.
+  // 28-30. Recipe auto-save remains isolated from the versions API. The
+  // retained pipeline reads its own summary field; no UI can dirty it in A4a.
   const persist = sliceBetween(app, "async function persistInspectorDraft(panel, asset, renderId)", "async function flushInspectorSave()");
   assert.doesNotMatch(persist, /data-version-change/, "recipe auto-save never reads data-version-change");
   assert.match(persist, /panel\.querySelector\("\[data-recipe-change\]"\)\?\.value\.trim\(\) \|\| ""/, "recipe auto-save reads its own summary field");
@@ -244,14 +245,13 @@ test("24-30. recipe save remains and save-as-version UI stays removed", async ()
   assert.doesNotMatch(persist, /\/versions/, "recipe auto-save never calls the versions API");
   assert.match(persist, /method: "PATCH"/, "recipe auto-save keeps the PATCH path");
 
-  // Recipe-change labels remain localized in both locales.
+  // Recipe-change labels remain localized in both locales (keys retained).
   assert.match(i18n, /recipeChangeSummary: "配方变更说明"/);
   assert.match(i18n, /recipeChangeSummary: "Recipe change summary"/);
   assert.match(i18n, /recipeChangePlaceholder: "简要说明本次 Prompt、参数或元数据修改"/);
   assert.match(i18n, /recipeChangePlaceholder: "Briefly describe the prompt, parameter, or metadata changes"/);
   assert.match(i18n, /versionPickerLabel: "选择版本"/);
   assert.match(i18n, /versionPickerLabel: "Select version"/);
-  assert.match(promptSection, /class="recipe-save-btn secondary" type="button" data-action="save-recipe"/, "save-recipe stays secondary");
   assert.equal(count(app, "recipe-save-btn primary") + count(inspector, "recipe-save-btn primary"), 0, "no primary recipe save button");
 });
 
@@ -281,17 +281,20 @@ test("34-38. Phase 4A correction gates hold", async () => {
   assert.equal(count(i18n, 'sourceWebChatgpt: "ChatGPT Web"'), 1, "English names the ChatGPT web source explicitly");
 
   // 37. Copying a source uses sourceCopyValue (path → grok_media_path → ""),
-  // the same precedence as the displayed originalPath row.
+  // the same precedence as the displayed originalPath row. A4a：copy-source 的
+  // 检视器入口已随来源区块拿掉（helper 与取值函数保留）。
   const copyValue = functionSlice(inspector, "sourceCopyValue");
   assert.match(copyValue, /return String\(source\.path \|\| source\.grok_media_path \|\| ""\);/, "copy value mirrors the originalPath precedence");
-  assert.match(app, /copy-source.*writeClipboardText\(sourceCopyValue\(asset\.source\)\)/s, "copy click uses sourceCopyValue");
+  const bindDetailEvents = functionSlice(app, "bindDetailEvents");
+  assert.doesNotMatch(bindDetailEvents, /data-action="copy-source"/, "the inspector copy-source entry must not come back");
 
-  // 38. The copy button renders only when a copyable value exists.
+  // 38. The retained source-section helper still renders its copy button only
+  // when a copyable value exists.
   const sourceSection = functionSlice(inspector, "detailSourceSectionMarkup");
   assert.match(sourceSection, /const copyButton = sourceCopyValue\(source\)\n\s+\? `<button class="section-head-copy" type="button" data-action="copy-source"/, "empty sources get no copy button");
 });
 
-// 39-42. The seven V2 inspector sections keep their approved order.
+// 39-42. The A4a inspector sections keep their approved order.
 // 43-46. The neighbouring contract suites keep their anchors in app.js.
 // 47. package.json and the lockfile are untouched. 48. No new dependency.
 test("39-48. layout order, neighbouring contracts, and dependency freeze", async () => {
@@ -300,13 +303,12 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
   const viewer = await readAssetView();
 
   // 39-42. The composition sequence and section ids stay in the approved
-  // order; version sits after source, more still closes the column.
+  // order; the version context box follows the reference section.
   assert.ok(app.includes(COMPOSITION), "renderDetail composition sequence unchanged");
   const positions = SECTION_ORDER.map((id) => inspector.indexOf(`data-inspector-section="${id}"`));
-  assert.ok(positions.every((index) => index > -1), "all V2 section ids still render");
+  assert.ok(positions.every((index) => index > -1), "all A4a section ids still render");
   assert.deepEqual([...positions].sort((a, b) => a - b), positions, "section order matches the approved sequence");
-  assert.equal(SECTION_ORDER[4], "version", "version stays the 5th section");
-  assert.equal(SECTION_ORDER[6], "more", "more stays the 7th section");
+  assert.equal(SECTION_ORDER[5], "version", "version tree & context closes the scroll column");
 
   // 43-46. V2 migration: large-view-* tests were removed during V2 cleanup.
   // App.js anchors for viewer and inspector remain intact.
@@ -330,7 +332,7 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
   // native file drag are deliberate local modules; runtime dependencies and
   // the native Select boundary remain unchanged.
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./batch-import.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./library-reconciliation.mjs", "./native-asset-drag.mjs", "./navigation-history.mjs", "./status-live-region.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
+    ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./batch-import.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./inspector-overlay.mjs", "./library-reconciliation.mjs", "./native-asset-drag.mjs", "./navigation-history.mjs", "./status-live-region.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
 });
 
 // Picker/recipe styles stay inside the approved boundary: native select reuses

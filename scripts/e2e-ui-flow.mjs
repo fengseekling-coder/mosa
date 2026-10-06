@@ -57,14 +57,18 @@ export function createCriticalUiFlowSource({
     return element;
   }
   async function search() {
-    setValue('#searchInput', config.searchTerm);
+    // GravityPort A4a：搜索词原为「编辑后的 prompt」；配方编辑退役后改用当前
+    // 第一张卡的 id 作锚（id 在结构化搜索字段里，必命中），搜索路径本身照常验。
+    const anchorId = document.querySelector('.asset-card')?.dataset?.id || '';
+    if (!anchorId) throw new Error('no asset card to anchor the search');
+    setValue('#searchInput', anchorId);
     // The search handler is debounced. A pre-existing card can satisfy the
     // result-count assertion before the query has actually committed, which
     // lets the delayed search clear an Inspector opened by the next step. The
     // V2 shell intentionally has no active-filter chip, so observe the query
     // committed on the results container instead of a transient busy frame.
     await waitFor(
-      () => document.querySelector('#assetGrid')?.dataset.query === config.searchTerm,
+      () => document.querySelector('#assetGrid')?.dataset.query === anchorId,
       'committed search query',
     );
     await waitFor(
@@ -245,26 +249,18 @@ export function createCriticalUiFlowSource({
       'favorite persistence in renderer',
     );
 
-    const recipeDisclosure = await waitFor(
-      () => document.querySelector('[data-inspector-section="prompt"] > details.detail-disclosure'),
-      'recipe editing disclosure',
-    );
-    recipeDisclosure.open = true;
+    // GravityPort A4a（任务 73）：配方编辑 disclosure 已从检视器拿掉——锁「不得
+    // 回来」。原「编辑 prompt → data-recipe-change → save-recipe 自动保存」链路
+    // 随入口退役（少验：配方自动保存；数据路径由 store/API 单测覆盖）。
     await waitFor(
-      () => document.querySelector('[data-edit="prompt"]')
-        && document.querySelector('[data-action="save-recipe"]'),
-      'recipe editor',
+      () => document.querySelector('[data-inspector-section="prompt"]'),
+      'prompt section',
     );
-    setValue('[data-edit="prompt"]', editedPrompt);
-    setValue('[data-recipe-change]', config.recipeChange);
-    click('[data-action="save-recipe"]');
-    await waitFor(
-      () => !document.querySelector('[data-detail-dirty="true"][data-detail-dirty-scope="recipe"]'),
-      'recipe autosave completion',
-      20000,
-    );
+    if (document.querySelector('[data-edit], [data-action="save-recipe"], [data-recipe-change]')) {
+      throw new Error('retired recipe editing controls are back');
+    }
 
-    // 6) 用 searchTerm 搜索，确认能搜到刚编辑的卡片。
+    // 6) 用 searchTerm 搜索（卡片文件名带同一 stamp，标题搜索可命中）。
     await search();
     await openNewestResult();
   } else {
@@ -281,24 +277,20 @@ export function createCriticalUiFlowSource({
       'favorite after restart',
     );
     result.favorite = document.querySelector('[data-action="toggle-favorite"]')?.getAttribute('aria-pressed') === 'true';
+    // GravityPort A4a：重启后配方编辑区同样必须保持移除；原「重启后 prompt 值 /
+    // 快照历史 / 变更说明」断言随编辑入口退役（少验：配方数据重启持久化）。
     await waitFor(
-      () => document.querySelector('[data-edit="prompt"]')?.value === editedPrompt,
-      'recipe prompt after restart',
-      20000,
+      () => document.querySelector('[data-inspector-section="prompt"]'),
+      'prompt section after restart',
     );
-    await waitFor(
-      () => document.querySelectorAll('[data-recipe-snapshot-id]').length >= 2,
-      'recipe snapshot history after restart',
-      20000,
-    );
-    await waitFor(
-      () => document.body.textContent.includes(config.recipeChange),
-      'recipe change text after restart',
-    );
+    if (document.querySelector('[data-edit], [data-action="save-recipe"], [data-recipe-change]')) {
+      throw new Error('retired recipe editing controls are back after restart');
+    }
   }
 
   result.favorite = result.favorite || document.querySelector('[data-action="toggle-favorite"]')?.getAttribute('aria-pressed') === 'true';
-  result.recipeSaved = !document.querySelector('[data-detail-dirty="true"][data-detail-dirty-scope="recipe"]');
+  // GravityPort A4a：recipeSaved 改为「配方编辑区保持移除」；快照计数仅观测。
+  result.recipeEditorRemoved = !document.querySelector('[data-edit], [data-action="save-recipe"]');
   result.recipeSnapshotCount = document.querySelectorAll('[data-recipe-snapshot-id]').length;
   result.resultCount = document.querySelectorAll('.asset-card').length;
   result.selectedId = document.querySelector('.asset-card.selected')?.dataset.id || null;

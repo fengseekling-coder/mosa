@@ -126,7 +126,7 @@ test("19-21. Return / Prev / Next / Zoom 控件可见契约", async () => {
   assert.match(styles, /\.asset-view-controls \{ position: absolute;/);
 });
 
-test("22-24. Inspector V2 八项顺序：File/Tags 直接进入滚动列，More 收尾", async () => {
+test("22-24. Inspector A4a 六区块顺序：File/Tags/Palette/Prompt/Reference/Version", async () => {
   const appJs = await source("web/app/app.mjs");
   const inspector = await source("web/app/inspector-markup.mjs");
   const compositionStart = appJs.indexOf('const scroller = renderDetailInspectorContent(t("assetInspector"), `${detailFileSectionMarkup(asset)}');
@@ -136,11 +136,10 @@ test("22-24. Inspector V2 八项顺序：File/Tags 直接进入滚动列，More 
   const order = [
     "detailFileSectionMarkup",
     "detailTagsSectionMarkup",
+    "detailPaletteSectionMarkup",
     "detailPromptSectionMarkup",
-    "detailSourceSectionMarkup",
-    "detailVersionSectionMarkup",
-    "detailGroupSectionMarkup",
-    "detailMoreSectionMarkup",
+    "detailReferenceSectionMarkup",
+    "detailVersionContextSectionMarkup",
   ];
   let cursor = 0;
   for (const markup of order) {
@@ -148,9 +147,12 @@ test("22-24. Inspector V2 八项顺序：File/Tags 直接进入滚动列，More 
     assert.notEqual(position, -1, `${markup} present in inspector template`);
     cursor = position;
   }
-  assert.equal(order.indexOf("detailMoreSectionMarkup"), 6, "More stays the 7th section");
-  // data-inspector-section 标记与顺序一致。
-  assert.match(inspector, /data-inspector-section="more"/);
+  // GravityPort A4a：版本树与上下文收尾；配方/来源/分组/图片位置区块不得回来。
+  for (const retired of ["detailSourceSectionMarkup", "detailGroupSectionMarkup", "detailMoreSectionMarkup"]) {
+    assert.ok(!template.includes(retired), `${retired} must not come back to the scroll column`);
+  }
+  // data-inspector-section 标记与顺序一致（version-overlay 是浮层内容壳）。
+  assert.match(inspector, /data-inspector-section="version-overlay"/);
 });
 
 test("25. body/document 不设置造成水平滚动的固定宽度", async () => {

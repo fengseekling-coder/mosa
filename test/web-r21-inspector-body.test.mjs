@@ -23,30 +23,39 @@ function lastBlock(css, selector) {
   return blocks.at(-1);
 }
 
-test("R21 inspector body: sections share the head's 24px side padding with 1px separators", async () => {
+test("A4a sections use the design 20px rhythm with per-section top spacing", async () => {
   const css = await readWebCss();
-  for (const section of [".detail-prompt-section", ".detail-source-section", ".detail-version-section", ".detail-group-section"]) {
-    const block = lastBlock(css, `.mosa-v2 .detail ${section}`);
-    assert.match(block, /padding: var\(--r21-s5\) var\(--r21-s6\);/, `${section} must use 20/24 padding`);
-  }
-  const more = lastBlock(css, '.mosa-v2 .detail .inspector-section[data-inspector-section="more"]');
-  assert.match(more, /padding: var\(--r21-s5\) var\(--r21-s6\);/);
-  assert.match(more, /border-top: 1px solid transparent;/, "the more section reserves a separator without colouring dark mode");
-  // 标签区块：设计稿里它紧跟头部，第一条分隔线画在提示词区块上方。
+  // GravityPort A4a：区块间距照稿子（区块间 20、左右内边距 20、区块头下距 4）。
+  const prompt = lastBlock(css, ".mosa-v2 .detail .detail-prompt-section");
+  assert.match(prompt, /padding: var\(--r21-s5\) 20px 0;/, "prompt section keeps the 20px top gap");
+  const reference = lastBlock(css, ".mosa-v2 .detail .detail-reference-section");
+  assert.match(reference, /padding: var\(--r21-s5\) 20px 0;/);
+  const versionContext = lastBlock(css, ".mosa-v2 .detail .detail-version-context");
+  assert.match(versionContext, /padding: var\(--r21-s5\) 20px;/);
+  const palette = lastBlock(css, ".mosa-v2 .detail .detail-palette-section");
+  assert.match(palette, /padding: var\(--r21-s3\) 20px 0;/, "palette follows the tags row by 12px");
   const tags = lastBlock(css, ".mosa-v2 .detail .detail-tags-section");
-  assert.match(tags, /padding: var\(--r21-s4\) var\(--r21-s6\) var\(--r21-s5\);/);
-  // 浅色分隔线统一 #e7e7ea；深色沿用既有 token（不得出现深色作用域的 #e7e7ea）。
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-prompt-section, \.detail-source-section, \.detail-version-section, \.detail-group-section, \.inspector-section\[data-inspector-section="more"\]\) \{\n  border-top-color: #e7e7ea;\n\}/);
+  assert.match(tags, /padding: 10px 20px 0;/, "tags sit 10px under the head block");
+  const overview = lastBlock(css, ".mosa-v2 .detail .detail-overview");
+  assert.match(overview, /padding: 0 20px 10px;/, "the head block hugs the 64px header");
+  // 沿用现有描边：提示词区块顶部分隔线规则保留（约定：描边不比、沿用现有）。
+  assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-section \{[\s\S]*?border-top: 1px solid var\(--inspector-divider\);[\s\S]*?border-radius: 0;[\s\S]*?background: transparent;/);
 });
 
-test("section titles read as R21 sec-head (10.5px/590) with copy buttons in .copy grey", async () => {
+test("section titles read as 12px/16 heads with copy buttons in .copy grey", async () => {
   const css = await readWebCss();
+  const head = lastBlock(css, ".mosa-v2 .detail .detail-prompt-head");
+  assert.match(head, /height: 16px;/);
+  assert.match(head, /margin-bottom: 4px;/);
+  // 返工 1:区块小标题照稿 10px(区块头高度 16 保持不变)。
   const title = lastBlock(css, ".mosa-v2 .detail .detail-prompt-head h3");
-  assert.match(title, /font-size: 10\.5px;/);
-  assert.match(title, /font-weight: 590;/);
-  const summary = lastBlock(css, ".mosa-v2 .detail .detail-source-summary > span");
-  assert.match(summary, /font-size: 10\.5px;/);
-  assert.match(summary, /font-weight: 590;/);
+  assert.match(title, /font-size: 10px;/);
+  assert.match(title, /line-height: 16px;/);
+  const subhead = lastBlock(css, ".mosa-v2 .detail .detail-prompt-subhead");
+  assert.match(subhead, /height: 16px;/);
+  assert.match(subhead, /margin-top: var\(--r21-s5\);/);
+  const subheadTitle = lastBlock(css, ".mosa-v2 .detail .detail-prompt-subhead h4");
+  assert.match(subheadTitle, /font-size: 10px;/);
   const disclosure = lastBlock(css, ".mosa-v2 .detail .detail-disclosure > summary");
   assert.match(disclosure, /font-size: 10\.5px;/);
   assert.match(disclosure, /font-weight: 590;/);
@@ -58,52 +67,112 @@ test("section titles read as R21 sec-head (10.5px/590) with copy buttons in .cop
   const icon = lastBlock(css, ".mosa-v2 .detail .detail-prompt-head .section-head-copy svg");
   assert.match(icon, /width: 12px;/);
   assert.match(icon, /height: 12px;/);
+  // A4a：区块头右侧「查看」按钮沿用复制按钮的浅/深色。
+  const view = lastBlock(css, ".mosa-v2 .detail .detail-section-view");
+  assert.match(view, /font-size: 10px;/, "查看 follows the 10px floor (返工 1)");
+  assert.match(css, /:root\[data-theme="dark"\] \.mosa-v2 \.detail \.detail-section-view \{ color: #d1d1d6; \}/);
 });
 
-test("tags use 4/8 padding, the 8px radius and the 10px floor with the light palette", async () => {
+test("tags use 20px pills with the 4px radius, 4px gaps and the light palette", async () => {
   const css = await readWebCss();
   const tag = lastBlock(css, ".mosa-v2 .detail .detail-tag");
-  assert.match(css, /--inspector-radius-sm: 8px;/, "the tag radius token must stay 8px");
-  assert.match(tag, /padding: var\(--r21-s1\) var\(--r21-s2\);/);
-  assert.match(tag, /border-radius: var\(--inspector-radius-sm\);/);
-  assert.match(tag, /font-size: 10px;/);
+  // GravityPort A4a：胶囊 20 高、圆角 4、横竖间距 4（量数）。
+  assert.match(tag, /min-height: 20px; height: 20px;/);
+  assert.match(tag, /padding: 0 8px;/);
+  assert.match(tag, /border-radius: 4px;/);
   const tagLight = /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-tag \{[^}]*\}/.exec(css)?.[0];
   assert.match(tagLight, /border-color: transparent;/);
   assert.match(tagLight, /background: #f0f0f2;/);
   assert.match(tagLight, /color: #5b5b61;/);
   const row = lastBlock(css, ".mosa-v2 .detail .detail-tags-row");
-  assert.match(row, /gap: var\(--r21-s2\);/, "tags must sit 8px apart");
+  assert.match(row, /gap: 4px;/, "tags must sit 4px apart");
+  assert.match(row, /max-height: none;/, "folding is count-based; a height cap with overflow:visible would paint expanded rows over the palette and prompt");
+  const add = lastBlock(css, ".mosa-v2 .detail .detail-tags-add");
+  assert.match(add, /min-height: 20px; height: 20px;/);
 });
 
-test("prompt and instruction boxes carry the R21 prompt-box values", async () => {
+test("prompt tabs render as 40×12-class chips with the 2px radius and 4px gap", async () => {
+  const css = await readWebCss();
+  const toggle = lastBlock(css, ".mosa-v2 .detail .detail-prompt-head .detail-prompt-toggle");
+  assert.match(toggle, /height: 12px;/);
+  assert.match(toggle, /padding: 0 5px;/);
+  assert.match(toggle, /border-radius: 2px;/);
+  assert.match(toggle, /font-size: 10px;/);
+  const active = lastBlock(css, ".mosa-v2 .detail .detail-prompt-head .detail-prompt-toggle.is-active");
+  assert.match(active, /border-color: var\(--color-text-primary\);/, "the active tab keeps a token border");
+});
+
+test("prompt and instruction boxes are fixed 120px tall with the 4px radius", async () => {
   const css = await readWebCss();
   const box = lastBlock(css, ".mosa-v2 .detail .detail-prompt-box");
-  assert.match(box, /padding: var\(--r21-s3\);/);
-  assert.match(box, /border-radius: var\(--inspector-radius-sm\);/);
-  assert.match(box, /font-size: 10\.5px;/);
-  assert.match(box, /line-height: 1\.58;/);
+  assert.match(box, /height: 120px; min-height: 120px; max-height: 120px;/);
+  assert.match(box, /border-radius: 4px;/);
+  const instruction = lastBlock(css, ".mosa-v2 .detail .detail-instruction-box");
+  assert.match(instruction, /height: 120px; min-height: 120px; max-height: 120px;/);
+  assert.match(instruction, /margin-top: 4px;/);
+  // 返工 1：照稿字号 10px、行高 14px（内边距 12 沿用）。
+  const typography = lastBlock(css, ".mosa-v2 .detail .detail-prompt-box,\n.mosa-v2 .detail .detail-instruction-box");
+  assert.match(typography, /padding: var\(--r21-s3\);/);
+  assert.match(typography, /font-size: 10px;/);
+  assert.match(typography, /line-height: 14px;/);
   const light = /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-prompt-box,\n:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-instruction-box \{[^}]*\}/.exec(css)?.[0];
   assert.match(light, /border-color: transparent;/);
   assert.match(light, /background: #f3f3f5;/);
   assert.match(light, /color: #4a4a50;/);
 });
 
-test("reference thumbnails form a 3-column 1.3:1 grid with light chrome and grey count", async () => {
+test("palette swatches are 24×12 with the 4px radius and 2px gaps", async () => {
   const css = await readWebCss();
-  const grid = lastBlock(css, ".mosa-v2 .detail .detail-reference-thumbnails");
-  assert.match(grid, /display: grid;/);
-  assert.match(grid, /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
-  assert.match(grid, /gap: var\(--r21-s2\);/);
-  const thumb = lastBlock(css, ".mosa-v2 .detail .detail-reference-thumb");
-  assert.match(thumb, /aspect-ratio: 1\.3 \/ 1;/);
-  assert.match(thumb, /border-radius: var\(--inspector-radius-sm\);/);
-  const thumbLight = /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-reference-thumb \{[^}]*\}/.exec(css)?.[0];
-  assert.match(thumbLight, /border-color: #e4e4e7;/);
-  assert.match(thumbLight, /background: #ededf0;/);
-  const value = lastBlock(css, ".mosa-v2 .detail .detail-reference-summary .detail-reference-value");
-  assert.match(value, /font-weight: 450;/);
-  const row = lastBlock(css, ".mosa-v2 .detail .detail-reference-row");
-  assert.match(row, /font-size: 10\.5px;/);
+  const row = lastBlock(css, ".mosa-v2 .detail .detail-palette-row");
+  assert.match(row, /display: flex;/);
+  assert.match(row, /gap: 2px;/);
+  const swatch = lastBlock(css, ".mosa-v2 .detail .detail-palette-swatch");
+  assert.match(swatch, /width: 24px; height: 12px;/);
+  assert.match(swatch, /border-radius: 4px;/);
+  assert.match(swatch, /border: 0;/, "the swatch colors by data only, no chrome");
+});
+
+test("reference thumbnails sit in a 64px box as 56×56 tiles in one clipped row", async () => {
+  const css = await readWebCss();
+  const box = lastBlock(css, ".mosa-v2 .detail .detail-reference-box");
+  assert.match(box, /height: 64px;/);
+  assert.match(box, /padding: 4px;/);
+  assert.match(box, /border-radius: 4px;/);
+  assert.match(box, /overflow: hidden;/, "thumbnails clip instead of wrapping");
+  const thumbs = lastBlock(css, ".mosa-v2 .detail .detail-reference-box .detail-reference-thumbnails");
+  assert.match(thumbs, /display: flex;/);
+  assert.match(thumbs, /gap: 4px;/);
+  assert.match(thumbs, /overflow: hidden;/);
+  const thumb = lastBlock(css, ".mosa-v2 .detail .detail-reference-box .detail-reference-thumb");
+  assert.match(thumb, /width: 56px; height: 56px;/);
+  assert.match(thumb, /border-radius: 4px;/);
+  const boxLight = /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-reference-box \{[^}]*\}/.exec(css)?.[0];
+  assert.match(boxLight, /border-color: #e7e7ea;/);
+  assert.match(boxLight, /background: #f3f3f5;/);
+});
+
+test("version context rows are 40px tall with 40×40 thumbnails and 4px rhythm", async () => {
+  const css = await readWebCss();
+  const box = lastBlock(css, ".mosa-v2 .detail .detail-version-context-box");
+  assert.match(box, /gap: 4px;/);
+  assert.match(box, /padding: 4px;/);
+  assert.match(box, /border-radius: 4px;/);
+  const row = lastBlock(css, ".mosa-v2 .detail .detail-version-context-row");
+  assert.match(row, /height: 40px;/);
+  assert.match(row, /padding: 4px;/);
+  const thumb = lastBlock(css, ".mosa-v2 .detail .detail-version-context-row .generation-output-thumb");
+  assert.match(thumb, /width: 40px; height: 40px;/);
+  assert.match(thumb, /border-radius: 4px;/);
+  const model = lastBlock(css, ".mosa-v2 .detail .detail-version-context-model");
+  assert.match(model, /font-size: 10px;/, "version context rows follow the 10px floor (返工 1)");
+  assert.match(model, /text-overflow: ellipsis;/);
+  const current = lastBlock(css, ".mosa-v2 .detail .detail-version-context-current");
+  assert.match(current, /color: var\(--color-accent\);/, "the current-asset marker uses the accent token");
+  const boxLight = /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-version-context-box \{[^}]*\}/.exec(css)?.[0];
+  assert.match(boxLight, /border-color: #e7e7ea;/);
+  assert.match(boxLight, /background: #f3f3f5;/);
+  const rowLight = /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-version-context-row \{[^}]*\}/.exec(css)?.[0];
+  assert.match(rowLight, /background: rgb\(255 255 255 \/ \.7\);/);
 });
 
 test("source facts render as an R21 context card with an equal-split action row", async () => {
@@ -177,6 +246,43 @@ test("recipe form controls are 32px tall, 8px radii, borderless in light mode", 
   assert.match(light, /background: #f3f3f5;/);
   const two = lastBlock(css, ".mosa-v2 .detail .two");
   assert.match(two, /gap: var\(--r21-s2\);/);
+});
+
+test("the pathbar pill is 36px tall with an 18px radius and token chrome", async () => {
+  const css = await readWebCss();
+  const bar = lastBlock(css, ".mosa-v2 .detail .detail-pathbar");
+  assert.match(bar, /padding: 12px 20px 20px;/, "the capsule sits 20px from the card bottom/sides");
+  const pill = lastBlock(css, ".mosa-v2 .detail .detail-pathbar-pill");
+  assert.match(pill, /height: 36px;/);
+  assert.match(pill, /border-radius: 18px;/);
+  const path = lastBlock(css, ".mosa-v2 .detail .detail-pathbar-path");
+  assert.match(path, /text-overflow: ellipsis;/);
+  assert.match(path, /white-space: nowrap;/);
+  // 返工 1:胶囊文字照稿——「素材路径」14px、路径 10px、「打开」12px。
+  const label = lastBlock(css, ".mosa-v2 .detail .detail-pathbar-label");
+  assert.match(label, /font-size: 14px;/);
+  assert.match(path, /font-size: 10px;/);
+  const openBtn = lastBlock(css, ".mosa-v2 .detail .detail-pathbar-open");
+  assert.match(openBtn, /font-size: 12px;/);
+  const open = lastBlock(css, ".mosa-v2 .detail .detail-pathbar-open");
+  assert.match(open, /min-height: 24px;/);
+  assert.match(css, /\.mosa-v2 \.detail \.detail-pathbar-open:disabled \{ opacity: \.4; cursor: default; \}/);
+});
+
+test("the version/reference/palette sections fill the flex column in DOM order", async () => {
+  const css = await readWebCss();
+  const orders = [
+    [".mosa-v2 .detail-overview", "order: 1;"],
+    [".mosa-v2 .detail-tags-section", "order: 2;"],
+    [".mosa-v2 .detail-palette-section", "order: 3;"],
+    [".mosa-v2 .detail-prompt-section", "order: 4;"],
+    [".mosa-v2 .detail-reference-section", "order: 5;"],
+    [".mosa-v2 .detail-version-context", "order: 6;"],
+  ];
+  for (const [selector, declaration] of orders) {
+    const block = lastBlock(css, selector);
+    assert.match(block, new RegExp(declaration.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${selector} keeps its A4a order`);
+  }
 });
 
 test("light overrides re-declare the hover/active semantics they would otherwise bury", async () => {

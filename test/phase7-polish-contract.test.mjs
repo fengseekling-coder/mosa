@@ -92,18 +92,17 @@ test("3. exactly one semantic accent definition per theme and status colours sta
 });
 
 // 4. Inspector V2 section order is locked in renderDetail.
-test("4. Inspector V2 Overview and section order are unchanged", async () => {
+test("4. Inspector A4a Overview and section order are unchanged", async () => {
   const app = await readApp();
   const inspector = await readInspectorMarkup();
   const render = functionSlice(app, "renderDetail");
   const order = [
     "detailFileSectionMarkup",
     "detailTagsSectionMarkup",
+    "detailPaletteSectionMarkup",
     "detailPromptSectionMarkup",
-    "detailSourceSectionMarkup",
-    "detailVersionSectionMarkup",
-    "detailGroupSectionMarkup",
-    "detailMoreSectionMarkup",
+    "detailReferenceSectionMarkup",
+    "detailVersionContextSectionMarkup",
   ];
   let cursor = 0;
   for (const name of order) {
@@ -111,9 +110,13 @@ test("4. Inspector V2 Overview and section order are unchanged", async () => {
     assert.notEqual(at, -1, `${name} present in order`);
     cursor = at + 1;
   }
-  const sectionTags = ["file", "prompt", "source", "version", "group", "tags", "more"];
+  const sectionTags = ["file", "tags", "palette", "prompt", "reference", "version"];
   for (const tag of sectionTags) {
     assert.ok(inspector.includes(`data-inspector-section="${tag}"`), `semantic section tag ${tag} intact`);
+  }
+  // GravityPort A4a：配方/来源/分组/图片位置区块不得回到滚动列。
+  for (const retired of ["${detailSourceSectionMarkup(asset)}", "${detailGroupSectionMarkup(asset)}", "${detailMoreSectionMarkup(asset)}"]) {
+    assert.ok(!render.includes(retired), `${retired} stays removed`);
   }
 });
 

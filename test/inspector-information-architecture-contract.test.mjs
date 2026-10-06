@@ -57,11 +57,12 @@ function functionSlice(source, name) {
   return source.slice(start, next === -1 ? source.length : next);
 }
 
-// Library v2 keeps favorite inside its Overview; the remaining semantic blocks
-// are therefore a seven-section column.
-const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "more"];
+// Library v2 keeps favorite inside its Overview. GravityPort A4a 重排后的滚动列
+// 六个语义区块：头部 / 标签 / 色板 / 提示词 / 参考图 / 版本树与上下文；
+// 第七个 data-inspector-section（"version-overlay"）是版本树浮层的内容壳。
+const SECTION_ORDER = ["file", "tags", "palette", "prompt", "reference", "version"];
 // Exact helper-call sequence inside the renderDetail single-column composition.
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailMoreSectionMarkup(asset)}";
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPaletteSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailReferenceSectionMarkup(asset)}${detailVersionContextSectionMarkup(asset, cachedGenerationHistory)}";
 
 // 1. Detail uses a single vertical information column.
 // 2. No detail tablist. 3. No detail tab. 4. No detail tabpanel.
@@ -69,12 +70,15 @@ const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(
 test("1-6. single-column architecture, tab roles removed, V2 sections in approved order", async () => {
   const [app, inspector, css] = await Promise.all([readApp(), readInspectorMarkup(), readCss()]);
 
-  // 1. Single column: one inspector shell with one header and one scroll container.
+  // 1. Single column: one inspector shell with one header, one scroll container,
+  // the fixed asset-path capsule and the persistent overlay container.
   const renderDetail = functionSlice(app, "renderDetail");
   const shell = functionSlice(app, "ensureDetailInspectorShell");
   assert.ok(shell.includes('<div class="detail-inspector"><div class="detail-inspector-header">'), "persistent inspector shell has fixed header");
   assert.ok(shell.includes('<div class="detail-inspector-scroll"></div>'), "persistent shell owns the single scroll container");
-  assert.ok(renderDetail.includes('${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}'), "file facts and tags stay adjacent without an extra overview wrapper");
+  assert.ok(shell.includes('<div class="detail-pathbar" data-detail-pathbar hidden></div>'), "asset-path capsule is a persistent shell slot outside the scroll column");
+  assert.ok(shell.includes('<div class="gp-inspector-overlay" data-gp-overlay'), "reference/version overlay container lives in the persistent shell");
+  assert.ok(renderDetail.includes('${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPaletteSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}'), "file facts, tags, palette and prompt stay adjacent without an extra overview wrapper");
   assert.equal(count(shell, 'class="detail-inspector-scroll"'), 1, "the shell creates exactly one scroll container");
   assert.doesNotMatch(renderDetail, /els\.detailPanel\.innerHTML\s*=/, "asset switches must not rebuild the entire inspector shell");
   assert.match(renderDetail, /renderDetailInspectorContent\(t\("assetInspector"\)/, "asset content renders into the persistent shell");
@@ -100,11 +104,16 @@ test("1-6. single-column architecture, tab roles removed, V2 sections in approve
   assert.doesNotMatch(detailSource, /class="detail-tab/);
   assert.doesNotMatch(css, /\.detail-tab/);
 
-  // 5. Seven semantic sections, each emitted exactly once. Favorite belongs in
-  // the V2 Overview instead of occupying a detached visual section.
-  assert.equal(count(inspector, 'data-inspector-section="'), 7, "exactly seven V2 semantic sections");
+  // 5. Section markers: the six scroll-column blocks plus the version-overlay
+  // content shell are live; the three retired sections (source / group / more)
+  // survive only inside their retained helper bodies.
+  assert.equal(count(inspector, 'data-inspector-section="'), 10, "6 column + 1 overlay + 3 retained-in-helper markers");
   for (const id of SECTION_ORDER) {
     assert.ok(inspector.includes(`data-inspector-section="${id}"`), `missing section ${id}`);
+  }
+  assert.ok(inspector.includes('data-inspector-section="version-overlay"'), "version tree overlay keeps its own section marker");
+  for (const id of ["source", "group", "more"]) {
+    assert.equal(count(inspector, `data-inspector-section="${id}"`), 1, `retained ${id} helper keeps exactly one marker`);
   }
 
   // 6. The renderDetail composition concatenates the V2 helpers in the
@@ -212,19 +221,32 @@ test("14-17. prompt section states, copy entry and user-instruction separation",
   // recipe controls into the fixed-height primary composition.
   assert.match(promptSection, /const instructionText = userInstruction/);
   assert.match(promptSection, /t\("userInstructionUnavailable"\)/);
-  assert.match(promptSection, /const userInstructionMarkup = `<div class="detail-prompt-subhead">/);
+  assert.match(promptSection, /const instructionMarkup = `<div class="detail-prompt-subhead">/);
   assert.match(promptSection, /<div class="detail-prompt-subhead"><h4>\$\{t\("userInstruction"\)\}<\/h4>/);
   assert.match(promptSection, /detail-instruction-box/);
-  assert.match(promptSection, /\$\{promptText\}<\/div>\$\{promptProvenance\}\$\{userInstructionMarkup\}/);
+  assert.match(promptSection, /\$\{promptText\}<\/div>\$\{promptProvenance\}\$\{instructionMarkup\}/);
   assert.match(i18n, /userInstruction: "用户指令"/);
   assert.match(i18n, /userInstruction: "User instruction"/);
   assert.match(i18n, /userInstructionUnavailable: "未提供用户指令"/);
   assert.match(i18n, /userInstructionUnavailable: "No user instruction provided"/);
 
-  // The primary prompt composition shows real generation references instead of
-  // the old hard-coded "unused" claim. Web assets distinguish loading, empty,
-  // and populated reference states while recipe history loads asynchronously.
-  assert.match(promptSection, /data-prompt-references/);
+  // GravityPort A4a：两段提示词时渲染「提示词1 / 提示词2」页签（i18n 键独立于
+  // prompt/prompt2），单段时只显示标题「提示词」。
+  assert.match(promptSection, /data-prompt-variant="1">\$\{t\("promptTab1"\)\}<\/button><button class="detail-prompt-toggle" type="button" aria-pressed="false" data-prompt-variant="2">\$\{t\("promptTab2"\)\}/);
+  assert.match(promptSection, /: `<h3>\$\{t\("prompt"\)\}<\/h3>`/);
+  assert.match(i18n, /promptTab1: "提示词1"/);
+  assert.match(i18n, /promptTab1: "Prompt 1"/);
+  assert.match(i18n, /promptTab2: "提示词2"/);
+  assert.match(i18n, /promptTab2: "Prompt 2"/);
+
+  // The reference block (its own A4a section now) shows real generation
+  // references instead of the old hard-coded "unused" claim. Web assets
+  // distinguish loading, empty, and populated reference states while recipe
+  // history loads asynchronously.
+  assert.doesNotMatch(promptSection, /\$\{promptReferencesMarkup|<div data-prompt-references>/, "references left the prompt section in A4a");
+  const referenceSection = functionSlice(inspector, "detailReferenceSectionMarkup");
+  assert.match(referenceSection, /data-inspector-section="reference"/);
+  assert.match(referenceSection, /data-prompt-references/);
   assert.match(inspector, /function promptReferencesMarkup\(asset\)/);
   assert.match(inspector, /linked\?\.thumbnail_url \|\| reference\.attachment_url \|\| linked\?\.image_url/);
   assert.match(inspector, /data-reference-thumb-img/);
@@ -241,64 +263,59 @@ test("14-17. prompt section states, copy entry and user-instruction separation",
   assert.match(i18n, /referenceLoadFailed: "Failed to load"/);
 });
 
-// 18. Source section exists. 19. Source copy entry exists. 20. buildSourceRows kept.
-test("18-20. source section keeps buildSourceRows and a conditional copy entry", async () => {
+// GravityPort A4a：来源信息区块从界面拿掉（用户 10-06 拍板，不挪到别处）。
+// 「查看同批次」「查看同对话」按钮与 copy-source 入口随区块一并消失；
+// showRelatedGenerations / buildSourceRows / sourceCopyValue 保留实现。
+test("18-20. source section stays removed from the inspector (A4a)", async () => {
   const app = await readApp();
   const inspector = await readInspectorMarkup();
 
+  // 18. The helper body is retained but never composed into the column and
+  // never rendered by the overlay bodies either.
   const sourceSection = functionSlice(inspector, "detailSourceSectionMarkup");
-  assert.ok(sourceSection.includes('data-inspector-section="source"'));
-  assert.match(sourceSection, /<details class="detail-source-disclosure">/);
-  assert.match(sourceSection, /<summary class="detail-source-summary">/);
-  assert.match(sourceSection, /sourceName\(source\)/);
-  assert.match(sourceSection, /buildSourceRows\(source\)/, "source rows still come from buildSourceRows");
-  assert.match(sourceSection, /const copyButton = sourceCopyValue\(source\)\n\s+\? `<button class="section-head-copy" type="button" data-action="copy-source"/);
-  assert.match(sourceSection, /data-action="copy-source" title="\$\{t\("copyOriginalPath"\)\}" aria-label="\$\{t\("copyOriginalPath"\)\}"/);
-  // Empty source falls back to notRecorded instead of an empty table.
-  assert.match(sourceSection, /<p class="empty-copy">\$\{t\("notRecorded"\)\}<\/p>/);
+  assert.ok(sourceSection.includes('data-inspector-section="source"'), "retained helper keeps its marker");
+  assert.ok(!app.includes("${detailSourceSectionMarkup(asset)}"), "source section must not come back to renderDetail");
+  const renderDetailOverlays = functionSlice(app, "renderDetailOverlays");
+  assert.ok(!renderDetailOverlays.includes("detailSourceSectionMarkup"), "source section must not come back inside the overlays");
+  // 19. The copy-source / session / batch inspector entries are gone.
   const bindDetailEvents = functionSlice(app, "bindDetailEvents");
-  assert.match(bindDetailEvents, /copy-source.*writeClipboardText\(sourceCopyValue\(asset\.source\)\)/s, "copy-source copies the original path");
+  assert.doesNotMatch(bindDetailEvents, /data-action="copy-source"/, "copy-source entry must not come back");
+  assert.doesNotMatch(bindDetailEvents, /data-action="view-generation-session"/, "session entry must not come back");
+  assert.doesNotMatch(bindDetailEvents, /data-action="view-generation-batch"/, "batch entry must not come back");
+  // 20. buildSourceRows / sourceCopyValue survive as retained implementations
+  // (their only consumer, detailSourceSectionMarkup, stays in the file).
+  assert.match(inspector, /function buildSourceRows\(source\)/);
+  assert.match(inspector, /function sourceCopyValue\(source = \{\}\)/);
 });
 
-test("source section stays visible as a compact disclosure in V2", async () => {
-  const css = await readCss();
-  assert.match(css, /\.mosa-v2 \.detail \.detail-source-section \{[\s\S]*?display:\s*block;/);
-  assert.match(css, /\.mosa-v2 \.detail \.detail-source-summary \{[\s\S]*?min-height:\s*48px/);
-});
-
-test("source navigation exposes only reliable generation session and batch actions", async () => {
+test("source navigation helpers stay retained but expose no inspector entries", async () => {
   const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
-  const sourceSection = functionSlice(inspector, "detailSourceSectionMarkup");
-  const sourceRows = functionSlice(inspector, "buildSourceRows");
+  // GravityPort A4a：导航功能代码保留（右键菜单/其他入口仍可能用），但检视器里
+  // 没有它们的按钮——锁「不得回来」。
   const navigation = functionSlice(app, "showRelatedGenerations");
   const bindings = functionSlice(app, "bindDetailEvents");
-
-  assert.match(sourceRows, /\["sessionId", source\.conversation_id\]/);
-  assert.match(sourceRows, /\["generationBatch", source\.message_id\]/);
-  assert.match(sourceSection, /const sessionActions = conversationId/);
-  assert.match(sourceSection, /messageId \? `<button[^`]*data-action="view-generation-batch"/);
-  assert.match(sourceSection, /data-action="view-generation-session"/);
-  assert.match(navigation, /if \(!conversationId \|\| \(mode === "batch" && !messageId\)\) return;/);
-  assert.match(navigation, /state\.scope = "all";\s*state\.mediaKind = "all";\s*clearFacets\(\);\s*state\.facets\.conversation = conversationId;/);
-  assert.match(navigation, /if \(mode === "batch"\) state\.facets\.generationBatch = messageId;/);
-  assert.match(bindings, /view-generation-session[^\n]*showRelatedGenerations\(asset, "session"\)/);
-  assert.match(bindings, /view-generation-batch[^\n]*showRelatedGenerations\(asset, "batch"\)/);
+  assert.match(navigation, /if \(!conversationId \|\| \(mode === "batch" && !messageId\)\) return;/, "retained navigation helper keeps its guards");
+  assert.doesNotMatch(bindings, /showRelatedGenerations/);
+  assert.doesNotMatch(functionSlice(inspector, "detailFileSectionMarkup"), /view-generation-session/, "the head open-conversation button must not come back");
   for (const key of ["generationNavigation", "viewGenerationBatch", "viewGenerationSession"]) {
     assert.equal(count(i18n, `${key}:`), 2, `${key} must exist in both locales`);
   }
 });
 
-// 21. Version section position. 22. Version history stays on-demand.
-// 23. Recipe history stays reachable.
-test("21-23. version section position and generation context visibility", async () => {
+// 21. Version context box follows the reference section in the column.
+// 22. AI generation lineage is visible in the version tree overlay, open by
+//     default; local version history stays behind a closed disclosure.
+// 23. Recipe snapshot history UI is removed (A4a) while its data still loads.
+test("21-23. version context position, overlay lineage, recipe history data", async () => {
   const app = await readApp();
   const inspector = await readInspectorMarkup();
   const css = await readCss();
 
-  // 21. Version sits after source and before group in the V2 column.
-  const versionIndex = COMPOSITION.indexOf("detailVersionSectionMarkup");
-  assert.ok(versionIndex > COMPOSITION.indexOf("detailSourceSectionMarkup"));
-  assert.ok(versionIndex < COMPOSITION.indexOf("detailGroupSectionMarkup"));
+  // 21. The version context section sits after reference in the A4a column;
+  // the full version workflow renders inside the overlay body.
+  const versionIndex = COMPOSITION.indexOf("detailVersionContextSectionMarkup");
+  assert.ok(versionIndex > COMPOSITION.indexOf("detailReferenceSectionMarkup"), "version tree & context follows the reference section");
+  assert.match(app, /versionBody\.innerHTML = detailVersionSectionMarkup\(asset, cachedHistory, null, cachedGenerationHistory\);/, "the version overlay body composes the version workflow helpers");
 
   // 22. AI generation lineage is visible in V2 and open by default; local
   // version history remains behind a closed disclosure.
@@ -316,52 +333,52 @@ test("21-23. version section position and generation context visibility", async 
   // The current-version summary stays visible outside the disclosure.
   assert.match(inspector, /function detailVersionSummaryMarkup\(asset\)/);
 
-  // 23. Recipe snapshot history stays reachable behind its own disclosure,
-  // also closed by default, and still lazy-loaded after render.
+  // 23. A4a：配方快照历史 disclosure 从界面拿掉（helper 保留实现），配方历史数据
+  // 仍照常拉取（参考图权利编辑器依赖它），历史到位后仍刷新参考图区块。
   const recipeDisclosure = functionSlice(inspector, "recipeHistoryDisclosureMarkup");
-  assert.match(recipeDisclosure, /<details class="detail-disclosure"><summary>\$\{t\("recipeHistoryLabel"\)\}<\/summary>/);
-  assert.doesNotMatch(recipeDisclosure, /<details class="detail-disclosure" open>/);
-  assert.match(recipeDisclosure, /data-recipe-history aria-live="polite"/);
-  assert.ok(functionSlice(app, "renderDetail").includes("void loadRecipeHistory(asset);"));
+  assert.match(recipeDisclosure, /<details class="detail-disclosure"><summary>\$\{t\("recipeHistoryLabel"\)\}<\/summary>/, "retained helper keeps its markup");
+  assert.ok(!app.includes("${recipeHistoryDisclosureMarkup(cachedRecipeHistory)}"), "recipe history disclosure must not come back to the version section");
+  assert.match(functionSlice(app, "renderDetail"), /void loadRecipeHistory\(asset\);/);
+  assert.match(functionSlice(app, "renderRecipeHistoryRegion"), /renderReferenceRightsRegion\(asset\);/, "recipe history arrival still refreshes the reference rights editor");
 });
 
-// 24. Group section is a read-only readout (no editing control).
-test("24. group section is display-only", async () => {
+// 24. A4a：单独的分组区块拿掉，分组并入头部键值（无分组显示「未分组」）。
+test("24. group section stays removed; the head facts carry the group row", async () => {
+  const app = await readApp();
   const inspector = await readInspectorMarkup();
 
   const groupSection = functionSlice(inspector, "detailGroupSectionMarkup");
-  assert.ok(groupSection.includes('data-inspector-section="group"'));
-  assert.match(groupSection, /<p class="inspector-readout">/);
-  assert.doesNotMatch(groupSection, /<input|<select|<textarea|contenteditable|data-edit=/);
-  assert.match(groupSection, /t\("notGrouped"\)/, "empty group falls back to the notGrouped copy");
+  assert.ok(groupSection.includes('data-inspector-section="group"'), "retained helper keeps its marker");
+  assert.ok(!app.includes("${detailGroupSectionMarkup(asset)}"), "group section must not come back to renderDetail");
+  const fileSection = functionSlice(inspector, "detailFileSectionMarkup");
+  assert.match(fileSection, /\["group", String\(asset\.group \|\| ""\)\.trim\(\) \|\| t\("notGrouped"\)\]/, "head facts keep the group row with the notGrouped fallback");
 });
 
-// 25. Tags section is 7th. 26. Prompt-derived chips render. 27. The add action is persistent. 28. The section remains bounded.
-test("25-28. tags section renders prompt-derived chips and add action (D3)", async () => {
+// 25. Tags section follows file (before palette/prompt). 26. User tags render
+//     without a source chip (A4a). 27. The add action is persistent. 28. The section remains bounded.
+test("25-28. tags section renders user chips and add action (D3)", async () => {
   const [app, inspector, i18n] = await Promise.all([readApp(), readInspectorMarkup(), readI18n()]);
 
-  // 25. Tags sits after file (overview) and before prompt so it lands directly
-  // under the basic information block.
+  // 25. Tags sits after file (overview) and before palette/prompt so it lands
+  // directly under the basic information block.
   const tagsIndex = COMPOSITION.indexOf("detailTagsSectionMarkup");
   assert.ok(tagsIndex > COMPOSITION.indexOf("detailFileSectionMarkup"));
   assert.ok(tagsIndex < COMPOSITION.indexOf("detailPromptSectionMarkup"));
 
   const tagsSection = functionSlice(inspector, "detailTagsSectionMarkup");
   assert.ok(tagsSection.includes('data-inspector-section="tags"'));
-  // 26–28. The source chip is always first, prompt-derived tags follow it, the
-  // add action is always rendered, and the visual row stays bounded.
+  // 26–28. A4a：来源标签芯片拿掉（来源在头部「来源 · 日期」显示），用户标签直接
+  // 渲染，添加动作常在，行高有界。
   assert.match(tagsSection, /assetTags\(asset\)/);
-  assert.match(tagsSection, /const sourceMarkup = `<span class="detail-tag detail-source-tag"/);
-  assert.match(tagsSection, /\$\{sourceMarkup\}\$\{tagMarkup\}/, "source chip precedes normal tags");
-  assert.match(tagsSection, /sourceType === "web-chatgpt"[^\n]*return "GPT"/);
-  assert.match(tagsSection, /sourceType === "codex-generated"[^\n]*return "Codex"/);
+  assert.doesNotMatch(tagsSection, /detail-source-tag|sourceMarkup/, "the source chip must not come back to the tags row");
+  assert.match(tagsSection, /\$\{tagMarkup\}\$\{tagsToggleMarkup\}/, "user tags render directly, followed by the overflow toggle");
   assert.match(tagsSection, /class="detail-tag"/);
   assert.match(tagsSection, /data-action="add-tag"/);
   assert.match(tagsSection, /t\("addTag"\)/);
   assert.doesNotMatch(tagsSection, /asset-curation|curationMarkup|toggle-curated|copy-context-package|export-context-package/,
     "curation and context-package controls stay out of the asset inspector");
   const css = await readCss();
-  assert.match(css, /\.detail-tags-row \{[^}]*max-height: 56px/);
+  assert.match(css, /\.mosa-v2 \.detail \.detail-tags-row \{ gap: 4px; max-height: none; \}/);
   assert.doesNotMatch(css, /asset-curation|context-package-actions/,
     "retired curation/context-package layout styles stay removed");
   assert.match(i18n, /addTag: "添加标签"/);
@@ -375,52 +392,49 @@ test("32-33. save-as-version section stays removed", async () => {
   assert.doesNotMatch(css, /detail-regenerate-section|detail-regenerate-composer|detail-save-version/);
 });
 
-// 34. More is 9th. 35. Archive stays a separated danger action.
-test("34-35. more section last, archive kept as a separated danger action", async () => {
-  const inspector = await readInspectorMarkup();
-
-  // 34. More is the final section.
-  assert.ok(COMPOSITION.indexOf("detailMoreSectionMarkup") > COMPOSITION.indexOf("detailGroupSectionMarkup"));
-  assert.ok(COMPOSITION.endsWith("${detailMoreSectionMarkup(asset)}"));
-
-  const moreSection = functionSlice(inspector, "detailMoreSectionMarkup");
-  assert.ok(moreSection.includes('data-inspector-section="more"'));
-  // 2026-09-04: the original-media entry and its capability helper retired.
-  assert.doesNotMatch(moreSection, /originalMediaActionMarkup/);
-  assert.doesNotMatch(inspector, /function originalMediaCapability\(/);
-  // Utility actions migrated as secondary buttons inside the native disclosure.
-  // 2026-09-04: the More disclosure retired; the location row renders directly.
-  assert.doesNotMatch(moreSection, /data-more-actions/);
-  assert.match(moreSection, /<div class="more-location"><span class="meta-key">\$\{t\("imageLocation"\)\}<\/span>/);
-  // Utility actions retired (2026-09-04); the disclosure keeps only the location row.
-  assert.doesNotMatch(moreSection, /data-action="regenerate"/);
-  assert.doesNotMatch(moreSection, /data-action="copy-path"/);
-  // 35. 2026-09-04: the danger-separated archive action retired from the section.
-  assert.doesNotMatch(moreSection, /data-action="archive-asset"/);
-  assert.doesNotMatch(moreSection, /detail-danger-actions/);
-  // No ellipsis overflow menu is introduced.
-  assert.doesNotMatch(moreSection, /ellipsis|overflow-menu|⋯|…/);
-});
-
-// 36. Editing ability stays inside a disclosure. 37. Reference rights preserved.
-test("36-37. recipe editing and reference rights stay inside disclosures", async () => {
+// 34-35. A4a：图片位置区块拿掉（由底部固定「素材路径」胶囊取代），helper 保留实现。
+test("34-35. more section stays removed; the pathbar owns the location", async () => {
   const app = await readApp();
   const inspector = await readInspectorMarkup();
 
-  // 36. The full recipe edit form lives behind the "recipe and editing"
-  // disclosure inside the prompt section — closed by default.
-  const promptSection = functionSlice(inspector, "detailPromptSectionMarkup");
-  assert.match(promptSection, /<details class="detail-disclosure"><summary>\$\{t\("recipeAndEditing"\)\}<\/summary><div class="disclosure-content detail-fields">\$\{editRecipeFieldsMarkup\(asset\)\}/);
-  assert.doesNotMatch(promptSection, /<details class="detail-disclosure" open>/);
-  const editFields = functionSlice(inspector, "editRecipeFieldsMarkup");
-  assert.match(editFields, /data-edit="prompt"/);
-  assert.match(editFields, /data-edit="business_fields"/);
-  assert.match(promptSection, /<button class="recipe-save-btn secondary" type="button" data-action="save-recipe">/);
+  assert.ok(!app.includes("${detailMoreSectionMarkup(asset)}"), "more section must not come back to renderDetail");
+  const moreSection = functionSlice(inspector, "detailMoreSectionMarkup");
+  assert.ok(moreSection.includes('data-inspector-section="more"'), "retained helper keeps its marker");
+  // 2026-09-04: the original-media entry and its capability helper retired.
+  assert.doesNotMatch(moreSection, /originalMediaActionMarkup/);
+  assert.doesNotMatch(inspector, /function originalMediaCapability\(/);
+  assert.match(moreSection, /<div class="more-location"><span class="meta-key">\$\{t\("imageLocation"\)\}<\/span>/, "retained helper keeps the location row");
+  // A4a：底部固定行渲染素材路径，「打开」复用 /api/open-folder。
+  const renderDetailPathbar = functionSlice(app, "renderDetailPathbar");
+  assert.match(renderDetailPathbar, /data-action="open-asset-location"/);
+  assert.match(renderDetailPathbar, /t\("assetPathLabel"\)/);
+  assert.match(renderDetailPathbar, /imagePath \? "" : " disabled"/, "open is disabled without a path");
+  const reveal = functionSlice(app, "revealAssetAtPath");
+  assert.match(reveal, /apiFetch\("\/api\/open-folder"/);
+  assert.match(reveal, /body: \{ path, reveal: true \}/, "reveal reuses the context-menu action endpoint");
+  assert.match(reveal, /t\("showInFinderPathNotAllowed"\)/);
+  assert.match(reveal, /t\("shownInFinder"\)/);
+});
 
-  // 37. Reference rights stay reachable from the source section disclosure,
-  // and the deep link no longer depends on switching tabs.
-  const sourceSection = functionSlice(inspector, "detailSourceSectionMarkup");
-  assert.match(sourceSection, /<details class="detail-disclosure" data-reference-rights-section><summary>\$\{t\("referenceRights"\)\}<\/summary><div class="disclosure-content" data-reference-rights>\$\{referenceRightsMarkup\(asset\)\}<\/div><\/details>/);
+// 36-37. A4a：配方编辑界面整个拿掉（helper 保留）；参考图权利编辑器搬进参考图浮层。
+test("36-37. recipe editing stays removed; reference rights render inside the overlay", async () => {
+  const app = await readApp();
+  const inspector = await readInspectorMarkup();
+
+  // 36. The retained edit form keeps its fields but never composes into the
+  // prompt section.
+  const promptSection = functionSlice(inspector, "detailPromptSectionMarkup");
+  assert.ok(!promptSection.includes("recipeAndEditing"), "recipe editing disclosure must not come back to the prompt section");
+  assert.doesNotMatch(promptSection, /data-action="save-recipe"/);
+  const editFields = functionSlice(inspector, "editRecipeFieldsMarkup");
+  assert.match(editFields, /data-edit="prompt"/, "retained helper keeps its fields");
+  assert.match(editFields, /data-edit="business_fields"/, "retained helper keeps its fields");
+
+  // 37. Reference rights render inside the reference overlay body with the
+  // same region markers the async renderers and dirty-draft guards rely on.
+  const renderDetailOverlays = functionSlice(app, "renderDetailOverlays");
+  assert.match(renderDetailOverlays, /data-reference-rights-section/);
+  assert.match(renderDetailOverlays, /<div data-reference-rights>\$\{referenceRightsMarkup\(asset\)\}<\/div>/);
   assert.match(app, /function bindReferenceRightsEvents\(panel\)/);
   assert.match(app, /<button class="recipe-save-btn secondary" type="button" data-action="save-reference-rights">/);
 });
@@ -514,7 +528,7 @@ test("48-51. hygiene: no !important, no undefined tokens, manifest and dependenc
 
   // 51. app.js imports only approved first-party helpers (no new runtime dependencies).
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./batch-import.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./library-reconciliation.mjs", "./native-asset-drag.mjs", "./navigation-history.mjs", "./status-live-region.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
+    ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./batch-import.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./inspector-overlay.mjs", "./library-reconciliation.mjs", "./native-asset-drag.mjs", "./navigation-history.mjs", "./status-live-region.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
 });
 
 // i18n symmetry: every new Phase 4A key ships in both languages, and no
@@ -533,6 +547,16 @@ test("i18n. new Phase 4A keys are symmetric across zh and en", async () => {
     [/tags: "标签"/, /tags: "Tags"/],
     [/recipeAndEditing: "配方与编辑"/, /recipeAndEditing: "Recipe and editing"/],
     [/notGrouped: "未分组"/, /notGrouped: "Ungrouped"/],
+    // GravityPort A4a 新增键。
+    [/promptTab1: "提示词1"/, /promptTab1: "Prompt 1"/],
+    [/promptTab2: "提示词2"/, /promptTab2: "Prompt 2"/],
+    [/copyColorAria: "复制颜色 \{color\}"/, /copyColorAria: "Copy color \{color\}"/],
+    [/colorPalette: "色板"/, /colorPalette: "Color palette"/],
+    [/viewAction: "查看"/, /viewAction: "View"/],
+    [/versionTreeTitle: "版本树与上下文"/, /versionTreeTitle: "Version tree & context"/],
+    [/assetPathLabel: "素材路径"/, /assetPathLabel: "Asset path"/],
+    [/openPathAction: "打开"/, /openPathAction: "Open"/],
+    [/generationModelLine: "模型：\{value\}"/, /generationModelLine: "Model: \{value\}"/],
   ];
   for (const [zh, en] of pairs) {
     assert.match(i18n, zh);

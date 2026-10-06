@@ -32,13 +32,13 @@ function sliceBetween(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("markup. only user tags carry a remove button; the source tag stays a plain span", async () => {
+test("markup. only user tags render; the source chip stays removed (A4a)", async () => {
   const inspector = await read("web/app/inspector-markup.mjs");
   const tagsSection = functionSlice(inspector, "detailTagsSectionMarkup");
 
-  const sourceMarkup = sliceBetween(tagsSection, "const sourceMarkup = ", "const tagMarkup = ");
-  assert.doesNotMatch(sourceMarkup, /<button|remove-tag/, "the source tag must not render a remove button");
-  assert.match(sourceMarkup, /class="detail-tag detail-source-tag"/, "the source tag keeps its classes");
+  // GravityPort A4a：来源标签芯片从标签行拿掉（来源在头部「来源 · 日期」行显示），
+  // 锁「不得回来」；用户标签 chip 行为不变。
+  assert.doesNotMatch(tagsSection, /detail-source-tag|const sourceMarkup/, "the source chip must not come back to the tags row");
 
   assert.match(tagsSection, /<span class="detail-tag" data-tag-value="\$\{escapeHtml\(tag\)\}"><span class="detail-tag-label">\$\{escapeHtml\(tag\)\}<\/span><button class="detail-tag-remove" type="button" data-action="remove-tag" data-tag-value="\$\{escapeHtml\(tag\)\}" aria-label="\$\{escapeHtml\(t\("removeTag", \{ tag \}\)\)\}">×<\/button><\/span>/,
     "each user tag ends with a real <button> × carrying type, action, value, and i18n aria-label");

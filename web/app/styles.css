@@ -1318,7 +1318,7 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .detail .asset-meta-wrap { min-width: 0; display: flex; flex-direction: column; }
 .mosa-v2 .detail .asset-name-row { display: flex; min-width: 0; align-items: flex-start; gap: var(--inspector-space-2); }
 .mosa-v2 .detail .asset-name-row h3 { min-width: 0; flex: 1 1 auto; margin: 0; overflow: hidden; color: var(--color-text-primary); font-size: 14px; font-weight: 650; letter-spacing: -.1px; line-height: 20px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: ellipsis; word-break: break-all; }
-.mosa-v2 .detail .asset-name-row .detail-overview-open { display: inline-grid; width: 28px; height: 28px; min-width: 28px; min-height: 28px; flex: 0 0 28px; padding: 0; place-items: center; border: 0; border-radius: var(--inspector-radius-sm); color: var(--color-text-secondary); background: transparent; cursor: pointer; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
+/* GravityPort A4a：头部「打开原始对话」按钮随来源信息区块一并拿掉，其样式规则随之删除。 */
 .mosa-v2 .detail .asset-kind { min-width: 0; margin: var(--inspector-space-1) 0 0; overflow: hidden; color: var(--color-text-tertiary); font-size: 10px; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .mosa-v2 .detail .head-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--inspector-space-2); row-gap: var(--inspector-space-1); margin-top: var(--inspector-space-2); }
 .mosa-v2 .detail .head-facts .meta-row { display: contents; }
@@ -1344,7 +1344,6 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .detail .detail-tags-add { display: inline-flex; height: 24px; min-height: 24px; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 8px; border: 1px dashed var(--color-border-default); border-radius: 999px; color: var(--color-accent); background: transparent; font-size: 11px; white-space: nowrap; }
 :root[data-theme="dark"] .mosa-v2 .detail-inspector-header { color: #f5f5f7; }
 :root[data-theme="dark"] .mosa-v2 .detail-inspector-header .detail-close, :root[data-theme="dark"] .mosa-v2 .detail .detail-fav-btn { color: #d1d1d6; background: rgb(255 255 255 / .10); }
-:root[data-theme="dark"] .mosa-v2 .detail .asset-name-row .detail-overview-open { color: #a1a1a6; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-fav-btn.is-fav { color: #7e7eff; background: rgb(126 126 255 / .18); }
 
 /* V2 Inspector section headers: compact 13px/18px row with copy icon */
@@ -1365,7 +1364,6 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .detail .detail-reference-row { display: flex; height: 36px; flex: 0 0 36px; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; padding: 0 12px; border: 0; border-radius: 10px; background: rgb(242 242 247 / .76); font-size: 12px; font-weight: 500; line-height: 18px; }
 .mosa-v2 .detail .detail-reference-label { display: flex; min-width: 0; align-items: center; gap: 4px; overflow: hidden; color: #6e6e73; }
 .mosa-v2 .detail .detail-reference-value { flex: 0 0 auto; color: #8e8e93; }
-.mosa-v2 .detail .detail-reference-block { display: grid; gap: 8px; padding: 10px 12px 12px; border-radius: 12px; background: rgb(242 242 247 / .76); }
 .mosa-v2 .detail .detail-reference-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 500; line-height: 18px; }
 .mosa-v2 .detail .detail-reference-thumbnails { display: flex; min-width: 0; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
 .mosa-v2 .detail .detail-reference-thumb { width: 52px; height: 52px; flex: 0 0 52px; overflow: hidden; border: 1px solid rgb(60 60 67 / .12); border-radius: 9px; background: rgb(255 255 255 / .7); }
@@ -1470,7 +1468,6 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box, :root[data-theme="dark"] .mosa-v2 .detail .detail-instruction-box { border-color: rgb(255 255 255 / .10); color: #f5f5f7; background: rgb(255 255 255 / .06); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box .empty-copy { color: #6e6e73; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-row { background: rgb(255 255 255 / .08); }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-reference-block { background: rgb(255 255 255 / .08); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-thumb { border-color: rgb(255 255 255 / .10); background: rgb(255 255 255 / .06); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-label { color: #d1d1d6; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-value { color: #6e6e73; }
@@ -2336,7 +2333,6 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 @media (hover: hover) and (pointer: fine) {
   .mosa-v2 .detail-inspector-header .detail-close:hover,
   .mosa-v2 .detail .detail-fav-btn:hover,
-  .mosa-v2 .detail .asset-name-row .detail-overview-open:hover,
   .mosa-v2 .detail .detail-prompt-head .section-head-copy:hover,
   .mosa-v2 .detail .detail-source-copy .section-head-copy:hover,
   .mosa-v2 .detail .detail-copy-sub:hover,
@@ -2347,7 +2343,6 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 }
 .mosa-v2 .detail-inspector-header .detail-close:active,
 .mosa-v2 .detail .detail-fav-btn:active,
-.mosa-v2 .detail .asset-name-row .detail-overview-open:active,
 .mosa-v2 .detail .detail-source-copy .section-head-copy:active,
 .mosa-v2 .detail .section-head-copy:active,
 .mosa-v2 .detail .detail-tags-add:active {
@@ -2406,8 +2401,7 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   }
   .mosa-v2 .detail-inspector-header .detail-close:active,
   .mosa-v2 .detail .detail-fav-btn:active,
-  .mosa-v2 .detail .asset-name-row .detail-overview-open:active,
-  .mosa-v2 .detail .section-head-copy:active,
+    .mosa-v2 .detail .section-head-copy:active,
   .mosa-v2 .detail .detail-tags-add:active,
   .mosa-v2 .settings-modal-close:active,
   .mosa-v2 .settings-menu .segmented-btn:active,
@@ -2518,7 +2512,7 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   gap: var(--r21-s1);
   align-items: center;
   padding: 0 var(--inspector-space-2);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 450;
 }
 
@@ -2595,8 +2589,8 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .detail .detail-instruction-box {
   padding: var(--r21-s3);
   border-radius: var(--inspector-radius-sm);
-  font-size: 10.5px;
-  line-height: 1.58;
+  font-size: 10px;
+  line-height: 14px;
 }
 :root[data-theme="light"] .mosa-v2 .detail .detail-prompt-box,
 :root[data-theme="light"] .mosa-v2 .detail .detail-instruction-box {
@@ -2613,11 +2607,6 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 
 /* —— 参考图（R21 .ref-grid / .ref-thumb / .ref-count）：3 列网格、间距 8、
    每格 1.3:1、圆角 8；浅色边 #e4e4e7、底 #ededf0；无参考图那一行文字 10.5px 灰。 —— */
-.mosa-v2 .detail .detail-reference-block {
-  gap: var(--r21-s2);
-  padding: var(--r21-s3);
-  border-radius: var(--inspector-radius-sm);
-}
 .mosa-v2 .detail .detail-reference-summary {
   font-size: 10.5px;
 }
@@ -2648,9 +2637,6 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   padding: var(--r21-s3);
   border-radius: var(--inspector-radius-sm);
   font-size: 10.5px;
-}
-:root[data-theme="light"] .mosa-v2 .detail .detail-reference-block {
-  background: #f3f3f5;
 }
 :root[data-theme="light"] .mosa-v2 .detail .detail-reference-thumb {
   border-color: #e4e4e7;
@@ -3500,3 +3486,129 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
     padding: 16px 16px 24px;
   }
 }
+
+/* ======================================================================
+   GravityPort A4a（任务 73）：素材检视器重排。本块追加在文件末尾，同名选择器
+   以这里为准（覆盖上方 R21/V2 规则）。数值来源：tasks/设计稿/检视器-量数.md
+   （卡片 320、左右内边距 20、区块纵向间距 20、区块头 16 + 4、缩略图 130×130、
+   标签胶囊 20 高圆角 4 间距 4、色块 24×12 间距 2、提示词/指令框固定 120 高
+   圆角 4、参考图盒 64 高内缩略图 56×56、版本树行 40 高、底部胶囊 280×36
+   圆角 18）。颜色/描边全部沿用既有 token 与既有浅/深色值，不引入新颜色；
+   色块行的 background 按素材 palette 数据上色（全界面唯一按数据上色处）。
+   ====================================================================== */
+
+/* —— 头部：标题行左右内边距 20；缩略图 130×130 无圆角；名称大字；星标改纯图标 ——
+   返工 1：字号照稿（下限 10px）——标题 16、名称 16、来源行 10、键值 10 —— */
+.mosa-v2 .detail .detail-inspector-header > span { font-size: 16px; }
+.mosa-v2 .detail-inspector-header { padding: 0 20px; }
+.mosa-v2 .detail .inspector-section:first-child { padding-top: 0; }
+.mosa-v2 .detail .detail-overview { padding: 0 20px 10px; }
+.mosa-v2 .detail .asset-head { grid-template-columns: 130px minmax(0, 1fr); }
+.mosa-v2 .detail .asset-mini { width: 130px; border-radius: 0; }
+.mosa-v2 .detail .asset-name-row h3 { font-size: 16px; line-height: 20px; }
+.mosa-v2 .detail .asset-kind { font-size: 10px; line-height: 14px; }
+.mosa-v2 .detail .head-facts .meta-key,
+.mosa-v2 .detail .head-facts .meta-val { font-size: 10px; line-height: 14px; }
+.mosa-v2 .detail .asset-name-row .detail-fav-btn { border: 0; background: transparent; font-size: 18px; line-height: 1; }
+.mosa-v2 .detail .asset-name-row .detail-fav-btn.is-fav { border: 0; color: var(--color-favorite); background: transparent; }
+:root[data-theme="dark"] .mosa-v2 .detail .asset-name-row .detail-fav-btn { color: #d1d1d6; background: transparent; }
+:root[data-theme="dark"] .mosa-v2 .detail .asset-name-row .detail-fav-btn.is-fav { color: var(--color-favorite); background: transparent; }
+
+/* —— 区块次序与间距（DOM 序即视觉序；order 兜住旧 order 规则）—— */
+.mosa-v2 .detail-overview { order: 1; }
+.mosa-v2 .detail-tags-section { order: 2; }
+.mosa-v2 .detail-palette-section { order: 3; }
+.mosa-v2 .detail-prompt-section { order: 4; }
+.mosa-v2 .detail-reference-section { order: 5; }
+.mosa-v2 .detail-version-context { order: 6; }
+
+/* —— 区块头（标题 + 右侧「查看」/复制）：高 16、下距 4 —— */
+.mosa-v2 .detail .detail-prompt-head { height: 16px; min-height: 16px; margin-bottom: 4px; }
+.mosa-v2 .detail .detail-prompt-head h3 { font-size: 10px; line-height: 16px; }
+.mosa-v2 .detail .detail-prompt-subhead h4 { font-size: 10px; }
+.mosa-v2 .detail .detail-section-view { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 20px; padding: 0 4px; border: 0; border-radius: 4px; color: #6e6e73; background: transparent; font-size: 10px; white-space: nowrap; cursor: pointer; }
+@media (hover: hover) and (pointer: fine) {
+  .mosa-v2 .detail .detail-section-view:hover { color: var(--color-text-primary); }
+}
+:root[data-theme="dark"] .mosa-v2 .detail .detail-section-view { color: #d1d1d6; }
+
+/* —— 标签行：胶囊 20 高、圆角 4、间距 4（间距含「添加标签」与「+N」）—— */
+.mosa-v2 .detail .detail-tags-section { padding: 10px 20px 0; }
+/* 任务 73：折叠按个数（DETAIL_TAGS_VISIBLE_LIMIT）而不是按高度。这里 overflow 是
+   visible，设上限反而会让展开后多出来的行盖到色块和提示词上，所以不设上限。 */
+.mosa-v2 .detail .detail-tags-row { gap: 4px; max-height: none; }
+.mosa-v2 .detail .detail-tag,
+.mosa-v2 .detail .detail-tags-add,
+.mosa-v2 .detail .detail-tags-toggle { min-height: 20px; height: 20px; padding: 0 8px; border-radius: 4px; }
+
+/* —— 色块行：24×12 圆角 4 间距 2；按 palette 数据上色 —— */
+.mosa-v2 .detail .detail-palette-section { padding: var(--r21-s3) 20px 0; }
+.mosa-v2 .detail .detail-palette-row { display: flex; flex: 0 0 auto; gap: 2px; min-height: 12px; }
+.mosa-v2 .detail .detail-palette-swatch { width: 24px; height: 12px; flex: 0 0 auto; padding: 0; border: 0; border-radius: 4px; cursor: pointer; }
+.mosa-v2 .detail .detail-palette-swatch:focus-visible { outline: 2px solid var(--color-focus-ring, #0a84ff); outline-offset: 1px; }
+
+/* —— 提示词：区块上距 20；页签胶囊（40×12 圆角 2 间距 4）；框固定 120 高圆角 4；
+      用户指令子标题上距 20；指令框同 120 —— */
+.mosa-v2 .detail .detail-prompt-section { gap: 0; min-height: 0; padding: var(--r21-s5) 20px 0; }
+.mosa-v2 .detail .detail-prompt-head .detail-prompt-switch { gap: 4px; }
+.mosa-v2 .detail .detail-prompt-head .detail-prompt-toggle { display: inline-flex; height: 12px; align-items: center; padding: 0 5px; border: 1px solid var(--color-border-default); border-radius: 2px; font-size: 10px; line-height: 1; }
+.mosa-v2 .detail .detail-prompt-head .detail-prompt-toggle.is-active { border-color: var(--color-text-primary); }
+.mosa-v2 .detail .prompt-provenance { margin: 4px 0 0; }
+.mosa-v2 .detail .detail-prompt-box { height: 120px; min-height: 120px; max-height: 120px; flex: 0 0 auto; border-radius: 4px; }
+.mosa-v2 .detail .detail-prompt-subhead { height: 16px; min-height: 16px; margin-top: var(--r21-s5); }
+.mosa-v2 .detail .detail-instruction-box { height: 120px; min-height: 120px; max-height: 120px; flex: 0 0 auto; margin-top: 4px; border-radius: 4px; }
+
+/* —— 参考图：盒 64 高、内边距 4、缩略图 56×56 一排放不下截断不换行 —— */
+.mosa-v2 .detail .detail-reference-section { padding: var(--r21-s5) 20px 0; }
+.mosa-v2 .detail .detail-reference-box { display: flex; box-sizing: border-box; height: 64px; align-items: center; overflow: hidden; padding: 4px; border: 1px solid var(--color-border-subtle); border-radius: 4px; }
+.mosa-v2 .detail .detail-reference-box .detail-reference-thumbnails { display: flex; gap: 4px; min-width: 0; overflow: hidden; padding-bottom: 0; }
+.mosa-v2 .detail .detail-reference-box .detail-reference-thumb { width: 56px; height: 56px; flex: 0 0 56px; aspect-ratio: auto; border-radius: 4px; }
+.mosa-v2 .detail .detail-reference-empty { padding: 0 8px; font-size: 12px; }
+:root[data-theme="light"] .mosa-v2 .detail .detail-reference-box { border-color: #e7e7ea; background: #f3f3f5; }
+:root[data-theme="light"] .mosa-v2 .detail .detail-reference-empty { color: #6e6e73; }
+
+/* —— 版本树与上下文：盒内最多 3 行，每行 40 高、内边距 4、行距 4；
+      行首 40×40 缩略图，右侧一行「模型：provider · model」，当前素材行加标记 —— */
+.mosa-v2 .detail .detail-version-context { padding: var(--r21-s5) 20px; }
+.mosa-v2 .detail .detail-version-context-box { display: grid; gap: 4px; box-sizing: border-box; align-content: start; padding: 4px; border: 1px solid var(--color-border-subtle); border-radius: 4px; }
+.mosa-v2 .detail .detail-version-context-row { display: flex; box-sizing: border-box; height: 40px; align-items: center; gap: 8px; min-width: 0; padding: 4px; border-radius: 4px; background: rgb(242 242 247 / .76); }
+.mosa-v2 .detail .detail-version-context-row .generation-output-thumb { width: 40px; height: 40px; flex: 0 0 40px; overflow: hidden; border-radius: 4px; }
+.mosa-v2 .detail .detail-version-context-row .generation-output-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.mosa-v2 .detail .detail-version-context-line { display: flex; flex: 1 1 auto; min-width: 0; align-items: center; gap: 6px; }
+.mosa-v2 .detail .detail-version-context-model { min-width: 0; flex: 0 1 auto; overflow: hidden; color: var(--color-text-secondary); font-size: 10px; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .detail .detail-version-context-current { flex: 0 0 auto; color: var(--color-accent); font-size: 10px; font-weight: 550; }
+.mosa-v2 .detail .detail-version-context-empty { padding: 0 8px; font-size: 12px; }
+:root[data-theme="light"] .mosa-v2 .detail .detail-version-context-box { border-color: #e7e7ea; background: #f3f3f5; }
+:root[data-theme="light"] .mosa-v2 .detail .detail-version-context-row { background: rgb(255 255 255 / .7); }
+:root[data-theme="light"] .mosa-v2 .detail .detail-version-context-model { color: #636369; }
+:root[data-theme="light"] .mosa-v2 .detail .detail-version-context-empty { color: #6e6e73; }
+:root[data-theme="dark"] .mosa-v2 .detail .detail-version-context-box { border-color: rgb(255 255 255 / .10); background: rgb(255 255 255 / .06); }
+:root[data-theme="dark"] .mosa-v2 .detail .detail-version-context-row { background: rgb(255 255 255 / .08); }
+
+/* —— 底部固定「素材路径」胶囊：280×36 圆角 18（内容宽 280），不随内容滚动 —— */
+.mosa-v2 .detail .detail-pathbar { flex: 0 0 auto; padding: 12px 20px 20px; }
+.mosa-v2 .detail .detail-pathbar[hidden] { display: none; }
+.mosa-v2 .detail .detail-pathbar-pill { display: flex; box-sizing: border-box; height: 36px; align-items: center; gap: 8px; padding: 0 6px 0 14px; border: 1px solid var(--color-border-subtle); border-radius: 18px; background: var(--app-card); }
+.mosa-v2 .detail .detail-pathbar-label { flex: 0 0 auto; color: #6e6e73; font-size: 14px; font-weight: 500; }
+.mosa-v2 .detail .detail-pathbar-path { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden; color: #8e8e93; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .detail .detail-pathbar-open { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 24px; padding: 0 8px; border: 0; border-radius: 12px; color: var(--color-text-primary); background: transparent; font-size: 12px; cursor: pointer; }
+.mosa-v2 .detail .detail-pathbar-open:disabled { opacity: .4; cursor: default; }
+@media (hover: hover) and (pointer: fine) {
+  .mosa-v2 .detail .detail-pathbar-open:not(:disabled):hover { background: var(--app-hover); }
+}
+:root[data-theme="dark"] .mosa-v2 .detail .detail-pathbar-label { color: #d1d1d6; }
+:root[data-theme="dark"] .mosa-v2 .detail .detail-pathbar-path { color: #6e6e73; }
+
+/* —— 检视器浮层（参考图 / 版本树共用）：位置由 inspector-overlay.mjs 写内联
+      left/top/width/max-height；卡片外观沿用设置弹窗（.settings-modal-card）的
+      圆角/背景/阴影/描边/模糊 token，不引入新值。≤1120px 时 JS 改为盖在检视器上。 —— */
+.mosa-v2 .gp-inspector-overlay { position: fixed; z-index: var(--z-overlay); display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; border: 1px solid rgb(255 255 255 / .78); border-radius: 20px; background: rgb(from var(--app-modal) r g b / .98); box-shadow: 0 28px 76px -28px rgb(0 0 0 / .5), 0 1px 1px rgb(0 0 0 / .04), inset 0 0 0 1px rgb(255 255 255 / .22); backdrop-filter: blur(28px) saturate(130%); -webkit-backdrop-filter: blur(28px) saturate(130%); }
+.mosa-v2 .gp-inspector-overlay[hidden] { display: none; }
+.mosa-v2 .gp-inspector-overlay:focus { outline: 0; }
+.mosa-v2 .gp-inspector-overlay-card { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow: hidden; }
+.mosa-v2 .gp-inspector-overlay-head { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; padding: 16px 16px 12px; }
+.mosa-v2 .gp-inspector-overlay-head h3 { margin: 0; overflow: hidden; color: var(--color-text-primary); font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .gp-inspector-overlay-close { display: flex; width: 28px; height: 28px; min-height: 28px; flex: 0 0 28px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--radius-card); color: #6e6e73; background: rgb(242 242 247 / .92); cursor: pointer; }
+:root[data-theme="dark"] .mosa-v2 .gp-inspector-overlay-close { color: #d1d1d6; background: rgb(255 255 255 / .10); }
+.mosa-v2 .gp-inspector-overlay-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px 16px; }
+.mosa-v2 .gp-inspector-overlay-body .inspector-section { padding: 0; border-top: 0; }
