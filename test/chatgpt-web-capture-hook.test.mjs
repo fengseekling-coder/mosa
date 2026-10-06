@@ -270,7 +270,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.15.22");
+  assert.equal(manifest.version, "0.15.23");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://flow.google.com/*", "https://aistudio.google.com/*"],
@@ -2033,7 +2033,7 @@ test("binds prompt and asset when one image call splits them across nested reque
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.15.22");
+  assert.equal(manifest.version, "0.15.23");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
@@ -4085,4 +4085,236 @@ test("generation evidence arriving after the blob mapping still picks up the unc
   await flushAutoCapture();
   assert.equal(context.ingestMessages.length, 1);
   assert.equal(context.ingestMessages[0].payload.prompt, GALLERY_CAPTION);
+});
+
+// ChatGPT image-to-image reference capture (0.15.23): one user message now
+// arrives as sibling units (attachments first, then text) inside a turn-key
+// container that also holds the generated gallery. Reference lookup must span
+// every user unit of that message without ever leaving them — the gallery in
+// the assistant unit shares the container.
+
+function referenceScopeHarness() {
+  const constants = ["COMPOSER_SELECTOR", "CHATGPT_TURN_SELECTOR", "CHATGPT_USER_SELECTOR", "CHATGPT_MESSAGE_SELECTOR"]
+    .map((name) => new RegExp(`const ${name} = [^;]+;`).exec(contentSource)?.[0]);
+  assert.ok(constants.every(Boolean), "reference scope constants should be extractable");
+  const names = [
+    "hasGeneratedImageDomMarker", "isComposerNode", "conversationTurnForNode", "turnContainsRole",
+    "nearestPrecedingUserScope", "userUnitKeyPrefix", "userUnitsOfSameMessage", "isReferenceCandidate",
+    "referenceCandidatesForGeneration",
+  ];
+  const source = names.map((name) => {
+    const match = new RegExp(`\\n {2}(?:async )?function ${name}\\([\\s\\S]*?\\n {2}\\}`).exec(contentSource);
+    assert.ok(match, `missing ${name}`);
+    return match[0];
+  }).join("\n");
+
+  let order = 0;
+  class FakeNode {
+    constructor(tagName, attributes = {}) {
+      this.tagName = tagName;
+      this.attributes = attributes;
+      this.children = [];
+      this.parent = null;
+      this.order = order += 1;
+    }
+
+    append(child) { child.parent = this; this.children.push(child); return child; }
+
+    getAttribute(name) { return this.attributes[name] ?? null; }
+
+    matches(selector) {
+      return String(selector).split(",").map((part) => part.trim()).some((part) => {
+        if (!part.startsWith("[")) return this.tagName === part.toLowerCase();
+        const match = /^\[([^\]~^$*|=]+)(?:([~^$*|]?=)"([^"]*)")?\]$/.exec(part);
+        if (!match) return false;
+        const actual = this.getAttribute(match[1]);
+        if (actual == null) return false;
+        if (!match[2]) return true;
+        if (match[2] === "=") return actual === match[3];
+        if (match[2] === "^=") return actual.startsWith(match[3]);
+        if (match[2] === "$=") return actual.endsWith(match[3]);
+        return false;
+      });
+    }
+
+    closest(selector) {
+      for (let node = this; node; node = node.parent) {
+        if (node.matches(selector)) return node;
+      }
+      return null;
+    }
+
+    querySelectorAll(selector) {
+      const found = [];
+      const walk = (node) => {
+        for (const child of node.children) {
+          if (child.matches(selector)) found.push(child);
+          walk(child);
+        }
+      };
+      walk(this);
+      return found;
+    }
+
+    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+
+    compareDocumentPosition(node) { return node.order > this.order ? 4 : 2; }
+  }
+  class FakeImage extends FakeNode {
+    constructor({ src = "", alt = "", label = "", naturalWidth = 0, naturalHeight = 0, width = 0, height = 0 } = {}) {
+      super("img", { ...(alt ? { alt } : {}), ...(label ? { "aria-label": label } : {}) });
+      this.src = src;
+      this.currentSrc = src;
+      this.naturalWidth = naturalWidth;
+      this.naturalHeight = naturalHeight;
+      this.width = width;
+      this.height = height;
+    }
+  }
+
+  const root = new FakeNode("#document");
+  const context = {
+    HTMLImageElement: FakeImage,
+    Node: { DOCUMENT_POSITION_FOLLOWING: 4 },
+    document: { querySelectorAll: (selector) => root.querySelectorAll(selector) },
+  };
+  vm.runInNewContext(`${constants.join("\n")}\n${source}`, context, { filename: "content-reference-scope.js" });
+
+  // The 2026-09 turn layout: an attachment unit (chatgpt-search unit key), a
+  // text unit (content-search unit key), then the assistant unit holding the
+  // generated gallery — all inside one shared turn-key container.
+  const buildTurn = (index, { attachmentCount = 2, attachmentOutsideSearchTurn = false } = {}) => {
+    const turn = root.append(new FakeNode("div", { "data-turn-key": `turn-key-${index}` }));
+    const appendSearchTurn = () => turn.append(new FakeNode("div", { "data-content-search-turn-key": `fallback-turn-${index}` }));
+    let searchTurn = attachmentOutsideSearchTurn ? null : appendSearchTurn();
+    const attachments = [];
+    let attachmentUnit = null;
+    if (attachmentCount > 0) {
+      attachmentUnit = (searchTurn || turn).append(new FakeNode("div", {
+        "data-chatgpt-search-unit-key": `fallback-turn-${index}:0:user`,
+        "data-chatgpt-search-message-ids": `user-message-${index}`,
+      }));
+      for (let nth = 0; nth < attachmentCount; nth += 1) {
+        attachments.push(attachmentUnit.append(new FakeImage({
+          src: `blob:https://chatgpt.com/reference-${index}-${nth}`,
+          label: "用户附件",
+          naturalWidth: 2048, naturalHeight: 1143, width: 78, height: 44,
+        })));
+      }
+    }
+    searchTurn ||= appendSearchTurn();
+    searchTurn.append(new FakeNode("div", { "data-content-search-unit-key": `fallback-turn-${index}:0:user` }));
+    const assistantUnit = searchTurn.append(new FakeNode("div", { "data-chatgpt-search-unit-key": `fallback-turn-${index}:1:assistant` }));
+    const gallery = assistantUnit.append(new FakeNode("div", {
+      "data-testid": "generated-image-gallery",
+      "data-chatgpt-search-message-ids": `output-message-${index}`,
+    }));
+    const generated = gallery.append(new FakeImage({
+      src: `blob:https://chatgpt.com/generated-${index}`,
+      alt: "Generated image 1",
+      naturalWidth: 1024, naturalHeight: 1024, width: 680, height: 680,
+    }));
+    return { attachmentUnit, attachments, generated, candidate: { el: generated, imageUrl: generated.src } };
+  };
+
+  return { context, root, FakeImage, FakeNode, buildTurn };
+}
+
+test("the user selector recognizes the split attachment unit alongside the legacy scopes", () => {
+  assert.match(contentSource, /const CHATGPT_USER_SELECTOR = '\[data-message-author-role="user"\], \[data-content-search-unit-key\$=":user"\], \[data-chatgpt-search-unit-key\$=":user"\]'/);
+  assert.match(contentSource, /for \(const unit of userUnitsOfSameMessage\(nearestUser, image\)\)/);
+});
+
+test("reference lookup spans the split attachment and text units of one user message", () => {
+  const { context, buildTurn } = referenceScopeHarness();
+  const turn = buildTurn(1);
+  const references = context.referenceCandidatesForGeneration(turn.candidate);
+  assert.deepEqual([...references.map((reference) => reference.el)], turn.attachments, "exactly the two uploaded attachments");
+  assert.deepEqual([...references.map((reference) => reference.key)], [
+    "blob:https://chatgpt.com/reference-1-0",
+    "blob:https://chatgpt.com/reference-1-1",
+  ]);
+  assert.equal(references[0].width, 2048, "the natural upload size is kept");
+});
+
+test("reference lookup reaches an attachment unit that sits beside the inner content-search turn", () => {
+  const { context, buildTurn } = referenceScopeHarness();
+  buildTurn(1, { attachmentOutsideSearchTurn: true });
+  const turn = buildTurn(2, { attachmentOutsideSearchTurn: true });
+  const references = context.referenceCandidatesForGeneration(turn.candidate);
+  assert.deepEqual([...references.map((reference) => reference.el)], turn.attachments, "the outer turn-key wrapper bounds the message");
+});
+
+test("attachment unit images are reference candidates while gallery images never are", () => {
+  const { context, buildTurn } = referenceScopeHarness();
+  const turn = buildTurn(1);
+  for (const image of turn.attachments) {
+    assert.equal(context.isReferenceCandidate({ el: image }), true, `attachment ${image.src} is a reference`);
+  }
+  assert.equal(context.isReferenceCandidate({ el: turn.generated }), false, "the generated gallery image is not a reference");
+});
+
+test("a generation only inherits the attachments of its own user message", () => {
+  const { context, buildTurn } = referenceScopeHarness();
+  buildTurn(1);
+  const second = buildTurn(2);
+  const references = context.referenceCandidatesForGeneration(second.candidate);
+  assert.deepEqual([...references.map((reference) => reference.el)], second.attachments, "turn one's attachments stay out");
+});
+
+test("a text-only user message yields no reference candidates", () => {
+  const { context, buildTurn } = referenceScopeHarness();
+  const turn = buildTurn(1, { attachmentCount: 0 });
+  assert.deepEqual([...context.referenceCandidatesForGeneration(turn.candidate)], []);
+});
+
+test("user units without a shared turn container merge by their unit-key prefix", () => {
+  const { context, root, FakeImage, FakeNode } = referenceScopeHarness();
+  // An earlier message's units also precede the generated image, so only the
+  // shared "fallback-turn-9" prefix may merge them into one scope.
+  const earlierAttachmentUnit = root.append(new FakeNode("div", { "data-chatgpt-search-unit-key": "fallback-turn-10:0:user" }));
+  earlierAttachmentUnit.append(new FakeImage({ src: "blob:https://chatgpt.com/earlier-reference", label: "用户附件", naturalWidth: 2048, naturalHeight: 1143 }));
+  root.append(new FakeNode("div", { "data-content-search-unit-key": "fallback-turn-10:0:user" }));
+  const attachmentUnit = root.append(new FakeNode("div", { "data-chatgpt-search-unit-key": "fallback-turn-9:0:user" }));
+  const reference = attachmentUnit.append(new FakeImage({ src: "blob:https://chatgpt.com/reference-9", label: "用户附件", naturalWidth: 2048, naturalHeight: 1143 }));
+  root.append(new FakeNode("div", { "data-content-search-unit-key": "fallback-turn-9:0:user" }));
+  const assistantUnit = root.append(new FakeNode("div", { "data-chatgpt-search-unit-key": "fallback-turn-9:1:assistant" }));
+  const generated = assistantUnit.append(new FakeImage({ src: "blob:https://chatgpt.com/generated-9", alt: "Generated image 1", naturalWidth: 1024, naturalHeight: 1024 }));
+  const references = context.referenceCandidatesForGeneration({ el: generated, imageUrl: generated.src });
+  assert.deepEqual([...references.map((item) => item.el)], [reference]);
+});
+
+test("attachments still sitting in the composer are never staged as references", () => {
+  const { context, root, FakeImage, FakeNode, buildTurn } = referenceScopeHarness();
+  const composer = root.append(new FakeNode("form", { "data-type": "unified-composer" }));
+  const draft = composer.append(new FakeImage({ src: "blob:https://chatgpt.com/composer-draft", label: "用户附件", naturalWidth: 2048, naturalHeight: 1143 }));
+  const turn = buildTurn(1);
+  // A draft parked in a composer frame inside the sent attachment unit must
+  // hit the same skip.
+  const inlineComposer = turn.attachmentUnit.append(new FakeNode("form", { "data-type": "unified-composer" }));
+  const inlineDraft = inlineComposer.append(new FakeImage({ src: "blob:https://chatgpt.com/composer-draft-2", label: "用户附件", naturalWidth: 2048, naturalHeight: 1143 }));
+  assert.equal(context.isComposerNode(draft), true);
+  assert.equal(context.isComposerNode(inlineDraft), true);
+  const references = context.referenceCandidatesForGeneration(turn.candidate);
+  assert.deepEqual([...references.map((reference) => reference.el)], turn.attachments);
+  assert.equal(references.some((reference) => reference.el === draft || reference.el === inlineDraft), false);
+});
+
+test("the legacy conversation-turn structure keeps staging references from the user turn", () => {
+  const { context, root, FakeImage, FakeNode } = referenceScopeHarness();
+  const userTurn = root.append(new FakeNode("div", { "data-testid": "conversation-turn-1" }));
+  const roleUnit = userTurn.append(new FakeNode("div", { "data-message-author-role": "user" }));
+  const legacyReferences = [
+    roleUnit.append(new FakeImage({ src: "blob:https://chatgpt.com/legacy-reference-1", naturalWidth: 2048, naturalHeight: 1143 })),
+    roleUnit.append(new FakeImage({ src: "blob:https://chatgpt.com/legacy-reference-2", naturalWidth: 2048, naturalHeight: 1143 })),
+  ];
+  const assistantTurn = root.append(new FakeNode("div", { "data-testid": "conversation-turn-2" }));
+  const generated = assistantTurn.append(new FakeImage({
+    src: "https://chatgpt.com/backend-api/files/generated-legacy", alt: "Generated image 1",
+    naturalWidth: 1024, naturalHeight: 1024, width: 680, height: 680,
+  }));
+  const references = context.referenceCandidatesForGeneration({ el: generated, imageUrl: generated.src });
+  assert.deepEqual([...references.map((reference) => reference.el)], legacyReferences);
+  assert.equal(context.isReferenceCandidate({ el: legacyReferences[0] }), true);
+  assert.equal(context.isReferenceCandidate({ el: generated }), false);
 });
