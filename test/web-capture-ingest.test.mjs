@@ -2416,3 +2416,122 @@ test("adds a late ChatGPT request Prompt to an already archived capture", async 
   assert.equal(upgraded.asset.source?.generation_request_prompt, requestPrompt);
   assert.equal(upgraded.asset.prompt, "", "a request Prompt never fills the caption Prompt");
 });
+
+// --- ChatGPT conversation session title for stack naming (0.15.24) ---
+
+async function sessionTitleStore(t, prefix = "mosa-web-session-title-") {
+  const root = await mkdtemp(join(tmpdir(), prefix));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  t.after(() => store.close?.());
+  await store.ensureProject("default");
+  const bridge = createWebCaptureIngest({
+    store,
+    libraryDir,
+    projectId: "default",
+    token: "session-title-secret",
+    allowedOrigins: ["chrome-extension://example-extension"],
+  });
+  return { store, bridge };
+}
+
+test("a captured title lands in the source of a newly archived ChatGPT image", async (t) => {
+  const { bridge } = await sessionTitleStore(t);
+  const imported = await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: (await noiseImage(402)).toString("base64"),
+    mimeType: "image/png",
+    conversationId: "conv-title-new",
+    generationSessionTitle: "  Bangkok Night Poster  ",
+    promptStatus: "not-available",
+  }, "session-title-secret");
+  assert.equal(imported.status, "imported");
+  assert.equal(imported.asset.source?.generation_session_title, "Bangkok Night Poster", "trimmed on write");
+
+  const capped = await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: (await noiseImage(403)).toString("base64"),
+    mimeType: "image/png",
+    conversationId: "conv-title-capped",
+    generation_session_title: "y".repeat(300),
+    promptStatus: "not-available",
+  }, "session-title-secret");
+  assert.equal(capped.asset.source?.generation_session_title?.length, 200, "capped to 200 chars");
+
+  const untitled = await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: (await noiseImage(404)).toString("base64"),
+    mimeType: "image/png",
+    conversationId: "conv-title-empty",
+    generationSessionTitle: "   ",
+    promptStatus: "not-available",
+  }, "session-title-secret");
+  assert.equal("generation_session_title" in (untitled.asset.source || {}), false, "an empty title is not written at all");
+});
+
+test("re-observations backfill a missing title and never overwrite an existing one", async (t) => {
+  const { store, bridge } = await sessionTitleStore(t);
+  const base64 = (await noiseImage(405)).toString("base64");
+  const first = await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: base64,
+    mimeType: "image/png",
+    conversationId: "conv-title-backfill",
+    promptStatus: "not-available",
+  }, "session-title-secret");
+  assert.equal("generation_session_title" in (first.asset.source || {}), false);
+
+  const snapshotsBefore = (await store.getRecipeSnapshotHistory("default", first.asset.id)).snapshots.length;
+  const backfilled = await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: base64,
+    mimeType: "image/png",
+    conversationId: "conv-title-backfill",
+    generationSessionTitle: "Late Learned Chat",
+    promptStatus: "not-available",
+  }, "session-title-secret");
+  assert.equal(backfilled.status, "skipped");
+  assert.equal(backfilled.asset.source?.generation_session_title, "Late Learned Chat", "the empty slot is backfilled");
+  assert.equal(
+    (await store.getRecipeSnapshotHistory("default", first.asset.id)).snapshots.length,
+    snapshotsBefore,
+    "backfilling a title adds no recipe snapshot",
+  );
+
+  const overwritten = await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: base64,
+    mimeType: "image/png",
+    conversationId: "conv-title-backfill",
+    generationSessionTitle: "Never Applied",
+    promptStatus: "not-available",
+  }, "session-title-secret");
+  assert.equal(overwritten.asset.source?.generation_session_title, "Late Learned Chat", "an existing title is never replaced");
+});
+
+test("a title arriving with a session's second image names the auto stack", async (t) => {
+  const { store, bridge } = await sessionTitleStore(t);
+  await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: (await noiseImage(406)).toString("base64"),
+    mimeType: "image/png",
+    conversationId: "conv-title-stack",
+    promptStatus: "not-available",
+  }, "session-title-secret");
+  await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: (await noiseImage(407)).toString("base64"),
+    mimeType: "image/png",
+    conversationId: "conv-title-stack",
+    generationSessionTitle: "Stacked Conversation",
+    promptStatus: "not-available",
+  }, "session-title-secret");
+
+  const page = await store.listAssetPage({ projectId: "default", limit: 0, collapseStacks: true });
+  const stack = page.assets.find((asset) => asset.stack)?.stack || null;
+  assert.ok(stack, "the second same-session image created the auto stack");
+  const summary = await store.getAssetStack("default", stack.id);
+  assert.equal(summary.name, "Stacked Conversation", "the auto stack is named after the conversation title");
+});

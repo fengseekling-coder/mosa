@@ -270,7 +270,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.15.23");
+  assert.equal(manifest.version, "0.15.24");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://flow.google.com/*", "https://aistudio.google.com/*"],
@@ -2033,7 +2033,7 @@ test("binds prompt and asset when one image call splits them across nested reque
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.15.23");
+  assert.equal(manifest.version, "0.15.24");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
@@ -3819,6 +3819,7 @@ function currentChatGptAutoCaptureHarness() {
     "COMPOSER_SELECTOR", "CHATGPT_TURN_SELECTOR", "CHATGPT_USER_SELECTOR", "CHATGPT_MESSAGE_SELECTOR", "STYLE_HINTS",
     "MAX_BLOB_ASSETS", "SESSION_CACHE_MAX", "SIZE_FAILURE_LIMIT", "SIZE_FAILURE_BACKOFF_MS",
     "AUTO_STABILITY_DELAY_MS", "AUTO_IN_PROGRESS_STALE_MS", "AUTO_PARTIAL_FALLBACK_MS", "DOM_MEDIA_GRACE_MS",
+    "SESSION_TITLE_MAX_LENGTH", "SESSION_TITLE_PLACEHOLDERS",
   ].map((name) => new RegExp(`const ${name} = [^;]+;`).exec(contentSource)?.[0]);
   assert.ok(constants.every(Boolean), "auto-capture constants should be extractable from content.js");
 
@@ -3827,6 +3828,7 @@ function currentChatGptAutoCaptureHarness() {
     "isBlockedUrl", "chatGptImageProxyInfo", "normalizeAssetId", "isTrustedBlobAssetUrl", "normalizeBlobAssetId",
     "rememberBlobAsset", "blobAssetIdForUrl", "imageLookupKeys", "isLikelyGeneratedUrl",
     "conversationIdFromUrl", "currentConversationId",
+    "normalizeConversationTitle", "conversationTitleFromSidebar", "currentConversationTitle", "sessionTitleForConversation",
     "hasGeneratedImageDomMarker", "isComposerNode", "conversationTurnForNode", "turnContainsRole", "nearestPrecedingUserScope",
     "isReferenceCandidate", "isRecoverableGenerationCandidate", "looksLikeGeneratedImage",
     "isProvenGalleryBlobUrl", "isProvenGalleryBlobImage", "collectDomCandidates", "domCandidateForImage", "enqueueDomCandidateForImage",
@@ -3921,6 +3923,7 @@ function currentChatGptAutoCaptureHarness() {
     setTimeout: (fn, ms) => { context.scheduledTimers.push({ fn, ms }); return 0; },
     clearTimeout: () => {},
     document: {
+      querySelector: () => null,
       querySelectorAll: (selector) => (String(selector).includes('data-content-search-unit-key$=":user"')
         ? [userNode]
         : (String(selector) === "img" ? context.images : [])),
@@ -4317,4 +4320,126 @@ test("the legacy conversation-turn structure keeps staging references from the u
   assert.deepEqual([...references.map((reference) => reference.el)], legacyReferences);
   assert.equal(context.isReferenceCandidate({ el: legacyReferences[0] }), true);
   assert.equal(context.isReferenceCandidate({ el: generated }), false);
+});
+
+// --- ChatGPT conversation session title for stack naming (0.15.24) ---
+
+function sessionTitleHarness({ title = "", sidebarTitle = "", pathname = "/c/conv-1" } = {}) {
+  const pieces = [
+    /const SESSION_TITLE_MAX_LENGTH = [^\n]*/.exec(contentSource)?.[0],
+    /const SESSION_TITLE_PLACEHOLDERS = new Set\([^\n]*/.exec(contentSource)?.[0],
+    ...["conversationIdFromUrl", "normalizeConversationTitle", "conversationTitleFromSidebar", "currentConversationTitle", "sessionTitleForConversation"]
+      .map((name) => new RegExp(`\\n {2}function ${name}\\([\\s\\S]*?\\n {2}\\}`).exec(contentSource)?.[0]),
+  ].filter(Boolean).join("\n");
+  const context = {
+    document: { title, querySelector: () => ({ textContent: sidebarTitle }) },
+    location: { pathname, href: `https://chatgpt.com${pathname}` },
+  };
+  vm.runInNewContext(
+    `${pieces}\nthis.normalize = normalizeConversationTitle; this.current = currentConversationTitle; this.forConversation = sessionTitleForConversation;`,
+    context,
+    { filename: "chatgpt-session-title.js" },
+  );
+  return context;
+}
+
+test("conversation titles strip the site suffix, trim, and keep the 200-char cap", () => {
+  const context = sessionTitleHarness({ title: "Bangkok Travel Poster - ChatGPT", pathname: "/c/conv-title" });
+  assert.equal(context.normalize("Bangkok Travel Poster - ChatGPT"), "Bangkok Travel Poster");
+  assert.equal(context.normalize("Skyline Edit | ChatGPT"), "Skyline Edit");
+  assert.equal(context.normalize("  Padded Title  "), "Padded Title");
+  assert.equal(context.normalize("x".repeat(250)).length, 200);
+  assert.equal(context.current(), "Bangkok Travel Poster", "document.title is the first source");
+});
+
+test("placeholder titles count as no title, and the sidebar entry is the fallback", () => {
+  const context = sessionTitleHarness({ title: "New chat", sidebarTitle: "Sidebar Named Chat" });
+  for (const placeholder of ["ChatGPT", "new chat", "新聊天", "新对话", "   ", ""]) {
+    assert.equal(context.normalize(placeholder), "", JSON.stringify(placeholder));
+  }
+  assert.equal(context.current(), "Sidebar Named Chat", "a placeholder document.title falls through to the sidebar entry");
+});
+
+test("a session title only rides with captures of the conversation open in the URL", () => {
+  const context = sessionTitleHarness({ title: "Matched Chat", pathname: "/c/conv-1" });
+  assert.equal(context.forConversation("conv-1"), "Matched Chat");
+  assert.equal(context.forConversation("conv-other"), "", "a different conversation id carries no title");
+  assert.equal(context.forConversation(""), "", "no conversation id, no title");
+});
+
+test("the ingest payload and server request carry the session title", () => {
+  assert.match(
+    contentSource,
+    /conversationId: resolved\.conversationId \|\| currentConversationId\(\),\n {10}generationSessionTitle: sessionTitleForConversation\(resolved\.conversationId \|\| currentConversationId\(\)\),/,
+  );
+  assert.match(contentSource, /type: "mosa\.reportSessionTitle",/);
+  assert.match(contentSource, /titleObserver\.observe\(title, \{ childList: true, characterData: true, subtree: true \}\)/);
+  assert.match(backgroundSource, /if \(message\.type === "mosa\.reportSessionTitle"\) return context\.provider === "chatgpt";/);
+  assert.match(backgroundSource, /generation_session_title: String\(payload\.generationSessionTitle \|\| payload\.generation_session_title \|\| ""\)\.trim\(\)\.slice\(0, 200\),/);
+});
+
+function sessionTitleReportHarness(fetchBehavior) {
+  const requests = [];
+  const pieces = [
+    "const reportedSessionTitles = new Set();",
+    /async function reportSessionTitleOnce\([\s\S]*?\n}\n/.exec(backgroundSource)?.[0],
+    /function normalizeBaseUrl\([\s\S]*?\n}\n/.exec(backgroundSource)?.[0],
+  ].filter(Boolean).join("\n");
+  const context = {
+    URL,
+    DEFAULTS: { mosaBaseUrl: "http://127.0.0.1:43517" },
+    getSettings: async () => ({ mosaBaseUrl: "", mosaToken: "token-test" }),
+    fetchWithTimeout: async (url, init) => fetchBehavior(requests, url, JSON.parse(init.body)),
+  };
+  vm.runInNewContext(`${pieces}\nthis.report = reportSessionTitleOnce;`, context, { filename: "background-session-title.js" });
+  return { context, requests };
+}
+
+test("the same conversation and title is reported to MOSA only once per session", async () => {
+  const { context, requests } = sessionTitleReportHarness((tracked, url, body) => {
+    tracked.push({ url, body });
+    return { ok: true, status: 200 };
+  });
+
+  const first = await context.report({ conversationId: "conv-1", title: "Named" });
+  assert.equal(first.reported, true);
+  assert.equal(first.status, 200);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "http://127.0.0.1:43517/api/ingest/web-capture-session-title");
+  assert.deepEqual(requests[0].body, { provider: "chatgpt", conversationId: "conv-1", title: "Named" });
+
+  const duplicate = await context.report({ conversationId: "conv-1", title: "Named" });
+  assert.equal(duplicate.reported, false);
+  assert.equal(duplicate.reason, "already-reported");
+  assert.equal(requests.length, 1, "the same conversation and title never posts twice");
+
+  await context.report({ conversationId: "conv-1", title: "Renamed" });
+  assert.equal(requests.length, 2, "a changed title is a new report");
+});
+
+test("failed session title reports are abandoned silently, never retried", async () => {
+  const { context, requests } = sessionTitleReportHarness((tracked, url, body) => {
+    tracked.push({ url, body });
+    throw new Error("MOSA is down");
+  });
+  assert.equal((await context.report({ conversationId: "conv-2", title: "Named" })).reported, false);
+  assert.equal((await context.report({ conversationId: "conv-2", title: "Named" })).reason, "already-reported");
+  assert.equal(requests.length, 1, "the failed POST is remembered as sent and never retried");
+});
+
+test("session title reporting stays silent without a token or a usable payload", async () => {
+  const { context, requests } = sessionTitleReportHarness((tracked, url, body) => {
+    tracked.push({ url, body });
+    return { ok: true, status: 200 };
+  });
+  context.getSettings = async () => ({ mosaBaseUrl: "", mosaToken: "   " });
+  const unpaired = await context.report({ conversationId: "conv-3", title: "Named" });
+  assert.equal(unpaired.reported, false);
+  assert.equal(unpaired.reason, "no-token");
+  assert.equal(requests.length, 0, "unpaired runtimes never receive title reports");
+  const emptyId = await context.report({ conversationId: "", title: "Named" });
+  assert.equal(emptyId.reason, "empty");
+  const emptyTitle = await context.report({ conversationId: "conv-3", title: "  " });
+  assert.equal(emptyTitle.reason, "empty");
+  assert.equal(requests.length, 0);
 });

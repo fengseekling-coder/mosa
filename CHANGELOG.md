@@ -4,6 +4,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+- Stacks of images captured from one ChatGPT conversation are now named automatically after the conversation title. Naming happens when the images are captured and, for stacks created before this update, when the old conversation is opened again in the browser. Stacks you named yourself are never renamed, and neither are stacks mixing several conversations or non-capture images.
 - Re-observing an already archived ChatGPT image no longer replaces its user instruction with a message from another turn of the conversation.
 - Images generated in the same session (a ChatGPT conversation, Flow project, Google AI Studio chat, Gemini chat or Codex task) are now stacked automatically. A session's second image creates the stack, later images join it, and an existing stack that already holds images from the session — including a hand-made one — absorbs them instead. Existing libraries are organized once on upgrade. Images you remove from a stack, or whose stack you dissolve, are never stacked back automatically, and a stack you named keeps its name.
 - Web Capture extension 0.15.23: ChatGPT image-to-image turns archive their uploaded reference images again; the user turn is now split into an attachment unit and a text unit, and reference lookup merges every user unit of the same message while the assistant's generated gallery stays excluded.
