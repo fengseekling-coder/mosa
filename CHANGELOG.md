@@ -4,6 +4,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+- Images generated in the same session (a ChatGPT conversation, Flow project, Google AI Studio chat, Gemini chat or Codex task) are now stacked automatically. A session's second image creates the stack, later images join it, and an existing stack that already holds images from the session — including a hand-made one — absorbs them instead. Existing libraries are organized once on upgrade. Images you remove from a stack, or whose stack you dissolve, are never stacked back automatically, and a stack you named keeps its name.
 - Web Capture extension 0.15.23: ChatGPT image-to-image turns archive their uploaded reference images again; the user turn is now split into an attachment unit and a text unit, and reference lookup merges every user unit of the same message while the assistant's generated gallery stays excluded.
 - Image assets now carry a dominant-color palette: up to 8 colors as hex strings, largest share first, in the asset's `palette` field. New images get it when their thumbnail is generated; existing images get it from their current thumbnail the first time the asset is opened, without regenerating thumbnails. Videos have no palette yet, and the palette is not part of search. The Inspector will show the swatches in a later update.
 - Web Capture extension 0.15.22: the ChatGPT page hook now talks to the extension over a private MessagePort instead of a channel name exposed in the DOM, and content scripts only receive the settings they need.
