@@ -661,8 +661,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "mosa.getSettings") {
+    // Extension pages manage every field. Content scripts on provider pages
+    // only read autoCapture, so the mosaToken and base URL never leave the
+    // background for a page origin.
     getSettings()
-      .then((settings) => sendResponse({ ok: true, settings }))
+      .then((settings) => sendResponse({
+        ok: true,
+        settings: extensionPageSender(sender)
+          ? settings
+          : { autoCapture: settings.autoCapture },
+      }))
       .catch((error) => sendResponse({
         ok: false,
         error: error instanceof Error ? error.message : String(error),

@@ -23,7 +23,7 @@
   const PROVEN_GENERATION_MIN_EDGE = 256; // matches the provenGeneration tier in isArchiveWorthyCandidate
   const COMPOSER_SELECTOR = 'form, [data-type="unified-composer"], [data-testid="composer"]';
   const CHATGPT_TURN_SELECTOR = '[data-testid^="conversation-turn-"]';
-  const CHATGPT_USER_SELECTOR = '[data-message-author-role="user"], [data-content-search-unit-key$=":user"]';
+  const CHATGPT_USER_SELECTOR = '[data-message-author-role="user"], [data-content-search-unit-key$=":user"], [data-chatgpt-search-unit-key$=":user"]';
   const CHATGPT_MESSAGE_SELECTOR = '[data-chatgpt-search-message-ids]';
   const GENERATION_EVIDENCE_RECOVERY_DELAYS = [2_800, 7_200, 15_000];
   const SIZE_FAILURE_LIMIT = 3;
@@ -103,10 +103,19 @@
   let manualHookLeaseUntil = 0;
   let pageHookSyncTimer = null;
   let pageHookCaptureAck = null;
+  // The page hook talks to this script over a private MessagePort handed
+  // through a one-time window message. Plain window messages are visible to
+  // every page script and used to be forgeable; only the transferred port is
+  // trusted, and only the first transferred port is adopted.
+  let hookPort = null;
+  let hookPortRequestTimer = null;
+  let hookPortRequestAttempt = 0;
   const captureDebugEvents = [];
 
-  function pageHookChannel() {
-    return String(document.documentElement?.dataset?.mosaPageHookChannel || "").trim();
+  function postToPageHook(type, payload) {
+    if (!hookPort) return false;
+    hookPort.postMessage({ source: "mosa-chatgpt-capture", type, payload });
+    return true;
   }
 
   function rememberSet(set, value, maxSize = SESSION_CACHE_MAX) {
@@ -124,15 +133,10 @@
   }
 
   function setPageHookCaptureEnabled(enabled) {
-    const channel = pageHookChannel();
-    if (!channel) return false;
-    window.postMessage({
-      source: "mosa-chatgpt-capture",
-      channel,
-      type: "set-capture-enabled",
-      payload: { enabled: enabled === true },
-    }, "*");
-    return true;
+    // Returns false while the port is not ready yet, same semantics as the
+    // old "no channel name in the DOM" path; syncPageHookCaptureEnabled()
+    // keeps retrying until the hook confirms the state.
+    return postToPageHook("set-capture-enabled", { enabled: enabled === true });
   }
 
   function desiredPageHookCaptureEnabled() {
@@ -432,6 +436,38 @@
       if (scope.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) nearest = scope;
     }
     return nearest;
+  }
+
+  /** A search unit key reads "fallback-turn-12:0:user"; one message shares the prefix. */
+  function userUnitKeyPrefix(unit) {
+    const key = String(
+      unit?.getAttribute?.("data-chatgpt-search-unit-key") || unit?.getAttribute?.("data-content-search-unit-key") || "",
+    );
+    return key.replace(/:[^:]*:user$/, "");
+  }
+
+  /**
+   * One ChatGPT user message can arrive as several sibling units (attachments,
+   * then text). Reference lookup must span every user unit of that message —
+   * but the units are the boundary, never the turn container: the generated
+   * gallery lives inside the same container's assistant unit.
+   */
+  function userUnitsOfSameMessage(anchor, image) {
+    if (!anchor) return [];
+    if (anchor.matches?.(CHATGPT_TURN_SELECTOR)) return [anchor];
+    const anchorPrefix = userUnitKeyPrefix(anchor);
+    // Prefer the outer turn-key wrapper: the attachment unit may sit beside,
+    // not inside, the inner content-search turn.
+    const container = anchor.closest?.("[data-turn-key]") || anchor.closest?.("[data-content-search-turn-key]") || null;
+    if (!container && !anchorPrefix) return [anchor];
+    const units = Array.from(
+      container?.querySelectorAll?.(CHATGPT_USER_SELECTOR) || document.querySelectorAll(CHATGPT_USER_SELECTOR),
+    );
+    const sameMessage = units.filter((unit) => {
+      if (!(unit.compareDocumentPosition?.(image) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
+      return container ? true : userUnitKeyPrefix(unit) === anchorPrefix;
+    });
+    return sameMessage.length ? sameMessage : [anchor];
   }
 
   function hasGeneratedImageDomMarker(image) {
@@ -861,18 +897,20 @@
     const nearestUser = nearestPrecedingUserScope(image);
     if (!nearestUser) return [];
     const references = [];
-    for (const img of nearestUser.querySelectorAll("img")) {
-      if (isComposerNode(img)) continue;
-      const src = img.currentSrc || img.src || "";
-      if (!src) continue;
-      references.push({
-        key: src,
-        el: img,
-        imageUrl: src.startsWith("data:") ? "" : src,
-        dataUrl: src.startsWith("data:") ? src : "",
-        width: img.naturalWidth || img.width || 0,
-        height: img.naturalHeight || img.height || 0,
-      });
+    for (const unit of userUnitsOfSameMessage(nearestUser, image)) {
+      for (const img of unit.querySelectorAll("img")) {
+        if (isComposerNode(img)) continue;
+        const src = img.currentSrc || img.src || "";
+        if (!src) continue;
+        references.push({
+          key: src,
+          el: img,
+          imageUrl: src.startsWith("data:") ? "" : src,
+          dataUrl: src.startsWith("data:") ? src : "",
+          width: img.naturalWidth || img.width || 0,
+          height: img.naturalHeight || img.height || 0,
+        });
+      }
     }
     return references.slice(0, 8);
   }
@@ -1397,15 +1435,7 @@
 
     // page-hook.js derives the endpoint from its own location; the content
     // script never supplies a URL or any credential-bearing request detail.
-    const channel = pageHookChannel();
-    if (!channel) return false;
-    window.postMessage({
-      source: "mosa-chatgpt-capture",
-      channel,
-      type: "refresh-current-conversation",
-      payload: { conversationId },
-    }, "*");
-    return true;
+    return postToPageHook("refresh-current-conversation", { conversationId });
   }
 
   function resolvePrompt(imageUrl, candidate) {
@@ -2318,13 +2348,7 @@
     syncPageHookCaptureEnabled();
   }
 
-  window.addEventListener("message", (event) => {
-    if (event.source !== window) return;
-    const data = event.data;
-    if (!data || data.source !== "mosa-chatgpt-capture") return;
-    const channel = pageHookChannel();
-    if (!channel || data.channel !== channel) return;
-
+  function handlePageHookEvent(data) {
     if (data.type === "generation-meta" && data.payload) {
       if (data.payload.hookReady) {
         hookReady = true;
@@ -2434,6 +2458,30 @@
       const mapping = rememberBlobAsset(data.payload);
       if (mapping && autoCapture) enqueueDomCandidateForImage(mapping.blobUrl, "blob-asset");
     }
+  }
+
+  // The page hook hands over a private MessagePort exactly once, via a window
+  // message that only fires while the page is still loading. Every report
+  // afterwards arrives through that port; plain window messages are ignored,
+  // because any page script can post those.
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) return;
+    const data = event.data;
+    if (!data || data.source !== "mosa-chatgpt-capture") return;
+    if (data.type !== "hook-port") return;
+    // First port wins: any later transfer is ignored.
+    if (hookPort || !event.ports?.[0]) return;
+    hookPort = event.ports[0];
+    if (hookPortRequestTimer) {
+      clearTimeout(hookPortRequestTimer);
+      hookPortRequestTimer = null;
+    }
+    hookPort.addEventListener("message", (portEvent) => {
+      const portData = portEvent?.data;
+      if (portData && typeof portData === "object") handlePageHookEvent(portData);
+    });
+    hookPort.start?.();
+    hookPort.postMessage({ source: "mosa-chatgpt-capture", type: "hook-port-ack" });
   });
 
   observer = new MutationObserver(() => {
@@ -2460,6 +2508,23 @@
     }
   });
   document.addEventListener("DOMContentLoaded", () => syncPageHookCaptureEnabled(), { once: true });
+
+  // The hook transfers its port at document_start, which can happen before
+  // this listener exists. Ask for a (replacement) port until one arrives; the
+  // hook ignores requests once the first port has been confirmed, so an
+  // attacker replaying this message mints nothing.
+  const HOOK_PORT_REQUEST_DELAYS = [1_000, 2_000, 4_000, 8_000];
+  function scheduleHookPortRequest() {
+    if (hookPortRequestTimer) clearTimeout(hookPortRequestTimer);
+    hookPortRequestTimer = setTimeout(() => {
+      hookPortRequestTimer = null;
+      if (hookPort || contextLost) return;
+      window.postMessage({ source: "mosa-chatgpt-capture", type: "hook-port-request" }, location.origin);
+      hookPortRequestAttempt += 1;
+      if (hookPortRequestAttempt < HOOK_PORT_REQUEST_DELAYS.length) scheduleHookPortRequest();
+    }, HOOK_PORT_REQUEST_DELAYS[hookPortRequestAttempt]);
+  }
+  scheduleHookPortRequest();
 
   // Aggressive periodic auto scan — user explicitly wants hands-free save.
   // Doubles as the orphan watchdog: an extension reload flips the dock to the

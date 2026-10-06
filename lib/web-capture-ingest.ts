@@ -1375,7 +1375,7 @@ async function mergeDuplicateGenerationRecipe(
       prompt_source: existing.source?.prompt_source || existing.business_fields?.prompt_source || null,
       prompt_priority: existing.source?.prompt_priority || existing.business_fields?.prompt_priority || 0,
       prompt_scope: existing.source?.prompt_scope || existing.business_fields?.prompt_scope || input.promptScope || null,
-      user_message: input.userMessage || existing.source?.user_message || null,
+      user_message: mergedUserMessage(existing.source?.user_message, input.userMessage) || null,
       model: input.model || existing.source?.model || null,
     },
     business_fields: {
@@ -1388,7 +1388,7 @@ async function mergeDuplicateGenerationRecipe(
       prompt_source: existing.business_fields?.prompt_source || existing.source?.prompt_source || null,
       prompt_priority: existing.business_fields?.prompt_priority || existing.source?.prompt_priority || 0,
       prompt_scope: existing.business_fields?.prompt_scope || existing.source?.prompt_scope || input.promptScope || null,
-      user_message: input.userMessage || existing.business_fields?.user_message || null,
+      user_message: mergedUserMessage(existing.business_fields?.user_message, input.userMessage) || null,
     },
     recipe_change_summary: contextChanged
       ? "Generation occurrence merged"
@@ -1507,23 +1507,40 @@ async function maybeStoreRequestPrompt(store: Store, existing: StoredAsset, requ
   });
 }
 
+// The first user instruction archived for an image wins: re-observations of
+// an already archived capture often carry the message of a different
+// conversation turn (virtual scrolling shows only partial history), so an
+// unrelated message must never replace the archived one. Only an empty slot
+// or a strict extension of the archived text may update it.
+function mergedUserMessage(current: unknown, incoming: unknown): string {
+  const existing = String(current || "").trim();
+  const next = String(incoming || "").trim();
+  if (!existing) return next;
+  if (!next) return existing;
+  if (next.startsWith(existing) && next.length > existing.length) return next;
+  return existing;
+}
+
 async function maybeUpgradePrompt(store: Store, existing: StoredAsset, next: PromptUpgrade = {}): Promise<StoredAsset | null> {
   if (typeof store.updateMetadata !== "function") return null;
   const nextPrompt = String(next.prompt || "").trim();
   const userMessage = String(next.userMessage || next.user_message || "").trim();
   const currentUserMessage = String(existing.source?.user_message || existing.business_fields?.user_message || "").trim();
   if (!nextPrompt) {
-    if (!userMessage || userMessage === currentUserMessage) return null;
+    const merged = mergedUserMessage(currentUserMessage, userMessage);
+    // Keeping the archived instruction is a no-op: writing metadata here would
+    // add a recipe snapshot for every repeated observation of the same image.
+    if (merged === currentUserMessage) return null;
     return store.updateMetadata(existing.project_id, existing.id, {
       source: {
         ...(existing.source || {}),
         prompt_source: next.promptSource || existing.source?.prompt_source || null,
-        user_message: userMessage,
+        user_message: merged,
       },
       business_fields: {
         ...(existing.business_fields || {}),
         prompt_source: next.promptSource || existing.business_fields?.prompt_source || null,
-        user_message: userMessage,
+        user_message: merged,
       },
     });
   }
@@ -1557,7 +1574,7 @@ async function maybeUpgradePrompt(store: Store, existing: StoredAsset, next: Pro
       prompt_source: next.promptSource || existing.source?.prompt_source || null,
       prompt_priority: nextPriority,
       prompt_scope: normalizePromptScope(next.promptScope) || existing.source?.prompt_scope || null,
-      user_message: next.userMessage || existing.source?.user_message || null,
+      user_message: mergedUserMessage(existing.source?.user_message, next.userMessage) || null,
       model: next.model || existing.source?.model || null,
     },
     business_fields: {
@@ -1566,7 +1583,7 @@ async function maybeUpgradePrompt(store: Store, existing: StoredAsset, next: Pro
       prompt_source: next.promptSource || existing.business_fields?.prompt_source || null,
       prompt_priority: nextPriority,
       prompt_scope: normalizePromptScope(next.promptScope) || existing.business_fields?.prompt_scope || null,
-      user_message: next.userMessage || existing.business_fields?.user_message || null,
+      user_message: mergedUserMessage(existing.business_fields?.user_message, next.userMessage) || null,
     },
   });
 }
