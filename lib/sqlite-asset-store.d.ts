@@ -136,6 +136,7 @@ export interface SqliteAssetStore {
   createVersion(projectId: string, parentId: string, params: Record<string, unknown>): Promise<StoredAsset>;
   versionHistory(projectId: string, assetId: string): Promise<unknown>;
   recordGenerationEvent(input: Record<string, unknown>): Promise<Record<string, unknown>>;
+  applyGenerationMessageBindings(input: Record<string, unknown>): Promise<{ matched: number; updated: number; unchanged: number; conflicts: number; unmatched: number }>;
   listGenerationEvents(projectId: string, filters?: Record<string, unknown>): Promise<Array<Record<string, unknown>>>;
   recordGenerationRelation(input: Record<string, unknown>): Promise<Record<string, unknown>>;
   deleteGenerationRelation(input: Record<string, unknown>): Promise<Record<string, unknown>>;
