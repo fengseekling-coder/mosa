@@ -2,6 +2,7 @@ import { fork } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { PaletteColor } from "./image-palette.js";
 
 const DEFAULT_CONCURRENCY = 2;
 const VIDEO_EXTENSIONS = new Set([".m4v", ".mov", ".mp4", ".webm"]);
@@ -37,6 +38,8 @@ interface DerivativeProcessorResult extends Record<string, unknown> {
   thumbnailPath: string;
   width: number;
   height: number;
+  /** Dominant colors of the 400px thumbnail, largest share first; [] when none could be computed. */
+  palette: PaletteColor[];
   processorPid: number;
 }
 
