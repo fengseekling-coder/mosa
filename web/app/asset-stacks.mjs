@@ -42,6 +42,9 @@ export function createAssetStackController({
   renderGrid,
   gallerySelection,
   renderQuickFilters,
+  renderTypeFilters,
+  renderCategoryFilter,
+  setGalleryBusy,
   updateViewTitle,
   showToast,
   closeDetailSurface,
@@ -181,7 +184,8 @@ export function createAssetStackController({
 
   async function enterStack(stackId, initialSummary = null) {
     if (!stackId || state.activeStackId) return false;
-    if (typeof closeDetailSurface === "function" && !await closeDetailSurface()) return false;
+    // 导航进入堆叠不是用户手动关闭检视器（54-5）。
+    if (typeof closeDetailSurface === "function" && !await closeDetailSurface({ navigation: true })) return false;
     const selectionSnapshot = gallerySelection.snapshotSelection?.() || {
       selectedIds: [...(state.selectedIds instanceof Set ? state.selectedIds : new Set())],
       stackNodes: [...(state.selectedStackNodes instanceof Map ? state.selectedStackNodes : new Map())],
@@ -244,6 +248,9 @@ export function createAssetStackController({
     state.loadedAssetCount = Math.max(0, Number(root.loadedAssetCount) || 0);
     state.galleryStatus = "ready";
     state.galleryError = null;
+    // 堆叠内的请求可能还没返回：它已不是当前请求，按设计不会清 aria-busy，
+    // 而快照恢复不再发请求，所以这里必须自己结束忙碌态，否则画廊永久显示加载中。
+    if (typeof setGalleryBusy === "function") setGalleryBusy(false);
     // 回放逗留期间积压的 delta（幂等；此时 currentAssetRequest 已恢复为 root 请求）。
     // 提交由下方的整体 renderGrid 完成，这里只做数据 reconcile。
     if (typeof librarySync?.applyRootSnapshotPendingChanges === "function") {
@@ -259,7 +266,8 @@ export function createAssetStackController({
 
   async function exitStack() {
     if (!state.activeStackId) return false;
-    if (typeof closeDetailSurface === "function" && !await closeDetailSurface()) return false;
+    // 导航退出堆叠不是用户手动关闭检视器（54-5）。
+    if (typeof closeDetailSurface === "function" && !await closeDetailSurface({ navigation: true })) return false;
     const snapshot = state.stackReturnSnapshot || {};
     state.activeStackId = "";
     state.activeStackSummary = null;
@@ -273,6 +281,10 @@ export function createAssetStackController({
     gallerySelection.clear();
     if (els.searchInput) els.searchInput.value = state.query;
     if (els.sortSelect) els.sortSelect.value = state.sort;
+    // 快照恢复了 mediaKind/facets 状态，但类型按钮与分类下拉要显式重渲染，
+    // 否则控件仍显示堆叠内的选择且点击同值按钮被 handler 早退（54-3）。
+    if (typeof renderTypeFilters === "function") renderTypeFilters();
+    if (typeof renderCategoryFilter === "function") renderCategoryFilter();
     syncChrome();
     let loaded = await restoreRootFromSnapshot(snapshot);
     if (!loaded) {

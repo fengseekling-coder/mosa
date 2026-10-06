@@ -34,6 +34,8 @@ export interface StoredAsset {
   image_path?: string;
   preview_path?: string;
   thumbnail_path?: string;
+  /** Dominant colors as hex strings, largest share first; [] when not computed. */
+  palette?: string[];
   image_url?: string;
   preview_url?: string;
   thumbnail_url?: string;
@@ -110,6 +112,7 @@ export interface SqliteAssetStore {
   removeAssetsFromStack(projectId: string, stackId: string, assetIds: string[]): Promise<{ dissolved: boolean; remainingAssetId: string | null; stack: AssetStackSummary | null }>;
   dissolveAssetStack(projectId: string, stackId: string): Promise<{ id: string; assetIds: string[]; dissolved: true }>;
   getAsset(projectId: string, assetId: string): Promise<StoredAsset | null>;
+  ensureAssetPalette(projectId: string, assetId: string): Promise<StoredAsset | null>;
   createAsset(params: Record<string, unknown>, options?: Record<string, unknown>): Promise<StoredAsset>;
   updateMetadata(projectId: string, assetId: string, metadata: Record<string, unknown>): Promise<StoredAsset>;
   updateCuration(projectId: string, assetId: string, input: Record<string, unknown>): Promise<StoredAsset>;
