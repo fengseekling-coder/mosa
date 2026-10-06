@@ -86,13 +86,19 @@ test("Stack API keeps raw assets complete while gallery view collapses to one lo
     "view=gallery&source=web-flow",
     "view=gallery&favorite=1",
     "view=gallery&mediaKind=video",
-    "view=gallery&q=hidden%20needle",
   ]) {
     const result = await (await fetch(`${runtime.url}/api/assets?project=default&limit=100&${query}`)).json();
     assert.deepEqual(result.assets.map((asset) => asset.id), ["a"]);
     assert.deepEqual(result.assets[0].stack, { id: stack.id, count: 2, match_count: 1, name: "" });
     assert.equal(result.page.total, 1);
   }
+
+  // A search query flattens the stack instead of surfacing a stack node: the
+  // matching image is listed on its own with no stack annotation.
+  const searched = await (await fetch(`${runtime.url}/api/assets?project=default&limit=100&view=gallery&q=hidden%20needle`)).json();
+  assert.deepEqual(searched.assets.map((asset) => asset.id), ["b"]);
+  assert.equal(searched.assets[0].stack, undefined);
+  assert.equal(searched.page.total, 1);
 
   const inside = await (await fetch(`${runtime.url}/api/asset-stacks/${encodeURIComponent(stack.id)}/assets?project=default&q=hidden%20needle`)).json();
   assert.deepEqual(inside.assets.map((asset) => asset.id), ["b"]);
@@ -106,6 +112,93 @@ test("Stack API keeps raw assets complete while gallery view collapses to one lo
   assert.deepEqual((await dissolved.json()).assetIds, ["a", "b"]);
   const afterDissolve = await (await fetch(`${runtime.url}/api/assets?project=default&view=gallery&limit=100`)).json();
   assert.deepEqual(afterDissolve.assets.map((asset) => asset.id).sort(), ["a", "b", "c"]);
+});
+
+test("gallery search flattens stack members until the query clears", async (t) => {
+  const { runtime, create } = await startStackRuntime(t);
+  await create("a", { prompt: "harbor night sky", favorite: true });
+  await create("b", { prompt: "aurora dawn mist" });
+  await create("c", { prompt: "aurora night fog" });
+  await create("d", { prompt: "city shoreline" });
+
+  const stacked = await fetch(`${runtime.url}/api/asset-stacks`, {
+    method: "POST",
+    headers: mutationHeaders(runtime),
+    body: JSON.stringify({ projectId: "default", assetIds: ["a", "b", "c"], coverAssetId: "a" }),
+  });
+  assert.equal(stacked.status, 201);
+  const stack = (await stacked.json()).stack;
+  assert.equal(stack.count, 3);
+
+  // Without a query the gallery view still collapses the stack into one node.
+  const gallery = await (await fetch(`${runtime.url}/api/assets?project=default&view=gallery&limit=100`)).json();
+  assert.deepEqual(gallery.assets.map((asset) => asset.id).sort(), ["a", "d"]);
+  assert.deepEqual(gallery.assets.find((asset) => asset.id === "a").stack, { id: stack.id, count: 3, name: "" });
+
+  // Searching "aurora" matches the two stacked images; each hit is listed on
+  // its own and no stack node appears anywhere.
+  const searched = await (await fetch(`${runtime.url}/api/assets?project=default&view=gallery&limit=100&q=aurora`)).json();
+  assert.deepEqual(searched.assets.map((asset) => asset.id).sort(), ["b", "c"]);
+  assert.equal(searched.page.total, 2);
+  assert.ok(searched.assets.every((asset) => !asset.stack), "search results carry no stack node");
+
+  // The incremental reconciliation endpoint must agree with the list endpoint
+  // under the same query: affected stack members reconcile as flat assets.
+  const searchedRows = await (await fetch(`${runtime.url}/api/gallery-rows`, {
+    method: "POST",
+    headers: mutationHeaders(runtime),
+    body: JSON.stringify({
+      projectId: "default",
+      assetIds: ["b", "c"],
+      request: { query: "aurora", view: "gallery", scope: "all", sort: "newest" },
+    }),
+  })).json();
+  assert.deepEqual(searchedRows.rows.map((row) => row.id).sort(), ["b", "c"]);
+  assert.deepEqual(searchedRows.rowByAssetId, { b: "b", c: "c" });
+  assert.ok(searchedRows.rows.every((row) => !row.stack), "reconciled search rows are flat assets");
+
+  // A query matching the stack cover must also flatten: the cover is listed as
+  // a plain image on both endpoints, with no stack annotation anywhere.
+  const coverHit = await (await fetch(`${runtime.url}/api/assets?project=default&view=gallery&limit=100&q=harbor`)).json();
+  assert.deepEqual(coverHit.assets.map((asset) => asset.id), ["a"]);
+  assert.equal(coverHit.assets[0].stack, undefined);
+  assert.equal(coverHit.page.total, 1);
+
+  const coverHitRows = await (await fetch(`${runtime.url}/api/gallery-rows`, {
+    method: "POST",
+    headers: mutationHeaders(runtime),
+    body: JSON.stringify({
+      projectId: "default",
+      assetIds: ["a"],
+      request: { query: "harbor", view: "gallery", scope: "all", sort: "newest" },
+    }),
+  })).json();
+  assert.deepEqual(coverHitRows.rows.map((row) => row.id), ["a"]);
+  assert.deepEqual(coverHitRows.rowByAssetId, { a: "a" });
+  assert.ok(coverHitRows.rows.every((row) => !row.stack), "reconciled cover hit is a flat asset");
+
+  // The raw asset list (no view=gallery) keeps the cover annotation for its
+  // data-oriented callers (exports, audits): suppressing it is search-only.
+  const raw = await (await fetch(`${runtime.url}/api/assets?project=default&limit=100`)).json();
+  assert.deepEqual(raw.assets.find((asset) => asset.id === "a").stack, { id: stack.id, count: 3, name: "" });
+  assert.equal(raw.assets.find((asset) => asset.id === "b").stack, undefined);
+
+  // Filters without a query keep the collapsing behavior on both endpoints.
+  const favorites = await (await fetch(`${runtime.url}/api/assets?project=default&view=gallery&limit=100&favorite=1`)).json();
+  assert.deepEqual(favorites.assets.map((asset) => asset.id), ["a"]);
+  assert.deepEqual(favorites.assets[0].stack, { id: stack.id, count: 3, match_count: 1, name: "" });
+
+  const noQueryRows = await (await fetch(`${runtime.url}/api/gallery-rows`, {
+    method: "POST",
+    headers: mutationHeaders(runtime),
+    body: JSON.stringify({
+      projectId: "default",
+      assetIds: ["b"],
+      request: { query: "", view: "gallery", scope: "all", sort: "newest" },
+    }),
+  })).json();
+  assert.deepEqual(noQueryRows.rowByAssetId, { b: "a" });
+  assert.deepEqual(noQueryRows.rows.find((row) => row.id === "a").stack, { id: stack.id, count: 3, name: "" });
 });
 
 test("manual imports can target the currently open Stack", async (t) => {

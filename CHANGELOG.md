@@ -4,6 +4,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+- Searching the library now lists every matching image on its own instead of grouping matches into stacks; clearing the search brings stacks back.
 - Generation records captured without their ChatGPT message number are now completed automatically: when an existing library is opened, each blank record inherits the message id its image already stored (same conversation only), so the Inspector's turn history can count rounds on complete data. The Web Capture extension also gains a new authenticated endpoint (`POST /api/generation-message-bindings`) through which an open conversation reports which ChatGPT file belongs to which message and turn number — only these numbers and file ids are stored, never any conversation text. Turn numbers follow the conversation structure as of the most recent read, so edits or deletions inside the ChatGPT conversation are reflected on the next sync instead of keeping stale numbers forever.
 - The desktop app now creates a fixed, anonymous installation ID on every installation and provides it to the user interface.
 - Re-observing an already archived image no longer appends a blank generation record to its history. On upgrade, user instructions that earlier captures overwrote with a message from another turn are restored from the image's first saved prompt, and the duplicate blank generation records from those repeated captures are removed.
