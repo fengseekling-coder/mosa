@@ -1,4 +1,4 @@
-# MOSA Web Capture（0.15.20）
+# MOSA Web Capture（0.15.24）
 
 把 **ChatGPT、Gemini、Flow 和 Google AI Studio 网页**中用户可见的生成媒体归档到本机 MOSA。ChatGPT 支持图片提示词关联；Flow 与 Google AI Studio 同时支持已识别的视频，Gemini、Flow 与 Google AI Studio 的页面可见 Prompt 均明确标为未验证。
 
@@ -60,6 +60,14 @@ ChatGPT 网页捕获现在会把“媒体”和“生成事件”分开记录。
 自 `0.15.19` 起，ChatGPT 新版"一轮多张图"画廊（大图 + 缩略图条，页面上只有同源 `blob:` 地址、同一消息 ID 重复 N 次）不再因此全部丢失 Model caption。页面取生成图的固定链路是 `fetch /backend-api/estuary/content?id=file_X` → `Response.blob()` → `URL.createObjectURL()`；page-hook 会把"下载得到的 Blob → 文件编号 file_X"记进 WeakMap，并在 `createObjectURL` 时经既有页面通道发出 `blob-asset` 消息，内容脚本只在校验同源 `blob:` 与 `file_` 形态编号后把 `blob:` 地址补进图片身份键。绑定因此直接按文件编号对上实时推送里各图的 caption，不再依赖消息 ID（消息 ID 在多次生成时按设计放弃绑定）；对应关系只发送 `id` 这一个参数，`sig`/`p`/`cid`/`ts` 等签名或令牌参数不读取、不保存、不发送。批量请求（`batch_requests` 多条）下的"提示词2"（`generation_request_prompt`）保持留空：页面上没有能把某张图可靠对应到第几条请求的证据（final 消息中途的图片顺序是完成顺序），宁可缺也不配错。
 
 自 `0.15.20` 起，画廊里没点开的图也会入库：只要某个 `blob:` 地址有文件编号映射且注册表里有该文件编号的生成证据，缩略图不再要求 `<img>` 加载完成——字节直接按 `blob:` 地址从页面内存读取，真实宽高由解码后的字节判定（仍套用"已证明生成图"的 256px 最小边），大图与缩略图共用同一 `blob:` 身份，依旧只入库一次。
+
+自 `0.15.21` 起，ChatGPT 通过流式请求（`POST /backend-api/f/conversation` 的 SSE）推送的回复改为边收边解析：按 `delta encoding v1` 的 add 与补丁事件在流中重建消息，图片的生成 ID、资源 ID 与消息 ID 在事件到达时立即绑定，页面在 `[DONE]` 之后中止请求也不再丢失整轮内容；补丁支持 append（含对象合并与 `/message/content/parts/N` 数组下标）、replace 与跨事件续接 append，遇到不认识的补丁直接忽略，单条流沿用 12MB 解析上限。旧的缓冲解析与非 SSE 的 JSON 响应路径保持不变。
+
+自 `0.15.22` 起，page-hook 与内容脚本之间改用一次性移交的私有 `MessagePort` 通信，不再把通道名写在 DOM 里，页面上后注入的脚本既拿不到通道也无法伪造采集事件；同时 provider 页面的内容脚本向 background 请求设置时只拿到 `autoCapture` 一个字段，Token 不再下发到页面环境。
+
+自 `0.15.23` 起，图生图轮次恢复收录上传的参考图：ChatGPT 把一条用户消息拆成"附件单元 + 文字单元"两个兄弟节点后，原有的选择器只能认到不含图的文字单元，参考图因此一张也收不到。现在 `:user` 结尾的 `data-chatgpt-search-unit-key` 单元与 `data-content-search-unit-key` 单元同等识别，并按同一个 turn 容器（或 unit-key 前缀）合并同一条用户消息的全部用户单元取图；取图范围仍限定在用户单元内部，同一容器里助手单元生成画廊中的图不会被误判为参考图，输入框里的附件照旧跳过。
+
+自 `0.15.24` 起，采集载荷会附带当前 ChatGPT 对话的标题（优先读 `document.title` 并去掉“ - ChatGPT”这类站名后缀，读不到再取侧栏当前对话项的文字；“ChatGPT / New chat / 新聊天 / 新对话”等占位标题视为无标题，且仅当图片的 conversation ID 与当前网址一致时才附带）。MOSA 用它给还没有名字的会话堆叠自动命名；重新打开旧对话时，标题也会单独上报一次补齐（同一对话同一标题每次浏览器会话只发一次，未配对 Token 时不发），用户自己起过名的堆叠不受影响。
 
 MOSA 会在本地为同一 ChatGPT conversation 的 Generation Event 计算“关系候选”，但不会自动写成正式父子边。明确复用先前生成图的 provider asset ID 是强证据；“再改一下 / 把背景换黑 / 保持其他不变”等修改型用户指令、相邻生成和时间距离只能作为辅助信号。候选必须由用户确认后才进入正式生成树；只因为两张图前后出现，不会自动建立版本关系。
 

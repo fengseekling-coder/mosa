@@ -34,6 +34,8 @@ export interface StoredAsset {
   image_path?: string;
   preview_path?: string;
   thumbnail_path?: string;
+  /** Dominant colors as hex strings, largest share first; [] when not computed. */
+  palette?: string[];
   image_url?: string;
   preview_url?: string;
   thumbnail_url?: string;
@@ -106,10 +108,12 @@ export interface SqliteAssetStore {
   listAssetStackAssets(projectId: string, stackId: string, filters?: AssetListFilters): Promise<{ stack: AssetStackSummary; assets: StoredAsset[]; page: { total: number | null; nextCursor: string | null; limit: number; sort: string } }>;
   createAssetStack(projectId: string, assetIds: string[], options?: { coverAssetId?: string }): Promise<AssetStackSummary>;
   addAssetsToStack(projectId: string, stackId: string, assetIds: string[]): Promise<AssetStackSummary>;
+  applySessionTitle(projectId: string, sessionKey: string, title: string): Promise<{ stackId: string; renamed: boolean }>;
   reorderAssetStack(projectId: string, stackId: string, assetIds: string[]): Promise<AssetStackSummary>;
   removeAssetsFromStack(projectId: string, stackId: string, assetIds: string[]): Promise<{ dissolved: boolean; remainingAssetId: string | null; stack: AssetStackSummary | null }>;
   dissolveAssetStack(projectId: string, stackId: string): Promise<{ id: string; assetIds: string[]; dissolved: true }>;
   getAsset(projectId: string, assetId: string): Promise<StoredAsset | null>;
+  ensureAssetPalette(projectId: string, assetId: string): Promise<StoredAsset | null>;
   createAsset(params: Record<string, unknown>, options?: Record<string, unknown>): Promise<StoredAsset>;
   updateMetadata(projectId: string, assetId: string, metadata: Record<string, unknown>): Promise<StoredAsset>;
   updateCuration(projectId: string, assetId: string, input: Record<string, unknown>): Promise<StoredAsset>;
