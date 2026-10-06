@@ -48,7 +48,7 @@ function clearRepairMarker(libraryDir) {
   });
 }
 
-function insertAsset(database, { id, sourceType = "web-chatgpt", source, business = "{}", createdAt = DEFAULT_CREATED, deletedAt = null }) {
+function insertAsset(database, { id, sourceType = "web-chatgpt", source, business = "{}", createdAt = DEFAULT_CREATED, deletedAt = null, prompt = "", theme = "", tags = [] }) {
   database.prepare(`
     INSERT INTO assets (
       project_id, id, asset, original_path, content_sha256, prompt, skill, style, ratio, business_fields_json, theme,
@@ -56,7 +56,7 @@ function insertAsset(database, { id, sourceType = "web-chatgpt", source, busines
       tags_text, business_search_text, source_search_text, media_kind, source_group, conversation_id, generation_batch,
       created_at, created_at_epoch, updated_at, sort_name
     ) VALUES (
-      'default', @id, @asset, '/legacy', @hash, '', '', '', '', @business, '',
+      'default', @id, @asset, '/legacy', @hash, @prompt, '', '', '', @business, @theme,
       0, 0, '', '', 0, '', @sourceType, @source, '{}', '',
       '', @business, @source, 'image', @sourceType, @conversation, '',
       @created, @epoch, @created, @id
@@ -68,10 +68,17 @@ function insertAsset(database, { id, sourceType = "web-chatgpt", source, busines
     sourceType,
     source: JSON.stringify(source),
     business,
+    prompt,
+    theme,
     conversation: source.conversation_id || "",
     created: createdAt,
     epoch: Date.parse(createdAt),
   });
+  for (const tag of tags) {
+    const normalized = tag.trim().toLocaleLowerCase();
+    database.prepare("INSERT OR IGNORE INTO tags (id, normalized_name, name) VALUES (?, ?, ?)").run(`tag-${normalized}`, normalized, tag);
+    database.prepare("INSERT OR IGNORE INTO asset_tags (project_id, asset_id, tag_id) VALUES (?, ?, ?)").run("default", id, `tag-${normalized}`);
+  }
   if (deletedAt) database.prepare("UPDATE assets SET deleted_at = ? WHERE id = ?").run(deletedAt, id);
 }
 
@@ -144,6 +151,9 @@ test("restores a wrong-turn user message from the earliest non-empty recipe snap
     database.transaction(() => {
       insertAsset(database, {
         id: "a1",
+        prompt: "neon skyline watercolor study",
+        theme: "harbor nights detail",
+        tags: ["reference"],
         source: { type: "web-chatgpt", conversation_id: "conv-1", user_message: "a later turn text" },
         business: JSON.stringify({ user_message: "a later turn text" }),
       });
@@ -161,6 +171,10 @@ test("restores a wrong-turn user message from the earliest non-empty recipe snap
     const row = database.prepare("SELECT search_text, source_search_text, business_search_text FROM assets WHERE id = 'a1'").get();
     assert.match(row.search_text, /first prompt words/);
     assert.doesNotMatch(row.search_text, /later turn text/);
+    // The rebuild must not drop the fields the repair does not touch.
+    assert.match(row.search_text, /neon skyline watercolor study/, "the prompt must survive the search-text rebuild");
+    assert.match(row.search_text, /harbor nights detail/, "the title must survive the search-text rebuild");
+    assert.match(row.search_text, /reference/, "the tag must survive the search-text rebuild");
     assert.match(row.source_search_text, /first prompt words/);
     assert.match(row.business_search_text, /first prompt words/);
     const fts = database.prepare("SELECT content FROM asset_fts WHERE asset_id = 'a1'").get();
@@ -169,6 +183,10 @@ test("restores a wrong-turn user message from the earliest non-empty recipe snap
   });
   const page = await store.listAssetPage({ projectId: "default", query: "first prompt", limit: 0 });
   assert.ok(page.assets.some((entry) => entry.id === "a1"), "the restored message is searchable");
+  const byPromptWord = await store.listAssetPage({ projectId: "default", query: "watercolor", limit: 0 });
+  assert.ok(byPromptWord.assets.some((entry) => entry.id === "a1"), "still findable by a word from the original prompt");
+  const byTitleWord = await store.listAssetPage({ projectId: "default", query: "harbor", limit: 0 });
+  assert.ok(byTitleWord.assets.some((entry) => entry.id === "a1"), "still findable by a word from the title");
 });
 
 test("keeps a current message that is a longer completion of the snapshot prompt", async (t) => {
