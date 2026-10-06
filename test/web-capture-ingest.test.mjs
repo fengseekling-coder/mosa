@@ -285,6 +285,100 @@ test("deduplicated ChatGPT output advances generation status from partial to com
   assert.equal(events[0].provider_generation_call_id, "gen-status");
 });
 
+test("re-observing an archived image without any identifier adds no generation event", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-reident-unmarked-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  t.after(() => store.close?.());
+  await store.ensureProject("default");
+  const tempRoot = join(libraryDir, ".web-capture-tmp");
+
+  const first = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: {
+      provider: "chatgpt",
+      imageBase64: SAMPLE_PNG_BASE64,
+      mimeType: "image/jpeg",
+      conversationId: "reident-conversation",
+      messageId: "turn-first",
+      generationContextId: "chatgpt:reident-conversation:call-first",
+      providerAssetId: "file-first",
+    },
+  });
+  assert.equal(first.status, "imported");
+
+  // The pre-#142 bug: a page re-observation of the same pixels with no
+  // provider identity appended a phantom generation record on every capture.
+  const reObservation = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: {
+      provider: "chatgpt",
+      imageBase64: SAMPLE_PNG_BASE64,
+      mimeType: "image/jpeg",
+      user_message: "some nearby turn's text",
+      capturedAt: "2026-09-01T00:00:00.000Z",
+    },
+  });
+  assert.equal(reObservation.status, "skipped");
+  assert.ok(String(reObservation.reason || "").startsWith("already-archived"), `unexpected reason: ${reObservation.reason}`);
+  const events = await store.listGenerationEvents("default", { assetId: first.asset.id });
+  assert.equal(events.length, 1, "the unidentified re-observation must not append a generation record");
+});
+
+test("re-observing an archived image with a message id still records the generation", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-reident-marked-"));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  t.after(() => store.close?.());
+  await store.ensureProject("default");
+  const tempRoot = join(libraryDir, ".web-capture-tmp");
+
+  const first = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: {
+      provider: "chatgpt",
+      imageBase64: SAMPLE_PNG_BASE64,
+      mimeType: "image/jpeg",
+      conversationId: "marked-conversation",
+      messageId: "turn-a",
+      generationContextId: "chatgpt:marked-conversation:call-a",
+      providerAssetId: "file-a",
+      capturedAt: "2026-09-01T00:00:00.000Z",
+    },
+  });
+  assert.equal(first.status, "imported");
+
+  const reObservation = await ingestWebCapture({
+    store,
+    tempRoot,
+    projectId: "default",
+    input: {
+      provider: "chatgpt",
+      imageBase64: SAMPLE_PNG_BASE64,
+      mimeType: "image/jpeg",
+      conversationId: "marked-conversation",
+      messageId: "turn-b",
+      generationContextId: "chatgpt:marked-conversation:call-b",
+      providerAssetId: "file-b",
+      capturedAt: "2026-09-01T01:00:00.000Z",
+    },
+  });
+  assert.equal(reObservation.status, "skipped");
+  const events = await store.listGenerationEvents("default", { assetId: first.asset.id });
+  assert.equal(events.length, 2, "an identified re-observation records its generation as before");
+  assert.deepEqual(events.map((event) => event.message_id).sort(), ["turn-a", "turn-b"]);
+});
+
 test("completed ChatGPT bytes replace an earlier provisional asset with the same provider asset id", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "mosa-web-provisional-replace-"));
   deferTestPathRemoval(root, { recursive: true, force: true });
@@ -1212,12 +1306,14 @@ test("rejects tiny logo images, blanks unbound short prompts, and preserves user
         user_message: "生成一张 西藏 的",
       },
     });
+    // A re-observation with no binding evidence must not swap in another turn's
+    // instruction: the first archived instruction stays and nothing is rewritten.
     assert.equal(userInstructionUpdate.status, "skipped");
-    assert.equal(userInstructionUpdate.upgraded, true);
+    assert.equal(userInstructionUpdate.upgraded, false);
     assert.equal(userInstructionUpdate.asset.prompt, "");
     assert.equal(userInstructionUpdate.asset.source?.prompt_status, "not-available");
-    assert.equal(userInstructionUpdate.asset.source?.prompt_source, "awaiting-generation-caption");
-    assert.equal(userInstructionUpdate.asset.source?.user_message, "生成一张 西藏 的");
+    assert.equal(userInstructionUpdate.asset.source?.prompt_source, result.asset.source?.prompt_source);
+    assert.equal(userInstructionUpdate.asset.source?.user_message, "在做一版 香港 的");
 
     const upgraded = await ingestWebCapture({
       store,
@@ -1234,6 +1330,256 @@ test("rejects tiny logo images, blanks unbound short prompts, and preserves user
     assert.equal(upgraded.upgraded, true);
     assert.equal(upgraded.asset.prompt, "red sun");
     assert.equal(upgraded.asset.source?.prompt_status, "generation-tool-prompt");
+  } finally {
+    store.close?.();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("re-observing an archived ChatGPT image keeps its first user instruction", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-user-message-"));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  try {
+    await store.ensureProject("default");
+    const tempRoot = join(libraryDir, ".web-capture-tmp");
+    const imageBase64 = (await noiseImage(401)).toString("base64");
+    const first = await ingestWebCapture({
+      store,
+      tempRoot,
+      projectId: "default",
+      input: {
+        provider: "chatgpt",
+        imageBase64,
+        mimeType: "image/png",
+        user_message: "画一张夜晚的城市",
+      },
+    });
+    assert.equal(first.status, "imported");
+    assert.equal(first.asset.source?.user_message, "画一张夜晚的城市");
+    const snapshotsBefore = (await store.getRecipeSnapshotHistory("default", first.asset.id)).snapshots.length;
+
+    const reobserved = await ingestWebCapture({
+      store,
+      tempRoot,
+      projectId: "default",
+      input: {
+        provider: "chatgpt",
+        imageBase64,
+        mimeType: "image/png",
+        user_message: "给这只猫做成3D角色",
+      },
+    });
+    assert.equal(reobserved.status, "skipped");
+    assert.equal(reobserved.upgraded, false);
+    assert.equal(reobserved.asset.source?.user_message, "画一张夜晚的城市");
+    assert.equal(reobserved.asset.business_fields?.user_message, "画一张夜晚的城市");
+    assert.equal(
+      (await store.getRecipeSnapshotHistory("default", first.asset.id)).snapshots.length,
+      snapshotsBefore,
+      "a rejected instruction rewrite must not add a recipe snapshot",
+    );
+  } finally {
+    store.close?.();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an empty instruction is filled and a strict completion is accepted on re-observation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-user-message-fill-"));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  try {
+    await store.ensureProject("default");
+    const tempRoot = join(libraryDir, ".web-capture-tmp");
+
+    const unfilled = await ingestWebCapture({
+      store,
+      tempRoot,
+      projectId: "default",
+      input: { provider: "chatgpt", imageBase64: (await noiseImage(402)).toString("base64"), mimeType: "image/png" },
+    });
+    assert.equal(unfilled.status, "imported");
+    assert.equal(unfilled.asset.source?.user_message, null);
+
+    const filled = await ingestWebCapture({
+      store,
+      tempRoot,
+      projectId: "default",
+      input: {
+        provider: "chatgpt",
+        imageBase64: (await noiseImage(402)).toString("base64"),
+        mimeType: "image/png",
+        user_message: "画一张夜晚的城市",
+      },
+    });
+    assert.equal(filled.status, "skipped");
+    assert.equal(filled.upgraded, true);
+    assert.equal(filled.asset.source?.user_message, "画一张夜晚的城市");
+    assert.equal(filled.asset.business_fields?.user_message, "画一张夜晚的城市");
+
+    const started = await ingestWebCapture({
+      store,
+      tempRoot,
+      projectId: "default",
+      input: {
+        provider: "chatgpt",
+        imageBase64: (await noiseImage(403)).toString("base64"),
+        mimeType: "image/png",
+        user_message: "画一张猫",
+      },
+    });
+    assert.equal(started.status, "imported");
+
+    const extended = await ingestWebCapture({
+      store,
+      tempRoot,
+      projectId: "default",
+      input: {
+        provider: "chatgpt",
+        imageBase64: (await noiseImage(403)).toString("base64"),
+        mimeType: "image/png",
+        user_message: "画一张猫，背景是夜晚的城市",
+      },
+    });
+    assert.equal(extended.status, "skipped");
+    assert.equal(extended.upgraded, true);
+    assert.equal(extended.asset.source?.user_message, "画一张猫，背景是夜晚的城市");
+    assert.equal(extended.asset.business_fields?.user_message, "画一张猫，背景是夜晚的城市");
+  } finally {
+    store.close?.();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a prompt upgrade keeps the archived user instruction when the new one is unrelated", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-user-message-prompt-"));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  try {
+    await store.ensureProject("default");
+    const tempRoot = join(libraryDir, ".web-capture-tmp");
+    const imageBase64 = (await noiseImage(404)).toString("base64");
+    const first = await ingestWebCapture({
+      store,
+      tempRoot,
+      projectId: "default",
+      input: {
+        provider: "chatgpt",
+        imageBase64,
+        mimeType: "image/png",
+        user_message: "画一张夜晚的城市",
+      },
+    });
+    assert.equal(first.status, "imported");
+
+    const upgraded = await ingestWebCapture({
+      store,
+      tempRoot,
+      projectId: "default",
+      input: {
+        provider: "chatgpt",
+        imageBase64,
+        mimeType: "image/png",
+        prompt: "Model caption: A neon-lit city skyline reflected in a rainy street.",
+        prompt_status: "visible-caption",
+        user_message: "给这只猫做成3D角色",
+      },
+    });
+    assert.equal(upgraded.status, "skipped");
+    assert.equal(upgraded.upgraded, true);
+    assert.match(upgraded.asset.prompt, /neon-lit city skyline/i);
+    assert.equal(upgraded.asset.source?.prompt_status, "visible-caption");
+    assert.equal(upgraded.asset.source?.user_message, "画一张夜晚的城市");
+    assert.equal(upgraded.asset.business_fields?.user_message, "画一张夜晚的城市");
+  } finally {
+    store.close?.();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("merging a later generation occurrence keeps the archived user instruction", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-user-message-merge-"));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  try {
+    await store.ensureProject("default");
+    const tempRoot = join(libraryDir, ".web-capture-tmp");
+    const baseInput = {
+      provider: "chatgpt",
+      imageBase64: (await noiseImage(405)).toString("base64"),
+      mimeType: "image/png",
+      conversationId: "merge-user-message-conversation",
+      messageId: "merge-user-message-message",
+      generationContextId: "chatgpt:merge-user-message-conversation:call-merge",
+      providerToolCallId: "call-merge",
+      providerAssetId: "file-merge-user-message",
+    };
+    const partial = await ingestWebCapture({
+      store,
+      tempRoot,
+      projectId: "default",
+      input: { ...baseInput, generation_status: "partial", user_message: "画一张夜晚的城市" },
+    });
+    assert.equal(partial.status, "imported");
+    assert.equal(partial.asset.source?.user_message, "画一张夜晚的城市");
+
+    const completed = await ingestWebCapture({
+      store,
+      tempRoot,
+      projectId: "default",
+      input: { ...baseInput, generation_status: "completed", user_message: "给这只猫做成3D角色" },
+    });
+    assert.equal(completed.status, "skipped");
+    assert.equal(completed.reason, "already-archived-recipe-merged");
+    assert.equal(completed.recipeMerged, true);
+    assert.equal(completed.asset.source?.generation_status, "completed");
+    assert.equal(completed.asset.source?.user_message, "画一张夜晚的城市");
+    assert.equal(completed.asset.business_fields?.user_message, "画一张夜晚的城市");
+  } finally {
+    store.close?.();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a new image still records its own user instruction", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-web-user-message-new-"));
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  try {
+    await store.ensureProject("default");
+    const tempRoot = join(libraryDir, ".web-capture-tmp");
+    const cat = await ingestWebCapture({
+      store,
+      tempRoot,
+      projectId: "default",
+      input: {
+        provider: "chatgpt",
+        imageBase64: (await noiseImage(406)).toString("base64"),
+        mimeType: "image/png",
+        user_message: "画一张猫",
+      },
+    });
+    const dog = await ingestWebCapture({
+      store,
+      tempRoot,
+      projectId: "default",
+      input: {
+        provider: "chatgpt",
+        imageBase64: (await noiseImage(407)).toString("base64"),
+        mimeType: "image/png",
+        user_message: "画一条狗",
+      },
+    });
+    assert.equal(cat.status, "imported");
+    assert.equal(dog.status, "imported");
+    assert.equal(cat.asset.source?.user_message, "画一张猫");
+    assert.equal(dog.asset.source?.user_message, "画一条狗");
   } finally {
     store.close?.();
     await rm(root, { recursive: true, force: true });
@@ -2163,4 +2509,123 @@ test("adds a late ChatGPT request Prompt to an already archived capture", async 
   }, "request-secret");
   assert.equal(upgraded.asset.source?.generation_request_prompt, requestPrompt);
   assert.equal(upgraded.asset.prompt, "", "a request Prompt never fills the caption Prompt");
+});
+
+// --- ChatGPT conversation session title for stack naming (0.15.24) ---
+
+async function sessionTitleStore(t, prefix = "mosa-web-session-title-") {
+  const root = await mkdtemp(join(tmpdir(), prefix));
+  deferTestPathRemoval(root, { recursive: true, force: true });
+  const libraryDir = join(root, "library");
+  await mkdir(libraryDir, { recursive: true });
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir });
+  t.after(() => store.close?.());
+  await store.ensureProject("default");
+  const bridge = createWebCaptureIngest({
+    store,
+    libraryDir,
+    projectId: "default",
+    token: "session-title-secret",
+    allowedOrigins: ["chrome-extension://example-extension"],
+  });
+  return { store, bridge };
+}
+
+test("a captured title lands in the source of a newly archived ChatGPT image", async (t) => {
+  const { bridge } = await sessionTitleStore(t);
+  const imported = await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: (await noiseImage(402)).toString("base64"),
+    mimeType: "image/png",
+    conversationId: "conv-title-new",
+    generationSessionTitle: "  Bangkok Night Poster  ",
+    promptStatus: "not-available",
+  }, "session-title-secret");
+  assert.equal(imported.status, "imported");
+  assert.equal(imported.asset.source?.generation_session_title, "Bangkok Night Poster", "trimmed on write");
+
+  const capped = await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: (await noiseImage(403)).toString("base64"),
+    mimeType: "image/png",
+    conversationId: "conv-title-capped",
+    generation_session_title: "y".repeat(300),
+    promptStatus: "not-available",
+  }, "session-title-secret");
+  assert.equal(capped.asset.source?.generation_session_title?.length, 200, "capped to 200 chars");
+
+  const untitled = await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: (await noiseImage(404)).toString("base64"),
+    mimeType: "image/png",
+    conversationId: "conv-title-empty",
+    generationSessionTitle: "   ",
+    promptStatus: "not-available",
+  }, "session-title-secret");
+  assert.equal("generation_session_title" in (untitled.asset.source || {}), false, "an empty title is not written at all");
+});
+
+test("re-observations backfill a missing title and never overwrite an existing one", async (t) => {
+  const { store, bridge } = await sessionTitleStore(t);
+  const base64 = (await noiseImage(405)).toString("base64");
+  const first = await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: base64,
+    mimeType: "image/png",
+    conversationId: "conv-title-backfill",
+    promptStatus: "not-available",
+  }, "session-title-secret");
+  assert.equal("generation_session_title" in (first.asset.source || {}), false);
+
+  const snapshotsBefore = (await store.getRecipeSnapshotHistory("default", first.asset.id)).snapshots.length;
+  const backfilled = await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: base64,
+    mimeType: "image/png",
+    conversationId: "conv-title-backfill",
+    generationSessionTitle: "Late Learned Chat",
+    promptStatus: "not-available",
+  }, "session-title-secret");
+  assert.equal(backfilled.status, "skipped");
+  assert.equal(backfilled.asset.source?.generation_session_title, "Late Learned Chat", "the empty slot is backfilled");
+  assert.equal(
+    (await store.getRecipeSnapshotHistory("default", first.asset.id)).snapshots.length,
+    snapshotsBefore,
+    "backfilling a title adds no recipe snapshot",
+  );
+
+  const overwritten = await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: base64,
+    mimeType: "image/png",
+    conversationId: "conv-title-backfill",
+    generationSessionTitle: "Never Applied",
+    promptStatus: "not-available",
+  }, "session-title-secret");
+  assert.equal(overwritten.asset.source?.generation_session_title, "Late Learned Chat", "an existing title is never replaced");
+});
+
+test("a title arriving with a session's second image names the auto stack", async (t) => {
+  const { store, bridge } = await sessionTitleStore(t);
+  await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: (await noiseImage(406)).toString("base64"),
+    mimeType: "image/png",
+    conversationId: "conv-title-stack",
+    promptStatus: "not-available",
+  }, "session-title-secret");
+  await bridge.ingest({
+    provider: "chatgpt",
+    imageBase64: (await noiseImage(407)).toString("base64"),
+    mimeType: "image/png",
+    conversationId: "conv-title-stack",
+    generationSessionTitle: "Stacked Conversation",
+    promptStatus: "not-available",
+  }, "session-title-secret");
+
+  const page = await store.listAssetPage({ projectId: "default", limit: 0, collapseStacks: true });
+  const stack = page.assets.find((asset) => asset.stack)?.stack || null;
+  assert.ok(stack, "the second same-session image created the auto stack");
+  const summary = await store.getAssetStack("default", stack.id);
+  assert.equal(summary.name, "Stacked Conversation", "the auto stack is named after the conversation title");
 });

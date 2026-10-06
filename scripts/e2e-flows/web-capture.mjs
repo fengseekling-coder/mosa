@@ -442,8 +442,15 @@ function liveCaptureSource(config) {
     const cardTitle = card?.querySelector('.asset-card-title')?.textContent || '';
     const cardMetaSpans = [...(card?.querySelectorAll('.asset-card-meta span') || [])].map((node) => node.textContent);
 
-    card.querySelector('.asset-card-select').click();
-    await waitFor(() => detailOpen() && selectedId() === assetId, 'inspector opens for the captured asset', 15000);
+    // The card was just mounted by the library push and background
+    // reconciliation can still replace its node; clickUntil re-queries the
+    // live card on every attempt instead of clicking a detached node.
+    await clickUntil(
+      () => document.querySelector(cardSelector(assetId) + ' .asset-card-select'),
+      () => detailOpen() && selectedId() === assetId,
+      'inspector opens for the captured asset',
+      15000,
+    );
     const detailPrompt = panel()?.querySelector('.prompt-box.detail-prompt-box[data-prompt-panel="1"]')?.textContent?.trim() || '';
     const detailRequestPrompt = panel()?.querySelector('.prompt-box.detail-prompt-box[data-prompt-panel="2"]')?.textContent?.trim() || '';
     // GravityPort A4a：来源区块（summary + meta 表）已从检视器拿掉——来源名改从

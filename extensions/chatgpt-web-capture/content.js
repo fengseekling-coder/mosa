@@ -23,7 +23,7 @@
   const PROVEN_GENERATION_MIN_EDGE = 256; // matches the provenGeneration tier in isArchiveWorthyCandidate
   const COMPOSER_SELECTOR = 'form, [data-type="unified-composer"], [data-testid="composer"]';
   const CHATGPT_TURN_SELECTOR = '[data-testid^="conversation-turn-"]';
-  const CHATGPT_USER_SELECTOR = '[data-message-author-role="user"], [data-content-search-unit-key$=":user"]';
+  const CHATGPT_USER_SELECTOR = '[data-message-author-role="user"], [data-content-search-unit-key$=":user"], [data-chatgpt-search-unit-key$=":user"]';
   const CHATGPT_MESSAGE_SELECTOR = '[data-chatgpt-search-message-ids]';
   const GENERATION_EVIDENCE_RECOVERY_DELAYS = [2_800, 7_200, 15_000];
   const SIZE_FAILURE_LIMIT = 3;
@@ -103,6 +103,11 @@
   let manualHookLeaseUntil = 0;
   let pageHookSyncTimer = null;
   let pageHookCaptureAck = null;
+  // Stack naming: the per-page side of "one report per (conversation, title)".
+  // The background keeps the authoritative per-browser-session sent-set.
+  let sessionTitleReportTimer = null;
+  let lastSessionTitleReportKey = "";
+  const titleObserver = new MutationObserver(() => scheduleSessionTitleReport());
   // The page hook talks to this script over a private MessagePort handed
   // through a one-time window message. Plain window messages are visible to
   // every page script and used to be forgeable; only the transferred port is
@@ -244,6 +249,36 @@
     }
     activeConversationId = next;
     return activeConversationId;
+  }
+
+  const SESSION_TITLE_MAX_LENGTH = 200; // server re-caps to 80 for stack names
+  const SESSION_TITLE_PLACEHOLDERS = new Set(["chatgpt", "new chat", "新聊天", "新对话"]);
+
+  function normalizeConversationTitle(value) {
+    const cleaned = String(value || "")
+      .replace(/\s*[-|]\s*ChatGPT\s*$/i, "")
+      .trim();
+    if (!cleaned || SESSION_TITLE_PLACEHOLDERS.has(cleaned.toLowerCase())) return "";
+    return cleaned.slice(0, SESSION_TITLE_MAX_LENGTH);
+  }
+
+  function conversationTitleFromSidebar() {
+    const active = document.querySelector('nav a[aria-current="page"]');
+    return String(active?.textContent || "");
+  }
+
+  function currentConversationTitle() {
+    return normalizeConversationTitle(document.title)
+      || normalizeConversationTitle(conversationTitleFromSidebar());
+  }
+
+  // A title only travels with images of the conversation currently open in the
+  // URL: during a switch the old page's queued captures must not inherit the
+  // next chat's name.
+  function sessionTitleForConversation(conversationId) {
+    const cleanId = String(conversationId || "").trim();
+    if (!cleanId || cleanId !== conversationIdFromUrl()) return "";
+    return currentConversationTitle();
   }
 
   function isBlockedUrl(src) {
@@ -436,6 +471,38 @@
       if (scope.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) nearest = scope;
     }
     return nearest;
+  }
+
+  /** A search unit key reads "fallback-turn-12:0:user"; one message shares the prefix. */
+  function userUnitKeyPrefix(unit) {
+    const key = String(
+      unit?.getAttribute?.("data-chatgpt-search-unit-key") || unit?.getAttribute?.("data-content-search-unit-key") || "",
+    );
+    return key.replace(/:[^:]*:user$/, "");
+  }
+
+  /**
+   * One ChatGPT user message can arrive as several sibling units (attachments,
+   * then text). Reference lookup must span every user unit of that message —
+   * but the units are the boundary, never the turn container: the generated
+   * gallery lives inside the same container's assistant unit.
+   */
+  function userUnitsOfSameMessage(anchor, image) {
+    if (!anchor) return [];
+    if (anchor.matches?.(CHATGPT_TURN_SELECTOR)) return [anchor];
+    const anchorPrefix = userUnitKeyPrefix(anchor);
+    // Prefer the outer turn-key wrapper: the attachment unit may sit beside,
+    // not inside, the inner content-search turn.
+    const container = anchor.closest?.("[data-turn-key]") || anchor.closest?.("[data-content-search-turn-key]") || null;
+    if (!container && !anchorPrefix) return [anchor];
+    const units = Array.from(
+      container?.querySelectorAll?.(CHATGPT_USER_SELECTOR) || document.querySelectorAll(CHATGPT_USER_SELECTOR),
+    );
+    const sameMessage = units.filter((unit) => {
+      if (!(unit.compareDocumentPosition?.(image) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
+      return container ? true : userUnitKeyPrefix(unit) === anchorPrefix;
+    });
+    return sameMessage.length ? sameMessage : [anchor];
   }
 
   function hasGeneratedImageDomMarker(image) {
@@ -865,18 +932,20 @@
     const nearestUser = nearestPrecedingUserScope(image);
     if (!nearestUser) return [];
     const references = [];
-    for (const img of nearestUser.querySelectorAll("img")) {
-      if (isComposerNode(img)) continue;
-      const src = img.currentSrc || img.src || "";
-      if (!src) continue;
-      references.push({
-        key: src,
-        el: img,
-        imageUrl: src.startsWith("data:") ? "" : src,
-        dataUrl: src.startsWith("data:") ? src : "",
-        width: img.naturalWidth || img.width || 0,
-        height: img.naturalHeight || img.height || 0,
-      });
+    for (const unit of userUnitsOfSameMessage(nearestUser, image)) {
+      for (const img of unit.querySelectorAll("img")) {
+        if (isComposerNode(img)) continue;
+        const src = img.currentSrc || img.src || "";
+        if (!src) continue;
+        references.push({
+          key: src,
+          el: img,
+          imageUrl: src.startsWith("data:") ? "" : src,
+          dataUrl: src.startsWith("data:") ? src : "",
+          width: img.naturalWidth || img.width || 0,
+          height: img.naturalHeight || img.height || 0,
+        });
+      }
     }
     return references.slice(0, 8);
   }
@@ -1763,6 +1832,7 @@
           imageUrl: imageRef,
           pageUrl: location.href,
           conversationId: resolved.conversationId || currentConversationId(),
+          generationSessionTitle: sessionTitleForConversation(resolved.conversationId || currentConversationId()),
           messageId: resolved.messageId,
           generationContextId: generationContextId || resolved.generationContextId || "",
           providerToolCallId: resolved.providerToolCallId || "",
@@ -2463,6 +2533,52 @@
     });
   };
 
+  // Stack naming: report the conversation title so unnamed session stacks get
+  // named — including old conversations reopened long after their captures.
+  // Best effort only: failures are dropped silently, never queued or retried,
+  // and a dead extension context must stay invisible here (no context-lost
+  // toast for a background nicety).
+  function reportSessionTitleNow() {
+    if (contextLost || !extensionAlive()) return;
+    const conversationId = conversationIdFromUrl();
+    const title = currentConversationTitle();
+    if (!conversationId || !title) return;
+    const key = `${conversationId}\u001f${title}`;
+    if (key === lastSessionTitleReportKey) return;
+    lastSessionTitleReportKey = key;
+    Promise.resolve(runtimeSend({
+      type: "mosa.reportSessionTitle",
+      payload: { provider: "chatgpt", conversationId, title },
+    })).catch(() => {});
+  }
+
+  function scheduleSessionTitleReport(delay = 800) {
+    if (contextLost) return;
+    if (sessionTitleReportTimer) clearTimeout(sessionTitleReportTimer);
+    sessionTitleReportTimer = setTimeout(() => {
+      sessionTitleReportTimer = null;
+      reportSessionTitleNow();
+    }, delay);
+  }
+
+  function startTitleWatcher() {
+    const title = document.querySelector("head > title");
+    if (!title) return false;
+    titleObserver.disconnect();
+    titleObserver.observe(title, { childList: true, characterData: true, subtree: true });
+    return true;
+  }
+
+  function bootSessionTitleReporting() {
+    if (startTitleWatcher()) scheduleSessionTitleReport(0);
+    else {
+      document.addEventListener("DOMContentLoaded", () => {
+        startTitleWatcher();
+        scheduleSessionTitleReport(0);
+      }, { once: true });
+    }
+  }
+
   // Boot. page-hook.js is a document_start MAIN-world content script.
   loadSettings().then(() => {
     syncPageHookCaptureEnabled();
@@ -2474,6 +2590,7 @@
     }
   });
   document.addEventListener("DOMContentLoaded", () => syncPageHookCaptureEnabled(), { once: true });
+  bootSessionTitleReporting();
 
   // The hook transfers its port at document_start, which can happen before
   // this listener exists. Ask for a (replacement) port until one arrives; the
