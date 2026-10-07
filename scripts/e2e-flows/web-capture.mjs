@@ -507,6 +507,124 @@ export async function run(ctx) {
     assertEqual(clientTokenProbe.status, 401, "the capture entry must reject a client-token-only request");
     assertEqual((await clientTokenProbe.json())?.code, "WEB_CAPTURE_UNAUTHORIZED", "rejection comes from the capture token gate");
 
+    // ChatGPT's newer conversation read (extension 0.15.26) serves the
+    // displayed branch as a flat `messages` list with `page_info` paging
+    // instead of a mapping tree. The same extractor source runs here: a
+    // complete read reports, a read with older pages outstanding reports
+    // nothing (stitching pages is future work), and the report still goes
+    // through the pairing-token capture entry.
+    const flatConversation = {
+      conversation_id: CONVERSATION_CHATGPT,
+      current_node: "e2e-flat-a3",
+      page_info: {
+        start_cursor: "e2e-flat-cursor-start",
+        end_cursor: "e2e-flat-cursor-end",
+        has_previous_page: false,
+        has_next_page: false,
+      },
+      messages: [
+        {
+          id: "e2e-flat-u1",
+          author: { role: "user" },
+          content: { content_type: "text", parts: ["MOSA e2e turn fixture 新格式用户消息一"] },
+          metadata: {},
+        },
+        {
+          id: "e2e-flat-g1",
+          author: { role: "tool", name: "image_gen" },
+          recipient: "assistant",
+          content: {
+            content_type: "multimodal_text",
+            parts: [{
+              content_type: "image_asset_pointer",
+              asset_pointer: "file-service://file_e2e_flat_turn1",
+              metadata: { dalle: { gen_id: "e2e-flat-gen-0001" } },
+            }],
+          },
+          metadata: { parent_id: "e2e-flat-u1" },
+          status: "finished_successfully",
+        },
+        {
+          id: "e2e-flat-a1",
+          author: { role: "assistant" },
+          content: { content_type: "text", parts: ["MOSA e2e turn fixture 新格式回复一"] },
+          metadata: { parent_id: "e2e-flat-g1" },
+          status: "finished_successfully",
+        },
+        {
+          id: "e2e-flat-u2",
+          author: { role: "user" },
+          content: { content_type: "text", parts: ["MOSA e2e turn fixture 新格式用户消息二"] },
+          metadata: { parent_id: "e2e-flat-a1" },
+        },
+        {
+          id: "e2e-flat-g2",
+          author: { role: "tool", name: "image_gen" },
+          recipient: "assistant",
+          content: {
+            content_type: "multimodal_text",
+            parts: [{
+              content_type: "image_asset_pointer",
+              asset_pointer: "sediment://file_e2e_flat_turn2",
+              metadata: { dalle: { gen_id: "e2e-flat-gen-0002" } },
+            }],
+          },
+          metadata: { parent_id: "e2e-flat-u2" },
+          status: "finished_successfully",
+        },
+        {
+          id: "e2e-flat-a2",
+          author: { role: "assistant" },
+          content: { content_type: "text", parts: ["MOSA e2e turn fixture 新格式回复二"] },
+          metadata: { parent_id: "e2e-flat-g2" },
+          status: "finished_successfully",
+        },
+        {
+          id: "e2e-flat-u3",
+          author: { role: "user" },
+          content: { content_type: "text", parts: ["MOSA e2e turn fixture 新格式用户消息三"] },
+          metadata: { parent_id: "e2e-flat-a2" },
+        },
+        {
+          id: "e2e-flat-a3",
+          author: { role: "assistant" },
+          content: { content_type: "text", parts: ["MOSA e2e turn fixture 新格式回复三"] },
+          metadata: { parent_id: "e2e-flat-u3" },
+          status: "finished_successfully",
+        },
+      ],
+    };
+    const flatReport = extractTurnBindings(flatConversation);
+    assertOk(flatReport, "the flat-format fixture must yield a turn-binding report");
+    assertEqual(flatReport.conversationId, CONVERSATION_CHATGPT, "flat turn report conversation id");
+    assertEqual(flatReport.turnCount, 3, "flat turn report counts three visible user turns");
+    assertSameArray(flatReport.bindings, [
+      { provider_asset_id: "file_e2e_flat_turn1", message_id: "e2e-flat-u1", turn_index: 1 },
+      { provider_asset_id: "file_e2e_flat_turn2", message_id: "e2e-flat-u2", turn_index: 2 },
+    ], "flat turn report bindings (sediment:// reduced)");
+    const pagedFlatConversation = {
+      ...flatConversation,
+      page_info: { ...flatConversation.page_info, has_previous_page: true },
+    };
+    assertEqual(extractTurnBindings(pagedFlatConversation), null,
+      "a flat read with older pages outstanding must report nothing");
+
+    const flatTurnBatch = {
+      project_id: "default",
+      provider: "chatgpt",
+      conversation_id: flatReport.conversationId,
+      turn_count: flatReport.turnCount,
+      bindings: flatReport.bindings,
+    };
+    const flatBindingsPost = await bridgeFetch(origin, "POST", "/api/ingest/web-capture-turn-bindings", {
+      token,
+      body: flatTurnBatch,
+    });
+    assertEqual(flatBindingsPost.status, 200, "the pairing token must accept the flat-format batch");
+    assertEqual(flatBindingsPost.body?.updated, 0, "the flat fixture's file ids match no captured event");
+    assertEqual(flatBindingsPost.body?.conflicts, 0, "the flat fixture raises no message-id conflicts");
+    assertEqual(flatBindingsPost.body?.unmatched, 2, "both flat fixture entries are unmatched by design");
+
     const historyResponse = await fetch(`${origin}/api/assets/default/${chatgptAssetId}/generation-history`);
     assertEqual(historyResponse.status, 200, "generation history must answer 200");
     const historyBody = await historyResponse.json();
@@ -734,6 +852,7 @@ async function loadConversationTurnBindingExtractor() {
     "isConversationUserMessage",
     "conversationGenerationAssets",
     "extractConversationTurnBindings",
+    "extractMessagesConversationTurnBindings",
   ];
   const pieces = [/const MAX_CONVERSATION_TURN_BINDINGS = [^;]+;/.exec(hookSource)?.[0]];
   for (const name of names) {
