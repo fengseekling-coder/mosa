@@ -1845,6 +1845,181 @@
     // No URL.createObjectURL in this environment.
   }
 
+  // ---- Conversation turn structure (ids and numbers only, never text) ----
+  //
+  // While the user has a conversation open, the page itself fetches its stored
+  // JSON (mapping + current_node). That tree is the only source of real turn
+  // numbers: which visible user turn each generated image belongs to. The
+  // extraction below reads just that structure — message ids, roles, image
+  // file ids, order — and the report replaces turn guessing on the MOSA side.
+
+  const MAX_CONVERSATION_TURN_BINDINGS = 2000;
+
+  // Tool telemetry and similar system turns carry role "user" while being
+  // kept out of the visible thread; they are not turns the user typed.
+  function isHiddenConversationUserMessage(message) {
+    return message?.metadata?.is_visually_hidden_from_conversation === true;
+  }
+
+  function isConversationUserMessage(message) {
+    if (String(message?.author?.role || "").toLowerCase() !== "user") return false;
+    return !isHiddenConversationUserMessage(message);
+  }
+
+  // Image file ids this message generated. The provenance markers mirror
+  // emitMessageBindings: uploads and images an assistant message merely
+  // references carry no image-generation metadata and stay out.
+  function conversationGenerationAssets(message) {
+    const authorRole = String(message?.author?.role || "").toLowerCase();
+    if (!["assistant", "tool"].includes(authorRole)) return [];
+    const parts = Array.isArray(message?.content?.parts) ? message.content.parts : [];
+    const assetIds = [...new Set(parts
+      .filter((part) => part && typeof part === "object" && part.content_type === "image_asset_pointer")
+      .map((part) => normalizeAssetId(part.asset_pointer || part.assetPointer))
+      .filter(Boolean))];
+    if (!assetIds.length) return [];
+    const toolMarker = [
+      message?.author?.name,
+      message?.recipient,
+      message?.metadata?.tool_name,
+      message?.metadata?.command,
+      message?.metadata?.invoked_plugin?.namespace,
+    ].filter(Boolean).join(" ");
+    const generationOwned = Boolean(
+      message?.metadata?.dalle
+      || message?.metadata?.image_gen
+      || message?.metadata?.imageGen
+      || message?.metadata?.image_generation
+      || message?.metadata?.imageGeneration
+      || message?.metadata?.image_gen_title
+      || message?.metadata?.imageGenTitle
+      || message?.metadata?.image_generation_title
+      || message?.metadata?.imageGenerationTitle
+      || /(dall[-_.]?e|image[_ .-]?(gen|generation)|text2im|imagegen)/i.test(toolMarker)
+      || parts.some((part) => (
+        part?.content_type === "image_asset_pointer"
+        && (part.metadata?.dalle?.gen_id || part.metadata?.generation?.gen_id)
+      )),
+    );
+    return generationOwned ? assetIds : [];
+  }
+
+  /**
+   * Turn bindings from one conversation read. Input is the conversation's own
+   * JSON; output carries only ids and numbers: { conversationId, turnCount,
+   * bindings: [{ provider_asset_id, message_id, turn_index }] }, or null when
+   * there is nothing to report. Only the displayed branch is read: from
+   * current_node up through parent links, never sibling branches. turn_index
+   * counts the branch's visible user messages up to and including the turn
+   * that produced the image; message_id is that turn's user message. A file
+   * that surfaces as a generation output in two different branch messages is
+   * ambiguous and omitted whole. A batch over the server ceiling comes back
+   * with overLimit and empty bindings — it must be dropped, not truncated.
+   */
+  function extractConversationTurnBindings(conversationJson) {
+    const tree = conversationJson && typeof conversationJson === "object" && !Array.isArray(conversationJson)
+      ? conversationJson
+      : null;
+    const mapping = tree?.mapping && typeof tree.mapping === "object" && !Array.isArray(tree.mapping)
+      ? tree.mapping
+      : null;
+    if (!mapping) return null;
+    const conversationId = typeof tree.conversation_id === "string" ? tree.conversation_id.trim() : "";
+    if (!conversationId) return null;
+    const branch = [];
+    const seenNodes = new Set();
+    let cursor = typeof tree.current_node === "string" ? tree.current_node : "";
+    while (cursor && !seenNodes.has(cursor)) {
+      const node = mapping[cursor];
+      if (!node || typeof node !== "object" || Array.isArray(node)) break;
+      seenNodes.add(cursor);
+      branch.unshift(node);
+      cursor = typeof node.parent === "string" ? node.parent : "";
+    }
+    let turnCount = 0;
+    let turnMessageId = "";
+    const outputs = new Map();
+    for (const node of branch) {
+      const message = node?.message && typeof node.message === "object" ? node.message : null;
+      if (!message) continue;
+      if (isConversationUserMessage(message)) {
+        turnCount += 1;
+        turnMessageId = typeof message.id === "string" ? message.id.trim() : "";
+        continue;
+      }
+      const messageKey = (typeof message.id === "string" && message.id.trim())
+        || (typeof node.id === "string" ? node.id : "");
+      for (const assetId of conversationGenerationAssets(message)) {
+        const entry = outputs.get(assetId);
+        if (entry) entry.messages.add(messageKey);
+        else outputs.set(assetId, { messages: new Set([messageKey]), turnIndex: turnCount, turnMessageId });
+      }
+    }
+    if (!turnCount) return null;
+    const bindings = [];
+    for (const [assetId, entry] of outputs) {
+      if (entry.messages.size !== 1 || !entry.turnIndex) continue;
+      bindings.push({
+        provider_asset_id: assetId,
+        message_id: entry.turnMessageId,
+        turn_index: entry.turnIndex,
+      });
+    }
+    if (!bindings.length) return null;
+    bindings.sort((a, b) => (
+      a.turn_index - b.turn_index
+      || (a.provider_asset_id < b.provider_asset_id ? -1 : a.provider_asset_id > b.provider_asset_id ? 1 : 0)
+    ));
+    if (bindings.length > MAX_CONVERSATION_TURN_BINDINGS) {
+      return { conversationId, turnCount, bindings: [], overLimit: true };
+    }
+    return { conversationId, turnCount, bindings };
+  }
+
+  // Conversation items are only reported when they are the conversation the
+  // user has open — never a prefetched or sibling conversation id.
+  function isCurrentConversationItemUrl(value) {
+    const openId = conversationIdFromLocation();
+    if (!openId) return false;
+    try {
+      const url = new URL(String(value || ""), location.origin);
+      if (url.origin !== location.origin) return false;
+      if (!/^\/backend-api\/(?:f\/)?conversations?\/[^/]+$/.test(url.pathname.toLowerCase())) return false;
+      return decodeURIComponent(url.pathname.split("/").pop() || "").toLowerCase() === openId.toLowerCase();
+    } catch {
+      return false;
+    }
+  }
+
+  function reportConversationTurnBindings(conversationJson) {
+    let report;
+    try {
+      report = extractConversationTurnBindings(conversationJson);
+    } catch {
+      return;
+    }
+    if (!report) return;
+    if (report.overLimit) {
+      // Over the server ceiling: a truncated batch would make the reported
+      // turn numbers disagree with the stored turn count, so the whole read
+      // is dropped with one debug line. The next conversation load retries.
+      console.debug("[mosa] conversation turn bindings dropped: batch exceeds 2000 entries", report.conversationId);
+      return;
+    }
+    post("conversation-turn-bindings", report);
+  }
+
+  function reportConversationTurnBindingsFromText(text) {
+    if (typeof text !== "string" || text.length < 2 || text.length > 32_000_000) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return;
+    }
+    reportConversationTurnBindings(parsed);
+  }
+
   window.fetch = async function mosaFetch(...args) {
     const response = await originalFetch.apply(this, args);
     if (!isCaptureEnabled()) return response;
@@ -1864,7 +2039,10 @@
             harvestResponseStream(clone, "fetch-sse").catch(() => {});
           } else if (/json/.test(contentType) && /\/backend-api\/(?:f\/)?conversations?\//i.test(String(url))) {
             clone.json()
-              .then((payload) => walkObject(payload, { conversationId: conversationIdFromLocation() }))
+              .then((payload) => {
+                walkObject(payload, { conversationId: conversationIdFromLocation() });
+                if (isCurrentConversationItemUrl(url)) reportConversationTurnBindings(payload);
+              })
               .catch(() => {});
           } else {
             clone.text().then((text) => harvest(text, "fetch")).catch(() => {});
@@ -1899,6 +2077,7 @@
                 ? JSON.stringify(this.response)
                 : "";
             if (text) harvest(text, "xhr");
+            if (isCurrentConversationItemUrl(url)) reportConversationTurnBindingsFromText(text);
           }
         }
       } catch {

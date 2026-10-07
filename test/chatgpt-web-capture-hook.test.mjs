@@ -87,6 +87,7 @@ function createHookHarness(payload, conversationId = "conversation-test", option
   const windowMessages = [];
   const hookPortOffers = [];
   const windowMessageListeners = [];
+  const consoleDebugs = [];
   let contentPort = null;
   const documentElement = { dataset: {} };
   // The blob-asset hooks need the page's Blob, Response and URL.createObjectURL.
@@ -180,6 +181,7 @@ function createHookHarness(payload, conversationId = "conversation-test", option
     Object,
     Set,
     String,
+    console: { debug: (...args) => consoleDebugs.push(args.map((value) => String(value)).join(" ")) },
     URL: HookURL,
     Blob: HookBlob,
     Response: HookResponse,
@@ -210,6 +212,7 @@ function createHookHarness(payload, conversationId = "conversation-test", option
     createdObjectUrls,
     windowMessages,
     hookPortOffers,
+    consoleDebugs,
     documentElement,
     blobClass: HookBlob,
     responseClass: HookResponse,
@@ -270,7 +273,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.15.24");
+  assert.equal(manifest.version, "0.15.25");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://flow.google.com/*", "https://aistudio.google.com/*"],
@@ -2033,7 +2036,7 @@ test("binds prompt and asset when one image call splits them across nested reque
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.15.24");
+  assert.equal(manifest.version, "0.15.25");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
@@ -4442,4 +4445,441 @@ test("session title reporting stays silent without a token or a usable payload",
   const emptyTitle = await context.report({ conversationId: "conv-3", title: "  " });
   assert.equal(emptyTitle.reason, "empty");
   assert.equal(requests.length, 0);
+});
+
+// --- ChatGPT conversation turn bindings (0.15.25) ---
+
+function turnBindingsFixtureNode(id, message, parent, children = []) {
+  return { id, message, parent, children };
+}
+
+function turnBindingsUserNode({ id, parent, children = [], hidden = false, uploads = [] } = {}) {
+  return turnBindingsFixtureNode(id, {
+    id,
+    author: { role: "user" },
+    content: {
+      content_type: "text",
+      parts: [
+        "MOSA turn-bindings fixture instruction",
+        ...uploads.map((fileId) => ({ content_type: "image_asset_pointer", asset_pointer: `file-service://${fileId}` })),
+      ],
+    },
+    metadata: hidden ? { is_visually_hidden_from_conversation: true } : {},
+  }, parent, children);
+}
+
+function turnBindingsAssistantNode({ id, parent, children = [], references = [] } = {}) {
+  return turnBindingsFixtureNode(id, {
+    id,
+    author: { role: "assistant" },
+    content: {
+      content_type: "text",
+      parts: [
+        "MOSA turn-bindings fixture reply",
+        ...references.map((fileId) => ({ content_type: "image_asset_pointer", asset_pointer: `sediment:// ${fileId}`.trim() })),
+      ],
+    },
+    metadata: {},
+    status: "finished_successfully",
+  }, parent, children);
+}
+
+function turnBindingsGenerationNode({ id, parent, children = [], scheme = "file-service", files = [], role = "tool" } = {}) {
+  return turnBindingsFixtureNode(id, {
+    id,
+    author: { role, name: "image_gen" },
+    recipient: role === "tool" ? "assistant" : "all",
+    content: {
+      content_type: "multimodal_text",
+      parts: files.map((fileId) => ({
+        content_type: "image_asset_pointer",
+        asset_pointer: `${scheme}://${fileId}`,
+        metadata: { dalle: { gen_id: `gen-${fileId}` } },
+      })),
+    },
+    metadata: {},
+    status: "finished_successfully",
+  }, parent, children);
+}
+
+function turnBindingsConversation(nodes, currentNode, conversationId = "conversation-test") {
+  const mapping = {};
+  for (const node of nodes) mapping[node.id] = node;
+  return { title: "fixture", conversation_id: conversationId, mapping, current_node: currentNode };
+}
+
+function conversationBindingsContext() {
+  const names = [
+    "normalizeAssetId",
+    "isHiddenConversationUserMessage",
+    "isConversationUserMessage",
+    "conversationGenerationAssets",
+    "extractConversationTurnBindings",
+  ];
+  const pieces = [/const MAX_CONVERSATION_TURN_BINDINGS = [^;]+;/.exec(hookSource)?.[0]];
+  for (const name of names) {
+    const match = new RegExp(`\\n {2}function ${name}\\([\\s\\S]*?\\n {2}\\}`).exec(hookSource);
+    assert.ok(match, `page-hook.js should keep ${name} extractable`);
+    pieces.push(match[0]);
+  }
+  const context = {};
+  // The extractor runs in the vm realm; report objects cross back through
+  // JSON so plain deepEqual works on test-realm values.
+  vm.runInNewContext(`${pieces.filter(Boolean).join("\n")}\nthis.extractRaw = extractConversationTurnBindings;`, context, { filename: "page-hook-turn-bindings.js" });
+  return {
+    extract(input) {
+      const report = context.extractRaw(input);
+      return report ? JSON.parse(JSON.stringify(report)) : null;
+    },
+  };
+}
+
+test("turn bindings count visible user messages and bind each generated file to its turn", () => {
+  const { extract } = conversationBindingsContext();
+  const conversation = turnBindingsConversation([
+    turnBindingsFixtureNode("root", null, null, ["u1"]),
+    turnBindingsUserNode({ id: "u1", parent: "root", children: ["g1"] }),
+    turnBindingsGenerationNode({ id: "g1", parent: "u1", children: ["a1"], files: ["file_turn1"] }),
+    turnBindingsAssistantNode({ id: "a1", parent: "g1", children: ["u2"] }),
+    turnBindingsUserNode({ id: "u2", parent: "a1", children: ["g2"] }),
+    turnBindingsGenerationNode({ id: "g2", parent: "u2", children: ["a2"], files: ["file_aaa1", "file_bbb2"] }),
+    turnBindingsAssistantNode({ id: "a2", parent: "g2", children: ["u3"] }),
+    turnBindingsUserNode({ id: "u3", parent: "a2", children: ["a3"] }),
+    turnBindingsAssistantNode({ id: "a3", parent: "u3" }),
+  ], "a3");
+  const report = extract(conversation);
+  assert.ok(report, "a populated branch must produce a report");
+  assert.equal(report.conversationId, "conversation-test");
+  assert.equal(report.turnCount, 3);
+  assert.deepEqual(report.bindings, [
+    { provider_asset_id: "file_turn1", message_id: "u1", turn_index: 1 },
+    { provider_asset_id: "file_aaa1", message_id: "u2", turn_index: 2 },
+    { provider_asset_id: "file_bbb2", message_id: "u2", turn_index: 2 },
+  ]);
+});
+
+test("turn bindings follow the branch current_node points at, never the edited-away one", () => {
+  const { extract } = conversationBindingsContext();
+  const conversation = turnBindingsConversation([
+    turnBindingsFixtureNode("root", null, null, ["u1"]),
+    turnBindingsUserNode({ id: "u1", parent: "root", children: ["a1"] }),
+    turnBindingsAssistantNode({ id: "a1", parent: "u1", children: ["u2old", "u2new"] }),
+    turnBindingsUserNode({ id: "u2old", parent: "a1", children: ["gold"] }),
+    turnBindingsGenerationNode({ id: "gold", parent: "u2old", children: ["aold"], files: ["file_old"] }),
+    turnBindingsAssistantNode({ id: "aold", parent: "gold" }),
+    turnBindingsUserNode({ id: "u2new", parent: "a1", children: ["gnew"] }),
+    turnBindingsGenerationNode({ id: "gnew", parent: "u2new", children: ["anew"], files: ["file_new"] }),
+    turnBindingsAssistantNode({ id: "anew", parent: "gnew" }),
+  ], "anew");
+  const report = extract(conversation);
+  assert.equal(report.turnCount, 2);
+  assert.deepEqual(report.bindings, [
+    { provider_asset_id: "file_new", message_id: "u2new", turn_index: 2 },
+  ]);
+});
+
+test("hidden system user messages do not count as turns", () => {
+  const { extract } = conversationBindingsContext();
+  const conversation = turnBindingsConversation([
+    turnBindingsFixtureNode("root", null, null, ["sys1"]),
+    turnBindingsUserNode({ id: "sys1", parent: "root", children: ["a1"], hidden: true }),
+    turnBindingsAssistantNode({ id: "a1", parent: "sys1", children: ["u2"] }),
+    turnBindingsUserNode({ id: "u2", parent: "a1", children: ["g2"] }),
+    turnBindingsGenerationNode({ id: "g2", parent: "u2", children: ["a2"], files: ["file_hidden_check"] }),
+    turnBindingsAssistantNode({ id: "a2", parent: "g2" }),
+  ], "a2");
+  const report = extract(conversation);
+  assert.equal(report.turnCount, 1, "the hidden user message must not raise the turn count");
+  assert.deepEqual(report.bindings, [
+    { provider_asset_id: "file_hidden_check", message_id: "u2", turn_index: 1 },
+  ]);
+});
+
+test("uploads and merely referenced images are never reported as generation outputs", () => {
+  const { extract } = conversationBindingsContext();
+  const conversation = turnBindingsConversation([
+    turnBindingsFixtureNode("root", null, null, ["u1"]),
+    turnBindingsUserNode({ id: "u1", parent: "root", children: ["g1"], uploads: ["file_upload1"] }),
+    turnBindingsGenerationNode({ id: "g1", parent: "u1", children: ["a1"], files: ["file_gen1"] }),
+    turnBindingsAssistantNode({ id: "a1", parent: "g1", children: ["u2"], references: ["file_upload1"] }),
+    turnBindingsUserNode({ id: "u2", parent: "a1", children: ["a2"] }),
+    turnBindingsAssistantNode({ id: "a2", parent: "u2" }),
+  ], "a2");
+  const report = extract(conversation);
+  assert.deepEqual(report.bindings.map((binding) => binding.provider_asset_id), ["file_gen1"]);
+});
+
+test("a file that two branch messages both present as a generation output is omitted", () => {
+  const { extract } = conversationBindingsContext();
+  const conversation = turnBindingsConversation([
+    turnBindingsFixtureNode("root", null, null, ["u1"]),
+    turnBindingsUserNode({ id: "u1", parent: "root", children: ["g1"] }),
+    turnBindingsGenerationNode({ id: "g1", parent: "u1", children: ["a1"], files: ["file_dup"] }),
+    turnBindingsAssistantNode({ id: "a1", parent: "g1", children: ["galley"] }),
+    turnBindingsGenerationNode({ id: "galley", parent: "a1", files: ["file_dup"] }),
+  ], "galley");
+  const report = extract(conversation);
+  assert.equal(report, null, "the only file in the branch is ambiguous, so there is nothing to report");
+});
+
+test("file-service:// and sediment:// pointers both reduce to the bare file id", () => {
+  const { extract } = conversationBindingsContext();
+  const conversation = turnBindingsConversation([
+    turnBindingsFixtureNode("root", null, null, ["u1"]),
+    turnBindingsUserNode({ id: "u1", parent: "root", children: ["g1"] }),
+    turnBindingsGenerationNode({ id: "g1", parent: "u1", children: ["a1"], files: ["file_ser1"] }),
+    turnBindingsGenerationNode({ id: "a1", parent: "g1", scheme: "sediment", files: ["file_sed1"], role: "assistant" }),
+  ], "a1");
+  const report = extract(conversation);
+  assert.deepEqual(report.bindings.map((binding) => binding.provider_asset_id), ["file_sed1", "file_ser1"]);
+});
+
+test("over 2000 bindings come back marked overLimit with empty bindings", () => {
+  const { extract } = conversationBindingsContext();
+  const files = Array.from({ length: 2001 }, (_, index) => `file_${String(index).padStart(4, "0")}`);
+  const conversation = turnBindingsConversation([
+    turnBindingsFixtureNode("root", null, null, ["u1"]),
+    turnBindingsUserNode({ id: "u1", parent: "root", children: ["g1"] }),
+    turnBindingsGenerationNode({ id: "g1", parent: "u1", files }),
+  ], "g1");
+  const report = extract(conversation);
+  assert.equal(report.overLimit, true);
+  assert.deepEqual(report.bindings, []);
+  assert.equal(report.turnCount, 1);
+});
+
+test("conversations without user messages, images, a mapping, or an id report nothing", () => {
+  const { extract } = conversationBindingsContext();
+  assert.equal(extract(null), null);
+  assert.equal(extract("not-an-object"), null);
+  assert.equal(extract({ mapping: {} }), null);
+  assert.equal(extract(turnBindingsConversation([
+    turnBindingsFixtureNode("root", null, null, ["g1"]),
+    turnBindingsGenerationNode({ id: "g1", parent: "root", files: ["file_orphan"] }),
+  ], "g1")), null, "no user message, no turns");
+  assert.equal(extract(turnBindingsConversation([
+    turnBindingsFixtureNode("root", null, null, ["u1"]),
+    turnBindingsUserNode({ id: "u1", parent: "root" }),
+  ], "u1")), null, "no generation output, no bindings");
+  const noId = turnBindingsConversation([
+    turnBindingsFixtureNode("root", null, null, ["u1"]),
+    turnBindingsUserNode({ id: "u1", parent: "root", children: ["g1"] }),
+    turnBindingsGenerationNode({ id: "g1", parent: "u1", files: ["file_noid"] }),
+  ], "g1");
+  noId.conversation_id = "";
+  assert.equal(extract(noId), null);
+});
+
+function jsonResponsePayload(payload) {
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: (name) => (String(name).toLowerCase() === "content-type" ? "application/json" : "") },
+    clone: () => ({ json: async () => payload }),
+    json: async () => payload,
+  };
+}
+
+test("the open conversation's own JSON reports turn bindings over the private page channel", async () => {
+  const conversation = turnBindingsConversation([
+    turnBindingsFixtureNode("root", null, null, ["u1"]),
+    turnBindingsUserNode({ id: "u1", parent: "root", children: ["g1"] }),
+    turnBindingsGenerationNode({ id: "g1", parent: "u1", children: ["a1"], files: ["file_live1"] }),
+    turnBindingsAssistantNode({ id: "a1", parent: "g1" }),
+  ], "a1");
+  const harness = createHookHarness(undefined, "conversation-test", {
+    respond: (url) => (url.includes("/backend-api/conversation/conversation-test") ? jsonResponsePayload(conversation) : null),
+  });
+  await harness.harvest(null, "https://chatgpt.com/backend-api/conversation/conversation-test");
+  const event = harness.events.find((item) => item.type === "conversation-turn-bindings");
+  assert.ok(event, "the reduced turn snapshot should ride the private page channel");
+  const payload = JSON.parse(JSON.stringify(event.payload));
+  assert.equal(payload.conversationId, "conversation-test");
+  assert.equal(payload.turnCount, 1);
+  assert.deepEqual(payload.bindings, [
+    { provider_asset_id: "file_live1", message_id: "u1", turn_index: 1 },
+  ]);
+});
+
+test("conversation items for a different conversation are never reported", async () => {
+  const conversation = turnBindingsConversation([
+    turnBindingsFixtureNode("root", null, null, ["u1"]),
+    turnBindingsUserNode({ id: "u1", parent: "root", children: ["g1"] }),
+    turnBindingsGenerationNode({ id: "g1", parent: "u1", files: ["file_other1"] }),
+  ], "g1", "conversation-other");
+  const harness = createHookHarness(undefined, "conversation-test", {
+    respond: (url) => (url.includes("/backend-api/conversation/conversation-other") ? jsonResponsePayload(conversation) : null),
+  });
+  await harness.harvest(null, "https://chatgpt.com/backend-api/conversation/conversation-other");
+  assert.equal(
+    harness.events.some((item) => item.type === "conversation-turn-bindings"),
+    false,
+    "a conversation the user has not open must not be reported",
+  );
+});
+
+test("an over-ceiling conversation read is dropped with one debug line and no report", async () => {
+  const files = Array.from({ length: 2001 }, (_, index) => `file_${String(index).padStart(4, "0")}`);
+  const conversation = turnBindingsConversation([
+    turnBindingsFixtureNode("root", null, null, ["u1"]),
+    turnBindingsUserNode({ id: "u1", parent: "root", children: ["g1"] }),
+    turnBindingsGenerationNode({ id: "g1", parent: "u1", files }),
+  ], "g1");
+  const harness = createHookHarness(undefined, "conversation-test", {
+    respond: (url) => (url.includes("/backend-api/conversation/conversation-test") ? jsonResponsePayload(conversation) : null),
+  });
+  await harness.harvest(null, "https://chatgpt.com/backend-api/conversation/conversation-test");
+  assert.equal(harness.events.some((item) => item.type === "conversation-turn-bindings"), false);
+  assert.equal(harness.consoleDebugs.length, 1, "the drop must leave exactly one debug line");
+  assert.match(harness.consoleDebugs[0], /2000/);
+});
+
+test("the XHR conversation path reports turn bindings under the same open-conversation gate", () => {
+  assert.ok(hookSource.includes('if (text) harvest(text, "xhr");'));
+  assert.match(hookSource, /if \(isCurrentConversationItemUrl\(url\)\) reportConversationTurnBindingsFromText\(text\);/);
+  assert.match(hookSource, /if \(isCurrentConversationItemUrl\(url\)\) reportConversationTurnBindings\(payload\);/);
+  assert.match(contentSource, /data\.type === "conversation-turn-bindings"/);
+  assert.match(contentSource, /type: "mosa\.reportConversationTurns",/);
+  assert.match(backgroundSource, /if \(message\.type === "mosa\.reportConversationTurns"\) return context\.provider === "chatgpt";/);
+});
+
+function turnBindingReportHarness(fetchBehavior) {
+  const requests = [];
+  const pieces = [
+    "const reportedTurnBindingSummaries = new Map();",
+    "const pendingTurnBindingReports = new Map();",
+    "const TURN_BINDING_REPORT_THROTTLE_MS = 5;",
+    /function turnBindingSummaryKey\([\s\S]*?\n}\n/.exec(backgroundSource)?.[0],
+    /async function reportConversationTurnsOnce\([\s\S]*?\n}\n/.exec(backgroundSource)?.[0],
+    /function reportConversationTurnsThrottled\([\s\S]*?\n}\n/.exec(backgroundSource)?.[0],
+    /function normalizeBaseUrl\([\s\S]*?\n}\n/.exec(backgroundSource)?.[0],
+  ].filter(Boolean).join("\n");
+  const context = {
+    URL,
+    setTimeout,
+    clearTimeout,
+    DEFAULTS: { mosaBaseUrl: "http://127.0.0.1:43517" },
+    getSettings: async () => ({ mosaBaseUrl: "", mosaToken: "token-test" }),
+    fetchWithTimeout: async (url, init) => fetchBehavior(requests, url, JSON.parse(init.body)),
+  };
+  vm.runInNewContext(
+    `${pieces}\nthis.report = reportConversationTurnsThrottled; this.reportNow = reportConversationTurnsOnce; this.summary = turnBindingSummaryKey;`,
+    context,
+    { filename: "background-turn-bindings.js" },
+  );
+  return { context, requests };
+}
+
+const TURN_REPORT_FIXTURE = {
+  provider: "chatgpt",
+  conversationId: "conv-turn-1",
+  turnCount: 3,
+  bindings: [
+    { provider_asset_id: "file_b1", message_id: "user-2", turn_index: 2 },
+    { provider_asset_id: "file_a1", message_id: "user-1", turn_index: 1 },
+  ],
+};
+
+test("turn bindings POST to the message-binding endpoint and repeat only on change", async () => {
+  const { context, requests } = turnBindingReportHarness((tracked, url, body) => {
+    tracked.push({ url, body });
+    return { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(0) };
+  });
+
+  const first = await context.reportNow(TURN_REPORT_FIXTURE);
+  assert.equal(first.reported, true);
+  assert.equal(first.status, 200);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "http://127.0.0.1:43517/api/ingest/web-capture-turn-bindings");
+  assert.deepEqual(requests[0].body, {
+    project_id: "default",
+    provider: "chatgpt",
+    conversation_id: "conv-turn-1",
+    turn_count: 3,
+    bindings: [
+      { provider_asset_id: "file_b1", message_id: "user-2", turn_index: 2 },
+      { provider_asset_id: "file_a1", message_id: "user-1", turn_index: 1 },
+    ],
+  });
+
+  const duplicate = await context.reportNow(TURN_REPORT_FIXTURE);
+  assert.equal(duplicate.reported, false);
+  assert.equal(duplicate.reason, "already-reported");
+  assert.equal(requests.length, 1, "an unchanged read is never posted twice");
+
+  const reordered = {
+    ...TURN_REPORT_FIXTURE,
+    bindings: [...TURN_REPORT_FIXTURE.bindings].reverse(),
+  };
+  assert.equal((await context.reportNow(reordered)).reason, "already-reported",
+    "the summary must not depend on binding order");
+  assert.equal(requests.length, 1);
+
+  await context.reportNow({ ...TURN_REPORT_FIXTURE, turnCount: 4 });
+  assert.equal(requests.length, 2, "a changed branch is a new snapshot");
+});
+
+test("failed turn-binding reports are not remembered, so the next load retries", async () => {
+  let failRequests = 0;
+  const failing = turnBindingReportHarness((tracked, url, body) => {
+    tracked.push({ url, body });
+    failRequests += 1;
+    if (failRequests === 1) return { ok: false, status: 503, arrayBuffer: async () => new ArrayBuffer(0) };
+    return { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(0) };
+  });
+  await assert.rejects(failing.context.reportNow(TURN_REPORT_FIXTURE));
+  const retried = await failing.context.reportNow(TURN_REPORT_FIXTURE);
+  assert.equal(retried.reported, true);
+  assert.equal(failing.requests.length, 2, "a failed POST must not be remembered as sent");
+
+  let throwRequests = 0;
+  const throwing = turnBindingReportHarness((tracked, url) => {
+    tracked.push({ url: String(url) });
+    throwRequests += 1;
+    if (throwRequests <= 2) throw new Error("MOSA is down");
+    return { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(0) };
+  });
+  await assert.rejects(throwing.context.reportNow(TURN_REPORT_FIXTURE), /MOSA is down/);
+  // The throttled path turns a failure into a result for the page, and the
+  // summary stays unrecorded so the next report posts again.
+  const throttledFailure = await throwing.context.report(TURN_REPORT_FIXTURE);
+  assert.equal(throttledFailure.reported, false);
+  assert.match(throttledFailure.reason, /MOSA is down/);
+  const throttledRetry = await throwing.context.report(TURN_REPORT_FIXTURE);
+  assert.equal(throttledRetry.reported, true);
+  assert.equal(throwing.requests.length, 3);
+});
+
+test("turn bindings stay silent without a token or a usable snapshot", async () => {
+  const { context, requests } = turnBindingReportHarness((tracked, url, body) => {
+    tracked.push({ url, body });
+    return { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(0) };
+  });
+  context.getSettings = async () => ({ mosaBaseUrl: "", mosaToken: "   " });
+  const unpaired = await context.reportNow(TURN_REPORT_FIXTURE);
+  assert.equal(unpaired.reported, false);
+  assert.equal(unpaired.reason, "no-token");
+  assert.equal(requests.length, 0, "unpaired runtimes never receive turn snapshots");
+  assert.equal((await context.reportNow({ ...TURN_REPORT_FIXTURE, conversationId: "" })).reason, "empty");
+  assert.equal((await context.reportNow({ ...TURN_REPORT_FIXTURE, turnCount: 0 })).reason, "empty");
+  assert.equal((await context.reportNow({ ...TURN_REPORT_FIXTURE, bindings: [] })).reason, "empty");
+  assert.equal(requests.length, 0);
+});
+
+test("rapid reads of one conversation collapse into the single newest snapshot", async () => {
+  const { context, requests } = turnBindingReportHarness((tracked, url, body) => {
+    tracked.push({ url, body });
+    return { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(0) };
+  });
+  const first = context.report(TURN_REPORT_FIXTURE);
+  const second = context.report({ ...TURN_REPORT_FIXTURE, turnCount: 4 });
+  const third = context.report({ ...TURN_REPORT_FIXTURE, turnCount: 5 });
+  await Promise.all([first, second, third]);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(requests.length, 1, "one 2s window sends once");
+  assert.equal(requests[0].body.turn_count, 5, "the newest read wins");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await context.report({ ...TURN_REPORT_FIXTURE, turnCount: 6 });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(requests.length, 2, "a read after the window opens a new one");
 });

@@ -5,11 +5,13 @@
 // envelope, the metadata completion pass, and the chunked video upload session.
 
 import { randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import vm from "node:vm";
 import sharp from "sharp";
 import { PAGE_HELPERS } from "./_page-helpers.mjs";
 
 export const name = "web-capture";
-export const description = "extension pairing -> JSON ingest (live gallery push + inspector + source filter) -> binary envelope -> metadata completion -> chunked video upload -> duplicate idempotency -> token rejection";
+export const description = "extension pairing -> JSON ingest (live gallery push + inspector + source filter) -> binary envelope -> metadata completion -> chunked video upload -> conversation turn bindings -> duplicate idempotency -> token rejection";
 
 // Server-side configuration is documented runtime configuration (PRIVACY.md:
 // "Disable web capture by leaving MOSA_WEB_CAPTURE_TOKEN unset"), not a test
@@ -297,7 +299,226 @@ export async function run(ctx) {
     assertEqual(flowAsset?.prompt, PROMPT_FLOW_VIDEO, "Flow video prompt as stored");
     assertEqual(flowAsset?.business_fields?.duration_seconds, 2.5, "video duration as stored");
 
-    // ===== 7. Negative: missing / wrong token must be rejected =====
+    // ===== 7. Conversation turn bindings (extension 0.15.25) =====
+    // The page-world extractor is loaded verbatim from page-hook.js — the very
+    // function the real hook runs — and fed a conversation JSON shaped like
+    // the page's own /backend-api/conversation/<id> response. The resulting
+    // snapshot is then POSTed with exactly the extension background's request
+    // shape. The UI "turn N of M" rendering itself belongs to a later update;
+    // here the numbers are checked on the generation history the Inspector
+    // consumes, plus the Inspector rendering the bound generation event.
+    const extractTurnBindings = await loadConversationTurnBindingExtractor();
+    const turnConversation = {
+      title: "MOSA e2e turn fixture",
+      conversation_id: CONVERSATION_CHATGPT,
+      current_node: "e2e-node-a3",
+      mapping: {
+        "e2e-node-root": { id: "e2e-node-root", message: null, parent: null, children: ["e2e-node-u1"] },
+        "e2e-node-u1": {
+          id: "e2e-node-u1",
+          parent: "e2e-node-root",
+          children: ["e2e-node-g1"],
+          message: {
+            id: MESSAGE_CHATGPT,
+            author: { role: "user" },
+            content: { content_type: "text", parts: ["MOSA e2e turn fixture 用户消息一"] },
+            metadata: {},
+          },
+        },
+        "e2e-node-g1": {
+          id: "e2e-node-g1",
+          parent: "e2e-node-u1",
+          children: ["e2e-node-a1"],
+          message: {
+            id: "e2e-node-msg-g1",
+            author: { role: "tool", name: "image_gen" },
+            recipient: "assistant",
+            content: {
+              content_type: "multimodal_text",
+              parts: [{
+                content_type: "image_asset_pointer",
+                asset_pointer: `file-service://${PROVIDER_ASSET_CHATGPT}`,
+                metadata: { dalle: { gen_id: "e2e-gen-0001" } },
+              }],
+            },
+            metadata: {},
+            status: "finished_successfully",
+          },
+        },
+        "e2e-node-a1": {
+          id: "e2e-node-a1",
+          parent: "e2e-node-g1",
+          children: ["e2e-node-u2"],
+          message: {
+            id: "e2e-node-msg-a1",
+            author: { role: "assistant" },
+            content: { content_type: "text", parts: ["MOSA e2e turn fixture 回复一"] },
+            metadata: {},
+            status: "finished_successfully",
+          },
+        },
+        "e2e-node-u2": {
+          id: "e2e-node-u2",
+          parent: "e2e-node-a1",
+          children: ["e2e-node-u2old", "e2e-node-g2"],
+          message: {
+            id: "e2e-user-0002",
+            author: { role: "user" },
+            content: { content_type: "text", parts: ["MOSA e2e turn fixture 用户消息二"] },
+            metadata: {},
+          },
+        },
+        // Edited-away branch under the same parent: never reported.
+        "e2e-node-u2old": {
+          id: "e2e-node-u2old",
+          parent: "e2e-node-u2",
+          children: ["e2e-node-gold"],
+          message: {
+            id: "e2e-user-0002-old",
+            author: { role: "user" },
+            content: { content_type: "text", parts: ["MOSA e2e turn fixture 用户消息二（编辑前）"] },
+            metadata: {},
+          },
+        },
+        "e2e-node-gold": {
+          id: "e2e-node-gold",
+          parent: "e2e-node-u2old",
+          children: [],
+          message: {
+            id: "e2e-node-msg-gold",
+            author: { role: "tool", name: "image_gen" },
+            recipient: "assistant",
+            content: {
+              content_type: "multimodal_text",
+              parts: [{
+                content_type: "image_asset_pointer",
+                asset_pointer: "file-service://file_e2e_edited_away",
+                metadata: { dalle: { gen_id: "e2e-gen-old" } },
+              }],
+            },
+            metadata: {},
+            status: "finished_successfully",
+          },
+        },
+        "e2e-node-g2": {
+          id: "e2e-node-g2",
+          parent: "e2e-node-u2",
+          children: ["e2e-node-a2"],
+          message: {
+            id: "e2e-node-msg-g2",
+            author: { role: "tool", name: "image_gen" },
+            recipient: "assistant",
+            content: {
+              content_type: "multimodal_text",
+              parts: [{
+                content_type: "image_asset_pointer",
+                asset_pointer: "sediment://file_e2e_turn2",
+                metadata: { dalle: { gen_id: "e2e-gen-0002" } },
+              }],
+            },
+            metadata: {},
+            status: "finished_successfully",
+          },
+        },
+        "e2e-node-a2": {
+          id: "e2e-node-a2",
+          parent: "e2e-node-g2",
+          children: ["e2e-node-u3"],
+          message: {
+            id: "e2e-node-msg-a2",
+            author: { role: "assistant" },
+            content: { content_type: "text", parts: ["MOSA e2e turn fixture 回复二"] },
+            metadata: {},
+            status: "finished_successfully",
+          },
+        },
+        "e2e-node-u3": {
+          id: "e2e-node-u3",
+          parent: "e2e-node-a2",
+          children: ["e2e-node-a3"],
+          message: {
+            id: "e2e-user-0003",
+            author: { role: "user" },
+            content: { content_type: "text", parts: ["MOSA e2e turn fixture 用户消息三"] },
+            metadata: {},
+          },
+        },
+        "e2e-node-a3": {
+          id: "e2e-node-a3",
+          parent: "e2e-node-u3",
+          children: [],
+          message: {
+            id: "e2e-node-msg-a3",
+            author: { role: "assistant" },
+            content: { content_type: "text", parts: ["MOSA e2e turn fixture 回复三"] },
+            metadata: {},
+            status: "finished_successfully",
+          },
+        },
+      },
+    };
+    const turnReport = extractTurnBindings(turnConversation);
+    assertOk(turnReport, "the fixture conversation must yield a turn-binding report");
+    assertEqual(turnReport.conversationId, CONVERSATION_CHATGPT, "turn report conversation id");
+    assertEqual(turnReport.turnCount, 3, "turn report counts three visible user turns");
+    assertSameArray(turnReport.bindings, [
+      { provider_asset_id: PROVIDER_ASSET_CHATGPT, message_id: MESSAGE_CHATGPT, turn_index: 1 },
+      { provider_asset_id: "file_e2e_turn2", message_id: "e2e-user-0002", turn_index: 2 },
+    ], "turn report bindings (edited-away branch excluded, sediment:// reduced)");
+
+    // The extension background's own request shape: pairing token Bearer on
+    // the capture entry /api/ingest/web-capture-turn-bindings (the shared
+    // store path behind /api/generation-message-bindings).
+    const validTurnBatch = {
+      project_id: "default",
+      provider: "chatgpt",
+      conversation_id: turnReport.conversationId,
+      turn_count: turnReport.turnCount,
+      bindings: turnReport.bindings,
+    };
+    const turnBindingsPost = await bridgeFetch(origin, "POST", "/api/ingest/web-capture-turn-bindings", {
+      token,
+      body: validTurnBatch,
+    });
+    assertEqual(turnBindingsPost.status, 200, "the pairing token must be accepted on the capture turn-bindings entry");
+    assertEqual(turnBindingsPost.body?.updated, 1, "the captured image's event adopts its turn number");
+    assertEqual(turnBindingsPost.body?.conflicts, 0, "no message-id conflicts for the fixture");
+
+    // By server design a repost refreshes the snapshot watermark and counts
+    // as updated; suppressing the resend is the extension's summary dedup.
+    const turnBindingsRepost = await bridgeFetch(origin, "POST", "/api/ingest/web-capture-turn-bindings", {
+      token,
+      body: validTurnBatch,
+    });
+    assertEqual(turnBindingsRepost.status, 200, "the repost answers 200");
+    assertEqual(turnBindingsRepost.body?.updated, 1, "an identical repost only refreshes the watermark");
+    assertEqual(turnBindingsRepost.body?.conflicts, 0, "the identical repost raises no conflicts");
+
+    // The capture entry only accepts the pairing token: the loopback client
+    // token is not a capture credential.
+    const clientTokenProbe = await fetch(`${origin}/api/ingest/web-capture-turn-bindings`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-mosa-client-token": WEB_CAPTURE_TEST_TOKEN,
+      },
+      body: JSON.stringify(validTurnBatch),
+    });
+    assertEqual(clientTokenProbe.status, 401, "the capture entry must reject a client-token-only request");
+    assertEqual((await clientTokenProbe.json())?.code, "WEB_CAPTURE_UNAUTHORIZED", "rejection comes from the capture token gate");
+
+    const historyResponse = await fetch(`${origin}/api/assets/default/${chatgptAssetId}/generation-history`);
+    assertEqual(historyResponse.status, 200, "generation history must answer 200");
+    const historyBody = await historyResponse.json();
+    const boundEvent = (historyBody?.history?.events || []).find((event) => event.provider_asset_id === PROVIDER_ASSET_CHATGPT);
+    assertOk(boundEvent, "the captured asset must have a generation event for the bound file");
+    assertEqual(boundEvent?.turn_index, 1, "the stored event carries turn_index 1");
+    assertOk(Boolean(boundEvent?.turn_synced_at), "the stored event carries the snapshot watermark");
+
+    const turnInspector = await ctx.runInPage(server, turnBindingInspectorSource({ chatgptAssetId }));
+    assertOk((turnInspector?.historyItems || 0) >= 1, "the Inspector generation history renders the bound event");
+
+    // ===== 8. Negative: missing / wrong token must be rejected =====
     // Token verification runs before the body is read, so a small body keeps
     // these requests honest: rejection happens at the auth layer.
     const noToken = await bridgeFetch(origin, "POST", "/api/ingest/web-capture", { body: { provider: "chatgpt" } });
@@ -313,7 +534,7 @@ export async function run(ctx) {
     assertEqual(JSON.stringify(rejectedAssetIds), JSON.stringify([chatgptAssetId, geminiAssetId, flowAssetId].sort()),
       "rejected captures must not add gallery assets (library must hold exactly the three captured assets)");
 
-    // ===== 8. Fresh page: persistence, source nav for all captures, upgraded prompt =====
+    // ===== 9. Fresh page: persistence, source nav for all captures, upgraded prompt =====
     const finalResult = await ctx.runInPage(server, finalVerificationSource({
       chatgptAssetId, geminiAssetId, flowAssetId,
     }));
@@ -332,6 +553,7 @@ export async function run(ctx) {
       imported: [chatgptAssetId, geminiAssetId, flowAssetId],
       duplicateResend: liveResult?.duplicateReason,
       metadataUpgrade: upgrade.body?.upgraded,
+      turnBindings: { turns: turnReport.turnCount, bound: turnBindingsPost.body?.updated },
       tokenRejections: [noToken.status, wrongToken.status],
     };
   } finally {
@@ -497,6 +719,55 @@ function liveCaptureSource(config) {
       duplicateReason: duplicateBody?.reason || '',
       duplicateAssetId: String(duplicateBody?.asset?.id || ''),
       rendererErrors: rendererErrors.slice(0, 3),
+    };
+  })()`;
+}
+
+// Loads the extension's page-world turn extractor verbatim from page-hook.js
+// (the same source the real hook executes) so the flow exercises the real
+// conversation-structure parsing, not a reimplementation.
+async function loadConversationTurnBindingExtractor() {
+  const hookSource = await readFile(new URL("../../extensions/chatgpt-web-capture/page-hook.js", import.meta.url), "utf8");
+  const names = [
+    "normalizeAssetId",
+    "isHiddenConversationUserMessage",
+    "isConversationUserMessage",
+    "conversationGenerationAssets",
+    "extractConversationTurnBindings",
+  ];
+  const pieces = [/const MAX_CONVERSATION_TURN_BINDINGS = [^;]+;/.exec(hookSource)?.[0]];
+  for (const name of names) {
+    const match = new RegExp(`\\n {2}function ${name}\\([\\s\\S]*?\\n {2}\\}`).exec(hookSource);
+    if (!match) throw new Error(`web-capture: page-hook.js is missing the extractable function ${name}`);
+    pieces.push(match[0]);
+  }
+  const context = {};
+  vm.runInNewContext(`${pieces.filter(Boolean).join("\n")}\nthis.extractRaw = extractConversationTurnBindings;`, context, { filename: "page-hook-turn-bindings.js" });
+  return (input) => {
+    const report = context.extractRaw(input);
+    return report ? JSON.parse(JSON.stringify(report)) : null;
+  };
+}
+
+// Third window on the same library: the Inspector's generation history must
+// render the event the turn snapshot just annotated.
+function turnBindingInspectorSource(config) {
+  return `(async () => {
+    const config = ${JSON.stringify(config)};
+    ${PAGE_HELPERS}
+    const panel = () => document.querySelector('#detailPanel');
+    const detailOpen = () => panel()?.getAttribute('aria-hidden') === 'false';
+    const selectedId = () => document.querySelector('.asset-card.selected')?.dataset.id || '';
+
+    await waitFor(() => gallerySettled() && rootCardIds().length === 3, 'gallery shows the three captured cards', 20000);
+    const selectButton = () => document.querySelector(cardSelector(config.chatgptAssetId) + ' .asset-card-select');
+    await waitFor(() => selectButton()?.isConnected, 'captured card is on screen', 15000);
+    selectButton().click();
+    await waitFor(() => detailOpen() && selectedId() === config.chatgptAssetId, 'inspector shows the captured asset', 15000);
+    await waitFor(() => (document.querySelector('[data-generation-history]')?.querySelectorAll('.generation-lineage-item')?.length || 0) >= 1,
+      'generation history renders at least one event for the captured asset', 15000);
+    return {
+      historyItems: document.querySelector('[data-generation-history]')?.querySelectorAll('.generation-lineage-item')?.length || 0,
     };
   })()`;
 }

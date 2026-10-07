@@ -137,6 +137,7 @@ function senderAllowedForMessage(message, sender) {
   if (!context) return false;
   if (message.type === "mosa.fetchImage") return context.provider === "chatgpt";
   if (message.type === "mosa.reportSessionTitle") return context.provider === "chatgpt";
+  if (message.type === "mosa.reportConversationTurns") return context.provider === "chatgpt";
   if (message.type === "mosa.probeFlowMedia") return context.provider === "flow";
   if (["mosa.beginVideoTransfer", "mosa.videoTransferChunk", "mosa.commitVideoTransfer", "mosa.abortVideoTransfer"].includes(message.type)) {
     return context.provider === "flow" || context.provider === "google-ai-studio";
@@ -345,6 +346,94 @@ async function reportSessionTitleOnce(payload = {}) {
   } catch (error) {
     return { reported: false, reason: error instanceof Error ? error.message : String(error) };
   }
+}
+
+// Conversation turn bindings: while the user has a ChatGPT conversation open,
+// the page hook reduces its displayed branch to file id → turn numbers and
+// this worker POSTs that snapshot to MOSA. At most one send per conversation
+// per 2s window — the newest read inside the window wins. The summary
+// (turn_count + bindings) is remembered per browser session only after a
+// successful POST: an unchanged read is never sent twice, a failed or
+// tokenless attempt is not remembered, so the next conversation load retries
+// naturally. No capture-queue detour and no retries on a timer.
+const reportedTurnBindingSummaries = new Map();
+const pendingTurnBindingReports = new Map();
+const TURN_BINDING_REPORT_THROTTLE_MS = 2_000;
+
+function turnBindingSummaryKey(payload = {}) {
+  const bindings = (Array.isArray(payload.bindings) ? payload.bindings : [])
+    .map((binding) => [
+      String(binding?.provider_asset_id || ""),
+      String(binding?.message_id || ""),
+      Number(binding?.turn_index) || 0,
+    ])
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[2] - b[2]));
+  return JSON.stringify([Number(payload.turnCount) || 0, bindings]);
+}
+
+async function reportConversationTurnsOnce(payload = {}) {
+  const provider = String(payload?.provider || "chatgpt").trim().toLowerCase() || "chatgpt";
+  const conversationId = String(payload?.conversationId || "").trim();
+  const turnCount = Number(payload?.turnCount) || 0;
+  const rawBindings = Array.isArray(payload?.bindings) ? payload.bindings : [];
+  const bindings = rawBindings
+    .map((binding) => ({
+      provider_asset_id: String(binding?.provider_asset_id || "").trim(),
+      message_id: String(binding?.message_id || "").trim(),
+      turn_index: Number(binding?.turn_index) || 0,
+    }))
+    .filter((binding) => binding.provider_asset_id && binding.turn_index >= 1);
+  if (!conversationId || turnCount < 1 || !bindings.length) return { reported: false, reason: "empty" };
+  const summary = turnBindingSummaryKey({ turnCount, bindings });
+  if (reportedTurnBindingSummaries.get(conversationId) === summary) {
+    return { reported: false, reason: "already-reported" };
+  }
+  const settings = await getSettings();
+  const token = String(settings.mosaToken || "").trim();
+  if (!token) return { reported: false, reason: "no-token" };
+  const baseUrl = normalizeBaseUrl(settings.mosaBaseUrl || DEFAULTS.mosaBaseUrl);
+  const response = await fetchWithTimeout(`${baseUrl}/api/ingest/web-capture-turn-bindings`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      project_id: "default",
+      provider,
+      conversation_id: conversationId,
+      turn_count: turnCount,
+      bindings,
+    }),
+    cache: "no-cache",
+  }, 3_000);
+  if (!response.ok) throw new Error(`MOSA turn-binding report failed (${response.status})`);
+  await response.arrayBuffer().catch(() => {});
+  reportedTurnBindingSummaries.set(conversationId, summary);
+  return { reported: true, status: response.status };
+}
+
+// Trailing throttle: the first trigger for a conversation opens a 2s window
+// and later triggers inside it only replace the payload, so a burst of
+// conversation reads collapses into the single newest snapshot.
+function reportConversationTurnsThrottled(payload = {}) {
+  const conversationId = String(payload?.conversationId || "").trim();
+  if (!conversationId) return Promise.resolve({ reported: false, reason: "empty" });
+  return new Promise((resolve) => {
+    const pending = pendingTurnBindingReports.get(conversationId);
+    if (pending) {
+      pending.payload = payload;
+      pending.resolvers.push(resolve);
+      return;
+    }
+    const entry = { payload, resolvers: [resolve] };
+    pendingTurnBindingReports.set(conversationId, entry);
+    setTimeout(() => {
+      pendingTurnBindingReports.delete(conversationId);
+      reportConversationTurnsOnce(entry.payload)
+        .catch((error) => ({ reported: false, reason: error instanceof Error ? error.message : String(error) }))
+        .then((result) => {
+          for (const resolve of entry.resolvers) resolve(result);
+        });
+    }, TURN_BINDING_REPORT_THROTTLE_MS);
+  });
 }
 
 async function enqueueCapture(payload) {
@@ -576,6 +665,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "mosa.reportSessionTitle") {
     // Best effort stack naming: never surface failures to the page.
     reportSessionTitleOnce(message.payload)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch(() => sendResponse({ ok: true, reported: false }));
+    return true;
+  }
+
+  if (message.type === "mosa.reportConversationTurns") {
+    // Best effort turn bindings: never surface failures to the page.
+    reportConversationTurnsThrottled(message.payload)
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch(() => sendResponse({ ok: true, reported: false }));
     return true;
