@@ -261,7 +261,15 @@ export function createDerivativeWorker(options: {
       if (!job) break;
       active += 1;
       processDerivativeJob(store, job, { processor })
-        .catch(() => {})
+        .catch((error) => {
+          // A failed complete (e.g. SQLITE_BUSY while another process writes
+          // the library) stays fire-and-forget — the stale-claim recycle
+          // re-queues the job — but it must leave a trace, otherwise a job
+          // that never completes is invisible.
+          const code = typeof error?.code === "string" ? ` ${error.code}` : "";
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn(`[MOSA] derivative job complete failed for ${job.project_id ?? "?"}/${job.asset_id ?? "?"}${code}: ${message}`);
+        })
         .finally(() => {
           active -= 1;
           settleStopWaiters();
