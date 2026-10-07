@@ -1986,8 +1986,12 @@
    * a wrong turn number is worse than none. Stitching those older pages into
    * one report is future work (paged reads simply report nothing today).
    * Structural gates before counting: the list must end at current_node and
-   * stay unbroken (each present metadata.parent_id names the previous
-   * message); one broken link fails the whole batch.
+   * stay in order. ChatGPT leaves internal nodes (tool-call steps and the
+   * like) out of the list, so a metadata.parent_id may name a node that is
+   * not there — that is a skipped internal node and is allowed. A parent_id
+   * that names a message which IS in the list must name an earlier one; a
+   * parent at or after its child means the list is not one ordered branch,
+   * and the whole batch is dropped.
    */
   function extractMessagesConversationTurnBindings(tree) {
     const messages = Array.isArray(tree?.messages) ? tree.messages : null;
@@ -2003,9 +2007,14 @@
     }
     const lastMessage = messages[messages.length - 1];
     if (typeof lastMessage.id !== "string" || lastMessage.id !== tree.current_node) return null;
-    for (let index = 1; index < messages.length; index += 1) {
+    const positionById = new Map();
+    messages.forEach((message, index) => {
+      if (typeof message.id === "string" && message.id) positionById.set(message.id, index);
+    });
+    for (let index = 0; index < messages.length; index += 1) {
       const parentId = messages[index]?.metadata?.parent_id;
-      if (parentId != null && parentId !== messages[index - 1]?.id) return null;
+      if (parentId == null || !positionById.has(parentId)) continue;
+      if (positionById.get(parentId) >= index) return null;
     }
     // Identical counting rules as the mapping branch above, only over an
     // already-flattened branch: the helpers carry the rules, never a second

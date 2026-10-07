@@ -273,7 +273,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.15.26");
+  assert.equal(manifest.version, "0.15.27");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://flow.google.com/*", "https://aistudio.google.com/*"],
@@ -2036,7 +2036,7 @@ test("binds prompt and asset when one image call splits them across nested reque
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.15.26");
+  assert.equal(manifest.version, "0.15.27");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
@@ -4800,11 +4800,36 @@ test("flat conversations whose list does not end at current_node report nothing"
   assert.equal(extract(missingTail), null);
 });
 
-test("flat conversations with one broken parent link report nothing", () => {
+test("flat conversations whose parent link points forward report nothing", () => {
   const { extract } = conversationBindingsContext();
-  const brokenChain = turnBindingsFlatThreeTurnConversation();
-  brokenChain.messages[4].metadata.parent_id = "flat-message-from-another-branch";
-  assert.equal(extract(brokenChain), null, "one broken link fails the whole batch");
+  const outOfOrder = turnBindingsFlatThreeTurnConversation();
+  const laterId = outOfOrder.messages[outOfOrder.messages.length - 1].id;
+  outOfOrder.messages[4].metadata.parent_id = laterId;
+  assert.equal(extract(outOfOrder), null, "a parent after its child fails the whole batch");
+  const selfParent = turnBindingsFlatThreeTurnConversation();
+  selfParent.messages[4].metadata.parent_id = selfParent.messages[4].id;
+  assert.equal(extract(selfParent), null, "a message cannot be its own parent");
+});
+
+test("flat conversations tolerate parent links to internal nodes left out of the list", () => {
+  // Shape seen on chatgpt.com (10-07, structure only): two hidden system
+  // messages, the user turn with uploads, the image tool output, then two
+  // assistant messages whose parent_id names tool-call nodes ChatGPT omits.
+  const { extract } = conversationBindingsContext();
+  const conversation = turnBindingsFlatConversation([
+    turnBindingsFlatSystemMessage({ id: "flat-real-sys0" }),
+    turnBindingsFlatSystemMessage({ id: "flat-real-sys1" }),
+    turnBindingsFlatUserMessage({ id: "flat-real-u1", uploads: ["file_upload_a", "file_upload_b"] }),
+    turnBindingsFlatGenerationMessage({ id: "flat-real-tool", parentId: "flat-real-u1", scheme: "sediment", files: ["file_generated_1"] }),
+    turnBindingsFlatAssistantMessage({ id: "flat-real-a1", parentId: "flat-omitted-call-1" }),
+    turnBindingsFlatAssistantMessage({ id: "flat-real-a2", parentId: "flat-omitted-call-2" }),
+  ]);
+  const result = extract(conversation);
+  assert.ok(result, "omitted internal parents must not drop the batch");
+  assert.equal(result.turnCount, 1);
+  assert.equal(JSON.stringify(result.bindings), JSON.stringify([
+    { provider_asset_id: "file_generated_1", message_id: "flat-real-u1", turn_index: 1 },
+  ]));
 });
 
 test("hidden user messages and system messages do not count as turns in flat conversations", () => {
