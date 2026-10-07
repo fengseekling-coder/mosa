@@ -135,6 +135,17 @@ const KEY_KINDS = {
   "settings.navTabColor": "color",
   "settings.navTabActiveBackground": "color",
   "settings.navTabActiveColor": "color",
+  // 任务 91（GravityPort A4d）：右键菜单几何——宽 240、圆角 8、内边距 8、
+  // 行高 32、图标 24、组内行距 2、组间距 12（分隔线改纯留白）。
+  "menu.width": "px",
+  "menu.radius": "px",
+  "menu.padding": "px",
+  "menu.itemHeight": "px",
+  "menu.itemRadius": "px",
+  "menu.itemGap": "px",
+  "menu.groupGap": "px",
+  "menu.iconSize": "px",
+  "menu.iconInset": "px",
   // 深色主题（R21 没有深色规格：只守关键颜色没被浅色规则串进去）
   "dark.bodyBackground": "color",
   "dark.bodyColor": "color",
@@ -544,6 +555,19 @@ function measurementSource({ plainAssetId }) {
     // 经真实入口（右键菜单「在查看器中打开」）进入；量完返回画廊并手动关检视器，
     // 再量 toast 栈的关闭态右边距。
     const viewerOpenItem = await openContextMenu(cardSelector(seed.plainAssetId), '在查看器中打开');
+    // 任务 91：菜单开着时量右键菜单几何（单张菜单：打开×2｜复制×4｜收藏+分组×2｜
+    // 导出｜回收站——items[1]→[2] 跨过分隔，正是组间距）。
+    const contextMenuEl = pick('.context-menu');
+    const contextMenuItems = [...contextMenuEl.querySelectorAll(':scope > .context-menu-item')];
+    R['menu.width'] = rectOf(contextMenuEl).width;
+    R['menu.radius'] = styleOf(contextMenuEl).borderTopLeftRadius;
+    R['menu.padding'] = styleOf(contextMenuEl).paddingTop;
+    R['menu.itemHeight'] = rectOf(contextMenuItems[0]).height;
+    R['menu.itemRadius'] = styleOf(contextMenuItems[0]).borderTopLeftRadius;
+    R['menu.itemGap'] = rectOf(contextMenuItems[1]).top - rectOf(contextMenuItems[0]).bottom;
+    R['menu.groupGap'] = rectOf(contextMenuItems[2]).top - rectOf(contextMenuItems[1]).bottom;
+    R['menu.iconSize'] = rectOf(contextMenuItems[0].querySelector('.context-menu-icon')).width;
+    R['menu.iconInset'] = rectOf(contextMenuItems[0].querySelector('.context-menu-icon')).left - rectOf(contextMenuItems[0]).left;
     viewerOpenItem.click();
     await waitFor(() => !pick('#assetView').hidden, 'asset view opens for snapshot');
     const viewerImage = pick('#assetViewImage');

@@ -585,45 +585,47 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         ],
         [
           {
+            label: t("addToGroup"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
+            submenu: [
+              {
+                label: t("createGroupWithSelection"),
+                action: async () => {
+                  const projectId = state.project;
+                  openGroupModal?.({
+                    onCreated: async (groupName) => {
+                      if (projectId !== state.project) return;
+                      const response = await applyStackGroupMutation(projectId, stackId, groupName);
+                      const assetIds = Array.isArray(response?.stack?.assetIds) ? response.stack.assetIds : [];
+                      showToast(t("stackMovedToGroup", { group: groupName }), "success");
+                      window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+                        detail: { projectId, updatedAssetIds: assetIds, groupChanged: true },
+                      }));
+                    },
+                  });
+                },
+              },
+              { separator: true },
+              ...(Array.isArray(state.groups.groups) ? state.groups.groups : []).map((group) => ({
+                label: group.name,
+                icon: `<svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="${resolveGroupColor(group.name)}"/></svg>`,
+                action: moveStackToGroup(group.name),
+              })),
+            ],
+          },
+          {
+            label: t("removeFromGroup"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="m9 12 6 0"/></svg>',
+            action: moveStackToGroup(""),
+          },
+        ],
+        [
+          {
             label: t("renameStack"),
             icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>',
             disabled: typeof openStackRenameModal !== "function",
             action: () => openStackRenameDialog({ stackId, initialName: asset.stack.name }),
           },
-        {
-          label: t("moveToGroup"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
-          submenu: [
-            {
-              label: t("createGroupWithSelection"),
-              action: async () => {
-                const projectId = state.project;
-                openGroupModal?.({
-                  onCreated: async (groupName) => {
-                    if (projectId !== state.project) return;
-                    const response = await applyStackGroupMutation(projectId, stackId, groupName);
-                    const assetIds = Array.isArray(response?.stack?.assetIds) ? response.stack.assetIds : [];
-                    showToast(t("stackMovedToGroup", { group: groupName }), "success");
-                    window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
-                      detail: { projectId, updatedAssetIds: assetIds, groupChanged: true },
-                    }));
-                  },
-                });
-              },
-            },
-            {
-              label: t("removeFromGroup"),
-              icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="m9 12 6 0"/></svg>',
-              action: moveStackToGroup(""),
-            },
-            { separator: true },
-            ...(Array.isArray(state.groups.groups) ? state.groups.groups : []).map((group) => ({
-              label: group.name,
-              icon: `<svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="${resolveGroupColor(group.name)}"/></svg>`,
-              action: moveStackToGroup(group.name),
-            })),
-          ],
-        },
           {
             label: t("dissolveStack"),
             icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 7h8M8 12h8M8 17h8"/><path d="M4 7h.01M4 12h.01M4 17h.01"/></svg>',
@@ -759,6 +761,12 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             },
           },
           {
+            // 任务 91：稿子固定位置上的占位项——剪切粘贴是后续任务，先禁用。
+            label: t("cut"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg>',
+            disabled: true,
+          },
+          {
             label: t("copyPrompt"),
             icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
             disabled: !asset.prompt,
@@ -831,7 +839,8 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
       },
     };
 
-    // Move to group submenu
+    // Add to group submenu（任务 91：文案照稿子改「添加分组」，子菜单沿用；
+    // 「移除分组」按稿子提为顶层项，移出分组的动作与置灰口径不变。）
     const moveSelectionToGroup = (groupName) => async () => {
       const context = await selectedMutationContext(asset, selectedAssets, options);
       if (!context || !mutationContextIsCurrent(context)) return;
@@ -855,7 +864,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     const organizeSection = [
       favoriteItem,
       {
-      label: t("moveToGroup"),
+      label: t("addToGroup"),
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
       submenu: [
         {
@@ -882,13 +891,6 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             });
           },
         },
-        {
-          // 移出分组：后端批量接口传空分组名即解除归属，这里补上唯一缺失的入口。
-          label: t("removeFromGroup"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="m9 12 6 0"/></svg>',
-          disabled: !selectionHasGroupedAsset(asset, selectedAssets, options),
-          action: moveSelectionToGroup(""),
-        },
         { separator: true },
         ...(Array.isArray(state.groups.groups) ? state.groups.groups : []).map((group) => {
           const groupName = group.name;
@@ -903,45 +905,46 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         }),
       ],
       },
+      {
+        // 移出分组：后端批量接口传空分组名即解除归属。任务 91 把它从子菜单
+        // 提为顶层项（稿子分组 3 的第三项），置灰口径沿用原子菜单项。
+        label: t("removeFromGroup"),
+        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="m9 12 6 0"/></svg>',
+        disabled: !selectionHasGroupedAsset(asset, selectedAssets, options),
+        action: moveSelectionToGroup(""),
+      },
     ];
-    // 堆叠整理项：堆叠内部是“移出堆叠”（单/多选都有），根画廊多选是“堆叠所选”。
-    // 选区含折叠 Stack 节点时“堆叠所选”不出现（不支持堆叠套堆叠）。
+    // 任务 91：右键专属的堆叠操作（全应用仅此入口）照稿子 5 组之后、「移至
+    // 回收站」之前自成一组，只在用得上时出现：堆叠内部是「移出堆叠」（单/
+    // 多选都有），根画廊多选是「堆叠所选」。选区含折叠 Stack 节点时两者都不
+    // 出现（不支持堆叠套堆叠）。
+    let stackSection = null;
     if (state.activeStackId) {
-      organizeSection.push({
+      stackSection = [{
         label: t("removeFromStack"),
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M4.5 17.5h5"/></svg>',
         disabled: stackMutationInFlight(),
         action: async () => {
           await assetStacks?.removeSelectedFromStack?.();
         },
-      });
+      }];
     } else if (isMultiple && !includesStackNodes) {
-      organizeSection.push({
+      stackSection = [{
         label: t("stackSelected"),
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg>',
         disabled: state.storageKind !== "sqlite" || stackMutationInFlight(),
         action: async () => {
           await assetStacks?.createStackFromSelection?.();
         },
-      });
+      }];
     }
 
-    // 历史与导出分区：单张=版本历史+导出；多选=仅导出。选区含折叠 Stack 节点
-    // 时导出整段不出现（不支持导出堆叠），不再置灰。
-    const historyExportSection = [];
-    if (!isMultiple) {
-      // 历史与导出分区（单张）：查看版本历史与导出同组。
-      historyExportSection.push({
-        label: t("viewVersionHistory"),
-        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
-        action: async () => {
-          window.dispatchEvent(new CustomEvent("mosa:select-asset", { detail: { assetId: asset.id } }));
-        },
-      });
-    }
-    if (!includesStackNodes) {
-      historyExportSection.push({
-        label: t("exportAsset"),
+    // 任务 91：导出自成一组（稿子「导出至」）。「查看版本历史」从菜单拿掉：
+    // 检视器（点卡片 / 卡片「查看」）就是版本树入口，代码与 i18n key 保留。
+    // 选区含折叠 Stack 节点时导出整段不出现（不支持导出堆叠），不再置灰。
+    const exportSection = includesStackNodes ? null : [
+      {
+        label: t("exportTo"),
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5-5 5 5"/><path d="M12 5v12"/></svg>',
         disabled: isMultiple && selectedAssets.length !== selectionCount,
         action: async () => {
@@ -953,8 +956,8 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             showToast(isMultiple ? t("exportStartedMultiple") : t("exportStarted"), "success");
           });
         },
-      });
-    }
+      },
+    ];
 
     // Danger zone
     const moveToTrashItem =
@@ -1001,14 +1004,16 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         },
       };
 
-    // 统一分区：选区信息 → 打开 → 复制 → 整理 → 历史与导出 → 选择 → 危险。
+    // 统一分区（任务 91 稿子顺序）：选区信息 → 打开 → 复制 → 收藏与分组 →
+    // 导出 → 堆叠（仅适用时）→ 危险。全选/取消选择从素材菜单拿掉（⌘A / Esc
+    // 键盘入口保留）；「查看版本历史」同批拿掉（检视器有版本树入口）。
     return buildSectionedMenu([
       isMultiple ? [selectionHeadingItem(selectionCount)] : null,
       openSection,
       copySection,
       organizeSection,
-      historyExportSection.length ? historyExportSection : null,
-      isMultiple ? [selectAllMenuItem(), deselectAllMenuItem()] : null,
+      exportSection,
+      stackSection,
       [moveToTrashItem],
     ]);
   }

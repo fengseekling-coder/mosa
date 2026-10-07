@@ -1,5 +1,5 @@
 // Pluggable e2e flow: full manual-group lifecycle driven through the real UI
-// entry points (blank-gallery context menu, asset "移动到分组" submenu, sidebar
+// entry points (blank-gallery context menu, asset "添加分组" submenu, sidebar
 // group context menus, inline rename editor, confirm dialogs). Seed via API,
 // assert on returned page facts in Node, audit through the API, then restart
 // the server on the same library to prove persistence.
@@ -11,14 +11,14 @@ export const description =
   "groups: create/move/selection-create/remove/rename/reorder/stats/merge/delete-keep/delete-trash -> API audit -> restart persistence";
 
 // Menu labels verified against web/app/i18n.mjs (zh is the default locale):
-// createGroup=添加分组, moveToGroup=移动到分组, createGroupWithSelection=新建分组并移入,
-// removeFromGroup=移出分组, renameGroup=重命名分组, moveGroupUp=上移,
+// createGroup=添加分组(画廊空白处), addToGroup=添加分组(素材菜单,任务 91 改文案), createGroupWithSelection=新建分组并移入,
+// removeFromGroup=移除分组(任务 91 提为顶层项), renameGroup=重命名分组, moveGroupUp=上移,
 // groupStats=分组统计, mergeGroupInto=合并到…, deleteGroup=删除分组.
 const MENU = {
   createGroup: "添加分组",
-  moveToGroup: "移动到分组",
+  addToGroup: "添加分组",
   createGroupWithSelection: "新建分组并移入",
-  removeFromGroup: "移出分组",
+  removeFromGroup: "移除分组",
   renameGroup: "重命名分组",
   moveGroupUp: "上移",
   groupStats: "分组统计",
@@ -144,7 +144,7 @@ export async function run(ctx) {
       (await findMenuItem(MENU.createGroup, null)).click();
       await createGroupViaModal('G-New');
       await waitForSidebarGroups(['G-Alpha', 'G-Beta', 'G-New'], 'G-New appears in sidebar');
-      await rightClickChoose(cardSelector(config.p1), [MENU.moveToGroup, 'G-Alpha']);
+      await rightClickChoose(cardSelector(config.p1), [MENU.addToGroup, 'G-Alpha']);
       await waitFor(() => groupNavCount('G-Alpha') === 1, 'G-Alpha count becomes 1');
       const gAlphaIds = await openGroupView('G-Alpha', [config.p1]);
       return { sidebar: sidebarGroupNames(), gAlphaIds, gAlphaCount: groupNavCount('G-Alpha') };
@@ -160,11 +160,11 @@ export async function run(ctx) {
       await waitFor(() => selectedCardIds().length === 1, 'P2 selected');
       ctrlClickCard(config.p3);
       await waitFor(() => JSON.stringify(selectedCardIds()) === JSON.stringify([config.p2, config.p3].sort()), 'P2+P3 selected');
-      await rightClickChoose(cardSelector(config.p3), [MENU.moveToGroup, MENU.createGroupWithSelection]);
+      await rightClickChoose(cardSelector(config.p3), [MENU.addToGroup, MENU.createGroupWithSelection]);
       await createGroupViaModal('G-Sel');
       await waitFor(() => groupNavCount('G-Sel') === 2, 'G-Sel count becomes 2');
       const gSelIds = await openGroupView('G-Sel', [config.p2, config.p3]);
-      await rightClickChoose(cardSelector(config.p3), [MENU.moveToGroup, MENU.removeFromGroup]);
+      await rightClickChoose(cardSelector(config.p3), [MENU.addToGroup, MENU.removeFromGroup]);
       await waitFor(() => groupNavCount('G-Sel') === 1, 'G-Sel count back to 1');
       const gSelAfterRemove = await openGroupView('G-Sel', [config.p2]);
       const unorganizedIds = await openScopeView('unorganized', [config.p3]);

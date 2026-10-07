@@ -2763,6 +2763,8 @@ function bindEvents() {
     selectAsset,
     openAssetView,
     gallerySelection,
+    // 任务 91：大图页右键菜单的当前素材（selectedAsset 兼顾版本切换中的行）。
+    getViewerAsset: selectedAsset,
   });
   // Phase 5B：ConfirmDialog 陷阱先于其余陷阱注册——Escape 优先级链最前（preventDefault +
   // stopPropagation，不穿透 Viewer/既有 Modal）；ConfirmDialog 未打开时后续陷阱照常工作。

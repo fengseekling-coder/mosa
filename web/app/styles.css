@@ -1833,18 +1833,22 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 }
 
 /* ===== Context Menu ===== */
+/* 任务 91（GravityPort A4d）：几何照稿子量取——菜单宽 240、圆角 8、内边距 8、
+   行高 32（图标 24 + 上下 4）、组内行距 2、组间距 12（分隔线改为纯留白）。 */
 .context-menu {
   position: fixed;
   z-index: 10000;
-  min-width: 220px;
+  /* 稿子的 240 是含内边距与描边的外宽：min-width 走 border-box 才量得准。 */
+  box-sizing: border-box;
+  min-width: 240px;
   max-width: 320px;
   /* M4：超高菜单（如几十个分组的“移动到分组”子菜单）在视口内自行滚动，
      底部项不再溢出不可达；positionMenu 的钳位将其钉在距顶 8px 处。 */
   max-height: calc(100vh - 16px);
-  padding: 6px;
+  padding: 8px;
   background: var(--app-menu);
   border: 1px solid var(--border-menu);
-  border-radius: 12px;
+  border-radius: 8px;
   box-shadow: var(--shadow-popover);
   outline: none;
   overflow-y: auto;
@@ -1855,9 +1859,9 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
   width: 100%;
-  padding: 8px 12px;
+  padding: 4px 12px 4px 4px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -1869,6 +1873,12 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   text-align: left;
   cursor: pointer;
   transition: background 0.15s ease;
+}
+
+/* 组内行距（稿子行节距 34 = 行 32 + 2）。分隔线打断相邻关系，组间只有分隔
+   自身的 12px 留白，不再叠加行距。 */
+.context-menu-item + .context-menu-item {
+  margin-top: 2px;
 }
 
 .context-menu-item:focus {
@@ -1907,8 +1917,8 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
   color: currentColor;
 }
@@ -1945,10 +1955,12 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   flex-shrink: 0;
 }
 
+/* 任务 91：稿子的分组间隔是纯留白（无分隔线）——分隔元素保留语义
+   （role=separator 与键盘/读屏结构不变），视觉上只承担 12px 组间距。 */
 .context-menu-separator {
-  height: 1px;
-  margin: 6px 0;
-  background: var(--color-border-subtle);
+  height: 12px;
+  margin: 0;
+  background: none;
 }
 
 .context-menu-submenu {

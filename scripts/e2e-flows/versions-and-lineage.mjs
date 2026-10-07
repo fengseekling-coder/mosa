@@ -565,9 +565,8 @@ function versionTreeSource(config) {
     const treeNodeIds = () => [...(historyRegion()?.querySelectorAll('[data-version-id]') || [])].map((button) => button.dataset.versionId);
     const treeCurrentId = () => historyRegion()?.querySelector('[data-version-id][aria-current="true"]')?.dataset.versionId || '';
     await waitFor(() => gallerySettled() && document.querySelector(cardSelector(config.r2)), 'R2 card rendered');
-    const menuItem = await openContextMenu(cardSelector(config.r2) + ' .asset-card-select', '查看版本历史');
-    menuItem.click();
-    await waitFor(() => document.querySelector('.asset-card.selected')?.dataset.id === config.r2, 'inspector selects R2');
+    // 任务 91：查看版本历史从右键菜单拿掉（检视器是版本树入口），改点卡片选中。
+    await openInspector(config.r2);
     await openVersionOverlay();
     await waitFor(() => treeNodeIds().length === 3 && historyRegion() && !historyRegion().querySelector('.version-history-status'), 'version tree renders 3 nodes');
     const treeBefore = { title: document.querySelector('#detailTitle')?.textContent || '' };
@@ -601,9 +600,8 @@ function compareAfterSwitchSource(config) {
     const historyRegion = () => detailPanel()?.querySelector('[data-version-history]');
     const treeCurrentId = () => historyRegion()?.querySelector('[data-version-id][aria-current="true"]')?.dataset.versionId || '';
     await waitFor(() => gallerySettled() && document.querySelector(cardSelector(config.r2)), 'R2 card rendered');
-    const menuItem = await openContextMenu(cardSelector(config.r2) + ' .asset-card-select', '查看版本历史');
-    menuItem.click();
-    await waitFor(() => document.querySelector('.asset-card.selected')?.dataset.id === config.r2, 'inspector selects R2');
+    // 任务 91：查看版本历史从右键菜单拿掉，改点卡片选中。
+    await openInspector(config.r2);
     await openVersionOverlay();
     await waitFor(() => historyRegion()?.querySelectorAll('[data-version-id]').length === 3
       && historyRegion() && !historyRegion().querySelector('.version-history-status'), 'version tree renders 3 nodes');
@@ -863,8 +861,8 @@ function restartSource(config) {
     ${PAGE_HELPERS}
     ${INSPECTOR_HELPERS}
     await waitFor(() => gallerySettled() && document.querySelector(cardSelector(config.r2)), 'R2 card rendered');
-    const menuItem = await openContextMenu(cardSelector(config.r2) + ' .asset-card-select', '查看版本历史');
-    menuItem.click();
+    // 任务 91：查看版本历史从右键菜单拿掉，改点卡片选中。
+    await openInspector(config.r2);
     await waitFor(() => document.querySelector('.asset-card.selected')?.dataset.id === config.r2, 'inspector selects R2 after restart');
     const historyRegion = () => detailPanel()?.querySelector('[data-version-history]');
     const treeNodeIds = () => [...(historyRegion()?.querySelectorAll('[data-version-id]') || [])].map((button) => button.dataset.versionId);

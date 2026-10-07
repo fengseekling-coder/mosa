@@ -110,7 +110,7 @@ function assertDangerLastAndOnly(menu, dangerLabel) {
   assert.equal(interactive.at(-1).label, dangerLabel, "the danger action is always the last interactive item");
 }
 
-test("画廊 · 单张：打开｜复制（图/词/路径）｜收藏+分组｜历史+导出｜回收站", (t) => {
+test("画廊 · 单张：打开｜复制（图/剪切占位/词/路径）｜收藏+分组+移除分组｜导出｜回收站", (t) => {
   const { actions } = createHarness(t);
   const menu = actions.getAssetMenu(asset, [asset], { selectionCount: 1 });
   assert.deepEqual(contractShape(menu), [
@@ -118,14 +118,15 @@ test("画廊 · 单张：打开｜复制（图/词/路径）｜收藏+分组｜�
     { label: T("showInFinder") },
     "|",
     { label: T("copyImage") },
+    { label: T("cut"), disabled: true },
     { label: T("copyPrompt") },
     { label: T("copyPath") },
     "|",
     { label: T("addToFavorites") },
-    { label: T("moveToGroup"), submenu: true },
+    { label: T("addToGroup"), submenu: true },
+    { label: T("removeFromGroup"), disabled: true },
     "|",
-    { label: T("viewVersionHistory") },
-    { label: T("exportAsset") },
+    { label: T("exportTo") },
     "|",
     { label: T("moveToTrash"), danger: true },
   ]);
@@ -133,11 +134,14 @@ test("画廊 · 单张：打开｜复制（图/词/路径）｜收藏+分组｜�
   assertDangerLastAndOnly(menu, T("moveToTrash"));
 });
 
-test("单张置灰只标“暂时做不了”：无提示词置灰复制提示词，视频置灰复制图片", (t) => {
+test("剪切占位恒禁用；单张置灰只标“暂时做不了”：无提示词置灰复制提示词，视频置灰复制图片", (t) => {
   const { actions } = createHarness(t);
+  const menu = actions.getAssetMenu(asset, [asset], { selectionCount: 1 });
+  assert.equal(menu.find((item) => item.label === T("cut")).disabled, true, "剪切是占位项，恒禁用");
+  assert.equal(menu.find((item) => item.label === T("cut")).action, undefined, "占位项不挂动作");
   const noPrompt = { ...asset, prompt: "" };
-  const menu = actions.getAssetMenu(noPrompt, [noPrompt], { selectionCount: 1 });
-  const byLabel = Object.fromEntries(menu.filter((item) => item.label).map((item) => [item.label, item]));
+  const noPromptMenu = actions.getAssetMenu(noPrompt, [noPrompt], { selectionCount: 1 });
+  const byLabel = Object.fromEntries(noPromptMenu.filter((item) => item.label).map((item) => [item.label, item]));
   assert.equal(byLabel[T("copyPrompt")].disabled, true);
   assert.equal(byLabel[T("copyPath")].disabled, undefined, "复制路径始终可用");
   const video = { ...asset, image_path: "/v.mp4" };
@@ -145,7 +149,29 @@ test("单张置灰只标“暂时做不了”：无提示词置灰复制提示�
   assert.equal(videoMenu.find((item) => item.label === T("copyImage")).disabled, true);
 });
 
-test("画廊 · 多选：选区表头｜收藏/分组/堆叠所选｜导出｜全选+取消选择｜回收站；多选不出现打开/复制/版本历史", (t) => {
+test("单张未分组时移除分组置灰；已分组可用", (t) => {
+  const { actions } = createHarness(t);
+  const ungrouped = actions.getAssetMenu(asset, [asset], { selectionCount: 1 });
+  assert.equal(ungrouped.find((item) => item.label === T("removeFromGroup")).disabled, true);
+  const grouped = { ...asset, group: "G1" };
+  const groupedMenu = actions.getAssetMenu(grouped, [grouped], { selectionCount: 1 });
+  assert.ok(!groupedMenu.find((item) => item.label === T("removeFromGroup")).disabled);
+});
+
+test("任务 91 拿掉的项不再出现在素材菜单：版本历史（检视器有入口）、全选/取消选择（⌘A/Esc）", (t) => {
+  const { actions } = createHarness(t);
+  const single = contractShape(actions.getAssetMenu(asset, [asset], { selectionCount: 1 }));
+  for (const label of [T("viewVersionHistory"), T("selectAll"), T("deselectAll")]) {
+    assert.ok(!single.some((entry) => entry.label === label), `${label} 不在单张菜单`);
+  }
+  const selection = [asset, { ...asset, id: "a2" }];
+  const multi = contractShape(actions.getAssetMenu(asset, selection, { selectionCount: 2 }));
+  for (const label of [T("viewVersionHistory"), T("selectAll"), T("deselectAll")]) {
+    assert.ok(!multi.some((entry) => entry.label === label), `${label} 不在多选菜单`);
+  }
+});
+
+test("画廊 · 多选：选区表头｜收藏/分组/移除分组｜导出｜堆叠所选｜回收站；多选不出现打开/复制", (t) => {
   const { actions } = createHarness(t);
   const selection = [asset, favorited({ id: "a2" })];
   const menu = actions.getAssetMenu(asset, selection, { selectionCount: 2 });
@@ -153,19 +179,18 @@ test("画廊 · 多选：选区表头｜收藏/分组/堆叠所选｜导出｜�
     { heading: T("batchSelected", { count: 2 }) },
     "|",
     { label: T("addToFavorites") },
-    { label: T("moveToGroup"), submenu: true },
+    { label: T("addToGroup"), submenu: true },
+    { label: T("removeFromGroup"), disabled: true },
+    "|",
+    { label: T("exportTo") },
+    "|",
     { label: T("stackSelected") },
-    "|",
-    { label: T("exportAsset") },
-    "|",
-    { label: T("selectAll"), shortcut: "mod+A" },
-    { label: T("deselectAll"), shortcut: "Esc" },
     "|",
     { label: T("moveToTrash"), danger: true },
   ]);
   assert.ok(!contractShape(menu).some((entry) => [
-    T("openInViewer"), T("showInFinder"), T("copyImage"), T("copyPrompt"), T("copyPath"), T("viewVersionHistory"),
-  ].includes(entry.label)), "多选整段隐藏打开/复制/版本历史");
+    T("openInViewer"), T("showInFinder"), T("copyImage"), T("cut"), T("copyPrompt"), T("copyPath"),
+  ].includes(entry.label)), "多选整段隐藏打开/复制");
   assertSeparatorHygiene(menu);
   assertDangerLastAndOnly(menu, T("moveToTrash"));
 });
@@ -195,10 +220,9 @@ test("画廊 · 多选含堆叠：不显示堆叠所选与导出（不支持堆�
     { heading: T("batchSelected", { count: 3 }) },
     "|",
     { label: T("addToFavorites") },
-    { label: T("moveToGroup"), submenu: true },
-    "|",
-    { label: T("selectAll"), shortcut: "mod+A" },
-    { label: T("deselectAll"), shortcut: "Esc" },
+    { label: T("addToGroup"), submenu: true },
+    // 折叠 Stack / 跨页选择无法在此刻展开校验时保留入口可用（沿用原口径）。
+    { label: T("removeFromGroup") },
     "|",
     { label: T("moveToTrash"), danger: true },
   ]);
@@ -215,24 +239,26 @@ test("堆叠所选置灰：存储引擎不支持，或堆叠操作进行中（mu
   assert.equal(busyMenu.find((item) => item.label === T("stackSelected")).disabled, true, "堆叠 mutation 进行中置灰");
 });
 
-test("画廊 · 堆叠卡片：打开堆叠｜重命名/分组/解散｜回收站；不提供收藏与导出", (t) => {
+test("画廊 · 堆叠卡片：打开堆叠｜分组+移除分组｜重命名/解散｜回收站；不提供收藏与导出", (t) => {
   const { actions } = createHarness(t);
   const stackAsset = { ...asset, stack: { id: "s1", count: 3, name: "S" } };
   const menu = actions.getAssetMenu(stackAsset, [stackAsset], { stackNode: true, selectionCount: 1 });
   assert.deepEqual(contractShape(menu), [
     { label: T("openStack") },
     "|",
+    { label: T("addToGroup"), submenu: true },
+    { label: T("removeFromGroup") },
+    "|",
     { label: T("renameStack") },
-    { label: T("moveToGroup"), submenu: true },
     { label: T("dissolveStack") },
     "|",
     { label: T("moveToTrash"), danger: true },
   ]);
-  assert.ok(!menu.some((item) => item.label === T("addToFavorites") || item.label === T("exportAsset")));
+  assert.ok(!menu.some((item) => item.label === T("addToFavorites") || item.label === T("exportTo")));
   assertSeparatorHygiene(menu);
 });
 
-test("堆叠内部 · 单张成员：同画廊单张，整理分区多一项移出堆叠（路由到控制器）", async (t) => {
+test("堆叠内部 · 单张成员：同画廊单张，稿子 5 组之后多一项移出堆叠（路由到控制器）", async (t) => {
   const harness = createHarness(t, { stateOverrides: { activeStackId: "s1" } });
   const menu = harness.actions.getAssetMenu(asset, [asset], { selectionCount: 1 });
   assert.deepEqual(contractShape(menu), [
@@ -240,15 +266,17 @@ test("堆叠内部 · 单张成员：同画廊单张，整理分区多一项移�
     { label: T("showInFinder") },
     "|",
     { label: T("copyImage") },
+    { label: T("cut"), disabled: true },
     { label: T("copyPrompt") },
     { label: T("copyPath") },
     "|",
     { label: T("addToFavorites") },
-    { label: T("moveToGroup"), submenu: true },
-    { label: T("removeFromStack") },
+    { label: T("addToGroup"), submenu: true },
+    { label: T("removeFromGroup"), disabled: true },
     "|",
-    { label: T("viewVersionHistory") },
-    { label: T("exportAsset") },
+    { label: T("exportTo") },
+    "|",
+    { label: T("removeFromStack") },
     "|",
     { label: T("moveToTrash"), danger: true },
   ]);
@@ -257,7 +285,7 @@ test("堆叠内部 · 单张成员：同画廊单张，整理分区多一项移�
   assert.deepEqual(harness.stackCalls, ["removeSelectedFromStack"], "移出堆叠路由到堆叠控制器");
 });
 
-test("堆叠内部 · 多选成员：选区表头｜收藏/分组/移出堆叠｜导出｜全选+取消选择｜回收站", (t) => {
+test("堆叠内部 · 多选成员：选区表头｜收藏/分组/移除分组｜导出｜移出堆叠｜回收站", (t) => {
   const { actions } = createHarness(t, { stateOverrides: { activeStackId: "s1" } });
   const selection = [asset, { ...asset, id: "a2" }];
   const menu = actions.getAssetMenu(asset, selection, { selectionCount: 2 });
@@ -265,13 +293,12 @@ test("堆叠内部 · 多选成员：选区表头｜收藏/分组/移出堆叠�
     { heading: T("batchSelected", { count: 2 }) },
     "|",
     { label: T("addToFavorites") },
-    { label: T("moveToGroup"), submenu: true },
+    { label: T("addToGroup"), submenu: true },
+    { label: T("removeFromGroup"), disabled: true },
+    "|",
+    { label: T("exportTo") },
+    "|",
     { label: T("removeFromStack") },
-    "|",
-    { label: T("exportAsset") },
-    "|",
-    { label: T("selectAll"), shortcut: "mod+A" },
-    { label: T("deselectAll"), shortcut: "Esc" },
     "|",
     { label: T("moveToTrash"), danger: true },
   ]);
@@ -389,4 +416,17 @@ test("命名统一成“分组”：中文侧栏标题、英文手动分组文�
   assert.match(i18n, /assetCategories: "Groups"/);
   assert.doesNotMatch(i18n, /collection/i, "手动分组文案统一 group，i18n 里不再有 collection");
   assert.doesNotMatch(html, /素材分类/, "index.html 里写死的侧栏标题同步改为分组");
+});
+
+test("任务 91：大图页舞台右键弹单张素材菜单（绑定契约：assetViewStage + 注入的当前素材）", async () => {
+  const bindings = await readFile(resolve(root, "web/app/context-menu-bindings.mjs"), "utf8");
+  const app = await readFile(resolve(root, "web/app/app.mjs"), "utf8");
+  assert.match(bindings, /els\.assetViewStage\?\.addEventListener\("contextmenu"/,
+    "大图页舞台是右键菜单的触发面（稿子画框 ② 在舞台上画了菜单）");
+  assert.match(bindings, /getAssetMenu\(asset, \[asset\], \{ selectionCount: 1 \}\)/,
+    "大图页菜单按单张素材构建");
+  assert.match(bindings, /typeof getViewerAsset === "function" \? getViewerAsset\(\) : null/,
+    "当前素材经 getViewerAsset 注入，无素材时不弹菜单");
+  assert.match(app, /getViewerAsset: selectedAsset,/,
+    "app 层把 selectedAsset 交给菜单绑定（兼顾版本切换中的行）");
 });
