@@ -1584,15 +1584,12 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .settings-modal-close:active { transform: scale(.94); }
 .mosa-v2 .settings-modal-close svg { display: block; flex-shrink: 0; }
 .mosa-v2 .settings-modal-body { min-height: 0; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; padding: 0 24px 20px; scrollbar-gutter: stable; }
-.mosa-v2 .settings-modal-row { position: relative; box-sizing: border-box; display: grid; grid-template-columns: 24px minmax(0, 1fr) 164px; align-items: center; column-gap: 12px; min-height: 52px; padding: 8px 0; }
-.mosa-v2 .settings-row-icon { display: grid; width: 24px; height: 24px; place-items: center; color: var(--color-text-secondary); }
-.mosa-v2 .settings-row-icon svg { width: 16px; height: 16px; }
-.mosa-v2 .settings-row-copy { min-width: 0; }
+.mosa-v2 .settings-modal-row { position: relative; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 24px; min-height: 52px; padding: 8px 0; }
+.mosa-v2 .settings-row-copy { display: flex; min-width: 0; align-items: baseline; gap: 8px; }
 .mosa-v2 .settings-row-copy h4 { margin: 0; color: var(--color-text-primary); font-size: 12px; font-weight: 560; line-height: 18px; }
-.mosa-v2 .settings-row-copy p { min-width: 0; margin: 1px 0 0; overflow: hidden; color: var(--color-text-tertiary); font-size: 10px; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .settings-row-copy p { min-width: 0; margin: 0; overflow: hidden; color: var(--color-text-tertiary); font-size: 10px; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .mosa-v2 .settings-path { display: block; max-width: 220px; font-family: var(--font-family-mono); font-size: 9px; letter-spacing: 0; }
-.mosa-v2 .settings-row-control { display: flex; width: 164px; min-width: 0; align-items: center; justify-content: flex-end; }
-.mosa-v2 .settings-inline-actions { display: flex; width: 100%; align-items: center; justify-content: flex-end; gap: 2px; }
+.mosa-v2 .settings-row-control { display: flex; width: auto; min-width: 0; align-items: center; justify-content: flex-end; }
 .mosa-v2 .settings-static-value { width: 100%; color: var(--color-text-secondary); font-size: 11px; line-height: 16px; text-align: right; }
 .mosa-v2 .visual-model-status { display: grid; justify-items: end; gap: 3px; min-width: 180px; text-align: right; }
 .mosa-v2 .visual-model-status strong { color: var(--color-text-secondary); font-size: 11px; font-weight: 600; }
@@ -1629,10 +1626,10 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 @media (max-width: 480px) {
   .mosa-v2 .settings-menu { padding: 12px; }
   .mosa-v2 .settings-modal-card { max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); border-radius: 16px; }
-  .mosa-v2 .settings-modal-row { grid-template-columns: 24px minmax(0, 1fr); row-gap: 6px; padding: 8px 0; }
-  .mosa-v2 .settings-row-control { grid-column: 2; width: auto; justify-content: flex-start; }
-  .mosa-v2 .settings-inline-actions { flex-wrap: wrap; }
-  .mosa-v2 .settings-library-row .settings-row-control { margin-top: 2px; }
+  .mosa-v2 .settings-modal-row { grid-template-columns: minmax(0, 1fr); row-gap: 8px; padding: 12px 0; }
+  .mosa-v2 .settings-row-control { grid-column: 1; width: auto; justify-content: flex-start; }
+  .mosa-v2 .settings-library-row .settings-row-control { flex-wrap: wrap; }
+  .mosa-v2 .settings-path-box { width: 100%; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .mosa-v2 .settings-menu,
@@ -2963,52 +2960,51 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   color: #26262b;
 }
 
-/* ===== R21 设置弹窗（任务 25）：单栏改两栏（168px 分类导航 + 1fr 内容页）。 =====
+/* ===== R21 设置弹窗（任务 25）：单栏改两栏（168px 分类导航 + 1fr 内容页）。
+   任务 81（GravityPort A5）按设计稿重排：弹窗 960×728 圆角 32、左栏 240 白底、
+   右栏 720 灰底、导航 36 高、行 72 高带通栏分隔线、主题卡 186×90、分段按钮
+   128×32、素材库路径框 320×32 内嵌打开按钮；页内不再渲染重复的页标题/说明。
    结构类名见 app.mjs renderSettingsMenu：.settings-modal-sidebar / -brand /
    -nav（role="tablist"）/ .settings-nav-tab / -foot / .settings-local-first /
-   .settings-modal-main / .settings-page(-head/-title/-desc) / .settings-group。
+   .settings-modal-main / .settings-page / .settings-group。
    本块追加在文件末尾：同选择器以上面几组旧规则为准的地方，这里最后生效；
-   新颜色只写 :root[data-theme="light"] 作用域，深色沿用既有 token；新加字号 ≥10px。 */
+   颜色全部沿用既有 token 与既有浅/深色值；新加字号 ≥10px。 */
 
 .mosa-v2 .settings-modal-card {
   display: grid;
-  grid-template-columns: 168px minmax(0, 1fr);
-  width: 792px;
-  height: 592px;
+  grid-template-columns: 240px minmax(0, 1fr);
+  width: min(960px, 100%);
+  height: min(728px, calc(100vh - 48px));
+  height: min(728px, calc(100dvh - 48px));
+  /* 基础段还有一条 max-height: min(560px, …) 的旧上限，必须在此归零，
+     否则 728 高的稿子弹窗会被压回 560。 */
   max-height: none;
-  border-radius: 16px;
+  border-radius: 32px;
 }
 .mosa-v2 .settings-modal-sidebar {
   display: flex;
   min-height: 0;
   flex-direction: column;
-  padding: 0 12px 16px;
-  border-right: 1px solid transparent;
-}
-:root[data-theme="light"] .mosa-v2 .settings-modal-sidebar {
-  border-right-color: #e7e7ea;
-  background: #fbfbfc;
+  padding: 0 20px 20px;
+  border-right: 1px solid var(--color-border-subtle);
+  background: var(--app-sidebar);
 }
 .mosa-v2 .settings-modal-brand {
   display: flex;
-  height: 56px;
-  flex: 0 0 56px;
+  height: 60px;
+  flex: 0 0 60px;
   align-items: center;
-  margin: 0 -12px 8px;
-  padding: 0 16px;
-  border-bottom: 1px solid transparent;
-}
-:root[data-theme="light"] .mosa-v2 .settings-modal-brand {
-  border-bottom-color: #e7e7ea;
+  margin: 0;
+  padding: 0;
 }
 .mosa-v2 .settings-modal-brand h2 {
   margin: 0;
   overflow: hidden;
   color: var(--color-text-primary);
-  font-size: 14px;
+  font-size: 22px;
   font-weight: 650;
   letter-spacing: -.01em;
-  line-height: 20px;
+  line-height: 28px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3022,18 +3018,18 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .settings-nav-tab {
   display: flex;
   width: 100%;
-  height: 32px;
-  flex: 0 0 32px;
+  height: 36px;
+  flex: 0 0 36px;
   align-items: center;
   justify-content: flex-start;
   gap: var(--r21-s2);
-  padding: 0 12px;
+  padding: 0 8px;
   border: 0;
   border-radius: var(--inspector-radius-sm);
   color: var(--color-text-secondary);
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 500;
   text-align: left;
 }
@@ -3108,22 +3104,22 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   min-width: 0;
   min-height: 0;
   flex-direction: column;
+  background: var(--app-bg);
 }
 .mosa-v2 .settings-modal-header {
-  height: 56px;
-  flex: 0 0 56px;
+  height: 60px;
+  flex: 0 0 60px;
   align-items: center;
-  padding: 0 20px;
-  border-bottom: 1px solid transparent;
-}
-:root[data-theme="light"] .mosa-v2 .settings-modal-header {
-  border-bottom-color: #e7e7ea;
+  margin: 0 40px;
+  padding: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 .mosa-v2 .settings-modal-header h2 {
   color: var(--color-text-primary);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 650;
   letter-spacing: -.01em;
+  line-height: 22px;
 }
 .mosa-v2 .settings-modal-close {
   width: 28px;
@@ -3131,67 +3127,72 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   flex: 0 0 28px;
 }
 .mosa-v2 .settings-modal-body {
-  padding: 20px 24px 28px;
-}
-.mosa-v2 .settings-page-head {
-  margin-bottom: 16px;
-}
-.mosa-v2 .settings-page-title {
-  margin: 0;
-  color: var(--color-text-primary);
-  font-size: 17px;
-  font-weight: 660;
-  letter-spacing: -.01em;
-  line-height: 24px;
-}
-.mosa-v2 .settings-page-desc {
-  margin: 6px 0 0;
-  padding: 0;
-  color: var(--color-text-tertiary);
-  font-size: 10.5px;
-  line-height: 15px;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 40px 24px;
+  scrollbar-gutter: stable;
 }
 .mosa-v2 .settings-group {
-  overflow: hidden;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--inspector-radius-md);
-}
-:root[data-theme="light"] .mosa-v2 .settings-group {
-  border-color: #e7e7ea;
+  min-width: 0;
 }
 .mosa-v2 .settings-group .settings-modal-row {
-  min-height: 56px;
-  padding: 12px 16px;
+  min-height: 72px;
+  padding: 20px 0;
 }
-.mosa-v2 .settings-group .settings-modal-row:not(:last-child)::after {
-  position: absolute;
-  right: 16px;
-  bottom: 0;
-  left: 52px;
-  height: 1px;
-  background: var(--color-border-subtle);
-  content: "";
-}
-:root[data-theme="light"] .mosa-v2 .settings-group .settings-modal-row:not(:last-child)::after {
-  background: #efeff1;
+.mosa-v2 .settings-group .settings-modal-row:not(:last-child) {
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 .mosa-v2 .settings-row-copy h4 {
   color: var(--color-text-primary);
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 580;
-  line-height: 18px;
+  line-height: 22px;
 }
 .mosa-v2 .settings-row-copy p {
+  flex: 0 1 auto;
   padding: 0;
   color: var(--color-text-tertiary);
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 11px;
+  line-height: 16px;
+}
+/* 任务 81：素材库行 = 只读路径框（320×32，超长末尾省略）+ 框尾内嵌打开按钮；
+   桌面版的「更改位置」文字按钮排在路径框右侧。 */
+.mosa-v2 .settings-library-row .settings-row-control {
+  width: auto;
+  gap: 8px;
+}
+.mosa-v2 .settings-path-box {
+  display: flex;
+  box-sizing: border-box;
+  width: 320px;
+  height: 32px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--app-sidebar);
+}
+.mosa-v2 .settings-path-box .settings-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.mosa-v2 .settings-path-box .settings-text-action {
+  /* 旧版 .settings-menu button 的 width:100% 会把框撑满、挤掉路径文字。 */
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
 }
 .mosa-v2 .settings-path {
-  max-width: 352px;
+  max-width: 100%;
   overflow: hidden;
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 11px;
+  line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3201,30 +3202,32 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .settings-text-action {
   box-sizing: border-box;
   min-height: 32px;
-  padding: 0 12px;
+  padding: 0 16px;
   border-radius: var(--inspector-radius-sm);
+  font-size: 16px;
 }
 .mosa-v2 .settings-menu .segmented {
   box-sizing: border-box;
-  width: 156px;
+  width: 128px;
   height: 32px;
-  padding: 4px;
+  padding: 0;
   border: 0;
   border-radius: var(--inspector-radius-sm);
 }
 .mosa-v2 .settings-menu .segmented-thumb {
-  top: 4px;
-  bottom: 4px;
-  left: 4px;
-  width: calc((100% - 8px) / 2);
-  border-radius: 6px;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(100% / 2);
+  border-radius: var(--inspector-radius-sm);
 }
 .mosa-v2 .settings-menu .segmented-btn {
-  height: 24px;
-  border-radius: 6px;
-  font-size: 10px;
+  height: 32px;
+  border-radius: var(--inspector-radius-sm);
+  font-size: 16px;
 }
 :root[data-theme="light"] .mosa-v2 .settings-menu .segmented {
+  border: 1px solid #e2e2e5;
   background: #f1f1f3;
 }
 :root[data-theme="light"] .mosa-v2 .settings-menu .segmented-thumb {
@@ -3243,9 +3246,10 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
    结构色不写主题作用域；标签文字与选中环走主题 token（新文字色只在浅色作用域），
    选中环用 accent 的 color-mix（设计稿 rgba(90,90,255,.12) 的 token 化，深色同样可辨）。
    选中除颜色外有右上角勾号徽章（非颜色标志）；悬停上移 1px，减少动效时不位移。 —— */
-.mosa-v2 .settings-modal-row.settings-theme-row {
-  row-gap: 12px;
-}
+/* —— 任务 81：主题行照稿子只放预览卡（卡 186×90 圆角 8、间距 40、名称居中
+   在卡下方）。三卡等宽固定 186；预览图仍是"画出来的图"，配色固定不随主题。
+   布局：间距 40（--r21-s10）。任务 81 返工 1：三张卡——跟随系统在左，其预览
+   左半浅色右半深色（.settings-theme-half 复用下面两套固定配色，不引入新颜色）。 —— */
 .mosa-v2 .settings-theme-row .settings-row-control {
   grid-column: 1 / -1;
   width: auto;
@@ -3253,24 +3257,26 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .settings-theme-choices {
   display: grid;
   width: 100%;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--r21-s3);
+  grid-template-columns: repeat(3, 186px);
+  gap: var(--r21-s10);
+  justify-content: start;
 }
 .mosa-v2 .settings-theme-card {
   display: block;
+  width: 186px;
   padding: 0;
   border: 0;
   background: transparent;
   cursor: pointer;
-  text-align: left;
+  text-align: center;
 }
 .mosa-v2 .settings-theme-preview {
   position: relative;
   display: grid;
-  height: 72px;
+  height: 90px;
   grid-template-rows: 16px minmax(0, 1fr);
   border: 1px solid;
-  border-radius: 12px;
+  border-radius: 8px;
   overflow: hidden;
   transition: border-color 120ms var(--ease-standard), box-shadow 120ms var(--ease-standard), transform 120ms var(--ease-standard);
 }
@@ -3278,6 +3284,22 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   .mosa-v2 .settings-theme-card:hover .settings-theme-preview {
     transform: translateY(-1px);
   }
+}
+/* 任务 81 返工 1：「跟随系统」预览 = 左半浅色缩略 + 右半深色缩略。外框只负责
+   选中环和两半的裁切；两半各自的配色复用下面 light/dark 两套固定规则。
+   行必须显式占满（半幅里全是绝对定位内容，行高否则塌成 chrome 的 16px）。 */
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+  border-color: var(--color-border-subtle);
+}
+.mosa-v2 .settings-theme-half {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  grid-template-rows: 16px minmax(0, 1fr);
+  overflow: hidden;
 }
 .mosa-v2 .settings-theme-chrome {
   position: relative;
@@ -3346,81 +3368,104 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 }
 .mosa-v2 .settings-theme-label {
   display: block;
-  margin-top: 8px;
+  margin-top: 10px;
   color: var(--color-text-primary);
-  font-size: 11px;
+  font-size: 16px;
   font-weight: 600;
-  line-height: 16px;
+  line-height: 22px;
+  text-align: center;
 }
 :root[data-theme="light"] .mosa-v2 .settings-theme-label {
   color: #2a2a2e;
 }
 /* 浅色卡（固定配色，照 R21 .theme-choice.light）。 */
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-preview {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-preview,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light {
   border-color: #d8d8dd;
   background: #f6f6f7;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-chrome {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-chrome,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-chrome {
   border-bottom-color: #d8d8dd;
   background: #ededf0;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-chrome i {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-chrome i,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-chrome i {
   background: #c3c3c9;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-nav {
   background: #efeff1;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-canvas {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-canvas,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-canvas {
   background: #f9f9fa;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-aside {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-aside,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-aside {
   background: #f2f2f4;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav i:nth-child(1) {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav i:nth-child(1),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-nav i:nth-child(1) {
   background: #bdbdc4;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav i:nth-child(2) {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav i:nth-child(2),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-nav i:nth-child(2) {
   background: #c4c4cb;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-grid i {
   background: #dbdbe0;
 }
 .mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i:nth-child(2),
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i:nth-child(5) {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i:nth-child(5),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-grid i:nth-child(2),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-grid i:nth-child(5) {
   background: #c8c8cf;
 }
 /* 深色卡（固定配色，照 R21 .theme-choice.dark）。 */
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-preview {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-preview,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark {
   border-color: #303036;
   background: #151518;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-chrome {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-chrome,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-chrome {
   border-bottom-color: #303036;
   background: #1d1d21;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-chrome i {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-chrome i,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-chrome i {
   background: #595960;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-nav {
   background: #18181c;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-canvas {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-canvas,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-canvas {
   background: #101013;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-aside {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-aside,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-aside {
   background: #17171a;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav i:nth-child(1) {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav i:nth-child(1),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-nav i:nth-child(1) {
   background: #55555c;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav i:nth-child(2) {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav i:nth-child(2),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-nav i:nth-child(2) {
   background: #44444b;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-grid i {
   background: #313138;
 }
 .mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i:nth-child(2),
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i:nth-child(5) {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i:nth-child(5),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-grid i:nth-child(2),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-grid i:nth-child(5) {
   background: #505058;
 }
 /* 选中态写在两套固定配色之后：上面的配色块与它同特异性（都含
@@ -3484,6 +3529,10 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   }
   .mosa-v2 .settings-modal-body {
     padding: 16px 16px 24px;
+  }
+  /* 三张 186 固定宽的预览卡在窄窗口放不下：允许收缩，内部预览按比例缩。 */
+  .mosa-v2 .settings-theme-choices {
+    grid-template-columns: repeat(3, minmax(0, 186px));
   }
 }
 

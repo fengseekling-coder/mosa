@@ -325,6 +325,15 @@ function measurementSource({ plainAssetId }) {
     };
 
     // ---- 1) 浅色基础：外壳 / 顶栏 / 画廊（卡片信息默认关）----
+    // 任务 81 返工 1：新用户默认「跟随系统」，快照的浅色基线必须显式钉死，
+    // 否则在系统深色的机器上整套浅色键会量成深色值。
+    if (document.documentElement.dataset.theme !== 'light') {
+      click('#settingsToggle');
+      await waitFor(() => !settingsMenu().hidden, 'settings opens for the light baseline');
+      click('#settingsMenu [data-appearance-opt="light"]');
+      await waitFor(() => document.documentElement.dataset.theme === 'light', 'light baseline normalised');
+      closeSettings('light baseline');
+    }
     await waitGallerySettled(4);
     R['shell.topbarHeight'] = rectOf(pick('.mosa-v2 .topbar')).height;
     R['shell.sidebarWidth'] = rectOf(pick('#appSidebar')).width;

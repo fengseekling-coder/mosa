@@ -39,18 +39,22 @@ test("state reads mosa.card-info and defaults to hidden (only \"show\" is true)"
 test("settings menu renders the card-info segmented control between theme and language", async () => {
   for (const tree of TREES) {
     const app = await read(`${tree}/app.mjs`);
-    // 外观段：主题行下面、语言行上面。
+    // 外观段：主题行（任务 81 起整行预览卡，单独的 themeRow 常量）下面、语言行上面。
+    const themeStart = app.indexOf("const themeRow = `");
+    assert.notEqual(themeStart, -1, `${tree}: themeRow must exist`);
+    const themeRow = app.slice(themeStart, app.indexOf("`;", themeStart));
     const appearanceStart = app.indexOf("const appearanceRows = [");
     assert.notEqual(appearanceStart, -1, `${tree}: appearanceRows must exist`);
     const appearanceEnd = app.indexOf('].join("")', appearanceStart);
     const appearanceRows = app.slice(appearanceStart, appearanceEnd);
-    const themeAt = appearanceRows.indexOf('"data-appearance-opt"');
+    const themeAt = themeRow.indexOf('"data-appearance-opt"');
     const cardInfoAt = appearanceRows.indexOf('"data-card-info-opt"');
     const localeAt = appearanceRows.indexOf('"data-locale"');
-    assert.ok(themeAt > -1 && cardInfoAt > themeAt && localeAt > cardInfoAt,
+    assert.ok(themeAt > -1 && cardInfoAt > -1 && localeAt > cardInfoAt,
       `${tree}: the card-info row must sit between the theme and language rows`);
-    assert.match(appearanceRows, /segmented\(t\("cardInfo"\), "data-card-info-opt", state\.showCardInfo \? "show" : "hide", \[\{ value: "show", label: t\("cardInfoShow"\) \}, \{ value: "hide", label: t\("cardInfoHide"\) \}\]\)/,
-      `${tree}: the card-info row must use the shared segmented control with show/hide options`);
+    // 任务 81：选项顺序照稿子（隐藏｜显示）。
+    assert.match(appearanceRows, /segmented\(t\("cardInfo"\), "data-card-info-opt", state\.showCardInfo \? "show" : "hide", \[\{ value: "hide", label: t\("cardInfoHide"\) \}, \{ value: "show", label: t\("cardInfoShow"\) \}\]\)/,
+      `${tree}: the card-info row must use the shared segmented control with hide/show options`);
     // 高亮同步：syncSettingsMenuView 覆盖 data-card-info-opt。
     assert.match(app, /setRadioState\("\[data-card-info-opt\]", state\.showCardInfo \? "show" : "hide"\)/,
       `${tree}: syncSettingsMenuView must sync the card-info highlight`);

@@ -97,6 +97,11 @@ function assertSettingsLifecycle(r, seededIds, health, libraryPath, ctx) {
   expect(theme.htmlThemeLightAgain === "light" && theme.bodyBgLightAgain === theme.bodyBgLight,
     `switching back to light did not restore the light background: ${dump}`);
   expect(theme.bodyBgDarkAgain === theme.bodyBgDark, `second dark switch changed the background: ${dump}`);
+  // 任务 81 返工 1：跟随系统——三卡之一，存储写 system，生效主题仍是 light/dark。
+  expect(theme.systemStep?.stored === "system" && theme.systemStep.effectiveValid === true,
+    `跟随系统 step did not store "system" with a valid effective theme: ${dump}`);
+  expect(theme.systemStep?.cardActive === true && theme.systemStep?.cardChecked === "true",
+    `跟随系统 card not marked active/aria-checked: ${dump}`);
 
   const density = r.density;
   expect(density.densityOptCount === 0, `settings menu must not render card density options: ${dump}`);
@@ -143,10 +148,18 @@ function assertPersistedSettings(r, opened, seededIds) {
   expect(r.backToZh?.stored === "zh", `zh preference not stored: ${dump}`);
   expect(JSON.stringify(r.cardIds?.slice().sort()) === JSON.stringify(seededIds),
     `gallery cards wrong after refresh: ${dump}`);
+  // 任务 81 返工 1：本阶段末尾切到「跟随系统」——存储写 system、生效主题有效
+  // （刷新后的持久化在 emptyStatesSource 里验证）。
+  expect(r.systemTheme?.stored === "system" && r.systemTheme.effectiveValid === true,
+    `switching to 跟随系统 did not store "system" with a valid effective theme: ${dump}`);
 }
 
 async function assertEmptyStates(r, seededIds, server, ctx) {
   const dump = JSON.stringify(r);
+  // 任务 81 返工 1：「跟随系统」跨刷新仍在，且生效主题与系统外观一致。
+  const kept = r?.systemThemeKept;
+  expect(kept?.stored === "system" && kept.effectiveValid === true && kept.matchesSystem === true,
+    `跟随系统 did not survive the refresh or match the OS appearance: ${dump}`);
   const search = r?.searchEmpty;
   expect(search?.kind === "no-results" && search.cardCount === 0,
     `search miss did not render the no-results empty state: ${dump}`);
@@ -223,8 +236,8 @@ function assertCardInfoHiddenAgain(r) {
   expect(r.infoDisplay === "none", `card info did not return to hidden: ${dump}`);
 }
 
-// 任务 25: the two-pane settings pages (常规与外观 / 素材库与存储 / 本地视觉能力 /
-// 关于 MOSA). Locks the default page, category switching with panel visibility,
+// 任务 25: the two-pane settings pages (常规与外观 / 存储 / 模型 /
+// 关于, 任务 81 起的文案). Locks the default page, category switching with panel visibility,
 // the roving arrow-key navigation and the language-rebuild focus contract.
 function assertSettingsPages(r) {
   const dump = JSON.stringify(r);
@@ -233,8 +246,8 @@ function assertSettingsPages(r) {
   expect(r.default.hidden.join(",") === "false,true,true,true",
     `the three inactive panels must carry the hidden attribute: ${dump}`);
   expect(r.library?.generalHidden === true && r.library.pathVisible === true,
-    `素材库与存储 must show its panel and reveal the library path: ${dump}`);
-  expect(r.library?.headTitle === "素材库与存储",
+    `存储 must show its panel and reveal the library path: ${dump}`);
+  expect(r.library?.headTitle === "存储",
     `the right-pane header must show the current category name: ${dump}`);
   expect(r.keyboard?.visualSelected === true && r.keyboard.focusOnVisualTab === true,
     `ArrowDown must move selection and focus to the next category: ${dump}`);
@@ -383,6 +396,12 @@ function settingsLifecycleSource(config) {
     // Theme: light baseline -> dark -> light -> dark (left dark for refresh).
     const bodyBg = () => getComputedStyle(document.body).backgroundColor;
     const opt = (value) => document.querySelector('#settingsMenu [data-appearance-opt="' + value + '"]');
+    // 任务 81 返工 1 起新用户默认「跟随系统」：先显式归一到浅色基线，后面的
+    // light/dark 对比才与运行机器的系统外观无关。
+    if (document.documentElement.dataset.theme !== 'light') {
+      opt('light').click();
+      await waitFor(() => document.documentElement.dataset.theme === 'light', 'light baseline normalised');
+    }
     const theme = {
       htmlThemeBefore: document.documentElement.dataset.theme,
       bodyBgLight: bodyBg(),
@@ -424,6 +443,21 @@ function settingsLifecycleSource(config) {
     arrowTheme.afterArrowRight = document.documentElement.dataset.theme;
     arrowTheme.darkCardCheckedAgain = opt('dark').getAttribute('aria-checked');
     theme.arrowKeys = arrowTheme;
+
+    // 任务 81 返工 1：跟随系统——第三张卡在最左。点击后存储写 "system"，生效
+    // 主题仍是 light/dark 之一（跟随当前系统外观），选中态落到 system 卡。
+    // 断言后恢复深色，给后面的刷新段保留原状态。
+    const systemStep = {};
+    opt('system').click();
+    await waitFor(() => localStorage.getItem('mosa-dark-mode') === 'system', 'system theme stored');
+    systemStep.stored = localStorage.getItem('mosa-dark-mode');
+    systemStep.effective = document.documentElement.dataset.theme;
+    systemStep.effectiveValid = systemStep.effective === 'light' || systemStep.effective === 'dark';
+    systemStep.cardActive = opt('system').classList.contains('active');
+    systemStep.cardChecked = opt('system').getAttribute('aria-checked');
+    opt('dark').click();
+    await waitFor(() => localStorage.getItem('mosa-dark-mode') === 'true', 'dark restored after system step');
+    theme.systemStep = systemStep;
 
     // Density setting is gone: the menu renders no data-density-opt control
     // and the grid carries no density attribute (image-only gallery).
@@ -515,7 +549,16 @@ function persistedSettingsSource() {
       searchPlaceholder: document.querySelector('#searchInput')?.placeholder || '',
       stored: localStorage.getItem('mosa.ui-language'),
     };
-    return { theme, language, backToZh, cardIds: rootCardIds() };
+    // 任务 81 返工 1：切到「跟随系统」——刷新后的持久化由下一个阶段的全新页面
+    // 加载验证（emptyStatesSource 开头的 systemThemeKept）。
+    document.querySelector('#settingsMenu [data-appearance-opt="system"]').click();
+    await waitFor(() => localStorage.getItem('mosa-dark-mode') === 'system', 'system stored for refresh check');
+    const systemTheme = {
+      stored: localStorage.getItem('mosa-dark-mode'),
+      effective: document.documentElement.dataset.theme,
+      effectiveValid: ['light', 'dark'].includes(document.documentElement.dataset.theme),
+    };
+    return { theme, language, backToZh, systemTheme, cardIds: rootCardIds() };
   })()`;
 }
 
@@ -523,6 +566,15 @@ function emptyStatesSource(config) {
   return `(async () => {
     const config = ${JSON.stringify(config)};
     ${PAGE_HELPERS}
+    // 任务 81 返工 1：上一阶段存了「跟随系统」，这里是一次全新页面加载——
+    // 验证该选择刷新后还在，且生效主题与当前系统外观一致。
+    const systemThemeKept = {
+      stored: localStorage.getItem('mosa-dark-mode'),
+      effective: document.documentElement.dataset.theme,
+      effectiveValid: ['light', 'dark'].includes(document.documentElement.dataset.theme),
+      matchesSystem: document.documentElement.dataset.theme
+        === (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
+    };
     await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards before empty states');
 
     setValue('#searchInput', config.missingTerm);
@@ -561,7 +613,7 @@ function emptyStatesSource(config) {
       cardIds: rootCardIds(),
       viewTitle: document.querySelector('#viewTitle')?.textContent || '',
     };
-    return { searchEmpty, afterClear, trashEmpty, afterTrashClear };
+    return { systemThemeKept, searchEmpty, afterClear, trashEmpty, afterTrashClear };
   })()`;
 }
 

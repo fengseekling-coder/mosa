@@ -137,6 +137,36 @@ function isInspectorDocked() {
   return typeof window.matchMedia === "function" && window.matchMedia(INSPECTOR_DOCKED_MEDIA).matches;
 }
 
+// ===== 任务 81 返工 1：主题三态（跟随系统 / 浅色 / 深色）。 =====
+// 存储沿用 mosa-dark-mode：历史取值 "true"=深色、"false"=浅色 原样有效；
+// "system"、缺失或未知值都按「跟随系统」处理（新用户默认跟随系统）。
+// state.darkMode 保留为「实际生效的深浅」（跟随系统时由系统外观推导），
+// 其余读主题的代码（data-theme、深色专用样式）拿到的永远是 light/dark。
+const THEME_SYSTEM = "system";
+const systemDarkQuery = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+
+function resolveThemeSetting(raw) {
+  if (raw === "true") return "dark";
+  if (raw === "false") return "light";
+  return THEME_SYSTEM;
+}
+
+function themeSettingStorageValue(setting) {
+  if (setting === "dark") return "true";
+  if (setting === "light") return "false";
+  return THEME_SYSTEM;
+}
+
+function systemPrefersDark() {
+  return Boolean(systemDarkQuery?.matches);
+}
+
+function effectiveDarkMode(setting) {
+  return setting === "dark" || (setting === THEME_SYSTEM && systemPrefersDark());
+}
+
+const initialThemeSetting = resolveThemeSetting(safeStorageGet("mosa-dark-mode"));
+
 const state = {
   project: "default", assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, loadedAssetCount: 0, selectedId: null, selectedIds: new Set(), selectedStackNodes: new Map(), selectionProject: "default", selectionRequestKey: "", detailAsset: null, detailStack: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailManuallyClosed: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
   scope: "all", facets: { source: "", group: "", category: "", style: "", conversation: "", generationBatch: "" }, sort: normalizeSort(safeStorageGet("mosa.asset-sort")),
@@ -154,7 +184,10 @@ const state = {
   updateCanInstallInApp: false,
   updateDownloadPercent: 0,
   visualModelStatus: null,
-  darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null,
+  darkMode: effectiveDarkMode(initialThemeSetting), settingsReturnFocus: null,
+  // 任务 81 返工 1：主题设置三态（system/light/dark，跟随系统为默认）。darkMode
+  // 是它推导出的「实际生效」值；系统外观变化时由 matchMedia 监听实时更新。
+  themeSetting: initialThemeSetting,
   // 用户中心：安装 ID（桌面版经 user-profile IPC 取得，浏览器版恒空）。
   userProfileId: "",
   // 设置弹窗当前分类（两栏标签页）。仅会话内记忆，不写本地存储；重建后停留原分类。
@@ -451,12 +484,22 @@ const assetStacks = createAssetStackController({
 function applyDarkMode() {
   const appearance = state.darkMode ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", appearance);
+  // 三态下选中态跟 themeSetting 走（跟随系统选中时，生效外观可能是浅色或深色），
+  // 生效外观仍由上面的 data-theme 表达。
   els.settingsMenu?.querySelectorAll("[data-appearance-opt]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.appearanceOpt === appearance);
+    button.classList.toggle("active", button.dataset.appearanceOpt === state.themeSetting);
   });
   // Phase 5A / F-12：aria-checked 与 roving tabindex 必须跟随 .active 视觉态同步。
   syncSegmentedRadios(els.settingsMenu);
 }
+
+// 任务 81 返工 1：跟随系统——OS 外观切换时立即跟着变（Electron 的 matchMedia
+// 跟随 nativeTheme，浏览器跟随系统），不刷新页面；未选「跟随系统」时不动作。
+systemDarkQuery?.addEventListener?.("change", () => {
+  if (state.themeSetting !== THEME_SYSTEM) return;
+  state.darkMode = systemPrefersDark();
+  applyDarkMode();
+});
 
 // Phase 5A / F-12：segmented radiogroup 状态同步——aria-checked/tabindex 跟随 .active class，
 // 颜色不是唯一选中表达；组内永远保留恰好一个 Tab 停靠点。
@@ -1393,7 +1436,7 @@ function syncSettingsMenuView() {
       button.classList.toggle("active", button.value === selectedValue || button.dataset.appearanceOpt === selectedValue || button.dataset.cardInfoOpt === selectedValue || button.dataset.locale === selectedValue);
     });
   };
-  setRadioState("[data-appearance-opt]", state.darkMode ? "dark" : "light");
+  setRadioState("[data-appearance-opt]", state.themeSetting);
   setRadioState("[data-card-info-opt]", state.showCardInfo ? "show" : "hide");
   setRadioState("[data-locale]", state.locale === "en" ? "en" : "zh");
 
@@ -1442,52 +1485,64 @@ function renderSettingsMenu({ force = false } = {}) {
     const buttons = options.map((option) => radio(option.value === selectedValue, attribute, option.value, option.label)).join("");
     return `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(ariaLabel)}" data-active-index="${activeIndex}"><span class="segmented-thumb" aria-hidden="true"></span>${buttons}</div>`;
   };
-  // 任务 42：主题行改为 R21 预览卡（只有浅色/深色两张；设计稿的「跟随系统」MOSA
-  // 无此模式，不渲染）。语义与分段按钮一致：radiogroup + radio + aria-checked +
-  // roving tabindex + data-appearance-opt，状态同步复用 syncSegmentedRadios（组选择
-  // 器扩到 .settings-theme-choices，不另立第二套）。预览图 aria-hidden，卡的可访问
-  // 名称来自可见标签（浅色/深色）；选中除颜色外还有右上角勾号徽章这个非颜色标志。
-  const themeChoiceCard = (selected, attribute, value, label) => `<button class="settings-theme-card${selected ? " active" : ""}" type="button" role="radio" aria-checked="${selected}" tabindex="${selected ? 0 : -1}" ${attribute}="${value}"><span class="settings-theme-preview" aria-hidden="true"><span class="settings-theme-chrome"><i></i><i></i><i></i></span><span class="settings-theme-body"><span class="settings-theme-nav"><i></i><i></i></span><span class="settings-theme-canvas"><span class="settings-theme-grid"><i></i><i></i><i></i><i></i><i></i><i></i></span></span><span class="settings-theme-aside"></span></span><span class="settings-theme-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span></span><span class="settings-theme-label">${label}</span></button>`;
+  // 任务 42：主题行是 R21 预览卡。语义与分段按钮一致：radiogroup + radio +
+  // aria-checked + roving tabindex + data-appearance-opt，状态同步复用
+  // syncSegmentedRadios（组选择器扩到 .settings-theme-choices，不另立第二套）。
+  // 预览图 aria-hidden，卡的可访问名称来自可见标签；选中除颜色外还有右上角勾号
+  // 徽章这个非颜色标志。任务 81 返工 1：三张卡——跟随系统（左半浅色右半深色
+  // 预览）/浅色/深色，顺序照稿子，跟随系统在最左。
+  const themePreviewInnards = () => `<span class="settings-theme-chrome"><i></i><i></i><i></i></span><span class="settings-theme-body"><span class="settings-theme-nav"><i></i><i></i></span><span class="settings-theme-canvas"><span class="settings-theme-grid"><i></i><i></i><i></i><i></i><i></i><i></i></span></span><span class="settings-theme-aside"></span></span>`;
+  const themeChoiceCard = (selected, attribute, value, label) => `<button class="settings-theme-card${selected ? " active" : ""}" type="button" role="radio" aria-checked="${selected}" tabindex="${selected ? 0 : -1}" ${attribute}="${value}">${value === "system"
+    ? `<span class="settings-theme-preview settings-theme-preview-system" aria-hidden="true"><span class="settings-theme-half settings-theme-half-light">${themePreviewInnards()}</span><span class="settings-theme-half settings-theme-half-dark">${themePreviewInnards()}</span><span class="settings-theme-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span></span>`
+    : `<span class="settings-theme-preview" aria-hidden="true">${themePreviewInnards()}<span class="settings-theme-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span></span>`}<span class="settings-theme-label">${label}</span></button>`;
   const themeChoices = (ariaLabel, attribute, selectedValue, options) => `<div class="settings-theme-choices" role="radiogroup" aria-label="${escapeHtml(ariaLabel)}">${options.map((option) => themeChoiceCard(option.value === selectedValue, attribute, option.value, option.label)).join("")}</div>`;
-  const row = (icon, title, subtitle, control = "", extraClass = "") => `<div class="settings-modal-row${extraClass ? ` ${extraClass}` : ""}"><div class="settings-row-icon" aria-hidden="true">${icon}</div><div class="settings-row-copy"><h4>${title}</h4>${subtitle ? `<p>${subtitle}</p>` : ""}</div>${control ? `<div class="settings-row-control">${control}</div>` : ""}</div>`;
+  // 任务 81：设置行照稿子改为「左名称（可带一行内联小字说明），右控件」，行之间
+  // 分隔线；行首图标位按稿子去掉（图标只保留在左栏导航上）。
+  const row = (title, subtitle, control = "", extraClass = "") => `<div class="settings-modal-row${extraClass ? ` ${extraClass}` : ""}"><div class="settings-row-copy"><h4>${title}</h4>${subtitle ? `<p>${subtitle}</p>` : ""}</div>${control ? `<div class="settings-row-control">${control}</div>` : ""}</div>`;
   const visualLocale = state.locale === "en" ? "en" : "zh";
   const path = escapeHtml(state.libraryRoot || state.libraryPath || state.codexImagesDir || "—");
   const closeIcon = settingIcon("m6 6 12 12M18 6 6 18");
   const storageLabel = state.storageKind === "sqlite" ? t("storageEngineValue") : (state.storageKind && state.storageKind !== "unknown" ? state.storageKind : "—");
+  // 任务 81：稿子把素材库行画成「只读路径框 + 框尾内嵌打开按钮」；「更改位置」
+  // 稿子没画，按既定决定保留（桌面版渲染在路径框右侧），浏览器版仍只有打开。
+  const libraryPathBox = `<div class="settings-path-box"><span class="settings-path" data-settings-library-path title="${path}">${path}</span><button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button></div>`;
   const changeLibraryControl = window.electronAPI?.changeLibraryLocation
-    ? `<div class="settings-inline-actions"><button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button><button class="settings-text-action" type="button" data-change-library${state.libraryMoveInProgress ? " disabled" : ""}>${state.libraryMoveInProgress ? t("changingLocation") : t("change")}</button></div>`
-    : `<button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button>`;
+    ? `<button class="settings-text-action" type="button" data-change-library${state.libraryMoveInProgress ? " disabled" : ""}>${state.libraryMoveInProgress ? t("changingLocation") : t("change")}</button>`
+    : "";
+  // 任务 81：主题行照稿子只放预览卡（沿用任务 42 的两卡结构与 radio 语义）；
+  // 卡片信息、界面语言保持二选一分段按钮，选项顺序照稿子（隐藏｜显示、中文｜EN）。
+  const themeRow = `<div class="settings-modal-row settings-theme-row"><div class="settings-row-control">${themeChoices(t("themeMode"), "data-appearance-opt", state.themeSetting, [{ value: "system", label: t("themeSystem") }, { value: "light", label: t("themeLight") }, { value: "dark", label: t("themeDark") }])}</div></div>`;
   const appearanceRows = [
-    row(settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("themeMode"), "", themeChoices(t("themeMode"), "data-appearance-opt", state.darkMode ? "dark" : "light", [{ value: "light", label: t("themeLight") }, { value: "dark", label: t("themeDark") }]), "settings-theme-row"),
-    row(settingIcon("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"), t("cardInfo"), "", segmented(t("cardInfo"), "data-card-info-opt", state.showCardInfo ? "show" : "hide", [{ value: "show", label: t("cardInfoShow") }, { value: "hide", label: t("cardInfoHide") }])),
-    row(settingIcon("M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("interfaceLanguage"), "", segmented(t("interfaceLanguage"), "data-locale", visualLocale, [{ value: "zh", label: "中文" }, { value: "en", label: "EN" }]))
+    themeRow,
+    row(t("cardInfo"), "", segmented(t("cardInfo"), "data-card-info-opt", state.showCardInfo ? "show" : "hide", [{ value: "hide", label: t("cardInfoHide") }, { value: "show", label: t("cardInfoShow") }])),
+    row(t("interfaceLanguage"), "", segmented(t("interfaceLanguage"), "data-locale", visualLocale, [{ value: "zh", label: "中文" }, { value: "en", label: "EN" }]))
   ].join("");
   const storageRows = [
-    row(settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("libraryPath"), `<span class="settings-path" data-settings-library-path title="${path}">${path}</span>`, changeLibraryControl, "settings-library-row"),
-    row(settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6"), t("storageEngine"), "", `<span class="settings-static-value" data-settings-storage-engine>${escapeHtml(storageLabel)}</span>`),
+    row(t("libraryPath"), "", `${libraryPathBox}${changeLibraryControl}`, "settings-library-row"),
+    row(t("storageEngine"), "", `<span class="settings-static-value" data-settings-storage-engine>${escapeHtml(storageLabel)}</span>`),
   ].join("");
   const visualRows = row(
-    settingIcon("M5 7h14M7 4v6M17 4v6M6 14h12M8 11v6M16 11v6M5 20h14"),
     t("visualModelTitle"),
     t("visualModelDescription"),
     `<div data-settings-visual-model>${visualModelStatusMarkup()}</div>`,
     "settings-visual-model-row",
   );
-  const aboutRow = row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), `<span data-settings-version>${escapeHtml(updateVersionSummary())}</span>`, `<div data-settings-update-action>${updateVersionControlMarkup()}</div>`, "settings-about-row");
+  const aboutRow = row(t("version"), `<span data-settings-version>${escapeHtml(updateVersionSummary())}</span>`, `<div data-settings-update-action>${updateVersionControlMarkup()}</div>`, "settings-about-row");
   // 用户 ID 行（任务 69）：只在拿到安装 ID 时渲染（浏览器版没有这一行）。
   // 值复用 .settings-path（等宽 + 省略号截断 + title 悬停看全量）；复制复用
   // settings-text-action 与 writeClipboardText，成功提示走既有 toast。
   const userIdRow = state.userProfileId
-    ? row(settingIcon("M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM9.5 10.5a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0ZM8 16c.6-1.6 2.2-2.4 3-2.4s2.4.8 3 2.4M14.5 9.5h2.5M14.5 12.5h2.5"), t("userId"), `<span class="settings-path" data-settings-user-id title="${escapeHtml(state.userProfileId)}">${escapeHtml(state.userProfileId)}</span>`, `<button class="settings-text-action" type="button" data-copy-user-id>${escapeHtml(t("copyAction"))}</button>`)
+    ? row(t("userId"), `<span class="settings-path" data-settings-user-id title="${escapeHtml(state.userProfileId)}">${escapeHtml(state.userProfileId)}</span>`, `<button class="settings-text-action" type="button" data-copy-user-id>${escapeHtml(t("copyAction"))}</button>`)
     : "";
 
-  // R21 两栏设置：左栏品牌 + 分类导航 + 本地优先说明，右栏标题栏 + 四个分类页。
-  // 行内容复用既有 row()，控件与 data-* 属性不变；分类只在会话内记忆。
+  // R21 两栏设置 + 任务 81 GravityPort 重排：左栏大标题 + 分类导航（+ 本地优先
+  // 说明），右栏标题栏 + 四个分类页。行内容复用 row()，控件与 data-* 属性不变；
+  // 稿子每页只有标题和行，页内不再重复渲染页标题与说明（文案保留在 i18n）。
   const settingsPages = [
-    { id: "general", label: t("settingsPageGeneral"), description: t("settingsPageGeneralDesc"), rows: appearanceRows, icon: settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0") },
-    { id: "library", label: t("settingsPageLibrary"), description: t("settingsPageLibraryDesc"), rows: storageRows, icon: settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z") },
-    { id: "visual", label: t("settingsPageVisual"), description: t("settingsPageVisualDesc"), rows: visualRows, icon: settingIcon("M5 7h14M7 4v6M17 4v6M6 14h12M8 11v6M16 11v6M5 20h14") },
-    { id: "about", label: t("settingsPageAbout"), description: t("settingsPageAboutDesc"), rows: aboutRow + userIdRow, icon: settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0") },
+    { id: "general", label: t("settingsPageGeneral"), rows: appearanceRows, icon: settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0") },
+    { id: "library", label: t("settingsPageLibrary"), rows: storageRows, icon: settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z") },
+    { id: "visual", label: t("settingsPageVisual"), rows: visualRows, icon: settingIcon("M5 7h14M7 4v6M17 4v6M6 14h12M8 11v6M16 11v6M5 20h14") },
+    { id: "about", label: t("settingsPageAbout"), rows: aboutRow + userIdRow, icon: settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0") },
   ];
   if (!settingsPages.some((page) => page.id === state.settingsPage)) state.settingsPage = "general";
   const activePage = state.settingsPage;
@@ -1495,7 +1550,7 @@ function renderSettingsMenu({ force = false } = {}) {
     const active = page.id === activePage;
     return `<button class="settings-nav-tab${active ? " active" : ""}" type="button" role="tab" id="settings-tab-${page.id}" aria-selected="${active}" aria-controls="settings-page-${page.id}" data-settings-page="${page.id}" tabindex="${active ? 0 : -1}">${page.icon}<span class="settings-nav-tab-label">${page.label}</span></button>`;
   }).join("");
-  const panels = settingsPages.map((page) => `<section class="settings-page" role="tabpanel" id="settings-page-${page.id}" aria-labelledby="settings-tab-${page.id}" data-settings-panel="${page.id}"${page.id === activePage ? "" : " hidden"}><div class="settings-page-head"><h3 class="settings-page-title">${page.label}</h3><p class="settings-page-desc">${page.description}</p></div><div class="settings-group">${page.rows}</div></section>`).join("");
+  const panels = settingsPages.map((page) => `<section class="settings-page" role="tabpanel" id="settings-page-${page.id}" aria-labelledby="settings-tab-${page.id}" data-settings-panel="${page.id}"${page.id === activePage ? "" : " hidden"}><div class="settings-group">${page.rows}</div></section>`).join("");
   const activeLabel = settingsPages.find((page) => page.id === activePage)?.label || "";
 
   els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" tabindex="-1"><aside class="settings-modal-sidebar"><div class="settings-modal-brand"><h2 id="settingsModalTitle">${t("settings")}</h2></div><nav class="settings-modal-nav" role="tablist" aria-orientation="vertical" aria-label="${escapeHtml(t("settings"))}">${nav}</nav><div class="settings-modal-foot"><div class="settings-local-first">${settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6")}<div class="settings-local-first-copy"><strong>${t("settingsLocalFirst")}</strong><p>${t("settingsLocalFirstDesc")}</p></div></div></div></aside><div class="settings-modal-main"><header class="settings-modal-header"><h2 class="settings-modal-title" data-settings-active-title>${activeLabel}</h2><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${panels}</div></div></div>`;
@@ -2391,8 +2446,10 @@ function bindEvents() {
     // Theme segmented buttons
     if (button?.dataset.appearanceOpt) {
       const newTheme = button.dataset.appearanceOpt;
-      state.darkMode = newTheme === "dark";
-      safeStorageSet("mosa-dark-mode", String(state.darkMode));
+      // 任务 81 返工 1：三态——system/light/dark；darkMode 只存「实际生效」值。
+      state.themeSetting = newTheme === "light" || newTheme === "dark" ? newTheme : THEME_SYSTEM;
+      state.darkMode = effectiveDarkMode(state.themeSetting);
+      safeStorageSet("mosa-dark-mode", themeSettingStorageValue(state.themeSetting));
       applyDarkMode(); // 同步 .active 视觉态与 aria-checked/roving tabindex（Phase 5A / F-12）
       showToast(t("darkModeChanged"), "success");
       return;

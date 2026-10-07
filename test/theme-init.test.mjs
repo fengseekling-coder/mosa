@@ -30,14 +30,19 @@ function runtimeOptions(root) {
 
 /**
  * Run theme-init.mjs against mocked browser globals (no DOM needed) and return
- * the data-theme value the script would apply. Mirrors app.js which reads the
- * same `mosa-dark-mode` key and compares against the string "true".
+ * the data-theme value the script would apply. Mirrors app.mjs which reads the
+ * same `mosa-dark-mode` key and maps "true"/"false"/anything else — 任务 81
+ * 返工 1 起缺失/"system"/未知值跟随系统（prefers-color-scheme）。
  */
-function runThemeScript(localStorageMock, electronAPI = undefined) {
+function runThemeScript(localStorageMock, electronAPI = undefined, prefersDark = false) {
   const documentMock = { documentElement: { dataset: {}, classList: { added: [], add(value) { this.added.push(value); } } } };
   // new Function lets us inject browser globals without requiring a real renderer.
   const fn = new Function("localStorage", "document", "window", themeScriptSource);
-  fn(localStorageMock, documentMock, { electronAPI });
+  const windowMock = {
+    electronAPI,
+    matchMedia: (query) => ({ media: query, matches: query === "(prefers-color-scheme: dark)" ? prefersDark : false }),
+  };
+  fn(localStorageMock, documentMock, windowMock);
   return {
     theme: documentMock.documentElement.dataset.theme,
     classes: documentMock.documentElement.classList.added,
@@ -72,9 +77,22 @@ test("theme-init.mjs loads before the stylesheet in index.html", async () => {
 test("theme-init applies dark only for the stored string 'true'", () => {
   assert.equal(runThemeScript(makeStore("true")).theme, "dark", '"true" -> dark');
   assert.equal(runThemeScript(makeStore("false")).theme, "light", '"false" -> light');
-  assert.equal(runThemeScript(makeStore(null)).theme, "light", "null -> light");
-  assert.equal(runThemeScript(makeStore(undefined)).theme, "light", "absent -> light");
-  assert.equal(runThemeScript(makeStore("1")).theme, "light", "unexpected value -> light");
+  // 任务 81 返工 1：缺失/"system"/未知值跟随系统外观。
+  assert.equal(runThemeScript(makeStore(null), undefined, false).theme, "light", "null + system light -> light");
+  assert.equal(runThemeScript(makeStore(null), undefined, true).theme, "dark", "null + system dark -> dark");
+  assert.equal(runThemeScript(makeStore(undefined), undefined, true).theme, "dark", "absent + system dark -> dark");
+  assert.equal(runThemeScript(makeStore("system"), undefined, true).theme, "dark", '"system" + system dark -> dark');
+  assert.equal(runThemeScript(makeStore("1"), undefined, true).theme, "dark", "unexpected value follows system");
+});
+
+test("theme-init falls back to light when matchMedia is unavailable or throws", () => {
+  const documentMock = { documentElement: { dataset: {}, classList: { added: [], add() {} } } };
+  const fn = new Function("localStorage", "document", "window", themeScriptSource);
+  fn(makeStore(null), documentMock, { matchMedia: undefined });
+  assert.equal(documentMock.documentElement.dataset.theme, "light", "no matchMedia -> light");
+  const throwingMock = { documentElement: { dataset: {}, classList: { added: [], add() {} } } };
+  fn(makeStore(null), throwingMock, { get matchMedia() { throw new Error("denied"); } });
+  assert.equal(throwingMock.documentElement.dataset.theme, "light", "matchMedia throw -> light");
 });
 
 test("theme-init marks only Electron renderers for desktop-only brand safe area", () => {
