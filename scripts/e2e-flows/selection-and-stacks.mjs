@@ -495,6 +495,37 @@ export async function run(ctx) {
     expect(stackSummary?.stack?.name === "S-Stack" && stackSummary?.stack?.count === 2, `audit stack summary: ${JSON.stringify(stackSummary?.stack)}`);
     const stackMembers = await ctx.api(first.origin, "GET", `/api/asset-stacks/${encodeURIComponent(ids.stackId)}/assets?project=default&limit=250`);
     expect(sameMembers((stackMembers?.assets || []).map((asset) => asset.id), [ids.s2, ids.s3]), `audit stack members: ${JSON.stringify(stackMembers?.assets?.map((asset) => asset.id))}`);
+
+    // ===== Page 6.5: search flattens the stack; clearing the query restores it =====
+    // 任务 83：搜索框有词时结果按单图平铺、不合成堆叠，清空后堆叠回来。搜索词
+    // 取堆叠非封面成员的编号（封面命中时 store 平铺路径仍会给封面行附 stack 封面
+    // 注解，前端会渲染成堆叠节点——该口子已单独上报）。等待全部走 gallerySettled，
+    // 输入防抖由 waitFor 轮询消化，不写固定 sleep。
+    ids.stackCoverId = p6.nodeIdAfterBack;
+    ids.searchTargetId = ids.stackCoverId === ids.s2 ? ids.s3 : ids.s2;
+    ids.searchToken = ids.searchTargetId === ids.s2 ? "S2" : "S3";
+    const p65 = await ctx.runInPage(first, source(ids, `
+      await waitFor(() => gallerySettled() && rootCardIds().length === 5
+        && document.querySelector(stackNodeSelector(config.stackId)), 'root gallery before search flattening');
+      setValue('#searchInput', config.searchToken);
+      await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds()) === JSON.stringify([config.searchTargetId]),
+        'search lists the single matching member flat');
+      const searchedCard = document.querySelector(cardSelector(config.searchTargetId));
+      const searchState = {
+        rootIds: rootCardIds(),
+        isStack: searchedCard?.classList.contains('is-stack') || false,
+        badge: searchedCard?.querySelector('.asset-stack-count')?.textContent || '',
+        anyStackNode: Boolean(document.querySelector('#assetGrid > .asset-card.is-stack')),
+      };
+      setValue('#searchInput', '');
+      await waitFor(() => gallerySettled() && rootCardIds().length === 5
+        && Boolean(document.querySelector(stackNodeSelector(config.stackId))), 'clearing the search restores the stack node');
+      return { ...searchState, countAfterClear: stackNodeCount(config.stackId) };
+    `));
+    expect(sameMembers(p65.rootIds, [ids.searchTargetId]), `P6.5 search result is the single member card: ${JSON.stringify(p65.rootIds)}`);
+    expect(p65.isStack === false && p65.anyStackNode === false, `P6.5 search renders a flat card, no stack node: ${JSON.stringify(p65)}`);
+    expect(p65.badge === "", `P6.5 no stack badge while searching: ${JSON.stringify(p65.badge)}`);
+    expect(p65.countAfterClear === "2", `P6.5 stack node restored with count 2: ${p65.countAfterClear}`);
   } finally {
     await first.stop();
   }

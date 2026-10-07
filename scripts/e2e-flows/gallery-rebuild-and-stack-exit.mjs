@@ -204,7 +204,12 @@ function pageSource(config) {
     // ===== 反复重建：命中/不命中交替各 10 次（55-1） =====
     for (let round = 0; round < 10; round += 1) {
       setValue('#searchInput', config.hitTerm);
-      await waitFor(() => gallerySettled() && rootCardIds().length === 3, 'hit search shows all cards (round ' + round + ')');
+      // 任务 83：搜索平铺——命中词让堆叠两成员（含封面）各自成卡，4 张全部
+      // 出现，且任何一行都不渲染成堆叠节点或带角标。
+      await waitFor(() => gallerySettled() && rootCardIds().length === 4
+        && !document.querySelector('#assetGrid > .asset-card.is-stack')
+        && !document.querySelector('#assetGrid .asset-stack-count'),
+      'hit search shows all cards flat without stack chrome (round ' + round + ')');
       facts.hitRounds += 1;
       setValue('#searchInput', config.missTerm);
       await waitFor(() => gallerySettled() && rootCardIds().length === 0
