@@ -111,6 +111,7 @@ export interface SqliteAssetStore {
   applySessionTitle(projectId: string, sessionKey: string, title: string): Promise<{ stackId: string; renamed: boolean }>;
   reorderAssetStack(projectId: string, stackId: string, assetIds: string[]): Promise<AssetStackSummary>;
   removeAssetsFromStack(projectId: string, stackId: string, assetIds: string[]): Promise<{ dissolved: boolean; remainingAssetId: string | null; stack: AssetStackSummary | null }>;
+  moveAssetsToStack(projectId: string, assetIds: string[], targetStackId: string | null): Promise<{ target: AssetStackSummary | null; sources: Array<{ stackId: string; dissolved: boolean; remainingAssetId: string | null }>; movedAssetIds: string[] }>;
   dissolveAssetStack(projectId: string, stackId: string): Promise<{ id: string; assetIds: string[]; dissolved: true }>;
   getAsset(projectId: string, assetId: string): Promise<StoredAsset | null>;
   ensureAssetPalette(projectId: string, assetId: string): Promise<StoredAsset | null>;
