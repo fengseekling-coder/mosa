@@ -414,6 +414,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .asset-card.card-enter { animation: card-in .25s ease backwards; }
 @keyframes card-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+/* 任务 93：剪切中的卡片整卡变淡（沿用既有禁用 token 的 opacity .48）。 */
+.asset-card.is-cut { opacity: .48; }
 .asset-card-select { position: relative; display: block; width: 100%; padding: 0; border: 0; overflow: hidden; border-radius: var(--radius-card); background: var(--app-sidebar); cursor: pointer; text-align: left; }
 .asset-card-select, .asset-card-select .thumb { user-select: none; -webkit-user-drag: none; }
 .asset-card-select::after { content: ""; position: absolute; inset: 0; border-radius: var(--radius-card); box-shadow: inset 0 0 0 1px rgb(28 25 23 / 0.06); pointer-events: none; }

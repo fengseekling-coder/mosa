@@ -5,7 +5,7 @@
 
 import { sanitizeAssetForExport } from "./utils.mjs";
 
-export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, openStackRenameModal, loadAssets, getGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, assetStacks, emptyTrash, gallerySelection }) {
+export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, openStackRenameModal, loadAssets, getGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, assetStacks, cutPaste, emptyTrash, gallerySelection }) {
   const { apiFetch } = apiClient;
   // getGroupColor falls back to the deterministic palette so call sites can rely
   // on a single source of truth for group colors (mirrors app.mjs colorForGroup).
@@ -416,6 +416,33 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     };
   }
 
+  // 任务 93：剪切（91 的占位项启用）。单张、多选都能用；多选里混有折叠
+  // Stack 节点时置灰（堆叠卡片本身不可剪切——要搬里面的图先进堆叠再剪）。
+  // 动作与 ⌘/Ctrl+X 走同一控制器入口（cut-paste.mjs cutAssetIds）。
+  function cutMenuItem(contextAsset, contextSelectedAssets, contextOptions, { disabled = false } = {}) {
+    return {
+      label: t("cut"),
+      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg>',
+      disabled: disabled || typeof cutPaste?.cutAssetIds !== "function",
+      action: async () => {
+        const context = await selectedMutationContext(contextAsset, contextSelectedAssets, contextOptions);
+        if (!context) return;
+        await cutPaste.cutAssetIds(context.ids, { projectId: context.projectId });
+      },
+    };
+  }
+
+  // 任务 93：剪切内容就绪时，堆叠卡片菜单最前面的「粘贴到此堆叠」（自成一组）。
+  function pasteIntoStackMenuItem(stackId, stackName) {
+    return {
+      label: t("pasteIntoStack"),
+      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+      action: async () => {
+        await cutPaste.pasteCut({ stackId, stackName });
+      },
+    };
+  }
+
   // ===== 堆叠卡片菜单与堆叠内部空白处菜单共用的堆叠操作 =====
   // 重命名：确认弹窗由共享 rename modal 收集，持久化与刷新只有这一份。
   function openStackRenameDialog({ stackId, initialName, onRenamed } = {}) {
@@ -573,7 +600,9 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           }));
         });
       };
+      // 任务 93：剪切内容就绪时，菜单最前面多一段「粘贴到此堆叠」（移进这个堆叠）。
       return buildSectionedMenu([
+        ...(cutPaste?.isCutActive?.() ? [[pasteIntoStackMenuItem(stackId, asset.stack.name)]] : []),
         [
           {
             label: t("openStack"),
@@ -745,6 +774,9 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         ]
       : null;
 
+    // 任务 93：复制段。单张保持「复制图片/剪切/复制提示词/复制路径」（剪切
+    // 从占位转正）；多选整段只有「剪切」——多选也能剪切，但选区含折叠 Stack
+    // 节点时置灰（堆叠卡片不可剪切）。
     const copySection = !isMultiple
       ? [
           {
@@ -760,12 +792,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               }
             },
           },
-          {
-            // 任务 91：稿子固定位置上的占位项——剪切粘贴是后续任务，先禁用。
-            label: t("cut"),
-            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg>',
-            disabled: true,
-          },
+          cutMenuItem(asset, selectedAssets, options),
           {
             label: t("copyPrompt"),
             icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
@@ -794,7 +821,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             },
           },
         ]
-      : null;
+      : [cutMenuItem(asset, selectedAssets, options, { disabled: includesStackNodes })];
 
     // Favorite toggle（整选区方向：全已收藏 → 取消收藏，否则 → 添加到收藏）
     const favoriteItem = {
@@ -1023,8 +1050,17 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
    * 画廊空白 / 堆叠内部空白 / 回收站空白，各自只保留适用分区。
    */
   function getEmptyGridMenu() {
-    // 回收站是只读范围：不提供粘贴导入（拖拽与 Ctrl/Cmd+V 导入同样被禁用）。
-    const pasteItem = state.scope === "trash" ? [] : [{
+    // 空白处粘贴项（任务 93 分流）：剪切内容就绪 → 「粘贴」执行移动（堆叠内
+    // 进当前堆叠；非堆叠画廊视图移出成散图，目标判定与 ⌘V 同一入口）；
+    // 没有剪切内容 → 原有「从剪贴板粘贴」导入。回收站是只读范围：两者都不
+    // 提供（拖拽与 Ctrl/Cmd+V 导入同样被禁用）。
+    const pasteItem = state.scope === "trash" ? [] : (cutPaste?.isCutActive?.() ? [{
+      label: t("pasteCut"),
+      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+      action: async () => {
+        await cutPaste.pasteCut({});
+      },
+    }] : [{
       label: t("pasteFromClipboard"),
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
       disabled: typeof pasteClipboardImage !== "function",
@@ -1032,7 +1068,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         const pasted = await pasteClipboardImage?.();
         if (pasted === false) showToast(t("clipboardNoImage"), "default");
       },
-    }];
+    }]);
     const refreshItem = {
       label: t("refreshLibrary"),
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6m12-4a9 9 0 0 1-15 6.7L3 16"/></svg>',

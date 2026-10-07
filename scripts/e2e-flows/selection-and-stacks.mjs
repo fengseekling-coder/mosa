@@ -290,16 +290,17 @@ export async function run(ctx) {
     // ===== Page 1: ctrl toggle + shift range + menu deselect + select-all =====
     const p1 = await ctx.runInPage(first, source(ids, `
       await waitFor(() => gallerySettled() && rootCardIds().length === 6, 'six seeded cards');
-      // 任务 91：单张菜单的「剪切」是禁用占位——禁用态渲染、点击后菜单不关、
-      // 不产生任何 toast，也不改变素材状态。
+      // 任务 93：「剪切」从 91 的禁用占位转正——单张可用，点击后 S1 变淡
+      // （.is-cut），Esc 先取消剪切（卡片恢复），再按一次才清选区。
       const cutItem = await openContextMenu(cardSelector(config.s1), '剪切');
       const cutDisabled = cutItem.disabled || cutItem.classList.contains('disabled');
       cutItem.click();
       await sleep(80);
-      const cutMenuStillOpen = Boolean(document.querySelector('.context-menu'));
+      const cutMenuClosed = !document.querySelector('.context-menu');
+      await waitFor(() => document.querySelector(cardSelector(config.s1))?.classList.contains('is-cut'), 'S1 dimmed after cut');
       const cutToastAbsent = allToastTexts().length === 0;
       pressEscape();
-      await waitFor(() => !document.querySelector('.context-menu'), 'cut probe menu closes');
+      await waitFor(() => !document.querySelector(cardSelector(config.s1))?.classList.contains('is-cut'), 'Esc cancels the cut (S1 back to normal)');
       pressEscape();
       await waitFor(() => selectedCardIds().length === 0, 'selection cleared after the cut probe');
       ctrlClickCard(config.s1);
@@ -326,7 +327,7 @@ export async function run(ctx) {
       pressEscape();
       pressEscape();
       await waitFor(() => selectedCardIds().length === 0, 'Esc clears the select-all');
-      return { multiSelected, barAbsent, infoAfterMulti, detailSelectionDuringMulti, infoAfterSelectAll, cutDisabled, cutMenuStillOpen, cutToastAbsent };
+      return { multiSelected, barAbsent, infoAfterMulti, detailSelectionDuringMulti, infoAfterSelectAll, cutDisabled, cutMenuClosed, cutToastAbsent };
     `));
     expect(sameMembers(p1.multiSelected, [ids.s3, ids.s4, ids.s5]), `P1 shift-range selection: ${JSON.stringify(p1.multiSelected)}`);
     expect(p1.barAbsent === true, `P1 selection bar removed from DOM: ${p1.barAbsent}`);
@@ -335,9 +336,9 @@ export async function run(ctx) {
     // .selected 只用于详情单选（gallery-selection.mjs cardSelectionFlags）。
     expect(p1.detailSelectionDuringMulti === "", `P1 no .selected card during multi-select: ${p1.detailSelectionDuringMulti}`);
     expect(p1.infoAfterSelectAll === "已选 6 项", `P1 select-all menu heading: ${p1.infoAfterSelectAll}`);
-    expect(p1.cutDisabled === true, `P1 cut placeholder is rendered disabled: ${JSON.stringify(p1)}`);
-    expect(p1.cutMenuStillOpen === true, `P1 clicking the disabled cut item keeps the menu open: ${JSON.stringify(p1)}`);
-    expect(p1.cutToastAbsent === true, `P1 clicking the disabled cut item raises no toast: ${JSON.stringify(p1)}`);
+    expect(p1.cutDisabled === false, `P1 cut item is enabled after 任务 93: ${JSON.stringify(p1)}`);
+    expect(p1.cutMenuClosed === true, `P1 clicking the enabled cut item closes the menu and cuts: ${JSON.stringify(p1)}`);
+    expect(p1.cutToastAbsent === true, `P1 cutting raises no toast (dim + a11y announce only): ${JSON.stringify(p1)}`);
 
     // ===== Page 2: marquee frames exactly S2+S4 =====
     const p2 = await ctx.runInPage(first, source(ids, `

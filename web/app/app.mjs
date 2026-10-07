@@ -20,6 +20,7 @@ import { createContextMenuActions } from "./context-menu-actions.mjs";
 import { bindContextMenuEvents } from "./context-menu-bindings.mjs";
 import { createGallerySelection } from "./gallery-selection.mjs";
 import { createAssetStackController } from "./asset-stacks.mjs";
+import { createCutPasteController } from "./cut-paste.mjs";
 import { createLibraryReconciler } from "./library-reconciliation.mjs";
 import { createNavigationHistory } from "./navigation-history.mjs";
 import { collectDroppedFiles, createBatchImporter, dropErrorMessage } from "./batch-import.mjs";
@@ -206,6 +207,9 @@ const state = {
   viewMode: "library", libraryReturnSnapshot: null,
   activeStackId: "", activeStackSummary: null, stackReturnSnapshot: null,
   assetStackDragCandidate: false,
+  // 任务 93：剪切粘贴状态。cutAssetIds 是待移动集合（卡片变淡），cutProjectId
+  // 是发起剪切时的项目口径（项目变化即视为取消）；两者都由 cut-paste.mjs 维护。
+  cutAssetIds: new Set(), cutProjectId: "",
 };
 
 // ===== i18n 运行时（resolveLocale/t/applyLanguage 已提取至 i18n-runtime.mjs）=====
@@ -797,6 +801,15 @@ function setupPasteImport() {
       || !els.imagePreviewModal?.hidden
       || els.groupModal?.classList.contains("open")
       || hasBlockingOverlay()) return;
+    // 任务 93：⌘V 分流。剪切状态活着即代表系统剪贴板里仍是本次剪切写入的
+    // 内容（失焦/应用内再写剪贴板都会取消剪切，见 cut-paste.mjs），此时 ⌘V
+    // 执行「移动」：堆叠内 → 移进当前堆叠，非堆叠画廊视图 → 移出成散图；
+    // 回收站在上方守卫直接返回，不会走到这里。没有剪切状态时照旧导入。
+    if (cutPaste.isCutActive()) {
+      event.preventDefault();
+      void cutPaste.pasteCut({});
+      return;
+    }
     const items = event.clipboardData?.items;
     if (!items) return;
     const files = [];
@@ -933,6 +946,25 @@ function isImeComposing(event) {
 }
 
 // ===== Keyboard Shortcuts =====
+// 任务 93：⌘/Ctrl+X 剪切当前选区（或大图页/检视器当前素材）。折叠 Stack 节点
+// 不可剪切——与右键菜单的置灰口径一致，⌘X 直接不动作。
+function cutFromKeyboard() {
+  if (state.scope === "trash") return;
+  const selectedIds = state.selectedIds instanceof Set && state.selectedIds.size ? [...state.selectedIds] : [];
+  const rootStackNodeGuard = (ids) => state.viewMode === "library"
+    && !state.activeStackId
+    && (state.assets || []).some((asset) => asset.stack?.id && ids.includes(asset.id));
+  if (selectedIds.length) {
+    if (rootStackNodeGuard(selectedIds)) return;
+    void cutPaste.cutAssetIds(selectedIds);
+    return;
+  }
+  const asset = selectedAsset();
+  if (!asset || !(state.viewMode === "asset" || state.detailOpen || state.viewMode === "library")) return;
+  if (rootStackNodeGuard([asset.id])) return;
+  void cutPaste.cutAssetIds([asset.id]);
+}
+
 function setupKeyboardShortcuts() {
   document.addEventListener("keydown", (event) => {
     // Phase 5B：ConfirmDialog 打开时页面背景不接收任何键盘操作（Escape 由
@@ -953,7 +985,8 @@ function setupKeyboardShortcuts() {
     // The gallery owns ⌘/Ctrl+A now that marquee selection is available. Paste
     // is let through in both modes: the document paste handler imports
     // clipboard images, so preventDefault() here would suppress it entirely.
-    if ((event.metaKey || event.ctrlKey) && (event.key === "a" || event.key === "A" || event.key === "v" || event.key === "V")) {
+    // 任务 93：⌘/Ctrl+X 走剪切（与右键菜单同一动作）；输入控件不拦截。
+    if ((event.metaKey || event.ctrlKey) && (event.key === "a" || event.key === "A" || event.key === "v" || event.key === "V" || event.key === "x" || event.key === "X")) {
       if (event.target.matches?.("input, textarea, select, [contenteditable]")) return;
       if (hasBlockingOverlay()) return;
       if ((event.key === "a" || event.key === "A") && state.viewMode === "library" && state.assets.length) {
@@ -962,6 +995,11 @@ function setupKeyboardShortcuts() {
         return;
       }
       if (event.key === "v" || event.key === "V") return;
+      if (event.key === "x" || event.key === "X") {
+        event.preventDefault();
+        void cutFromKeyboard();
+        return;
+      }
       event.preventDefault();
       return;
     }
@@ -1005,6 +1043,15 @@ function setupKeyboardShortcuts() {
       if (!els.settingsMenu?.hidden) { closePanel(els.settingsMenu, els.settingsToggle); event.preventDefault(); return; }
       // GravityPort A4a：检视器浮层打开时 Esc 只关浮层（焦点回「查看」），不动检视器。
       if (inspectorOverlay.isOpen()) { event.preventDefault(); inspectorOverlay.close(); return; }
+      // 任务 93：Esc 优先级是 菜单 > 全屏 > 剪切 > 其他。菜单已在函数开头被
+      // 消费；全屏态放行给下方全屏分支；其余情况下有剪切先取消剪切（卡片
+      // 恢复正常），再轮到清选区/退层级等既有行为。
+      if (cutPaste.isCutActive()
+        && !(state.viewMode === "asset" && (assetViewer.isAssetViewFullscreen() || assetViewer.isAssetViewFullscreenSettling()))) {
+        event.preventDefault();
+        cutPaste.cancelCut({ announce: true });
+        return;
+      }
       if (state.viewMode === "library" && state.selectedIds?.size) {
         gallerySelection.clear({ announce: true });
         event.preventDefault();
@@ -1204,6 +1251,7 @@ async function init() {
     nativeAssetDrag.bind();
     assetStacks.bind();
     gallerySelection.bind();
+    cutPaste.bind();
     bindEvents();
     setupDragDrop();
     setupSidebarGroupDropImport();
@@ -1705,6 +1753,8 @@ const { requestConfirmation, requestFollowupConfirmation, closeConfirmDialog, tr
 const toastManager = createToastManager({ els, state, t, isConfirmFocusTarget });
 function showToast(message, type = "default", options = {}) { return toastManager.show(message, type, options); }
 async function writeClipboardText(value) {
+  // 任务 93：应用内写剪贴板会使剪切状态失效（剪贴板不再是被剪切的内容）。
+  cutPaste?.noteClipboardWrite?.();
   const text = String(value ?? "");
   if (window.electronAPI?.writeClipboardText) {
     const result = await window.electronAPI.writeClipboardText(text);
@@ -1737,7 +1787,10 @@ async function clipboardPngBlob(blob) {
   }
 }
 
-async function writeClipboardImage(asset = {}) {
+async function writeClipboardImage(asset = {}, options = {}) {
+  // 任务 93：「复制图片」取消剪切状态；剪切自身的原图写入（skipCutInvalidation）
+  // 不算「再次写剪贴板」。
+  if (options.skipCutInvalidation !== true) cutPaste?.noteClipboardWrite?.();
   if (isVideoAsset(asset)) throw new Error(t("copyImageFailed"));
   const imagePath = String(asset.image_path || "").trim();
   if (window.electronAPI?.writeClipboardImage && imagePath) {
@@ -1766,6 +1819,18 @@ window.__mosaToastDebug = () => toastManager.snapshot();
 
 // ===== Context Menu =====
 const contextMenu = createContextMenu();
+// 任务 93：剪切粘贴控制器（状态、变淡渲染、移动接口、失焦取消都在 cut-paste.mjs）。
+const cutPaste = createCutPasteController({
+  state,
+  els,
+  t,
+  apiFetch,
+  showToast,
+  announceGalleryStatus,
+  librarySync,
+  loadStats,
+  copyOriginalImage: writeClipboardImage,
+});
 const contextMenuActions = createContextMenuActions({
   state,
   els,
@@ -1787,6 +1852,7 @@ const contextMenuActions = createContextMenuActions({
   isVideoAsset,
   pasteClipboardImage: window.electronAPI?.pasteImage ? pasteClipboardImage : null,
   assetStacks,
+  cutPaste,
   emptyTrash: emptyTrashWithConfirmation,
   gallerySelection,
 });
@@ -4186,6 +4252,7 @@ function assetCardRenderKey(asset, selected) {
     asset.stack?.count || "",
     asset.stack?.name || "",
     asset.stack?.match_count || "",
+    state.cutAssetIds instanceof Set && state.cutAssetIds.has(asset.id) ? "1" : "0",
     state.locale,
   ].join("\u001f");
 }
@@ -4506,12 +4573,14 @@ function buildGalleryCardEntry(asset, ordinal, animateCard) {
   const trashBadge = state.scope === "trash" && asset.deleted_at
     ? `<span class="trash-countdown">${escapeHtml(t("trashDaysRemaining", { count: trashRemainingDays(asset.deleted_at) }))}</span>`
     : "";
+  // 任务 93：剪切中的卡片变淡。renderKey 含剪切标记，任何一次重建都会带上。
+  const isCut = state.cutAssetIds instanceof Set && state.cutAssetIds.has(asset.id);
   const entry = {
     id: asset.id,
     asset,
     renderKey: assetCardRenderKey(asset, selected),
     animateCard,
-    markup: `<article class="asset-card${selected ? " selected" : ""}${isStack ? " is-stack" : ""}${state.scope === "trash" ? " is-trash" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}"${isStack ? ` data-stack-id="${escapeHtml(asset.stack.id)}"` : ""} title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}"${stackDescription}>${media}${stackBadge}${trashBadge}<span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`,
+    markup: `<article class="asset-card${selected ? " selected" : ""}${isStack ? " is-stack" : ""}${state.scope === "trash" ? " is-trash" : ""}${isVideoAsset(asset) ? " is-video" : ""}${isCut ? " is-cut" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}"${isStack ? ` data-stack-id="${escapeHtml(asset.stack.id)}"` : ""} title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}"${stackDescription}>${media}${stackBadge}${trashBadge}<span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`,
   };
   galleryCardVirtualEntries.set(entry.id, entry);
   return entry;

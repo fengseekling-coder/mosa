@@ -20,6 +20,7 @@ function createHarness(t, {
   batchBodies = [],
   stackCalls = [],
   stackBusy = false,
+  cutActive = false,
 } = {}) {
   // 选区/堆叠动作会向 window 派发刷新事件；以最小 window 桩运行并在测试后还原。
   const originalWindow = globalThis.window;
@@ -36,6 +37,7 @@ function createHarness(t, {
     pageTotal: 6,
     ...stateOverrides,
   };
+  const cutCalls = [];
   const actions = createContextMenuActions({
     state,
     els: {},
@@ -61,6 +63,11 @@ function createHarness(t, {
       syncChrome: () => {},
       isBusy: () => stackBusy,
     },
+    cutPaste: {
+      cutAssetIds: async (ids, options = {}) => void cutCalls.push({ ids, options }),
+      pasteCut: async (options = {}) => void cutCalls.push({ pasteCut: options }),
+      isCutActive: () => cutActive,
+    },
     emptyTrash: async () => void stackCalls.push("emptyTrash"),
     gallerySelection: {
       hasSelectedStacks: () => hasSelectedStacks,
@@ -69,7 +76,7 @@ function createHarness(t, {
       selectedIds: () => new Set(),
     },
   });
-  return { actions, state, batchBodies, stackCalls };
+  return { actions, state, batchBodies, stackCalls, cutCalls };
 }
 
 const asset = { id: "a1", project_id: "p", prompt: "p1", image_path: "/x.png", image_url: "/x.png", favorite: false };
@@ -110,7 +117,7 @@ function assertDangerLastAndOnly(menu, dangerLabel) {
   assert.equal(interactive.at(-1).label, dangerLabel, "the danger action is always the last interactive item");
 }
 
-test("画廊 · 单张：打开｜复制（图/剪切占位/词/路径）｜收藏+分组+移除分组｜导出｜回收站", (t) => {
+test("画廊 · 单张：打开｜复制（图/剪切/词/路径）｜收藏+分组+移除分组｜导出｜回收站", (t) => {
   const { actions } = createHarness(t);
   const menu = actions.getAssetMenu(asset, [asset], { selectionCount: 1 });
   assert.deepEqual(contractShape(menu), [
@@ -118,7 +125,7 @@ test("画廊 · 单张：打开｜复制（图/剪切占位/词/路径）｜收�
     { label: T("showInFinder") },
     "|",
     { label: T("copyImage") },
-    { label: T("cut"), disabled: true },
+    { label: T("cut") },
     { label: T("copyPrompt") },
     { label: T("copyPath") },
     "|",
@@ -134,11 +141,34 @@ test("画廊 · 单张：打开｜复制（图/剪切占位/词/路径）｜收�
   assertDangerLastAndOnly(menu, T("moveToTrash"));
 });
 
-test("剪切占位恒禁用；单张置灰只标“暂时做不了”：无提示词置灰复制提示词，视频置灰复制图片", (t) => {
-  const { actions } = createHarness(t);
-  const menu = actions.getAssetMenu(asset, [asset], { selectionCount: 1 });
-  assert.equal(menu.find((item) => item.label === T("cut")).disabled, true, "剪切是占位项，恒禁用");
-  assert.equal(menu.find((item) => item.label === T("cut")).action, undefined, "占位项不挂动作");
+test("剪切转正（任务 93）：单张挂动作路由 cutAssetIds；无控制器置灰；置灰口径只标“暂时做不了”", async (t) => {
+  const harness = createHarness(t);
+  const menu = harness.actions.getAssetMenu(asset, [asset], { selectionCount: 1 });
+  const cut = menu.find((item) => item.label === T("cut"));
+  assert.ok(!cut.disabled, "普通素材的剪切可用");
+  await cut.action();
+  assert.deepEqual(harness.cutCalls, [{ ids: ["a1"], options: { projectId: "p" } }], "剪切路由到控制器并带项目口径");
+
+  // 控制器缺失时剪切置灰（与复制图片等原子项的置灰口径一致）。
+  const originalWindow = globalThis.window;
+  globalThis.window = { dispatchEvent() {} };
+  t.after(() => { globalThis.window = originalWindow; });
+  const bareActions = createContextMenuActions({
+    state: { project: "p", scope: "all", assets: [], groups: { groups: [] }, selectedId: null, activeStackId: "" },
+    els: {},
+    t: T,
+    apiClient: { apiFetch: async () => ({ results: [] }) },
+    showToast() {},
+    runAction: async (action) => action(),
+    requestConfirmation: async () => true,
+    isVideoAsset: (entry) => String(entry?.image_path || "").endsWith(".mp4"),
+    gallerySelection: { hasSelectedStacks: () => false, selectedIds: () => new Set() },
+  });
+  const bareMenu = bareActions.getAssetMenu(asset, [asset], { selectionCount: 1 });
+  assert.equal(bareMenu.find((item) => item.label === T("cut")).disabled, true, "无控制器时剪切置灰");
+
+  // 既有置灰口径不变：无提示词置灰复制提示词，复制路径始终可用，视频置灰复制图片。
+  const actions = harness.actions;
   const noPrompt = { ...asset, prompt: "" };
   const noPromptMenu = actions.getAssetMenu(noPrompt, [noPrompt], { selectionCount: 1 });
   const byLabel = Object.fromEntries(noPromptMenu.filter((item) => item.label).map((item) => [item.label, item]));
@@ -171,12 +201,14 @@ test("任务 91 拿掉的项不再出现在素材菜单：版本历史（检视�
   }
 });
 
-test("画廊 · 多选：选区表头｜收藏/分组/移除分组｜导出｜堆叠所选｜回收站；多选不出现打开/复制", (t) => {
+test("画廊 · 多选：选区表头｜剪切｜收藏/分组/移除分组｜导出｜堆叠所选｜回收站；多选不出现打开/复制", (t) => {
   const { actions } = createHarness(t);
   const selection = [asset, favorited({ id: "a2" })];
   const menu = actions.getAssetMenu(asset, selection, { selectionCount: 2 });
   assert.deepEqual(contractShape(menu), [
     { heading: T("batchSelected", { count: 2 }) },
+    "|",
+    { label: T("cut") },
     "|",
     { label: T("addToFavorites") },
     { label: T("addToGroup"), submenu: true },
@@ -189,8 +221,8 @@ test("画廊 · 多选：选区表头｜收藏/分组/移除分组｜导出｜�
     { label: T("moveToTrash"), danger: true },
   ]);
   assert.ok(!contractShape(menu).some((entry) => [
-    T("openInViewer"), T("showInFinder"), T("copyImage"), T("cut"), T("copyPrompt"), T("copyPath"),
-  ].includes(entry.label)), "多选整段隐藏打开/复制");
+    T("openInViewer"), T("showInFinder"), T("copyImage"), T("copyPrompt"), T("copyPath"),
+  ].includes(entry.label)), "多选整段隐藏打开/复制（剪切除外）");
   assertSeparatorHygiene(menu);
   assertDangerLastAndOnly(menu, T("moveToTrash"));
 });
@@ -212,12 +244,14 @@ test("多选收藏看整个选区：混合→添加到收藏并发 favorite:true
   assert.equal(harness.batchBodies.at(-1)?.favorite, false);
 });
 
-test("画廊 · 多选含堆叠：不显示堆叠所选与导出（不支持堆叠套堆叠/导出堆叠），不留连续分隔线", (t) => {
+test("画廊 · 多选含堆叠：剪切置灰（堆叠卡片不可剪切），不显示堆叠所选与导出（不支持堆叠套堆叠/导出堆叠），不留连续分隔线", (t) => {
   const { actions } = createHarness(t, { hasSelectedStacks: true });
   const selection = [asset, { ...asset, id: "a2", stack: { id: "s9", count: 2 } }];
   const menu = actions.getAssetMenu(asset, selection, { selectionCount: 3 });
   assert.deepEqual(contractShape(menu), [
     { heading: T("batchSelected", { count: 3 }) },
+    "|",
+    { label: T("cut"), disabled: true },
     "|",
     { label: T("addToFavorites") },
     { label: T("addToGroup"), submenu: true },
@@ -258,6 +292,59 @@ test("画廊 · 堆叠卡片：打开堆叠｜分组+移除分组｜重命名/�
   assertSeparatorHygiene(menu);
 });
 
+test("任务 93 · 堆叠卡片菜单：剪切中时最前面多一段「粘贴到此堆叠」，动作带堆叠 id 与名字", async (t) => {
+  const harness = createHarness(t, { cutActive: true });
+  const stackAsset = { ...asset, stack: { id: "s1", count: 3, name: "S" } };
+  const menu = harness.actions.getAssetMenu(stackAsset, [stackAsset], { stackNode: true, selectionCount: 1 });
+  assert.deepEqual(contractShape(menu), [
+    { label: T("pasteIntoStack") },
+    "|",
+    { label: T("openStack") },
+    "|",
+    { label: T("addToGroup"), submenu: true },
+    { label: T("removeFromGroup") },
+    "|",
+    { label: T("renameStack") },
+    { label: T("dissolveStack") },
+    "|",
+    { label: T("moveToTrash"), danger: true },
+  ]);
+  assertSeparatorHygiene(menu);
+  await menu.find((item) => item.label === T("pasteIntoStack")).action();
+  assert.deepEqual(harness.cutCalls, [{ pasteCut: { stackId: "s1", stackName: "S" } }]);
+});
+
+test("任务 93 · 剪切中 · 空白处：画廊与堆叠内部的粘贴项都改成「粘贴」（移动）；回收站仍无粘贴", (t) => {
+  const gallery = createHarness(t, { cutActive: true });
+  const galleryMenu = gallery.actions.getEmptyGridMenu();
+  assert.deepEqual(contractShape(galleryMenu), [
+    { label: T("pasteCut") },
+    { label: T("createGroup") },
+    "|",
+    { label: T("selectAll"), shortcut: "mod+A" },
+    { label: T("refreshLibrary") },
+  ]);
+
+  const inside = createHarness(t, { cutActive: true, stateOverrides: { activeStackId: "s1" } });
+  inside.state.activeStackSummary = { id: "s1", name: "S", count: 3 };
+  const insideMenu = inside.actions.getEmptyGridMenu();
+  assert.deepEqual(contractShape(insideMenu), [
+    { label: T("backToLibrary") },
+    "|",
+    { label: T("pasteCut") },
+    "|",
+    { label: T("renameStack") },
+    { label: T("dissolveStack") },
+    "|",
+    { label: T("selectAll"), shortcut: "mod+A" },
+    { label: T("refreshLibrary") },
+  ]);
+
+  const trash = createHarness(t, { cutActive: true, stateOverrides: { scope: "trash", groups: { groups: [], trash: 3 } } });
+  assert.ok(!contractShape(trash.actions.getEmptyGridMenu()).some((entry) => entry.label === T("pasteCut")),
+    "回收站不能粘贴（剪切中也一样）");
+});
+
 test("堆叠内部 · 单张成员：同画廊单张，稿子 5 组之后多一项移出堆叠（路由到控制器）", async (t) => {
   const harness = createHarness(t, { stateOverrides: { activeStackId: "s1" } });
   const menu = harness.actions.getAssetMenu(asset, [asset], { selectionCount: 1 });
@@ -266,7 +353,7 @@ test("堆叠内部 · 单张成员：同画廊单张，稿子 5 组之后多一�
     { label: T("showInFinder") },
     "|",
     { label: T("copyImage") },
-    { label: T("cut"), disabled: true },
+    { label: T("cut") },
     { label: T("copyPrompt") },
     { label: T("copyPath") },
     "|",
@@ -285,12 +372,14 @@ test("堆叠内部 · 单张成员：同画廊单张，稿子 5 组之后多一�
   assert.deepEqual(harness.stackCalls, ["removeSelectedFromStack"], "移出堆叠路由到堆叠控制器");
 });
 
-test("堆叠内部 · 多选成员：选区表头｜收藏/分组/移除分组｜导出｜移出堆叠｜回收站", (t) => {
+test("堆叠内部 · 多选成员：选区表头｜剪切｜收藏/分组/移除分组｜导出｜移出堆叠｜回收站", (t) => {
   const { actions } = createHarness(t, { stateOverrides: { activeStackId: "s1" } });
   const selection = [asset, { ...asset, id: "a2" }];
   const menu = actions.getAssetMenu(asset, selection, { selectionCount: 2 });
   assert.deepEqual(contractShape(menu), [
     { heading: T("batchSelected", { count: 2 }) },
+    "|",
+    { label: T("cut") },
     "|",
     { label: T("addToFavorites") },
     { label: T("addToGroup"), submenu: true },
