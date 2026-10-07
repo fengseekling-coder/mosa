@@ -287,8 +287,8 @@ test("51-54. anchored overlay, viewer escape, version workflow, and return snaps
 test("55. showToast keeps its signature and only delegates to the Toast Manager", async () => {
   const app = await readApp();
   const toast = functionSlice(app, "showToast");
-  assert.match(toast, /function showToast\(message, type = "default"\)/, "existing call sites keep the (message, type) signature");
-  assert.match(toast, /return toastManager\.show\(message, type\);/, "showToast only delegates to the manager — no duplicated queue logic");
+  assert.match(toast, /function showToast\(message, type = "default", options = \{\}\)/, "existing call sites keep the (message, type) signature; options is the task-90 action-toast passthrough");
+  assert.match(toast, /return toastManager\.show\(message, type, options\);/, "showToast only delegates to the manager — no duplicated queue logic");
   assert.doesNotMatch(app, /\btoastTimer\b/, "the legacy global single timer is gone");
 });
 

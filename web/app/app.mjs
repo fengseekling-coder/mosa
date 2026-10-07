@@ -316,6 +316,9 @@ Object.assign(els, {
   assetZoomOut: document.querySelector("#assetZoomOut"),
   assetZoomIn: document.querySelector("#assetZoomIn"),
   assetZoomFit: document.querySelector("#assetZoomFit"),
+  // GravityPort A4c（任务 90）：右上「删除 / 全屏」；适合窗口沿用 #assetZoomFit。
+  assetViewDelete: document.querySelector("#assetViewDelete"),
+  assetViewFullscreen: document.querySelector("#assetViewFullscreen"),
   stackBack: document.querySelector("#stackBack"),
   emptyTrashBtn: document.querySelector("#emptyTrashBtn"),
   assetZoomValue: document.querySelector("#assetZoomValue"),
@@ -1012,6 +1015,14 @@ function setupKeyboardShortcuts() {
         void assetStacks.exitStack();
         return;
       }
+      // GravityPort A4c（任务 90）：全屏态 Esc 只退全屏、回到大图页（不直接回画廊）。
+      // 真全屏的 Esc 由浏览器消费并经 fullscreenchange 落类；此处兜底 CSS 回退态与
+      // 事件时序——退出后的一小段宽限同样吞掉迟到的 Esc，防止连带关掉查看模式。
+      if (state.viewMode === "asset" && (assetViewer.isAssetViewFullscreen() || assetViewer.isAssetViewFullscreenSettling())) {
+        event.preventDefault();
+        void assetViewer.exitAssetViewFullscreen();
+        return;
+      }
       if (state.viewMode === "asset" || state.detailOpen) { event.preventDefault(); void closeDetailSurface(); return; }
       if (state.activeStackId) { event.preventDefault(); void assetStacks.exitStack(); return; }
     }
@@ -1692,7 +1703,7 @@ const confirmDialog = createConfirmDialog({ els, state, t, closePanel });
 const { requestConfirmation, requestFollowupConfirmation, closeConfirmDialog, trapConfirmDialogFocus, isConfirmFocusTarget, confirmDialogState } = confirmDialog;
 
 const toastManager = createToastManager({ els, state, t, isConfirmFocusTarget });
-function showToast(message, type = "default") { return toastManager.show(message, type); }
+function showToast(message, type = "default", options = {}) { return toastManager.show(message, type, options); }
 async function writeClipboardText(value) {
   const text = String(value ?? "");
   if (window.electronAPI?.writeClipboardText) {
@@ -1824,6 +1835,72 @@ async function releaseAssetMediaForDeletion(assets = []) {
     });
   }
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 0));
+}
+
+// ===== 大图页删除（GravityPort A4c，任务 90） =====
+// 右上「删除」：确认框照既有回收站语义弹；成功后自动落到下一张（末端落上一张、
+// 删光回画廊），并弹带「撤销」的 toast——撤销调用现有 restore 端点并回到这张图。
+// 翻页/回画廊由 assetViewer.advanceAfterViewerDelete 负责（序列语义与导航同源）；
+// 本地对账直接走 librarySync（可 await），撤销回图前 state.assets 已含恢复行。
+async function deleteCurrentAssetFromViewer() {
+  if (state.viewMode !== "asset") return;
+  const asset = selectedAsset();
+  if (!asset) return;
+  if (!await confirmDetailNavigation()) return;
+  const confirmed = await requestConfirmation({
+    title: t("moveToTrashTitle"),
+    description: t("moveToTrashDescription"),
+    confirmLabel: t("moveToTrash"),
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  const projectId = asset.project_id || state.project;
+  const deletedId = asset.id;
+  let response = null;
+  try {
+    response = await apiFetch("/api/assets/batch", {
+      method: "POST",
+      body: { action: "trash", projectId, assetIds: [deletedId] },
+    });
+  } catch (error) {
+    showToast(error.message, "error");
+    return;
+  }
+  const failed = Boolean(response?.partial) && Array.isArray(response.results)
+    && response.results.some((result) => String(result?.id || "") === String(deletedId) && result?.ok === false);
+  if (failed) {
+    showToast(t("batchPartialResult", { succeeded: 0, failed: 1 }), "error");
+    return;
+  }
+  if (state.detailDirty) discardDetailDraft();
+  await releaseAssetMediaForDeletion([asset]);
+  assetViewer.advanceAfterViewerDelete();
+  await librarySync.applyLocalChanges([{ kind: "asset-deleted", entityType: "asset", entityId: String(deletedId) }]).catch(() => {});
+  void loadStats({ background: true }).catch(() => {});
+  showToast(t("assetMovedToTrash"), "success", {
+    actionLabel: t("undo"),
+    duration: 6000,
+    onAction: () => { void restoreTrashedAssetFromViewer(projectId, deletedId); },
+  });
+}
+
+async function restoreTrashedAssetFromViewer(projectId, assetId) {
+  try {
+    await apiFetch(`/api/assets/${encodeURIComponent(projectId)}/${encodeURIComponent(assetId)}/restore`, { method: "POST" });
+  } catch (error) {
+    showToast(error.message, "error");
+    return;
+  }
+  await librarySync.applyLocalChanges([{ kind: "asset-restored", entityType: "asset", entityId: String(assetId) }]).catch(() => {});
+  void loadStats({ background: true }).catch(() => {});
+  if (state.viewMode === "asset") {
+    // 大图页内：切回这张图（草稿确认与 openAssetView 同一套语义）。
+    if (!await confirmDetailNavigation()) return;
+    assetViewer.showAssetInView(assetId);
+    return;
+  }
+  // 已回画廊（删除时删光了序列）：直接在大图页打开这张图。
+  void openAssetView(assetId);
 }
 
 function isDetailEditorActive() {
@@ -2666,6 +2743,10 @@ function bindEvents() {
   // Phase 3C：唯一一套上一张/下一张（全应用无第二套导航控件）。
   els.assetViewPrev?.addEventListener("click", () => navigateAssetView(-1));
   els.assetViewNext?.addEventListener("click", () => navigateAssetView(1));
+  // GravityPort A4c（任务 90）：右上「删除 / 全屏」与全屏态同步。
+  els.assetViewDelete?.addEventListener("click", () => { void deleteCurrentAssetFromViewer(); });
+  els.assetViewFullscreen?.addEventListener("click", () => { void assetViewer.toggleAssetViewFullscreen(); });
+  document.addEventListener("fullscreenchange", () => assetViewer.syncAssetViewFullscreenClass());
   // Settings 的 segmented radiogroup 在持久根节点上统一处理方向键。
   // 绑定在持久的 #settingsMenu 元素上：innerHTML 重建不会叠加监听器（全应用唯一一套）。
   els.settingsMenu?.addEventListener("keydown", handleSettingsMenuKeydown);

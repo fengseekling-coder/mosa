@@ -57,7 +57,7 @@ test("1-2. a single Toast Manager, showToast only delegates", async () => {
   assert.equal(count(app, "const toastManager = createToastManager({ els, state, t, isConfirmFocusTarget });"), 1, "exactly one manager instance");
   assert.equal(count(app, "function createToastManager("), 0, "factory no longer defined in app.js");
   const shim = functionSlice(app, "showToast");
-  assert.match(shim, /return toastManager\.show\(message, type\);/, "showToast body is one delegation");
+  assert.match(shim, /return toastManager\.show\(message, type, options\);/, "showToast body is one delegation (options passthrough for action toasts)");
   assert.doesNotMatch(shim, /setTimeout|appendChild|classList/, "showToast carries no queue or DOM logic of its own");
 });
 
@@ -178,12 +178,16 @@ test("35-38. focus never stolen, never dropped to body", async () => {
   assert.doesNotMatch(finalize, /\.focus\(\)|activeElement/, "auto-removal never touches focus");
   const restore = managerInnerSlice(manager, "restoreAssertiveDismissFocus");
   assert.match(restore, /const nextDismiss = next\?\.element\?\.querySelector\("\.toast-dismiss"\);/, "priority 1: next error's dismiss button");
-  assert.match(restore, /isConfirmFocusTarget\(closedEntry\.originFocus\)/, "priority 2: the connected creation-time origin");
-  assert.match(restore, /const fallback = state\.viewMode === "asset" \? els\.assetViewBack : els\.searchInput;/, "priority 3: safe per-view element");
-  assert.doesNotMatch(restore, /body\.focus|focus\(\);\s*\}$/, "never falls back to body");
+  assert.match(restore, /restoreToastActionFocus\(closedEntry\)/, "priorities 2-3 delegate to the shared safe-focus helper");
+  const restoreShared = managerInnerSlice(manager, "restoreToastActionFocus");
+  assert.match(restoreShared, /isConfirmFocusTarget\(closedEntry\.originFocus\)/, "priority 2: the connected creation-time origin");
+  assert.match(restoreShared, /const fallback = state\.viewMode === "asset" \? els\.assetViewBack : els\.searchInput;/, "priority 3: safe per-view element");
+  assert.doesNotMatch(restoreShared, /body\.focus|focus\(\);\s*\}$/, "never falls back to body");
   const dismiss = managerInnerSlice(manager, "dismiss");
   assert.match(dismiss, /if \(viaKeyboard && laneName === "assertive"\) restoreAssertiveDismissFocus\(entry\);/,
     "focus restoration only for keyboard dismissal of errors — pointer dismissal never moves focus");
+  assert.match(dismiss, /else if \(viaKeyboard && entry\.actionLabel\) restoreToastActionFocus\(entry\);/,
+    "keyboard-activated action buttons restore focus through the same safe strategy (task 90)");
 });
 
 // 39-40. Message injection is textContent-only; no HTML pathway exists.
@@ -234,7 +238,7 @@ test("46-48. no dedupe; polite and assertive never evict each other", async () =
 // 49-51. Call-site compatibility: signature, runAction path, Cowart inline feedback.
 test("49-51. existing call sites stay compatible", async () => {
   const app = await readApp();
-  assert.match(app, /function showToast\(message, type = "default"\)/, "(message, type) signature preserved");
+  assert.match(app, /function showToast\(message, type = "default", options = \{\}\)/, "(message, type, options) signature — options optional so legacy call sites are untouched");
   assert.match(app, /async function runAction\(action\) \{ try \{ await action\(\); \} catch \(error\) \{ showToast\(error\.message, "error"\); \} \}/,
     "runAction still reports through showToast only — no second error pipeline");
   const successCalls = count(app, '"success")');
@@ -313,5 +317,5 @@ test("60. no second toast manager", async () => {
   assert.equal(count(app, "createToastManager("), 1, "instantiated once in app.js");
   assert.equal(count(html, "toast-stack"), 4, "exactly two toast stacks in the DOM (class mentions in markup/comments)");
   assert.equal(count(html, 'role="status" aria-live="polite" aria-relevant="additions text"'), 1, "only one toast live region exists");
-  assert.equal(count(toast, "TOAST_DURATIONS"), 3, "duration table referenced only inside the one manager");
+  assert.equal(count(toast, "TOAST_DURATIONS"), 2, "duration table referenced only inside the one manager (definition + default-duration fallback; task 90 added the options.duration override)");
 });

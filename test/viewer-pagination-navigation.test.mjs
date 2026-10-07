@@ -206,7 +206,8 @@ test("8. advances to item 101 after boundary load", async () => {
   const navigate = stripJsComments(functionBody(app, "navigateAssetView"));
   assert.match(navigate, /await loadNextAssetViewPage\(\);/, "the boundary load runs before advancing");
   assert.match(navigate, /nextIndex = nextValidAssetViewIndex\(assetViewSequence\.index, 1\);/, "the advance re-scans the grown sequence");
-  assert.match(navigate, /assetViewSequence\.index = nextIndex;/, "the session index moves to the new item");
+  assert.match(navigate, /commitAssetViewIndex\(nextIndex\);/, "the session index moves through the shared commit helper (task 90 refactor)");
+  assert.match(stripJsComments(functionBody(app, "commitAssetViewIndex")), /assetViewSequence\.index = nextIndex;/, "the commit helper owns the index write");
 });
 
 // 9. New assets are appended deduplicated, in server order.
@@ -354,14 +355,16 @@ test("25. inspector pipeline intact and deferred", async () => {
   const app = await readApp();
   const load = stripJsComments(functionBody(app, "loadNextAssetViewPage"));
   assert.doesNotMatch(load, /renderDetail|versionHistory|recipeHistory/, "lazy loading never re-renders or resets the inspector");
-  assert.match(stripJsComments(functionBody(app, "navigateAssetView")), /scheduleAssetViewDetailRender\(id\)/, "in-sequence navigation defers the inspector until after the media frame");
+  assert.match(stripJsComments(functionBody(app, "navigateAssetView")), /commitAssetViewIndex\(nextIndex\)/, "in-sequence navigation runs through the shared commit (task 90 refactor)");
+  assert.match(stripJsComments(functionBody(app, "commitAssetViewIndex")), /scheduleAssetViewDetailRender\(id\)/, "the deferred inspector does not redundantly render the main media again");
   assert.match(stripJsComments(functionBody(app, "scheduleAssetViewDetailRender")), /renderDetail\(\{ syncAssetView: false \}\)/, "the deferred inspector does not redundantly render the main media again");
 });
 
 // 26. Switching assets after a boundary load still resets the transform to fit.
 test("26. transform resets on switch", async () => {
   const app = await readApp();
-  assert.match(stripJsComments(functionBody(app, "navigateAssetView")), /renderAssetView\(\)/, "boundary advance re-renders the stage");
+  assert.match(stripJsComments(functionBody(app, "navigateAssetView")), /commitAssetViewIndex\(nextIndex\)/, "boundary advance re-renders the stage through the shared commit");
+  assert.match(stripJsComments(functionBody(app, "commitAssetViewIndex")), /renderAssetView\(\)/, "the shared commit repaints the stage");
   assert.match(functionBody(app, "renderAssetView"), /if \(asset\.id !== assetViewStageAssetId\) \{[\s\S]*?resetAssetViewTransform\(\)/, "asset switch resets the transform");
 });
 

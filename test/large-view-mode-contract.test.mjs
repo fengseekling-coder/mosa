@@ -198,19 +198,22 @@ test("12. the removed card quick-copy has no grid handler", async () => {
   assert.doesNotMatch(app, /card-quick-copy/, "no markup, handler or focus path may reference the removed button");
 });
 
-// 13. The return control is a native button whose accessible name contains the
-//     visible return semantics (label + scope), in both locales.
+// 13. The return control is a native button whose visible label is the plain
+//     return semantics (GravityPort A4c, task 90: the scope name is removed from
+//     the interface), in both locales.
 test("13. return button exposes a complete accessible name", async () => {
   const [html, i18n] = await Promise.all([readHtml(), readI18n()]);
   const slice = assetViewSlice(html);
   assert.match(slice, /<button class="toolbar-filter asset-view-back" id="assetViewBack" type="button">/,
     "return control is a native type=button consuming the ToolbarButton contract");
-  assert.match(slice, /<span class="asset-view-back-label" data-i18n="backToLibrary">返回素材库<\/span>/,
+  assert.match(slice, /<span class="asset-view-back-label" data-i18n="assetViewBack">返回<\/span>/,
     "visible return-semantics label is present and i18n-driven");
-  assert.match(slice, /<span class="asset-view-back-scope" id="assetViewScope">全部素材<\/span>/,
-    "visible scope name rides along in the accessible name");
-  assert.match(i18n, /backToLibrary: "返回素材库"/, "zh backToLibrary copy");
-  assert.match(i18n, /backToLibrary: "Back to library"/, "en backToLibrary copy");
+  assert.doesNotMatch(slice, /asset-view-back-scope/,
+    "the scope name is removed from the interface per the GravityPort mock");
+  assert.match(i18n, /assetViewBack: "返回"/, "zh viewer back copy");
+  assert.match(i18n, /assetViewBack: "Back"/, "en viewer back copy");
+  assert.match(i18n, /backToLibrary: "返回素材库"/, "zh backToLibrary copy stays for the context menu");
+  assert.match(i18n, /backToLibrary: "Back to library"/, "en backToLibrary copy stays for the context menu");
 });
 
 // 14. Escape closes the topmost layer first: menus before the view exit,

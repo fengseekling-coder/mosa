@@ -112,18 +112,20 @@ test("17-18. Inspector 独立滚动且宽度不超批准范围", async () => {
   assert.doesNotMatch(styles, /--inspector-width[^:]*:\s*3[7-9]\dpx|--inspector-width[^:]*:\s*[4-9]\d\dpx/);
 });
 
-test("19-21. Return / Prev / Next / Zoom 控件可见契约", async () => {
+test("19-21. Return / Prev / Next / Fit 控件可见契约（A4c 改版后）", async () => {
   const index = await source("web/app/index.html");
   const styles = await source("web/app/styles.css");
+  // 任务 90：返回 + 左右翻页箭头 + 右上动作组；位置计数/缩放控制条按稿子移除，
+  // 适合窗口沿用 #assetZoomFit（动作按钮 24px 高）。
   assert.match(index, /id="assetViewBack"/);
   assert.match(index, /id="assetViewPrev"/);
   assert.match(index, /id="assetViewNext"/);
-  assert.match(index, /id="assetZoomOut"/);
-  assert.match(index, /id="assetZoomIn"/);
   assert.match(index, /id="assetZoomFit"/);
+  assert.match(index, /id="assetViewDelete"/);
+  assert.match(index, /id="assetViewFullscreen"/);
   assert.match(styles, /\.asset-view-back \{ min-width: 0;/);
-  assert.match(styles, /\.asset-view-nav-btn \{ display: inline-flex; width: 40px; height: 40px;/);
-  assert.match(styles, /\.asset-view-controls \{ position: absolute;/);
+  assert.match(styles, /\.asset-view-arrow \{ position: absolute;/);
+  assert.match(styles, /\.asset-view-action \{ display: inline-flex;/);
 });
 
 test("22-24. Inspector A4a 六区块顺序：File/Tags/Palette/Prompt/Reference/Version", async () => {

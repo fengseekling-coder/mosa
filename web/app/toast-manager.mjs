@@ -5,6 +5,8 @@
 // error 6000ms），排队不消耗时长。hover/focus 暂停可多原因叠加，全部解除后按剩余
 // 时长恢复；error 可手动关闭（关闭按钮仅 error 有，键盘关闭有安全焦点策略）；进出
 // 过渡为 class + transition 可中断，transitionend 后移除并有短 fallback 防僵尸节点。
+// 任务 90：show() 增加可选 options（actionLabel/onAction/duration）——polite 通道
+// 可携带一个操作按钮（如「撤销」），文本渲染、键盘可激活、不影响无 options 的既有 toast。
 // Toast 状态不进素材 state、不写 localStorage；消息一律 textContent，绝不接受任意 HTML。
 // 提取自 app.js（REFACTORING-PLAN R1 批次 3）：els/state/t/isConfirmFocusTarget 经参数注入。
 const TOAST_DURATIONS = { success: 2200, default: 2200, error: 6000 };
@@ -97,6 +99,19 @@ export function createToastManager(deps) {
       // event.detail === 0 即键盘激活（Enter/Space）；指针点击 detail > 0，不强制动焦点。
       dismissButton.addEventListener("click", (event) => dismiss(entry.id, "manual", event.detail === 0));
       element.appendChild(dismissButton);
+    } else if (entry.actionLabel && entry.onAction) {
+      // 操作按钮（任务 90，如「撤销」）：可见文本即 accessible name；focusin 暂停计时
+      // 已覆盖，键盘激活（detail === 0）走安全焦点归还；激活即离场（onAction 已入队）。
+      const actionButton = document.createElement("button");
+      actionButton.type = "button";
+      actionButton.className = "toast-action";
+      actionButton.textContent = entry.actionLabel;
+      actionButton.addEventListener("click", (event) => {
+        const viaKeyboard = event.detail === 0;
+        entry.onAction();
+        dismiss(entry.id, "action", viaKeyboard);
+      });
+      element.appendChild(actionButton);
     }
     entry.element = element;
     lanes[laneName].visible.push(entry);
@@ -171,22 +186,34 @@ export function createToastManager(deps) {
       const next = lanes.assertive.visible[0];
       const nextDismiss = next?.element?.querySelector(".toast-dismiss");
       if (nextDismiss?.isConnected) { nextDismiss.focus(); return; }
+      restoreToastActionFocus(closedEntry);
+    });
+  }
+
+  function restoreToastActionFocus(closedEntry) {
+    // 操作按钮（任务 90）键盘激活后的安全焦点：优先创建时的 origin，回退当前视图
+    // 安全可达元素。与关闭按钮同一套守卫：绝不落回 body，绝不恢复失效节点。
+    requestAnimationFrame(() => {
       if (isConfirmFocusTarget(closedEntry.originFocus)) { closedEntry.originFocus.focus(); return; }
       const fallback = state.viewMode === "asset" ? els.assetViewBack : els.searchInput;
       if (isConfirmFocusTarget(fallback)) fallback.focus();
     });
   }
 
-  function show(rawMessage, type = "default") {
+  function show(rawMessage, type = "default", options = {}) {
     const normalizedType = type === "success" || type === "error" ? type : "default";
+    const duration = Number.isFinite(options.duration) && options.duration > 0 ? options.duration : TOAST_DURATIONS[normalizedType];
     const lane = laneOf(normalizedType);
     const entry = {
       id: `toast-${++toastSequence}`,
       message: normalizeToastMessage(rawMessage),
       type: normalizedType,
       lane,
-      duration: TOAST_DURATIONS[normalizedType],
-      remaining: TOAST_DURATIONS[normalizedType],
+      duration,
+      remaining: duration,
+      // 操作按钮（任务 90）：文案 + 回调均为调用方注入（文案经 t() 取词，纯文本渲染）。
+      actionLabel: typeof options.actionLabel === "string" && options.actionLabel ? options.actionLabel : "",
+      onAction: typeof options.onAction === "function" ? options.onAction : null,
       createdAt: Date.now(),
       shownAt: null,
       startedAt: null,
@@ -210,6 +237,7 @@ export function createToastManager(deps) {
     const laneName = entry.lane;
     beginLeave(id, reason);
     if (viaKeyboard && laneName === "assertive") restoreAssertiveDismissFocus(entry);
+    else if (viaKeyboard && entry.actionLabel) restoreToastActionFocus(entry);
   }
 
   function clearAll(reason = "clear") {

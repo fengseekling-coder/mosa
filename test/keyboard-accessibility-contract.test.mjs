@@ -94,7 +94,10 @@ const checks = [
   }],
   ["22 viewer zoom controls are reachable", async () => {
     const html = await read("web/app/index.html");
-    for (const id of ["assetZoomOut", "assetZoomIn", "assetZoomFit"]) assert.match(html, new RegExp(`id="${id}" type="button"`));
+    // 任务 90（A4c）：缩放控制条按稿子移除（滚轮/双指/键盘 +,-,0,f 仍是缩放入口）；
+    // 「适合窗口」上移为右上动作按钮，沿用 #assetZoomFit。
+    assert.match(html, /id="assetZoomFit" type="button"/);
+    assert.doesNotMatch(html, /id="assetZoomOut"|id="assetZoomIn"/);
   }],
   ["23 inspector A4a section order is fixed", async () => {
     const app = await read("web/app/app.mjs");

@@ -108,6 +108,24 @@ const KEY_KINDS = {
   "inspector.versionContextThumbSize": "px",
   "inspector.versionContextModelFontSize": "font",
   "inspector.versionContextModelLineHeight": "px",
+  // 任务 90（GravityPort A4c）：大图查看页按钮/箭头/图片区几何 + toast 避让检视器的
+  // 位置（检视器打开 = 检视器宽 + 20，关闭 = 20；底部恒 20）。
+  "viewer.headerHeight": "px",
+  "viewer.actionButtonHeight": "px",
+  "viewer.actionButtonRadius": "px",
+  "viewer.actionButtonGap": "px",
+  "viewer.actionsRightInset": "px",
+  "viewer.arrowButtonSide": "px",
+  "viewer.arrowRightInset": "px",
+  "viewer.arrowIconHeight": "px",
+  "viewer.imageWidth": "px",
+  "viewer.imageHeight": "px",
+  "viewer.imageCenterOffsetX": "px",
+  "viewer.imageCenterOffsetY": "px",
+  "viewer.stagePaddingTop": "px",
+  "toast.stackRightInsetOpen": "px",
+  "toast.stackRightInsetClosed": "px",
+  "toast.stackBottomInset": "px",
   // 设置弹窗
   "settings.cardWidth": "px",
   "settings.cardHeight": "px",
@@ -521,6 +539,51 @@ function measurementSource({ plainAssetId }) {
     R['gallery.selectionRingWidth'] = ring.borderWidth;
     R['gallery.selectionRingColor'] = ring.borderColor;
     R['gallery.selectionRingRadius'] = ring.borderTopLeftRadius;
+
+    // ---- 4b) 大图查看页（任务 90，GravityPort A4c）：按钮 / 箭头 / 图片区 + toast 位置 ----
+    // 经真实入口（右键菜单「在查看器中打开」）进入；量完返回画廊并手动关检视器，
+    // 再量 toast 栈的关闭态右边距。
+    const viewerOpenItem = await openContextMenu(cardSelector(seed.plainAssetId), '在查看器中打开');
+    viewerOpenItem.click();
+    await waitFor(() => !pick('#assetView').hidden, 'asset view opens for snapshot');
+    const viewerImage = pick('#assetViewImage');
+    await waitFor(() => !viewerImage.hidden && viewerImage.complete && viewerImage.naturalWidth > 0, 'viewer image loaded');
+    await waitForMotionSettled(viewerImage, 'viewer image');
+    await waitStable(() => {
+      const r = rectOf(viewerImage);
+      return [r.left, r.top, r.width, r.height].map((v) => Math.round(v * 2));
+    }, 'viewer image geometry');
+    const viewerHeader = pick('#assetView .asset-view-header');
+    const viewerStage = pick('#assetViewStage');
+    const stageRect = rectOf(viewerStage);
+    const viewerImageRect = rectOf(viewerImage);
+    R['viewer.headerHeight'] = rectOf(viewerHeader).height;
+    const deleteButton = pick('#assetViewDelete');
+    const fullscreenButton = pick('#assetViewFullscreen');
+    R['viewer.actionButtonHeight'] = rectOf(deleteButton).height;
+    R['viewer.actionButtonRadius'] = styleOf(deleteButton).borderTopLeftRadius;
+    R['viewer.actionButtonGap'] = rectOf(fullscreenButton).left - rectOf(pick('#assetZoomFit')).right;
+    R['viewer.actionsRightInset'] = rectOf(viewerHeader).right - rectOf(fullscreenButton).right;
+    const arrowNext = pick('#assetViewNext');
+    R['viewer.arrowButtonSide'] = rectOf(arrowNext).width;
+    R['viewer.arrowRightInset'] = stageRect.right - rectOf(arrowNext).right;
+    R['viewer.arrowIconHeight'] = rectOf(arrowNext.querySelector('svg')).height;
+    R['viewer.imageWidth'] = viewerImageRect.width;
+    R['viewer.imageHeight'] = viewerImageRect.height;
+    R['viewer.imageCenterOffsetX'] = Math.abs((viewerImageRect.left + viewerImageRect.width / 2) - (stageRect.left + stageRect.width / 2));
+    R['viewer.imageCenterOffsetY'] = Math.abs((viewerImageRect.top + viewerImageRect.height / 2) - (stageRect.top + stageRect.height / 2));
+    R['viewer.stagePaddingTop'] = styleOf(viewerStage).paddingTop;
+    // 检视器开着：toast 栈右边距 = 检视器宽 + 20；底边距恒 20。
+    const toastStack = pick('#toastContainer');
+    await waitStable(() => [Math.round(rectOf(toastStack).right * 2)], 'toast stack right (inspector open)');
+    R['toast.stackRightInsetOpen'] = window.innerWidth - rectOf(toastStack).right;
+    R['toast.stackBottomInset'] = window.innerHeight - rectOf(toastStack).bottom;
+    click('#assetViewBack');
+    await waitFor(() => pick('#assetView').hidden === true, 'asset view closed after snapshot');
+    click('#detailPanel .detail-close');
+    await waitFor(() => pick('#detailPanel').getAttribute('aria-hidden') === 'true', 'inspector closed for toast closed-state key');
+    await waitStable(() => [Math.round(rectOf(toastStack).right * 2)], 'toast stack right (closed)');
+    R['toast.stackRightInsetClosed'] = window.innerWidth - rectOf(toastStack).right;
 
     // ---- 5) 深色主题关键颜色（设置里的真实入口切换）----
     await openSettings('dark');

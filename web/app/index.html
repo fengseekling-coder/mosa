@@ -190,46 +190,34 @@
         </header>
         <section class="grid" id="assetGrid" data-i18n-aria-label="assetList" aria-label="素材列表" aria-busy="true" tabindex="-1"></section>
         </section>
-        <!-- 专用大图查看模式骨架（Phase 3A）：单一返回操作（可见文本=返回语义+范围名，
-             accessible name 即可见文本拼接，天然满足 Label in Name）+ 中性舞台（唯一主图）。
-             Phase 3C / F-04：头部右侧单一素材导航组（位置 output + 上一张/下一张，批准稿右上
-             箭头位）；无缩略图条/相关素材/底部素材列表。 -->
+        <!-- 专用大图查看模式骨架（GravityPort A4c，任务 90）：头部浮在舞台之上（不占布局、
+             不拦舞台指针，子按钮恢复接收）——左上「< 返回」，右上「删除 / 适合窗口 / 全屏」；
+             舞台占满整个主区，媒体按比例适合、竖直居中，左右两侧大箭头浮在舞台上。
+             位置计数、上一张/下一张按钮组、缩放控制条、返回键里的范围名按稿子从界面拿掉
+             （JS 引用、i18n 键与禁用语义保留，元素缺省时走既有空值守卫）。 -->
         <section class="asset-view" id="assetView" aria-labelledby="assetViewTitle" hidden inert aria-hidden="true">
           <header class="asset-view-header">
-            <button class="toolbar-filter asset-view-back" id="assetViewBack" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="asset-view-back-label" data-i18n="backToLibrary">返回素材库</span><span class="asset-view-back-scope" id="assetViewScope">全部素材</span></button>
+            <button class="toolbar-filter asset-view-back" id="assetViewBack" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="asset-view-back-label" data-i18n="assetViewBack">返回</span></button>
             <h2 class="visually-hidden" id="assetViewTitle"></h2>
-            <!-- Phase 3C / F-04：单一素材导航组。原生 button + type="button" + native disabled；
-                 位置为 output 语义（aria-live=polite），图标按钮以 aria-label 命名（不依赖 title）。 -->
-            <div class="asset-view-nav" id="assetViewNav" role="group" data-i18n-aria-label="assetNavControls" aria-label="素材导航">
-              <output class="asset-view-position" id="assetViewPosition" data-i18n-aria-label="assetPosition" aria-label="素材位置" aria-live="polite">—</output>
-              <button class="asset-view-nav-btn" id="assetViewPrev" type="button" data-i18n-aria-label="assetNavPrev" aria-label="上一张素材" disabled>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
-              </button>
-              <button class="asset-view-nav-btn" id="assetViewNext" type="button" data-i18n-aria-label="assetNavNext" aria-label="下一张素材" disabled>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-              </button>
+            <div class="asset-view-actions" role="group" data-i18n-aria-label="assetViewActions" aria-label="大图操作">
+              <button class="asset-view-action" id="assetViewDelete" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/></svg><span data-i18n="delete">删除</span></button>
+              <button class="asset-view-action" id="assetZoomFit" type="button" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg><span data-i18n="zoomFit">适合窗口</span></button>
+              <button class="asset-view-action" id="assetViewFullscreen" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg><span data-i18n="fullscreen">全屏</span></button>
             </div>
           </header>
           <div class="asset-view-stage" id="assetViewStage">
             <img class="asset-view-image" id="assetViewImage" alt="" draggable="false" hidden />
             <video class="asset-view-video" id="assetViewVideo" controls playsinline hidden></video>
             <p class="asset-view-error" id="assetViewError" role="status" hidden></p>
-            <!-- Phase 3B / F-03：单一缩放控制条，舞台内部底部居中浮动（批准稿位置）。
-                 原生 button + output 语义；− / + 为图标按钮（aria-label 命名，不依赖 title），
-                 Fit 带可见文字；无上一张/下一张、无缩略图、无下载分享。 -->
-            <div class="asset-view-controls" id="assetViewControls" role="group" data-i18n-aria-label="zoomControls" aria-label="图像缩放控制">
-              <button class="asset-view-control" id="assetZoomOut" type="button" data-i18n-aria-label="zoomOut" aria-label="缩小" disabled>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14"/></svg>
-              </button>
-              <output class="asset-view-zoom-value" id="assetZoomValue" data-i18n-aria-label="zoomLevel" aria-label="当前缩放比例" aria-live="off">—</output>
-              <button class="asset-view-control" id="assetZoomIn" type="button" data-i18n-aria-label="zoomIn" aria-label="放大" disabled>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-              </button>
-              <button class="asset-view-fit" id="assetZoomFit" type="button" disabled>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-                <span data-i18n="zoomFit">适合窗口</span>
-              </button>
-            </div>
+            <!-- 左右翻页箭头（GravityPort A4c）：沿用 assetViewPrev/Next 的既有绑定、
+                 焦点兜底与禁用语义（到头禁用，样式走现有 disabled token）；
+                 键盘左右方向键照旧，箭头本身只补指针入口。 -->
+            <button class="asset-view-arrow asset-view-arrow-prev" id="assetViewPrev" type="button" data-i18n-aria-label="assetNavPrev" aria-label="上一张素材" disabled>
+              <svg width="18" height="36" viewBox="0 0 18 36" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 2 2 18l14 16"/></svg>
+            </button>
+            <button class="asset-view-arrow asset-view-arrow-next" id="assetViewNext" type="button" data-i18n-aria-label="assetNavNext" aria-label="下一张素材" disabled>
+              <svg width="18" height="36" viewBox="0 0 18 36" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 2 14 16L2 34"/></svg>
+            </button>
           </div>
         </section>
       </main>

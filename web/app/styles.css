@@ -524,32 +524,40 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .error-state span { max-width: 360px; margin-top: 5px; font-size: 12px; }
 .error-state button { height: 30px; margin-top: 16px; padding: 0 12px; border: 1px solid var(--color-accent); border-radius: var(--radius-control); color: var(--color-accent-contrast); background: var(--color-accent); cursor: pointer; font-size: 12px; font-weight: 550; }
 
-/* ===== 专用大图查看模式（Phase 3A / D4 / F-01） =====
+/* ===== 专用大图查看模式（Phase 3A / D4 / F-01；GravityPort A4c 任务 90 改版） =====
    主区内两个互斥 UI 状态：.library-view（画廊）与 .asset-view（专用大图），均由 app.js
    setViewMode 以 hidden + inert + aria-hidden 组合驱动——退出布局、Tab 顺序与辅助技术树。
    终态结构 = 左侧 Sidebar + 中央专用大图工作区 + 右侧素材信息面板（详情面板复用，
    .details-open 语义转为专用查看模式）；不显示画廊网格、无缩略图条、无相关素材。
-   舞台为中性安静 Surface：object-fit:contain 居中、不裁切不拉伸、消费剩余高度、无横向滚动；
-   无渐变/纹理/毛玻璃/动效；缩放、平移、上一张/下一张属 Phase 3B/3C，此处不预留控件。 */
+   A4c：头部浮在舞台之上（左上「< 返回」，右上「删除 / 适合窗口 / 全屏」），舞台占满
+   整个主区（媒体按比例适合、竖直居中的基准=主区全高），左右两侧大箭头浮在舞台上；
+   位置计数、上一张/下一张按钮组、缩放控制条、返回键范围名按稿子移除（JS 引用保留，
+   元素缺省走空值守卫）；滚轮/双指缩放/拖拽平移照旧，不是界面元素。 */
 .library-view { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
 /* hidden-attribute-contract：每个 hidden 切换类的 display 守卫须独立成规（非合写选择器）。 */
 .library-view[hidden] { display: none; }
 .asset-view[hidden] { display: none; }
-.asset-view { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; background: var(--app-bg); }
-/* 查看模式头部与全局顶栏同高同 Token（--topbar-height / --space-2），全档只有这一条工具栏；
-   返回按钮消费 ToolbarButton 契约（.toolbar-filter），可见文本=返回语义+范围名（可截断）。 */
-.asset-view-header { display: flex; flex: 0 0 auto; align-items: center; gap: var(--space-2); height: var(--topbar-height); padding: 0 var(--space-2); border-bottom: var(--border-width) solid var(--color-border-subtle); background: var(--app-bg); }
-.asset-view-back { min-width: 0; max-width: min(420px, 70%); flex: 0 1 auto; }
+.asset-view { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; background: var(--app-bg); position: relative; }
+/* 头部浮层（--topbar-height 同高）：容器不接收指针（空档处滚轮/平移穿透到舞台），
+   子按钮恢复接收；左右内边距 20，与 toast 右缘同一条 20px 竖轨（稿子右缘 1580）。 */
+.asset-view-header { position: absolute; z-index: var(--z-popover); top: 0; right: 0; left: 0; display: flex; align-items: center; gap: var(--space-2); height: var(--topbar-height); padding: 0 20px; pointer-events: none; }
+.asset-view-header > * { pointer-events: auto; }
+.asset-view-back { min-width: 0; max-width: min(420px, 70%); flex: 0 1 auto; padding-left: 0; }
 .asset-view-back svg { flex: 0 0 auto; }
 .asset-view-back-label { flex: 0 0 auto; }
-.asset-view-back-scope { min-width: 0; overflow: hidden; color: var(--color-text-tertiary); text-overflow: ellipsis; white-space: nowrap; }
-/* Phase 3C / F-04：头部右侧单一素材导航组（批准稿右上箭头位）。导航按钮为 quiet
-   幽灵样式——视觉权重低于返回按钮（带边框的 toolbar-filter）与主图；40×40px 点击
-   区域与 16px 图标视觉尺寸分离；位置 output 紧凑、三级文字色、等宽数字，不与标题竞争。 */
-.asset-view-nav { display: flex; flex: 0 0 auto; align-items: center; gap: var(--space-1); margin-inline-start: auto; }
-.asset-view-position { display: inline-flex; min-width: 48px; align-items: center; justify-content: center; color: var(--color-text-tertiary); font-size: var(--font-size-body-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.asset-view-nav-btn { display: inline-flex; width: 40px; height: 40px; flex: 0 0 auto; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
-.asset-view-nav-btn:disabled, .asset-view-nav-btn[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
+/* 右上动作组（删除 / 适合窗口 / 全屏）：24px 高、radius 8、组内间距 4、右缘贴 20px 轨
+   （稿子：y 19–43、rx 7.9、间距 4.2、右缘 1577.9）。适合窗口沿用 #assetZoomFit 的
+   既有禁用语义（未就绪/已 fit/视频禁用）。 */
+.asset-view-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; margin-left: auto; }
+.asset-view-action { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: var(--font-size-body-sm); font-weight: 500; white-space: nowrap; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
+.asset-view-action:disabled, .asset-view-action[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
+/* 左右翻页箭头：44×44 点击区域、18×36 圆帽箭头图形（稿子 18×36、stroke 2）、
+   竖直居中于主区全高、按钮距主区左右缘 8px（图形落点 ≈ 稿子的 20–21px）。
+   到头禁用沿用现有 disabled token（opacity .48 + not-allowed）。 */
+.asset-view-arrow { position: absolute; z-index: var(--z-popover); top: calc(50% - 22px); display: inline-flex; width: 44px; height: 44px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--radius-pill); color: var(--color-text-secondary); background: transparent; cursor: pointer; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
+.asset-view-arrow-prev { left: 8px; }
+.asset-view-arrow-next { right: 8px; }
+.asset-view-arrow:disabled, .asset-view-arrow[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
 .asset-view-stage { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; align-items: center; justify-content: center; overflow: hidden; padding: var(--space-3); background: var(--app-sidebar); /* This stage owns complete pan/pinch input, so preventing browser scrolling keeps two-pointer geometry stable; other surfaces retain native scrolling. */ touch-action: none; }
 /* Phase 3B：主图几何由 JS 显式接管——元素宽高=自然尺寸（load 后写入），transform
    translate+scale 承载全部缩放/平移，transform-origin 为图片中心；不再用 max-width/
@@ -563,17 +571,22 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .asset-view-error[hidden] { display: none; }
 .asset-view-error { margin: 0; color: var(--color-text-secondary); font-size: 12px; }
 
-/* Phase 3B / F-03：缩放控制条——舞台内部底部居中紧凑浮动工具条（批准稿位置）。
-   全部消费现有语义 Token（surface-raised / border / shadow-popover / spacing / radius-pill /
-   z-popover / duration-fast）；无渐变、无毛玻璃、无新圆角体系、无随机 rgba；绝对定位
-   不推动三栏布局、不改变舞台可用高度。 */
-.asset-view-controls { position: absolute; z-index: var(--z-popover); bottom: var(--space-3); left: 50%; display: flex; align-items: center; gap: 4px; padding: 4px; transform: translateX(-50%); border: var(--border-width) solid var(--color-border-default); border-radius: var(--radius-pill); background: var(--color-surface-raised); box-shadow: var(--shadow-popover); }
-.asset-view-control { display: inline-flex; width: var(--control-sm); height: var(--control-sm); flex: 0 0 auto; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--radius-pill); color: var(--color-text-secondary); background: transparent; cursor: pointer; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
-.asset-view-fit { display: inline-flex; height: var(--control-sm); flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 var(--space-1); border: 0; border-radius: var(--radius-pill); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: var(--font-size-body-sm); font-weight: 500; white-space: nowrap; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
-.asset-view-zoom-value { display: inline-flex; min-width: 48px; align-items: center; justify-content: center; color: var(--color-text-primary); font-size: var(--font-size-body-sm); font-variant-numeric: tabular-nums; }
-/* 控制条 hover 规则合入下方 Phase 1B 统一 hover media 块（保持全站唯一
-   hover media 入口；触摸设备不粘住 hover，与按钮族契约一致）。 */
-.asset-view-control:disabled, .asset-view-control[aria-disabled="true"], .asset-view-fit:disabled, .asset-view-fit[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
+/* A4c 全屏（任务 90）：只剩媒体——头部与箭头全部隐藏，黑底铺满；滚轮缩放/拖拽
+   平移/左右方向键翻页照旧，Esc 退全屏回到大图页。真全屏由 UA :fullscreen 铺满；
+   CSS 回退态（无手势/API 不可用）以 fixed + z-overlay 兜底。
+   黑底复用 --color-media-backdrop 的 :root 基值 #0b0b0d（既有色值，非新增）：
+   body.mosa-v2 作用域把该 token 改成了半透明遮罩（0.85/0.92，供图片预览压暗
+   下层内容），全屏背后没有内容，半透明会漏白，故用基值。 */
+.asset-view.is-fullscreen { background: #0b0b0d; }
+.asset-view.is-fullscreen:not(:fullscreen) { position: fixed; z-index: var(--z-overlay); inset: 0; }
+/* 舞台自身有 --app-sidebar 底色,会盖住全屏黑底——全屏态透明化,黑底由 .asset-view 提供。 */
+.asset-view.is-fullscreen .asset-view-stage { background: transparent; }
+.asset-view.is-fullscreen .asset-view-header,
+.asset-view.is-fullscreen .asset-view-arrow { display: none; }
+
+/* 稿子里没有的旧控件（位置计数 / 上一张下一张按钮组 / 缩放控制条）已按 A4c 从界面
+   与样式移除；JS 侧 updateAssetViewNav / updateAssetViewControls 的引用经空值守卫
+   保留，元素重新补回时样式需一并恢复。 */
 
 /* ===== 详情面板 ===== */
 /* Phase 4A 单栏检视器滚动架构：.detail 自身不滚动；.detail-inspector-scroll 是右栏
@@ -914,6 +927,13 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
    下方点击，仅 Toast 自身可接收指针。 */
 .toast-stack { position: fixed; z-index: var(--z-toast); right: 20px; bottom: 20px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; }
 .toast-stack-polite { bottom: calc(20px + var(--toast-error-stack-height, 0px)); }
+/* 任务 90（GravityPort A4c）：检视器打开（docked 档）时 toast 栈右边距 = 检视器宽度 + 20，
+   弹窗落在中间区域右下、不盖住检视器（稿子「弹窗提示」位 x 1460–1580 = 检视器左缘 −20）；
+   检视器关闭与窄屏回退档（≤700px 详情下折、非右侧停靠）照旧贴窗口右下。
+   全局生效（画廊页/大图页同一条规则）；宽度消费现有检视器宽度 token，不写死。 */
+@media (min-width: 701px) {
+  body.detail-open .toast-stack { right: calc(var(--inspector-width) + 20px); }
+}
 .toast { display: flex; align-items: flex-start; gap: 8px; max-width: min(330px, calc(100vw - 40px)); padding: 8px 14px; border-radius: var(--radius-control); color: var(--app-bg); background: var(--color-text-primary); box-shadow: var(--shadow-panel); font-size: 12px; font-weight: 500; pointer-events: auto; opacity: 0; transform: translateY(4px); transition: opacity .18s ease, transform .18s ease; }
 .toast.is-visible { opacity: 1; transform: translateY(0); }
 .toast.is-leaving { opacity: 0; transform: translateY(4px); }
@@ -924,6 +944,10 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 .toast-message { overflow-wrap: anywhere; }
 .toast-dismiss { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin: -2px -6px -2px 0; padding: 0; border: none; border-radius: 4px; background: transparent; color: inherit; opacity: .7; cursor: pointer; }
 .toast-dismiss:hover { opacity: 1; background: color-mix(in srgb, var(--app-bg) 14%, transparent); }
+/* 操作按钮（任务 90，如「撤销」）：可见文本即 accessible name，继承 toast 文字色与
+   字号；hover 复用关闭按钮同一档底色（不新增颜色值）。 */
+.toast-action { flex: none; margin: -2px -4px -2px 0; padding: 2px 4px; border: none; border-radius: 4px; background: transparent; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.toast-action:hover { background: color-mix(in srgb, var(--app-bg) 14%, transparent); }
 
 /* ===== 按钮原语契约（Phase 1B） =====
    六个原语与当前控件类共享同一状态契约：
@@ -979,8 +1003,8 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   .image-preview-header .icon-button:not(:disabled):not([aria-disabled="true"]):hover {
     color: var(--color-media-text); border-color: color-mix(in srgb, var(--color-media-text) 50%, transparent); background: color-mix(in srgb, var(--color-media-text) 16%, transparent);
   }
-  /* 大图舞台缩放控制条（Phase 3B）与素材导航按钮（Phase 3C）：仅加底色与文字强调，不改变几何 */
-  .asset-view-control:not(:disabled):not([aria-disabled="true"]):hover, .asset-view-fit:not(:disabled):not([aria-disabled="true"]):hover, .asset-view-nav-btn:not(:disabled):not([aria-disabled="true"]):hover { color: var(--color-text-primary); background: var(--color-surface-subtle); }
+  /* 大图舞台动作按钮与翻页箭头（A4c）：仅加底色与文字强调，不改变几何 */
+  .asset-view-action:not(:disabled):not([aria-disabled="true"]):hover, .asset-view-arrow:not(:disabled):not([aria-disabled="true"]):hover { color: var(--color-text-primary); background: var(--color-surface-subtle); }
 }
 
 /* --- Active：明确按压反馈；只改颜色，不改尺寸、不产生位移、不加动画 --- */
@@ -990,7 +1014,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 :where(.icon-button.quiet, .section-head-copy):not(:disabled):not([aria-disabled="true"]):active {
   color: var(--color-text-primary); background: var(--color-border-default);
 }
-.asset-view-nav-btn:not(:disabled):not([aria-disabled="true"]):active { color: var(--color-text-primary); background: var(--color-surface-subtle); }
+.asset-view-action:not(:disabled):not([aria-disabled="true"]):active, .asset-view-arrow:not(:disabled):not([aria-disabled="true"]):active { color: var(--color-text-primary); background: var(--color-surface-subtle); }
 :where(.nav-item:not(.active), .settings-trigger, .settings-menu button, .version-timeline-item:not(.selected) > button, .add-group-button):not(:disabled):not([aria-disabled="true"]):active {
   background: var(--color-border-subtle);
 }
@@ -1136,7 +1160,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   .asset-skeleton { animation: none; background: var(--app-hover); }
   .nav-item, .topbar-search { transition: none; }
   .toast { transition: none; transform: none; }
-  .asset-view-control, .asset-view-fit, .asset-view-nav-btn { transition: none; }
+  .asset-view-action, .asset-view-arrow { transition: none; }
   .segmented-btn, .segmented-thumb, .toolbar-icon, .toolbar-filter, .create-button, .icon-button,
   .action-btn, .mini-btn, .prompt-text, input, textarea, select,
   .btn-primary, .btn-secondary, .btn-danger { transition: none; }
@@ -1227,6 +1251,9 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .topbar-actions { gap: 8px; }.mosa-v2 .topbar-utility-group { display: contents; }.mosa-v2 .topbar-work-group { gap: 4px; }.mosa-v2 .topbar-primary-group { display: flex; }
 .mosa-v2 .toolbar-filter, .mosa-v2 .toolbar-icon, .mosa-v2 .sort-control select { height: 32px; border: 1px solid var(--color-border-subtle); border-radius: 8px; color: var(--color-text-secondary); background: var(--app-input); box-shadow: none; font-size: 12px; }
 .mosa-v2 .toolbar-filter { gap: 6px; padding: 0 10px; }.mosa-v2 .toolbar-filter[aria-pressed="true"] { color: var(--color-text-primary); background: var(--app-chip-active); }
+/* 任务 90（A4c）：大图页返回按钮在稿子里是纯「< 返回」幽灵态（无底无框），不吃
+   上一条 V2 toolbar-filter 的 32 高/描边/底色；padding-left 由浮层头部 20px 轨承担。 */
+.mosa-v2 .asset-view-back { height: 28px; border: 0; background: transparent; padding-left: 0; }
 .mosa-v2 .sort-control select { min-width: 88px; padding: 0 26px 0 12px; }
 /* 任务 70 返工 1（设计稿还原）：顶栏右侧控件 24 高、在 64 高顶栏里竖向居中
    （y20–44）。共用 32px 规则不动，只用 .topbar-actions 限定范围，顶栏以外
@@ -2368,7 +2395,8 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   .asset-card,
   .card-action-btn,
   .toast,
-  .asset-view-control,
+  .asset-view-action,
+  .asset-view-arrow,
   .nav-item,
   .icon-button,
   .segmented-btn,
