@@ -5508,6 +5508,7 @@ function renderDetail({ syncAssetView = true } = {}) {
   // so they need their listeners again (not only after /versions loads).
   bindVersionCompareEvents(cachedHistory, asset.id);
   bindGenerationHistoryEvents(cachedGenerationHistory, asset.id);
+  bindGenerationContextEvents();
   bindRecipeHistoryEvents(cachedRecipeHistory, asset);
   detailRenderedAssetId = asset.id;
   if (hadPanelFocus) els.detailPanel.querySelector("#detailTitle")?.focus();
@@ -5618,6 +5619,20 @@ function renderGenerationContextRegion(history, selectedId, error = null) {
   region.innerHTML = error
     ? `<p class="empty-copy detail-version-context-empty">${escapeHtml(t("generationHistoryEmpty"))}</p>`
     : generationContextBoxMarkup(history, selectedId);
+}
+// 任务 75：版本树与上下文的行是「打开这条生成的输出素材」按钮，复用生成树同一
+// 动作（openGenerationOutputAsset），不另写切换逻辑；键盘经原生 button 激活。
+// 盒的 innerHTML 会被异步刷新整段替换而 region 元素只在 renderDetail 重建，
+// 所以在 region 上做一次事件委托（幂等标记防重复绑定）。
+function bindGenerationContextEvents() {
+  const region = els.detailPanel?.querySelector("[data-generation-context]");
+  if (!region || region.dataset.generationContextRowsBound === "true") return;
+  region.dataset.generationContextRowsBound = "true";
+  region.addEventListener("click", (event) => {
+    const button = event.target.closest?.('button[data-action="open-generation-output"]');
+    if (!button || button.disabled || !region.contains(button)) return;
+    runAction(() => openGenerationOutputAsset(button.dataset.outputAssetId));
+  });
 }
 function renderGenerationHistoryRegion(history, selectedId, error = null, options = {}) {
   const region = els.detailPanel?.querySelector("[data-generation-history]");

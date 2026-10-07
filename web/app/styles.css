@@ -3617,19 +3617,29 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 :root[data-theme="light"] .mosa-v2 .detail .detail-reference-empty { color: #6e6e73; }
 
 /* —— 版本树与上下文：盒内最多 3 行，每行 40 高、内边距 4、行距 4；
-      行首 40×40 缩略图，右侧一行「模型：provider · model」，当前素材行加标记 —— */
+      行首 40×40 缩略图。任务 75：行是复用 open-generation-output 的按钮；
+      对话行内三行小字（模型 / 轮次 / 合计，行距 13×3=39 装满 40 高，与稿子
+      一致），无对话行保持 73 的单行（模型 + 当前素材标记并排）。 —— */
 .mosa-v2 .detail .detail-version-context { padding: var(--r21-s5) 20px; }
 .mosa-v2 .detail .detail-version-context-box { display: grid; gap: 4px; box-sizing: border-box; align-content: start; padding: 4px; border: 1px solid var(--color-border-subtle); border-radius: 4px; }
-.mosa-v2 .detail .detail-version-context-row { display: flex; box-sizing: border-box; height: 40px; align-items: center; gap: 8px; min-width: 0; padding: 4px; border-radius: 4px; background: rgb(242 242 247 / .76); }
-.mosa-v2 .detail .detail-version-context-row .generation-output-thumb { width: 40px; height: 40px; flex: 0 0 40px; overflow: hidden; border-radius: 4px; }
+.mosa-v2 .detail .detail-version-context-row { display: flex; box-sizing: border-box; height: 40px; align-items: center; gap: 8px; min-width: 0; padding: 4px; border: 0; border-radius: 4px; background: rgb(242 242 247 / .76); font: inherit; text-align: left; cursor: pointer; }
+.mosa-v2 .detail .detail-version-context-row:disabled { cursor: default; }
+.mosa-v2 .detail .detail-version-context-row:focus-visible { outline: 2px solid var(--color-focus-ring, #0a84ff); outline-offset: 1px; }
+.mosa-v2 .detail .detail-version-context-row .generation-output-thumb { width: 40px; height: 40px; flex: 0 0 40px; overflow: hidden; border: 0; border-radius: 4px; }
 .mosa-v2 .detail .detail-version-context-row .generation-output-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .mosa-v2 .detail .detail-version-context-line { display: flex; flex: 1 1 auto; min-width: 0; align-items: center; gap: 6px; }
-.mosa-v2 .detail .detail-version-context-model { min-width: 0; flex: 0 1 auto; overflow: hidden; color: var(--color-text-secondary); font-size: 10px; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }
-.mosa-v2 .detail .detail-version-context-current { flex: 0 0 auto; color: var(--color-accent); font-size: 10px; font-weight: 550; }
+.mosa-v2 .detail .detail-version-context-lines { display: flex; flex: 1 1 auto; min-width: 0; flex-direction: column; justify-content: center; }
+.mosa-v2 .detail .detail-version-context-model { min-width: 0; flex: 0 1 auto; overflow: hidden; color: var(--color-text-secondary); font-size: 10px; line-height: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .detail .detail-version-context-lines .detail-version-context-model { flex: 0 0 auto; width: 100%; }
+.mosa-v2 .detail .detail-version-context-turn,
+.mosa-v2 .detail .detail-version-context-total { flex: 0 0 auto; width: 100%; overflow: hidden; color: var(--color-text-secondary); font-size: 10px; line-height: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .detail .detail-version-context-current { flex: 0 0 auto; color: var(--color-accent); font-size: 10px; line-height: 13px; font-weight: 550; }
 .mosa-v2 .detail .detail-version-context-empty { padding: 0 8px; font-size: 12px; }
 :root[data-theme="light"] .mosa-v2 .detail .detail-version-context-box { border-color: #e7e7ea; background: #f3f3f5; }
 :root[data-theme="light"] .mosa-v2 .detail .detail-version-context-row { background: rgb(255 255 255 / .7); }
 :root[data-theme="light"] .mosa-v2 .detail .detail-version-context-model { color: #636369; }
+:root[data-theme="light"] .mosa-v2 .detail .detail-version-context-turn:not(.detail-version-context-current),
+:root[data-theme="light"] .mosa-v2 .detail .detail-version-context-total { color: #636369; }
 :root[data-theme="light"] .mosa-v2 .detail .detail-version-context-empty { color: #6e6e73; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-version-context-box { border-color: rgb(255 255 255 / .10); background: rgb(255 255 255 / .06); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-version-context-row { background: rgb(255 255 255 / .08); }

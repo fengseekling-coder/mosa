@@ -14,6 +14,7 @@ export const description = "version tree/switch/compare -> generation relation c
 
 const CONVERSATION = "conv-e2e-lineage";
 const CANDIDATE_CONVERSATION = "conv-e2e-candidates";
+const ROUNDS_CONVERSATION = "conv-e2e-rounds";
 const RELATION_PROVIDER = "e2e-flow";
 const MSG_L1 = "msg-e2e-l1";
 const MSG_L2 = "msg-e2e-l2";
@@ -132,6 +133,14 @@ export async function run(ctx) {
 
     assertHistoryNavigation(await ctx.runInPage(first, historyNavigationSource(seeded)), seeded);
     await assertConversationFiltersViaApi(api, seeded);
+
+    // 任务 75：版本树与上下文的轮次——绑定接口写入 A 级快照（3 轮、其中一轮
+    // 2 张图、对话共 5 轮），检视器显示轮次与合计；重发只含 3 张图的批次（模拟
+    // 用户编辑过消息）后，当前素材的水印变旧，降为 C 级、不再出现轮次。
+    const rounds = await seedConversationRounds(ctx, api);
+    assertRoundsDisplayed(await ctx.runInPage(first, conversationRoundsSource(rounds)), rounds);
+    await rebindThreeOfFourImages(api, rounds);
+    assertRoundsDegrade(await ctx.runInPage(first, conversationRoundsSource(rounds)), rounds);
   } finally {
     await first.stop();
   }
@@ -407,6 +416,129 @@ async function assertConversationFiltersViaApi(api, { l1, l2, conversation, mess
   expectDeepEqual(await listIds(`&conversation=${encodeURIComponent(conversation)}`), [l1, l2].sort(), "Conversation filter via API");
   expectDeepEqual(await listIds(`&conversation=${encodeURIComponent(conversation)}&generationBatch=${encodeURIComponent(messages.l2)}`), [l2], "Batch filter via API");
   expectDeepEqual(await listIds(`&conversation=${encodeURIComponent(conversation)}&generationBatch=${encodeURIComponent(messages.l1)}`), [l1], "Context filter via API");
+}
+
+// ===== Phase 5.5: conversation rounds in the version-context box（任务 75） =====
+
+// 4 张图 3 轮：rounds-a=第 1 轮，rounds-b/c=第 2 轮，rounds-d=第 3 轮；
+// 对话共 5 轮。检视器停在 rounds-c（第 2 轮的第二张）上。
+async function seedConversationRounds(ctx, api) {
+  const createAsset = async (key, [r, g, b], messageId) => {
+    const body = await api("POST", "/api/assets/create", {
+      projectId: "default",
+      imagePath: await ctx.makePng(`versions-rounds-${key}.png`, [r, g, b]),
+      prompt: `轮次场景 ${key} 的提示词`,
+      theme: `轮次${key}`,
+      source: { conversation_id: ROUNDS_CONVERSATION, message_id: messageId },
+    });
+    if (!body?.asset?.id) throw new Error(`Rounds asset seed returned no id for ${key}`);
+    return body.asset.id;
+  };
+  const roundsA = await createAsset("a", [12, 60, 96], "msg-rounds-a");
+  const roundsB = await createAsset("b", [96, 12, 60], "msg-rounds-b");
+  const roundsC = await createAsset("c", [60, 96, 12], "msg-rounds-c");
+  const roundsD = await createAsset("d", [96, 60, 12], "msg-rounds-d");
+  const base = Date.now();
+  const iso = (minutesAgo) => new Date(base - minutesAgo * 60000).toISOString();
+  const record = async (body) => {
+    const result = await api("POST", "/api/generations", body);
+    if (!result?.event?.id) throw new Error(`Rounds generation seed returned no event for ${body.output_asset_id}`);
+    return result.event.id;
+  };
+  const providerAsset = (key) => `pa-rounds-${key}`;
+  const events = {};
+  for (const [key, assetId, messageId, minutesAgo] of [
+    ["a", roundsA, "msg-rounds-a", 40],
+    ["b", roundsB, "msg-rounds-b", 30],
+    ["c", roundsC, "msg-rounds-c", 20],
+    ["d", roundsD, "msg-rounds-d", 10],
+  ]) {
+    events[key] = await record({
+      output_asset_id: assetId, provider: "chatgpt", conversation_id: ROUNDS_CONVERSATION,
+      message_id: messageId, provider_asset_id: providerAsset(key), batch_id: `batch-rounds-${key}`,
+      model: "gpt-5-4-thinking", effective_prompt: `轮次场景 ${key}`, created_at: iso(minutesAgo),
+    });
+  }
+  const bind = async (keys, expectUpdated) => {
+    const result = await api("POST", "/api/generation-message-bindings", {
+      projectId: "default",
+      provider: "chatgpt",
+      conversation_id: ROUNDS_CONVERSATION,
+      turn_count: 5,
+      bindings: keys.map((key) => ({ provider_asset_id: providerAsset(key), message_id: `msg-rounds-${key}`, turn_index: { a: 1, b: 2, c: 2, d: 3 }[key] })),
+    });
+    expect(result?.updated === expectUpdated, `Binding batch [${keys}] should update ${expectUpdated} records: ${JSON.stringify(result)}`);
+    return result;
+  };
+  await bind(["a", "b", "c", "d"], 4);
+  return { conversation: ROUNDS_CONVERSATION, assets: { a: roundsA, b: roundsB, c: roundsC, d: roundsD }, current: roundsC, events, bind };
+}
+
+// 第二批只含 3 张图（缺当前素材 rounds-c）：模拟用户编辑过消息，c 的水印变旧。
+async function rebindThreeOfFourImages(api, rounds) {
+  await rounds.bind(["a", "b", "d"], 3);
+  const history = await api("GET", `/api/assets/default/${encodeURIComponent(rounds.assets.c)}/generation-history`);
+  const own = (history?.history?.events || []).find((item) => item.output_asset_id === rounds.assets.c);
+  const conversation = history?.history?.conversations?.[0];
+  expect(own?.turn_index === 2, `c keeps its turn number from the first batch: ${JSON.stringify(own)}`);
+  expect(own?.turn_synced_at !== conversation?.synced_at,
+    `c's watermark must be stale after the second batch: ${JSON.stringify({ own: own?.turn_synced_at, conversation })}`);
+}
+
+function assertRoundsDisplayed(result, rounds) {
+  expect(result?.rows, `Rounds page returned nothing: ${JSON.stringify(result)}`);
+  assertNoRendererErrors(result, "conversation rounds");
+  expectDeepEqual(result.rows.map((row) => row.assetId), [rounds.assets.a, rounds.assets.c, rounds.assets.d],
+    "A level rows: turn 1, the current turn 2 (showing rounds-c), turn 3");
+  expectDeepEqual(result.rows.map((row) => row.disabled), [false, true, false], "the current row is disabled like the generation tree's own entry");
+  expectDeepEqual(result.rows.map((row) => row.turnLine), ["第 1 轮生成", "当前素材——第 2 轮生成", "第 3 轮生成"], "turn lines");
+  expect(result.totalLines.every((text) => text === "共 5 轮 / 已收录 4 张图"),
+    `the totals line repeats on every row: ${JSON.stringify(result.totalLines)}`);
+  expect(result.buttonCount === 3 && result.currentIsButton === true,
+    `rows are open-output buttons, the current one disabled: ${JSON.stringify({ buttonCount: result.buttonCount, currentIsButton: result.currentIsButton })}`);
+}
+
+function assertRoundsDegrade(result, rounds) {
+  expect(result?.rows, `Degrade page returned nothing: ${JSON.stringify(result)}`);
+  assertNoRendererErrors(result, "conversation rounds degrade");
+  expectDeepEqual(result.rows.map((row) => row.assetId), [rounds.assets.b, rounds.assets.c, rounds.assets.d],
+    "C level rows: the current asset plus its created_at neighbours");
+  expect(result.rows.every((row) => !(row.turnLine || "").includes("轮生成")),
+    `no turn numbers after the stale watermark: ${JSON.stringify(result.rows)}`);
+  expectDeepEqual(result.rows.map((row) => row.turnLine), ["", "当前素材", ""], "only the current row keeps the bare marker");
+  expect(result.totalLines.every((text) => text === "已收录 4 张图"),
+    `the count line survives the degrade: ${JSON.stringify(result.totalLines)}`);
+}
+
+// 页面源码：先开邻居再开目标（selectAsset 清掉 state.generationHistory，强制
+// 重取——第二批绑定要读到新数据，不能吃第一次打开时的缓存），然后读
+// 版本树与上下文盒的行。
+function conversationRoundsSource(config) {
+  return `(async () => {
+    const config = ${JSON.stringify(config)};
+    ${PAGE_HELPERS}
+    ${INSPECTOR_HELPERS}
+    await waitFor(() => gallerySettled() && document.querySelector(cardSelector(config.assets.b)), 'rounds B card rendered');
+    await openInspector(config.assets.b);
+    await openInspector(config.current);
+    const box = () => detailPanel()?.querySelector('[data-generation-context]');
+    await waitFor(() => box()?.querySelectorAll('.detail-version-context-row').length === 3, 'version context renders 3 rows');
+    const rows = [...box().querySelectorAll('.detail-version-context-row')].map((row) => ({
+      assetId: row.dataset.outputAssetId || '',
+      disabled: row.disabled === true,
+      turnLine: row.querySelector('.detail-version-context-turn')?.textContent || '',
+      lines: [...(row.querySelectorAll('.detail-version-context-lines > span') || [])].map((span) => span.textContent || ''),
+    }));
+    const totalLines = rows.map((row) => row.lines.find((line) => line.includes('张图')) || '');
+    const current = box().querySelector('.detail-version-context-row.is-current');
+    return {
+      rows,
+      totalLines,
+      buttonCount: box().querySelectorAll('button[data-action="open-generation-output"]').length,
+      currentIsButton: current?.tagName === 'BUTTON',
+      rendererErrors: rendererErrors.slice(0, 3),
+    };
+  })()`;
 }
 
 // ===== Phase 6: restart =====

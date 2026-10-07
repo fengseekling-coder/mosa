@@ -11,6 +11,7 @@
 // - 格式：仅当扩展名明确时确定性推导（大写扩展名），否则回退「未记录」。
 import { SOURCE_LABEL_KEYS } from "./config.mjs";
 import { assetTags } from "./tag-utils.mjs";
+import { computeConversationRounds } from "./conversation-rounds.mjs";
 import { displayAssetTitle, escapeHtml, formatDate, formatDateTime } from "./utils.mjs";
 import { selectVersionComparisonPair } from "./version-compare.mjs";
 
@@ -370,19 +371,63 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
 
   // 盒内行的整段 markup：区块渲染与生成历史异步到达后的 region 刷新
   // （app.mjs renderGenerationContextRegion）共用，保证两处渲染一致。
+  // 任务 75：对话级别由 computeConversationRounds 判定——turns（A 级，ChatGPT
+  // 真实轮次）每行补「第 N 轮生成」与「共 N 轮 / 已收录 M 张图」两行；assets
+  // （C 级）只补「当前素材」标记与「已收录 M 张图」；plain（无对话）保持 73 的
+  // 单行做法（generationContextRows 原逻辑，行内只有模型行 + 当前素材标记）。
   function generationContextBoxMarkup(history, selectedAssetId) {
-    const rows = generationContextRows(history, selectedAssetId);
-    return rows.length
-      ? rows.map((row) => detailVersionContextRowMarkup(row)).join("")
-      : `<p class="empty-copy detail-version-context-empty">${t("generationHistoryEmpty")}</p>`;
+    const empty = `<p class="empty-copy detail-version-context-empty">${t("generationHistoryEmpty")}</p>`;
+    const rounds = computeConversationRounds(history, selectedAssetId);
+    if (rounds.mode === "plain") {
+      const rows = generationContextRows(history, selectedAssetId);
+      return rows.length ? rows.map((row) => detailVersionContextRowMarkup(row)).join("") : empty;
+    }
+    const totalText = rounds.images === null ? "" : rounds.mode === "turns"
+      ? generationRoundsSummaryText(rounds.turns, rounds.images)
+      : generationImagesSummaryText(rounds.images);
+    const rows = rounds.rows.map((row) => detailVersionContextRowMarkup({
+      event: row.event,
+      outputAsset: row.outputAsset,
+      isCurrent: row.isCurrent,
+      turnText: rounds.mode === "turns"
+        ? t(row.isCurrent ? "generationCurrentTurnLine" : "generationTurnLine", { n: row.turnIndex })
+        : (row.isCurrent ? t("generationCurrentAsset") : ""),
+      totalText,
+    }));
+    return rows.length ? rows.join("") : empty;
   }
 
-  function detailVersionContextRowMarkup({ event, outputAsset, isCurrent }) {
+  // 英文 1 用单数（turn / image）：四个 A 级组合 + C 级两态，模板整句放在 i18n。
+  function generationRoundsSummaryText(turns, images) {
+    const key = turns === 1 && images === 1
+      ? "generationRoundsSummaryTurnOneImageOne"
+      : turns === 1
+        ? "generationRoundsSummaryTurnOne"
+        : images === 1
+          ? "generationRoundsSummaryImageOne"
+          : "generationRoundsSummary";
+    return t(key, { turns, images });
+  }
+
+  function generationImagesSummaryText(images) {
+    return t(images === 1 ? "generationImagesSummaryOne" : "generationImagesSummary", { images });
+  }
+
+  // 任务 75：行改为复用生成树「打开这条生成的输出素材」动作的按钮
+  // （data-action="open-generation-output"，app.mjs 在盒上做事件委托，键盘经
+  // 原生 button 激活）；当前素材行与生成树同规则禁用（已在检视）。multiline
+  // 为 false 时保持 73 的单行结构（模型行 + 当前素材标记并排），为 true 时是
+  // 稿子的三行小字（模型 / 轮次 / 合计；无轮次可显的行留空）。
+  function detailVersionContextRowMarkup({ event, outputAsset, isCurrent, turnText = "", totalText = "" }) {
     const provider = String(event.provider || event.capture_channel || "").trim() || t("sourceUnknown");
     const model = String(event.model || "").trim();
     const modelLine = t("generationModelLine", { value: model ? `${provider} · ${model}` : provider });
-    const currentMarkup = isCurrent ? `<span class="detail-version-context-current">${escapeHtml(t("generationCurrentAsset"))}</span>` : "";
-    return `<div class="detail-version-context-row${isCurrent ? " is-current" : ""}">${generationEventThumbnailMarkup(event, new Map(outputAsset ? [[event.output_asset_id, outputAsset]] : []))}<span class="detail-version-context-line"><span class="detail-version-context-model">${escapeHtml(modelLine)}</span>${currentMarkup}</span></div>`;
+    const multiline = Boolean(turnText || totalText);
+    const body = multiline
+      ? `<span class="detail-version-context-lines"><span class="detail-version-context-model">${escapeHtml(modelLine)}</span>${turnText ? `<span class="detail-version-context-turn${isCurrent ? " detail-version-context-current" : ""}">${escapeHtml(turnText)}</span>` : ""}${totalText ? `<span class="detail-version-context-total">${escapeHtml(totalText)}</span>` : ""}</span>`
+      : `<span class="detail-version-context-line"><span class="detail-version-context-model">${escapeHtml(modelLine)}</span>${isCurrent ? `<span class="detail-version-context-current">${escapeHtml(t("generationCurrentAsset"))}</span>` : ""}</span>`;
+    const actionAttributes = ` type="button" data-action="open-generation-output" data-output-asset-id="${escapeHtml(String(event.output_asset_id || ""))}"`;
+    return `<button class="detail-version-context-row${isCurrent ? " is-current" : ""}"${actionAttributes}${isCurrent ? " disabled" : ""}>${generationEventThumbnailMarkup(event, new Map(outputAsset ? [[event.output_asset_id, outputAsset]] : []))}${body}</button>`;
   }
 
   // GravityPort A4a：界面已拿掉，保留实现（配方编辑字段不再渲染，保存链路保留）。

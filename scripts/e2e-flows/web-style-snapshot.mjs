@@ -101,6 +101,13 @@ const KEY_KINDS = {
   "inspector.factKeyColor": "color",
   "inspector.factValFontSize": "font",
   "inspector.factValColor": "color",
+  // 任务 75：版本树与上下文的行（无对话单行态）。行 40 高、40×40 缩略图、
+  // 模型行 10px/13px——对话三行小字用的行距是同一个值。
+  "inspector.versionContextRowHeight": "px",
+  "inspector.versionContextRowRadius": "px",
+  "inspector.versionContextThumbSize": "px",
+  "inspector.versionContextModelFontSize": "font",
+  "inspector.versionContextModelLineHeight": "px",
   // 设置弹窗
   "settings.cardWidth": "px",
   "settings.cardHeight": "px",
@@ -185,6 +192,16 @@ async function seedAssets(ctx, origin) {
     coverAssetId: ids[3],
   });
   if (!stack?.stack?.id) throw new Error("样式快照预置堆叠失败。");
+  // 任务 75：给首图一条无对话的生成记录，让「版本树与上下文」盒渲染出
+  // 单行（无对话态），行的几何与字号才量得到。
+  const generation = await ctx.api(origin, "POST", "/api/generations", {
+    output_asset_id: ids[0],
+    provider: "style-snapshot",
+    model: "snapshot-model",
+    effective_prompt: "样式快照生成记录",
+    created_at: new Date().toISOString(),
+  });
+  if (!generation?.event?.id) throw new Error("样式快照生成记录写入失败。");
   return { ids };
 }
 
@@ -490,6 +507,15 @@ function measurementSource({ plainAssetId }) {
     const factVal = styleOf(pick('#detailPanel .head-facts .meta-val'));
     R['inspector.factValFontSize'] = factVal.fontSize;
     R['inspector.factValColor'] = factVal.color;
+    // 任务 75：版本树与上下文的行——生成历史异步到达后再量（无对话单行态）。
+    await waitFor(() => pick('#detailPanel').querySelector('[data-generation-context] .detail-version-context-row'), 'version context row renders');
+    const versionRow = pick('#detailPanel [data-generation-context] .detail-version-context-row');
+    R['inspector.versionContextRowHeight'] = rectOf(versionRow).height;
+    R['inspector.versionContextRowRadius'] = styleOf(versionRow).borderTopLeftRadius;
+    R['inspector.versionContextThumbSize'] = rectOf(versionRow.querySelector('.generation-output-thumb')).width;
+    const versionModel = styleOf(versionRow.querySelector('.detail-version-context-model'));
+    R['inspector.versionContextModelFontSize'] = versionModel.fontSize;
+    R['inspector.versionContextModelLineHeight'] = versionModel.lineHeight;
     const selectedCard = pick('.asset-card.selected');
     const ring = styleOf(selectedCard, '::after');
     R['gallery.selectionRingWidth'] = ring.borderWidth;

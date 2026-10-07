@@ -160,12 +160,29 @@ test("version context rows are 40px tall with 40×40 thumbnails and 4px rhythm",
   const row = lastBlock(css, ".mosa-v2 .detail .detail-version-context-row");
   assert.match(row, /height: 40px;/);
   assert.match(row, /padding: 4px;/);
+  // 任务 75：行是复用 open-generation-output 的按钮——无按钮默认外观，键盘焦点
+  // 用既有焦点环 token。
+  assert.match(row, /border: 0;/);
+  assert.match(row, /text-align: left;/);
+  assert.match(row, /cursor: pointer;/);
+  assert.match(css, /\.mosa-v2 \.detail \.detail-version-context-row:disabled \{ cursor: default; \}/);
+  assert.match(css, /\.mosa-v2 \.detail \.detail-version-context-row:focus-visible \{ outline: 2px solid var\(--color-focus-ring, #0a84ff\); outline-offset: 1px; \}/);
   const thumb = lastBlock(css, ".mosa-v2 .detail .detail-version-context-row .generation-output-thumb");
   assert.match(thumb, /width: 40px; height: 40px;/);
   assert.match(thumb, /border-radius: 4px;/);
+  assert.match(thumb, /border: 0;/, "the thumb is a true 40×40 (the shared class's 1px border is reset in this box)");
   const model = lastBlock(css, ".mosa-v2 .detail .detail-version-context-model");
   assert.match(model, /font-size: 10px;/, "version context rows follow the 10px floor (返工 1)");
   assert.match(model, /text-overflow: ellipsis;/);
+  assert.match(model, /line-height: 13px;/, "13px line pitch ×3 fills the 40px row for the conversation lines");
+  // 任务 75：对话模式的三行小字列与轮次/合计行（同 10px 字号下限、省略号截断）。
+  const lines = lastBlock(css, ".mosa-v2 .detail .detail-version-context-lines");
+  assert.match(lines, /flex-direction: column;/);
+  assert.match(lines, /justify-content: center;/);
+  const turn = lastBlock(css, ".mosa-v2 .detail .detail-version-context-turn,\n.mosa-v2 .detail .detail-version-context-total");
+  assert.match(turn, /font-size: 10px;/);
+  assert.match(turn, /line-height: 13px;/);
+  assert.match(turn, /text-overflow: ellipsis;/);
   const current = lastBlock(css, ".mosa-v2 .detail .detail-version-context-current");
   assert.match(current, /color: var\(--color-accent\);/, "the current-asset marker uses the accent token");
   const boxLight = /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-version-context-box \{[^}]*\}/.exec(css)?.[0];
@@ -173,6 +190,9 @@ test("version context rows are 40px tall with 40×40 thumbnails and 4px rhythm",
   assert.match(boxLight, /background: #f3f3f5;/);
   const rowLight = /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-version-context-row \{[^}]*\}/.exec(css)?.[0];
   assert.match(rowLight, /background: rgb\(255 255 255 \/ \.7\);/);
+  // 浅色轮次/合计行沿用模型行的浅色灰；当前素材行不得被覆盖掉强调色。
+  const turnLight = /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-version-context-turn:not\(\.detail-version-context-current\),\n:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-version-context-total \{[^}]*\}/.exec(css)?.[0];
+  assert.match(turnLight, /color: #636369;/);
 });
 
 test("source facts render as an R21 context card with an equal-split action row", async () => {

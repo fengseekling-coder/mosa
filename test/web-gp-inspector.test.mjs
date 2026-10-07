@@ -385,7 +385,9 @@ test("the file section keeps the group row and the A4a head anchors", () => {
 
 test("new A4a i18n keys exist exactly once per locale", async () => {
   const i18n = await read("web/app/i18n.mjs");
-  const keys = ["promptTab1", "promptTab2", "copyColorAria", "colorPalette", "viewAction", "versionTreeTitle", "assetPathLabel", "openPathAction", "generationModelLine"];
+  const keys = ["promptTab1", "promptTab2", "copyColorAria", "colorPalette", "viewAction", "versionTreeTitle", "assetPathLabel", "openPathAction", "generationModelLine",
+    // 任务 75：轮次行与合计行（含英文单复数的四个 A 级组合与 C 级两态）。
+    "generationTurnLine", "generationCurrentTurnLine", "generationRoundsSummary", "generationRoundsSummaryTurnOne", "generationRoundsSummaryImageOne", "generationRoundsSummaryTurnOneImageOne", "generationImagesSummary", "generationImagesSummaryOne"];
   for (const key of keys) {
     assert.equal(i18n.split(`${key}:`).length - 1, 2, `${key} exists once in zh and once in en`);
   }
@@ -395,4 +397,8 @@ test("new A4a i18n keys exist exactly once per locale", async () => {
   assert.match(i18n, /copyColorAria: "Copy color \{color\}"/);
   assert.match(i18n, /versionTreeTitle: "版本树与上下文"/);
   assert.match(i18n, /versionTreeTitle: "Version tree & context"/);
+  assert.match(i18n, /generationTurnLine: "第 \{n\} 轮生成"/);
+  assert.match(i18n, /generationTurnLine: "Turn \{n\}"/);
+  assert.match(i18n, /generationCurrentTurnLine: "当前素材——第 \{n\} 轮生成"/);
+  assert.match(i18n, /generationCurrentTurnLine: "This asset — turn \{n\}"/);
 });
