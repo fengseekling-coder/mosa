@@ -769,6 +769,136 @@ test("generation message binding API: writes, conflicts, idempotency, validation
   assert.deepEqual(captureHistory.events.map((event) => [event.turn_index, event.turn_synced_at]), [[null, null], [null, null]]);
 });
 
+// --- capture-plugin turn-bindings entry over HTTP (rework 1) ---
+
+test("the capture turn-bindings entry accepts only the web capture token and writes through the shared store path", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-turn-bindings-capture-"));
+  const libraryDir = join(root, "library");
+  const generatedDir = join(root, "generated-images");
+  await mkdir(generatedDir, { recursive: true });
+
+  const store = createSqliteAssetStore({ projectRoot: root, managerDir: process.cwd(), libraryDir });
+  const png = async (name, color) => {
+    const path = join(generatedDir, name);
+    await sharp({ create: { width: 8, height: 8, channels: 4, background: color } }).png().toFile(path);
+    return path;
+  };
+  const mkAsset = async (assetId, source, color) => {
+    const asset = await store.createAsset({ assetId, imagePath: await png(`${assetId}.png`, color) });
+    if (source) await store.updateMetadata("default", asset.id, { source });
+    return asset;
+  };
+  const a1 = await mkAsset("cap-a1", { type: "web-chatgpt", conversation_id: "conv-cap", provider_asset_id: "file-cap-1" }, "#243047");
+  await store.recordGenerationEvent({ project_id: "default", output_asset_id: a1.id, provider: "chatgpt", conversation_id: "conv-cap", provider_asset_id: "file-cap-1", created_at: "2026-08-27T11:00:00.000Z" });
+  const a2 = await mkAsset("cap-a2", { type: "web-chatgpt", conversation_id: "conv-old", provider_asset_id: "file-old-1" }, "#336644");
+  await store.recordGenerationEvent({ project_id: "default", output_asset_id: a2.id, provider: "chatgpt", conversation_id: "conv-old", provider_asset_id: "file-old-1", created_at: "2026-08-27T11:01:00.000Z" });
+  await store.setMigrationState("completed", { test: true });
+  store.close();
+
+  const CAPTURE_TOKEN = "mosa_e2e_capture_turn_token";
+  const server = spawn(process.execPath, ["server.mjs"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      MOSA_PORT: "0",
+      MOSA_PROJECT_DIR: root,
+      MOSA_LIBRARY_DIR: libraryDir,
+      CODEX_GENERATED_IMAGES_DIR: generatedDir,
+      MOSA_WEB_CAPTURE_TOKEN: CAPTURE_TOKEN,
+      MOSA_WEB_CAPTURE_ORIGINS: "chrome-extension://example-extension",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(async () => {
+    if (server.exitCode === null) {
+      const exited = once(server, "exit");
+      server.kill("SIGTERM");
+      await exited;
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const port = await waitForServerPort(server);
+  await waitForServer(port, server);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const historyOf = async (assetId) => (await (await fetch(`${baseUrl}/api/assets/default/${encodeURIComponent(assetId)}/generation-history`)).json()).history;
+  const postTurnBindings = (body, headers = {}) => fetch(`${baseUrl}/api/ingest/web-capture-turn-bindings`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+  const turnSnapshot = () => {
+    let stored = null;
+    withRawDatabase(libraryDir, (database) => {
+      stored = database.prepare("SELECT turn_count, synced_at FROM generation_conversations WHERE conversation_id = 'conv-cap'").get() || null;
+    });
+    return stored;
+  };
+
+  // The MOSA client token is not a capture credential: even though the test
+  // fetch wrapper attaches it to every loopback mutation, the entry only
+  // reads the Web Capture bearer token.
+  const clientOnly = await postTurnBindings({
+    project_id: "default",
+    provider: "chatgpt",
+    conversation_id: "conv-cap",
+    turn_count: 3,
+    bindings: [{ provider_asset_id: "file-cap-1", message_id: "user-1", turn_index: 1 }],
+  });
+  assert.equal(clientOnly.status, 401, "a client token without the capture bearer is unauthorized");
+  assert.equal((await clientOnly.json()).code, "WEB_CAPTURE_UNAUTHORIZED");
+
+  const wrongToken = await postTurnBindings({
+    project_id: "default",
+    provider: "chatgpt",
+    conversation_id: "conv-cap",
+    turn_count: 3,
+    bindings: [{ provider_asset_id: "file-cap-1", message_id: "user-1", turn_index: 1 }],
+  }, { authorization: "Bearer mosa_wrong_capture_token" });
+  assert.equal(wrongToken.status, 401, "a wrong capture token is unauthorized");
+  assert.equal(turnSnapshot(), null, "rejected requests wrote no conversation row");
+
+  const validBatch = {
+    project_id: "default",
+    provider: "chatgpt",
+    conversation_id: "conv-cap",
+    turn_count: 3,
+    bindings: [{ provider_asset_id: "file-cap-1", message_id: "user-1", turn_index: 1 }],
+  };
+  const accepted = await postTurnBindings(validBatch, { authorization: `Bearer ${CAPTURE_TOKEN}` });
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(await accepted.json(), { matched: 1, updated: 1, unchanged: 0, conflicts: 0, unmatched: 0 });
+  const history = await historyOf(a1.id);
+  assert.deepEqual([history.events[0].message_id, history.events[0].turn_index], ["user-1", 1]);
+  assert.equal(history.conversations[0].turn_count, 3);
+  assert.equal(history.events[0].turn_synced_at, history.conversations[0].synced_at, "the capture entry shares the snapshot watermark rules");
+
+  // Invalid bodies stay 400 with nothing written, same contract as the
+  // client-token endpoint.
+  const invalid = await postTurnBindings({
+    project_id: "default",
+    provider: "openai",
+    conversation_id: "conv-cap",
+    turn_count: 3,
+    bindings: [],
+  }, { authorization: `Bearer ${CAPTURE_TOKEN}` });
+  assert.equal(invalid.status, 400);
+  assert.equal((await invalid.json()).code, "GENERATION_MESSAGE_BINDINGS_INVALID");
+
+  // The client-token endpoint keeps working unchanged (no regression).
+  const legacy = await postJson(`${baseUrl}/api/generation-message-bindings`, {
+    project_id: "default",
+    provider: "chatgpt",
+    conversation_id: "conv-old",
+    turn_count: 2,
+    bindings: [{ provider_asset_id: "file-old-1", message_id: "old-user-1", turn_index: 1 }],
+  });
+  assert.equal(legacy.status, 200, "the client-token endpoint still answers 200");
+  assert.deepEqual(await legacy.json(), { matched: 1, updated: 1, unchanged: 0, conflicts: 0, unmatched: 0 });
+  const oldHistory = await historyOf(a2.id);
+  assert.deepEqual([oldHistory.events[0].message_id, oldHistory.events[0].turn_index], ["old-user-1", 1]);
+});
+
 function postJson(url, body) {
   return fetch(url, {
     method: "POST",

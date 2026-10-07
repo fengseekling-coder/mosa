@@ -2494,6 +2494,28 @@
       const mapping = rememberBlobAsset(data.payload);
       if (mapping && autoCapture) enqueueDomCandidateForImage(mapping.blobUrl, "blob-asset");
     }
+
+    // Turn structure of the conversation the user has open: the hook already
+    // reduced it to ids and numbers. Relay is best effort like stack naming —
+    // failures stay invisible and the next conversation load retries.
+    if (data.type === "conversation-turn-bindings" && data.payload) {
+      const report = data.payload;
+      const conversationId = String(report.conversationId || "");
+      const turnCount = Number(report.turnCount) || 0;
+      if (conversationId && turnCount >= 1 && Array.isArray(report.bindings) && report.bindings.length) {
+        if (!contextLost && extensionAlive()) {
+          Promise.resolve(runtimeSend({
+            type: "mosa.reportConversationTurns",
+            payload: {
+              provider: "chatgpt",
+              conversationId,
+              turnCount,
+              bindings: report.bindings,
+            },
+          })).catch(() => {});
+        }
+      }
+    }
   }
 
   // The page hook hands over a private MessagePort exactly once, via a window
