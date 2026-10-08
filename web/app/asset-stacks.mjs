@@ -294,20 +294,31 @@ export function createAssetStackController({
         : await loadAssets({ preserveScroll: false });
     }
     if (loaded) {
+      // 选中恢复必须同步落地。此前 state.selectedId 在下方 rAF 尾巴里改写:
+      // Windows 的隐藏窗口把 rAF 攒到任意后续帧批量执行,恢复一旦落在导航
+      // intent 的创建(input 事件)与校验(debounce 回调)之间,
+      // isNavigationIntentCurrent 的 selectedId 比对就会失配,用户刚输入的
+      // 搜索被静默丢弃——画廊停在旧结果且不忙。这里按 root 视图语义用数据
+      // (而非延迟帧的 DOM 查询)先算出返回行,再渲染;rAF 只保留滚动、
+      // 焦点与多选高亮这些纯 DOM 恢复。
+      const assets = state.assets || [];
+      const stackNodeId = snapshot.stackId
+        ? (assets.find((asset) => asset.stack?.id === snapshot.stackId)?.id || "")
+        : "";
+      const snapshotSelectedId = snapshot.selectedId && assets.some((asset) => asset.id === snapshot.selectedId)
+        ? snapshot.selectedId
+        : "";
+      const returnCardId = stackNodeId || snapshotSelectedId;
+      if (returnCardId) state.selectedId = returnCardId;
       renderGrid({ preserveScroll: true });
       updateViewTitle();
       requestAnimationFrame(() => {
         if (!els.assetGrid) return;
         const maxScrollTop = Math.max(0, els.assetGrid.scrollHeight - els.assetGrid.clientHeight);
         els.assetGrid.scrollTop = Math.min(Number(snapshot.scrollTop || 0), maxScrollTop);
-        const stackCard = snapshot.stackId
-          ? els.assetGrid.querySelector(`.asset-card[data-stack-id="${CSS.escape(snapshot.stackId)}"]`)
+        const returnCard = returnCardId
+          ? els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(returnCardId)}"]`)
           : null;
-        const fallbackCard = snapshot.selectedId
-          ? els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(snapshot.selectedId)}"]`)
-          : null;
-        const returnCard = stackCard || fallbackCard;
-        if (returnCard?.dataset.id) state.selectedId = returnCard.dataset.id;
         const visibleIds = new Set((state.assets || []).map((asset) => asset.id));
         gallerySelection.restoreSelection({
           selectedIds: snapshot.selectedIds || [],

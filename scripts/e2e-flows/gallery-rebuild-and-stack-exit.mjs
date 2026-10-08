@@ -98,6 +98,7 @@ function assertFacts(facts) {
     enteredStackWithInspectorOpen: true,
     stackMemberInspectorAutoOpened: true,
     backAtRootAfterFinalExit: true,
+    delayedFrameSearchSurvives: true,
     hitRounds: 10,
     missRounds: 10,
     missShowsEmptyState: true,
@@ -200,6 +201,33 @@ function pageSource(config) {
     click('#stackBack');
     await waitFor(() => document.querySelector('#stackBack')?.hidden === true && gallerySettled() && rootCardIds().length === 3, 'quick exit with an in-flight stack request settles');
     facts.quickExitSettled = true;
+
+    // ===== 任务 95：退出堆叠的选中恢复不得放进延迟帧改写 selectedId =====
+    // Windows 隐藏窗口把 rAF 攒到任意后续帧批量执行。若 exitStack 把
+    // state.selectedId 的恢复留在 rAF 里，它会落在搜索 intent 的创建（input
+    // 事件）与校验（防抖回调）之间：isNavigationIntentCurrent 的 selectedId
+    // 比对失配，刚输入的搜索被静默丢弃，画廊停在旧结果且不忙。这里冻结
+    // rAF，再进出堆叠一次制造退出尾巴，并把积压帧精准注入到不命中搜索的
+    // 防抖窗口中点——空态必须照常渲染。
+    const stackedRafs = [];
+    const realRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (callback) => { stackedRafs.push(callback); return stackedRafs.length; };
+    const flushStackedRafs = () => { for (const callback of stackedRafs.splice(0)) callback(Date.now()); };
+    stackNode().querySelector('.asset-card-select')
+      .dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, detail: 2 }));
+    await waitFor(() => !document.querySelector('#stackBack')?.hidden && gallerySettled(), 'entered stack for delayed-frame probe');
+    click('#stackBack');
+    await waitFor(() => document.querySelector('#stackBack')?.hidden === true && gallerySettled() && rootCardIds().length === 3, 'exited stack for delayed-frame probe');
+    setValue('#searchInput', config.missTerm);
+    await sleep(90);
+    flushStackedRafs();
+    await waitFor(() => gallerySettled() && rootCardIds().length === 0
+      && Boolean(document.querySelector('#assetGrid .gallery-empty-state')), 'miss search survives a delayed stack-exit frame');
+    facts.delayedFrameSearchSurvives = true;
+    window.requestAnimationFrame = realRequestAnimationFrame;
+    flushStackedRafs();
+    setValue('#searchInput', config.hitTerm);
+    await waitFor(() => gallerySettled() && rootCardIds().length === 4, 'hit search works after delayed-frame probe');
 
     // ===== 反复重建：命中/不命中交替各 10 次（55-1） =====
     for (let round = 0; round < 10; round += 1) {
