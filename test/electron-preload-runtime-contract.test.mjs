@@ -425,16 +425,17 @@ test("real Electron preload smoke (opt-in)", { skip: process.env.MOSA_ELECTRON_P
   const actionState = JSON.parse(await waitForRendererValue(client, `JSON.stringify({
     finderButtons: document.querySelectorAll('[data-action="show-in-finder"]').length,
     webLinks: document.querySelectorAll('a.original-media-link').length,
-    pathBoxes: document.querySelectorAll('.detail-path-box').length,
+    pathBars: document.querySelectorAll('.detail-pathbar').length,
   })`, (value) => {
-    try { return JSON.parse(value).pathBoxes > 0; } catch { return false; }
+    try { return JSON.parse(value).pathBars > 0; } catch { return false; }
   }));
   // 2026-09-04: the original-media entries retired from the inspector; the path
-  // box rendering proves the inspector mounted. The contract test above
+  // bar rendering proves the inspector mounted (GravityPort A4a moved the path
+  // into the inspector's fixed bottom bar, `.detail-pathbar`). The contract test above
   // validates every narrow IPC handler and sender/path guard. This real smoke
   // intentionally stops at preload injection + inspector rendering so CI never
   // invokes Finder or mutates the host clipboard as a side effect of a test run.
   assert.equal(actionState.finderButtons, 0);
   assert.equal(actionState.webLinks, 0);
-  assert.equal(actionState.pathBoxes > 0, true);
+  assert.equal(actionState.pathBars > 0, true);
 });
