@@ -1,6 +1,6 @@
-// 任务 75：检视器「版本树与上下文」轮次计算。computeConversationRounds 纯函数
-// 直接测：A 级（ChatGPT 真实轮次，条件全满足才显示）、C 级（只张数，截断时连
-// 张数也不显示）、无对话（保持 73 单行）三级判定与取 3 行窗口；另经
+// 任务 75 + 返工 1：检视器「版本树与上下文」轮次计算。computeConversationRounds
+// 纯函数直接测：context（有对话，逐张判定轮次——一行不合格只废一行）、截断（轮次
+// 和数字全部不显示）、无对话（保持 73 单行）与取 3 行时间窗口；另经
 // generationContextBoxMarkup 锁每行两行新文案与英文单复数。Node 标准库，零网络。
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -42,50 +42,86 @@ function aLevelHistory() {
   return historyOf(events, { conversations: [conversationEntry(5)] });
 }
 
-test("A level: real turns render with turn_count, per-turn rows and the earliest asset per other turn", () => {
+test("context mode: rows follow created_at around the current asset and carry their own turns", () => {
   const rounds = computeConversationRounds(aLevelHistory(), "a3");
-  assert.equal(rounds.mode, "turns");
+  assert.equal(rounds.mode, "context");
   assert.equal(rounds.turns, 5);
   assert.equal(rounds.images, 5);
-  assert.deepEqual(rounds.rows.map((row) => row.turnIndex), [1, 2, 3]);
-  assert.deepEqual(rounds.rows.map((row) => row.event.output_asset_id), ["a1", "a3", "a4"], "current turn shows the current asset, other turns the earliest asset");
+  assert.deepEqual(rounds.rows.map((row) => row.event.output_asset_id), ["a2", "a3", "a4"], "the time window shows both turn-2 assets, not one per turn");
+  assert.deepEqual(rounds.rows.map((row) => row.turnIndex), [2, 2, 3]);
   assert.deepEqual(rounds.rows.map((row) => row.isCurrent), [false, true, false]);
 });
 
-test("A level degrades to C when any turn_index exceeds turn_count", () => {
+test("a turn_index beyond turn_count blanks only that row", () => {
   const history = aLevelHistory();
-  history.events[4] = event("e5", "a5", { turn: 6, created: iso(10) });
+  history.events[3] = event("e4", "a4", { turn: 6, created: iso(20) });
   const rounds = computeConversationRounds(history, "a3");
-  assert.equal(rounds.mode, "assets");
-  assert.equal(rounds.turns, null);
-  assert.equal(rounds.images, 5);
+  assert.equal(rounds.mode, "context");
+  assert.equal(rounds.turns, 5);
+  assert.deepEqual(rounds.rows.map((row) => row.turnIndex), [2, 2, null], "the offending row loses its turn, the others keep theirs");
 });
 
-test("A level degrades to C when a counted asset lacks turn_index", () => {
+test("an asset without turn_index shows no turn on its own row only", () => {
   const history = aLevelHistory();
-  history.events[0] = event("e1", "a1", { turn: null, created: iso(50) });
-  assert.equal(computeConversationRounds(history, "a3").mode, "assets");
+  history.events[1] = event("e2", "a2", { turn: null, created: iso(40) });
+  const rounds = computeConversationRounds(history, "a3");
+  assert.equal(rounds.mode, "context");
+  assert.deepEqual(rounds.rows.map((row) => row.turnIndex), [null, 2, 3]);
 });
 
-test("A level degrades to C when an asset's turn_synced_at is older than the conversation's synced_at (stale snapshot)", () => {
+test("a stale-watermark asset blanks only its row (the re-synced neighbours keep theirs)", () => {
   const history = aLevelHistory();
   history.events[1] = event("e2", "a2", { turn: 2, synced: "2026-10-07T08:00:00.000Z", created: iso(40) });
   const rounds = computeConversationRounds(history, "a3");
-  assert.equal(rounds.mode, "assets");
+  assert.deepEqual(rounds.rows.map((row) => row.turnIndex), [null, 2, 3]);
+  assert.equal(rounds.turns, 5, "the conversation snapshot itself is still valid");
 });
 
-test("A level degrades to C when one asset carries records with different turn_index (inconsistent)", () => {
+test("one asset carrying records with different turn_index blanks only its row", () => {
   const history = aLevelHistory();
   history.events.push(event("e6", "a2", { turn: 3, created: iso(9) }));
-  assert.equal(computeConversationRounds(history, "a3").mode, "assets");
+  const rounds = computeConversationRounds(history, "a3");
+  assert.equal(rounds.mode, "context");
+  assert.deepEqual(rounds.rows.map((row) => row.turnIndex), [null, 2, 3], "a2 is inconsistent with itself, the other rows are unaffected");
 });
 
-test("context_truncated degrades to C and hides the captured-image count", () => {
+test("context_truncated blanks every row's turn and hides the captured-image count", () => {
   const history = aLevelHistory();
   history.context_truncated = true;
   const rounds = computeConversationRounds(history, "a3");
-  assert.equal(rounds.mode, "assets");
+  assert.equal(rounds.mode, "context");
+  assert.equal(rounds.turns, null);
   assert.equal(rounds.images, null, "truncated counts may undercount, so no number is shown");
+  assert.deepEqual(rounds.rows.map((row) => row.turnIndex), [null, null, null]);
+});
+
+// 返工 1 的「真实形状」：一个对话 16 张图，只有 2 张带同一次快照的轮次（2 和 3），
+// 对话共 3 轮——只有这 2 张对应的行显示轮次，其余行为 null，合计照常显示。
+function realShapeHistory() {
+  const events = [];
+  const assets = [];
+  for (let image = 1; image <= 16; image += 1) {
+    const id = `a${image}`;
+    const turn = image === 7 ? 2 : image === 9 ? 3 : null;
+    events.push(event(`e${image}`, id, { turn, created: iso(100 - image) }));
+    assets.push(asset(id));
+  }
+  return historyOf(events, { assets, conversations: [conversationEntry(3)] });
+}
+
+test("real-shape conversation: 16 images, only two carry snapshot turns — those rows show turns, the rest stay blank", () => {
+  // 当前素材 a8：窗口正好是带轮次的 a7/a9 夹着没轮次的 a8。
+  const rounds = computeConversationRounds(realShapeHistory(), "a8");
+  assert.equal(rounds.mode, "context");
+  assert.equal(rounds.turns, 3);
+  assert.equal(rounds.images, 16);
+  assert.deepEqual(rounds.rows.map((row) => row.event.output_asset_id), ["a7", "a8", "a9"]);
+  assert.deepEqual(rounds.rows.map((row) => row.turnIndex), [2, null, 3]);
+  // 远离带轮次素材的窗口：整窗无轮次，合计行照常。
+  const tail = computeConversationRounds(realShapeHistory(), "a16");
+  assert.deepEqual(tail.rows.map((row) => row.turnIndex), [null, null, null]);
+  assert.equal(tail.turns, 3);
+  assert.equal(tail.images, 16);
 });
 
 test("records of the current asset spanning two conversations fall back to no conversation", () => {
@@ -95,27 +131,29 @@ test("records of the current asset spanning two conversations fall back to no co
   assert.equal(computeConversationRounds(history, "a3").mode, "plain");
 });
 
-test("message ids without turn indexes give C level (the old B level is gone)", () => {
+test("records without turn indexes keep the count (the old B level is gone)", () => {
   const history = aLevelHistory();
   for (const [index, item] of history.events.entries()) {
     history.events[index] = event(item.id, item.output_asset_id, { turn: null, message: `m-${index}`, created: item.created_at });
   }
   const rounds = computeConversationRounds(history, "a3");
-  assert.equal(rounds.mode, "assets");
+  assert.equal(rounds.mode, "context");
   assert.equal(rounds.images, 5, "message ids never affect the count");
+  assert.deepEqual(rounds.rows.map((row) => row.turnIndex), [null, null, null]);
 });
 
 test("trashed assets are not counted, but the current asset counts even when trashed", () => {
   const history = aLevelHistory();
   history.output_assets.find((item) => item.id === "a5").deleted_at = "2026-10-07T10:00:00.000Z";
   const trashedCurrent = computeConversationRounds(history, "a2");
-  assert.equal(trashedCurrent.mode, "turns", "A level still holds: the stale row just leaves the counted set");
+  assert.equal(trashedCurrent.mode, "context", "the stale row just leaves the counted set");
   assert.equal(trashedCurrent.images, 4);
-  assert.deepEqual(trashedCurrent.rows.map((row) => row.event.output_asset_id), ["a1", "a2", "a4"], "current asset stays the row even though it is trashed");
-  // 当前素材本身在回收站：仍然计入且可作 A 级中心。
+  assert.deepEqual(trashedCurrent.rows.map((row) => row.event.output_asset_id), ["a1", "a2", "a3"], "current asset stays the row even though it is trashed");
+  assert.deepEqual(trashedCurrent.rows.map((row) => row.turnIndex), [1, 2, 2]);
+  // 当前素材本身在回收站：仍然计入且可作窗口中心。
   history.output_assets.find((item) => item.id === "a2").deleted_at = "2026-10-07T10:00:00.000Z";
   const currentTrashed = computeConversationRounds(history, "a2");
-  assert.equal(currentTrashed.mode, "turns");
+  assert.equal(currentTrashed.mode, "context");
   assert.equal(currentTrashed.images, 4, "the trashed current asset is still counted (a1..a4)");
 });
 
@@ -123,12 +161,12 @@ test("records without a matching output_assets entry are not counted", () => {
   const history = aLevelHistory();
   history.events.push(event("e6", "ghost", { turn: 4, created: iso(8) }));
   const rounds = computeConversationRounds(history, "a3");
-  assert.equal(rounds.mode, "turns");
+  assert.equal(rounds.mode, "context");
   assert.equal(rounds.images, 5);
   assert.ok(rounds.rows.every((row) => row.event.output_asset_id !== "ghost"));
 });
 
-test("the three-row window over turns: middle, first, last, and fewer than three turns", () => {
+test("the three-row window follows created_at: middle, first, last, and fewer than three assets", () => {
   const build = (turnNumbers, currentTurn, turnCount) => {
     const events = turnNumbers.map((turn, index) => event(`e${turn}`, `a${turn}`, { turn, created: iso(50 - index * 10) }));
     return historyOf(events, { conversations: [conversationEntry(turnCount)] });
@@ -156,31 +194,41 @@ test("no conversation: non-chatgpt providers, empty conversation ids and unrecor
   assert.equal(unrecorded.rows.length, 0, "plain rows come from generationContextRows at the call site (73 keeps ownership)");
 });
 
-test("the A-level box markup shows the turn lines and the totals line on every row", () => {
+test("the context box markup shows turn lines next to each other and the totals on every row", () => {
   const helpers = createInspectorMarkup({ state: { locale: "zh-CN", assets: [] }, t: zhT, referenceRightsMarkup: () => "" });
   const markup = helpers.generationContextBoxMarkup(aLevelHistory(), "a3");
-  assert.ok(markup.includes("第 1 轮生成") && markup.includes("第 3 轮生成"));
+  assert.ok(markup.includes("第 2 轮生成") && markup.includes("第 3 轮生成"));
   assert.equal((markup.match(/当前素材——第 2 轮生成/g) || []).length, 1, "only the current row carries the merged marker");
   assert.equal((markup.match(/共 5 轮 \/ 已收录 5 张图/g) || []).length, 3, "the totals line repeats on every row like the mock");
   assert.ok(!markup.includes("当前素材</span>"), "the bare current marker is replaced by the merged turn line");
   assert.equal((markup.match(/<button class="detail-version-context-row/g) || []).length, 3, "rows are buttons reusing the open-output action");
   assert.equal((markup.match(/data-action="open-generation-output"/g) || []).length, 3);
-  assert.ok(markup.includes('data-output-asset-id="a1"'));
+  assert.ok(markup.includes('data-output-asset-id="a2"'));
   assert.ok(/<button class="detail-version-context-row is-current"[^>]* disabled>/.test(markup), "the current row is disabled like the generation tree's own entry");
 });
 
-test("the C-level box markup shows the bare marker on the current row and the count only", () => {
+test("a current row without a turn keeps the bare marker while its neighbours show theirs", () => {
   const helpers = createInspectorMarkup({ state: { locale: "zh-CN", assets: [] }, t: zhT, referenceRightsMarkup: () => "" });
   const history = aLevelHistory();
-  history.events[0] = event("e1", "a1", { turn: null, created: iso(50) });
+  history.events[2] = event("e3", "a3", { turn: null, created: iso(30) });
   const markup = helpers.generationContextBoxMarkup(history, "a3");
-  assert.ok(!markup.includes("轮生成"), "no turn numbers without a trusted snapshot");
+  assert.ok(markup.includes("第 2 轮生成") && markup.includes("第 3 轮生成"), "the neighbours keep their turns");
   assert.equal((markup.match(/>当前素材</g) || []).length, 1, "only the current row shows the bare marker");
-  assert.equal((markup.match(/已收录 5 张图/g) || []).length, 3);
-  // 截断时连张数也不显示。
+  assert.equal((markup.match(/共 5 轮 \/ 已收录 5 张图/g) || []).length, 3, "the totals still show the snapshot");
+  // 截断时轮次和数字全不显示。
   const truncated = helpers.generationContextBoxMarkup({ ...history, context_truncated: true }, "a3");
   assert.ok(!truncated.includes("已收录"), "a truncated context must not show a possibly undercounted number");
+  assert.ok(!truncated.includes("轮生成"), "and no turn either");
   assert.ok(truncated.includes(">当前素材<"));
+});
+
+test("the real-shape box shows turn rows next to a bare current row and the totals", () => {
+  const helpers = createInspectorMarkup({ state: { locale: "zh-CN", assets: [] }, t: zhT, referenceRightsMarkup: () => "" });
+  const markup = helpers.generationContextBoxMarkup(realShapeHistory(), "a8");
+  assert.ok(markup.includes("第 2 轮生成") && markup.includes("第 3 轮生成"));
+  assert.ok(markup.includes("当前素材</span>"), "the current asset has no turn, so it keeps the bare marker");
+  assert.ok(!markup.includes("当前素材——"));
+  assert.equal((markup.match(/共 3 轮 \/ 已收录 16 张图/g) || []).length, 3, "the totals line repeats on every row");
 });
 
 test("the plain box keeps 73's single line with the current marker and no totals", () => {
@@ -216,8 +264,9 @@ test("English uses singular turn/image when a number is 1", () => {
 });
 
 // 造一个「turns 轮、images 张图、对话共 turns 轮」的历史（第 image 张图归
-// min(turns, image) 轮）；degrade 为 true 时去掉对话快照让它降为 C 级。
-// 返回的历史里当前素材由调用方指定（必须是真实存在的 a1..a{images}）。
+// min(turns, image) 轮）；degrade 为 true 时去掉对话快照和轮次（每行都不显示
+// 轮次，只剩张数合计）。返回的历史里当前素材由调用方指定（必须是真实存在的
+// a1..a{images}）。
 function turnImageHistory(turns, images, { degrade = false } = {}) {
   const events = [];
   const assets = [];

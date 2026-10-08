@@ -134,13 +134,14 @@ export async function run(ctx) {
     assertHistoryNavigation(await ctx.runInPage(first, historyNavigationSource(seeded)), seeded);
     await assertConversationFiltersViaApi(api, seeded);
 
-    // 任务 75：版本树与上下文的轮次——绑定接口写入 A 级快照（3 轮、其中一轮
-    // 2 张图、对话共 5 轮），检视器显示轮次与合计；重发只含 3 张图的批次（模拟
-    // 用户编辑过消息）后，当前素材的水印变旧，降为 C 级、不再出现轮次。
+    // 任务 75 + 返工 1：版本树与上下文的轮次——绑定接口写入快照（3 轮、其中一
+    // 轮 2 张图、对话共 5 轮），检视器按素材时间取 3 行、逐张显示轮次与合计；重
+    // 发只含 3 张图的批次（模拟用户编辑过消息）后，被重发的几张仍显示轮次，没被
+    // 重发的当前素材那一行不再显示轮次，合计照旧。
     const rounds = await seedConversationRounds(ctx, api);
     assertRoundsDisplayed(await ctx.runInPage(first, conversationRoundsSource(rounds)), rounds);
     await rebindThreeOfFourImages(api, rounds);
-    assertRoundsDegrade(await ctx.runInPage(first, conversationRoundsSource(rounds)), rounds);
+    assertRoundsPerRowAfterRebind(await ctx.runInPage(first, conversationRoundsSource(rounds)), rounds);
   } finally {
     await first.stop();
   }
@@ -418,10 +419,11 @@ async function assertConversationFiltersViaApi(api, { l1, l2, conversation, mess
   expectDeepEqual(await listIds(`&conversation=${encodeURIComponent(conversation)}&generationBatch=${encodeURIComponent(messages.l1)}`), [l1], "Context filter via API");
 }
 
-// ===== Phase 5.5: conversation rounds in the version-context box（任务 75） =====
+// ===== Phase 5.5: conversation rounds in the version-context box（任务 75 + 返工 1） =====
 
-// 4 张图 3 轮：rounds-a=第 1 轮，rounds-b/c=第 2 轮，rounds-d=第 3 轮；
-// 对话共 5 轮。检视器停在 rounds-c（第 2 轮的第二张）上。
+// 4 张图 3 轮（时间序 a→b→c→d）：a=第 1 轮，b/c=第 2 轮，d=第 3 轮；对话共 5 轮。
+// 检视器停在 rounds-c 上：返工 1 起取行按素材时间，窗口是 b/c/d（不再是按轮取的
+// a/c/d），三行都带同一次快照的轮次。
 async function seedConversationRounds(ctx, api) {
   const createAsset = async (key, [r, g, b], messageId) => {
     const body = await api("POST", "/api/assets/create", {
@@ -488,26 +490,28 @@ async function rebindThreeOfFourImages(api, rounds) {
 function assertRoundsDisplayed(result, rounds) {
   expect(result?.rows, `Rounds page returned nothing: ${JSON.stringify(result)}`);
   assertNoRendererErrors(result, "conversation rounds");
-  expectDeepEqual(result.rows.map((row) => row.assetId), [rounds.assets.a, rounds.assets.c, rounds.assets.d],
-    "A level rows: turn 1, the current turn 2 (showing rounds-c), turn 3");
+  expectDeepEqual(result.rows.map((row) => row.assetId), [rounds.assets.b, rounds.assets.c, rounds.assets.d],
+    "rows follow created_at around the current asset (b/c/d), not one per turn");
   expectDeepEqual(result.rows.map((row) => row.disabled), [false, true, false], "the current row is disabled like the generation tree's own entry");
-  expectDeepEqual(result.rows.map((row) => row.turnLine), ["第 1 轮生成", "当前素材——第 2 轮生成", "第 3 轮生成"], "turn lines");
+  expectDeepEqual(result.rows.map((row) => row.turnLine), ["第 2 轮生成", "当前素材——第 2 轮生成", "第 3 轮生成"], "per-asset turn lines");
   expect(result.totalLines.every((text) => text === "共 5 轮 / 已收录 4 张图"),
     `the totals line repeats on every row: ${JSON.stringify(result.totalLines)}`);
   expect(result.buttonCount === 3 && result.currentIsButton === true,
     `rows are open-output buttons, the current one disabled: ${JSON.stringify({ buttonCount: result.buttonCount, currentIsButton: result.currentIsButton })}`);
 }
 
-function assertRoundsDegrade(result, rounds) {
-  expect(result?.rows, `Degrade page returned nothing: ${JSON.stringify(result)}`);
-  assertNoRendererErrors(result, "conversation rounds degrade");
+// 返工 1：重发批次只含 a/b/d（模拟用户编辑过消息），b/d 拿到新快照仍显示轮次，
+// 没被重发的 c 水印变旧——只有 c 这一行不显示轮次（「当前素材」裸标记），不再
+// 整框降级，合计照旧。
+function assertRoundsPerRowAfterRebind(result, rounds) {
+  expect(result?.rows, `Rebind page returned nothing: ${JSON.stringify(result)}`);
+  assertNoRendererErrors(result, "conversation rounds after rebind");
   expectDeepEqual(result.rows.map((row) => row.assetId), [rounds.assets.b, rounds.assets.c, rounds.assets.d],
-    "C level rows: the current asset plus its created_at neighbours");
-  expect(result.rows.every((row) => !(row.turnLine || "").includes("轮生成")),
-    `no turn numbers after the stale watermark: ${JSON.stringify(result.rows)}`);
-  expectDeepEqual(result.rows.map((row) => row.turnLine), ["", "当前素材", ""], "only the current row keeps the bare marker");
-  expect(result.totalLines.every((text) => text === "已收录 4 张图"),
-    `the count line survives the degrade: ${JSON.stringify(result.totalLines)}`);
+    "the time window keeps b/c/d around the current asset");
+  expectDeepEqual(result.rows.map((row) => row.turnLine), ["第 2 轮生成", "当前素材", "第 3 轮生成"],
+    "resent b/d keep their turns, the stale current row c drops to the bare marker");
+  expect(result.totalLines.every((text) => text === "共 5 轮 / 已收录 4 张图"),
+    `the totals line survives the stale row: ${JSON.stringify(result.totalLines)}`);
 }
 
 // 页面源码：先开邻居再开目标（selectAsset 清掉 state.generationHistory，强制

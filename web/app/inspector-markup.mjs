@@ -371,9 +371,10 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
 
   // 盒内行的整段 markup：区块渲染与生成历史异步到达后的 region 刷新
   // （app.mjs renderGenerationContextRegion）共用，保证两处渲染一致。
-  // 任务 75：对话级别由 computeConversationRounds 判定——turns（A 级，ChatGPT
-  // 真实轮次）每行补「第 N 轮生成」与「共 N 轮 / 已收录 M 张图」两行；assets
-  // （C 级）只补「当前素材」标记与「已收录 M 张图」；plain（无对话）保持 73 的
+  // 任务 75 返工 1：对话级别由 computeConversationRounds 判定——context（有对话）
+  // 按素材时间取 3 行、逐张判定轮次：有轮次的行补「第 N 轮生成」，没有的行留空、
+  // 当前素材行只写「当前素材」；合计行有快照时是「共 N 轮 / 已收录 M 张图」，
+  // 没快照只写「已收录 M 张图」，截断时什么都不显示；plain（无对话）保持 73 的
   // 单行做法（generationContextRows 原逻辑，行内只有模型行 + 当前素材标记）。
   function generationContextBoxMarkup(history, selectedAssetId) {
     const empty = `<p class="empty-copy detail-version-context-empty">${t("generationHistoryEmpty")}</p>`;
@@ -382,14 +383,14 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
       const rows = generationContextRows(history, selectedAssetId);
       return rows.length ? rows.map((row) => detailVersionContextRowMarkup(row)).join("") : empty;
     }
-    const totalText = rounds.images === null ? "" : rounds.mode === "turns"
+    const totalText = rounds.images === null ? "" : rounds.turns !== null
       ? generationRoundsSummaryText(rounds.turns, rounds.images)
       : generationImagesSummaryText(rounds.images);
     const rows = rounds.rows.map((row) => detailVersionContextRowMarkup({
       event: row.event,
       outputAsset: row.outputAsset,
       isCurrent: row.isCurrent,
-      turnText: rounds.mode === "turns"
+      turnText: row.turnIndex !== null
         ? t(row.isCurrent ? "generationCurrentTurnLine" : "generationTurnLine", { n: row.turnIndex })
         : (row.isCurrent ? t("generationCurrentAsset") : ""),
       totalText,
