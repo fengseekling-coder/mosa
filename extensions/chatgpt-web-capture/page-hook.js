@@ -67,15 +67,14 @@
     }
     if (data.type === "set-capture-enabled") {
       captureEnabled = data.payload?.enabled === true;
-      if (captureDiagnostics) captureDiagnostics.setEnabled(captureEnabled);
       post("capture-state", { enabled: captureEnabled });
       return;
     }
     if (data.type === "set-diagnostics-enabled") {
-      // Diagnostics recording is opt-in from the options page. It is set
-      // independently of captureEnabled: a capture off for the regular
-      // ingester does not mean the recorder is also off; the recorder only
-      // ever sees summaries, never the raw payload.
+      // Diagnostics recording is opt-in from the options page and is set
+      // independently of captureEnabled. Auto-capture being on or off must
+      // never flip the diagnostics switch — the recorder only ever sees
+      // structural summaries, never the raw payload.
       const diagnosticsEnabled = data.payload?.enabled === true;
       if (captureDiagnostics) captureDiagnostics.setEnabled(diagnosticsEnabled);
       return;
@@ -699,69 +698,53 @@
     const conversationId = String(payload.conversationId || "");
     const messageId = String(payload.messageId || "");
     const assetId = String(payload.assetId || "");
+    const generationId = String(payload.generationId || payload.providerGenerationCallId || "");
     if (!conversationId && !messageId && !assetId) return;
     const captureKey = `${conversationId}:${messageId}:${assetId}`;
     const hasPrompt = Boolean(payload.prompt) || payload.promptStatus === "generation-tool-prompt"
       || payload.promptStatus === "visible-caption";
-    const needsDiagnostic = captureDiagnostics.markCapture(captureKey, conversationId, messageId, hasPrompt);
-    if (!needsDiagnostic && payload.promptStatus !== "not-available") {
-      // A control capture (capture had a prompt) is still accepted, but the
-      // recorder only needs the existing background flow.
-      return;
-    }
+    // markCapture() always registers the capture. finalizeCapture() is the
+    // single point that decides whether a record is actually written, and
+    // it is responsible for the 1/10 control sampling — we no longer short
+    // circuit here based on hasPrompt.
+    captureDiagnostics.markCapture(captureKey, conversationId, messageId, hasPrompt, generationId);
     setTimeout(() => {
       try {
         const finished = captureDiagnostics.finalizeCapture(conversationId, captureKey);
         if (!finished) return;
         if (finished.snapshot) {
-          post("capture-diagnostic", {
-            captureKey,
+          // Run the storage-bound scrubber one last time before the record
+          // crosses into the content script. If anything in the buffer
+          // slipped past the page-world sanitizers we drop the whole record
+          // and tick the reject counter.
+          const scrubbed = captureDiagnostics.sanitizeRecordForStorage({
             conversationId,
             messageId: messageId.slice(0, 8),
-            assetId: assetId.slice(0, 8),
-            promptStatus: payload.promptStatus,
-            model: payload.model || "",
+            generationId: generationId.slice(0, 8),
+            version: "0.15.28",
             control: finished.control === true,
-            frameCount: finished.snapshot.frames.length,
-            modelNames: finished.snapshot.models,
-            summary: summarizeDiagnosticFrames(finished.snapshot.frames),
+            firstAt: finished.snapshot.firstAt,
+            lastAt: finished.snapshot.lastAt,
+            models: finished.snapshot.models,
+            frames: finished.snapshot.frames,
+          });
+          if (scrubbed === "leak") {
+            // surface the reject count in the background for the options UI
+            post("capture-diagnostic-rejected", { captureKey });
+            return;
+          }
+          post("capture-diagnostic", {
+            captureKey,
+            record: scrubbed,
+            promptStatus: payload.promptStatus,
+            control: scrubbed.control === true,
+            frameCount: scrubbed.frames.length,
           });
         }
       } catch {
         // diagnostics must never throw into the capture path
       }
     }, DIAGNOSTIC_FINALIZE_DELAY_MS);
-  }
-
-  function summarizeDiagnosticFrames(frames) {
-    const groups = { sse: [], ws: [], http: [] };
-    const sliceCap = 64;
-    for (const frame of frames) {
-      const source = frame && frame.source ? frame.source : (frame.type && frame.type.startsWith("sse") ? "sse"
-        : frame.type === "ws" ? "ws" : frame.type === "http" ? "http" : null);
-      if (!source) continue;
-      const truncated = { type: frame.type, source, t: frame.t };
-      // Copy over the small, safe subset the recorder returned.
-      for (const key of ["op", "path", "envelopeType", "url", "contentType", "length"]) {
-        if (frame[key] !== undefined && key !== "url") truncated[key] = frame[key];
-      }
-      if (Array.isArray(frame.schema)) {
-        truncated.schema = frame.schema.slice(0, sliceCap);
-      }
-      if (Array.isArray(frame.add)) {
-        truncated.add = frame.add.slice(0, sliceCap);
-      }
-      if (Array.isArray(frame.bodySchema)) {
-        truncated.bodySchema = frame.bodySchema.slice(0, sliceCap);
-      }
-      if (typeof frame.bodyLength === "number") truncated.bodyLength = frame.bodyLength;
-      if (typeof frame.model === "string") truncated.model = frame.model;
-      if (Array.isArray(frame.models)) truncated.models = frame.models;
-      if (typeof frame.kind === "string") truncated.kind = frame.kind;
-      if (Array.isArray(frame.hints)) truncated.hints = frame.hints;
-      groups[source].push(truncated);
-    }
-    return groups;
   }
 
   function parseDiagnosticJson(value) {

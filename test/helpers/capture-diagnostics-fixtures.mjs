@@ -82,8 +82,12 @@ export function fakeSseStreamPayload() {
           recipient: "image_gen.text2im",
           channel: "commentary",
           content: { content_type: "code", language: "json", text: "{\"prompt\":" },
+          // An explicit `prompt` field on a tool-call argument lets the
+          // recorder record the field path (visible in keys) while the
+          // null value is reported as the path's type — that is the bug
+          // we want to surface in 5.6.
+          metadata: { turn_exchange_id: "turn-poster", prompt: null },
           status: "in_progress",
-          metadata: { turn_exchange_id: "turn-poster" },
         },
         conversation_id: "conversation-test",
       },

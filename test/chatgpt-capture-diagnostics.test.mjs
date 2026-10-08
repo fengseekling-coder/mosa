@@ -71,11 +71,18 @@ test("string values over the sixteen-character limit are dropped unless the fiel
   assert.doesNotMatch(emptyJson, /"path":"whitespace"/);
 });
 
-test("strictly short allowed strings without an allow-list match survive as primitive markers", () => {
+test("strings without an allow-list match drop the value and keep only the length", () => {
   const api = captureDiagnosticsSourceSync();
   const out = api.summarizePayload({ short_code: "ABC123" });
   const json = JSON.stringify(out);
-  assert.ok(json.includes("primitive"), "short primitive strings must keep their text");
+  // short_code is not on the allow-list, so the text must be discarded even
+  // when it is short. A title like "水彩橘猫绘画" must not survive under any
+  // name; downstream readers only see a path, type, and length.
+  assert.doesNotMatch(json, /ABC123/);
+  const entry = out.find((e) => e.path === "short_code");
+  assert.ok(entry, "a length-only entry should still exist");
+  assert.equal(entry.type, "string");
+  assert.equal(entry.length, "ABC123".length);
 });
 
 test("string values flagged as prompt-like are reduced to length only", () => {

@@ -1,4 +1,5 @@
 import "./provider-policy.js";
+import { scrubRecord as scrubDiagnosticRecord } from "./diagnostics-storage.js";
 
 const DEFAULTS = {
   mosaBaseUrl: "http://127.0.0.1:43517",
@@ -687,10 +688,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "mosa.recordDiagnostic") {
-    // Best effort diagnostics storage: a single bad record never breaks
-    // capture. The page hook has already reduced the record to safe fields.
-    const safe = sanitizeDiagnosticRecord(message.payload);
-    appendDiagnosticRecord(safe)
+    // Defense-in-depth: the page hook ran the record through the same
+    // allow-list already, but a tampered message could still try to slip
+    // text through. Drop anything that fails the re-check and bump the
+    // user-visible reject counter; capture itself is never blocked.
+    const scrub = scrubDiagnosticRecord(message.payload);
+    if (scrub === "leak") {
+      bumpDiagnosticRejects(1).catch(() => {});
+      sendResponse({ ok: true, rejected: true, count: 0 });
+      return true;
+    }
+    if (scrub.rejects) {
+      bumpDiagnosticRejects(scrub.rejects).catch(() => {});
+    }
+    appendDiagnosticRecord(scrub.record)
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
     return true;
@@ -711,8 +722,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "mosa.diagnosticsCount") {
-    readDiagnosticRecords()
-      .then((records) => sendResponse({ ok: true, count: records.length }))
+    Promise.all([readDiagnosticRecords(), readDiagnosticRejects()])
+      .then(([records, rejected]) => sendResponse({ ok: true, count: records.length, rejected }))
       .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
     return true;
   }
@@ -1048,127 +1059,17 @@ function byteLengthOf(value) {
   return String(value ?? "").length;
 }
 
-const DIAGNOSTIC_TEXT_FORBIDDEN_FIELDS = ["prompt", "caption", "text", "parts", "content.text", "title"];
-const DIAGNOSTIC_NUMBER_FIELDS = new Set([
-  "t", "frameCount", "recordedAt", "length", "bodyLength",
-]);
-const DIAGNOSTIC_BOOLEAN_FIELDS = new Set(["control", "truncated"]);
-const DIAGNOSTIC_STRING_FIELDS = new Set([
-  "type", "source", "op", "path", "envelopeType", "url",
-  "contentType", "kind", "marker", "captureKey",
-  "conversationId", "messageId", "assetId", "promptStatus",
-  "model", "recordedAtIso",
-]);
-const DIAGNOSTIC_ID_FRAGMENT_LENGTH = 8;
+const DIAGNOSTIC_REJECTS_KEY = "mosaCaptureDiagnosticsRejects";
 
-function sanitizeDiagnosticFrames(frames) {
-  if (!Array.isArray(frames)) return [];
-  return frames.slice(0, 400).map((frame) => sanitizeDiagnosticFrame(frame)).filter(Boolean);
+async function readDiagnosticRejects() {
+  const stored = await chrome.storage.local.get({ [DIAGNOSTIC_REJECTS_KEY]: 0 });
+  return Number(stored[DIAGNOSTIC_REJECTS_KEY]) || 0;
 }
 
-function sanitizeDiagnosticFrame(frame) {
-  if (!frame || typeof frame !== "object") return null;
-  const next = {};
-  for (const [key, value] of Object.entries(frame)) {
-    if (DIAGNOSTIC_TEXT_FORBIDDEN_FIELDS.includes(key)) continue;
-    if (Array.isArray(value) && (key === "schema" || key === "add" || key === "bodySchema")) {
-      const cleaned = value.slice(0, 96).map((entry) => sanitizeDiagnosticSchemaEntry(entry)).filter(Boolean);
-      if (cleaned.length) next[key] = cleaned;
-    } else if (Array.isArray(value) && key === "models") {
-      const cleaned = value.slice(0, 24).map((item) => typeof item === "string" ? shortDiagnosticId(item) : null).filter(Boolean);
-      if (cleaned.length) next.models = cleaned;
-    } else if (DIAGNOSTIC_STRING_FIELDS.has(key)) {
-      if (typeof value === "string") {
-        const clipped = value.slice(0, 256);
-        if (key === "url") next[key] = safeDiagnosticUrl(clipped);
-        else next[key] = clipped;
-      }
-    } else if (DIAGNOSTIC_BOOLEAN_FIELDS.has(key)) {
-      if (typeof value === "boolean") next[key] = value;
-    } else if (DIAGNOSTIC_NUMBER_FIELDS.has(key)) {
-      if (typeof value === "number" && Number.isFinite(value)) next[key] = Math.round(value);
-    } else if (Array.isArray(value) && key === "hints") {
-      const cleaned = value.slice(0, 6).map((item) => typeof item === "string" ? item.slice(0, 32) : null).filter(Boolean);
-      if (cleaned.length) next.hints = cleaned;
-    } else if (typeof value === "object" && value && key === "value") {
-      const cleaned = sanitizeDiagnosticValue(value);
-      if (cleaned) next.value = cleaned;
-    }
-  }
-  return Object.keys(next).length ? next : null;
-}
-
-function sanitizeDiagnosticValue(value) {
-  if (!value || typeof value !== "object") return null;
-  const kind = value.kind;
-  if (kind === "primitive" && typeof value.text === "string" && value.text.length <= 16) {
-    return { kind: "primitive", text: value.text.slice(0, 16) };
-  }
-  if (kind === "marker") return { kind: "marker" };
-  return null;
-}
-
-function sanitizeDiagnosticSchemaEntry(entry) {
-  if (!entry || typeof entry !== "object") return null;
-  const next = {};
-  if (typeof entry.path === "string") next.path = entry.path.slice(0, 160);
-  if (typeof entry.type === "string") next.type = entry.type.slice(0, 32);
-  if (typeof entry.length === "number" && Number.isFinite(entry.length)) next.length = Math.max(0, Math.round(entry.length));
-  if (Array.isArray(entry.keys)) next.keys = entry.keys.slice(0, 24).map((item) => typeof item === "string" ? item.slice(0, 80) : null).filter(Boolean);
-  if (Array.isArray(entry.hints)) next.hints = entry.hints.slice(0, 6).map((item) => typeof item === "string" ? item.slice(0, 32) : null).filter(Boolean);
-  if (typeof entry.kind === "string") next.kind = entry.kind.slice(0, 16);
-  if (entry.value && typeof entry.value === "object") {
-    const cleaned = sanitizeDiagnosticValue(entry.value);
-    if (cleaned) next.value = cleaned;
-  }
-  return Object.keys(next).length ? next : null;
-}
-
-function shortDiagnosticId(value) {
-  const text = typeof value === "string" ? value : value == null ? "" : String(value);
-  if (!text) return "";
-  return text.length > DIAGNOSTIC_ID_FRAGMENT_LENGTH ? text.slice(0, DIAGNOSTIC_ID_FRAGMENT_LENGTH) : text;
-}
-
-function safeDiagnosticUrl(value) {
-  try {
-    const parsed = new URL(value);
-    const safePath = parsed.pathname.replace(/[^/]+/g, (segment) => /^.{24,}[A-Za-z0-9_-]+$/.test(segment) ? "<id>" : segment);
-    return `${parsed.origin}${safePath}`.slice(0, 256);
-  } catch {
-    return "";
-  }
-}
-
-function sanitizeDiagnosticRecord(payload) {
-  if (!payload || typeof payload !== "object") return null;
-  const top = {};
-  if (typeof payload.captureKey === "string") top.captureKey = payload.captureKey.slice(0, 96);
-  top.conversationId = shortDiagnosticId(payload.conversationId);
-  top.messageId = shortDiagnosticId(payload.messageId);
-  top.assetId = shortDiagnosticId(payload.assetId);
-  if (typeof payload.promptStatus === "string") top.promptStatus = payload.promptStatus.slice(0, 24);
-  if (typeof payload.model === "string") top.model = payload.model.slice(0, 64);
-  if (typeof payload.control === "boolean") top.control = payload.control;
-  if (typeof payload.frameCount === "number") top.frameCount = Math.max(0, Math.round(payload.frameCount));
-  if (typeof payload.recordedAtIso === "string") top.recordedAtIso = payload.recordedAtIso.slice(0, 32);
-  if (Array.isArray(payload.modelNames)) {
-    top.modelNames = payload.modelNames.slice(0, 16).map((item) => typeof item === "string" ? item.slice(0, 64) : null).filter(Boolean);
-  }
-  if (payload.summary && typeof payload.summary === "object") {
-    const summary = {};
-    for (const source of ["sse", "ws", "http"]) {
-      const list = payload.summary[source];
-      if (Array.isArray(list)) summary[source] = sanitizeDiagnosticFrames(list);
-    }
-    top.summary = summary;
-  } else {
-    top.summary = { sse: [], ws: [], http: [] };
-  }
-  top.extensionVersion = typeof chrome !== "undefined" && chrome.runtime?.getManifest
-    ? String(chrome.runtime.getManifest().version || "")
-    : "";
-  return top;
+async function bumpDiagnosticRejects(extra) {
+  if (!extra) return;
+  const current = await readDiagnosticRejects();
+  await chrome.storage.local.set({ [DIAGNOSTIC_REJECTS_KEY]: current + extra });
 }
 
 async function readDiagnosticRecords() {
@@ -1192,12 +1093,14 @@ async function appendDiagnosticRecord(record) {
     };
     try {
       const existing = await readDiagnosticRecords();
-      // Defensive: an oversized record loses its frame list but keeps the
-      // metadata so the user can still see which capture triggered it.
+      // Defensive: an oversized record keeps the metadata and the first
+      // hundred frames so the user can still tell which capture triggered
+      // it; the rest of the frames fall off to fit the per-record budget.
       let next = { ...record, recordedAt: Number(record.recordedAt) || Date.now() };
       let bytes = byteLengthOf(JSON.stringify(next));
       if (bytes > DIAGNOSTIC_MAX_RECORD_BYTES) {
-        next = { ...next, truncated: true, summary: { sse: [], ws: [], http: [] } };
+        const frames = Array.isArray(next.frames) ? next.frames.slice(0, 100) : [];
+        next = { ...next, truncated: true, frames };
         bytes = byteLengthOf(JSON.stringify(next));
         result.truncated = true;
       }
