@@ -56,6 +56,23 @@ app.whenReady().then(async () => {
       sandbox: true,
     },
   });
+  // Windows clamps a new window to the screen: the windows-2022 runner's
+  // 1024x768 display turned 1440 and 1280 requests into a 1008-wide page, so
+  // flows silently ran in the narrow layout band. A resize after creation is
+  // not clamped, so re-apply the requested size and refuse to run if it still
+  // does not hold.
+  const wantedSize = windowSizeMatch ? [Number(windowSizeMatch[1]), Number(windowSizeMatch[2])] : [1280, 800];
+  const currentSize = () => (windowSizeMatch ? win.getContentSize() : win.getSize());
+  const sizeHolds = () => currentSize().every((value, index) => value === wantedSize[index]);
+  if (!sizeHolds()) {
+    if (windowSizeMatch) win.setContentSize(...wantedSize);
+    else win.setSize(...wantedSize);
+  }
+  if (!sizeHolds()) {
+    console.error(`E2E window size ${JSON.stringify(currentSize())} does not match the requested ${JSON.stringify(wantedSize)}`);
+    app.exit(2);
+    return;
+  }
   // E2E only: a page script can request a mid-run window resize by
   // console-logging "__MOSA_E2E_RESIZE__ <width>x<height>"; the page then waits
   // for the resize event itself. Registered before load so early messages land.
