@@ -107,6 +107,171 @@ for (const [name, createStore] of [
   ["JSON", (root) => createJsonAssetStore({ projectRoot: root, managerDir: join(root, "manager"), assetsRoot: join(root, "json-assets") })],
   ["SQLite", (root) => createSqliteAssetStore({ projectRoot: root, managerDir: root, libraryDir: join(root, "sqlite-library"), initializeFreshLibrary: true })],
 ]) {
+  test(`${name} store keeps the captured prompt and model when a replay without them rewrites the event`, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), `mosa-generation-replay-${name.toLowerCase()}-`));
+    deferTestPathRemoval(root, { recursive: true, force: true });
+    let store;
+    t.after(async () => {
+      store?.close?.();
+    });
+    await mkdir(join(root, "input"), { recursive: true });
+    const firstPath = join(root, "input", "replay-first.png");
+    const secondPath = join(root, "input", "replay-second.png");
+    await writeFile(firstPath, Buffer.from("generation-replay-first-image"));
+    await writeFile(secondPath, Buffer.from("generation-replay-second-image"));
+
+    store = createStore(root);
+    await store.ensureProject("default");
+    const liveAsset = await store.createAsset({ projectId: "default", assetId: "replay-live", imagePath: firstPath });
+    const lateAsset = await store.createAsset({ projectId: "default", assetId: "replay-late", imagePath: secondPath });
+
+    // 1. A live capture stores prompt, model, ids, references, and status.
+    const live = await store.recordGenerationEvent({
+      project_id: "default",
+      output_asset_id: liveAsset.id,
+      id: "gen-replay-live",
+      provider: "chatgpt",
+      capture_context_id: "ctx-replay",
+      provider_asset_id: "file-replay-live",
+      conversation_id: "conv-replay",
+      message_id: "msg-replay-live",
+      turn_index: 3,
+      batch_id: "batch-replay",
+      model: "gpt-image-1",
+      user_prompt: "画一只猫",
+      effective_prompt: "a seated tabby cat, studio light",
+      prompt_status: "visible-caption",
+      prompt_scope: "output",
+      generation_status: "completed",
+      capture_channel: "chrome-extension",
+      verification_level: "observed",
+      references: [{ provider_asset_id: "ref-file-1" }],
+      evidence: { source: "web-capture", note: "live capture" },
+      created_at: "2026-10-08T10:00:00.000Z",
+    });
+    assert.equal(live.effective_prompt, "a seated tabby cat, studio light");
+    assert.equal(live.model, "gpt-image-1");
+
+    // 2. The same id replays without live data (reopened conversation page):
+    // empty prompt/model/ids and not-available must not erase the stored values.
+    const replay = await store.recordGenerationEvent({
+      project_id: "default",
+      output_asset_id: liveAsset.id,
+      id: "gen-replay-live",
+      provider: "chatgpt",
+      capture_context_id: "ctx-replay",
+      conversation_id: "conv-replay",
+      message_id: "",
+      turn_index: null,
+      batch_id: "",
+      model: "",
+      user_prompt: "",
+      effective_prompt: "",
+      prompt_status: "not-available",
+      generation_status: "unknown",
+      capture_channel: "",
+      verification_level: "inferred",
+      references: [],
+      created_at: "2026-10-08T11:00:00.000Z",
+    });
+    assert.equal(replay.effective_prompt, "a seated tabby cat, studio light", "stored prompt survives an empty replay");
+    assert.equal(replay.prompt_status, "visible-caption", "status follows the kept prompt, not the replay's not-available");
+    assert.equal(replay.model, "gpt-image-1");
+    assert.equal(replay.user_prompt, "画一只猫");
+    assert.equal(replay.batch_id, "batch-replay");
+    assert.equal(replay.message_id, "msg-replay-live");
+    assert.equal(replay.turn_index, 3);
+    assert.equal(replay.capture_channel, "chrome-extension");
+    assert.equal(replay.verification_level, "observed", "a weaker verification claim cannot demote the stored one");
+    assert.deepEqual(replay.references, [{ provider_asset_id: "ref-file-1" }], "an empty references replay keeps the stored ones");
+    assert.deepEqual(replay.evidence, { source: "web-capture", note: "live capture" });
+    assert.equal(replay.generation_status, "completed", "an unknown replay status keeps the stored execution status");
+    const afterReplay = (await store.listGenerationEvents("default", { assetId: liveAsset.id })).find((event) => event.id === "gen-replay-live");
+    assert.equal(afterReplay.effective_prompt, "a seated tabby cat, studio light", "the stored row (not just the return value) keeps the prompt");
+    assert.equal(afterReplay.model, "gpt-image-1");
+    assert.equal(afterReplay.prompt_status, "visible-caption");
+
+    // 3. A replay that carries real values still wins over the stored ones.
+    const refreshed = await store.recordGenerationEvent({
+      project_id: "default",
+      output_asset_id: liveAsset.id,
+      id: "gen-replay-live",
+      provider: "chatgpt",
+      capture_context_id: "ctx-replay",
+      conversation_id: "conv-replay",
+      model: "gpt-image-2",
+      user_prompt: "画一只狗",
+      effective_prompt: "a seated bulldog, studio light",
+      prompt_status: "user-message",
+      verification_level: "user_confirmed",
+      references: [{ provider_asset_id: "ref-file-2" }],
+      evidence: { source: "web-capture", note: "recovered from message" },
+      created_at: "2026-10-08T12:00:00.000Z",
+    });
+    assert.equal(refreshed.effective_prompt, "a seated bulldog, studio light", "a non-empty new prompt replaces the stored one");
+    assert.equal(refreshed.prompt_status, "user-message");
+    assert.equal(refreshed.model, "gpt-image-2");
+    assert.equal(refreshed.user_prompt, "画一只狗");
+    assert.equal(refreshed.verification_level, "user_confirmed", "a stronger verification claim upgrades the record");
+    assert.deepEqual(refreshed.references, [{ provider_asset_id: "ref-file-2" }]);
+    assert.deepEqual(refreshed.evidence, { source: "web-capture", note: "recovered from message" });
+
+    // 4. A record first captured without a prompt gains it on a later replay.
+    await store.recordGenerationEvent({
+      project_id: "default",
+      output_asset_id: lateAsset.id,
+      id: "gen-replay-late",
+      provider: "chatgpt",
+      conversation_id: "conv-replay",
+      model: "gpt-image-1",
+      effective_prompt: "",
+      prompt_status: "not-available",
+      created_at: "2026-10-08T13:00:00.000Z",
+    });
+    const filled = await store.recordGenerationEvent({
+      project_id: "default",
+      output_asset_id: lateAsset.id,
+      id: "gen-replay-late",
+      provider: "chatgpt",
+      conversation_id: "conv-replay",
+      model: "",
+      user_prompt: "晚到的指令",
+      effective_prompt: "a late recovered prompt",
+      prompt_status: "generation-tool-prompt",
+      created_at: "2026-10-08T14:00:00.000Z",
+    });
+    assert.equal(filled.effective_prompt, "a late recovered prompt", "a later replay fills the missing prompt");
+    assert.equal(filled.prompt_status, "generation-tool-prompt", "the status follows the recovered prompt");
+    assert.equal(filled.model, "gpt-image-1", "the earlier model survives the fill-in replay");
+    assert.equal(filled.user_prompt, "晚到的指令");
+
+    // 5. The merge never manufactures "prompt present, status not-available",
+    // even when a contradictory replay pairs a prompt with the negative status.
+    const contradictory = await store.recordGenerationEvent({
+      project_id: "default",
+      output_asset_id: lateAsset.id,
+      id: "gen-replay-late",
+      provider: "chatgpt",
+      conversation_id: "conv-replay",
+      effective_prompt: "a late recovered prompt",
+      prompt_status: "not-available",
+      created_at: "2026-10-08T15:00:00.000Z",
+    });
+    assert.notEqual(contradictory.prompt_status, "not-available", "a stored prompt is never downgraded to not-available");
+    const replayedNoPromptEver = await store.recordGenerationEvent({
+      project_id: "default",
+      output_asset_id: liveAsset.id,
+      id: "gen-replay-live",
+      provider: "chatgpt",
+      conversation_id: "conv-replay",
+      effective_prompt: "",
+      prompt_status: "",
+      created_at: "2026-10-08T16:00:00.000Z",
+    });
+    assert.equal(replayedNoPromptEver.effective_prompt, "a seated bulldog, studio light");
+    assert.equal(replayedNoPromptEver.prompt_status, "user-message", "keeping the stored prompt keeps its status");
+  });
+
   test(`${name} store keeps generation events independent from deduplicated assets`, async (t) => {
     const root = await mkdtemp(join(tmpdir(), `mosa-generation-${name.toLowerCase()}-`));
     deferTestPathRemoval(root, { recursive: true, force: true });

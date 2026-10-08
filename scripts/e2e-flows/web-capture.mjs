@@ -169,6 +169,21 @@ export async function run(ctx) {
     assertEqual(liveResult?.duplicateAssetId, chatgptAssetId, "duplicate capture must resolve to the existing asset");
     assertEqual((await listAssets(origin)).length, 1, "duplicate capture must not create a second asset");
 
+    // ===== 3.5 Prompt-less replay (reopened conversation): generation record survives =====
+    // The replay carries no prompt/model/status — the reopened-page shape. The
+    // stored generation event must keep the live capture's values, so the
+    // history API still reports the captured prompt and model afterwards.
+    assertEqual(liveResult?.replayHttpStatus, 200, "prompt-less replay must answer 200 (same image, duplicate path)");
+    assertEqual(liveResult?.replayStatus, "skipped", "prompt-less replay result status");
+    const replayHistory = await (await fetch(`${origin}/api/generations?project=default&asset=${encodeURIComponent(chatgptAssetId)}`)).json();
+    const replayEvent = Array.isArray(replayHistory?.events) ? replayHistory.events.find((event) => event.capture_context_id === "e2e-genctx-0001") : null;
+    assertOk(replayEvent, "generation history lists the captured event after the prompt-less replay");
+    assertEqual(replayEvent.effective_prompt, PROMPT_CAPTION, "replay without a prompt must keep the captured effective_prompt");
+    assertEqual(replayEvent.model, MODEL_CHATGPT, "replay without a model must keep the captured model");
+    assertEqual(replayEvent.prompt_status, "visible-caption", "replay must keep the captured prompt_status");
+    const replayedAsset = await findAssetById(origin, chatgptAssetId);
+    assertEqual(replayedAsset?.prompt, PROMPT_CAPTION, "the asset prompt is untouched by the prompt-less replay");
+
     // ===== 4. Metadata completion: later, better prompt upgrades the asset =====
     const upgrade = await bridgeFetch(origin, "POST", "/api/ingest/web-capture-metadata", {
       token,
@@ -818,6 +833,19 @@ function liveCaptureSource(config) {
     await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds()) === JSON.stringify([assetId]),
       'duplicate capture adds no gallery card', 15000);
 
+    // Reopened-conversation shape: the replay carries the same image and page
+    // anchors but no live prompt/model data — exactly what the plugin reports
+    // when it re-reads an old page. The stored generation event must keep its
+    // captured prompt and model instead of collapsing to empty.
+    const replayResponse = await fetch('/api/ingest/web-capture', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + config.token },
+      body: JSON.stringify({ ...payload, prompt: '', prompt_status: 'not-available', user_message: '', model: '' }),
+    });
+    const replayBody = await replayResponse.json();
+    await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds()) === JSON.stringify([assetId]),
+      'prompt-less replay adds no gallery card', 15000);
+
     return {
       initialCardCount,
       httpStatus: response.status,
@@ -836,6 +864,9 @@ function liveCaptureSource(config) {
       duplicateStatus: duplicateBody?.status || '',
       duplicateReason: duplicateBody?.reason || '',
       duplicateAssetId: String(duplicateBody?.asset?.id || ''),
+      replayHttpStatus: replayResponse.status,
+      replayStatus: replayBody?.status || '',
+      replayReason: replayBody?.reason || '',
       rendererErrors: rendererErrors.slice(0, 3),
     };
   })()`;
