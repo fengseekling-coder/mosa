@@ -252,6 +252,12 @@ function sessionOneSource(expect) {
     const trackCount = () => getComputedStyle(gridElement()).gridTemplateColumns.split(/\\s+/).filter(Boolean).length;
     // 布局稳定门：连续两次采样的卡片几何一致（瀑布流重排在 rAF 里落地）。
     async function waitForCardLayoutStable(label) {
+      // 任务 100：瀑布流重排排在下一帧（scheduleMasonryLayout）。先等两帧真的跑完再
+      // 采样——Windows CI 的隐藏窗口会把帧攒着，只等 120ms 会把旧布局误判成稳定。
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('nav-history-and-gallery-size: no animation frame ran within 10s after ' + label)), 10000);
+        requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(timer); resolve(); }));
+      });
       let previous = '';
       for (let attempt = 0; attempt < 40; attempt += 1) {
         await sleep(120);
