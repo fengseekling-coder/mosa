@@ -5104,6 +5104,10 @@ function setDetailOpen(open, { allowDockedClose = false } = {}) {
   // GravityPort A3：检视器开关改变画廊内容宽 → 列数与滑杆组可见性都要重算。
   syncGalleryColumns();
   syncGallerySizeGroupVisibility();
+  // 任务 96 返工 2：隐藏窗口（e2e/CI）把 rAF 攒帧批量执行，开合引发的列数/
+  // masonry/滚动条变化可能分多帧落地；行内 left 在两帧后再幂等重算一次（值
+  // 不变时零副作用），保证收尾几何下滑杆组必在正确位置，不押任何单次帧回调。
+  requestAnimationFrame(() => requestAnimationFrame(syncGallerySizeGroupVisibility));
   if (state.detailOpen) {
     if (!wasOpen) {
       const activeEl = document.activeElement;

@@ -711,13 +711,28 @@ const DELETE_FLOW_HELPERS = String.raw`
     await waitFor(() => confirmDialogOpen(), 'confirm dialog opens (round ' + action + ')');
     const focusedBefore = document.activeElement;
     if (action === 'escape') {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-      await waitFor(() => !confirmDialogOpen(), 'confirm dialog closed by Escape');
-      await waitFor(() => overlayOpen(), 'overlay stays open after Escape');
-      await new Promise((r) => setTimeout(r, 120));
-      const deleteButtonAfter = genRegion()?.querySelector(relationRowSelector + ' [data-action="delete-generation-relation"]');
-      const focusBackOnButton = document.activeElement === deleteButtonAfter;
-      return { dialogDescription: '', focusBackOnButton };
+      // 任务 96 返工 2：冻结 rAF 证明 Esc 的焦点恢复是同步的。CI 的隐藏窗口把
+      // rAF 节流到秒级——恢复若押在帧回调上，Esc 后焦点仍停在确认框的取消按钮
+      // （macOS CI versions-and-lineage 每次都挂的那一刀），这里修掉前必挂。
+      const frozenRafs = [];
+      const realRaf = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (callback) => { frozenRafs.push(callback); return frozenRafs.length; };
+      try {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await waitFor(() => !confirmDialogOpen(), 'confirm dialog closed by Escape');
+        await waitFor(() => overlayOpen(), 'overlay stays open after Escape');
+        await new Promise((r) => setTimeout(r, 120));
+        const deleteButtonAfter = genRegion()?.querySelector(relationRowSelector + ' [data-action="delete-generation-relation"]');
+        const focusBackOnButton = document.activeElement === deleteButtonAfter;
+        if (!focusBackOnButton) {
+          throw new Error('Esc focus restore must be synchronous with rAF frozen: activeElement='
+            + (document.activeElement?.id || document.activeElement?.className || document.activeElement?.tagName || 'none'));
+        }
+        return { dialogDescription: '', focusBackOnButton };
+      } finally {
+        window.requestAnimationFrame = realRaf;
+        for (const callback of frozenRafs.splice(0)) callback(Date.now());
+      }
     }
     const dialogDescription = document.querySelector('#confirmDialogDescription')?.textContent || '';
     const confirmButton = document.querySelector('#confirmDialogConfirm');

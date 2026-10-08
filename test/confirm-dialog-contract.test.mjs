@@ -123,7 +123,8 @@ test("22-23. focus restoration with safe fallbacks", async () => {
   const confirmDialog = await readConfirmDialog();
   const restore = functionSlice(confirmDialog, "restoreConfirmDialogFocus");
   const target = functionSlice(confirmDialog, "isConfirmFocusTarget");
-  assert.match(restore, /requestAnimationFrame\(/, "restoration is deferred through rAF");
+  assert.match(restore, /if \(restoreFocusInto\(returnFocus, triggerElement\)\) return;/, "restoration is attempted synchronously first — CI hidden windows throttle rAF to seconds (task 96 rework 2)");
+  assert.match(restore, /requestAnimationFrame\(/, "a deferred rAF pass remains as the fallback for targets that are mid-rebuild");
   assert.match(restore, /for \(const candidate of \[returnFocus, triggerElement\]\)/, "priority 1 returnFocus, priority 2 pre-open activeElement");
   // 2026-09-04: the single-asset archive entry retired, so its requery branch went with it.
   assert.doesNotMatch(restore, /data-action="archive-asset"/, "no requery entry for the retired archive action");

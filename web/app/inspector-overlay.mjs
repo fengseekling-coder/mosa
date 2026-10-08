@@ -155,15 +155,17 @@ export function createInspectorOverlay({ panel, t, isSuspended = null }) {
   }
 
   // 任务 73 返工 1：浮层内的动作触发确认框并重建浮层内容后（如删除版本关系），
-  // 确认框的焦点恢复可能因原按钮已被替换而落到浮层外。等确认框自己的 rAF 焦点
-  // 恢复跑完（双 rAF 在其后），若焦点仍不在浮层里，落回浮层容器。
+  // 确认框的焦点恢复可能因原按钮已被替换而落到浮层外。若焦点不在浮层里，落回浮层容器。
+  // 任务 96 返工 2：先同步拉一次（CI 隐藏窗口的 rAF 可能根本不跑），双 rAF 只作兜底。
   function restoreFocusInside() {
-    requestAnimationFrame(() => requestAnimationFrame(() => {
+    const pullFocusInside = () => {
       if (!openType) return;
       const element = rootElement();
       if (!element || element.contains(document.activeElement)) return;
       element.focus({ preventScroll: true });
-    }));
+    };
+    pullFocusInside();
+    requestAnimationFrame(() => requestAnimationFrame(pullFocusInside));
   }
 
   return { open, close, isOpen, body, reposition: onWindowResize, restoreFocusInside };

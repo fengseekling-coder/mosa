@@ -213,8 +213,39 @@ function sessionOneSource(expect) {
     if (Math.abs(recenteredLeft - windowCenterInBar()) < 24) {
       throw new Error('recentered left must sit off the window centerline: ' + recenteredLeft + ' vs ' + windowCenterInBar());
     }
-    const detailClose = document.querySelector('#detailPanel .detail-close');
-    if (detailClose && document.querySelector('#detailPanel')?.getAttribute('aria-hidden') === 'false') detailClose.click();
+    // ===== 任务 96 返工 2：关检视器后滑杆回窗口中线不得依赖帧回调 =====
+    // CI 的隐藏窗口（Windows 尤甚）把 rAF 攒帧批量执行。冻结 rAF 锁死「关闭检
+    // 视器 + 行内 left 回窗口中线必须同步落地」——返工 2 的探针实证这条链本就
+    // 同步（CI 失败与 main 上 Windows e2e 的既有偶发停滞同池），此断言把它变成
+    // 永久约束：将来谁把这条链改成依赖延迟帧，这里立刻挂。
+    const sizeGroupState = () => {
+      const group = document.querySelector('#topbarSizeGroup');
+      const bar = group?.parentElement?.getBoundingClientRect();
+      return {
+        left: group?.style.left || '',
+        hidden: group?.hidden,
+        panelAriaHidden: document.querySelector('#detailPanel')?.getAttribute('aria-hidden'),
+        centerInBar: bar ? window.innerWidth / 2 - bar.left : NaN,
+      };
+    };
+    const frozenRafs = [];
+    const realRaf = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (callback) => { frozenRafs.push(callback); return frozenRafs.length; };
+    try {
+      const before = sizeGroupState();
+      const detailClose = document.querySelector('#detailPanel .detail-close');
+      if (detailClose && before.panelAriaHidden === 'false') detailClose.click();
+      // 关闭走 async 守卫链（microtask），冻结的只是帧回调：等关闭完成本身，
+      // 然后要求行内 left 在同一同步块里落地——不押任何 rAF。
+      await waitFor(() => document.querySelector('#detailPanel')?.getAttribute('aria-hidden') === 'true', 'inspector closes with rAF frozen');
+      const frozen = sizeGroupState();
+      if (frozen.hidden === true || Math.abs(Number.parseFloat(frozen.left || 'NaN') - frozen.centerInBar) > 0.75) {
+        throw new Error('window-centered left must land synchronously with rAF frozen: ' + JSON.stringify({ before, frozen }));
+      }
+    } finally {
+      window.requestAnimationFrame = realRaf;
+      for (const callback of frozenRafs.splice(0)) callback(Date.now());
+    }
     await waitFor(() => !document.querySelector('#topbarSizeGroup')?.hidden
       && Math.abs(Number.parseFloat(document.querySelector('#topbarSizeGroup')?.style.left || 'NaN') - windowCenterInBar()) <= 0.75, 'size group back to window-centered without the inspector');
     const gridElement = () => document.querySelector('#assetGrid');

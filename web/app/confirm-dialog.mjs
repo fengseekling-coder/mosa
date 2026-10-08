@@ -71,8 +71,9 @@ export function createConfirmDialog({ els, state, t, closePanel }) {
       safeStorageSet(confirmDialogState.dontAskAgainKey, "off");
     }
     confirmDialogState.dontAskAgainKey = null;
-    // 焦点恢复经 rAF 延后，先取走引用再清理状态。
-    restoreConfirmDialogFocus(confirmDialogState.returnFocus, confirmDialogState.triggerElement);
+    // 焦点恢复目标先取走引用再清状态；恢复在下方 inert 移除后同步执行。
+    const returnFocus = confirmDialogState.returnFocus;
+    const triggerElement = confirmDialogState.triggerElement;
     confirmDialogState.returnFocus = null;
     confirmDialogState.triggerElement = null;
     els.confirmDialog?.classList.remove("open");
@@ -91,6 +92,10 @@ export function createConfirmDialog({ els, state, t, closePanel }) {
       els.confirmDialogDontAsk.hidden = true;
       if (els.confirmDialogDontAskCheckbox) els.confirmDialogDontAskCheckbox.checked = false;
     }
+    // 任务 96 返工 2：焦点恢复同步执行（inert 已移除，目标活着就直接聚焦）。
+    // 隐藏窗口（e2e/CI）会把 rAF 节流到秒级，恢复不能押在某一次帧回调上——
+    // Esc 后焦点必须即刻回到触发按钮，不依赖任何后续帧真的会跑。
+    restoreConfirmDialogFocus(returnFocus, triggerElement);
     if (resolve) resolve(result); // Confirm=true；Cancel/Escape/Backdrop=false；resolver 只结算一次
   }
 
@@ -99,16 +104,22 @@ export function createConfirmDialog({ els, state, t, closePanel }) {
     return element instanceof HTMLElement && element.isConnected && !element.disabled && !element.hidden && element.offsetParent !== null;
   }
 
+  // 焦点恢复分两步：先同步尝试（closeConfirmDialog 在移除 inert 之后调用，此时
+  // 目标按钮活着就直接聚焦）；同步不可用（目标正待重建替换等）时留一次 rAF 兜底。
   function restoreConfirmDialogFocus(returnFocus, triggerElement) {
-    requestAnimationFrame(() => {
-      // 优先级 1）业务显式 returnFocus；2）打开前的 activeElement。
-      for (const candidate of [returnFocus, triggerElement]) {
-        if (isConfirmFocusTarget(candidate)) { candidate.focus(); return; }
-      }
-      // 3）安全区：查看模式的返回按钮或搜索框，绝不落回 body。
-      const fallback = state.viewMode === "asset" ? els.assetViewBack : els.searchInput;
-      if (isConfirmFocusTarget(fallback)) fallback.focus();
-    });
+    if (restoreFocusInto(returnFocus, triggerElement)) return;
+    requestAnimationFrame(() => { restoreFocusInto(returnFocus, triggerElement); });
+  }
+
+  function restoreFocusInto(returnFocus, triggerElement) {
+    // 优先级 1）业务显式 returnFocus；2）打开前的 activeElement。
+    for (const candidate of [returnFocus, triggerElement]) {
+      if (isConfirmFocusTarget(candidate)) { candidate.focus(); return true; }
+    }
+    // 3）安全区：查看模式的返回按钮或搜索框，绝不落回 body。
+    const fallback = state.viewMode === "asset" ? els.assetViewBack : els.searchInput;
+    if (isConfirmFocusTarget(fallback)) { fallback.focus(); return true; }
+    return false;
   }
 
   function trapConfirmDialogFocus(event) {
