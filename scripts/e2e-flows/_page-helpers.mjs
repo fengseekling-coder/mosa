@@ -54,7 +54,12 @@ export const PAGE_HELPERS = String.raw`
   }
   function click(selector) {
     const element = document.querySelector(selector);
-    if (!element) throw new Error('Missing control ' + selector);
+    if (!element) {
+      // 任务 100：browse-sort-filter 在 macOS CI 偶发找不到侧栏来源项，带上侧栏现状。
+      const sidebarItems = [...document.querySelectorAll('#sidebarGroupList .nav-item')]
+        .map((item) => (item.dataset.filter || '') + ':' + (item.dataset.value || '')).slice(0, 20);
+      throw new Error('Missing control ' + selector + ' diagnostic=' + JSON.stringify({ ...pageDiagnostic(), sidebarItems }));
+    }
     if (element.disabled) throw new Error('Disabled control ' + selector);
     element.click();
     return element;

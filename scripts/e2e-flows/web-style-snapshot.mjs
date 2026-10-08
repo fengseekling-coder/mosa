@@ -183,7 +183,10 @@ export async function run(ctx) {
   const server = await ctx.startServer();
   let readings;
   try {
-    readings = await ctx.runInPage(server, measurementSource({ plainAssetId: (await seedAssets(ctx, server.origin)).ids[0] }));
+    // 任务 100：按页面尺寸要窗口（useContentSize）。默认 1280×800 量的是外框：
+    // macOS 页面是 1280×772（基准就是这么录的），Windows 减去边框只剩 1264 宽，
+    // 窗口中线差 8px，滑杆组 left 就对不上基准。
+    readings = await ctx.runInPage(server, measurementSource({ plainAssetId: (await seedAssets(ctx, server.origin)).ids[0] }), { windowSize: [1280, 772] });
   } finally {
     await server.stop();
   }
