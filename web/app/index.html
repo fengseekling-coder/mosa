@@ -83,14 +83,22 @@
     <!-- Phase 5B / F-15：全应用唯一 ConfirmDialog——替换 window.confirm 的四条业务确认
          （批量归档、单素材归档、放弃未保存修改、受限参考图再生）。标题/说明/确认按钮文案
          由 requestConfirmation 动态填充；Cancel 固定复用 cancel。tone 切换确认按钮原语：
-         danger→btn-danger（DestructiveButton 红色 outline），warning→btn-primary（品牌蓝）。 -->
+         danger→btn-danger（DestructiveButton 红色 outline），warning→btn-primary（品牌蓝）。
+         任务 94（A4f）：底行左侧是「不再提醒」勾选框（仅 requestConfirmation 传入
+         dontAskAgainKey 的调用显示，每次打开默认未勾选），右侧否/取消 + 是/确认按钮。 -->
     <div class="modal-overlay confirm-dialog-overlay" id="confirmDialog" aria-hidden="true">
       <div class="modal-card confirm-dialog-card" id="confirmDialogCard" role="dialog" aria-modal="true" aria-labelledby="confirmDialogTitle" aria-describedby="confirmDialogDescription" tabindex="-1">
         <div class="confirm-dialog-copy">
           <h3 id="confirmDialogTitle"></h3>
           <p id="confirmDialogDescription"></p>
         </div>
-        <div class="modal-footer"><button class="btn-secondary" id="confirmDialogCancel" type="button" data-i18n="cancel">取消</button><button class="btn-danger" id="confirmDialogConfirm" type="button"></button></div>
+        <div class="confirm-dialog-footer">
+          <label class="confirm-dialog-dont-ask" id="confirmDialogDontAsk" hidden>
+            <input type="checkbox" id="confirmDialogDontAskCheckbox" />
+            <span data-i18n="dontAskAgain">不再提醒</span>
+          </label>
+          <div class="confirm-dialog-actions"><button class="btn-secondary" id="confirmDialogCancel" type="button" data-i18n="cancel">取消</button><button class="btn-danger" id="confirmDialogConfirm" type="button"></button></div>
+        </div>
       </div>
     </div>
 

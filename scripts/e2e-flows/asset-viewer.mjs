@@ -197,6 +197,47 @@ function rootViewerSource(config) {
     await waitFor(() => currentId() === deletedId, 'undo shows the restored asset again');
     const deleted = { confirmDescription, nextId, deletedToast, afterUndoId: currentId() };
 
+    // 任务 94（A4f）：第二次删除勾「不再提醒」→ 是 → 存储 'off'；第三次删除
+    // 不再弹框直接删；两次都弹带撤销的 toast，撤销都回到被删的那张。
+    const confirmDialog = () => document.querySelector('#confirmDialog');
+    click('#assetViewDelete');
+    await waitFor(() => confirmDialog()?.classList.contains('open'), 'trash confirm opens for the dont-ask run');
+    const dontAskRun = {
+      title: (document.querySelector('#confirmDialogTitle')?.textContent || '').trim(),
+      cancelLabel: (document.querySelector('#confirmDialogCancel')?.textContent || '').trim(),
+      confirmLabel: (document.querySelector('#confirmDialogConfirm')?.textContent || '').trim(),
+      checkboxRowVisible: !document.querySelector('#confirmDialogDontAsk')?.hidden,
+      checkboxStartsUnchecked: document.querySelector('#confirmDialogDontAskCheckbox')?.checked === false,
+    };
+    document.querySelector('#confirmDialogDontAskCheckbox').click();
+    dontAskRun.checkboxCheckedAfterClick = document.querySelector('#confirmDialogDontAskCheckbox')?.checked === true;
+    document.querySelector('#confirmDialogConfirm').click();
+    await waitFor(() => !confirmDialog()?.classList.contains('open'), 'dont-ask confirm closes');
+    await waitFor(() => currentId() === nextId, 'dont-ask delete advances to the next asset');
+    await waitFor(() => Boolean(document.querySelector('#toastContainer .toast.is-visible .toast-action')), 'dont-ask delete still raises the undo toast');
+    dontAskRun.toastActionLabel = (document.querySelector('#toastContainer .toast.is-visible .toast-action')?.textContent || '').trim();
+    document.querySelector('#toastContainer .toast.is-visible .toast-action').click();
+    await waitFor(() => currentId() === deletedId, 'dont-ask delete undo returns to the asset');
+    dontAskRun.storedAfterConfirm = localStorage.getItem('mosa.confirm-move-to-trash');
+
+    // 第三次：已不再提醒 → 不弹框直接删下一张（nextId），撤销后回来。
+    click('#assetViewNext');
+    await waitFor(() => currentId() === nextId, 'navigated to the next asset for the suppressed delete');
+    click('#assetViewDelete');
+    const suppressedNext = rootIds[rootIds.indexOf(nextId) + 1] || '';
+    await waitFor(() => suppressedNext && currentId() === suppressedNext, 'suppressed delete advances without any dialog');
+    const dialogNeverOpened = !confirmDialog()?.classList.contains('open');
+    await waitFor(() => Boolean(document.querySelector('#toastContainer .toast.is-visible .toast-action')), 'suppressed delete raises the undo toast');
+    document.querySelector('#toastContainer .toast.is-visible .toast-action').click();
+    await waitFor(() => currentId() === nextId, 'suppressed delete undo restores the asset');
+    // 撤销后停在 nextId；回到 v3 再退画廊，Escape 段的选中卡断言才保持原口径。
+    click('#assetViewPrev');
+    await waitFor(() => currentId() === deletedId, 'back on the original asset before Escape');
+    const suppressedRun = { suppressedNext, dialogNeverOpened, storedBeforeCleanup: localStorage.getItem('mosa.confirm-move-to-trash') };
+    // 本 flow 结束前清掉「不再提醒」键，不影响后面的 flow。
+    localStorage.removeItem('mosa.confirm-move-to-trash');
+    const storedAfterCleanup = localStorage.getItem('mosa.confirm-move-to-trash');
+
     pressKey('Escape');
     await waitFor(() => view().hidden === true, 'asset view hidden after Escape');
     await waitFor(() => rootCardIds().includes(deletedId), 'restored asset card is back in the gallery');
@@ -207,7 +248,7 @@ function rootViewerSource(config) {
       multiSelectedCount: document.querySelectorAll('.asset-card.multi-selected').length,
     };
     await sleep(300);
-    return { rootIds, v3Position, opened, removedControls, steps, endState, endKeyNoop, firstState, firstKeyNoop, zoom, deleted, afterBack, afterEscape, rendererErrors };
+    return { rootIds, v3Position, opened, removedControls, steps, endState, endKeyNoop, firstState, firstKeyNoop, zoom, deleted, dontAskRun, suppressedRun, storedAfterCleanup, afterBack, afterEscape, rendererErrors };
   })()`;
 }
 
@@ -271,6 +312,25 @@ function assertRootViewerPhase(result, seed) {
   if (!deleted.deletedToast?.message) problems.push("delete toast message empty");
   if (deleted.deletedToast?.actionLabel !== "撤销") problems.push(`delete toast action label ${JSON.stringify(deleted.deletedToast?.actionLabel)}`);
   if (deleted.afterUndoId !== seed.v3) problems.push(`undo landed on ${deleted.afterUndoId}`);
+
+  // 任务 94（A4f）：勾「不再提醒」→ 是 → 存 'off'；再删不弹框直接删；撤销都在。
+  const dontAsk = result.dontAskRun || {};
+  if (dontAsk.title !== "是否移至回收站？") problems.push(`dont-ask confirm title ${JSON.stringify(dontAsk.title)}`);
+  if (dontAsk.cancelLabel !== "否" || dontAsk.confirmLabel !== "是") problems.push(`dont-ask confirm buttons ${JSON.stringify([dontAsk.cancelLabel, dontAsk.confirmLabel])}`);
+  if (dontAsk.checkboxRowVisible !== true) problems.push("dont-ask checkbox row not visible");
+  if (dontAsk.checkboxStartsUnchecked !== true) problems.push("dont-ask checkbox not unchecked on open");
+  if (dontAsk.checkboxCheckedAfterClick !== true) problems.push("dont-ask checkbox not checkable");
+  if (dontAsk.toastActionLabel !== "撤销") problems.push(`dont-ask delete toast action ${JSON.stringify(dontAsk.toastActionLabel)}`);
+  if (dontAsk.storedAfterConfirm !== "off") problems.push(`dont-ask storage after confirm ${JSON.stringify(dontAsk.storedAfterConfirm)}`);
+  const suppressed = result.suppressedRun || {};
+  if (suppressed.dialogNeverOpened !== true) problems.push("suppressed delete still opened the confirm dialog");
+  if (suppressed.suppressedNext !== at(v3Position + 2) && !(v3Position + 1 > ids.length && suppressed.suppressedNext === "")) {
+    problems.push(`suppressed delete target ${suppressed.suppressedNext}, expected ${at(v3Position + 2)}`);
+  }
+  if (suppressed.storedBeforeCleanup !== "off") problems.push(`storage before cleanup ${JSON.stringify(suppressed.storedBeforeCleanup)}`);
+  if (result.storedAfterCleanup !== null && result.storedAfterCleanup !== undefined) {
+    problems.push(`storage key not cleaned up: ${JSON.stringify(result.storedAfterCleanup)}`);
+  }
 
   // Both exit paths: the last viewed card is the single selection and the
   // right-click multi-selection has been cleared.

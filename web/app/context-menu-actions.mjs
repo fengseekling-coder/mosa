@@ -3,7 +3,7 @@
  * Defines all context menu items and their actions
  */
 
-import { sanitizeAssetForExport } from "./utils.mjs";
+import { sanitizeAssetForExport, moveToTrashConfirmSuppressed, CONFIRM_MOVE_TO_TRASH_KEY } from "./utils.mjs";
 
 export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, openStackRenameModal, loadAssets, getGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, assetStacks, cutPaste, emptyTrash, gallerySelection }) {
   const { apiFetch } = apiClient;
@@ -63,6 +63,27 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
       else failed.push(asset);
     }
     return { succeeded, failed };
+  }
+
+  // 任务 94（A4f）：撤销右键移入回收站——只恢复这次成功移走的那几张，逐张走
+  // 现有 restore 端点（与回收站范围「还原」菜单同一事件面：refresh-assets 带
+  // restoredAssetIds）。全成功不再追加提示（撤销动作本身就是反馈）；有失败照
+  // 既有批量口径提示 batchPartialResult。
+  async function restoreTrashedSelection(projectId, ids = []) {
+    const restored = [];
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        await apiFetch(`/api/assets/${encodeURIComponent(projectId)}/${encodeURIComponent(id)}/restore`, { method: "POST" });
+        restored.push(id);
+      } catch {
+        failed += 1;
+      }
+    }
+    if (failed) showToast(t("batchPartialResult", { succeeded: restored.length, failed }), "error");
+    if (restored.length) {
+      window.dispatchEvent(new CustomEvent("mosa:refresh-assets", { detail: { restoredAssetIds: restored } }));
+    }
   }
 
   function logicalSelectionCount(selectedAssets = [], options = {}) {
@@ -997,13 +1018,19 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           if (!context || !mutationContextIsCurrent(context)) return;
           const { ids, projectId } = context;
           const assets = mutationAssetsForIds(ids, projectId);
-          const confirmed = await requestConfirmation({
-            title: ids.length > 1 ? t("moveAssetsToTrashTitle", { count: ids.length }) : t("moveToTrashTitle"),
-            description: t("moveToTrashDescription"),
-            confirmLabel: t("moveToTrash"),
-            tone: "danger",
-          });
-          if (!confirmed || !mutationContextIsCurrent(context)) return;
+          // 任务 94（A4f）：勾过「不再提醒」后右键单张/多选直接移入回收站；整组
+          // 堆叠的「移至回收站」不走这里（永远确认）。其余守卫照旧。
+          if (!moveToTrashConfirmSuppressed()) {
+            const confirmed = await requestConfirmation({
+              title: ids.length > 1 ? t("moveAssetsToTrashTitle", { count: ids.length }) : t("moveToTrashTitle"),
+              description: t("moveToTrashDescription"),
+              confirmLabel: t("yes"),
+              cancelLabel: t("no"),
+              tone: "danger",
+              dontAskAgainKey: CONFIRM_MOVE_TO_TRASH_KEY,
+            });
+            if (!confirmed || !mutationContextIsCurrent(context)) return;
+          }
           if (!await confirmSelectedAssetMutation(assets)) return;
           if (!mutationContextIsCurrent(context)) return;
 
@@ -1020,9 +1047,20 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             const outcome = reconcileBatchMutation(assets, response);
             commitSelectedAssetMutation(outcome.succeeded);
             if (outcome.failed.length) {
-              showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
+              // 部分失败：成功移走的那几张同样可以撤销。
+              showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error", outcome.succeeded.length ? {
+                actionLabel: t("undo"),
+                duration: 6000,
+                onAction: () => { void restoreTrashedSelection(projectId, outcome.succeeded.map((entry) => entry.id)); },
+              } : undefined);
             } else {
-              showToast(isMultiple ? t("assetsMovedToTrash", { count: assets.length }) : t("assetMovedToTrash"), "success");
+              // 任务 94：与大图页删除同样的「已移至回收站 · 撤销」toast（6 秒），
+              // 不论这次有没有弹确认框都弹；撤销只恢复本次成功移走的。
+              showToast(isMultiple ? t("assetsMovedToTrash", { count: assets.length }) : t("assetMovedToTrash"), "success", {
+                actionLabel: t("undo"),
+                duration: 6000,
+                onAction: () => { void restoreTrashedSelection(projectId, outcome.succeeded.map((entry) => entry.id)); },
+              });
             }
             window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
               detail: { removedAssetIds: outcome.succeeded.map((entry) => entry.id) },

@@ -6,6 +6,7 @@ import {
 } from "./config.mjs";
 import {
   cardShortTitle, debounce, displayAssetTitle, escapeHtml, formatDate, normalizeSort, safeStorageGet, safeStorageSet,
+  CONFIRM_MOVE_TO_TRASH_KEY, moveToTrashConfirmSuppressed, setMoveToTrashConfirmSuppressed,
 } from "./utils.mjs";
 import { createToastManager } from "./toast-manager.mjs";
 import { createApiClient, mosaMutationHeaders } from "./api-client.mjs";
@@ -337,6 +338,8 @@ Object.assign(els, {
   confirmDialogDescription: document.querySelector("#confirmDialogDescription"),
   confirmDialogCancel: document.querySelector("#confirmDialogCancel"),
   confirmDialogConfirm: document.querySelector("#confirmDialogConfirm"),
+  confirmDialogDontAsk: document.querySelector("#confirmDialogDontAsk"),
+  confirmDialogDontAskCheckbox: document.querySelector("#confirmDialogDontAskCheckbox"),
 });
 
 function gallerySelectionRects() {
@@ -1492,11 +1495,12 @@ function syncSettingsMenuView() {
   if (menu.hidden) return;
   const setRadioState = (selector, selectedValue) => {
     menu.querySelectorAll(selector).forEach((button) => {
-      button.classList.toggle("active", button.value === selectedValue || button.dataset.appearanceOpt === selectedValue || button.dataset.cardInfoOpt === selectedValue || button.dataset.locale === selectedValue);
+      button.classList.toggle("active", button.value === selectedValue || button.dataset.appearanceOpt === selectedValue || button.dataset.cardInfoOpt === selectedValue || button.dataset.confirmTrashOpt === selectedValue || button.dataset.locale === selectedValue);
     });
   };
   setRadioState("[data-appearance-opt]", state.themeSetting);
   setRadioState("[data-card-info-opt]", state.showCardInfo ? "show" : "hide");
+  setRadioState("[data-confirm-trash-opt]", moveToTrashConfirmSuppressed() ? "off" : "on");
   setRadioState("[data-locale]", state.locale === "en" ? "en" : "zh");
 
   const libraryPath = state.libraryRoot || state.libraryPath || state.codexImagesDir || "—";
@@ -1574,6 +1578,9 @@ function renderSettingsMenu({ force = false } = {}) {
   const appearanceRows = [
     themeRow,
     row(t("cardInfo"), "", segmented(t("cardInfo"), "data-card-info-opt", state.showCardInfo ? "show" : "hide", [{ value: "hide", label: t("cardInfoHide") }, { value: "show", label: t("cardInfoShow") }])),
+    // 任务 94（A4f）：「不再提醒」的找回入口。读写同一个存储键（mosa.confirm-move-to-trash），
+    // 渲染时现读现显——确认框里勾选写入后，打开设置即显示「关闭」。
+    row(t("confirmMoveToTrashSetting"), "", segmented(t("confirmMoveToTrashSetting"), "data-confirm-trash-opt", moveToTrashConfirmSuppressed() ? "off" : "on", [{ value: "off", label: t("confirmTrashOff") }, { value: "on", label: t("confirmTrashOn") }])),
     row(t("interfaceLanguage"), "", segmented(t("interfaceLanguage"), "data-locale", visualLocale, [{ value: "zh", label: "中文" }, { value: "en", label: "EN" }]))
   ].join("");
   const storageRows = [
@@ -1626,7 +1633,7 @@ function describeSettingsFocus(element) {
   if (!(element instanceof HTMLElement) || !els.settingsMenu?.contains(element)) return null;
   const tab = element.closest("[data-settings-page]");
   if (tab) return { page: tab.dataset.settingsPage, control: null };
-  const attributes = ["data-appearance-opt", "data-card-info-opt", "data-locale", "data-open-library", "data-copy-user-id", "data-change-library", "data-check-updates", "data-cancel-update", "data-install-update", "data-download-latest", "data-visual-model-toggle", "data-visual-pack-install", "data-visual-pack-cancel", "data-visual-pack-remove", "data-settings-close"];
+  const attributes = ["data-appearance-opt", "data-card-info-opt", "data-confirm-trash-opt", "data-locale", "data-open-library", "data-copy-user-id", "data-change-library", "data-check-updates", "data-cancel-update", "data-install-update", "data-download-latest", "data-visual-model-toggle", "data-visual-pack-install", "data-visual-pack-cancel", "data-visual-pack-remove", "data-settings-close"];
   for (const attribute of attributes) {
     const value = element.getAttribute(attribute);
     if (value !== null) return { page: state.settingsPage, control: `[${attribute}="${CSS.escape(value)}"]` };
@@ -1913,13 +1920,18 @@ async function deleteCurrentAssetFromViewer() {
   const asset = selectedAsset();
   if (!asset) return;
   if (!await confirmDetailNavigation()) return;
-  const confirmed = await requestConfirmation({
-    title: t("moveToTrashTitle"),
-    description: t("moveToTrashDescription"),
-    confirmLabel: t("moveToTrash"),
-    tone: "danger",
-  });
-  if (!confirmed) return;
+  // 任务 94（A4f）：勾过「不再提醒」后大图页删除不再弹确认框（草稿守卫照旧在前）。
+  if (!moveToTrashConfirmSuppressed()) {
+    const confirmed = await requestConfirmation({
+      title: t("moveToTrashTitle"),
+      description: t("moveToTrashDescription"),
+      confirmLabel: t("yes"),
+      cancelLabel: t("no"),
+      tone: "danger",
+      dontAskAgainKey: CONFIRM_MOVE_TO_TRASH_KEY,
+    });
+    if (!confirmed) return;
+  }
   const projectId = asset.project_id || state.project;
   const deletedId = asset.id;
   let response = null;
@@ -2607,6 +2619,15 @@ function bindEvents() {
       button.parentElement.querySelectorAll(".segmented-btn").forEach((b) => b.classList.remove("active"));
       button.classList.add("active");
       syncSegmentedRadios(els.settingsMenu); // aria-checked 与 .active 同步（Phase 5A / F-12）
+      return;
+    }
+
+    // 任务 94：「移至回收站前确认」分段按钮（关闭 = 不再提醒，写入同一存储键）。
+    if (button?.dataset.confirmTrashOpt) {
+      setMoveToTrashConfirmSuppressed(button.dataset.confirmTrashOpt === "off");
+      button.parentElement.querySelectorAll(".segmented-btn").forEach((b) => b.classList.remove("active"));
+      button.classList.add("active");
+      syncSegmentedRadios(els.settingsMenu);
       return;
     }
 

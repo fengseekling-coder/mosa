@@ -1,16 +1,20 @@
 // ===== Phase 5B / F-15：全应用唯一 ConfirmDialog（提取自 app.js，REFACTORING-PLAN R1 批次 3）=====
 // els/state/t/closePanel 经 createConfirmDialog 工厂注入；单 pending Promise、焦点/Escape
 // 生命周期、焦点恢复策略与原先完全一致；confirmDialogState 随闭包迁移并原样暴露。
+// 任务 94（A4f）：requestConfirmation 可选 dontAskAgainKey——传入才显示「不再提醒」
+// 勾选框，只有点「是」且勾选时写入该键（"off"）；否/Esc/遮罩一律不记，每次打开都未勾选。
+
+import { safeStorageSet } from "./utils.mjs";
 
 export function createConfirmDialog({ els, state, t, closePanel }) {
   // ===== Confirm Dialog（Phase 5B / F-15） =====
   // 全应用唯一 ConfirmDialog。业务只传文案、tone 与可选的显式焦点返回目标；
   // 不持久化到 state/localStorage/素材数据，不建确认队列或第二套 Modal Manager。
-  const confirmDialogState = { pending: false, resolve: null, returnFocus: null, triggerElement: null };
+  const confirmDialogState = { pending: false, resolve: null, returnFocus: null, triggerElement: null, dontAskAgainKey: null };
 
   // 单 pending 策略：已有确认显示时，新请求直接返回 false——不排队、第二个请求不覆盖
   // 第一个 resolver，两个不同业务绝不共享同一确认结果（重复快速点击不叠加第二个 Modal）。
-  function requestConfirmation({ title = "", description = "", confirmLabel = "", cancelLabel = "", tone = "danger", returnFocus = null } = {}) {
+  function requestConfirmation({ title = "", description = "", confirmLabel = "", cancelLabel = "", tone = "danger", returnFocus = null, dontAskAgainKey = "" } = {}) {
     if (confirmDialogState.pending || !els.confirmDialog) return Promise.resolve(false);
     // 打开前保存当前焦点元素，并关闭 Settings，避免两个 modal surface 叠加。
     confirmDialogState.triggerElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -26,6 +30,12 @@ export function createConfirmDialog({ els, state, t, closePanel }) {
     }
     if (els.confirmDialogCancel) els.confirmDialogCancel.textContent = cancelLabel || t("cancel");
     if (els.confirmDialogCard) els.confirmDialogCard.dataset.tone = tone === "danger" ? "danger" : "warning";
+    // 「不再提醒」行只对传入 dontAskAgainKey 的调用出现，且每次打开都是未勾选。
+    confirmDialogState.dontAskAgainKey = typeof dontAskAgainKey === "string" && dontAskAgainKey ? dontAskAgainKey : null;
+    if (els.confirmDialogDontAsk) {
+      els.confirmDialogDontAsk.hidden = !confirmDialogState.dontAskAgainKey;
+      if (els.confirmDialogDontAskCheckbox) els.confirmDialogDontAskCheckbox.checked = false;
+    }
     confirmDialogState.pending = true;
     confirmDialogState.returnFocus = returnFocus instanceof HTMLElement ? returnFocus : null;
     // The dialog sits outside #appShell; inert keeps the complete application
@@ -56,6 +66,11 @@ export function createConfirmDialog({ els, state, t, closePanel }) {
     const { resolve } = confirmDialogState;
     confirmDialogState.pending = false;
     confirmDialogState.resolve = null;
+    // 「不再提醒」只在点「是」时生效；否/Esc/遮罩（result=false）不写存储。
+    if (result === true && confirmDialogState.dontAskAgainKey && els.confirmDialogDontAskCheckbox?.checked) {
+      safeStorageSet(confirmDialogState.dontAskAgainKey, "off");
+    }
+    confirmDialogState.dontAskAgainKey = null;
     // 焦点恢复经 rAF 延后，先取走引用再清理状态。
     restoreConfirmDialogFocus(confirmDialogState.returnFocus, confirmDialogState.triggerElement);
     confirmDialogState.returnFocus = null;
@@ -63,7 +78,7 @@ export function createConfirmDialog({ els, state, t, closePanel }) {
     els.confirmDialog?.classList.remove("open");
     els.confirmDialog?.setAttribute("aria-hidden", "true");
     els.appShell?.removeAttribute("inert");
-    // 清理临时文案与 tone，单一 Dialog 壳回到静态空壳。
+    // 清理临时文案与 tone，单一 Dialog 壳回到静态空壳（勾选行同样复位为隐藏未勾选）。
     if (els.confirmDialogTitle) els.confirmDialogTitle.textContent = "";
     if (els.confirmDialogDescription) els.confirmDialogDescription.textContent = "";
     if (els.confirmDialogConfirm) {
@@ -72,6 +87,10 @@ export function createConfirmDialog({ els, state, t, closePanel }) {
       els.confirmDialogConfirm.classList.add("btn-primary");
     }
     delete els.confirmDialogCard?.dataset.tone;
+    if (els.confirmDialogDontAsk) {
+      els.confirmDialogDontAsk.hidden = true;
+      if (els.confirmDialogDontAskCheckbox) els.confirmDialogDontAskCheckbox.checked = false;
+    }
     if (resolve) resolve(result); // Confirm=true；Cancel/Escape/Backdrop=false；resolver 只结算一次
   }
 

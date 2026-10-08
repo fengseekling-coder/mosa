@@ -202,10 +202,12 @@ test("28-30. Surface max-height / ConfirmDialog viewport-safe / Toast fixed 栈�
   assert.doesNotMatch(styles, /\.filter-panel\b/);
   assert.match(styles, /\.settings-menu \{[^}]*max-height: calc\(100vh - 56px\)/);
   assert.doesNotMatch(styles, /\.anchored-overlay/);
-  // ConfirmDialog：modal-overlay padding 20px + modal-card max-width/max-height 保证视口安全。
+  // ConfirmDialog：modal-overlay padding 20px + modal-card max-width/max-height 保证视口安全；
+  // 任务 94 后桌面态宽卡 640，≤767 由 overlay padding 16 收口（视口减两侧 16）。
   assert.match(styles, /\.modal-overlay \{ position: fixed;[^}]*padding: 20px;/);
   assert.match(styles, /\.modal-card \{[^}]*max-width: 100%; max-height: min\(760px, 88vh\)/);
-  assert.match(styles, /\.confirm-dialog-card \{ width: 400px; \}/);
+  assert.match(styles, /\.confirm-dialog-card \{ box-sizing: border-box; width: 640px; min-height: 240px; \}/);
+  assert.match(styles, /@media \(max-width: 767px\) \{[^]*?\.confirm-dialog-overlay \{ padding: 16px; \}/);
   // Toast：fixed 栈不扩展文档布局。
   assert.match(styles, /\.toast-stack \{ position: fixed; z-index: var\(--z-toast\);/);
   assert.match(styles, /\.toast-stack-polite \{ bottom: calc\(20px \+ var\(--toast-error-stack-height, 0px\)\); \}/);

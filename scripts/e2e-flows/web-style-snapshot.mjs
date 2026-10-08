@@ -146,6 +146,20 @@ const KEY_KINDS = {
   "menu.groupGap": "px",
   "menu.iconSize": "px",
   "menu.iconInset": "px",
+  // 任务 94（GravityPort A4f）：确认弹窗——卡 640×240 圆角 16、标题 24/行距 30、
+  // 按钮 80×40 圆角 8 间距 8、「不再提醒」勾选框 16×16 圆角 4。
+  "confirmDialog.cardWidth": "px",
+  "confirmDialog.cardHeight": "px",
+  "confirmDialog.cardRadius": "px",
+  "confirmDialog.titleFontSize": "font",
+  "confirmDialog.titleLineSpacing": "px",
+  "confirmDialog.buttonWidth": "px",
+  "confirmDialog.buttonHeight": "px",
+  "confirmDialog.buttonRadius": "px",
+  "confirmDialog.buttonGap": "px",
+  "confirmDialog.checkboxSize": "px",
+  "confirmDialog.checkboxRadius": "px",
+  "confirmDialog.dontAskVisible": "str",
   // 深色主题（R21 没有深色规格：只守关键颜色没被浅色规则串进去）
   "dark.bodyBackground": "color",
   "dark.bodyColor": "color",
@@ -608,6 +622,46 @@ function measurementSource({ plainAssetId }) {
     await waitFor(() => pick('#detailPanel').getAttribute('aria-hidden') === 'true', 'inspector closed for toast closed-state key');
     await waitStable(() => [Math.round(rectOf(toastStack).right * 2)], 'toast stack right (closed)');
     R['toast.stackRightInsetClosed'] = window.innerWidth - rectOf(toastStack).right;
+
+    // ---- 4c) 确认弹窗（任务 94 / A4f）：经真实入口（右键 → 移到回收站）打开后
+    // 量稿子几何；点「否」取消——绝不点「是」（不写「不再提醒」存储、不动画廊）。
+    const trashMenuItem = await openContextMenu(cardSelector(seed.plainAssetId), '移到回收站');
+    trashMenuItem.click();
+    await waitFor(() => pick('#confirmDialog').classList.contains('open'), 'confirm dialog opens for snapshot');
+    await waitForMotionSettled(pick('#confirmDialogCard'), 'confirm dialog');
+    await waitStable(() => {
+      const r = rectOf(pick('#confirmDialogCard'));
+      return [r.left, r.top, r.width, r.height].map((v) => Math.round(v * 2));
+    }, 'confirm dialog geometry');
+    const dialogCard = pick('#confirmDialogCard');
+    const dialogRect = rectOf(dialogCard);
+    R['confirmDialog.cardWidth'] = dialogRect.width;
+    R['confirmDialog.cardHeight'] = dialogRect.height;
+    R['confirmDialog.cardRadius'] = styleOf(dialogCard).borderTopLeftRadius;
+    R['confirmDialog.titleFontSize'] = styleOf(pick('#confirmDialogTitle')).fontSize;
+    R['confirmDialog.titleLineSpacing'] = rectOf(pick('#confirmDialogDescription')).top - rectOf(pick('#confirmDialogTitle')).top;
+    const dialogConfirmButton = pick('#confirmDialogConfirm');
+    const dialogCancelButton = pick('#confirmDialogCancel');
+    R['confirmDialog.buttonWidth'] = rectOf(dialogConfirmButton).width;
+    R['confirmDialog.buttonHeight'] = rectOf(dialogConfirmButton).height;
+    R['confirmDialog.buttonRadius'] = styleOf(dialogConfirmButton).borderTopLeftRadius;
+    R['confirmDialog.buttonGap'] = rectOf(dialogConfirmButton).left - rectOf(dialogCancelButton).right;
+    const dialogCheckbox = pick('#confirmDialogDontAskCheckbox');
+    R['confirmDialog.checkboxSize'] = rectOf(dialogCheckbox).width;
+    R['confirmDialog.checkboxRadius'] = styleOf(dialogCheckbox).borderTopLeftRadius;
+    R['confirmDialog.dontAskVisible'] = pick('#confirmDialogDontAsk').hidden === false ? 'yes' : 'no';
+    click('#confirmDialogCancel');
+    await waitFor(() => !pick('#confirmDialog').classList.contains('open'), 'confirm dialog cancelled after snapshot');
+    // 右键把卡片从单选转成了多选、取消弹窗不会清它；按 Esc 清掉残留选区，再按
+    // 第 4 步的同一入口恢复单选（深色段要量 .asset-card.selected 的选中环）。
+    // 只恢复选中、不开检视器：4b 已手动关闭检视器（detailManuallyClosed），
+    // 深色段也只依赖 .selected 存在。
+    document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' }));
+    await waitFor(() => !document.querySelector('.asset-card.multi-selected'), 'leftover multi-selection cleared after the dialog');
+    const selectButtonAfterDialog = () => document.querySelector('[data-id="' + CSS.escape(seed.plainAssetId) + '"] .asset-card-select');
+    await waitFor(() => selectButtonAfterDialog()?.isConnected, 'card select button back after the dialog');
+    selectButtonAfterDialog().click();
+    await waitFor(() => document.querySelector('.asset-card.selected'), 'single selection restored after the dialog');
 
     // ---- 5) 深色主题关键颜色（设置里的真实入口切换）----
     await openSettings('dark');

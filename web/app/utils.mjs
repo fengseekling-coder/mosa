@@ -51,6 +51,19 @@ export function safeStorageGet(key) { try { return localStorage.getItem(key); } 
 
 export function safeStorageSet(key, value) { try { localStorage.setItem(key, value); } catch {} }
 
+// 任务 94：「移至回收站」确认框的「不再提醒」记忆（右键单张/多选、大图页删除
+// 三处共用；整组堆叠移至回收站永远确认，不读这个键）。值 "off" = 不再提醒，
+// 读不到或任何其他值都当作要提醒。
+export const CONFIRM_MOVE_TO_TRASH_KEY = "mosa.confirm-move-to-trash";
+
+export function moveToTrashConfirmSuppressed() {
+  return safeStorageGet(CONFIRM_MOVE_TO_TRASH_KEY) === "off";
+}
+
+export function setMoveToTrashConfirmSuppressed(suppressed) {
+  safeStorageSet(CONFIRM_MOVE_TO_TRASH_KEY, suppressed ? "off" : "on");
+}
+
 /**
  * 分组导出的 JSON 会离开本机，而接口返回的素材对象带着本机绝对路径
  * （image_path / source.path / cowart_project_dir 等，含用户名与目录结构）、

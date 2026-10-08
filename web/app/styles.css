@@ -875,13 +875,30 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   .modal-overlay.open > .modal-card { opacity: 0; transform: translateY(8px) scale(.97); }
 }
 .group-modal-card { width: 386px; }
-/* ===== ConfirmDialog（Phase 5B / F-15） =====
-   全应用唯一确认弹窗：复用 modal-overlay / modal-card / modal-footer 壳，不新增遮罩、
-   不新增圆角与阴影体系；宽度收窄适配 960×640，文案区允许换行（大 count/长中文不撑破）。 */
-.confirm-dialog-card { width: 400px; }
-.confirm-dialog-copy { padding: 20px 20px 16px; overflow-wrap: break-word; }
-.confirm-dialog-copy h3 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.35; }
-.confirm-dialog-copy p { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; overflow-wrap: break-word; }
+/* ===== ConfirmDialog（Phase 5B / F-15；任务 94 / GravityPort A4f 稿子改版） =====
+   全应用唯一确认弹窗：复用 modal-overlay / modal-card 壳，不新增遮罩与阴影体系。
+   稿子量数（SVG 596,2666 起）：卡 640×240 圆角 16（圆角沿用 .mosa-v2 .modal-card 的 16），
+   内边距 40；文案两行同字号同字重（24/30）；底行左侧「不再提醒」（16px，勾选框
+   16×16 圆角 4，与按钮垂直居中），右侧 80×40 圆角 8 按钮，间距 8。文案区
+   flex:1 撑开短文案场景的固定高度；长说明卡随之长高（min-height 兜底）。 */
+.confirm-dialog-card { box-sizing: border-box; width: 640px; min-height: 240px; }
+.confirm-dialog-copy { flex: 1 1 auto; padding: 40px 40px 0; overflow-wrap: break-word; }
+.confirm-dialog-copy h3 { margin: 0; font-size: 24px; font-weight: 400; letter-spacing: 0; line-height: 30px; }
+.confirm-dialog-copy p { margin: 0; color: var(--color-text-secondary); font-size: 24px; font-weight: 400; line-height: 30px; overflow-wrap: break-word; }
+.confirm-dialog-footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; padding: 24px 40px 40px; }
+.confirm-dialog-dont-ask { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 8px; font-size: 16px; cursor: pointer; }
+.confirm-dialog-dont-ask[hidden] { display: none; }
+.confirm-dialog-dont-ask input {
+  box-sizing: border-box; flex: 0 0 auto; width: 16px; height: 16px; margin: 0; padding: 0;
+  border: 1px solid var(--color-border-subtle); border-radius: 4px; background: var(--app-card);
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+}
+.confirm-dialog-dont-ask input:checked {
+  border-color: var(--color-accent);
+  background: var(--color-accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / 10px 10px no-repeat;
+}
+.confirm-dialog-actions { display: flex; flex: 0 0 auto; gap: 8px; margin-left: auto; }
+.confirm-dialog-actions .btn-secondary, .confirm-dialog-actions .btn-danger, .confirm-dialog-actions .btn-primary { min-width: 80px; height: 40px; padding: 0 14px; border-radius: 8px; font-size: 24px; font-weight: 400; }
 .modal-header { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--color-border-subtle); }
 .modal-header h3 { margin-top: 1px; font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }
 .modal-body { flex: 1; overflow: auto; padding: 18px 20px; }
@@ -1719,6 +1736,8 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
    媒体查询移除，断点登记表保持不变）。 */
 
 @media (max-width: 767px) {
+  /* 任务 94：确认弹窗窄屏不超过视口减两侧 16（宽卡照稿子只在桌面态给 640）。 */
+  .confirm-dialog-overlay { padding: 16px; }
   .mosa-v2 .shell, .mosa-v2 .shell.details-open {
     display: block;
     width: 100%;
