@@ -294,6 +294,15 @@ function sessionOneSource(expect) {
         overlaps,
         sliderValue: document.querySelector('#gallerySizeSlider').value,
       };
+      // CI 诊断：行不完整时带回首行几何、轨道和滚动条占位，区分「少卡」和「间距不对」。
+      if (!rowComplete) {
+        step.firstRow = firstRow.map((rect) => [rect.left, rect.right, rect.top].map((n) => Math.round(n * 100) / 100));
+        step.tracks = getComputedStyle(grid).gridTemplateColumns;
+        step.gridWidths = [grid.offsetWidth, grid.clientWidth, grid.scrollWidth];
+        step.scroller = (() => { const el = grid.closest('.gallery-scroll, .main-content, main') || document.scrollingElement; return el ? [el.className || el.tagName, el.offsetWidth, el.clientWidth] : null; })();
+        step.cardCount = rects.length;
+        step.innerWidth = window.innerWidth;
+      }
       facts.sliderSteps.push(step);
       return step;
     }
