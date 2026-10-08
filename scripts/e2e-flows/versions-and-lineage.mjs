@@ -1,7 +1,11 @@
 // E2E flow: asset version history (tree / switch / compare), manual generation
 // relations created and removed from the inspector, rule-derived relation
-// candidates confirmed and dismissed, the session / batch / context navigation
-// entries, then a restart to prove versions and deletions persist.
+// candidates confirmed and dismissed, the context navigation entry, then a
+// restart to prove versions and deletions persist.
+// GravityPort A4a（任务 73）：版本工作流（选择器/版本历史/对比/生成树）搬进版本树
+// 浮层——所有树/关系操作前先点版本区块的「查看」；来源区块（含「查看整个会话」
+// 「查看同一批次」按钮）已从检视器拿掉，session/batch 导航锁「不再渲染」，
+// 「查看上下文」经浮层照常验。
 
 import { PAGE_HELPERS } from "./_page-helpers.mjs";
 
@@ -10,6 +14,7 @@ export const description = "version tree/switch/compare -> generation relation c
 
 const CONVERSATION = "conv-e2e-lineage";
 const CANDIDATE_CONVERSATION = "conv-e2e-candidates";
+const ROUNDS_CONVERSATION = "conv-e2e-rounds";
 const RELATION_PROVIDER = "e2e-flow";
 const MSG_L1 = "msg-e2e-l1";
 const MSG_L2 = "msg-e2e-l2";
@@ -45,6 +50,17 @@ const INSPECTOR_HELPERS = String.raw`
     if (!disclosure.open) disclosure.querySelector('summary').click();
     return disclosure;
   };
+  // GravityPort A4a：版本树浮层——版本选择器 / 版本历史 / 对比 / 生成树都在里面。
+  const versionOverlayVisible = () => {
+    const overlay = detailPanel()?.querySelector('[data-gp-overlay]');
+    return Boolean(overlay) && !overlay.hidden && Boolean(overlay.querySelector('[data-gp-overlay-body="version"]:not([hidden])'));
+  };
+  async function openVersionOverlay() {
+    const trigger = detailPanel()?.querySelector('[data-inspector-section="version"] [data-action="open-version-overlay"]');
+    if (!trigger) throw new Error('Missing version overlay trigger');
+    trigger.click();
+    await waitFor(() => versionOverlayVisible(), 'version overlay opens');
+  }
   async function openInspector(assetId) {
     const deadline = Date.now() + 15000;
     while (Date.now() < deadline) {
@@ -117,6 +133,15 @@ export async function run(ctx) {
 
     assertHistoryNavigation(await ctx.runInPage(first, historyNavigationSource(seeded)), seeded);
     await assertConversationFiltersViaApi(api, seeded);
+
+    // 任务 75 + 返工 1：版本树与上下文的轮次——绑定接口写入快照（3 轮、其中一
+    // 轮 2 张图、对话共 5 轮），检视器按素材时间取 3 行、逐张显示轮次与合计；重
+    // 发只含 3 张图的批次（模拟用户编辑过消息）后，被重发的几张仍显示轮次，没被
+    // 重发的当前素材那一行不再显示轮次，合计照旧。
+    const rounds = await seedConversationRounds(ctx, api);
+    assertRoundsDisplayed(await ctx.runInPage(first, conversationRoundsSource(rounds)), rounds);
+    await rebindThreeOfFourImages(api, rounds);
+    assertRoundsPerRowAfterRebind(await ctx.runInPage(first, conversationRoundsSource(rounds)), rounds);
   } finally {
     await first.stop();
   }
@@ -295,10 +320,21 @@ async function assertRelationViaApi(api, { eL1, eL2 }, relationType) {
 // ===== Phase 3: delete the relation from the inspector =====
 
 function assertRelationDeleted(result) {
-  expect(result?.after, `Relation delete page returned nothing: ${JSON.stringify(result)}`);
+  expect(result?.round1, `Relation delete page returned nothing: ${JSON.stringify(result)}`);
   assertNoRendererErrors(result, "relation delete");
-  expect(String(result.dialogDescription || "").includes("版本关系"),
-    `Delete confirm dialog should describe the relation removal: ${JSON.stringify(result.dialogDescription)}`);
+  // Round 1 (Esc): the confirm dialog closes, the overlay stays open, focus is
+  // back on the same delete button — the overlay never steals the keystroke.
+  expect(result.round1.focusBackOnButton === true,
+    `After Esc the focus must return to the delete button inside the overlay: ${JSON.stringify(result.round1)}`);
+  // Round 2 (cancel): the relation survives, the overlay stays open.
+  expect(result.round2.focusStillInOverlay === true,
+    `After cancel the overlay must stay open with the focus inside: ${JSON.stringify(result.round2)}`);
+  // Round 3 (confirm): the relation is gone; focus must stay inside the overlay
+  // (the original button was rebuilt, so the overlay container takes it).
+  expect(String(result.round3.dialogDescription || "").includes("版本关系"),
+    `Delete confirm dialog should describe the relation removal: ${JSON.stringify(result.round3.dialogDescription)}`);
+  expect(result.round3.focusInsideOverlay === true,
+    `After confirm the focus must land inside the overlay: ${JSON.stringify(result.round3)}`);
   expect(result.after.relationRowCount === 0 && result.after.emptyText === "尚未建立版本关系" && result.after.lineageItemCount === 1,
     `L2 tree should be back to a single unrelated generation: ${JSON.stringify(result.after)}`);
 }
@@ -369,11 +405,10 @@ async function assertGcLineageViaApi(api, { eGb, eGc }) {
 
 // ===== Phase 5: session / batch / context navigation =====
 
-function assertHistoryNavigation(result, { l1, l2 }) {
-  expect(result?.sessionIds, `History navigation page returned nothing: ${JSON.stringify(result)}`);
+function assertHistoryNavigation(result, { l1 }) {
+  expect(result?.removedEntries, `History navigation page returned nothing: ${JSON.stringify(result)}`);
   assertNoRendererErrors(result, "history navigation");
-  expectDeepEqual(result.sessionIds, [l1, l2].sort(), "查看整个会话 should filter to the conversation pair");
-  expectDeepEqual(result.batchIds, [l2], "查看同一批次 should filter to the batch owner only");
+  expect(result.removedEntries === true, "A4a: session/batch entries must stay removed from the inspector");
   expectDeepEqual(result.contextIds, [l1], "查看上下文 should filter to the context owner only");
 }
 
@@ -382,6 +417,132 @@ async function assertConversationFiltersViaApi(api, { l1, l2, conversation, mess
   expectDeepEqual(await listIds(`&conversation=${encodeURIComponent(conversation)}`), [l1, l2].sort(), "Conversation filter via API");
   expectDeepEqual(await listIds(`&conversation=${encodeURIComponent(conversation)}&generationBatch=${encodeURIComponent(messages.l2)}`), [l2], "Batch filter via API");
   expectDeepEqual(await listIds(`&conversation=${encodeURIComponent(conversation)}&generationBatch=${encodeURIComponent(messages.l1)}`), [l1], "Context filter via API");
+}
+
+// ===== Phase 5.5: conversation rounds in the version-context box（任务 75 + 返工 1） =====
+
+// 4 张图 3 轮（时间序 a→b→c→d）：a=第 1 轮，b/c=第 2 轮，d=第 3 轮；对话共 5 轮。
+// 检视器停在 rounds-c 上：返工 1 起取行按素材时间，窗口是 b/c/d（不再是按轮取的
+// a/c/d），三行都带同一次快照的轮次。
+async function seedConversationRounds(ctx, api) {
+  const createAsset = async (key, [r, g, b], messageId) => {
+    const body = await api("POST", "/api/assets/create", {
+      projectId: "default",
+      imagePath: await ctx.makePng(`versions-rounds-${key}.png`, [r, g, b]),
+      prompt: `轮次场景 ${key} 的提示词`,
+      theme: `轮次${key}`,
+      source: { conversation_id: ROUNDS_CONVERSATION, message_id: messageId },
+    });
+    if (!body?.asset?.id) throw new Error(`Rounds asset seed returned no id for ${key}`);
+    return body.asset.id;
+  };
+  const roundsA = await createAsset("a", [12, 60, 96], "msg-rounds-a");
+  const roundsB = await createAsset("b", [96, 12, 60], "msg-rounds-b");
+  const roundsC = await createAsset("c", [60, 96, 12], "msg-rounds-c");
+  const roundsD = await createAsset("d", [96, 60, 12], "msg-rounds-d");
+  const base = Date.now();
+  const iso = (minutesAgo) => new Date(base - minutesAgo * 60000).toISOString();
+  const record = async (body) => {
+    const result = await api("POST", "/api/generations", body);
+    if (!result?.event?.id) throw new Error(`Rounds generation seed returned no event for ${body.output_asset_id}`);
+    return result.event.id;
+  };
+  const providerAsset = (key) => `pa-rounds-${key}`;
+  const events = {};
+  for (const [key, assetId, messageId, minutesAgo] of [
+    ["a", roundsA, "msg-rounds-a", 40],
+    ["b", roundsB, "msg-rounds-b", 30],
+    ["c", roundsC, "msg-rounds-c", 20],
+    ["d", roundsD, "msg-rounds-d", 10],
+  ]) {
+    events[key] = await record({
+      output_asset_id: assetId, provider: "chatgpt", conversation_id: ROUNDS_CONVERSATION,
+      message_id: messageId, provider_asset_id: providerAsset(key), batch_id: `batch-rounds-${key}`,
+      model: "gpt-5-4-thinking", effective_prompt: `轮次场景 ${key}`, created_at: iso(minutesAgo),
+    });
+  }
+  const bind = async (keys, expectUpdated) => {
+    const result = await api("POST", "/api/generation-message-bindings", {
+      projectId: "default",
+      provider: "chatgpt",
+      conversation_id: ROUNDS_CONVERSATION,
+      turn_count: 5,
+      bindings: keys.map((key) => ({ provider_asset_id: providerAsset(key), message_id: `msg-rounds-${key}`, turn_index: { a: 1, b: 2, c: 2, d: 3 }[key] })),
+    });
+    expect(result?.updated === expectUpdated, `Binding batch [${keys}] should update ${expectUpdated} records: ${JSON.stringify(result)}`);
+    return result;
+  };
+  await bind(["a", "b", "c", "d"], 4);
+  return { conversation: ROUNDS_CONVERSATION, assets: { a: roundsA, b: roundsB, c: roundsC, d: roundsD }, current: roundsC, events, bind };
+}
+
+// 第二批只含 3 张图（缺当前素材 rounds-c）：模拟用户编辑过消息，c 的水印变旧。
+async function rebindThreeOfFourImages(api, rounds) {
+  await rounds.bind(["a", "b", "d"], 3);
+  const history = await api("GET", `/api/assets/default/${encodeURIComponent(rounds.assets.c)}/generation-history`);
+  const own = (history?.history?.events || []).find((item) => item.output_asset_id === rounds.assets.c);
+  const conversation = history?.history?.conversations?.[0];
+  expect(own?.turn_index === 2, `c keeps its turn number from the first batch: ${JSON.stringify(own)}`);
+  expect(own?.turn_synced_at !== conversation?.synced_at,
+    `c's watermark must be stale after the second batch: ${JSON.stringify({ own: own?.turn_synced_at, conversation })}`);
+}
+
+function assertRoundsDisplayed(result, rounds) {
+  expect(result?.rows, `Rounds page returned nothing: ${JSON.stringify(result)}`);
+  assertNoRendererErrors(result, "conversation rounds");
+  expectDeepEqual(result.rows.map((row) => row.assetId), [rounds.assets.b, rounds.assets.c, rounds.assets.d],
+    "rows follow created_at around the current asset (b/c/d), not one per turn");
+  expectDeepEqual(result.rows.map((row) => row.disabled), [false, true, false], "the current row is disabled like the generation tree's own entry");
+  expectDeepEqual(result.rows.map((row) => row.turnLine), ["第 2 轮生成", "当前素材——第 2 轮生成", "第 3 轮生成"], "per-asset turn lines");
+  expect(result.totalLines.every((text) => text === "共 5 轮 / 已收录 4 张图"),
+    `the totals line repeats on every row: ${JSON.stringify(result.totalLines)}`);
+  expect(result.buttonCount === 3 && result.currentIsButton === true,
+    `rows are open-output buttons, the current one disabled: ${JSON.stringify({ buttonCount: result.buttonCount, currentIsButton: result.currentIsButton })}`);
+}
+
+// 返工 1：重发批次只含 a/b/d（模拟用户编辑过消息），b/d 拿到新快照仍显示轮次，
+// 没被重发的 c 水印变旧——只有 c 这一行不显示轮次（「当前素材」裸标记），不再
+// 整框降级，合计照旧。
+function assertRoundsPerRowAfterRebind(result, rounds) {
+  expect(result?.rows, `Rebind page returned nothing: ${JSON.stringify(result)}`);
+  assertNoRendererErrors(result, "conversation rounds after rebind");
+  expectDeepEqual(result.rows.map((row) => row.assetId), [rounds.assets.b, rounds.assets.c, rounds.assets.d],
+    "the time window keeps b/c/d around the current asset");
+  expectDeepEqual(result.rows.map((row) => row.turnLine), ["第 2 轮生成", "当前素材", "第 3 轮生成"],
+    "resent b/d keep their turns, the stale current row c drops to the bare marker");
+  expect(result.totalLines.every((text) => text === "共 5 轮 / 已收录 4 张图"),
+    `the totals line survives the stale row: ${JSON.stringify(result.totalLines)}`);
+}
+
+// 页面源码：先开邻居再开目标（selectAsset 清掉 state.generationHistory，强制
+// 重取——第二批绑定要读到新数据，不能吃第一次打开时的缓存），然后读
+// 版本树与上下文盒的行。
+function conversationRoundsSource(config) {
+  return `(async () => {
+    const config = ${JSON.stringify(config)};
+    ${PAGE_HELPERS}
+    ${INSPECTOR_HELPERS}
+    await waitFor(() => gallerySettled() && document.querySelector(cardSelector(config.assets.b)), 'rounds B card rendered');
+    await openInspector(config.assets.b);
+    await openInspector(config.current);
+    const box = () => detailPanel()?.querySelector('[data-generation-context]');
+    await waitFor(() => box()?.querySelectorAll('.detail-version-context-row').length === 3, 'version context renders 3 rows');
+    const rows = [...box().querySelectorAll('.detail-version-context-row')].map((row) => ({
+      assetId: row.dataset.outputAssetId || '',
+      disabled: row.disabled === true,
+      turnLine: row.querySelector('.detail-version-context-turn')?.textContent || '',
+      lines: [...(row.querySelectorAll('.detail-version-context-lines > span') || [])].map((span) => span.textContent || ''),
+    }));
+    const totalLines = rows.map((row) => row.lines.find((line) => line.includes('张图')) || '');
+    const current = box().querySelector('.detail-version-context-row.is-current');
+    return {
+      rows,
+      totalLines,
+      buttonCount: box().querySelectorAll('button[data-action="open-generation-output"]').length,
+      currentIsButton: current?.tagName === 'BUTTON',
+      rendererErrors: rendererErrors.slice(0, 3),
+    };
+  })()`;
 }
 
 // ===== Phase 6: restart =====
@@ -408,9 +569,9 @@ function versionTreeSource(config) {
     const treeNodeIds = () => [...(historyRegion()?.querySelectorAll('[data-version-id]') || [])].map((button) => button.dataset.versionId);
     const treeCurrentId = () => historyRegion()?.querySelector('[data-version-id][aria-current="true"]')?.dataset.versionId || '';
     await waitFor(() => gallerySettled() && document.querySelector(cardSelector(config.r2)), 'R2 card rendered');
-    const menuItem = await openContextMenu(cardSelector(config.r2) + ' .asset-card-select', '查看版本历史');
-    menuItem.click();
-    await waitFor(() => document.querySelector('.asset-card.selected')?.dataset.id === config.r2, 'inspector selects R2');
+    // 任务 91：查看版本历史从右键菜单拿掉（检视器是版本树入口），改点卡片选中。
+    await openInspector(config.r2);
+    await openVersionOverlay();
     await waitFor(() => treeNodeIds().length === 3 && historyRegion() && !historyRegion().querySelector('.version-history-status'), 'version tree renders 3 nodes');
     const treeBefore = { title: document.querySelector('#detailTitle')?.textContent || '' };
     openInspectorDisclosure('[data-version-history]');
@@ -443,9 +604,9 @@ function compareAfterSwitchSource(config) {
     const historyRegion = () => detailPanel()?.querySelector('[data-version-history]');
     const treeCurrentId = () => historyRegion()?.querySelector('[data-version-id][aria-current="true"]')?.dataset.versionId || '';
     await waitFor(() => gallerySettled() && document.querySelector(cardSelector(config.r2)), 'R2 card rendered');
-    const menuItem = await openContextMenu(cardSelector(config.r2) + ' .asset-card-select', '查看版本历史');
-    menuItem.click();
-    await waitFor(() => document.querySelector('.asset-card.selected')?.dataset.id === config.r2, 'inspector selects R2');
+    // 任务 91：查看版本历史从右键菜单拿掉，改点卡片选中。
+    await openInspector(config.r2);
+    await openVersionOverlay();
     await waitFor(() => historyRegion()?.querySelectorAll('[data-version-id]').length === 3
       && historyRegion() && !historyRegion().querySelector('.version-history-status'), 'version tree renders 3 nodes');
     historyRegion().querySelector('[data-version-id="' + config.r0 + '"]').click();
@@ -487,6 +648,7 @@ function createRelationSource(config) {
     ${INSPECTOR_HELPERS}
     await waitFor(() => gallerySettled() && document.querySelector(cardSelector(config.l2)), 'L2 card rendered');
     await openInspector(config.l2);
+    await openVersionOverlay();
     await waitForGenerationTree(config.eL2);
     const contextIds = [...(genRegion()?.querySelectorAll('[data-context-generation-id]') || [])].map((li) => li.dataset.contextGenerationId);
     await openManagement(config.eL2);
@@ -525,29 +687,100 @@ function createRelationSource(config) {
   })()`;
 }
 
+// 任务 73 返工 1：版本树浮层里的「删除关系」会弹出确认框（叠在浮层上）——浮层
+// 必须让位。三段式：Esc 关确认框浮层保持且焦点回删除按钮；取消后浮层保持；
+// 确认后关系删除、浮层保持、焦点回到浮层内（原按钮已被重建替换）。
+// 真实指针序列：pointerdown（浮层在 document 捕获段监听）+ click。
+const DELETE_FLOW_HELPERS = String.raw`
+  const overlayOpen = () => {
+    const overlay = detailPanel()?.querySelector('[data-gp-overlay]');
+    return Boolean(overlay) && !overlay.hidden;
+  };
+  const confirmDialogOpen = () => document.querySelector('#confirmDialog')?.classList.contains('open') || false;
+  const realPress = (el) => {
+    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+    el.click();
+  };
+  async function deleteRelationRound(config, action) {
+    await openManagement(config.eL2);
+    const relationRowSelector = '[data-generation-relation-row][data-child-generation-id="' + config.eL2 + '"][data-parent-generation-id="' + config.eL1 + '"]';
+    await waitFor(() => genRegion()?.querySelector(relationRowSelector), 'relation row renders for round ' + action);
+    const deleteButton = genRegion().querySelector(relationRowSelector + ' [data-action="delete-generation-relation"]');
+    if (!deleteButton) throw new Error('Missing delete-generation-relation button');
+    realPress(deleteButton);
+    await waitFor(() => confirmDialogOpen(), 'confirm dialog opens (round ' + action + ')');
+    const focusedBefore = document.activeElement;
+    if (action === 'escape') {
+      // 任务 96 返工 2：冻结 rAF 证明 Esc 的焦点恢复是同步的。CI 的隐藏窗口把
+      // rAF 节流到秒级——恢复若押在帧回调上，Esc 后焦点仍停在确认框的取消按钮
+      // （macOS CI versions-and-lineage 每次都挂的那一刀），这里修掉前必挂。
+      const frozenRafs = [];
+      const realRaf = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (callback) => { frozenRafs.push(callback); return frozenRafs.length; };
+      try {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await waitFor(() => !confirmDialogOpen(), 'confirm dialog closed by Escape');
+        await waitFor(() => overlayOpen(), 'overlay stays open after Escape');
+        await new Promise((r) => setTimeout(r, 120));
+        const deleteButtonAfter = genRegion()?.querySelector(relationRowSelector + ' [data-action="delete-generation-relation"]');
+        const focusBackOnButton = document.activeElement === deleteButtonAfter;
+        if (!focusBackOnButton) {
+          throw new Error('Esc focus restore must be synchronous with rAF frozen: activeElement='
+            + (document.activeElement?.id || document.activeElement?.className || document.activeElement?.tagName || 'none'));
+        }
+        return { dialogDescription: '', focusBackOnButton };
+      } finally {
+        window.requestAnimationFrame = realRaf;
+        for (const callback of frozenRafs.splice(0)) callback(Date.now());
+      }
+    }
+    const dialogDescription = document.querySelector('#confirmDialogDescription')?.textContent || '';
+    const confirmButton = document.querySelector('#confirmDialogConfirm');
+    const cancelButton = document.querySelector('#confirmDialogCancel');
+    const buttonToPress = action === 'confirm' ? confirmButton : cancelButton;
+    if (!buttonToPress) throw new Error('Missing ' + action + ' button in the confirm dialog');
+    realPress(buttonToPress);
+    await waitFor(() => !confirmDialogOpen(), 'confirm dialog closed by ' + action);
+    await waitFor(() => overlayOpen(), 'overlay stays open after ' + action);
+    if (action === 'confirm') {
+      await waitFor(() => !genRegion()?.querySelector(relationRowSelector)
+        && management(config.eL2)?.querySelector('.generation-management-empty'), 'relation row disappears after confirm');
+      const overlayNode = detailPanel()?.querySelector('[data-gp-overlay]');
+      const focusInsideOverlay = overlayNode?.contains(document.activeElement) && document.activeElement !== document.body;
+      return { dialogDescription, focusInsideOverlay };
+    }
+    return { dialogDescription, focusStillInOverlay: overlayNode_containsFocus() };
+  }
+  function overlayNode_containsFocus() {
+    const overlayNode = detailPanel()?.querySelector('[data-gp-overlay]');
+    return Boolean(overlayNode?.contains(document.activeElement));
+  }
+`;
+
 function deleteRelationSource(config) {
   return `(async () => {
     const config = ${JSON.stringify(config)};
     ${PAGE_HELPERS}
     ${INSPECTOR_HELPERS}
+    ${DELETE_FLOW_HELPERS}
     await waitFor(() => gallerySettled() && document.querySelector(cardSelector(config.l2)), 'L2 card rendered');
     await openInspector(config.l2);
+    await openVersionOverlay();
     await waitForGenerationTree(config.eL2);
-    await openManagement(config.eL2);
-    const relationRowSelector = '[data-generation-relation-row][data-child-generation-id="' + config.eL2 + '"][data-parent-generation-id="' + config.eL1 + '"]';
-    await waitFor(() => genRegion()?.querySelector(relationRowSelector)?.dataset.previousRelationType === 'variant_of', 'relation row still present before delete');
-    const deleteButton = genRegion().querySelector(relationRowSelector + ' [data-action="delete-generation-relation"]');
-    if (!deleteButton) throw new Error('Missing delete-generation-relation button');
-    deleteButton.click();
-    const dialogDescription = await answerConfirmDialog({ confirm: true });
-    await waitFor(() => !genRegion()?.querySelector(relationRowSelector)
-      && management(config.eL2)?.querySelector('.generation-management-empty'), 'relation row disappears');
+
+    // Round 1: Esc closes the confirm dialog on top; the overlay stays and the
+    // focus returns to the same delete button.
+    const round1 = await deleteRelationRound(config, 'escape');
+    // Round 2: cancel keeps the relation and the overlay.
+    const round2 = await deleteRelationRound(config, 'cancel');
+    // Round 3: confirm really deletes; focus lands inside the overlay.
+    const round3 = await deleteRelationRound(config, 'confirm');
     const after = {
       relationRowCount: genRegion().querySelectorAll('[data-generation-relation-row]').length,
       emptyText: management(config.eL2)?.querySelector('.generation-management-empty')?.textContent || '',
       lineageItemCount: genRegion().querySelectorAll('.generation-lineage-item').length,
     };
-    return { dialogDescription, after, rendererErrors: rendererErrors.slice(0, 3) };
+    return { round1, round2, round3, after, rendererErrors: rendererErrors.slice(0, 3) };
   })()`;
 }
 
@@ -558,6 +791,7 @@ function dismissCandidateSource(config) {
     ${INSPECTOR_HELPERS}
     await waitFor(() => gallerySettled() && document.querySelector(cardSelector(config.gb)), 'GB card rendered');
     await openInspector(config.gb);
+    await openVersionOverlay();
     await waitForGenerationTree(config.eGb);
     await openManagement(config.eGb);
     await waitFor(() => management(config.eGb)?.querySelector('[data-generation-candidate-row]'), 'GB candidate row renders');
@@ -582,6 +816,7 @@ function resolveCandidatesSource(config) {
     ${INSPECTOR_HELPERS}
     await waitFor(() => gallerySettled() && document.querySelector(cardSelector(config.gc)), 'GC card rendered');
     await openInspector(config.gc);
+    await openVersionOverlay();
     await waitForGenerationTree(config.eGc);
     await openManagement(config.eGc);
     await waitFor(() => management(config.eGc)?.querySelectorAll('[data-generation-candidate-row]').length === 2, 'two candidate rows render');
@@ -620,36 +855,22 @@ function historyNavigationSource(config) {
     ${INSPECTOR_HELPERS}
     await waitFor(() => gallerySettled() && document.querySelector(cardSelector(config.l2)), 'L2 card rendered');
     await openInspector(config.l2);
-    const sourceDisclosure = detailPanel()?.querySelector('details.detail-source-disclosure');
-    if (!sourceDisclosure) throw new Error('Missing source disclosure');
-    if (!sourceDisclosure.open) sourceDisclosure.querySelector('summary').click();
-    await waitFor(() => document.querySelector('[data-action="view-generation-session"]'), 'session button renders');
-    click('[data-action="view-generation-session"]');
-    const sessionIds = await waitRootIds([config.l1, config.l2], 'session filter shows the conversation pair');
-    await openInspector(config.l2);
-    const sourceDisclosure2 = detailPanel()?.querySelector('details.detail-source-disclosure');
-    if (!sourceDisclosure2) throw new Error('Missing source disclosure on reopen');
-    if (!sourceDisclosure2.open) sourceDisclosure2.querySelector('summary').click();
-    await waitFor(() => document.querySelector('[data-action="view-generation-batch"]'), 'batch button renders');
-    click('[data-action="view-generation-batch"]');
-    const batchIds = await waitRootIds([config.l2], 'batch filter shows only L2');
-    // Back to the session view first: the batch view hides L1's card, and the
-    // context entry lives on L1's generation node.
-    await openInspector(config.l2);
-    const sourceDisclosure3 = detailPanel()?.querySelector('details.detail-source-disclosure');
-    if (!sourceDisclosure3) throw new Error('Missing source disclosure before the context step');
-    if (!sourceDisclosure3.open) sourceDisclosure3.querySelector('summary').click();
-    await waitFor(() => document.querySelector('[data-action="view-generation-session"]'), 'session button renders again');
-    click('[data-action="view-generation-session"]');
-    await waitRootIds([config.l1, config.l2], 'session view restored before the context step');
+    // GravityPort A4a：来源区块（「查看整个会话」「查看同一批次」按钮）不再渲染——
+    // 锁「不得回来」。
+    const sessionEntry = detailPanel()?.querySelector('[data-action="view-generation-session"]');
+    const batchEntry = detailPanel()?.querySelector('[data-action="view-generation-batch"]');
+    const removedEntries = !sessionEntry && !batchEntry;
+    if (!removedEntries) throw new Error('source-section navigation entries must stay removed, found ' + JSON.stringify({ sessionEntry: Boolean(sessionEntry), batchEntry: Boolean(batchEntry) }));
+    // 「查看上下文」在生成节点详情里，经版本树浮层照常可达。
     await openInspector(config.l1);
+    await openVersionOverlay();
     await waitForGenerationTree(config.eL1);
     await openGenerationNode(config.eL1);
     const contextButton = genNode(config.eL1)?.querySelector('[data-action="view-generation-context"]');
     if (!contextButton) throw new Error('Missing view-generation-context button on the L1 generation');
     contextButton.click();
     const contextIds = await waitRootIds([config.l1], 'context filter shows only L1');
-    return { sessionIds, batchIds, contextIds, rendererErrors: rendererErrors.slice(0, 3) };
+    return { removedEntries, contextIds, rendererErrors: rendererErrors.slice(0, 3) };
   })()`;
 }
 
@@ -659,11 +880,12 @@ function restartSource(config) {
     ${PAGE_HELPERS}
     ${INSPECTOR_HELPERS}
     await waitFor(() => gallerySettled() && document.querySelector(cardSelector(config.r2)), 'R2 card rendered');
-    const menuItem = await openContextMenu(cardSelector(config.r2) + ' .asset-card-select', '查看版本历史');
-    menuItem.click();
+    // 任务 91：查看版本历史从右键菜单拿掉，改点卡片选中。
+    await openInspector(config.r2);
     await waitFor(() => document.querySelector('.asset-card.selected')?.dataset.id === config.r2, 'inspector selects R2 after restart');
     const historyRegion = () => detailPanel()?.querySelector('[data-version-history]');
     const treeNodeIds = () => [...(historyRegion()?.querySelectorAll('[data-version-id]') || [])].map((button) => button.dataset.versionId);
+    await openVersionOverlay();
     await waitFor(() => treeNodeIds().length === 3 && historyRegion() && !historyRegion().querySelector('.version-history-status'), 'version tree renders 3 nodes after restart');
     const tree = {
       ids: treeNodeIds(),
@@ -671,6 +893,7 @@ function restartSource(config) {
       pickerValue: document.querySelector('[data-version-select]')?.value || '',
     };
     await openInspector(config.l2);
+    await openVersionOverlay();
     await waitForGenerationTree(config.eL2);
     await openManagement(config.eL2);
     const relationAfterRestart = {

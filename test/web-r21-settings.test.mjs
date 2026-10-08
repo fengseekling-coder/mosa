@@ -1,10 +1,10 @@
-// R21（Web 端）设置弹窗两栏契约（任务 25）：只读 web/app/app.mjs、
-// web/app/styles.css 与 web/app/i18n.mjs。
-// 锁定：两栏框架（168px 左栏 + 1fr 内容）、tablist/tab/tabpanel 语义、
+// R21（Web 端）设置弹窗两栏契约（任务 25 / 任务 81 GravityPort A5 重排）：
+// 只读 web/app/app.mjs、web/app/styles.css 与 web/app/i18n.mjs。
+// 锁定：两栏框架（240px 左栏 + 1fr 内容）、tablist/tab/tabpanel 语义、
 // 四个 data-settings-page 及每页应含的控件、#settingsModalTitle 与
 // data-settings-close 仍在、↑↓ Home End 键盘处理、state.settingsPage 默认
-// general、R21 主要尺寸（792×592、左栏 168、导航 32 高、行最小 56 高、
-// 分段控件 32 高）、本任务新增字号下限 10px。
+// general、A5 主要尺寸（1200×728、左栏 240、导航 36 高、行最小 72 高、
+// 分段控件 128×32）、任务 81 新增字号下限 10px 与导航新文案。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -54,44 +54,52 @@ test("R21 settings modal renders the two-pane frame with tablist semantics", asy
   assert.match(body, /<div class="settings-modal-main">/);
   // 四个分类按钮与四个面板一一对应：tab 构建行与 panel 构建行都带完整语义。
   assert.match(body, /class="settings-nav-tab\$\{active \? " active" : ""\}" type="button" role="tab" id="settings-tab-\$\{page\.id\}" aria-selected="\$\{active\}" aria-controls="settings-page-\$\{page\.id\}" data-settings-page="\$\{page\.id\}" tabindex="\$\{active \? 0 : -1\}"/);
-  assert.match(body, /class="settings-page" role="tabpanel" id="settings-page-\$\{page\.id\}" aria-labelledby="settings-tab-\$\{page\.id\}" data-settings-panel="\$\{page\.id\}"\$\{page\.id === activePage \? "" : " hidden"\}/);
+  // 任务 81：稿子右栏只有页头标题 + 行，页内不再重复渲染页标题/说明。
+  assert.match(body, /class="settings-page" role="tabpanel" id="settings-page-\$\{page\.id\}" aria-labelledby="settings-tab-\$\{page\.id\}" data-settings-panel="\$\{page\.id\}"\$\{page\.id === activePage \? "" : " hidden"\}><div class="settings-group">\$\{page\.rows\}<\/div><\/section>/);
   // 非当前页用 hidden 属性隐藏；右栏标题栏显示当前分类名。
   assert.match(body, /data-settings-active-title/);
 });
 
 test("each category page holds exactly its own rows and controls", async () => {
   const body = await settingsRenderBody();
-  // 四页顺序固定，行内容复用既有 row() 变量。
-  assert.match(body, /\{ id: "general", label: t\("settingsPageGeneral"\), description: t\("settingsPageGeneralDesc"\), rows: appearanceRows,/);
-  assert.match(body, /\{ id: "library", label: t\("settingsPageLibrary"\), description: t\("settingsPageLibraryDesc"\), rows: storageRows,/);
-  assert.match(body, /\{ id: "visual", label: t\("settingsPageVisual"\), description: t\("settingsPageVisualDesc"\), rows: visualRows,/);
-  assert.match(body, /\{ id: "about", label: t\("settingsPageAbout"\), description: t\("settingsPageAboutDesc"\), rows: aboutRow,/);
+  // 四页顺序固定，行内容复用既有 row() 变量；任务 81 起页对象不再带说明文案。
+  assert.match(body, /\{ id: "general", label: t\("settingsPageGeneral"\), rows: appearanceRows,/);
+  assert.match(body, /\{ id: "library", label: t\("settingsPageLibrary"\), rows: storageRows,/);
+  assert.match(body, /\{ id: "visual", label: t\("settingsPageVisual"\), rows: visualRows,/);
+  assert.match(body, /\{ id: "about", label: t\("settingsPageAbout"\), rows: aboutRow \+ userIdRow,/);
   // 常规与外观：主题、素材卡片信息、界面语言。
   const appearanceRows = /const appearanceRows = \[([\s\S]*?)\]\.join\(""\);/.exec(body)?.[1] || "";
-  assert.match(appearanceRows, /data-appearance-opt/);
+  assert.match(appearanceRows, /themeRow/);
   assert.match(appearanceRows, /data-card-info-opt/);
   assert.match(appearanceRows, /data-locale/);
-  // 素材库与存储：素材库位置（含打开/更换，按钮在 changeLibraryControl 里）+ 存储引擎。
-  const changeLibraryControl = /const changeLibraryControl = window\.electronAPI\?\.changeLibraryLocation\s*\n\s*\? `([\s\S]*?)`\n\s*: `([\s\S]*?)`;/.exec(body);
+  // 主题行：预览卡整行渲染在 settings-theme-row 里（任务 81 稿子无行标题）。
+  const themeRow = /const themeRow = `([\s\S]*?)`;/.exec(body)?.[1] || "";
+  assert.match(themeRow, /class="settings-modal-row settings-theme-row"/);
+  assert.match(themeRow, /themeChoices\(t\("themeMode"\), "data-appearance-opt", state\.themeSetting, \[\{ value: "system", label: t\("themeSystem"\) \}, \{ value: "light", label: t\("themeLight"\) \}, \{ value: "dark", label: t\("themeDark"\) \}\]\)/);
+  // 素材库与存储：素材库位置（路径框内嵌打开 + 更改位置）+ 存储引擎。
+  const pathBox = /const libraryPathBox = `([\s\S]*?)`;/.exec(body)?.[1] || "";
+  assert.match(pathBox, /class="settings-path-box"/);
+  assert.match(pathBox, /class="settings-path" data-settings-library-path title="\$\{path\}"/);
+  assert.match(pathBox, /data-open-library/);
+  const changeLibraryControl = /const changeLibraryControl = window\.electronAPI\?\.changeLibraryLocation\s*\n\s*\? `([\s\S]*?)`\n\s*: "";/.exec(body);
   assert.ok(changeLibraryControl, "expected the changeLibraryControl template");
-  const libraryControlMarkup = `${changeLibraryControl[1]}${changeLibraryControl[2]}`;
-  assert.match(libraryControlMarkup, /data-open-library/);
-  assert.match(libraryControlMarkup, /data-change-library/);
+  assert.match(changeLibraryControl[1], /data-change-library/);
   const storageRows = /const storageRows = \[([\s\S]*?)\]\.join\(""\);/.exec(body)?.[1] || "";
-  assert.match(storageRows, /data-settings-library-path/);
-  assert.match(storageRows, /, changeLibraryControl, "settings-library-row"/);
+  assert.match(storageRows, /row\(t\("libraryPath"\), "", `\$\{libraryPathBox\}\$\{changeLibraryControl\}`, "settings-library-row"\)/);
   assert.match(storageRows, /data-settings-storage-engine/);
   // 本地视觉能力：视觉模型状态行；关于 MOSA：版本 / 更新行。
   const visualRows = /const visualRows = row\(([\s\S]*?)\);\n  const aboutRow/.exec(body)?.[1] || "";
   assert.match(visualRows, /data-settings-visual-model/);
-  const aboutRow = /const aboutRow = row\(([\s\S]*?)\);\n\n  \/\/ R21 两栏设置/.exec(body)?.[1] || "";
+  const aboutRow = /const aboutRow = row\(([\s\S]*?)\);\n  \/\/ 用户 ID 行/.exec(body)?.[1] || "";
   assert.match(aboutRow, /data-settings-version/);
   assert.match(aboutRow, /data-settings-update-action/);
+  // 关于 MOSA：版本 / 更新行之后是用户 ID 行（任务 69；仅桌面版拿到 ID 时渲染）。
+  const userIdRow = /const userIdRow = state\.userProfileId\s*\n\s*\? row\(([\s\S]*?)\)\n\s*: "";/.exec(body)?.[1] || "";
+  assert.match(userIdRow, /data-settings-user-id/);
+  assert.match(userIdRow, /data-copy-user-id/);
   // 控件不串页。
   assert.doesNotMatch(storageRows, /data-appearance-opt|data-locale/);
   assert.doesNotMatch(appearanceRows, /data-settings-library-path|data-settings-version/);
-  // 每页有页标题、说明与 R21 卡片容器。
-  assert.match(body, /class="settings-page-head"><h3 class="settings-page-title">\$\{page\.label\}<\/h3><p class="settings-page-desc">\$\{page\.description\}<\/p><\/div><div class="settings-group">\$\{page\.rows\}<\/div>/);
   // 左栏底部本地优先说明。
   assert.match(body, /class="settings-local-first"/);
   assert.match(body, /\$\{t\("settingsLocalFirst"\)\}/);
@@ -115,54 +123,69 @@ test("category switching keeps the roving-tabindex keyboard contract", async () 
   assert.match(app, /restoreSettingsFocus\(previousFocus\);/);
 });
 
-test("R21 settings geometry: 792x592 card, 168px sidebar, 32px tabs and rows at 56px", async () => {
+test("A5 settings geometry: 960x728 card, 240px sidebar, 36px tabs and rows at 72px", async () => {
   const css = await readWebCss();
   const card = lastBlock(css, ".mosa-v2 .settings-modal-card");
   assert.match(card, /display: grid;/);
-  assert.match(card, /grid-template-columns: 168px minmax\(0, 1fr\);/);
-  assert.match(card, /width: 792px;/);
-  assert.match(card, /height: 592px;/);
-  assert.match(card, /border-radius: 16px;/);
+  assert.match(card, /grid-template-columns: 240px minmax\(0, 1fr\);/);
+  assert.match(card, /width: min\(960px, 100%\);/);
+  assert.match(card, /height: min\(728px, calc\(100dvh - 48px\)\);/);
+  assert.match(card, /border-radius: 32px;/);
+  const sidebar = lastBlock(css, ".mosa-v2 .settings-modal-sidebar");
+  assert.match(sidebar, /padding: 0 20px 20px;/);
+  assert.match(sidebar, /background: var\(--app-sidebar\);/);
   const brand = lastBlock(css, ".mosa-v2 .settings-modal-brand");
-  assert.match(brand, /height: 56px;/);
+  assert.match(brand, /height: 60px;/);
   const header = lastBlock(css, ".mosa-v2 .settings-modal-header");
-  assert.match(header, /height: 56px;/);
-  assert.match(header, /padding: 0 20px;/);
+  assert.match(header, /height: 60px;/);
+  assert.match(header, /margin: 0 40px;/);
+  const title = lastBlock(css, ".mosa-v2 .settings-modal-header h2");
+  assert.match(title, /font-size: 16px;/);
+  const main = lastBlock(css, ".mosa-v2 .settings-modal-main");
+  assert.match(main, /background: var\(--app-bg\);/);
   const close = lastBlock(css, ".mosa-v2 .settings-modal-close");
   assert.match(close, /width: 28px;/);
   assert.match(close, /height: 28px;/);
   const tab = lastBlock(css, ".mosa-v2 .settings-nav-tab");
-  assert.match(tab, /height: 32px;/);
-  assert.match(tab, /padding: 0 12px;/);
+  assert.match(tab, /height: 36px;/);
+  assert.match(tab, /padding: 0 8px;/);
   assert.match(tab, /border-radius: var\(--inspector-radius-sm\);/);
-  assert.match(tab, /font-size: 12px;/);
+  assert.match(tab, /font-size: 16px;/);
   const row = lastBlock(css, ".mosa-v2 .settings-group .settings-modal-row");
-  assert.match(row, /min-height: 56px;/);
-  assert.match(row, /padding: 12px 16px;/);
+  assert.match(row, /min-height: 72px;/);
+  assert.match(row, /padding: 20px 0;/);
+  const rowSeparator = lastBlock(css, ".mosa-v2 .settings-group .settings-modal-row:not(:last-child)");
+  assert.match(rowSeparator, /border-bottom: 1px solid var\(--color-border-subtle\);/);
   const segmented = lastBlock(css, ".mosa-v2 .settings-menu .segmented");
-  assert.match(segmented, /width: 156px;/);
+  assert.match(segmented, /width: 128px;/);
   assert.match(segmented, /height: 32px;/);
-  assert.match(segmented, /padding: 4px;/);
-  const body = lastBlock(css, ".mosa-v2 .settings-modal-body");
-  assert.match(body, /padding: 20px 24px 28px;/);
-  const title = lastBlock(css, ".mosa-v2 .settings-page-title");
-  assert.match(title, /font-size: 17px;/);
-  assert.match(title, /font-weight: 660;/);
+  assert.match(segmented, /padding: 0;/);
+  const body_ = lastBlock(css, ".mosa-v2 .settings-modal-body");
+  assert.match(body_, /padding: 0 40px 24px;/);
+  const rowTitle = lastBlock(css, ".mosa-v2 .settings-row-copy h4");
+  assert.match(rowTitle, /font-size: 16px;/);
   const textAction = lastBlock(css, ".mosa-v2 .settings-text-action");
   assert.match(textAction, /min-height: 32px;/);
-  assert.match(textAction, /padding: 0 12px;/);
+  assert.match(textAction, /padding: 0 16px;/);
+  const pathBox = lastBlock(css, ".mosa-v2 .settings-path-box");
+  assert.match(pathBox, /width: 320px;/);
+  assert.match(pathBox, /height: 32px;/);
+  assert.match(pathBox, /border-radius: 8px;/);
   const path = lastBlock(css, ".mosa-v2 .settings-path");
-  assert.match(path, /font-size: 10px;/);
-  assert.match(path, /max-width: 352px;/);
+  assert.match(path, /font-size: 11px;/);
+  assert.match(path, /max-width: 100%;/);
   assert.match(path, /text-overflow: ellipsis;/);
 });
 
-test("new light-only colours scope the sidebar, dividers, tabs and segmented track", async () => {
+test("new surface split and segmented track use tokens or already-existing light values", async () => {
   const css = await readWebCss();
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.settings-modal-sidebar \{\n  border-right-color: #e7e7ea;\n  background: #fbfbfc;\n\}/);
+  // 两栏分色（任务 81）：左栏 app-sidebar（浅色=白），右栏 app-bg（浅色=灰）。
+  assert.match(css, /\.mosa-v2 \.settings-modal-sidebar \{[\s\S]*?background: var\(--app-sidebar\);/);
+  assert.match(css, /\.mosa-v2 \.settings-modal-main \{[\s\S]*?background: var\(--app-bg\);/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.settings-nav-tab \{\n  color: #5f5f65;\n\}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.settings-nav-tab\.active \{\n  color: #202024;\n  background: #ececef;\n\}/);
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.settings-menu \.segmented \{\n  background: #f1f1f3;\n\}/);
+  // 灰底上的分段轨道：沿用既有浅色值，补既有值 #e2e2e5 的描边让轨道在灰底可辨。
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.settings-menu \.segmented \{\n  border: 1px solid #e2e2e5;\n  background: #f1f1f3;\n\}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.settings-menu \.segmented-btn\.active \{[^}]*color: #303035;[^}]*background: #fff;[^}]*font-weight: 590;[^}]*box-shadow: 0 0 0 1px #e2e2e5 inset;/);
   // 深色不得出现这些浅色值。
   assert.doesNotMatch(css, /\[data-theme="dark"\][^\n]*#f1f1f3/);
@@ -195,12 +218,14 @@ test("every font size added by this task stays at or above the 10px floor", asyn
 
 test("web i18n carries the four category names, page descriptions and local-first copy", async () => {
   const i18n = await readWebI18n();
+  // 任务 81：导航/页标题改用稿子的说法（常规与外观 / 存储 / 模型 / 关于）。
   for (const [key, zh, en] of [
-    ["settingsPageGeneral", "常规与外观", "General & appearance"],
-    ["settingsPageLibrary", "素材库与存储", "Library & storage"],
-    ["settingsPageVisual", "本地视觉能力", "Local visual search"],
-    ["settingsPageAbout", "关于 MOSA", "About MOSA"],
+    ["settingsPageGeneral", "常规与外观", "General & Appearance"],
+    ["settingsPageLibrary", "存储", "Storage"],
+    ["settingsPageVisual", "模型", "Model"],
+    ["settingsPageAbout", "关于", "About"],
     ["settingsLocalFirst", "本地优先", "Local first"],
+    ["themeSystem", "跟随系统", "System"],
   ]) {
     assert.match(i18n, new RegExp(`${key}: "${zh}"`), `zh copy for ${key}`);
     assert.match(i18n, new RegExp(`${key}: "${en.replaceAll("&", "&")}"`), `en copy for ${key}`);
@@ -211,19 +236,52 @@ test("web i18n carries the four category names, page descriptions and local-firs
   }
 });
 
-// 任务 42：主题行改为 R21 预览卡（浅色/深色两张；无「跟随系统」）。
-test("theme row renders two R21 preview cards with full radio semantics", async () => {
+// 任务 81 新增：锁 A5 的四项交付——导航新文案、四页齐全、二选一渲染成分段按钮、
+// 素材库路径框内嵌打开按钮。
+test("A5 settings dialog: GravityPort nav copy, four pages, segmented binary rows and the path box", async () => {
+  const i18n = await readWebI18n();
+  const body = await settingsRenderBody();
+  // 1) 4 个导航项的新文案（中英文都在）。
+  for (const [key, zh, en] of [
+    ["settingsPageGeneral", "常规与外观", "General & Appearance"],
+    ["settingsPageLibrary", "存储", "Storage"],
+    ["settingsPageVisual", "模型", "Model"],
+    ["settingsPageAbout", "关于", "About"],
+  ]) {
+    assert.match(i18n, new RegExp(`${key}: "${zh}"`));
+    assert.match(i18n, new RegExp(`${key}: "${en}"`));
+  }
+  // 2) 四个页面都还在（data-settings-page id 不变）。
+  for (const id of ["general", "library", "visual", "about"]) {
+    assert.match(body, new RegExp(`\\{ id: "${id}", label: t\\("`));
+  }
+  // 3) 二选一的设置渲染成分段按钮（卡片信息、界面语言）。
+  assert.match(body, /segmented\(t\("cardInfo"\), "data-card-info-opt", state\.showCardInfo \? "show" : "hide", \[\{ value: "hide", label: t\("cardInfoHide"\) \}, \{ value: "show", label: t\("cardInfoShow"\) \}\]\)/);
+  assert.match(body, /segmented\(t\("interfaceLanguage"\), "data-locale", visualLocale, \[\{ value: "zh", label: "中文" \}, \{ value: "en", label: "EN" \}\]\)/);
+  // 4) 素材库路径框里有「打开」按钮。
+  const pathBox = /const libraryPathBox = `([\s\S]*?)`;/.exec(body)?.[1] || "";
+  assert.match(pathBox, /class="settings-path-box"/);
+  assert.match(pathBox, /data-settings-library-path/);
+  assert.match(pathBox, /data-open-library>\$\{t\("settingsOpenLibrary"\)\}/);
+});
+
+// 任务 42：主题行是 R21 预览卡。任务 81 返工 1：三张卡——跟随系统/浅色/深色，
+// 跟随系统在左；选中态跟 state.themeSetting 走（三态），实际外观仍是 light/dark。
+test("theme row renders three R21 preview cards with full radio semantics", async () => {
   const body = await settingsRenderBody();
   const appearanceRows = /const appearanceRows = \[([\s\S]*?)\]\.join\(""\);/.exec(body)?.[1] || "";
-  // 主题行用 themeChoices 预览卡（签名与 segmented 同构），仍锁 state.darkMode 驱动。
-  assert.match(appearanceRows, /themeChoices\(t\("themeMode"\), "data-appearance-opt", state\.darkMode \? "dark" : "light", \[\{ value: "light", label: t\("themeLight"\) \}, \{ value: "dark", label: t\("themeDark"\) \}\]\)/);
-  assert.doesNotMatch(appearanceRows, /跟随系统|followSystem|value: "system"/, "MOSA has no follow-system mode");
+  // 主题行用 themeChoices 预览卡（签名与 segmented 同构），仍由三态 themeSetting 驱动。
+  const themeRow = /const themeRow = `([\s\S]*?)`;/.exec(body)?.[1] || "";
+  assert.match(themeRow, /themeChoices\(t\("themeMode"\), "data-appearance-opt", state\.themeSetting, \[\{ value: "system", label: t\("themeSystem"\) \}, \{ value: "light", label: t\("themeLight"\) \}, \{ value: "dark", label: t\("themeDark"\) \}\]\)/);
   // 卡片语义：role=radio + aria-checked + roving tabindex + data-appearance-opt；
   // 预览图 aria-hidden；可访问名称来自可见标签；勾号徽章是选中态的非颜色标志。
+  // 跟随系统卡的预览是左半浅色 + 右半深色（settings-theme-half-light/-dark）。
   const cardMarkup = /const themeChoiceCard = \(selected, attribute, value, label\) => `([\s\S]*?)`;\n/.exec(body)?.[1] || "";
   assert.ok(cardMarkup, "expected the themeChoiceCard template");
   assert.match(cardMarkup, /class="settings-theme-card\$\{selected \? " active" : ""\}" type="button" role="radio" aria-checked="\$\{selected\}" tabindex="\$\{selected \? 0 : -1\}"/);
   assert.match(cardMarkup, /<span class="settings-theme-preview" aria-hidden="true">/);
+  assert.match(cardMarkup, /value === "system"/);
+  assert.match(cardMarkup, /class="settings-theme-preview settings-theme-preview-system" aria-hidden="true"><span class="settings-theme-half settings-theme-half-light">\$\{themePreviewInnards\(\)\}<\/span><span class="settings-theme-half settings-theme-half-dark">\$\{themePreviewInnards\(\)\}<\/span>/);
   assert.match(cardMarkup, /class="settings-theme-check"><svg /);
   assert.match(cardMarkup, /<span class="settings-theme-label">\$\{label\}<\/span>/);
   // 组容器：radiogroup 可访问名称为主题模式。
@@ -234,16 +292,60 @@ test("theme row renders two R21 preview cards with full radio semantics", async 
   assert.match(app, /querySelectorAll\("\.segmented-btn, \[role=\\"radio\\"\]"\)/);
 });
 
+// 任务 81 返工 1：主题三态——跟随系统/浅色/深色。存储沿用 mosa-dark-mode：
+// "true"/"false" 历史取值原样有效，"system"/缺失/未知 = 跟随系统（新用户默认）；
+// state.darkMode 只存实际生效值，data-theme 等读主题处永远拿到 light/dark。
+test("theme setting is three-state with system following prefers-color-scheme live", async () => {
+  const app = await readWebApp();
+  // 存储映射与解析："true"→dark、"false"→light、其余→system。
+  assert.match(app, /const THEME_SYSTEM = "system";/);
+  assert.match(app, /function resolveThemeSetting\(raw\) \{\n  if \(raw === "true"\) return "dark";\n  if \(raw === "false"\) return "light";\n  return THEME_SYSTEM;\n\}/);
+  assert.match(app, /function themeSettingStorageValue\(setting\) \{\n  if \(setting === "dark"\) return "true";\n  if \(setting === "light"\) return "false";\n  return THEME_SYSTEM;\n\}/);
+  // 生效主题 = 设置本身，或跟随系统时由 prefers-color-scheme 推导。
+  assert.match(app, /const systemDarkQuery = typeof window\.matchMedia === "function" \? window\.matchMedia\("\(prefers-color-scheme: dark\)"\) : null;/);
+  assert.match(app, /function effectiveDarkMode\(setting\) \{\n  return setting === "dark" \|\| \(setting === THEME_SYSTEM && systemPrefersDark\(\)\);\n\}/);
+  // state：themeSetting 三态 + darkMode 生效值，都从同一份存储初值推导。
+  assert.match(app, /const initialThemeSetting = resolveThemeSetting\(safeStorageGet\("mosa-dark-mode"\)\);/);
+  assert.match(app, /darkMode: effectiveDarkMode\(initialThemeSetting\), settingsReturnFocus: null,/);
+  assert.match(app, /themeSetting: initialThemeSetting,/);
+  // 点击：写三态、推导生效值、按三态映射写存储；darkMode 不再直接由字符串赋值。
+  assert.match(app, /state\.themeSetting = newTheme === "light" \|\| newTheme === "dark" \? newTheme : THEME_SYSTEM;/);
+  assert.match(app, /state\.darkMode = effectiveDarkMode\(state\.themeSetting\);/);
+  assert.match(app, /safeStorageSet\("mosa-dark-mode", themeSettingStorageValue\(state\.themeSetting\)\);/);
+  assert.doesNotMatch(app, /safeStorageSet\("mosa-dark-mode", String\(state\.darkMode\)\)/);
+  // 跟随系统：matchMedia change 即时生效（不刷新页面），未选跟随系统时不动作。
+  assert.match(app, /systemDarkQuery\?\.addEventListener\?\.\("change", \(\) => \{\n  if \(state\.themeSetting !== THEME_SYSTEM\) return;\n  state\.darkMode = systemPrefersDark\(\);\n  applyDarkMode\(\);\n\}\);/);
+  // 选中态与同步走三态；data-theme 只会是 light/dark。
+  assert.match(app, /setRadioState\("\[data-appearance-opt\]", state\.themeSetting\)/);
+  assert.match(app, /button\.dataset\.appearanceOpt === state\.themeSetting/);
+  assert.match(app, /const appearance = state\.darkMode \? "dark" : "light";\n  document\.documentElement\.setAttribute\("data-theme", appearance\);/);
+});
+
 test("theme preview cards lock the R21 swatches, hover lift and the check-mark selected marker", async () => {
   const css = await readWebCss();
-  // 布局：两列等宽、间距 12；缩略框 72 高、16px 标题栏、12 圆角。
+  // 布局（任务 81 稿子）：两列固定 186 宽、间距 40、内容左对齐；缩略框 90 高、16px
+  // 标题栏、8 圆角；名称居中在卡下方。
   const choices = lastBlock(css, ".mosa-v2 .settings-theme-choices");
-  assert.match(choices, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
-  assert.match(choices, /gap: var\(--r21-s3\);/);
+  assert.match(choices, /grid-template-columns: repeat\(3, 186px\);/);
+  assert.match(choices, /gap: var\(--r21-s10\);/);
+  assert.match(choices, /justify-content: start;/);
+  // 任务 81 返工 1：三张卡；窄窗口（既有 ≤839 块内）允许收缩防溢出。
+  assert.match(choices, /grid-template-columns: repeat\(3, 186px\);/);
+  const card = lastBlock(css, ".mosa-v2 .settings-theme-card");
+  assert.match(card, /width: 186px;/);
+  assert.match(card, /text-align: center;/);
   const preview = lastBlock(css, ".mosa-v2 .settings-theme-preview");
-  assert.match(preview, /height: 72px;/);
+  assert.match(preview, /height: 90px;/);
   assert.match(preview, /grid-template-rows: 16px minmax\(0, 1fr\);/);
-  assert.match(preview, /border-radius: 12px;/);
+  assert.match(preview, /border-radius: 8px;/);
+  // 「跟随系统」预览：左右两半，配色复用既有浅/深两套固定值。
+  const systemPreview = lastBlock(css, '.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-preview');
+  assert.match(systemPreview, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+  assert.match(systemPreview, /grid-template-rows: minmax\(0, 1fr\);/);
+  assert.match(systemPreview, /border-color: var\(--color-border-subtle\);/);
+  const half = lastBlock(css, ".mosa-v2 .settings-theme-half");
+  assert.match(half, /grid-template-rows: 16px minmax\(0, 1fr\);/);
+  assert.match(half, /overflow: hidden;/);
   const body_ = lastBlock(css, ".mosa-v2 .settings-theme-body");
   assert.match(body_, /grid-template-columns: 23% minmax\(0, 1fr\) 23%;/);
   // 选中：accent 边 + 浅 accent 外圈；勾号徽章默认隐藏、active 显示（非颜色标志）。
@@ -259,21 +361,23 @@ test("theme preview cards lock the R21 swatches, hover lift and the check-mark s
   // 悬停上移 1px（限定精确指针），prefers-reduced-motion 下不位移。
   assert.match(css, /@media \(hover: hover\) and \(pointer: fine\) \{[^}]*\.mosa-v2 \.settings-theme-card:hover \.settings-theme-preview \{[^}]*transform: translateY\(-1px\);/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.mosa-v2 \.settings-theme-card:hover \.settings-theme-preview \{\n    transform: none;\n  \}/);
-  // 两套固定预览配色的关键值（浅色卡在深色主题下也保持浅色样子）。
-  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-preview \{\n  border-color: #d8d8dd;\n  background: #f6f6f7;\n\}/);
-  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-chrome \{\n  border-bottom-color: #d8d8dd;\n  background: #ededf0;\n\}/);
-  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-nav \{\n  background: #efeff1;\n\}/);
-  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-canvas \{\n  background: #f9f9fa;\n\}/);
-  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-grid i \{\n  background: #dbdbe0;\n\}/);
-  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-preview \{\n  border-color: #303036;\n  background: #151518;\n\}/);
-  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-chrome \{\n  border-bottom-color: #303036;\n  background: #1d1d21;\n\}/);
-  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-nav \{\n  background: #18181c;\n\}/);
-  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-canvas \{\n  background: #101013;\n\}/);
-  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-grid i \{\n  background: #313138;\n\}/);
-  // 标签 11px/600；新文字色只在浅色作用域；任务 42 新增字号 ≥10px。
+  // 两套固定预览配色的关键值（浅色卡在深色主题下也保持浅色样子）；同一规则同时
+  // 覆盖「跟随系统」卡的对应半幅（返工 1：half-light / half-dark 复用同色）。
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-preview,\n\.mosa-v2 \.settings-theme-card\[data-appearance-opt="system"\] \.settings-theme-half-light \{\n  border-color: #d8d8dd;\n  background: #f6f6f7;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-chrome,\n\.mosa-v2 \.settings-theme-card\[data-appearance-opt="system"\] \.settings-theme-half-light \.settings-theme-chrome \{\n  border-bottom-color: #d8d8dd;\n  background: #ededf0;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-nav,\n\.mosa-v2 \.settings-theme-card\[data-appearance-opt="system"\] \.settings-theme-half-light \.settings-theme-nav \{\n  background: #efeff1;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-canvas,\n\.mosa-v2 \.settings-theme-card\[data-appearance-opt="system"\] \.settings-theme-half-light \.settings-theme-canvas \{\n  background: #f9f9fa;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="light"\] \.settings-theme-grid i,\n\.mosa-v2 \.settings-theme-card\[data-appearance-opt="system"\] \.settings-theme-half-light \.settings-theme-grid i \{\n  background: #dbdbe0;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-preview,\n\.mosa-v2 \.settings-theme-card\[data-appearance-opt="system"\] \.settings-theme-half-dark \{\n  border-color: #303036;\n  background: #151518;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-chrome,\n\.mosa-v2 \.settings-theme-card\[data-appearance-opt="system"\] \.settings-theme-half-dark \.settings-theme-chrome \{\n  border-bottom-color: #303036;\n  background: #1d1d21;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-nav,\n\.mosa-v2 \.settings-theme-card\[data-appearance-opt="system"\] \.settings-theme-half-dark \.settings-theme-nav \{\n  background: #18181c;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-canvas,\n\.mosa-v2 \.settings-theme-card\[data-appearance-opt="system"\] \.settings-theme-half-dark \.settings-theme-canvas \{\n  background: #101013;\n\}/);
+  assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-grid i,\n\.mosa-v2 \.settings-theme-card\[data-appearance-opt="system"\] \.settings-theme-half-dark \.settings-theme-grid i \{\n  background: #313138;\n\}/);
+  // 标签 16px/600 居中（任务 81 稿子）；文字色只在浅色作用域；新字号 ≥10px。
   const label = lastBlock(css, ".mosa-v2 .settings-theme-label");
-  assert.match(label, /font-size: 11px;/);
+  assert.match(label, /font-size: 16px;/);
   assert.match(label, /font-weight: 600;/);
+  assert.match(label, /text-align: center;/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.settings-theme-label \{\n  color: #2a2a2e;\n\}/);
   const marker = css.indexOf("任务 42");
   assert.notEqual(marker, -1, "the task 42 block must exist");

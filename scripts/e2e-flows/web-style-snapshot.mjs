@@ -47,12 +47,16 @@ const KEY_KINDS = {
   "shell.navCountColor": "color",
   "shell.navLabelColor": "color",
   // 顶栏控件
-  "topbar.typeFilterHeight": "px",
-  "topbar.typeFilterRadius": "px",
-  "topbar.typeFilterBackground": "color",
-  "topbar.typeFilterFontSize": "font",
-  "topbar.typeFilterActiveBackground": "color",
-  "topbar.typeFilterActiveColor": "color",
+  // 任务 70（GravityPort A3）：类型筛选从顶栏移除，原 topbar.typeFilter* 六键
+  // 删除；新增后退/前进按钮与缩略图大小滑杆键。
+  "topbar.navHistoryButtonWidth": "px",
+  "topbar.navHistoryButtonHeight": "px",
+  "topbar.navHistoryButtonRadius": "px",
+  "topbar.navHistoryButtonBackground": "color",
+  "topbar.sizeGroupWindowCenterOffset": "px",
+  "topbar.sizeGroupInlineLeft": "px",
+  "topbar.sizeSliderWidth": "px",
+  "topbar.sizeSliderAccentColor": "color",
   "topbar.sortSelectHeight": "px",
   "topbar.sortSelectRadius": "px",
   "topbar.sortSelectBackground": "color",
@@ -69,6 +73,7 @@ const KEY_KINDS = {
   "gallery.gridPaddingRight": "px",
   "gallery.gridPaddingBottom": "px",
   "gallery.gridColumnGap": "px",
+  "gallery.gridColumnCount": "font",
   "gallery.cardGapX": "px",
   "gallery.thumbRadius": "px",
   "gallery.thumbBackground": "color",
@@ -96,6 +101,40 @@ const KEY_KINDS = {
   "inspector.factKeyColor": "color",
   "inspector.factValFontSize": "font",
   "inspector.factValColor": "color",
+  // 任务 75：版本树与上下文的行（无对话单行态）。行 40 高、40×40 缩略图、
+  // 模型行 10px/13px——对话三行小字用的行距是同一个值。
+  "inspector.versionContextRowHeight": "px",
+  "inspector.versionContextRowRadius": "px",
+  "inspector.versionContextThumbSize": "px",
+  "inspector.versionContextModelFontSize": "font",
+  "inspector.versionContextModelLineHeight": "px",
+  // 任务 90（GravityPort A4c）：大图查看页按钮/箭头/图片区几何 + toast 避让检视器的
+  // 位置（检视器打开 = 检视器宽 + 20，关闭 = 20；底部恒 20）。
+  "viewer.headerHeight": "px",
+  "viewer.actionButtonHeight": "px",
+  "viewer.actionButtonRadius": "px",
+  "viewer.actionButtonGap": "px",
+  "viewer.actionsRightInset": "px",
+  "viewer.arrowButtonSide": "px",
+  "viewer.arrowRightInset": "px",
+  "viewer.arrowIconHeight": "px",
+  "viewer.imageWidth": "px",
+  "viewer.imageHeight": "px",
+  "viewer.imageCenterOffsetX": "px",
+  "viewer.imageCenterOffsetY": "px",
+  "viewer.stagePaddingTop": "px",
+  // 任务 96（A6）：舞台左右各让出 52px 翻页箭头栏（44 按钮 + 8 距缘）。
+  "viewer.stagePaddingX": "px",
+  "toast.stackRightInsetOpen": "px",
+  "toast.stackRightInsetClosed": "px",
+  "toast.stackBottomInset": "px",
+  // 任务 96（A6）：toast 药丸几何（稿子「弹窗提示」120×36、r=半高、图标 12、
+  // 距左缘 16、字 16px 由字符步进折算）。
+  "toast.pillHeight": "px",
+  "toast.pillRadius": "px",
+  "toast.font": "font",
+  "toast.iconSide": "px",
+  "toast.iconInset": "px",
   // 设置弹窗
   "settings.cardWidth": "px",
   "settings.cardHeight": "px",
@@ -105,12 +144,36 @@ const KEY_KINDS = {
   "settings.navTabColor": "color",
   "settings.navTabActiveBackground": "color",
   "settings.navTabActiveColor": "color",
+  // 任务 91（GravityPort A4d）：右键菜单几何——宽 240、圆角 8、内边距 8、
+  // 行高 32、图标 24、组内行距 2、组间距 12（分隔线改纯留白）。
+  "menu.width": "px",
+  "menu.radius": "px",
+  "menu.padding": "px",
+  "menu.itemHeight": "px",
+  "menu.itemRadius": "px",
+  "menu.itemGap": "px",
+  "menu.groupGap": "px",
+  "menu.iconSize": "px",
+  "menu.iconInset": "px",
+  // 任务 94（GravityPort A4f）：确认弹窗——卡 640×240 圆角 16、标题 24/行距 30、
+  // 按钮 80×40 圆角 8 间距 8、「不再提醒」勾选框 16×16 圆角 4。
+  "confirmDialog.cardWidth": "px",
+  "confirmDialog.cardHeight": "px",
+  "confirmDialog.cardRadius": "px",
+  "confirmDialog.titleFontSize": "font",
+  "confirmDialog.titleLineSpacing": "px",
+  "confirmDialog.buttonWidth": "px",
+  "confirmDialog.buttonHeight": "px",
+  "confirmDialog.buttonRadius": "px",
+  "confirmDialog.buttonGap": "px",
+  "confirmDialog.checkboxSize": "px",
+  "confirmDialog.checkboxRadius": "px",
+  "confirmDialog.dontAskVisible": "str",
   // 深色主题（R21 没有深色规格：只守关键颜色没被浅色规则串进去）
   "dark.bodyBackground": "color",
   "dark.bodyColor": "color",
   "dark.navItemActiveBackground": "color",
   "dark.navLabelColor": "color",
-  "dark.typeFilterActiveBackground": "color",
   "dark.thumbBackground": "color",
   "dark.selectionRingColor": "color",
 };
@@ -181,6 +244,16 @@ async function seedAssets(ctx, origin) {
     coverAssetId: ids[3],
   });
   if (!stack?.stack?.id) throw new Error("样式快照预置堆叠失败。");
+  // 任务 75：给首图一条无对话的生成记录，让「版本树与上下文」盒渲染出
+  // 单行（无对话态），行的几何与字号才量得到。
+  const generation = await ctx.api(origin, "POST", "/api/generations", {
+    output_asset_id: ids[0],
+    provider: "style-snapshot",
+    model: "snapshot-model",
+    effective_prompt: "样式快照生成记录",
+    created_at: new Date().toISOString(),
+  });
+  if (!generation?.event?.id) throw new Error("样式快照生成记录写入失败。");
   return { ids };
 }
 
@@ -321,6 +394,15 @@ function measurementSource({ plainAssetId }) {
     };
 
     // ---- 1) 浅色基础：外壳 / 顶栏 / 画廊（卡片信息默认关）----
+    // 任务 81 返工 1：新用户默认「跟随系统」，快照的浅色基线必须显式钉死，
+    // 否则在系统深色的机器上整套浅色键会量成深色值。
+    if (document.documentElement.dataset.theme !== 'light') {
+      click('#settingsToggle');
+      await waitFor(() => !settingsMenu().hidden, 'settings opens for the light baseline');
+      click('#settingsMenu [data-appearance-opt="light"]');
+      await waitFor(() => document.documentElement.dataset.theme === 'light', 'light baseline normalised');
+      closeSettings('light baseline');
+    }
     await waitGallerySettled(4);
     R['shell.topbarHeight'] = rectOf(pick('.mosa-v2 .topbar')).height;
     R['shell.sidebarWidth'] = rectOf(pick('#appSidebar')).width;
@@ -338,15 +420,43 @@ function measurementSource({ plainAssetId }) {
     R['shell.navCountColor'] = styleOf(pick('#quickFilters .nav-item[data-filter="favorite"] .nav-count')).color;
     R['shell.navLabelColor'] = styleOf(pick('.mosa-v2 .nav-label')).color;
 
-    const typeNormal = pick('.type-filter[data-type="img"]');
-    const typeNormalStyle = styleOf(typeNormal);
-    R['topbar.typeFilterHeight'] = rectOf(typeNormal).height;
-    R['topbar.typeFilterRadius'] = typeNormalStyle.borderTopLeftRadius;
-    R['topbar.typeFilterBackground'] = typeNormalStyle.backgroundColor;
-    R['topbar.typeFilterFontSize'] = typeNormalStyle.fontSize;
-    const typeActive = styleOf(pick('.type-filter[data-type="all"]'));
-    R['topbar.typeFilterActiveBackground'] = typeActive.backgroundColor;
-    R['topbar.typeFilterActiveColor'] = typeActive.color;
+    // 任务 70 返工 1（GravityPort A3，用户 10-06 拍板）：后退/前进按钮 + 缩略图
+    // 大小滑杆三态（居中 = 窗口中线 / 退让居中 / 隐藏）。实测：1280 关检视器 →
+    // 居中（行内 left = 640-280 = 360，窗口中线在顶栏坐标系的位置，与控件宽度
+    // 无关）；1440 关检视器 → 居中（left = 720-280 = 440，窗口中心偏差 0）。
+    // 先关检视器锁这两态，再借驱动只把窗口临时放大到 1440 量滑杆真实几何，
+    // 量完还原 1280（回到窗口居中）。
+    const navHistoryButton = pick('#navHistoryBack');
+    const navHistoryStyle = styleOf(navHistoryButton);
+    R['topbar.navHistoryButtonWidth'] = rectOf(navHistoryButton).width;
+    R['topbar.navHistoryButtonHeight'] = rectOf(navHistoryButton).height;
+    R['topbar.navHistoryButtonRadius'] = navHistoryStyle.borderTopLeftRadius;
+    R['topbar.navHistoryButtonBackground'] = navHistoryStyle.backgroundColor;
+    const detailCloseForSlider = pick('#detailPanel .detail-close');
+    if (pick('#detailPanel').getAttribute('aria-hidden') === 'false') detailCloseForSlider.click();
+    await waitFor(() => pick('#detailPanel').getAttribute('aria-hidden') === 'true', 'inspector closed for slider keys');
+    // 居中态的行内 left 必须等于「窗口中线 − 顶栏左缘」（barRect.left）。
+    const windowCenterInBar = () => window.innerWidth / 2 - rectOf(pick('.mosa-v2 .topbar')).left;
+    await waitFor(() => pick('#topbarSizeGroup').hidden === false
+      && Math.abs(Number.parseFloat(pick('#topbarSizeGroup').style.left || 'NaN') - windowCenterInBar()) <= 0.75, 'size group window-centered (inline left) at 1280');
+    R['topbar.sizeGroupInlineLeft'] = Number.parseFloat(pick('#topbarSizeGroup').style.left);
+    console.log('__MOSA_E2E_RESIZE__ 1440x800');
+    await waitFor(() => window.innerWidth >= 1440, 'window resized to 1440');
+    await waitFor(() => !pick('#topbarSizeGroup').hidden
+      && Math.abs(Number.parseFloat(pick('#topbarSizeGroup').style.left || 'NaN') - windowCenterInBar()) <= 0.75, 'size group window-centered at 1440');
+    const topbarRect = rectOf(pick('.mosa-v2 .topbar'));
+    const sizeGroupRect = rectOf(pick('#topbarSizeGroup'));
+    R['topbar.sizeGroupWindowCenterOffset'] = Math.abs((sizeGroupRect.left + sizeGroupRect.width / 2) - (topbarRect.left + windowCenterInBar()));
+    const sizeSlider = pick('#gallerySizeSlider');
+    R['topbar.sizeSliderWidth'] = rectOf(sizeSlider).width;
+    R['topbar.sizeSliderAccentColor'] = styleOf(sizeSlider).accentColor;
+    console.log('__MOSA_E2E_RESIZE__ 1280x800');
+    await waitFor(() => window.innerWidth <= 1280 && pick('#topbarSizeGroup').hidden === false
+      && Math.abs(Number.parseFloat(pick('#topbarSizeGroup').style.left || 'NaN') - windowCenterInBar()) <= 0.75, 'window restored; the size group window-centers again at 1280');
+    // 手动关闭置了 detailManuallyClosed：后续「点卡片自动开检视器」的步骤要求
+    // 非手动关闭态——用真实入口（#openInspectorBtn）重新打开把它清掉。
+    click('#openInspectorBtn');
+    await waitFor(() => pick('#detailPanel').getAttribute('aria-hidden') === 'false', 'inspector reopened after slider keys');
 
     const sortSelect = pick('#sortSelect');
     const sortStyle = styleOf(sortSelect);
@@ -374,6 +484,9 @@ function measurementSource({ plainAssetId }) {
     R['gallery.gridPaddingRight'] = gridStyle.paddingRight;
     R['gallery.gridPaddingBottom'] = gridStyle.paddingBottom;
     R['gallery.gridColumnGap'] = gridStyle.columnGap;
+    // 任务 70：列数由 --gallery-columns 驱动（1280 宽、检视器关、滑杆默认 200
+    // → 内容宽 952 → 4 列）。
+    R['gallery.gridColumnCount'] = gridStyle.gridTemplateColumns.split(/\\s+/).filter(Boolean).length;
     R['gallery.cardGapX'] = firstRowGapX();
     const thumb = pick('#assetGrid .thumb');
     const thumbStyle = styleOf(thumb);
@@ -446,11 +559,147 @@ function measurementSource({ plainAssetId }) {
     const factVal = styleOf(pick('#detailPanel .head-facts .meta-val'));
     R['inspector.factValFontSize'] = factVal.fontSize;
     R['inspector.factValColor'] = factVal.color;
+    // 任务 75：版本树与上下文的行——生成历史异步到达后再量（无对话单行态）。
+    await waitFor(() => pick('#detailPanel').querySelector('[data-generation-context] .detail-version-context-row'), 'version context row renders');
+    const versionRow = pick('#detailPanel [data-generation-context] .detail-version-context-row');
+    R['inspector.versionContextRowHeight'] = rectOf(versionRow).height;
+    R['inspector.versionContextRowRadius'] = styleOf(versionRow).borderTopLeftRadius;
+    R['inspector.versionContextThumbSize'] = rectOf(versionRow.querySelector('.generation-output-thumb')).width;
+    const versionModel = styleOf(versionRow.querySelector('.detail-version-context-model'));
+    R['inspector.versionContextModelFontSize'] = versionModel.fontSize;
+    R['inspector.versionContextModelLineHeight'] = versionModel.lineHeight;
     const selectedCard = pick('.asset-card.selected');
     const ring = styleOf(selectedCard, '::after');
     R['gallery.selectionRingWidth'] = ring.borderWidth;
     R['gallery.selectionRingColor'] = ring.borderColor;
     R['gallery.selectionRingRadius'] = ring.borderTopLeftRadius;
+
+    // ---- 4b) 大图查看页（任务 90，GravityPort A4c）：按钮 / 箭头 / 图片区 + toast 位置 ----
+    // 经真实入口（右键菜单「在查看器中打开」）进入；量完返回画廊并手动关检视器，
+    // 再量 toast 栈的关闭态右边距。
+    const viewerOpenItem = await openContextMenu(cardSelector(seed.plainAssetId), '在查看器中打开');
+    // 任务 91：菜单开着时量右键菜单几何（单张菜单：打开×2｜复制×4｜收藏+分组×2｜
+    // 导出｜回收站——items[1]→[2] 跨过分隔，正是组间距）。
+    const contextMenuEl = pick('.context-menu');
+    const contextMenuItems = [...contextMenuEl.querySelectorAll(':scope > .context-menu-item')];
+    R['menu.width'] = rectOf(contextMenuEl).width;
+    R['menu.radius'] = styleOf(contextMenuEl).borderTopLeftRadius;
+    R['menu.padding'] = styleOf(contextMenuEl).paddingTop;
+    R['menu.itemHeight'] = rectOf(contextMenuItems[0]).height;
+    R['menu.itemRadius'] = styleOf(contextMenuItems[0]).borderTopLeftRadius;
+    R['menu.itemGap'] = rectOf(contextMenuItems[1]).top - rectOf(contextMenuItems[0]).bottom;
+    R['menu.groupGap'] = rectOf(contextMenuItems[2]).top - rectOf(contextMenuItems[1]).bottom;
+    R['menu.iconSize'] = rectOf(contextMenuItems[0].querySelector('.context-menu-icon')).width;
+    R['menu.iconInset'] = rectOf(contextMenuItems[0].querySelector('.context-menu-icon')).left - rectOf(contextMenuItems[0]).left;
+    viewerOpenItem.click();
+    await waitFor(() => !pick('#assetView').hidden, 'asset view opens for snapshot');
+    const viewerImage = pick('#assetViewImage');
+    await waitFor(() => !viewerImage.hidden && viewerImage.complete && viewerImage.naturalWidth > 0, 'viewer image loaded');
+    await waitForMotionSettled(viewerImage, 'viewer image');
+    await waitStable(() => {
+      const r = rectOf(viewerImage);
+      return [r.left, r.top, r.width, r.height].map((v) => Math.round(v * 2));
+    }, 'viewer image geometry');
+    const viewerHeader = pick('#assetView .asset-view-header');
+    const viewerStage = pick('#assetViewStage');
+    const stageRect = rectOf(viewerStage);
+    const viewerImageRect = rectOf(viewerImage);
+    R['viewer.headerHeight'] = rectOf(viewerHeader).height;
+    const deleteButton = pick('#assetViewDelete');
+    const fullscreenButton = pick('#assetViewFullscreen');
+    R['viewer.actionButtonHeight'] = rectOf(deleteButton).height;
+    R['viewer.actionButtonRadius'] = styleOf(deleteButton).borderTopLeftRadius;
+    R['viewer.actionButtonGap'] = rectOf(fullscreenButton).left - rectOf(pick('#assetZoomFit')).right;
+    R['viewer.actionsRightInset'] = rectOf(viewerHeader).right - rectOf(fullscreenButton).right;
+    const arrowNext = pick('#assetViewNext');
+    R['viewer.arrowButtonSide'] = rectOf(arrowNext).width;
+    R['viewer.arrowRightInset'] = stageRect.right - rectOf(arrowNext).right;
+    R['viewer.arrowIconHeight'] = rectOf(arrowNext.querySelector('svg')).height;
+    R['viewer.imageWidth'] = viewerImageRect.width;
+    R['viewer.imageHeight'] = viewerImageRect.height;
+    R['viewer.imageCenterOffsetX'] = Math.abs((viewerImageRect.left + viewerImageRect.width / 2) - (stageRect.left + stageRect.width / 2));
+    R['viewer.imageCenterOffsetY'] = Math.abs((viewerImageRect.top + viewerImageRect.height / 2) - (stageRect.top + stageRect.height / 2));
+    R['viewer.stagePaddingTop'] = styleOf(viewerStage).paddingTop;
+    R['viewer.stagePaddingX'] = styleOf(viewerStage).paddingLeft;
+    // 检视器开着：toast 栈右边距 = 检视器宽 + 20；底边距恒 20。
+    const toastStack = pick('#toastContainer');
+    await waitStable(() => [Math.round(rectOf(toastStack).right * 2)], 'toast stack right (inspector open)');
+    R['toast.stackRightInsetOpen'] = window.innerWidth - rectOf(toastStack).right;
+    R['toast.stackBottomInset'] = window.innerHeight - rectOf(toastStack).bottom;
+    click('#assetViewBack');
+    await waitFor(() => pick('#assetView').hidden === true, 'asset view closed after snapshot');
+    click('#detailPanel .detail-close');
+    await waitFor(() => pick('#detailPanel').getAttribute('aria-hidden') === 'true', 'inspector closed for toast closed-state key');
+    await waitStable(() => [Math.round(rectOf(toastStack).right * 2)], 'toast stack right (closed)');
+    R['toast.stackRightInsetClosed'] = window.innerWidth - rectOf(toastStack).right;
+
+    // ---- 4c) 确认弹窗（任务 94 / A4f）：经真实入口（右键 → 移到回收站）打开后
+    // 量稿子几何；点「否」取消——绝不点「是」（不写「不再提醒」存储、不动画廊）。
+    const trashMenuItem = await openContextMenu(cardSelector(seed.plainAssetId), '移到回收站');
+    trashMenuItem.click();
+    await waitFor(() => pick('#confirmDialog').classList.contains('open'), 'confirm dialog opens for snapshot');
+    await waitForMotionSettled(pick('#confirmDialogCard'), 'confirm dialog');
+    await waitStable(() => {
+      const r = rectOf(pick('#confirmDialogCard'));
+      return [r.left, r.top, r.width, r.height].map((v) => Math.round(v * 2));
+    }, 'confirm dialog geometry');
+    const dialogCard = pick('#confirmDialogCard');
+    const dialogRect = rectOf(dialogCard);
+    R['confirmDialog.cardWidth'] = dialogRect.width;
+    R['confirmDialog.cardHeight'] = dialogRect.height;
+    R['confirmDialog.cardRadius'] = styleOf(dialogCard).borderTopLeftRadius;
+    R['confirmDialog.titleFontSize'] = styleOf(pick('#confirmDialogTitle')).fontSize;
+    R['confirmDialog.titleLineSpacing'] = rectOf(pick('#confirmDialogDescription')).top - rectOf(pick('#confirmDialogTitle')).top;
+    const dialogConfirmButton = pick('#confirmDialogConfirm');
+    const dialogCancelButton = pick('#confirmDialogCancel');
+    R['confirmDialog.buttonWidth'] = rectOf(dialogConfirmButton).width;
+    R['confirmDialog.buttonHeight'] = rectOf(dialogConfirmButton).height;
+    R['confirmDialog.buttonRadius'] = styleOf(dialogConfirmButton).borderTopLeftRadius;
+    R['confirmDialog.buttonGap'] = rectOf(dialogConfirmButton).left - rectOf(dialogCancelButton).right;
+    const dialogCheckbox = pick('#confirmDialogDontAskCheckbox');
+    R['confirmDialog.checkboxSize'] = rectOf(dialogCheckbox).width;
+    R['confirmDialog.checkboxRadius'] = styleOf(dialogCheckbox).borderTopLeftRadius;
+    R['confirmDialog.dontAskVisible'] = pick('#confirmDialogDontAsk').hidden === false ? 'yes' : 'no';
+    click('#confirmDialogCancel');
+    await waitFor(() => !pick('#confirmDialog').classList.contains('open'), 'confirm dialog cancelled after snapshot');
+    // 右键把卡片从单选转成了多选、取消弹窗不会清它；按 Esc 清掉残留选区，再按
+    // 第 4 步的同一入口恢复单选（深色段要量 .asset-card.selected 的选中环）。
+    // 只恢复选中、不开检视器：4b 已手动关闭检视器（detailManuallyClosed），
+    // 深色段也只依赖 .selected 存在。
+    document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' }));
+    await waitFor(() => !document.querySelector('.asset-card.multi-selected'), 'leftover multi-selection cleared after the dialog');
+    const selectButtonAfterDialog = () => document.querySelector('[data-id="' + CSS.escape(seed.plainAssetId) + '"] .asset-card-select');
+    await waitFor(() => selectButtonAfterDialog()?.isConnected, 'card select button back after the dialog');
+    selectButtonAfterDialog().click();
+    await waitFor(() => document.querySelector('.asset-card.selected'), 'single selection restored after the dialog');
+
+    // ---- 4d) toast 药丸（任务 96 / A6）：经真实入口（右键 → 复制提示词）触发一条
+    // toast 后量药丸几何。剪贴板在合成点击下成功或失败都会弹 toast（success/error
+    // 通道不同、图标不同），但药丸高度/圆角/字号/图标尺寸与左缘内距是类型无关的。
+    // 量完等 toast 完全离场再进深色段，避免影响后续测量的栈高度变量。
+    // 右键会把 .selected 转成多选（任务 94 同款残留）：4d 后按同一手法
+    // Esc 清多选、重选恢复单选，深色段的选中环断言才保持原口径。
+    const copyMenuItemForToast = await openContextMenu(cardSelector(seed.plainAssetId), '复制提示词');
+    copyMenuItemForToast.click();
+    await waitFor(() => Boolean(document.querySelector('#toastContainer .toast.is-visible, #toastErrorContainer .toast.is-visible')), 'a toast appears for the pill keys');
+    const pillToast = document.querySelector('#toastContainer .toast.is-visible, #toastErrorContainer .toast.is-visible');
+    const pillRect = rectOf(pillToast);
+    R['toast.pillHeight'] = pillRect.height;
+    R['toast.pillRadius'] = styleOf(pillToast).borderTopLeftRadius;
+    R['toast.font'] = styleOf(pillToast.querySelector('.toast-message')).fontSize;
+    const pillIcon = pillToast.querySelector('.toast-icon');
+    R['toast.iconSide'] = rectOf(pillIcon).width;
+    R['toast.iconInset'] = rectOf(pillIcon).left - pillRect.left;
+    // error 通道带关闭按钮：点掉加速离场；polite 通道等自然超时。
+    const pillDismiss = pillToast.querySelector('.toast-dismiss');
+    if (pillDismiss) pillDismiss.click();
+    await waitFor(() => !document.querySelector('#toastContainer .toast, #toastErrorContainer .toast'), 'toast fully left before the dark section', 10000);
+    document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' }));
+    await waitFor(() => !document.querySelector('.asset-card.multi-selected'), 'multi-selection cleared after the pill toast');
+    const selectButtonAfterPill = () => document.querySelector('[data-id="' + CSS.escape(seed.plainAssetId) + '"] .asset-card-select');
+    await waitFor(() => selectButtonAfterPill()?.isConnected, 'card select button back after the pill toast');
+    selectButtonAfterPill().click();
+    await waitFor(() => document.querySelector('.asset-card.selected'), 'single selection restored after the pill toast');
 
     // ---- 5) 深色主题关键颜色（设置里的真实入口切换）----
     await openSettings('dark');
@@ -461,7 +710,6 @@ function measurementSource({ plainAssetId }) {
       styleOf(document.body).backgroundColor,
       styleOf(document.body).color,
       styleOf(pick('#quickFilters .nav-item[data-filter="all"]')).backgroundColor,
-      styleOf(pick('.type-filter[data-type="all"]')).backgroundColor,
       styleOf(pick('#assetGrid .thumb')).backgroundColor,
       styleOf(pick('.asset-card.selected'), '::after').borderColor,
       styleOf(pick('.mosa-v2 .nav-label')).color,
@@ -470,7 +718,6 @@ function measurementSource({ plainAssetId }) {
     R['dark.bodyBackground'] = bodyDark.backgroundColor;
     R['dark.bodyColor'] = bodyDark.color;
     R['dark.navItemActiveBackground'] = styleOf(pick('#quickFilters .nav-item[data-filter="all"]')).backgroundColor;
-    R['dark.typeFilterActiveBackground'] = styleOf(pick('.type-filter[data-type="all"]')).backgroundColor;
     R['dark.thumbBackground'] = styleOf(pick('#assetGrid .thumb')).backgroundColor;
     R['dark.selectionRingColor'] = styleOf(pick('.asset-card.selected'), '::after').borderColor;
     R['dark.navLabelColor'] = styleOf(pick('.mosa-v2 .nav-label')).color;

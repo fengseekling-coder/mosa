@@ -1,7 +1,8 @@
 // Pluggable e2e flow: gallery multi-selection (Ctrl/Cmd toggle, Shift range,
 // pointer marquee, Cmd/Ctrl+A), the unified context menus (selection heading,
-// batch favorite / move-to-group / 堆叠所选 / 取消选择 — the bottom selection bar
-// was removed by the context-menu unification), then the full Stack lifecycle
+// batch favorite / 添加分组 / 堆叠所选 — the bottom selection bar
+// was removed by the context-menu unification; 任务 91 拿掉了菜单里的取消选择,
+// Esc 是既有入口), then the full Stack lifecycle
 // (stack-from-selection menu item, rename modal with empty-name rejection,
 // enter / remove members via 移出堆叠 / return, restart persistence, dissolve
 // from the stack-interior blank-area menu, Empty Trash from the trash
@@ -15,22 +16,23 @@ import { PAGE_HELPERS } from "./_page-helpers.mjs";
 
 export const name = "selection-and-stacks";
 export const description =
-  "selection: ctrl-toggle/shift-range/marquee/select-all/menu-deselect -> batch favorite+move-to-group+stack-selected via context menu -> stack rename/empty-name/open/multi-remove/return -> restart -> in-stack blank dissolve -> trash blank empty-trash -> API audit";
+  "selection: ctrl-toggle/shift-range/marquee/select-all/esc-deselect -> batch favorite+move-to-group+stack-selected via context menu -> stack rename/empty-name/open/multi-remove/return -> restart -> in-stack blank dissolve -> trash blank empty-trash -> API audit";
 
-// Menu labels verified against web/app/i18n.mjs (zh is the default locale):
-// addToFavorites=添加到收藏, moveToGroup=移动到分组, stackSelected=堆叠所选,
-// removeFromStack=移出堆叠, deselectAll=取消选择, openStack=打开堆叠,
+// Menu labels verified against web/app/i18n.mjs (zh is the default locale;
+// 任务 91：收藏/添加分组照稿子改文案，取消选择从多选菜单拿掉——Esc 是既有入口):
+// addToFavorites=收藏, addToGroup=添加分组, stackSelected=堆叠所选,
+// removeFromStack=移出堆叠, openStack=打开堆叠,
 // renameStack=重命名堆叠, dissolveStack=解散堆叠, emptyTrash=清空回收站.
 const MENU = {
-  favorite: "添加到收藏",
-  moveToGroup: "移动到分组",
+  favorite: "收藏",
+  addToGroup: "添加分组",
   stackSelected: "堆叠所选",
   removeFromStack: "移出堆叠",
-  deselect: "取消选择",
   openStack: "打开堆叠",
   renameStack: "重命名堆叠",
   dissolveStack: "解散堆叠",
   emptyTrash: "清空回收站",
+  moveToTrash: "移到回收站",
 };
 
 // In-page helpers specific to this flow, interpolated after PAGE_HELPERS.
@@ -70,6 +72,10 @@ const SELECTION_HELPERS = String.raw`
   // document itself.
   function selectAllKeyboard() {
     document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'a', metaKey: true, ctrlKey: true }));
+  }
+  // Escape 由 document 捕获链消费（菜单开着=关菜单；否则=清选区/退出层级）。
+  function pressEscape() {
+    document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' }));
   }
   // Pointer-event marquee (gallery-selection.mjs): pointerdown in the gallery,
   // one pointermove past the 3px drag threshold, then pointerup (endPointer
@@ -285,6 +291,19 @@ export async function run(ctx) {
     // ===== Page 1: ctrl toggle + shift range + menu deselect + select-all =====
     const p1 = await ctx.runInPage(first, source(ids, `
       await waitFor(() => gallerySettled() && rootCardIds().length === 6, 'six seeded cards');
+      // 任务 93：「剪切」从 91 的禁用占位转正——单张可用，点击后 S1 变淡
+      // （.is-cut），Esc 先取消剪切（卡片恢复），再按一次才清选区。
+      const cutItem = await openContextMenu(cardSelector(config.s1), '剪切');
+      const cutDisabled = cutItem.disabled || cutItem.classList.contains('disabled');
+      cutItem.click();
+      await sleep(80);
+      const cutMenuClosed = !document.querySelector('.context-menu');
+      await waitFor(() => document.querySelector(cardSelector(config.s1))?.classList.contains('is-cut'), 'S1 dimmed after cut');
+      const cutToastAbsent = allToastTexts().length === 0;
+      pressEscape();
+      await waitFor(() => !document.querySelector(cardSelector(config.s1))?.classList.contains('is-cut'), 'Esc cancels the cut (S1 back to normal)');
+      pressEscape();
+      await waitFor(() => selectedCardIds().length === 0, 'selection cleared after the cut probe');
       ctrlClickCard(config.s1);
       await waitFor(() => JSON.stringify(selectedCardIds()) === JSON.stringify([config.s1]), 'S1 selected');
       ctrlClickCard(config.s3);
@@ -295,17 +314,21 @@ export async function run(ctx) {
       const detailSelectionDuringMulti = detailSelectedId();
       // 右键菜单统一：底部批量栏不存在，选区信息只出现在菜单表头行。
       const barAbsent = selectionBarAbsent();
-      const deselectItem = await openContextMenu(cardSelector(config.s3), MENU.deselect);
+      // 任务 91：取消选择从多选菜单拿掉（⌘A/Esc 是既有入口）。表头读数改经
+      // 收藏项开菜单；Esc 第一下关菜单（菜单打开期间 Esc 归菜单），第二下清选区。
+      await openContextMenu(cardSelector(config.s3), MENU.favorite);
       const infoAfterMulti = menuInfoText();
-      deselectItem.click();
-      await waitFor(() => selectedCardIds().length === 0, '取消选择 menu item clears the range selection');
+      pressEscape();
+      pressEscape();
+      await waitFor(() => selectedCardIds().length === 0, 'Esc clears the range selection');
       selectAllKeyboard();
       await waitFor(() => selectedCardIds().length === 6, 'Cmd/Ctrl+A selects all six');
-      const deselectAllItem = await openContextMenu(cardSelector(config.s1), MENU.deselect);
+      await openContextMenu(cardSelector(config.s1), MENU.favorite);
       const infoAfterSelectAll = menuInfoText();
-      deselectAllItem.click();
-      await waitFor(() => selectedCardIds().length === 0, '取消选择 menu item clears the select-all');
-      return { multiSelected, barAbsent, infoAfterMulti, detailSelectionDuringMulti, infoAfterSelectAll };
+      pressEscape();
+      pressEscape();
+      await waitFor(() => selectedCardIds().length === 0, 'Esc clears the select-all');
+      return { multiSelected, barAbsent, infoAfterMulti, detailSelectionDuringMulti, infoAfterSelectAll, cutDisabled, cutMenuClosed, cutToastAbsent };
     `));
     expect(sameMembers(p1.multiSelected, [ids.s3, ids.s4, ids.s5]), `P1 shift-range selection: ${JSON.stringify(p1.multiSelected)}`);
     expect(p1.barAbsent === true, `P1 selection bar removed from DOM: ${p1.barAbsent}`);
@@ -314,6 +337,9 @@ export async function run(ctx) {
     // .selected 只用于详情单选（gallery-selection.mjs cardSelectionFlags）。
     expect(p1.detailSelectionDuringMulti === "", `P1 no .selected card during multi-select: ${p1.detailSelectionDuringMulti}`);
     expect(p1.infoAfterSelectAll === "已选 6 项", `P1 select-all menu heading: ${p1.infoAfterSelectAll}`);
+    expect(p1.cutDisabled === false, `P1 cut item is enabled after 任务 93: ${JSON.stringify(p1)}`);
+    expect(p1.cutMenuClosed === true, `P1 clicking the enabled cut item closes the menu and cuts: ${JSON.stringify(p1)}`);
+    expect(p1.cutToastAbsent === true, `P1 cutting raises no toast (dim + a11y announce only): ${JSON.stringify(p1)}`);
 
     // ===== Page 2: marquee frames exactly S2+S4 =====
     const p2 = await ctx.runInPage(first, source(ids, `
@@ -332,11 +358,12 @@ export async function run(ctx) {
         throw new Error(error.message + ' marquee=' + JSON.stringify({ marqueeStrategy, marqueeLog, selected: selectedCardIds(), grid: grid && [Math.round(grid.left), Math.round(grid.top), Math.round(grid.right), Math.round(grid.bottom)], viewport: [innerWidth, innerHeight, devicePixelRatio], gridScroll: document.querySelector('#assetGrid')?.scrollTop, columns: gridStyle.gridTemplateColumns, padding: [gridStyle.paddingLeft, gridStyle.paddingTop], rects, placement }));
       }
       const selected = selectedCardIds();
-      const deselectItem = await openContextMenu(cardSelector(config.s2), MENU.deselect);
+      await openContextMenu(cardSelector(config.s2), MENU.favorite);
       const infoText = menuInfoText();
       const barAbsent = selectionBarAbsent();
-      deselectItem.click();
-      await waitFor(() => selectedCardIds().length === 0, '取消选择 clears the marquee selection');
+      pressEscape();
+      pressEscape();
+      await waitFor(() => selectedCardIds().length === 0, 'Esc clears the marquee selection');
       return { marqueeStrategy, selected, infoText, barAbsent };
     `));
     expect(sameMembers(p2.selected, [ids.s2, ids.s4]), `P2 marquee selection: ${JSON.stringify(p2.selected)}`);
@@ -351,7 +378,7 @@ export async function run(ctx) {
       await waitFor(() => JSON.stringify(selectedCardIds()) === JSON.stringify([config.s1, config.s2].sort()), 'S1+S2 selected for batch');
       await rightClickChoose(cardSelector(config.s1), [MENU.favorite]);
       await waitFor(() => allToastTexts().some((text) => text.includes('收藏状态已更新')), 'batch favorite toast');
-      await rightClickChoose(cardSelector(config.s1), [MENU.moveToGroup, config.groupName]);
+      await rightClickChoose(cardSelector(config.s1), [MENU.addToGroup, config.groupName]);
       await waitFor(() => allToastTexts().some((text) => text.includes('已移动到分组')), 'batch move-to-group toast');
       return { selectionAfterBatch: selectedCardIds() };
     `));
@@ -636,6 +663,70 @@ export async function run(ctx) {
     const aliveAfterEmpty = (await ctx.api(second.origin, "GET", "/api/assets?project=default&limit=250")).assets || [];
     expect(sameMembers(aliveAfterEmpty.map((asset) => asset.id), [ids.s1, ids.s2, ids.s3, ids.s6]),
       `audit only S4/S5 permanently deleted: ${JSON.stringify(aliveAfterEmpty.map((asset) => asset.id))}`);
+
+    // ===== Page 9 (任务 94 / A4f): 右键多选移至回收站 → 撤销 → 几张都回来 =====
+    // 勾「不再提醒」后再删不弹框；每次成功移入回收站都弹带撤销的 toast；撤销
+    // 经现有 restore 端点恢复本次移走的那几张。结束前清掉 localStorage 键。
+    const p9 = await ctx.runInPage(second, source(ids, `
+      await waitFor(() => gallerySettled() && rootCardIds().length === 4, 'four root cards before the trash-undo phase');
+      pressEscape();
+      await waitFor(() => selectedCardIds().length === 0, 'clean selection before the trash-undo phase');
+      ctrlClickCard(config.s1);
+      await waitFor(() => selectedCardIds().length === 1, 'S1 selected for trash');
+      ctrlClickCard(config.s2);
+      await waitFor(() => selectedCardIds().length === 2, 'S1+S2 selected for trash');
+      const trashItem = await openContextMenu(cardSelector(config.s1), MENU.moveToTrash);
+      trashItem.click();
+      await waitFor(() => document.querySelector('#confirmDialog')?.classList.contains('open'), 'multi trash confirm opens');
+      const confirm = {
+        title: (document.querySelector('#confirmDialogTitle')?.textContent || '').trim(),
+        cancelLabel: (document.querySelector('#confirmDialogCancel')?.textContent || '').trim(),
+        confirmLabel: (document.querySelector('#confirmDialogConfirm')?.textContent || '').trim(),
+        checkboxRowVisible: !document.querySelector('#confirmDialogDontAsk')?.hidden,
+      };
+      document.querySelector('#confirmDialogDontAskCheckbox').click();
+      confirm.checkedAfterClick = document.querySelector('#confirmDialogDontAskCheckbox')?.checked === true;
+      document.querySelector('#confirmDialogConfirm').click();
+      await waitFor(() => !document.querySelector('#confirmDialog')?.classList.contains('open'), 'multi trash confirm closes');
+      await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'S1+S2 leave the gallery after trash');
+      await waitFor(() => Boolean(document.querySelector('#toastContainer .toast.is-visible .toast-action')), 'multi trash raises the undo toast');
+      confirm.toastMessage = (document.querySelector('#toastContainer .toast.is-visible .toast-message')?.textContent || '').trim();
+      confirm.toastActionLabel = (document.querySelector('#toastContainer .toast.is-visible .toast-action')?.textContent || '').trim();
+      document.querySelector('#toastContainer .toast.is-visible .toast-action').click();
+      await waitFor(() => gallerySettled() && rootCardIds().length === 4
+        && document.querySelector(cardSelector(config.s1)) && document.querySelector(cardSelector(config.s2)),
+        'undo restores both trashed assets');
+      confirm.storedAfterDontAsk = localStorage.getItem('mosa.confirm-move-to-trash');
+
+      // 勾过不再提醒：再来一次不弹框直接删。
+      pressEscape();
+      await waitFor(() => selectedCardIds().length === 0, 'selection cleared before the suppressed run');
+      ctrlClickCard(config.s1);
+      await waitFor(() => selectedCardIds().length === 1, 'S1 re-selected for the suppressed run');
+      ctrlClickCard(config.s2);
+      await waitFor(() => selectedCardIds().length === 2, 'S1+S2 re-selected for the suppressed run');
+      const trashItem2 = await openContextMenu(cardSelector(config.s1), MENU.moveToTrash);
+      trashItem2.click();
+      await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'suppressed multi trash removes both without a dialog');
+      const dialogNeverOpened = !document.querySelector('#confirmDialog')?.classList.contains('open');
+      await waitFor(() => Boolean(document.querySelector('#toastContainer .toast.is-visible .toast-action')), 'suppressed multi trash still raises the undo toast');
+      document.querySelector('#toastContainer .toast.is-visible .toast-action').click();
+      await waitFor(() => gallerySettled() && rootCardIds().length === 4
+        && document.querySelector(cardSelector(config.s1)) && document.querySelector(cardSelector(config.s2)),
+        'undo restores after the suppressed run too');
+      const storedBeforeCleanup = localStorage.getItem('mosa.confirm-move-to-trash');
+      localStorage.removeItem('mosa.confirm-move-to-trash');
+      const storedAfterCleanup = localStorage.getItem('mosa.confirm-move-to-trash');
+      return { confirm, dialogNeverOpened, storedBeforeCleanup, storedAfterCleanup };
+    `));
+    expect(p9.confirm.title === "是否将 2 个素材移至回收站？", `P9 multi trash title: ${JSON.stringify(p9.confirm.title)}`);
+    expect(p9.confirm.cancelLabel === "否" && p9.confirm.confirmLabel === "是", `P9 multi trash buttons: ${JSON.stringify([p9.confirm.cancelLabel, p9.confirm.confirmLabel])}`);
+    expect(p9.confirm.checkboxRowVisible === true && p9.confirm.checkedAfterClick === true, `P9 dont-ask checkbox: ${JSON.stringify(p9.confirm)}`);
+    expect(p9.confirm.toastMessage.includes("2"), `P9 multi trash toast mentions the count: ${JSON.stringify(p9.confirm.toastMessage)}`);
+    expect(p9.confirm.toastActionLabel === "撤销", `P9 multi trash toast action: ${JSON.stringify(p9.confirm.toastActionLabel)}`);
+    expect(p9.confirm.storedAfterDontAsk === "off", `P9 storage after checking dont-ask: ${JSON.stringify(p9.confirm.storedAfterDontAsk)}`);
+    expect(p9.dialogNeverOpened === true, `P9 suppressed run opened the dialog: ${JSON.stringify(p9.dialogNeverOpened)}`);
+    expect(p9.storedBeforeCleanup === "off" && p9.storedAfterCleanup === null, `P9 localStorage cleanup: ${JSON.stringify([p9.storedBeforeCleanup, p9.storedAfterCleanup])}`);
 
     return {
       assets: [ids.s1, ids.s2, ids.s3, ids.s4, ids.s5, ids.s6],

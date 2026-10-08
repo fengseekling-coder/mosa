@@ -40,9 +40,10 @@ function sliceBetween(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-// Library v2 keeps favorite in the Overview instead of a detached section.
-const SECTION_ORDER = ["file", "tags", "prompt", "source", "version", "group", "more"];
-const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailMoreSectionMarkup(asset)}";
+// Library v2 keeps favorite in the Overview. GravityPort A4a：滚动列六区块；
+// More 区块已由底部固定「素材路径」胶囊取代（helper 保留）。
+const SECTION_ORDER = ["file", "tags", "palette", "prompt", "reference", "version"];
+const COMPOSITION = "${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPaletteSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailReferenceSectionMarkup(asset)}${detailVersionContextSectionMarkup(asset, cachedGenerationHistory)}";
 
 // 29-35. The inspector no longer needs a dedicated Finder IPC. The renderer
 // keeps the narrower shared HTTP open-folder path and the preload surface stays small.
@@ -51,7 +52,8 @@ test("29-35. retired show-item-in-folder IPC stays removed", async () => {
 
   assert.doesNotMatch(preload, /showItemInFolder|show-item-in-folder/);
   assert.doesNotMatch(main, /ipcMain\.handle\("show-item-in-folder"/);
-  assert.equal(count(preload, "ipcRenderer.invoke"), 17, "preload exposes only the approved narrow invoke channels, including the Visual Pack lifecycle");
+  // 任务 96（A6）：第 18 条批准通道 set-window-full-screen（大图页全屏与窗口系统全屏同步）。
+  assert.equal(count(preload, "ipcRenderer.invoke"), 18, "preload exposes only the approved narrow invoke channels, including the Visual Pack lifecycle");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "the renderer never receives a shell object");
 });
 
@@ -69,15 +71,17 @@ test("36-43. original media capability is fully retired from the inspector", asy
   assert.doesNotMatch(app, /file:\/\//, "no file:// URL is ever produced");
 });
 
-// 44-52. More section final form: the image path shown directly (no disclosure,
-// no original-media entry, no heading), and no custom popover or ellipsis menu.
-// 2026-09-04: the More disclosure (utility buttons / archive entry) and the
-// "original & more" heading + open-original button all retired.
-test("44-52. more section final form keeps the approved hierarchy", async () => {
+// 44-52. A4a：图片位置区块（More）从界面拿掉，位置由底部固定「素材路径」胶囊
+// 取代；retained helper 不再渲染。原细节约束（无 disclosure、无原图入口、
+// 无 utility 按钮群）继续锁在保留函数上。
+test("44-52. more section stays removed; the pathbar owns the location", async () => {
+  const app = await readApp();
   const inspector = await readInspectorMarkup();
   const more = functionSlice(inspector, "detailMoreSectionMarkup");
 
-  assert.ok(COMPOSITION.endsWith("${detailMoreSectionMarkup(asset)}"), "more stays the last section");
+  assert.ok(!app.includes("${detailMoreSectionMarkup(asset)}"), "more must not come back to renderDetail");
+  const pathbar = functionSlice(app, "renderDetailPathbar");
+  assert.match(pathbar, /data-action="open-asset-location"/, "the pathbar owns the location surface now");
   assert.doesNotMatch(more, /data-more-actions/, "no More disclosure survives");
   assert.doesNotMatch(more, /<details /, "no details element renders in the more section");
   assert.doesNotMatch(more, /original-media|originalAndMore|show-in-finder/, "no original-media entry or heading renders in the section");
@@ -123,7 +127,7 @@ test("59-60. dependency freeze: manifest, lockfile, and app.js imports unchanged
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac", "package.json devDependencies must stay untouched");
   assertPackageLockMatchesManifest(lock, manifest, "package-lock.json must preserve dependency identity");
   assert.deepEqual([...app.matchAll(/^import .* from "(.*)";$/gm)].map((match) => match[1]).sort(),
-    ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./batch-import.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./library-reconciliation.mjs", "./native-asset-drag.mjs", "./status-live-region.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
+    ["./api-client.mjs", "./asset-stacks.mjs", "./asset-view.mjs", "./batch-import.mjs", "./bridge-status-poller.mjs", "./confirm-dialog.mjs", "./context-menu-actions.mjs", "./context-menu-bindings.mjs", "./context-menu.mjs", "./cut-paste.mjs", "./gallery-selection.mjs", "./i18n-runtime.mjs", "./image-preview.mjs", "./inspector-markup.mjs", "./inspector-overlay.mjs", "./library-reconciliation.mjs", "./native-asset-drag.mjs", "./navigation-history.mjs", "./status-live-region.mjs", "./tag-utils.mjs", "./toast-manager.mjs"], "app.js imports only approved local helpers");
 });
 
 // i18n: every new key exists in both locales, symmetric, and no duplicate synonyms.

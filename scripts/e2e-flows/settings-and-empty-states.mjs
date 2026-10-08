@@ -9,7 +9,7 @@
 import { PAGE_HELPERS } from "./_page-helpers.mjs";
 
 export const name = "settings-and-empty-states";
-export const description = "settings modal lifecycle + theme/language persistence + read-only info -> empty-state clear + trash drop-hint rule -> card-info setting (default hidden / show / persist / hide)";
+export const description = "settings modal lifecycle + theme/language persistence + read-only info -> empty-state clear + trash drop-hint rule -> card-info setting (default hidden / show / persist / hide) -> confirm-before-trash switch + right-click trash undo + stack trash still confirms";
 
 export async function run(ctx) {
   await ctx.prepare();
@@ -57,6 +57,20 @@ export async function run(ctx) {
     const pages = await ctx.runInPage(server, settingsPagesSource());
     assertSettingsPages(pages);
 
+    // 任务 94 (A4f): the confirm-before-trash switch. Default 开启 → 右键移至
+    // 回收站弹框；切「关闭」后右键直接删且 toast 带撤销；设置里显示「关闭」；
+    // 切回「开启」后再删又弹框。localStorage 键在段尾清掉。
+    const confirmTrash = await ctx.runInPage(server, confirmTrashSource());
+    assertConfirmTrash(confirmTrash);
+
+    // 任务 94: 整组堆叠「移至回收站」即使设了不再提醒也每次确认。
+    const stack = await ctx.api(server.origin, "POST", "/api/asset-stacks", {
+      projectId: "default", assetIds: seededIds, coverAssetId: seededIds[0],
+    });
+    if (!stack?.stack?.id) throw new Error(`settings flow stack seed failed: ${JSON.stringify(stack)}`);
+    const stackTrash = await ctx.runInPage(server, stackTrashStillConfirmsSource());
+    assertStackTrashStillConfirms(stackTrash);
+
     return {
       seededIds,
       lifecycle: opened,
@@ -64,6 +78,8 @@ export async function run(ctx) {
       empties,
       cardInfo: { default: cardInfoDefault, shown: cardInfoShown, persisted: cardInfoPersisted, hidden: cardInfoHidden },
       pages,
+      confirmTrash,
+      stackTrash,
     };
   } finally {
     await server.stop();
@@ -97,6 +113,11 @@ function assertSettingsLifecycle(r, seededIds, health, libraryPath, ctx) {
   expect(theme.htmlThemeLightAgain === "light" && theme.bodyBgLightAgain === theme.bodyBgLight,
     `switching back to light did not restore the light background: ${dump}`);
   expect(theme.bodyBgDarkAgain === theme.bodyBgDark, `second dark switch changed the background: ${dump}`);
+  // 任务 81 返工 1：跟随系统——三卡之一，存储写 system，生效主题仍是 light/dark。
+  expect(theme.systemStep?.stored === "system" && theme.systemStep.effectiveValid === true,
+    `跟随系统 step did not store "system" with a valid effective theme: ${dump}`);
+  expect(theme.systemStep?.cardActive === true && theme.systemStep?.cardChecked === "true",
+    `跟随系统 card not marked active/aria-checked: ${dump}`);
 
   const density = r.density;
   expect(density.densityOptCount === 0, `settings menu must not render card density options: ${dump}`);
@@ -143,10 +164,18 @@ function assertPersistedSettings(r, opened, seededIds) {
   expect(r.backToZh?.stored === "zh", `zh preference not stored: ${dump}`);
   expect(JSON.stringify(r.cardIds?.slice().sort()) === JSON.stringify(seededIds),
     `gallery cards wrong after refresh: ${dump}`);
+  // 任务 81 返工 1：本阶段末尾切到「跟随系统」——存储写 system、生效主题有效
+  // （刷新后的持久化在 emptyStatesSource 里验证）。
+  expect(r.systemTheme?.stored === "system" && r.systemTheme.effectiveValid === true,
+    `switching to 跟随系统 did not store "system" with a valid effective theme: ${dump}`);
 }
 
 async function assertEmptyStates(r, seededIds, server, ctx) {
   const dump = JSON.stringify(r);
+  // 任务 81 返工 1：「跟随系统」跨刷新仍在，且生效主题与系统外观一致。
+  const kept = r?.systemThemeKept;
+  expect(kept?.stored === "system" && kept.effectiveValid === true && kept.matchesSystem === true,
+    `跟随系统 did not survive the refresh or match the OS appearance: ${dump}`);
   const search = r?.searchEmpty;
   expect(search?.kind === "no-results" && search.cardCount === 0,
     `search miss did not render the no-results empty state: ${dump}`);
@@ -223,8 +252,8 @@ function assertCardInfoHiddenAgain(r) {
   expect(r.infoDisplay === "none", `card info did not return to hidden: ${dump}`);
 }
 
-// 任务 25: the two-pane settings pages (常规与外观 / 素材库与存储 / 本地视觉能力 /
-// 关于 MOSA). Locks the default page, category switching with panel visibility,
+// 任务 25: the two-pane settings pages (常规与外观 / 存储 / 模型 /
+// 关于, 任务 81 起的文案). Locks the default page, category switching with panel visibility,
 // the roving arrow-key navigation and the language-rebuild focus contract.
 function assertSettingsPages(r) {
   const dump = JSON.stringify(r);
@@ -233,8 +262,8 @@ function assertSettingsPages(r) {
   expect(r.default.hidden.join(",") === "false,true,true,true",
     `the three inactive panels must carry the hidden attribute: ${dump}`);
   expect(r.library?.generalHidden === true && r.library.pathVisible === true,
-    `素材库与存储 must show its panel and reveal the library path: ${dump}`);
-  expect(r.library?.headTitle === "素材库与存储",
+    `存储 must show its panel and reveal the library path: ${dump}`);
+  expect(r.library?.headTitle === "存储",
     `the right-pane header must show the current category name: ${dump}`);
   expect(r.keyboard?.visualSelected === true && r.keyboard.focusOnVisualTab === true,
     `ArrowDown must move selection and focus to the next category: ${dump}`);
@@ -383,6 +412,12 @@ function settingsLifecycleSource(config) {
     // Theme: light baseline -> dark -> light -> dark (left dark for refresh).
     const bodyBg = () => getComputedStyle(document.body).backgroundColor;
     const opt = (value) => document.querySelector('#settingsMenu [data-appearance-opt="' + value + '"]');
+    // 任务 81 返工 1 起新用户默认「跟随系统」：先显式归一到浅色基线，后面的
+    // light/dark 对比才与运行机器的系统外观无关。
+    if (document.documentElement.dataset.theme !== 'light') {
+      opt('light').click();
+      await waitFor(() => document.documentElement.dataset.theme === 'light', 'light baseline normalised');
+    }
     const theme = {
       htmlThemeBefore: document.documentElement.dataset.theme,
       bodyBgLight: bodyBg(),
@@ -424,6 +459,21 @@ function settingsLifecycleSource(config) {
     arrowTheme.afterArrowRight = document.documentElement.dataset.theme;
     arrowTheme.darkCardCheckedAgain = opt('dark').getAttribute('aria-checked');
     theme.arrowKeys = arrowTheme;
+
+    // 任务 81 返工 1：跟随系统——第三张卡在最左。点击后存储写 "system"，生效
+    // 主题仍是 light/dark 之一（跟随当前系统外观），选中态落到 system 卡。
+    // 断言后恢复深色，给后面的刷新段保留原状态。
+    const systemStep = {};
+    opt('system').click();
+    await waitFor(() => localStorage.getItem('mosa-dark-mode') === 'system', 'system theme stored');
+    systemStep.stored = localStorage.getItem('mosa-dark-mode');
+    systemStep.effective = document.documentElement.dataset.theme;
+    systemStep.effectiveValid = systemStep.effective === 'light' || systemStep.effective === 'dark';
+    systemStep.cardActive = opt('system').classList.contains('active');
+    systemStep.cardChecked = opt('system').getAttribute('aria-checked');
+    opt('dark').click();
+    await waitFor(() => localStorage.getItem('mosa-dark-mode') === 'true', 'dark restored after system step');
+    theme.systemStep = systemStep;
 
     // Density setting is gone: the menu renders no data-density-opt control
     // and the grid carries no density attribute (image-only gallery).
@@ -515,7 +565,16 @@ function persistedSettingsSource() {
       searchPlaceholder: document.querySelector('#searchInput')?.placeholder || '',
       stored: localStorage.getItem('mosa.ui-language'),
     };
-    return { theme, language, backToZh, cardIds: rootCardIds() };
+    // 任务 81 返工 1：切到「跟随系统」——刷新后的持久化由下一个阶段的全新页面
+    // 加载验证（emptyStatesSource 开头的 systemThemeKept）。
+    document.querySelector('#settingsMenu [data-appearance-opt="system"]').click();
+    await waitFor(() => localStorage.getItem('mosa-dark-mode') === 'system', 'system stored for refresh check');
+    const systemTheme = {
+      stored: localStorage.getItem('mosa-dark-mode'),
+      effective: document.documentElement.dataset.theme,
+      effectiveValid: ['light', 'dark'].includes(document.documentElement.dataset.theme),
+    };
+    return { theme, language, backToZh, systemTheme, cardIds: rootCardIds() };
   })()`;
 }
 
@@ -523,6 +582,15 @@ function emptyStatesSource(config) {
   return `(async () => {
     const config = ${JSON.stringify(config)};
     ${PAGE_HELPERS}
+    // 任务 81 返工 1：上一阶段存了「跟随系统」，这里是一次全新页面加载——
+    // 验证该选择刷新后还在，且生效主题与当前系统外观一致。
+    const systemThemeKept = {
+      stored: localStorage.getItem('mosa-dark-mode'),
+      effective: document.documentElement.dataset.theme,
+      effectiveValid: ['light', 'dark'].includes(document.documentElement.dataset.theme),
+      matchesSystem: document.documentElement.dataset.theme
+        === (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
+    };
     await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards before empty states');
 
     setValue('#searchInput', config.missingTerm);
@@ -561,7 +629,7 @@ function emptyStatesSource(config) {
       cardIds: rootCardIds(),
       viewTitle: document.querySelector('#viewTitle')?.textContent || '',
     };
-    return { searchEmpty, afterClear, trashEmpty, afterTrashClear };
+    return { systemThemeKept, searchEmpty, afterClear, trashEmpty, afterTrashClear };
   })()`;
 }
 
@@ -655,5 +723,133 @@ function cardInfoHideSource() {
       gridAttr: document.querySelector('#assetGrid')?.dataset.cardInfo ?? null,
       infoDisplay: getComputedStyle(info).display,
     };
+  })()`;
+}
+
+// ===== 任务 94 (A4f)：右键删图确认 + 「不再提醒」 + 设置开关 + 撤销 =====
+
+function assertConfirmTrash(r) {
+  const dump = JSON.stringify(r);
+  expect(r?.defaultDialog?.title === "是否移至回收站？", `default trash confirm title: ${dump}`);
+  expect(r.defaultDialog?.cancelLabel === "否" && r.defaultDialog?.confirmLabel === "是",
+    `default trash confirm buttons: ${dump}`);
+  expect(r.defaultDialog?.checkboxRowVisible === true, `default trash confirm shows the dont-ask box: ${dump}`);
+  expect(r.switch?.onActiveBefore === true, `the trash confirm switch starts 开启: ${dump}`);
+  expect(r.switch?.storedAfterOff === "off" && r.switch?.offActiveAfter === true,
+    `switching to 关闭 persists off and moves the active state: ${dump}`);
+  expect(r.suppressed?.dialogNeverOpened === true, `suppressed trash must skip the dialog: ${dump}`);
+  expect(r.suppressed?.toastActionLabel === "撤销", `suppressed trash raises the undo toast: ${dump}`);
+  expect(r.suppressed?.restored === true, `undo restores the suppressed-trash asset: ${dump}`);
+  expect(r.switchAgain?.offActiveInSettings === true, `settings reads 关闭 while suppressed: ${dump}`);
+  expect(r.switchAgain?.storedAfterOn === "on" && r.switchAgain?.onActiveAfter === true,
+    `switching back to 开启 persists on: ${dump}`);
+  expect(r.againDialog?.opens === true, `trash confirms again after 开启: ${dump}`);
+  expect(r.storedAfterCleanup === null && r.storedAfterCleanup !== undefined, `localStorage key cleaned up: ${dump}`);
+}
+
+function assertStackTrashStillConfirms(r) {
+  const dump = JSON.stringify(r);
+  expect(r?.stackCardPresent === true, `the seeded stack node renders: ${dump}`);
+  expect(r.dialogOpened === true, `whole-stack trash opens the confirm while suppressed: ${dump}`);
+  expect(String(r.dialogTitle || "").includes("堆叠"), `whole-stack trash title mentions the stack: ${dump}`);
+  expect(r.dialogCheckboxVisible === false, `whole-stack trash confirm has no dont-ask box: ${dump}`);
+  expect(r.storedAfterCleanup === null, `localStorage cleaned up after the stack check: ${dump}`);
+}
+
+function confirmTrashSource() {
+  return `(async () => {
+    ${PAGE_HELPERS}
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards for the confirm-trash phase');
+    const cardSel = (id) => '.asset-card[data-id="' + CSS.escape(id) + '"]';
+    const dialogOpen = () => document.querySelector('#confirmDialog')?.classList.contains('open') || false;
+    const result = {};
+
+    // 1) 默认开启：右键第一张 → 移到回收站 → 弹框（带勾选框）→ 点「否」取消。
+    const firstId = rootCardIds()[0];
+    const item1 = await openContextMenu(cardSel(firstId), '移到回收站');
+    item1.click();
+    await waitFor(() => dialogOpen(), 'trash confirm opens with the default settings');
+    result.defaultDialog = {
+      title: (document.querySelector('#confirmDialogTitle')?.textContent || '').trim(),
+      cancelLabel: (document.querySelector('#confirmDialogCancel')?.textContent || '').trim(),
+      confirmLabel: (document.querySelector('#confirmDialogConfirm')?.textContent || '').trim(),
+      checkboxRowVisible: !document.querySelector('#confirmDialogDontAsk')?.hidden,
+    };
+    document.querySelector('#confirmDialogCancel').click();
+    await waitFor(() => !dialogOpen(), 'trash confirm cancelled');
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'gallery untouched after cancel');
+
+    // 2) 设置里把「移至回收站前确认」切成「关闭」。
+    click('#settingsToggle');
+    await waitFor(() => !document.querySelector('#settingsMenu')?.hidden, 'settings opens for the trash confirm switch');
+    result.switch = {
+      onActiveBefore: document.querySelector('#settingsMenu [data-confirm-trash-opt="on"]')?.classList.contains('active') === true,
+    };
+    document.querySelector('#settingsMenu [data-confirm-trash-opt="off"]').click();
+    await waitFor(() => localStorage.getItem('mosa.confirm-move-to-trash') === 'off', 'switching to 关闭 persists off');
+    result.switch.offActiveAfter = document.querySelector('#settingsMenu [data-confirm-trash-opt="off"]')?.classList.contains('active') === true;
+    result.switch.storedAfterOff = localStorage.getItem('mosa.confirm-move-to-trash');
+    click('#settingsMenu .settings-modal-close');
+    await waitFor(() => document.querySelector('#settingsMenu')?.hidden === true, 'settings closes after the switch');
+
+    // 3) 不再提醒：右键另一张 → 移到回收站 → 不弹框直接删 → 撤销恢复。
+    const secondId = rootCardIds().find((id) => id !== firstId);
+    const item2 = await openContextMenu(cardSel(secondId), '移到回收站');
+    item2.click();
+    await waitFor(() => gallerySettled() && rootCardIds().length === 1, 'suppressed trash removes the card without a dialog');
+    result.suppressed = { dialogNeverOpened: !dialogOpen() };
+    await waitFor(() => Boolean(document.querySelector('#toastContainer .toast.is-visible .toast-action')), 'suppressed trash raises the undo toast');
+    result.suppressed.toastActionLabel = (document.querySelector('#toastContainer .toast.is-visible .toast-action')?.textContent || '').trim();
+    document.querySelector('#toastContainer .toast.is-visible .toast-action').click();
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2 && document.querySelector(cardSel(secondId)), 'undo restores the trashed card');
+    result.suppressed.restored = true;
+
+    // 4) 设置里应显示「关闭」；切回「开启」。
+    click('#settingsToggle');
+    await waitFor(() => !document.querySelector('#settingsMenu')?.hidden, 'settings reopens to read the switch back');
+    result.switchAgain = {
+      offActiveInSettings: document.querySelector('#settingsMenu [data-confirm-trash-opt="off"]')?.classList.contains('active') === true,
+    };
+    document.querySelector('#settingsMenu [data-confirm-trash-opt="on"]').click();
+    await waitFor(() => localStorage.getItem('mosa.confirm-move-to-trash') === 'on', 'switching back to 开启 persists on');
+    result.switchAgain.storedAfterOn = localStorage.getItem('mosa.confirm-move-to-trash');
+    result.switchAgain.onActiveAfter = document.querySelector('#settingsMenu [data-confirm-trash-opt="on"]')?.classList.contains('active') === true;
+    click('#settingsMenu .settings-modal-close');
+    await waitFor(() => document.querySelector('#settingsMenu')?.hidden === true, 'settings closes after switching back');
+
+    // 5) 切回「开启」后再删又会弹框；取消并清理。
+    const item3 = await openContextMenu(cardSel(firstId), '移到回收站');
+    item3.click();
+    await waitFor(() => dialogOpen(), 'trash confirm opens again after 开启');
+    result.againDialog = { opens: true };
+    document.querySelector('#confirmDialogCancel').click();
+    await waitFor(() => !dialogOpen(), 'trash confirm cancelled again');
+    localStorage.removeItem('mosa.confirm-move-to-trash');
+    result.storedAfterCleanup = localStorage.getItem('mosa.confirm-move-to-trash');
+    return result;
+  })()`;
+}
+
+function stackTrashStillConfirmsSource() {
+  return `(async () => {
+    ${PAGE_HELPERS}
+    // 两张卡已合成一个堆叠节点；直接把存储设成「不再提醒」再右键整组堆叠。
+    await waitFor(() => gallerySettled() && rootCardIds().length === 1
+      && document.querySelector('#assetGrid > .asset-card.is-stack'), 'stack node renders for the stack-trash check');
+    localStorage.setItem('mosa.confirm-move-to-trash', 'off');
+    const item = await openContextMenu('#assetGrid > .asset-card.is-stack .asset-card-select', '移到回收站');
+    item.click();
+    await waitFor(() => document.querySelector('#confirmDialog')?.classList.contains('open'), 'whole-stack trash still opens the confirm');
+    const result = {
+      stackCardPresent: true,
+      dialogOpened: true,
+      dialogTitle: (document.querySelector('#confirmDialogTitle')?.textContent || '').trim(),
+      dialogCheckboxVisible: !document.querySelector('#confirmDialogDontAsk')?.hidden,
+    };
+    document.querySelector('#confirmDialogCancel').click();
+    await waitFor(() => !document.querySelector('#confirmDialog')?.classList.contains('open'), 'whole-stack trash confirm cancelled');
+    localStorage.removeItem('mosa.confirm-move-to-trash');
+    result.storedAfterCleanup = localStorage.getItem('mosa.confirm-move-to-trash');
+    return result;
   })()`;
 }

@@ -5,6 +5,8 @@
 // error 6000ms），排队不消耗时长。hover/focus 暂停可多原因叠加，全部解除后按剩余
 // 时长恢复；error 可手动关闭（关闭按钮仅 error 有，键盘关闭有安全焦点策略）；进出
 // 过渡为 class + transition 可中断，transitionend 后移除并有短 fallback 防僵尸节点。
+// 任务 90：show() 增加可选 options（actionLabel/onAction/duration）——polite 通道
+// 可携带一个操作按钮（如「撤销」），文本渲染、键盘可激活、不影响无 options 的既有 toast。
 // Toast 状态不进素材 state、不写 localStorage；消息一律 textContent，绝不接受任意 HTML。
 // 提取自 app.js（REFACTORING-PLAN R1 批次 3）：els/state/t/isConfirmFocusTarget 经参数注入。
 const TOAST_DURATIONS = { success: 2200, default: 2200, error: 6000 };
@@ -20,20 +22,30 @@ function normalizeToastMessage(message) {
   return text === "[object Object]" ? "" : text;
 }
 
-function toastSvgIcon(className) {
+// 任务 96（A6）：toast 类型图标——线性 SVG（stroke currentColor / fill none，与右键
+// 菜单图标同一写法，不引入图标库）。三种类型各一个，图标区分类型后左侧彩色边取消。
+// 路径都在 24 viewBox 圆圈轮廓族内：success 勾、error 叹号、default 信息点。
+const TOAST_TYPE_ICON_PATHS = {
+  success: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-4.4 9.3 3 3 6.8-7.2",
+  error: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 4.5V13m0 3.5v.01",
+  default: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 4.6v.01M12 10.8V17",
+};
+const TOAST_DISMISS_ICON_PATH = "m6 6 12 12M18 6 6 18";
+
+function toastSvgIcon(className, type = "") {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", className);
   svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("width", "14");
-  svg.setAttribute("height", "14");
+  svg.setAttribute("width", "12");
+  svg.setAttribute("height", "12");
   svg.setAttribute("fill", "none");
   svg.setAttribute("stroke", "currentColor");
   svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
   svg.setAttribute("aria-hidden", "true");
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", className === "toast-icon"
-    ? "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 4.5V13m0 3.5v.01"
-    : "m6 6 12 12M18 6 6 18");
+  path.setAttribute("d", TOAST_TYPE_ICON_PATHS[type] || TOAST_DISMISS_ICON_PATH);
   svg.appendChild(path);
   return svg;
 }
@@ -77,10 +89,10 @@ export function createToastManager(deps) {
     const element = document.createElement("div");
     element.className = `toast ${entry.type}`;
     element.dataset.toastId = entry.id;
-    if (entry.type === "error") {
-      element.setAttribute("role", "alert");
-      element.appendChild(toastSvgIcon("toast-icon"));
-    }
+    if (entry.type === "error") element.setAttribute("role", "alert");
+    // 任务 96（A6）：每条 toast 左侧带类型图标（success/error/default 各一），
+    // 类型由图标区分，V2 样式层的彩色左边已取消。
+    element.appendChild(toastSvgIcon("toast-icon", entry.type));
     const message = document.createElement("span");
     message.className = "toast-message";
     // Include polite text in the live-region insertion. VoiceOver can otherwise
@@ -97,6 +109,19 @@ export function createToastManager(deps) {
       // event.detail === 0 即键盘激活（Enter/Space）；指针点击 detail > 0，不强制动焦点。
       dismissButton.addEventListener("click", (event) => dismiss(entry.id, "manual", event.detail === 0));
       element.appendChild(dismissButton);
+    } else if (entry.actionLabel && entry.onAction) {
+      // 操作按钮（任务 90，如「撤销」）：可见文本即 accessible name；focusin 暂停计时
+      // 已覆盖，键盘激活（detail === 0）走安全焦点归还；激活即离场（onAction 已入队）。
+      const actionButton = document.createElement("button");
+      actionButton.type = "button";
+      actionButton.className = "toast-action";
+      actionButton.textContent = entry.actionLabel;
+      actionButton.addEventListener("click", (event) => {
+        const viaKeyboard = event.detail === 0;
+        entry.onAction();
+        dismiss(entry.id, "action", viaKeyboard);
+      });
+      element.appendChild(actionButton);
     }
     entry.element = element;
     lanes[laneName].visible.push(entry);
@@ -171,22 +196,34 @@ export function createToastManager(deps) {
       const next = lanes.assertive.visible[0];
       const nextDismiss = next?.element?.querySelector(".toast-dismiss");
       if (nextDismiss?.isConnected) { nextDismiss.focus(); return; }
+      restoreToastActionFocus(closedEntry);
+    });
+  }
+
+  function restoreToastActionFocus(closedEntry) {
+    // 操作按钮（任务 90）键盘激活后的安全焦点：优先创建时的 origin，回退当前视图
+    // 安全可达元素。与关闭按钮同一套守卫：绝不落回 body，绝不恢复失效节点。
+    requestAnimationFrame(() => {
       if (isConfirmFocusTarget(closedEntry.originFocus)) { closedEntry.originFocus.focus(); return; }
       const fallback = state.viewMode === "asset" ? els.assetViewBack : els.searchInput;
       if (isConfirmFocusTarget(fallback)) fallback.focus();
     });
   }
 
-  function show(rawMessage, type = "default") {
+  function show(rawMessage, type = "default", options = {}) {
     const normalizedType = type === "success" || type === "error" ? type : "default";
+    const duration = Number.isFinite(options.duration) && options.duration > 0 ? options.duration : TOAST_DURATIONS[normalizedType];
     const lane = laneOf(normalizedType);
     const entry = {
       id: `toast-${++toastSequence}`,
       message: normalizeToastMessage(rawMessage),
       type: normalizedType,
       lane,
-      duration: TOAST_DURATIONS[normalizedType],
-      remaining: TOAST_DURATIONS[normalizedType],
+      duration,
+      remaining: duration,
+      // 操作按钮（任务 90）：文案 + 回调均为调用方注入（文案经 t() 取词，纯文本渲染）。
+      actionLabel: typeof options.actionLabel === "string" && options.actionLabel ? options.actionLabel : "",
+      onAction: typeof options.onAction === "function" ? options.onAction : null,
       createdAt: Date.now(),
       shownAt: null,
       startedAt: null,
@@ -210,6 +247,7 @@ export function createToastManager(deps) {
     const laneName = entry.lane;
     beginLeave(id, reason);
     if (viaKeyboard && laneName === "assertive") restoreAssertiveDismissFocus(entry);
+    else if (viaKeyboard && entry.actionLabel) restoreToastActionFocus(entry);
   }
 
   function clearAll(reason = "clear") {

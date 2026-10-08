@@ -94,15 +94,18 @@ const checks = [
   }],
   ["22 viewer zoom controls are reachable", async () => {
     const html = await read("web/app/index.html");
-    for (const id of ["assetZoomOut", "assetZoomIn", "assetZoomFit"]) assert.match(html, new RegExp(`id="${id}" type="button"`));
+    // 任务 90（A4c）：缩放控制条按稿子移除（滚轮/双指/键盘 +,-,0,f 仍是缩放入口）；
+    // 「适合窗口」上移为右上动作按钮，沿用 #assetZoomFit。
+    assert.match(html, /id="assetZoomFit" type="button"/);
+    assert.doesNotMatch(html, /id="assetZoomOut"|id="assetZoomIn"/);
   }],
-  ["23 inspector V2 section order is fixed", async () => {
+  ["23 inspector A4a section order is fixed", async () => {
     const app = await read("web/app/app.mjs");
-    const markup = app.match(/\$\{detailFileSectionMarkup\(asset\)\}[\s\S]*?\$\{detailMoreSectionMarkup\(asset\)\}/)?.[0] || "";
-    assert.deepEqual([...markup.matchAll(/detail(\w+)SectionMarkup/g)].map((match) => match[1]), ["File", "Tags", "Prompt", "Source", "Version", "Group", "More"]);
+    const markup = app.match(/\$\{detailFileSectionMarkup\(asset\)\}[\s\S]*?\$\{detailVersionContextSectionMarkup\(asset, cachedGenerationHistory\)\}/)?.[0] || "";
+    assert.deepEqual([...markup.matchAll(/detail(\w+)SectionMarkup/g)].map((match) => match[1]), ["File", "Tags", "Palette", "Prompt", "Reference", "VersionContext"]);
   }],
   ["24 copy prompt action is native", async () => assert.match(await read("web/app/app.mjs"), /data-action="copy-prompt"/)],
-  ["25 copy source action is native", async () => assert.match(await read("web/app/app.mjs"), /data-action="copy-source"/)],
+  ["25 copy source action stays removed (A4a)", async () => assert.doesNotMatch(await read("web/app/app.mjs"), /data-action="copy-source"/)],
   // 2026-09-04: the inspector copy-path button retired (context menu keeps its own entry).
   ["26 inspector copy-path button stays retired", async () => assert.doesNotMatch(await read("web/app/app.mjs"), /data-action="copy-path"/)],
   // 2026-09-04: the More disclosure retired; the image path renders directly.

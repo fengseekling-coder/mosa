@@ -541,7 +541,8 @@ test("retired show-in-folder IPC stays removed without expanding renderer author
   assert.doesNotMatch(preload, /stage-dropped-file/, "stage-dropped-file IPC was removed as dead code");
   assert.doesNotMatch(preload, /openFileDialog:/, "unused open-file dialog IPC was removed");
   assert.doesNotMatch(main, /ipcMain\.handle\("open-file-dialog"/, "unused open-file dialog handler was removed");
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 17, "no invoke channel beyond the currently approved narrow requests (Visual Pack lifecycle remains named and URL-free)");
+  // 任务 96（A6）：第 18 条批准通道 set-window-full-screen（大图页全屏与窗口系统全屏同步）。
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 18, "no invoke channel beyond the currently approved narrow requests (Visual Pack lifecycle remains named and URL-free)");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "shell is never exposed to the renderer");
   assert.doesNotMatch(preload, /exec\(|spawn\(|execFile\(/, "no arbitrary command execution");
 

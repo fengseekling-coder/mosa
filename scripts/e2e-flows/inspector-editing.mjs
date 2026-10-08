@@ -3,21 +3,18 @@
 // summary, which the critical web flow already covers, and the clipboard copy
 // actions, which are out of scope for this task).
 //
-// 摸底清单（web/app/inspector-markup.mjs + app.mjs）：
-// - 配方/元数据字段（配方与编辑 disclosure，data-edit + save-recipe）：prompt（关键流程已测，跳过）、
-//   skill、style、ratio、theme、group、category（select）、rating（星级按钮）、
-//   business_fields（JSON textarea）→ 本流程全覆盖。
+// GravityPort A4a（任务 73）后的覆盖面：
+// - 配方与编辑 disclosure 已从检视器拿掉（editRecipeFieldsMarkup 保留实现）——
+//   本流程不再编辑 skill/style/ratio/theme/group/category/rating/business_fields，
+//   改为锁「配方编辑区不再渲染」；配方草稿的静默冲刷 / debounce 自动保存随入口
+//   一起从 UI 不可达（少验，见任务单回报）。
 // - 标签：add-tag 打开内联编辑器，submit 即时 PATCH；用户标签 chip 内的 × 按钮
-//   （data-action="remove-tag"，来源标签没有此按钮）直接删除并整体 PATCH tags，
-//   不弹确认框 → 添加与删除本流程都覆盖。
-// - 参考图权利：open-reference-rights 打开（或展开来源 disclosure），copyright /
-//   portrait_consent / redistribution 下拉、attribution 输入、use-chip 循环点击，
-//   save-reference-rights 或 1.2s 停顿自动保存 → 本流程覆盖。
-// - 收藏与 prompt/data-recipe-change 编辑：关键流程已覆盖 → 跳过。
-// - 复制提示词/来源/指令：动系统剪贴板 → 按任务书不测。
-// - 未保存草稿语义：recipe/reference 脏草稿在导航/搜索前静默冲刷（自动保存），
-//   不弹确认框；tags 编辑器与版本说明是手动保存作用域，导航前弹「放弃修改」确认框，
-//   取消则留在原地 → 两个分支都测。
+//   （data-action="remove-tag"）直接删除并整体 PATCH tags，不弹确认框 → 照常覆盖。
+// - 参考图权利：经参考图区块的「查看」浮层打开（open-reference-overlay），
+//   copyright / portrait_consent / redistribution 下拉、attribution 输入、
+//   use-chip 循环点击，save-reference-rights → 照常覆盖。
+// - 未保存草稿语义：tags 编辑器是手动保存作用域，导航前弹「放弃修改」确认框，
+//   取消则留在原地 → 照常测。
 //
 // - 标签回归：列表接口曾不带 tags，检视器在新会话里显示空标签行，加标签时
 //   以空列表为合并基数，把已有标签整体清掉（数据丢失）。重启阶段的探针守住它。
@@ -30,14 +27,9 @@ export const description = "Inspector open/close/switch, tags, metadata fields, 
 export async function run(ctx) {
   await ctx.prepare();
   const stamp = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  // A4a：配方字段（style/skill/ratio/theme/group/category/rating/business_fields）
+  // 不再有编辑入口，相应配置一并移除；attribution/tag 系列照旧。
   const config = {
-    styleValue: `insp-style-${stamp}`,
-    skillValue: `insp-skill-${stamp}`,
-    ratioValue: "3:2",
-    themeValue: `insp-theme-${stamp}`,
-    groupValue: `insp-group-${stamp}`,
-    skill2Value: `insp-skill2-${stamp}`,
-    skill3Value: `insp-skill3-${stamp}`,
     shotValue: `insp-shot-${stamp}`,
     attributionValue: `insp-attrib-${stamp}`,
     tagA: `insp-a-${stamp}`,
@@ -50,7 +42,7 @@ export async function run(ctx) {
 
   const first = await ctx.startServer();
   try {
-    // S1: open/close/reopen, keyboard switch with an unsaved style edit.
+    // S1: open/close/reopen, keyboard switch (A4a：配方草稿不可编辑，静默冲刷分支随之少验).
     const openClose = await ctx.runInPage(first, openCloseSwitchSource({ ...config, i1: ids.i1, i2: ids.i2 }));
     assertCondition(openClose.initialIds.length === 3, `expected three seeded cards, got ${JSON.stringify(openClose.initialIds)}`);
     assertCondition(openClose.openedFacts.open === true && openClose.openedFacts.imageSrc.includes(ids.i1),
@@ -59,36 +51,18 @@ export async function run(ctx) {
       `close-detail did not close the inspector / reveal the open button: ${JSON.stringify(openClose.closedFacts)}`);
     assertCondition(openClose.arrowTarget && openClose.arrowTarget !== ids.i1,
       `arrow-key navigation did not move the selection off I1: ${JSON.stringify(openClose)}`);
-    assertCondition(openClose.dialogDuringSwitch === false, "a confirm dialog appeared for a recipe-scope draft; expected a silent autosave flush");
+    assertCondition(openClose.dialogDuringSwitch === false, "a confirm dialog appeared for a plain asset switch");
     assertCondition(openClose.i2Facts.selected === ids.i2 && openClose.i2Facts.imageOk === true,
       `inspector did not follow the switch to I2: ${JSON.stringify(openClose.i2Facts)}`);
-    assertCondition(openClose.i2Facts.styleValue === "" && openClose.i2Facts.dirtyFields === 0,
-      `I1's unsaved edit leaked into I2's panel: ${JSON.stringify(openClose.i2Facts)}`);
-    // The silent flush before navigation must have persisted I1's style edit.
-    const i1AfterFlush = await getAsset(ctx, first, ids.i1);
-    assertCondition(i1AfterFlush.style === config.styleValue,
-      `flush-on-switch did not save I1.style (expected ${config.styleValue}, got ${JSON.stringify(i1AfterFlush.style)})`);
+    assertCondition(openClose.i2Facts.editFieldCount === 0,
+      `data-edit fields must stay removed (A4a): ${JSON.stringify(openClose.i2Facts)}`);
 
-    // S2: every non-prompt recipe/metadata field: edit -> save-recipe -> observed.
-    const metadata = await ctx.runInPage(first, metadataFieldsSource({ ...config, i1: ids.i1 }));
-    assertCondition(metadata.dirtyAfterSave === 0, `recipe draft still dirty after save: ${JSON.stringify(metadata)}`);
-    const i1AfterMetadata = await getAsset(ctx, first, ids.i1);
-    for (const [field, expected] of [
-      ["skill", config.skillValue],
-      ["style", config.styleValue],
-      ["ratio", config.ratioValue],
-      ["theme", config.themeValue],
-      ["group", config.groupValue],
-      ["category", "concept"],
-      ["rating", 4],
-    ]) {
-      assertCondition(i1AfterMetadata[field] === expected,
-        `I1.${field} not saved via inspector (expected ${JSON.stringify(expected)}, got ${JSON.stringify(i1AfterMetadata[field])})`);
-    }
-    assertCondition(i1AfterMetadata.business_fields?.shot === config.shotValue && i1AfterMetadata.business_fields?.campaign === "inspector editing",
-      `I1.business_fields not saved via inspector: ${JSON.stringify(i1AfterMetadata.business_fields)}`);
+    // S2: A4a——配方编辑区不再渲染（锁「不得回来」）。
+    const metadata = await ctx.runInPage(first, recipeEditorRemovedSource({ ...config, i1: ids.i1, i3: ids.i3 }));
+    assertCondition(metadata.removedOnI1 === true && metadata.removedOnI3 === true,
+      `recipe editor must stay removed on every asset: ${JSON.stringify(metadata)}`);
 
-    // S3: reference rights editor: selects + attribution + use chip -> save.
+    // S3: reference rights editor inside the overlay: selects + attribution + use chip -> save.
     const rights = await ctx.runInPage(first, referenceRightsSource({ ...config, i1: ids.i1 }));
     assertCondition(rights.identityChipAllowed === true, `identity use chip did not cycle to allowed: ${JSON.stringify(rights)}`);
     assertCondition(rights.dirtyCleared === true, `reference rights still dirty after save: ${JSON.stringify(rights)}`);
@@ -110,20 +84,11 @@ export async function run(ctx) {
     assertCondition(JSON.stringify(i1AfterTags.tags) === JSON.stringify([config.tagA, config.tagB]),
       `I1.tags not saved via inspector (got ${JSON.stringify(i1AfterTags.tags)})`);
 
-    // S5: unsaved recipe edit flushed when switching to I3, then the pure
-    // debounce autosave on I3 without any navigation.
+    // S5: A4a——配方自动保存随入口拿掉；这里只锁切换不弹确认框 + 编辑区不渲染。
     const autosave = await ctx.runInPage(first, autosaveSource({ ...config, i2: ids.i2, i3: ids.i3 }));
     assertCondition(autosave.afterSwitch.selected === ids.i3 && autosave.afterSwitch.confirmOpen === false,
-      `switching with an unsaved draft did not land on I3 / raised a dialog: ${JSON.stringify(autosave.afterSwitch)}`);
-    assertCondition(autosave.afterSwitch.skillShown !== config.skill2Value,
-      `I2's unsaved skill leaked into I3's panel: ${JSON.stringify(autosave.afterSwitch)}`);
-    assertCondition(autosave.autosaved === true, `debounced autosave did not clear the dirty draft: ${JSON.stringify(autosave)}`);
-    const i2AfterFlush = await getAsset(ctx, first, ids.i2);
-    assertCondition(i2AfterFlush.skill === config.skill2Value,
-      `switch-flush did not save I2.skill (got ${JSON.stringify(i2AfterFlush.skill)})`);
-    const i3AfterAutosave = await getAsset(ctx, first, ids.i3);
-    assertCondition(i3AfterAutosave.skill === config.skill3Value,
-      `debounced autosave did not save I3.skill (got ${JSON.stringify(i3AfterAutosave.skill)})`);
+      `a plain switch did not land on I3 / raised a dialog: ${JSON.stringify(autosave.afterSwitch)}`);
+    assertCondition(autosave.editFieldCount === 0, `data-edit fields must stay removed (A4a): ${JSON.stringify(autosave)}`);
 
     // S6: tags-editor draft guard: cancel keeps the draft (then save it),
     // confirm ("放弃修改") discards it and navigates.
@@ -216,11 +181,11 @@ export async function run(ctx) {
 
   const second = await ctx.startServer();
   try {
-    // Restart persistence, verified through the API first.
+    // Restart persistence, verified through the API first. A4a：配方字段不再经
+    // UI 编辑，重启期望只保留标签与参考图权利。
     const expectations = {
-      i1: { style: config.styleValue, skill: config.skillValue, ratio: config.ratioValue, theme: config.themeValue, group: config.groupValue, category: "concept", rating: 4, tags: [config.tagA] },
-      i2: { skill: config.skill2Value },
-      i3: { skill: config.skill3Value, tags: [config.tagDraftX] },
+      i1: { tags: [config.tagA] },
+      i3: { tags: [config.tagDraftX] },
     };
     for (const [key, expected] of Object.entries(expectations)) {
       const asset = await getAsset(ctx, second, ids[key]);
@@ -229,8 +194,6 @@ export async function run(ctx) {
           `after restart ${key}.${field} is ${JSON.stringify(asset[field])}, expected ${JSON.stringify(value)}`);
       }
     }
-    assertCondition(await getAsset(ctx, second, ids.i1).then((asset) => asset.business_fields?.shot) === config.shotValue,
-      "after restart I1.business_fields.shot is missing");
     const restartReference = activeReference(await getAsset(ctx, second, ids.i1));
     const restartRights = restartReference.rights || {};
     assertCondition(restartRights.copyright === "owned" && restartRights.portrait_consent === "granted"
@@ -239,13 +202,9 @@ export async function run(ctx) {
       `after restart reference rights are ${JSON.stringify(restartReference)}`);
 
     // Then verify the reopened inspector actually shows the persisted state.
+    // A4a：配方编辑区锁「不再渲染」；权利编辑器经浮层验证。
     const ui = await ctx.runInPage(second, persistenceUiSource({ ...config, i1: ids.i1 }));
-    assertCondition(ui.recipe.skill === config.skillValue && ui.recipe.style === config.styleValue
-      && ui.recipe.ratio === config.ratioValue && ui.recipe.theme === config.themeValue,
-      `after restart the inspector shows ${JSON.stringify(ui.recipe)}`);
-    assertCondition(ui.recipe.group === config.groupValue && ui.recipe.category === "concept" && ui.recipe.ratingOn === 4,
-      `after restart the inspector shows ${JSON.stringify(ui.recipe)}`);
-    assertCondition(ui.recipe.businessFields?.shot === config.shotValue, `after restart business_fields editor shows ${JSON.stringify(ui.recipe.businessFields)}`);
+    assertCondition(ui.recipeEditorRemoved === true, "after restart the recipe editor must stay removed");
     assertCondition(ui.rights.copyright === "owned" && ui.rights.portrait_consent === "granted" && ui.rights.redistribution === "allowed"
       && ui.rights.attribution === config.attributionValue && ui.rights.identityChipAllowed === true,
       `after restart the rights editor shows ${JSON.stringify(ui.rights)}`);
@@ -298,8 +257,6 @@ async function seedAssets(ctx, config) {
     });
     const i1 = await ctx.api(first.origin, "POST", "/api/assets/create", {
       projectId: "default", imagePath: await ctx.makePng("i1.png", [181, 68, 74]), prompt: `inspector editing hero ${config.shotValue}`,
-      skill: "", style: "", ratio: "", theme: "",
-      business_fields: { campaign: "inspector editing", width: 32, height: 24 },
       references: [{ asset_id: i2.asset.id, role: "subject", scope: ["style"] }],
     });
     const i3 = await ctx.api(first.origin, "POST", "/api/assets/create", {
@@ -341,15 +298,18 @@ const INSPECTOR_HELPERS = String.raw`
     await clickCard(assetId);
     await waitFor(() => detailOpen() && selectedId() === assetId && detailImageSrc().includes(assetId), 'detail shows ' + assetId);
   }
-  async function openRecipeDisclosure() {
-    const summary = panel()?.querySelector('[data-inspector-section="prompt"] details.detail-disclosure > summary');
-    if (!summary) throw new Error('Missing recipe disclosure summary');
-    summary.click();
-    await waitFor(() => panel()?.querySelector('[data-edit="skill"]'), 'recipe editor fields');
+  // GravityPort A4a：配方编辑 disclosure 已拿掉——锁「不再渲染」（不得回来）。
+  async function assertRecipeEditorAbsent() {
+    const editor = panel()?.querySelector('[data-edit="skill"], [data-action="save-recipe"], [data-recipe-change]');
+    if (editor) throw new Error('Recipe editor must stay removed, found ' + (editor.outerHTML || '').slice(0, 120));
+    if ((panel()?.querySelectorAll('[data-edit]') || []).length) throw new Error('data-edit fields must stay removed');
   }
-  async function saveRecipeDraft() {
-    click('[data-action="save-recipe"]');
-    await waitFor(() => dirtyFieldCount() === 0, 'recipe draft saved');
+  // A4a：参考图权利编辑器经「查看」浮层打开（不再是来源 disclosure 内嵌）。
+  async function openRightsEditor() {
+    const trigger = panel()?.querySelector('[data-inspector-section="reference"] [data-action="open-reference-overlay"]');
+    if (!trigger) throw new Error('Missing reference overlay trigger');
+    trigger.click();
+    await waitFor(() => panel()?.querySelector('[data-gp-overlay]:not([hidden]) [data-reference-rights] .reference-row'), 'reference rights rows inside the overlay');
   }
   function setSelectValue(selector, value) {
     const element = panel()?.querySelector(selector);
@@ -370,16 +330,7 @@ const INSPECTOR_HELPERS = String.raw`
     field.dispatchEvent(new Event('input', { bubbles: true }));
     field.dispatchEvent(new Event('change', { bubbles: true }));
   }
-  async function openRightsEditor() {
-    const sourceSummary = panel()?.querySelector('[data-inspector-section="source"] details.detail-source-disclosure > summary');
-    if (!sourceSummary) throw new Error('Missing source disclosure summary');
-    sourceSummary.click();
-    const rightsSummary = panel()?.querySelector('[data-reference-rights-section] > summary');
-    if (!rightsSummary) throw new Error('Missing reference rights disclosure');
-    rightsSummary.click();
-    // The rights editor renders only after /recipes history arrives.
-    await waitFor(() => panel()?.querySelector('[data-reference-rights] .reference-row'), 'reference rights rows');
-  }
+
   async function addTagViaEditor(value) {
     click('[data-action="add-tag"]');
     await waitFor(() => panel()?.querySelector('[data-tag-editor] input'), 'tag editor input');
@@ -404,9 +355,8 @@ function openCloseSwitchSource(config) {
     const closedFacts = { open: detailOpen(), openButtonVisible: Boolean(openButton) && !openButton.hidden };
     click('#openInspectorBtn');
     await waitFor(() => detailOpen() && detailImageSrc().includes(config.i1), 'detail reopened with i1');
-    // Unsaved recipe-scope edit on I1, then leave via the arrow keys: the code
-    // flushes the draft silently instead of raising the discard dialog.
-    setValue('[data-edit="style"]', config.styleValue);
+    // A4a：配方编辑区已拿掉——箭头键切走时不该有任何草稿语义（无确认框）。
+    await assertRecipeEditorAbsent();
     const grid = document.querySelector('#assetGrid');
     let arrowTarget = '';
     for (const key of ['ArrowRight', 'ArrowLeft']) {
@@ -425,37 +375,27 @@ function openCloseSwitchSource(config) {
     const i2Facts = {
       selected: selectedId(),
       imageOk: detailImageSrc().includes(config.i2),
-      styleValue: inputValue('[data-edit="style"]'),
-      dirtyFields: dirtyFieldCount(),
+      editFieldCount: (panel()?.querySelectorAll('[data-edit]') || []).length,
       confirmOpen: confirmOpen(),
     };
     return { initialIds: rootCardIds(), openedFacts, closedFacts, arrowTarget, dialogDuringSwitch, i2Facts, rendererErrors: rendererErrors.slice(0, 3) };
   })()`;
 }
 
-function metadataFieldsSource(config) {
+// A4a：配方编辑 disclosure 不再渲染——在两个素材上分别锁「不得回来」。
+function recipeEditorRemovedSource(config) {
   return `(async () => {
     const config = ${JSON.stringify(config)};
     ${PAGE_HELPERS}
     ${INSPECTOR_HELPERS}
     await waitCards(3);
     await openDetailFor(config.i1);
-    await openRecipeDisclosure();
-    const observed = { styleRoundTrip: inputValue('[data-edit="style"]') };
-    const edit = (selector, value) => { setValue(selector, value); return inputValue(selector); };
-    observed.skill = edit('[data-edit="skill"]', config.skillValue);
-    observed.ratio = edit('[data-edit="ratio"]', config.ratioValue);
-    observed.theme = edit('[data-edit="theme"]', config.themeValue);
-    await saveRecipeDraft();
-    observed.group = edit('[data-edit="group"]', config.groupValue);
-    observed.category = setSelectValue('[data-edit="category"]', 'concept');
-    panel().querySelector('[data-edit="rating"] button[data-val="4"]').click();
-    observed.ratingOn = panel().querySelectorAll('[data-edit="rating"] button.on').length;
-    observed.businessFieldsBefore = JSON.parse(panel().querySelector('[data-edit="business_fields"]').value || '{}');
-    editBusinessFields((fields) => { fields.shot = config.shotValue; });
-    await saveRecipeDraft();
-    observed.dirtyAfterSave = dirtyFieldCount();
-    return observed;
+    await assertRecipeEditorAbsent();
+    const removedOnI1 = true;
+    await openDetailFor(config.i3);
+    await assertRecipeEditorAbsent();
+    const removedOnI3 = true;
+    return { removedOnI1, removedOnI3 };
   })()`;
 }
 
@@ -466,6 +406,7 @@ function referenceRightsSource(config) {
     ${INSPECTOR_HELPERS}
     await waitCards(3);
     await openDetailFor(config.i1);
+    // A4a：权利编辑器经「查看」浮层打开（INSPECTOR_HELPERS.openRightsEditor）。
     await openRightsEditor();
     setSelectValue('[data-reference-index="0"][data-reference-field="copyright"]', 'owned');
     setSelectValue('[data-reference-index="0"][data-reference-field="portrait_consent"]', 'granted');
@@ -474,7 +415,7 @@ function referenceRightsSource(config) {
     panel().querySelector('[data-reference-index="0"][data-reference-use="identity"]').click();
     const chipClass = panel().querySelector('[data-reference-index="0"][data-reference-use="identity"]')?.className || '';
     click('[data-action="save-reference-rights"]');
-    await waitFor(() => !panel().querySelector('[data-reference-rights-section][data-reference-dirty="true"]'), 'reference rights saved');
+    await waitFor(() => !panel().querySelector('[data-reference-rights-section][data-reference-dirty="true"]'), 'reference rights saved (overlay stays open)');
     return {
       identityChipAllowed: chipClass.includes('allowed'),
       dirtyCleared: !panel().querySelector('[data-reference-rights-section][data-reference-dirty="true"]'),
@@ -592,26 +533,16 @@ function autosaveSource(config) {
     ${INSPECTOR_HELPERS}
     await waitCards(3);
     await openDetailFor(config.i2);
-    setValue('[data-edit="skill"]', config.skill2Value);
+    await assertRecipeEditorAbsent();
     await clickCard(config.i3);
     await waitFor(() => detailOpen() && detailImageSrc().includes(config.i3) && selectedId() === config.i3, 'detail shows i3');
     const afterSwitch = {
       selected: selectedId(),
       confirmOpen: confirmOpen(),
       dirtyFields: dirtyFieldCount(),
-      skillShown: inputValue('[data-edit="skill"]'),
     };
-    // Pure debounce autosave: edit I3 and stay put; the dirty flag must clear
-    // on its own once the 1.2s autosave PATCH lands.
-    setValue('[data-edit="skill"]', config.skill3Value);
-    let autosaved = true;
-    try {
-      await waitFor(() => dirtyFieldCount() === 0, 'i3 skill autosaved by debounce', 8000);
-    } catch {
-      autosaved = false;
-    }
-    const autosaveStatus = [...(panel()?.querySelectorAll('[data-autosave-status]') || [])].map((node) => node.textContent);
-    return { afterSwitch, autosaved, autosaveStatus };
+    const editFieldCount = (panel()?.querySelectorAll('[data-edit]') || []).length;
+    return { afterSwitch, editFieldCount };
   })()`;
 }
 
@@ -696,17 +627,9 @@ function persistenceUiSource(config) {
     ${INSPECTOR_HELPERS}
     await waitCards(3);
     await openDetailFor(config.i1);
-    await openRecipeDisclosure();
-    const recipe = {
-      skill: inputValue('[data-edit="skill"]'),
-      style: inputValue('[data-edit="style"]'),
-      ratio: inputValue('[data-edit="ratio"]'),
-      theme: inputValue('[data-edit="theme"]'),
-      group: inputValue('[data-edit="group"]'),
-      category: panel().querySelector('[data-edit="category"]')?.value ?? null,
-      ratingOn: panel().querySelectorAll('[data-edit="rating"] button.on').length,
-      businessFields: JSON.parse(panel().querySelector('[data-edit="business_fields"]')?.value || '{}'),
-    };
+    await assertRecipeEditorAbsent();
+    const recipeEditorRemoved = true;
+    // A4a：权利编辑器经「查看」浮层打开，重启后持久化值照常显示。
     await openRightsEditor();
     const rights = {
       copyright: inputValue('[data-reference-index="0"][data-reference-field="copyright"]'),
@@ -715,6 +638,6 @@ function persistenceUiSource(config) {
       attribution: inputValue('[data-reference-index="0"][data-reference-field="attribution"]'),
       identityChipAllowed: (panel().querySelector('[data-reference-index="0"][data-reference-use="identity"]')?.className || '').includes('allowed'),
     };
-    return { recipe, rights, tagChips: tagChips() };
+    return { recipeEditorRemoved, rights, tagChips: tagChips() };
   })()`;
 }

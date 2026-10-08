@@ -77,7 +77,8 @@ test("10-11. 退役 Finder IPC 保持移除且其余 Desktop IPC 不变", async 
     assert.match(main, new RegExp(`ipcMain\\.handle\\("${channel}"`));
   }
   // 更新检查、下载安装都不接受 renderer 提供的 URL；其余能力仍保持封闭。
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 17, "no invoke channel beyond the currently approved narrow requests, including the Visual Pack lifecycle");
+  // 任务 96（A6）：第 18 条批准通道 set-window-full-screen（大图页全屏与窗口系统全屏同步）。
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 18, "no invoke channel beyond the currently approved narrow requests, including the Visual Pack lifecycle");
 });
 
 test("12-14. 960 下 Sidebar 批准收敛规则与搜索可达", async () => {
@@ -105,28 +106,30 @@ test("15-16. 960 下 Viewer shell 与舞台契约", async () => {
 test("17-18. Inspector 独立滚动且宽度不超批准范围", async () => {
   const styles = await source("web/app/styles.css");
   assert.match(styles, /\.detail-inspector-scroll \{ position: relative; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; \}/);
-  // 批准宽度：宽屏 344px（R21，token 值由 web-r21-inspector-head 锁定）/
-  // 紧凑 340px，均来自 Token 且未出现更大值。
-  assert.match(styles, /--inspector-width-compact: 340px;/);
+  // 批准宽度：宽屏 320px（GravityPort，token 值由 web-r21-inspector-head 锁定）/
+  // 紧凑 320px，均来自 Token 且未出现更大值。
+  assert.match(styles, /--inspector-width-compact: 320px;/);
   assert.match(styles, /\.shell\.details-open \{[^}]*var\(--inspector-width\)/s);
   assert.doesNotMatch(styles, /--inspector-width[^:]*:\s*3[7-9]\dpx|--inspector-width[^:]*:\s*[4-9]\d\dpx/);
 });
 
-test("19-21. Return / Prev / Next / Zoom 控件可见契约", async () => {
+test("19-21. Return / Prev / Next / Fit 控件可见契约（A4c 改版后）", async () => {
   const index = await source("web/app/index.html");
   const styles = await source("web/app/styles.css");
+  // 任务 90：返回 + 左右翻页箭头 + 右上动作组；位置计数/缩放控制条按稿子移除，
+  // 适合窗口沿用 #assetZoomFit（动作按钮 24px 高）。
   assert.match(index, /id="assetViewBack"/);
   assert.match(index, /id="assetViewPrev"/);
   assert.match(index, /id="assetViewNext"/);
-  assert.match(index, /id="assetZoomOut"/);
-  assert.match(index, /id="assetZoomIn"/);
   assert.match(index, /id="assetZoomFit"/);
+  assert.match(index, /id="assetViewDelete"/);
+  assert.match(index, /id="assetViewFullscreen"/);
   assert.match(styles, /\.asset-view-back \{ min-width: 0;/);
-  assert.match(styles, /\.asset-view-nav-btn \{ display: inline-flex; width: 40px; height: 40px;/);
-  assert.match(styles, /\.asset-view-controls \{ position: absolute;/);
+  assert.match(styles, /\.asset-view-arrow \{ position: absolute;/);
+  assert.match(styles, /\.asset-view-action \{ display: inline-flex;/);
 });
 
-test("22-24. Inspector V2 八项顺序：File/Tags 直接进入滚动列，More 收尾", async () => {
+test("22-24. Inspector A4a 六区块顺序：File/Tags/Palette/Prompt/Reference/Version", async () => {
   const appJs = await source("web/app/app.mjs");
   const inspector = await source("web/app/inspector-markup.mjs");
   const compositionStart = appJs.indexOf('const scroller = renderDetailInspectorContent(t("assetInspector"), `${detailFileSectionMarkup(asset)}');
@@ -136,11 +139,10 @@ test("22-24. Inspector V2 八项顺序：File/Tags 直接进入滚动列，More 
   const order = [
     "detailFileSectionMarkup",
     "detailTagsSectionMarkup",
+    "detailPaletteSectionMarkup",
     "detailPromptSectionMarkup",
-    "detailSourceSectionMarkup",
-    "detailVersionSectionMarkup",
-    "detailGroupSectionMarkup",
-    "detailMoreSectionMarkup",
+    "detailReferenceSectionMarkup",
+    "detailVersionContextSectionMarkup",
   ];
   let cursor = 0;
   for (const markup of order) {
@@ -148,9 +150,12 @@ test("22-24. Inspector V2 八项顺序：File/Tags 直接进入滚动列，More 
     assert.notEqual(position, -1, `${markup} present in inspector template`);
     cursor = position;
   }
-  assert.equal(order.indexOf("detailMoreSectionMarkup"), 6, "More stays the 7th section");
-  // data-inspector-section 标记与顺序一致。
-  assert.match(inspector, /data-inspector-section="more"/);
+  // GravityPort A4a：版本树与上下文收尾；配方/来源/分组/图片位置区块不得回来。
+  for (const retired of ["detailSourceSectionMarkup", "detailGroupSectionMarkup", "detailMoreSectionMarkup"]) {
+    assert.ok(!template.includes(retired), `${retired} must not come back to the scroll column`);
+  }
+  // data-inspector-section 标记与顺序一致（version-overlay 是浮层内容壳）。
+  assert.match(inspector, /data-inspector-section="version-overlay"/);
 });
 
 test("25. body/document 不设置造成水平滚动的固定宽度", async () => {
@@ -198,10 +203,12 @@ test("28-30. Surface max-height / ConfirmDialog viewport-safe / Toast fixed 栈�
   assert.doesNotMatch(styles, /\.filter-panel\b/);
   assert.match(styles, /\.settings-menu \{[^}]*max-height: calc\(100vh - 56px\)/);
   assert.doesNotMatch(styles, /\.anchored-overlay/);
-  // ConfirmDialog：modal-overlay padding 20px + modal-card max-width/max-height 保证视口安全。
+  // ConfirmDialog：modal-overlay padding 20px + modal-card max-width/max-height 保证视口安全；
+  // 任务 94 后桌面态宽卡 640，≤767 由 overlay padding 16 收口（视口减两侧 16）。
   assert.match(styles, /\.modal-overlay \{ position: fixed;[^}]*padding: 20px;/);
   assert.match(styles, /\.modal-card \{[^}]*max-width: 100%; max-height: min\(760px, 88vh\)/);
-  assert.match(styles, /\.confirm-dialog-card \{ width: 400px; \}/);
+  assert.match(styles, /\.confirm-dialog-card \{ box-sizing: border-box; width: 640px; min-height: 240px; \}/);
+  assert.match(styles, /@media \(max-width: 767px\) \{[^]*?\.confirm-dialog-overlay \{ padding: 16px; \}/);
   // Toast：fixed 栈不扩展文档布局。
   assert.match(styles, /\.toast-stack \{ position: fixed; z-index: var\(--z-toast\);/);
   assert.match(styles, /\.toast-stack-polite \{ bottom: calc\(20px \+ var\(--toast-error-stack-height, 0px\)\); \}/);
@@ -219,9 +226,9 @@ test("32-34. Phase 5 Confirm / Toast 契约测试文件不退化", async () => {
   const toast = await source("test/toast-manager-contract.test.mjs");
   assert.match(confirm, /confirmDialog/);
   assert.match(toast, /createToastManager/);
-  // Phase 5C 校正登记：18 个 test block 覆盖 60/60 契约点，不是 18 项契约。
+  // Phase 5C 校正登记：test block 覆盖全部契约点（任务 96 追加类型图标点后 19 块）。
   const toastBlocks = toast.split(/test\(/).length - 1;
-  assert.equal(toastBlocks, 18, "toast contract keeps its 18 test blocks (covering 60 contract points)");
+  assert.equal(toastBlocks, 19, "toast contract keeps its test blocks (60 Phase 5C points + task 96 per-type icon)");
 });
 
 test("35-37. Viewer Navigation / Transform / Return Snapshot 不退化", async () => {
@@ -270,4 +277,28 @@ test("40-41. package 与 lockfile 不变、无新依赖", async () => {
   assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac");
   assertPackageLockMatchesManifest(lock, manifest);
+});
+
+// 42. 任务 96（A6）：701–1120 详情打开时顶栏过订修复——动作组/排序下拉/搜索框可收缩
+// （select 88 下限、搜索框 38 图标入口下限），聚焦浮成 fixed 面板且右缘让开检视器。
+test("42. 紧凑档详情打开时顶栏搜索收缩与浮动面板", async () => {
+  const styles = await source("web/app/styles.css");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.topbar-actions,\n  \.mosa-v2 \.shell\.details-open \.topbar-work-group \{ flex: 0 1 auto; min-width: 0; \}/, "action groups participate in shrinking");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.sort-control \{ flex: 0 1 auto; min-width: 100px; \}/, "select labels shrink with a 100px floor so four CJK characters stay readable");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.sort-control select \{ width: 100%; min-width: 0; \}/, "selects fill their label so they never spill over neighbours");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.topbar-search \{ flex: 0 1 144px; width: auto; min-width: 38px; position: relative; \}/, "search shrinks to a 38px icon entry at worst");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.topbar-search input \{ position: absolute; inset: 0; width: 100%; height: 100%; \}/, "input covers the collapsed entry so the panel is reachable by click");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.topbar-search input::placeholder \{ color: transparent; \}/, "collapsed entry hides the placeholder fragment next to the icon");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.topbar-search:focus-within input::placeholder \{ color: var\(--color-text-tertiary\); \}/, "floating panel restores the placeholder hint");
+  const focusPanel = styles.slice(styles.indexOf(".mosa-v2 .shell.details-open .topbar-search:focus-within"));
+  assert.match(focusPanel, /position: fixed;/, "focused search floats above the topbar clip");
+  assert.match(focusPanel, /right: calc\(var\(--inspector-width-compact\) \+ 16px\);/, "floating panel stays clear of the docked inspector");
+});
+
+// 43. 任务 96 返工 1：701–1120 档详情打开时 V2 网格第一列收成 56 图标栏
+// （.mosa-v2 层的全宽规则曾盖掉布局骨架 B 模式的紧凑列）。
+test("43. 紧凑档详情打开时 V2 网格侧栏为图标栏宽度", async () => {
+  const styles = await source("web/app/styles.css");
+  assert.match(styles, /\/\* 任务 96 返工 1[\s\S]*?\.mosa-v2 \.shell\.details-open \{ grid-template-columns: var\(--sidebar-width-compact\) minmax\(0, 1fr\) var\(--inspector-width-compact\); \}/, "V2 grid collapses the sidebar to the icon rail with the compact inspector");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.primary-nav,\n  \.mosa-v2 \.shell\.details-open \.sidebar-footer \{ padding-right: 12px; padding-left: 12px; \}/, "icon rail paddings shrink so icons center in 56px");
 });

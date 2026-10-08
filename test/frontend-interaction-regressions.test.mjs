@@ -119,21 +119,21 @@ test("context-menu favorite batch mutations preserve partial failures instead of
     "archive is intentionally absent from the asset context menu");
 });
 
-test("move-to-group submenu contains create-with-selection, remove-from-group, and real groups only", async () => {
+test("add-to-group submenu keeps create-with-selection and real groups only; remove-from-group is top level (任务 91)", async () => {
   const [actions, i18n] = await Promise.all([
     readFile(resolve(root, "web/app/context-menu-actions.mjs"), "utf8"),
     readFile(resolve(root, "web/app/i18n.mjs"), "utf8"),
   ]);
-  const submenu = sliceBetween(actions, "// Move to group submenu", "if (!isMultiple)");
+  const submenu = sliceBetween(actions, "// Add to group submenu（任务 91", "// 任务 91：右键专属的堆叠操作");
 
   assert.match(submenu, /label: t\("createGroupWithSelection"\)/,
     "create-group with assignment remains the first utility action");
   assert.match(submenu, /openGroupModal\?\.\(\{[\s\S]*?onCreated:/,
     "creating from the submenu assigns the pending selection to the new group");
-  assert.match(submenu, /label: t\("removeFromGroup"\)/,
-    "an explicit remove-from-group destination exists (empty group name clears membership)");
-  assert.match(submenu, /disabled: !selectionHasGroupedAsset\(/,
-    "remove-from-group is only enabled when the selection actually has a group");
+  assert.match(submenu, /const organizeSection = \[/,
+    "the organize section (favorite / add-to-group / remove-from-group) lives in the sliced region");
+  assert.doesNotMatch(submenu.slice(0, submenu.indexOf("const organizeSection")), /label: t\("removeFromGroup"\)/,
+    "remove-from-group moved out of the submenu to a top-level item (design group 3)");
   assert.match(submenu, /Array\.isArray\(state\.groups\.groups\)/,
     "saved groups are guarded at the navigation-state boundary");
   assert.match(submenu, /const groupName = group\.name;/,
@@ -142,6 +142,10 @@ test("move-to-group submenu contains create-with-selection, remove-from-group, a
     "the ambiguous no-group menu copy is still retired");
   assert.doesNotMatch(i18n, /noGroup: "(?:无分组|No group)"/,
     "the retired no-group menu copy leaves no dead locale key");
+  assert.match(submenu, /label: t\("removeFromGroup"\)/,
+    "remove-from-group is its own top-level item (empty group name clears membership)");
+  assert.match(submenu, /disabled: !selectionHasGroupedAsset\(/,
+    "remove-from-group is only enabled when the selection actually has a group");
 });
 
 test("context-menu submenu collapses when pointer or keyboard leaves its parent", async () => {
@@ -204,8 +208,8 @@ test("sidebar smart and manual groups collapse independently and keep compact na
   assert.match(app, /function syncSidebarSectionVisibility\(\)/);
   assert.match(app, /function setSidebarSectionCollapsed\(section, collapsed\)/);
   assert.match(app, /function startSidebarGroupCreate\(\) \{[\s\S]*?setSidebarSectionCollapsed\("manual", false\)/);
-  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 32px;/);
-  assert.match(css, /\.mosa-v2 \.sidebar-group-list \{ gap: 0;/);
+  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 36px;/);
+  assert.match(css, /\.mosa-v2 \.sidebar-group-list \{ gap: var\(--r21-s1\);/);
   assert.match(css, /\.mosa-v2 \.sidebar-section-toggle\[aria-expanded="false"\] \.sidebar-section-chevron \{ transform: rotate\(-90deg\); \}/);
 });
 
@@ -278,7 +282,7 @@ test("Unorganized replaces Recent in primary navigation and Trash remains a firs
     import(pathToFileURL(resolve(root, "web/app/i18n.mjs")).href).then((module) => module.default),
   ]);
   assert.match(config, /SCOPES = \["all", "favorite", "unorganized", "trash"\]/);
-  assert.match(html, /data-filter="unorganized"[\s\S]*?data-filter="trash"/, "Trash sits directly after Unorganized in the primary navigation");
+  assert.match(html, /data-filter="all"[\s\S]*?data-filter="unorganized"[\s\S]*?data-filter="favorite"[\s\S]*?data-filter="trash"/, "Primary navigation follows the GravityPort A2 order: all → unorganized → favorite → trash");
   assert.doesNotMatch(html, /data-filter="recent"/, "Recent is no longer a primary navigation destination");
   assert.equal(translations.zh.unorganized, "待整理");
   assert.equal(translations.en.unorganized, "Unorganized");

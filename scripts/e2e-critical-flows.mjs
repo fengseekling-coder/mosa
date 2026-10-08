@@ -48,9 +48,9 @@ const webFixturePath = join(generatedDir, "critical-flow.png");
 const stackFixturePath = join(generatedDir, "stack-flow.png");
 const trashFixtureDir = join(fixturesRoot, "trash-flow");
 const stamp = Date.now().toString(36);
-const webSearchTerm = `MOSA E2E WEB ${stamp}`;
+const webSearchTerm = stamp; // A4a：prompt 编辑退役,搜索改为命中卡片标题(文件名带 stamp)
 const webRecipeChange = `web-recipe-${stamp}`;
-const desktopSearchTerm = `MOSA E2E ELECTRON ${stamp}`;
+const desktopSearchTerm = stamp; // A4a：同上
 const desktopRecipeChange = `electron-recipe-${stamp}`;
 // 回收站轮的预置数据：exercise 轮 seed，verify 轮复用（同一份 userData/库目录）。
 let trashFlowConfig = null;
@@ -313,11 +313,10 @@ function assertCriticalRoundResult(result, mode, { paste }) {
     if (result.sidebarDropHighlighted !== true || result.sidebarDropCleared !== true) problems.push("sidebar group drop highlight lifecycle");
     if (result.sidebarDropNavigated !== false) problems.push("sidebar group drop changed the current view");
     if (result.favorite !== true) problems.push("favorite after exercise");
-    if (result.recipeSaved !== true) problems.push("recipe autosave completion");
+    if (result.recipeEditorRemoved !== true) problems.push("recipe editing must stay removed (A4a)");
     if (paste && (result.pasteImported !== true || result.modalOpenAfterPaste !== false)) problems.push("paste import / no modal");
   } else {
     if (result.favorite !== true) problems.push("favorite after restart");
-    if (result.recipeSnapshotCount < 2) problems.push(`recipe snapshot count after restart (${result.recipeSnapshotCount})`);
   }
   if (result.groupAssetCount !== 1) problems.push(`E2E Drop group asset count (${result.groupAssetCount})`);
   if (problems.length) throw new Error(`Unexpected critical UI result (${mode}): ${problems.join("; ")} — ${JSON.stringify(result)}`);

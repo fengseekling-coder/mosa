@@ -48,7 +48,12 @@ test("bindEvents contains the theme-switch handler using real state", async () =
   // The HTML attribute data-appearance-opt is accessed via the camelCase
   // DOM dataset API as dataset.appearanceOpt in the click delegation handler.
   assert.match(body, /dataset\.appearanceOpt/, "bindEvents must handle data-appearance-opt via dataset.appearanceOpt");
-  assert.match(body, /state\.darkMode = newTheme === "dark"/, "bindEvents must set state.darkMode from the selected theme");
+  // 任务 81 返工 1：三态主题——写 themeSetting（system/light/dark），darkMode 只存
+  // 由它推导的实际生效值，存储按三态映射写回。
+  assert.match(body, /state\.themeSetting = newTheme === "light" \|\| newTheme === "dark" \? newTheme : THEME_SYSTEM;/,
+    "bindEvents must set state.themeSetting from the selected option");
+  assert.match(body, /state\.darkMode = effectiveDarkMode\(state\.themeSetting\);/,
+    "bindEvents must derive the effective darkMode from the theme setting");
 });
 
 test("bindEvents no longer contains a density-switch handler", async () => {
@@ -93,8 +98,9 @@ test("renderSettingsMenu uses real state for segmented control active status", a
   assert.ok(match, "expected to find renderSettingsMenu function body");
   const body = match[1];
 
-  // Theme active state must key off state.darkMode, not a tautological literal.
-  assert.match(body, /state\.darkMode/, "renderSettingsMenu must use state.darkMode for theme active status");
+  // 任务 81 返工 1：主题选中态跟三态 themeSetting 走（跟随系统选中时生效外观仍
+  // 是 light/dark，由 data-theme 表达）；不再用布尔 darkMode 推选中项。
+  assert.match(body, /state\.themeSetting/, "renderSettingsMenu must use state.themeSetting for theme active status");
   // The density row was removed: the settings renderer must not reference it.
   assert.doesNotMatch(body, /densityOpt|galleryDensity/, "renderSettingsMenu must not keep density state");
   assert.doesNotMatch(body, /anonymousUsage|data-usage-opt/, "anonymous telemetry must not be exposed as a user-facing settings toggle");

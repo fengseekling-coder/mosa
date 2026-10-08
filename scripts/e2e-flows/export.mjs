@@ -23,11 +23,12 @@ export const name = "export";
 export const description =
   "export: single asset download == managed original -> batch export of 2 -> Stack-in-selection hides export with no download -> group export JSON == sanitized /api/assets?group= (no local paths/URLs)";
 
-// Menu labels verified against web/app/i18n.mjs (zh is the default locale):
-// exportAsset=导出素材, exportGroup=导出分组, stackSelected=堆叠所选,
+// Menu labels verified against web/app/i18n.mjs (zh is the default locale;
+// 任务 91：exportAsset 改名 exportTo=导出至):
+// exportTo=导出至, exportGroup=导出分组, stackSelected=堆叠所选,
 // exportStarted=导出已开始, exportStartedMultiple=批量导出已开始.
 const MENU = {
-  exportAsset: "导出素材",
+  exportTo: "导出至",
   exportGroup: "导出分组",
   stackSelected: "堆叠所选",
 };
@@ -160,7 +161,7 @@ export async function run(ctx) {
     // ===== Pass 1: single-asset export via the card context menu =====
     const p1 = await ctx.runInPage(server, source(config, `
       await waitFor(() => gallerySettled() && rootCardIds().length === 3, 'three seeded cards');
-      const disabled = await clickMenuItem(MENU.exportAsset, cardSelector(config.e1));
+      const disabled = await clickMenuItem(MENU.exportTo, cardSelector(config.e1));
       await waitFor(() => allToastTexts().some((text) => text.includes(TOAST.started)), 'single export toast');
       // downloadAssetFile's anchor click starts an async download navigation;
       // the toast only proves the action ran. Give the main process time to
@@ -184,7 +185,7 @@ export async function run(ctx) {
       await waitFor(() => selectedCardIds().length === 1, 'e1 multi-selected');
       ctrlClickCard(config.e2);
       await waitFor(() => JSON.stringify(selectedCardIds()) === JSON.stringify([config.e1, config.e2].sort()), 'e1+e2 multi-selected');
-      const disabled = await clickMenuItem(MENU.exportAsset, cardSelector(config.e1));
+      const disabled = await clickMenuItem(MENU.exportTo, cardSelector(config.e1));
       await waitFor(() => allToastTexts().some((text) => text.includes(TOAST.startedMultiple)), 'batch export toast');
       // Same download-initiation window as the single export above; both batch
       // downloads are clicked back to back before the toast.
@@ -222,7 +223,7 @@ export async function run(ctx) {
       await waitFor(() => selectedCardIds().length === 1, 'stack node multi-selected');
       ctrlClickCard(config.e1);
       await waitFor(() => JSON.stringify(selectedCardIds()) === JSON.stringify([coverId, config.e1].sort()), 'stack node + e1 multi-selected');
-      // 右键菜单统一：选区含 Stack 时“导出素材/堆叠所选”整段不出现（不再置灰）。
+      // 右键菜单统一：选区含 Stack 时“导出至/堆叠所选”整段不出现（不再置灰）。
       const trigger = document.querySelector(cardSelector(config.e1) + ' .asset-card-select');
       trigger.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
       await sleep(200);
@@ -232,7 +233,7 @@ export async function run(ctx) {
       return { coverId, labels, toasts: allToastTexts() };
     `));
     expect(typeof p3.coverId === "string" && p3.coverId.startsWith("export-e"), `stack node cover id: ${p3.coverId}`);
-    expect(p3.labels.includes(MENU.exportAsset) === false, `export item must be hidden with a Stack in the selection: ${JSON.stringify(p3.labels)}`);
+    expect(p3.labels.includes(MENU.exportTo) === false, `export item must be hidden with a Stack in the selection: ${JSON.stringify(p3.labels)}`);
     expect(p3.labels.includes(MENU.stackSelected) === false, `stack-selected item must be hidden with a Stack in the selection: ${JSON.stringify(p3.labels)}`);
     expect(p3.labels.includes("移到回收站") === true, `the mixed-selection menu still renders its danger zone: ${JSON.stringify(p3.labels)}`);
     expect(p3.toasts.some((text) => text.includes(TOAST.started) || text.includes(TOAST.startedMultiple)) === false,

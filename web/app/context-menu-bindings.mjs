@@ -16,6 +16,7 @@ export function bindContextMenuEvents(options = {}) {
     selectAsset,
     openAssetView,
     gallerySelection,
+    getViewerAsset,
   } = options;
 
   const bindGroupContextMenu = (list) => list?.addEventListener("contextmenu", (event) => {
@@ -75,6 +76,20 @@ export function bindContextMenuEvents(options = {}) {
       x: event.clientX,
       y: event.clientY,
       target: card,
+    });
+  });
+
+  // GravityPort A4d（任务 91）：大图页右键弹单张素材菜单（稿子画框 ② 在大图
+  // 舞台上画了这个菜单）。当前素材由 app 层注入（selectedAsset 兼顾版本切换）。
+  els.assetViewStage?.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    const asset = typeof getViewerAsset === "function" ? getViewerAsset() : null;
+    if (!asset) return;
+    contextMenu.show({
+      items: contextMenuActions.getAssetMenu(asset, [asset], { selectionCount: 1 }),
+      x: event.clientX,
+      y: event.clientY,
+      target: els.assetViewStage,
     });
   });
 

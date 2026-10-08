@@ -44,17 +44,42 @@ function topbarBlock(html) {
 const CONTROL_IDS = ["bridgeStatus", "categorySelect", "sortSelect", "searchInput", "openInspectorBtn"];
 
 // 1. The topbar exposes exactly two regions: context and actions.
-test("1. topbar has context and actions regions", async () => {
+// 2026-10 (GravityPort A3 / 任务 70): the V2 type filters left the topbar
+// ("按稿子精简") — the context region now holds the back/forward nav group plus
+// the visually-hidden view title, and a centered thumbnail-size slider group
+// sits between context and actions. mediaKind state and its backend semantics
+// stay; the strip must not come back.
+test("1. topbar has context and actions regions; the type filters stay removed", async () => {
   const topbar = topbarBlock(await readHtml());
   assert.equal(topbar.split('class="topbar-context"').length - 1, 1, "exactly one .topbar-context");
   assert.equal(topbar.split('class="topbar-actions"').length - 1, 1, "exactly one .topbar-actions");
   assert.ok(topbar.indexOf('class="topbar-context"') < topbar.indexOf('class="topbar-actions"'), "context precedes actions");
-  const context = /<div class="topbar-context">([\s\S]*?)<\/div>\s*<div class="topbar-actions"/.exec(topbar);
-  assert.ok(context, "context block must exist before actions");
+  const context = /<div class="topbar-context">([\s\S]*?)<\/div>\s*<div class="topbar-size-group"/.exec(topbar);
+  assert.ok(context, "context block must precede the centered size group");
   assert.ok(context[1].includes('id="viewTitle"'), "context holds the view title");
-  assert.ok(context[1].includes('class="topbar-type-filters"'), "context holds the V2 type filters");
+  assert.equal(topbar.includes('class="topbar-type-filters"'), false, "the V2 type filters must not return to the topbar");
+  assert.equal(topbar.includes('data-type="img"'), false, "no type-filter buttons may remain in the topbar");
   const actions = topbar.slice(topbar.indexOf('class="topbar-actions"'));
   assert.equal(actions.includes('id="assetCount"'), false, "the topbar no longer renders library statistics");
+});
+
+// 1b. GravityPort A3 三段结构：左=后退/前进（+ 堆叠返回），中=居中缩略图滑杆，
+// 右=既有 actions。#stackBack 显示条件不变（hidden 属性），位于前进按钮右边。
+test("1b. nav history group and centered size group flank the actions", async () => {
+  const topbar = topbarBlock(await readHtml());
+  const context = /<div class="topbar-context">([\s\S]*?)<\/div>\s*<div class="topbar-size-group"/.exec(topbar);
+  assert.ok(context, "context block must exist");
+  const navGroup = context[1];
+  const backAt = navGroup.indexOf('id="navHistoryBack"');
+  const forwardAt = navGroup.indexOf('id="navHistoryForward"');
+  const stackBackAt = navGroup.indexOf('id="stackBack"');
+  assert.ok(backAt > -1 && forwardAt > backAt && stackBackAt > forwardAt, "order must be back → forward → stackBack");
+  assert.match(navGroup, /id="navHistoryBack"[^>]*disabled/, "back starts disabled");
+  assert.match(navGroup, /id="navHistoryForward"[^>]*disabled/, "forward starts disabled");
+  assert.match(navGroup, /id="stackBack"[^>]*hidden/, "#stackBack keeps its hidden-by-default condition");
+  const sizeAt = topbar.indexOf('class="topbar-size-group"');
+  assert.ok(sizeAt > topbar.indexOf('class="topbar-context"') && sizeAt < topbar.indexOf('class="topbar-actions"'), "size group sits between context and actions");
+  assert.match(topbar, /id="topbarSizeGroup"[^>]*hidden/, "the size group starts hidden until JS measures the overlap");
 });
 
 // 2. The actions region holds exactly the three approved groups.
@@ -78,12 +103,11 @@ test("3. utility group retains bridge semantics without a theme button", async (
   assert.equal(topbar.includes('id="themeToggle"'), false, "theme toggle must not be duplicated in the topbar");
 });
 
-// 4. The work group carries the V2 FilterBar (category → sort → search; type
-// filters stay in the context). 2026-08-18: V2-only token consolidation. The
-// V2 design removed the legacy #batchToggle and #filterToggle buttons (their
-// affordances merged into the V2 type-filter strip in `.topbar-context` and the
-// `.filter-panel` popover, which is now anchored from the `data-type` chips
-// instead of a dedicated toggle). 2026-10: the topbar gains the 任务 34 category
+// 4. The work group carries the refinements (category → sort → search; the
+// type filters left the topbar entirely in GravityPort A3 / 任务 70).
+// 2026-08-18: V2-only token consolidation. The
+// V2 design removed the legacy #batchToggle and #filterToggle buttons.
+// 2026-10: the topbar gains the 任务 34 category
 // dropdown ahead of sort, sharing the .sort-control look.
 test("4. category, sort and search live in the work group", async () => {
   const topbar = topbarBlock(await readHtml());

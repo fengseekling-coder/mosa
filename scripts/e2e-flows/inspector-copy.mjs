@@ -1,6 +1,9 @@
-// Inspector copy flow: the three clipboard copy buttons (prompt / instruction /
-// source path) and the generation-history "open output asset" button — none of which inspector-editing covers (its
-// header comment explicitly scopes clipboard actions out).
+// Inspector copy flow: the clipboard copy buttons (prompt / instruction) and the
+// generation-history "open output asset" button — none of which inspector-editing
+// covers (its header comment explicitly scopes clipboard actions out).
+// GravityPort A4a（任务 73）：来源区块（含 copy-source 按钮）已从检视器拿掉——
+// 原第三/第四个复制断言改为锁「copy-source 不再渲染」+ 底部固定路径栏显示路径；
+// 生成树搬进版本树浮层，「打开素材」先开浮层再操作。
 //
 // 摸底清单（web/app/app.mjs + inspector-markup.mjs + i18n.mjs）：
 // - writeClipboardText（app.mjs ~1512）：web 端走 navigator.clipboard.writeText；
@@ -13,9 +16,9 @@
 // - copy-instruction（app.mjs ~5670）：复制 source.user_message || business_fields.
 //   user_message（trim），成功 toast 同 copySuccess；按钮恒渲染，空时 disabled
 //   （inspector-markup ~277）。
-// - copy-source（app.mjs ~5632）：复制 sourceCopyValue(source)=source.path，
-//   成功 toast t("originalPathCopied")=「原始路径已复制」；按钮只在有可复制值时
-//   渲染，位于默认收起的 detail-source-disclosure 里。
+// - copy-source（A4a 已拿掉）：原复制 sourceCopyValue(source)=source.path 的入口
+//   随来源区块一并移除，功能代码保留（sourceCopyValue/detailSourceSectionMarkup）；
+//   底部固定「素材路径」胶囊渲染同一路径，「打开」复用 /api/open-folder。
 // - open-generation-output（app.mjs ~5227 → openGenerationOutputAsset ~5172）：
 //   切换选中并打开目标素材；按钮在生成节点详情里（inspector-markup ~560），
 //   产物即当前素材时 disabled 且文案 t("generationCurrentAsset")=「当前素材」，
@@ -37,7 +40,6 @@ export const description = "inspector copy-prompt/instruction/source via a clipb
 
 // i18n.mjs zh 文案（代码实际调用的键写在各断言旁）。
 const TOAST_COPY_SUCCESS = "提示词已复制"; // copySuccess（copy-prompt / copy-instruction / 卡片快捷复制共用）
-const TOAST_PATH_COPIED = "原始路径已复制"; // originalPathCopied
 const TOAST_COPY_FAILED = "复制失败，请重试"; // copyFailed
 const LABEL_OPEN_ASSET = "打开素材"; // generationOpenAsset
 const LABEL_CURRENT_ASSET = "当前素材"; // generationCurrentAsset
@@ -57,34 +59,39 @@ export async function run(ctx) {
 
   const server = await ctx.startServer();
   try {
-    // S1: the three inspector copy buttons on the rich asset + both failure paths.
+    // macOS /var ↔ /private/var symlink:两侧断言按同一形态归一后比较。
+    const samePath = (left, right) => String(left || "").replace(/^\/private\/var/, "/var") === String(right || "").replace(/^\/private\/var/, "/var");
+    // S1: the two inspector copy buttons on the rich asset + both failure paths.
+    // A4a：copy-source 不再有按钮——断言它不再渲染 + 路径栏显示原始路径。
     const inspector = await ctx.runInPage(server, inspectorCopySource(seeded));
     assertCondition(inspector.promptButton.present === true && inspector.promptButton.disabled === false,
       `copy-prompt button should render enabled for an asset with a prompt: ${JSON.stringify(inspector.promptButton)}`);
-    assertCondition(inspector.writes.length === 3, `expected three clipboard writes, got ${JSON.stringify(inspector.writes)}`);
+    assertCondition(inspector.writes.length === 2, `expected two clipboard writes, got ${JSON.stringify(inspector.writes)}`);
     assertCondition(inspector.writes[0] === seeded.expect.prompt,
       `copy-prompt wrote ${JSON.stringify(inspector.writes[0])}, expected the asset prompt ${JSON.stringify(seeded.expect.prompt)}`);
     assertCondition(inspector.writes[1] === seeded.expect.instruction,
       `copy-instruction wrote ${JSON.stringify(inspector.writes[1])}, expected the user instruction ${JSON.stringify(seeded.expect.instruction)}`);
-    assertCondition(inspector.writes[2] === seeded.expect.sourcePath,
-      `copy-source wrote ${JSON.stringify(inspector.writes[2])}, expected the original path ${JSON.stringify(seeded.expect.sourcePath)}`);
-    assertCondition(inspector.promptToastSeen === true && inspector.pathToastSeen === true,
-      `success toasts missing: ${JSON.stringify({ promptToastSeen: inspector.promptToastSeen, pathToastSeen: inspector.pathToastSeen })}`);
+    assertCondition(inspector.copySourceAbsent === true, "copy-source must stay removed from the inspector (A4a)");
+    assertCondition(samePath(inspector.pathbarText, seeded.expect.imagePath),
+      `the pathbar must show the asset's library path: ${JSON.stringify(inspector.pathbarText)} vs ${JSON.stringify(seeded.expect.imagePath)}`);
+    assertCondition(inspector.pathbarOpenEnabled === true, "the pathbar open action must be enabled with a path");
+    assertCondition(inspector.promptToastSeen === true,
+      `success toasts missing: ${JSON.stringify({ promptToastSeen: inspector.promptToastSeen })}`);
     // 失败路径 1：记录器 reject 一次 —— toast 文案是注入的拒绝信息原文
     // （runAction 把 error.message 原样上 toast），剪贴板不得新增成功写入。
-    assertCondition(inspector.rejectPath.attemptsDelta === 1 && inspector.rejectPath.okLength === 3,
+    assertCondition(inspector.rejectPath.attemptsDelta === 1 && inspector.rejectPath.okLength === 2,
       `rejected write should reach the API once and record nothing: ${JSON.stringify(inspector.rejectPath)}`);
     assertCondition(inspector.rejectPath.errorTexts.includes(REJECTION_MESSAGE),
       `rejected write did not surface the rejection message on an error toast: ${JSON.stringify(inspector.rejectPath.errorTexts)}`);
     // 失败路径 2：剪贴板 API 整个不存在 —— 产品抛 copyFailed 文案的错误 toast。
-    assertCondition(inspector.missingApiPath.attemptsDelta === 0 && inspector.missingApiPath.okLength === 3,
+    assertCondition(inspector.missingApiPath.attemptsDelta === 0 && inspector.missingApiPath.okLength === 2,
       `missing clipboard API must not reach the recorder: ${JSON.stringify(inspector.missingApiPath)}`);
     assertCondition(inspector.missingApiPath.errorTexts.includes(TOAST_COPY_FAILED),
       `missing clipboard API did not show the copyFailed toast: ${JSON.stringify(inspector.missingApiPath.errorTexts)}`);
     assertNoRendererErrors(inspector, "inspector copy buttons");
 
-    // S2: empty asset — prompt/instruction copy entries are inert, source path
-    // still copies.
+    // S2: empty asset — prompt/instruction copy entries are inert, the pathbar
+    // still shows that asset's path.
     const empty = await ctx.runInPage(server, emptyAssetSource(seeded));
     assertCondition(empty.promptButton.present === false,
       "copy-prompt button must not render when the asset has no prompt and no request prompt");
@@ -92,8 +99,9 @@ export async function run(ctx) {
       `copy-instruction button must render disabled for an asset without a user instruction: ${JSON.stringify(empty.instruction)}`);
     assertCondition(empty.afterDisabledClick.attempts === 0 && empty.afterDisabledClick.ok === 0 && empty.afterDisabledClick.toastCount === 0,
       `clicking the disabled instruction button must not write the clipboard or toast: ${JSON.stringify(empty.afterDisabledClick)}`);
-    assertCondition(empty.sourceWrite === seeded.expect.emptySourcePath,
-      `copy-source on the empty asset wrote ${JSON.stringify(empty.sourceWrite)}, expected its original path ${JSON.stringify(seeded.expect.emptySourcePath)}`);
+    assertCondition(empty.copySourceAbsent === true, "copy-source must stay removed on the empty asset (A4a)");
+    assertCondition(samePath(empty.pathbarText, seeded.expect.emptyImagePath),
+      `the pathbar must show the empty asset's library path: ${JSON.stringify(empty.pathbarText)} vs ${JSON.stringify(seeded.expect.emptyImagePath)}`);
     assertNoRendererErrors(empty, "empty asset copy buttons");
 
     // S4: open-generation-output from A switches the inspector to B; the
@@ -192,6 +200,9 @@ async function seed(ctx, config) {
         instruction: config.userMessage, // copy-instruction 侧做 trim，种子无首尾空白
         sourcePath: aFull.source.path,
         emptySourcePath: cFull.source.path,
+        // A4a 路径栏显示库内 image_path（与右键菜单「在 Finder 中显示」同一目标）。
+        imagePath: aFull.image_path,
+        emptyImagePath: cFull.image_path,
         titleA: config.themeA, // displayAssetTitle = theme || 文件名 || id
         titleB: config.themeB,
       },
@@ -238,12 +249,13 @@ const CLIP_HELPERS = String.raw`
     }
     throw new Error('Timed out opening inspector for ' + assetId + ' diagnostic=' + JSON.stringify(pageDiagnostic()));
   }
-  async function openSourceDisclosure() {
-    const summary = panel()?.querySelector('[data-inspector-section="source"] details.detail-source-disclosure > summary');
-    if (!summary) throw new Error('Missing source disclosure summary');
-    summary.click();
-    await waitFor(() => panel()?.querySelector('[data-inspector-section="source"] details.detail-source-disclosure')?.open === true,
-      'source disclosure opens');
+  // GravityPort A4a：来源区块（含 copy-source 按钮）不再渲染；底部固定路径栏
+  // 显示同一路径，「打开」复用 /api/open-folder。
+  const copySourceAbsent = () => !panel()?.querySelector('[data-action="copy-source"]');
+  const pathbarText = () => panel()?.querySelector('.detail-pathbar-path')?.textContent?.trim() || '';
+  const pathbarOpenEnabled = () => {
+    const button = panel()?.querySelector('.detail-pathbar-open');
+    return Boolean(button) && !button.disabled;
   }
 `;
 
@@ -268,11 +280,10 @@ function inspectorCopySource(seeded) {
     await waitFor(() => clip.ok.length >= 2 && successToasts().includes('${TOAST_COPY_SUCCESS}'), 'instruction copy lands');
     const instructionToastSeen = true;
 
-    // 原始路径复制：按钮藏在来源 disclosure 里，真实入口先展开再点。
-    await openSourceDisclosure();
-    panel().querySelector('[data-action="copy-source"]').click();
-    await waitFor(() => clip.ok.length >= 3 && successToasts().includes('${TOAST_PATH_COPIED}'), 'source copy lands');
-    const pathToastSeen = true;
+    // A4a：copy-source 不再渲染；底部路径栏显示原始路径、打开可用。
+    const copySourceAbsent_ = copySourceAbsent();
+    const pathbarText_ = pathbarText();
+    const pathbarOpenEnabled_ = pathbarOpenEnabled();
 
     // 失败路径 1：记录器 reject 一次 —— writeClipboardText 的异常原样冒泡，
     // runAction 把 error.message 原文上错误 toast；剪贴板不得新增成功写入。
@@ -303,7 +314,9 @@ function inspectorCopySource(seeded) {
       writes: clip.ok,
       promptToastSeen,
       instructionToastSeen,
-      pathToastSeen,
+      copySourceAbsent: copySourceAbsent_,
+      pathbarText: pathbarText_,
+      pathbarOpenEnabled: pathbarOpenEnabled_,
       rejectPath,
       missingApiPath,
       rendererErrors: rendererErrors.slice(0, 3),
@@ -332,17 +345,15 @@ function emptyAssetSource(seeded) {
       ok: clip.ok.length - beforeDisabledClick.ok,
       toastCount: successToasts().length + errorToasts().length,
     };
-    // 空提示词/空指令素材的原始路径仍在（store 总是记 source.path），
-    // copy-source 照常工作。
-    await openSourceDisclosure();
-    panel().querySelector('[data-action="copy-source"]').click();
-    await waitFor(() => clip.ok.length >= 1 && successToasts().includes('${TOAST_PATH_COPIED}'), 'empty-asset source copy lands');
-    const sourceWrite = clip.ok[0];
+    // A4a：copy-source 不再渲染；路径栏显示该素材自己的路径。
+    const copySourceAbsent_ = copySourceAbsent();
+    const pathbarText_ = pathbarText();
     return {
       promptButton: promptButtonFacts,
       instruction: instructionFacts,
       afterDisabledClick,
-      sourceWrite,
+      copySourceAbsent: copySourceAbsent_,
+      pathbarText: pathbarText_,
       rendererErrors: rendererErrors.slice(0, 3),
     };
   })()`;
@@ -363,6 +374,11 @@ function openOutputSource(seeded) {
     };
     await waitFor(() => gallerySettled() && rootCardIds().length === 3, 'three seeded cards');
     await openDetailFor(seeded.a);
+    // A4a：生成树搬进版本树浮层——先点「查看」再操作。
+    const versionTrigger = panel()?.querySelector('[data-inspector-section="version"] [data-action="open-version-overlay"]');
+    if (!versionTrigger) throw new Error('Missing version overlay trigger');
+    versionTrigger.click();
+    await waitFor(() => panel()?.querySelector('[data-gp-overlay]:not([hidden]) [data-generation-history]'), 'generation tree visible inside the version overlay');
     await waitFor(() => genNode(seeded.eventA) && genNode(seeded.eventB)
       && !genRegion().querySelector('.generation-history-status'), 'A generation tree renders both events');
     const before = {
@@ -381,6 +397,11 @@ function openOutputSource(seeded) {
     targetButton.click();
     await waitFor(() => detailOpen() && selectedId() === seeded.b && detailImageSrc().includes(seeded.b),
       'inspector switches to B via open-generation-output');
+    // A4a：切素材后浮层自动关闭——重开再读 B 的生成树。
+    const versionTriggerB = panel()?.querySelector('[data-inspector-section="version"] [data-action="open-version-overlay"]');
+    if (!versionTriggerB) throw new Error('Missing version overlay trigger on B');
+    versionTriggerB.click();
+    await waitFor(() => panel()?.querySelector('[data-gp-overlay]:not([hidden]) [data-generation-history]'), 'generation tree visible inside the version overlay on B');
     await waitFor(() => genNode(seeded.eventB) && !genRegion().querySelector('.generation-history-status'),
       "B generation tree renders after the switch");
     const after = {

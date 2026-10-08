@@ -1,10 +1,13 @@
 // Pluggable flow: seed a >130-asset library through the API (predictable
 // created_at / sort_name / source / category / group), then drive the gallery
-// UI through load-more pagination, type filters, sidebar smart groups (source),
-// the manual-group section, combined refinement + empty-state reset, sort
+// UI through load-more pagination, sidebar smart groups (source), the
+// manual-group section, combined refinement + empty-state reset, sort
 // switching with its mosa.asset-sort persistence across a page reload, and an
 // injected gallery-list outage asserting the error state renders and the grid
 // busy flag resets (plus recovery once the outage is lifted).
+// 任务 70（GravityPort A3）：类型筛选（全部/图片/视频）从顶栏移除——原先经
+// 类型按钮驱动的步骤改走同结果规模的侧栏来源 facet；mediaKind 只剩 API 镜像
+// 断言（后端语义不变），UI 不再覆盖该入口。
 
 import { execFile as execFileCallback } from "node:child_process";
 import { join } from "node:path";
@@ -15,7 +18,7 @@ import { PAGE_HELPERS } from "./_page-helpers.mjs";
 const execFile = promisify(execFileCallback);
 
 export const name = "browse-sort-filter";
-export const description = "seed 130 img + 2 vid + 4 canonical-category img -> one-page first screen + load-more to 136 -> type/source/group filters + topbar category select (stacks, empty-clear resets) -> sort switch + reload persistence -> injected list outage: error state + busy reset + recovery";
+export const description = "seed 130 img + 2 vid + 4 canonical-category img -> one-page first screen + load-more to 136 -> source/group filters + topbar category select (stacks, empty-clear resets) -> sort switch + reload persistence -> injected list outage: error state + busy reset + recovery";
 
 const PROJECT = "default";
 const GROUP_NAME = "bsfgroup";
@@ -116,10 +119,8 @@ function buildPageExpectations(plan, orders) {
     codexOrder: ids(orders.newest.filter((entry) => entry.sourceType === "codex-generated")),
     videoIds: ids(plan.videos.slice().reverse()),
     webSourceIds: ids(orders.newest.filter((entry) => entry.sourceType === "web-chatgpt")),
-    webImgIds: ids(orders.newest.filter((entry) => entry.sourceType === "web-chatgpt" && !entry.video)),
     groupIds: ids(orders.newest.filter((entry) => entry.group === GROUP_NAME)),
-    combinedIds: ids(orders.newest.filter((entry) => !entry.video
-      && entry.sourceType === "web-chatgpt" && entry.prompt.includes(SEARCH_MARKER))),
+    combinedIds: ids(orders.newest.filter((entry) => entry.sourceType === "web-chatgpt" && entry.prompt.includes(SEARCH_MARKER))),
     categoryProductIds: ids(orders.newest.filter((entry) => entry.category === "product")),
     categoryConceptIds: ids(orders.newest.filter((entry) => entry.category === "concept")),
   };
@@ -210,7 +211,7 @@ async function fetchApiMirrors(ctx, origin, plan) {
     webSource: await page({ limit: String(INITIAL_PAGE_SIZE), source: "web-chatgpt" }),
     codexSource: await page({ limit: String(INITIAL_PAGE_SIZE), source: "codex-generated" }),
     group: await page({ limit: String(INITIAL_PAGE_SIZE), group: GROUP_NAME }),
-    combined: await page({ limit: String(INITIAL_PAGE_SIZE), source: "web-chatgpt", mediaKind: "img", q: SEARCH_MARKER }),
+    combined: await page({ limit: String(INITIAL_PAGE_SIZE), source: "web-chatgpt", q: SEARCH_MARKER }),
     poster: await page({ limit: "250", category: "poster" }),
     icon: await page({ limit: "250", category: "icon" }),
     categoryProduct: await page({ limit: "250", category: "product" }),
@@ -239,7 +240,7 @@ function assertMirrorsMatchPlan(mirrors, plan, orders, expect, videosReady) {
   assertEqual(mirrors.webSource, expect.webSourceIds, "API source=web-chatgpt listing");
   assertEqual(mirrors.codexSource.slice(0, INITIAL_PAGE_SIZE), expect.codexOrder.slice(0, INITIAL_PAGE_SIZE), "API source=codex-generated first page");
   assertEqual(mirrors.group, expect.groupIds, "API group listing");
-  assertEqual(mirrors.combined, expect.combinedIds, "API combined source+img+q listing");
+  assertEqual(mirrors.combined, expect.combinedIds, "API combined source+q listing");
   const asSet = (list) => list.slice().sort().join(",");
   assertEqual(asSet(mirrors.poster), asSet(ids(plan.images.filter((entry) => entry.category === "poster"))), "category=poster partition");
   assertEqual(asSet(mirrors.icon), asSet(ids(plan.images.filter((entry) => entry.category === "icon"))), "category=icon partition");
@@ -262,15 +263,13 @@ function assertSessionOne(obs, plan, orders, expect, videosReady) {
 
   // Result sets larger than one page may auto-append; the visible cards must
   // still be an exact prefix of the API order under the same params.
-  assertPrefix(obs.imgIds, expect.imgOrder, expect.initialCount, "type filter img");
-  if (obs.imgIds.some((id) => plan.videos.some((video) => video.id === id))) throw new Error("img filter still shows videos");
-  assertEqual(obs.imgPressed, { active: true, pressed: "true" }, "img filter button state");
-  if (videosReady) {
-    assertEqual(obs.videoIds, expect.videoIds, "type filter video leaves only videos");
-    assertEqual(obs.videoPressed, { active: true, pressed: "true" }, "video filter button state");
-  }
-  assertPrefix(obs.allTypeIds, expect.newestOrder, expect.initialCount, "type filter all restores newest order");
-  assertEqual(obs.allPressed, { active: true, pressed: "true" }, "all-types button state");
+  // 任务 70：类型筛选按钮已从顶栏移除，「切筛选在 >1 页结果上保持恰好一页」
+  // 与「可见卡是 API 顺序的精确前缀」改由同结果规模（>60）的来源 facet 复验；
+  // mediaKind 只剩上方 API 镜像断言。
+  assertPrefix(obs.sourceIds, expect.codexOrder, expect.initialCount, "source filter codex-generated");
+  assertEqual(obs.sourcePressed, { active: true, pressed: "true" }, "codex-generated nav item state");
+  assertPrefix(obs.allIds, expect.newestOrder, expect.initialCount, "all restores newest order");
+  assertEqual(obs.allPressed, { active: true, pressed: "true" }, "all nav item state");
 
   assertEqual(obs.newestIds.slice(0, 5), expect.newestFirst5, "sort newest first-5");
   assertPrefix(obs.newestIds, expect.newestOrder, expect.initialCount, "sort newest page");
@@ -314,7 +313,8 @@ function assertSessionTwo(obs, plan, orders, expect, videosReady) {
     throw new Error(`unexpected category filter entry: ${JSON.stringify(obs.categoryEntry)}`);
   }
 
-  assertEqual(obs.combined.ids, expect.combinedIds, "source+img+search intersection");
+  // 任务 70：source+img 组合窗口随类型筛选入口移除，改为 source+search 交集。
+  assertEqual(obs.combined.ids, expect.combinedIds, "source+search intersection");
   assertEqual(obs.combined.searchValue, SEARCH_MARKER, "search box keeps the query");
 
   assertEqual(obs.emptyState, { kind: "no-results", cardCount: 0, hasClear: true }, "empty state offers 清除筛选");
@@ -325,15 +325,12 @@ function assertSessionTwo(obs, plan, orders, expect, videosReady) {
   assertEqual(obs.afterReset.firstIds, expect.newestFirst5, "clear-filters restores newest order");
   assertEqual(obs.afterReset.searchValue, "", "clear-filters empties the search box");
   assertEqual(obs.afterReset.sourceItem, { active: false, pressed: "false" }, "clear-filters deactivates the source facet");
-  assertEqual(obs.afterReset.typeAll, { active: true, pressed: "true" }, "clear-filters resets the type filter");
   assertEqual(obs.afterReset.title, "所有素材", "clear-filters restores the view title");
 
   // 任务 34：顶栏分类下拉框（canonical product/concept 种子，texture/other 留空）。
   const cat = obs.categoryProduct;
   if (!cat) throw new Error("category filter steps missing from session two");
   assertEqual(cat, { value: "product", ids: expect.categoryProductIds }, "topbar category=product shows exactly its assets");
-  assertEqual(obs.categoryProductImg, { ids: expect.categoryProductIds, typeImg: { active: true, pressed: "true" } }, "category stacks with the img type filter");
-  assertEqual(obs.categoryProductAll.ids, expect.categoryProductIds, "category survives the type reset");
   assertEqual(obs.categoryReset.value, "", "全部分类 clears the category facet");
   assertEqual(obs.categoryConceptSource, { value: "concept", ids: expect.categoryConceptIds, sourceItem: { active: true, pressed: "true" } }, "category stacks with the source facet");
   assertEqual(obs.categoryEmpty.value, "concept", "category selection persists into the empty state");
@@ -346,8 +343,9 @@ function sessionOneSource(expect) {
     ${PAGE_HELPERS}
     const gridElement = () => document.querySelector('#assetGrid');
     const sentinel = () => document.querySelector('#assetGrid [data-sentinel="true"]');
-    const typePressed = (kind) => {
-      const button = document.querySelector('.topbar-type-filters [data-type="' + kind + '"]');
+    const sourceSelector = (value) => '#sidebarGroupList .nav-item[data-filter="source"][data-value="' + value + '"]';
+    const navState = (selector) => {
+      const button = document.querySelector(selector);
       return { active: Boolean(button?.classList.contains('active')), pressed: button?.getAttribute('aria-pressed') || '' };
     };
     async function scrollToLoadAll(label) {
@@ -402,74 +400,54 @@ function sessionOneSource(expect) {
     await waitFor(() => gallerySettled() && rootCardIds().length === expect.initialCount, 'initial first page');
     const initialIds = rootCardIds();
     const sentinelInitially = Boolean(sentinel());
-    // First-screen contract regression: switching a filter on a >1-page result
-    // must keep exactly one page in the DOM until the user scrolls. The old
-    // observer auto-appended here because the fresh layout's sentinel rested
-    // inside the preload warm zone. Hold the count across a 3s window so the
-    // re-render (and any historical auto-append) lands inside the check.
-    click('.topbar-type-filters [data-type="img"]');
-    await waitFor(() => typePressed('img').active, 'img filter button activates');
-    // With videos seeded, the pre-render grid cannot satisfy the img prefix,
-    // so this also proves the filter's re-render landed before the stability
-    // gate (a slow response could otherwise pass stability on the old grid).
-    // gallerySettled pins the wait to the filter's own request having landed
-    // (busy=false); a bare prefix check alone could spin on a grid the
-    // background reconciliation keeps mutating and never judge the final
-    // order, and an empty grid would satisfy isPrefix vacuously.
-    await waitFor(
-      () => typePressed('img').active && gallerySettled() && isPrefix(rootCardIds(), expect.imgOrder),
-      'img filter page renders',
-      20000,
-    );
-    await waitForStableCardLayout('img filter switch');
-    const imgFirstPageIds = rootCardIds();
-    if (imgFirstPageIds.length !== expect.initialCount) {
-      throw new Error("img filter auto-appended page 2 without scrolling: " + (imgFirstPageIds.length) + " cards (expected exactly " + (expect.initialCount) + ")");
+    // 任务 70：原类型筛选（img）步骤改走同结果规模的来源 facet。First-screen
+    // contract regression: switching a filter on a >1-page result must keep
+    // exactly one page in the DOM until the user scrolls. The old observer
+    // auto-appended here because the fresh layout's sentinel rested inside the
+    // preload warm zone. Hold the count across a 3s window so the re-render
+    // (and any historical auto-append) lands inside the check.
+    click(sourceSelector('codex-generated'));
+    await waitFor(() => navState(sourceSelector('codex-generated')).active && isPrefix(rootCardIds(), expect.codexOrder), 'codex-generated filter page renders', 20000);
+    await waitForStableCardLayout('source filter switch');
+    const sourceFirstPageIds = rootCardIds();
+    if (sourceFirstPageIds.length !== expect.initialCount) {
+      throw new Error("source filter auto-appended page 2 without scrolling: " + (sourceFirstPageIds.length) + " cards (expected exactly " + (expect.initialCount) + ")");
     }
-    if (!isPrefix(imgFirstPageIds, expect.imgOrder)) throw new Error('img filter first page is not a prefix of the img order');
+    if (!isPrefix(sourceFirstPageIds, expect.codexOrder)) throw new Error('source filter first page is not a prefix of the codex order');
     for (let i = 0; i < 20; i += 1) {
       await sleep(150);
       const heldCount = rootCardIds().length;
       if (heldCount !== expect.initialCount) {
-        throw new Error("img filter auto-appended during the " + (3) + "s hold: " + (heldCount) + " cards (expected exactly " + (expect.initialCount) + ")");
+        throw new Error("source filter auto-appended during the " + (3) + "s hold: " + (heldCount) + " cards (expected exactly " + (expect.initialCount) + ")");
       }
     }
     // Scrolling to the bottom under the same filter must still append normally.
     const appendGrid = gridElement();
     appendGrid.scrollTop = appendGrid.scrollHeight;
     appendGrid.dispatchEvent(new Event('scroll'));
-    await waitFor(() => rootCardIds().length > expect.initialCount || !sentinel(), 'img filter scroll appends a page', 20000);
-    await waitFor(() => gallerySettled(), 'img filter append settles', 20000);
-    const imgAfterAppendCount = rootCardIds().length;
-    if (imgAfterAppendCount <= expect.initialCount) throw new Error("scroll-append did not grow the gallery: " + (imgAfterAppendCount));
-    click('.topbar-type-filters [data-type="all"]');
-    await waitFor(() => typePressed('all').active && gallerySettled() && rootCardIds().length >= expect.initialCount, 'all-types restores a full first page', 20000);
+    await waitFor(() => rootCardIds().length > expect.initialCount || !sentinel(), 'source filter scroll appends a page', 20000);
+    await waitFor(() => gallerySettled(), 'source filter append settles', 20000);
+    const sourceAfterAppendCount = rootCardIds().length;
+    if (sourceAfterAppendCount <= expect.initialCount) throw new Error("scroll-append did not grow the gallery: " + (sourceAfterAppendCount));
+    click('#quickFilters [data-filter="all"]');
+    await waitFor(() => navState('#quickFilters [data-filter="all"]').active && gallerySettled() && rootCardIds().length >= expect.initialCount, 'all restores a full first page', 20000);
     const stages = await scrollToLoadAll('pagination');
     const loadedIds = rootCardIds();
-    click('.topbar-type-filters [data-type="img"]');
-    // Without seeded videos the img order equals the unfiltered order, so the
-    // order check alone passes before the click lands; wait for the filter too.
-    await waitFor(() => typePressed('img').active && matchesOrder(expect.imgOrder), 'img filter prefix of API order');
-    const imgIds = rootCardIds();
-    const imgPressed = typePressed('img');
-    let videoIds = [];
-    let videoPressed = null;
-    if (expect.videoIds.length) {
-      click('.topbar-type-filters [data-type="video"]');
-      await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds()) === JSON.stringify(expect.videoIds), 'video filter');
-      videoIds = rootCardIds();
-      videoPressed = typePressed('video');
-    }
-    click('.topbar-type-filters [data-type="all"]');
-    await waitFor(() => typePressed('all').active && matchesOrder(expect.newestOrder), 'back to all types');
-    const allTypeIds = rootCardIds();
-    const allPressed = typePressed('all');
+    click(sourceSelector('codex-generated'));
+    // 与 API 顺序对照的来源窗口：等待条件用"是完整顺序的前缀"。
+    await waitFor(() => navState(sourceSelector('codex-generated')).active && matchesOrder(expect.codexOrder), 'source filter prefix of API order');
+    const sourceIds = rootCardIds();
+    const sourcePressed = navState(sourceSelector('codex-generated'));
+    click('#quickFilters [data-filter="all"]');
+    await waitFor(() => navState('#quickFilters [data-filter="all"]').active && matchesOrder(expect.newestOrder), 'back to all assets');
+    const allIds = rootCardIds();
+    const allPressed = navState('#quickFilters [data-filter="all"]');
     const newestIds = await applySort('newest', expect.newestOrder, 'sort newest applied');
     const oldestIds = await applySort('oldest', expect.oldestOrder, 'sort oldest applied');
     const nameIds = await applySort('name', expect.nameOrder, 'sort name applied');
     return {
       initialIds, sentinelInitially, stages, loadedIds,
-      imgIds, imgPressed, videoIds, videoPressed, allTypeIds, allPressed,
+      sourceIds, sourcePressed, allIds, allPressed,
       newestIds, oldestIds, nameIds,
       sortValue: document.querySelector('#sortSelect').value,
       storedSort: localStorage.getItem('mosa.asset-sort') || '',
@@ -489,10 +467,6 @@ function sessionTwoSource(expect) {
       ? { active: button.classList.contains('active'), pressed: button.getAttribute('aria-pressed') || '' }
       : null;
     const viewTitle = () => document.querySelector('#viewTitle')?.textContent || '';
-    const typePressed = (kind) => {
-      const button = document.querySelector('.topbar-type-filters [data-type="' + kind + '"]');
-      return { active: Boolean(button?.classList.contains('active')), pressed: button?.getAttribute('aria-pressed') || '' };
-    };
     // 排序记忆是这里的断言目标；"首屏恰好一页"已在 session 1 严格验证过。
     // 重新加载若撞上空态塌陷布局的自动追加（见下方 reset 注释），数量可能 >60。
     await waitFor(() => gallerySettled() && rootCardIds().length >= expect.initialCount, 'gallery reloads after the sort change');
@@ -530,10 +504,9 @@ function sessionTwoSource(expect) {
     };
     click(sourceSelector('web-chatgpt'));
     await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds()) === JSON.stringify(expect.webSourceIds), 'source facet re-applied');
-    click('.topbar-type-filters [data-type="img"]');
-    await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds()) === JSON.stringify(expect.webImgIds), 'source+img window');
+    // 任务 70：原来的 source+img 组合窗口改走 source+search（类型筛选入口已移除）。
     setValue('#searchInput', '${SEARCH_MARKER}');
-    await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds()) === JSON.stringify(expect.combinedIds), 'combined source+img+search', 20000);
+    await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds()) === JSON.stringify(expect.combinedIds), 'combined source+search', 20000);
     const combined = { ids: rootCardIds(), searchValue: document.querySelector('#searchInput')?.value || '' };
     setValue('#searchInput', '${SEARCH_MISS}');
     await waitFor(() => document.querySelector('.gallery-empty-state') && document.querySelector('[data-action="empty-clear"]'), 'empty state with clear action', 20000);
@@ -554,22 +527,16 @@ function sessionTwoSource(expect) {
       firstIds: rootCardIds().slice(0, 5),
       searchValue: document.querySelector('#searchInput')?.value || '',
       sourceItem: navState(sourceButton('web-chatgpt')),
-      typeAll: typePressed('all'),
       title: viewTitle(),
     };
-    // 任务 34：顶栏分类下拉框。约定：与类型筛选叠加、与来源 facet 叠加
-    // （侧栏点来源会 clearFacets，所以分类要在来源之后选）、空结果清除筛选
-    // 时下拉框回到「全部分类」；不持久化（刷新回默认，类型筛选同款）。
+    // 任务 34：顶栏分类下拉框。约定：与来源 facet 叠加（侧栏点来源会
+    // clearFacets，所以分类要在来源之后选）、空结果清除筛选时下拉框回到
+    // 「全部分类」；不持久化（刷新回默认）。任务 70：与类型筛选叠加的步骤
+    // 随入口移除删除。
     const categoryValue = () => document.querySelector('#categorySelect')?.value ?? '';
     setValue('#categorySelect', 'product');
     await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds()) === JSON.stringify(expect.categoryProductIds), 'category=product filter', 20000);
     const categoryProduct = { value: categoryValue(), ids: rootCardIds() };
-    click('.topbar-type-filters [data-type="img"]');
-    await waitFor(() => typePressed('img').active && JSON.stringify(rootCardIds()) === JSON.stringify(expect.categoryProductIds), 'category+type-img stack', 20000);
-    const categoryProductImg = { ids: rootCardIds(), typeImg: typePressed('img') };
-    click('.topbar-type-filters [data-type="all"]');
-    await waitFor(() => typePressed('all').active && JSON.stringify(rootCardIds()) === JSON.stringify(expect.categoryProductIds), 'category survives the type reset', 20000);
-    const categoryProductAll = { ids: rootCardIds() };
     setValue('#categorySelect', '');
     await waitFor(() => gallerySettled() && rootCardIds().length >= expect.initialCount, 'category reset restores the library', 20000);
     const categoryReset = { value: categoryValue() };
@@ -584,7 +551,7 @@ function sessionTwoSource(expect) {
     click('[data-action="empty-clear"]');
     await waitFor(() => gallerySettled() && rootCardIds().length >= expect.initialCount, 'clear-filters after category', 20000);
     const categoryAfterClear = { value: categoryValue(), sourceItem: navState(sourceButton('web-chatgpt')) };
-    return { reloaded, sourceItems, webSource, codexSource, groupState, categoryEntry, combined, emptyState, afterReset, categoryProduct, categoryProductImg, categoryProductAll, categoryReset, categoryConceptSource, categoryEmpty, categoryAfterClear };
+    return { reloaded, sourceItems, webSource, codexSource, groupState, categoryEntry, combined, emptyState, afterReset, categoryProduct, categoryReset, categoryConceptSource, categoryEmpty, categoryAfterClear };
   })()`;
 }
 
@@ -692,7 +659,7 @@ export async function run(ctx) {
       videos: videosReady ? finalPlan.videos.length : 0,
       videosSkippedReason: videosReady ? "" : videoResult.reason,
       pagination: { firstPage: expect.initialCount, stages: one.stages },
-      filters: ["type-img", ...(videosReady ? ["type-video"] : []), "source-web-chatgpt", "source-codex-generated", `group-${GROUP_NAME}`, "combined-source-img-search", "empty-clear", "category-topbar"],
+      filters: ["source-web-chatgpt", "source-codex-generated", `group-${GROUP_NAME}`, "combined-source-search", "empty-clear", "category-topbar"],
       sorts: ["newest", "oldest", "name"],
       sortPersistedAcrossReload: two.reloaded.sortValue === "name",
       errorState: {

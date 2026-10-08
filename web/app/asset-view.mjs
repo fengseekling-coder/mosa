@@ -3,12 +3,45 @@
 // 模块级状态随闭包迁移；事件语义/钳制公式/手势状态机与原先完全一致。
 import { displayAssetTitle } from "./utils.mjs";
 
+// 纯函数（任务 90）：删除后的落点序号——先沿 +1 找下一个仍有效的 id，没有再沿
+// -1 找上一个；都没有返回 -1（调用方回画廊）。hasAsset 由调用方注入（Viewer 会话
+// 里是 currentAssetViewAssetIds 的成员判定），导出供单测直接驱动。
+export function assetViewLandingIndexAfterDeletion(ids, currentIndex, hasAsset) {
+  if (!Array.isArray(ids) || typeof hasAsset !== "function") return -1;
+  if (!Number.isInteger(currentIndex) || currentIndex < 0 || currentIndex >= ids.length) return -1;
+  for (let index = currentIndex + 1; index < ids.length; index += 1) {
+    if (hasAsset(ids[index])) return index;
+  }
+  for (let index = currentIndex - 1; index >= 0; index -= 1) {
+    if (hasAsset(ids[index])) return index;
+  }
+  return -1;
+}
+
+// 任务 96（A6）：大图页「全屏」与窗口系统全屏双向同步的纯状态机（导出供单测）。
+// 输入：fullscreen=查看器「只剩图片」态；inAssetView=是否处于大图页。事件：
+// - { type: "toggle" }：用户手势发起（大图页「全屏」按钮 / Esc 退出）——查看器翻转，
+//   且桌面桥需把窗口系统全屏写成同一状态（notifyWindow=true）。
+// - { type: "window-change", active }：窗口系统全屏变化（菜单 / 绿色按钮 / ⌃⌘F /
+//   系统 Esc）——查看器跟随，但一律不回写窗口（notifyWindow=false）：自己动作的
+//   回声与外部动作都不再触发第二次写入，两个来源不会互触成环。
+// 不在大图页时窗口全屏照旧与查看器无关（返回 null）。无法识别的事件返回 null。
+export function assetViewFullscreenTransition({ fullscreen, inAssetView }, event) {
+  if (!inAssetView) return null;
+  if (event?.type === "toggle") return { fullscreen: !fullscreen, notifyWindow: true };
+  if (event?.type === "window-change") {
+    if (Boolean(event.active) === fullscreen) return null;
+    return { fullscreen: Boolean(event.active), notifyWindow: false };
+  }
+  return null;
+}
+
 export function createAssetViewer({
   els, state, t,
   announceGalleryStatus, selectedAsset, isVideoAsset, confirmDetailNavigation, discardDetailDraft,
   isCurrentDetailSelection, assetRequestKey, currentAssetRequest, requestAssetPage,
   renderGrid, updateViewTitle, showToast, renderDetail, updateSelectedCard,
-  setDetailOpen, setupMasonryLayout,
+  setDetailOpen, setupMasonryLayout, desktopFullscreen,
 }) {
   // ===== 专用大图查看模式（Phase 3A / D4 / F-01） =====
   // 终态结构：左侧 Sidebar + 中央专用大图工作区 + 右侧素材信息面板（既有详情面板复用，
@@ -594,7 +627,8 @@ export function createAssetViewer({
   function handleAssetViewPointerDown(event) {
     if (state.viewMode !== "asset" || !assetViewImageReady()) return;
     if (event.pointerType === "mouse" && (!event.isPrimary || event.button !== 0)) return;
-    if (event.target.closest(".asset-view-controls")) return;
+    // 翻页箭头（A4c）与既有控制条同为舞台子元素：指针落在其上不启动平移/捏合。
+    if (event.target.closest(".asset-view-controls, .asset-view-arrow")) return;
     if (assetViewActivePointers.has(event.pointerId)) return;
     // Cache the content-box geometry once per gesture. Pointer moves then stay
     // on the pure-math path instead of repeatedly forcing style/layout reads.
@@ -972,13 +1006,28 @@ export function createAssetViewer({
       if (nextIndex === -1) { updateAssetViewNav(); return; }
     }
     if (nextIndex === -1) return;
-    cancelAssetViewPan();
     const id = assetViewSequence.ids[nextIndex];
     const originProjectId = state.project;
     const originAssetId = state.selectedId;
     if (!await confirmDetailNavigation(id)) return;
     if (originAssetId !== null && !isCurrentDetailSelection(originProjectId, originAssetId)) return;
     discardDetailDraft();
+    commitAssetViewIndex(nextIndex);
+    // 焦点策略：若本次导航使持焦按钮自身到达边界变为 disabled，焦点不得掉到 <body>——
+    // 移到另一侧仍可用的导航按钮；两侧皆不可用（单项序列）时回到 Viewer Header 的返回按钮。
+    const active = document.activeElement;
+    if ((active === els.assetViewPrev || active === els.assetViewNext) && active.disabled) {
+      const fallback = active === els.assetViewPrev ? els.assetViewNext : els.assetViewPrev;
+      (fallback && !fallback.disabled ? fallback : els.assetViewBack)?.focus();
+    }
+    return id;
+  }
+
+  // 已确认的序号提交（任务 90 从 navigateAssetView 抽出）：清平移手势 → 切选中 →
+  // 重置检视器数据 → 渲染舞台与导航 → 预加载邻位 → 延后渲染检视器。
+  function commitAssetViewIndex(nextIndex) {
+    cancelAssetViewPan();
+    const id = assetViewSequence.ids[nextIndex];
     assetViewSequence.index = nextIndex;
     state.selectedId = id;
     state.detailAsset = null;
@@ -990,13 +1039,121 @@ export function createAssetViewer({
     updateAssetViewNav();
     preloadAssetViewNeighbors();
     scheduleAssetViewDetailRender(id);
-    // 焦点策略：若本次导航使持焦按钮自身到达边界变为 disabled，焦点不得掉到 <body>——
-    // 移到另一侧仍可用的导航按钮；两侧皆不可用（单项序列）时回到 Viewer Header 的返回按钮。
-    const active = document.activeElement;
-    if ((active === els.assetViewPrev || active === els.assetViewNext) && active.disabled) {
-      const fallback = active === els.assetViewPrev ? els.assetViewNext : els.assetViewPrev;
-      (fallback && !fallback.disabled ? fallback : els.assetViewBack)?.focus();
+    return id;
+  }
+
+  // 任务 90：删除当前素材后的自动落点——先下一张、再上一张、都没有则回画廊。
+  // 同步调用（删除请求成功后、本地对账移除行之前）：此刻被删 id 仍在 state.assets，
+  // 邻位有效性与 navigateAssetView 同一套判定；对账到达后导航照常按失效 id 跳过。
+  function advanceAfterViewerDelete() {
+    if (state.viewMode !== "asset") return null;
+    const nextIndex = assetViewLandingIndexAfterDeletion(assetViewSequence.ids, assetViewSequence.index, (id) => assetViewSequenceHasAsset(id));
+    if (nextIndex === -1) {
+      void returnToLibrary();
+      return null;
     }
+    return commitAssetViewIndex(nextIndex);
+  }
+
+  // 任务 90：撤销删除——把恢复回来的素材重新显示到大图页。id 必须仍在会话序列且
+  // 属于当前结果集（序列在打开时捕获，被删素材本就在其中，恢复并回到当前结果集后
+  // 可直达）；已在显示时视为成功。调用方（app.mjs 撤销处理器）负责恢复请求、本地
+  // 对账与草稿确认。
+  function showAssetInView(id) {
+    if (state.viewMode !== "asset" || !id) return false;
+    if (!assetViewSequenceHasAsset(id)) return false;
+    const nextIndex = assetViewSequence.ids.indexOf(id);
+    if (nextIndex === -1) return false;
+    if (nextIndex === assetViewSequence.index) return true;
+    commitAssetViewIndex(nextIndex);
+    return true;
+  }
+
+  // ===== 全屏（GravityPort A4c，任务 90；桌面窗口同步任务 96） =====
+  // 全屏 = 只剩媒体：头部按钮、翻页箭头全部隐藏，黑底铺满（.is-fullscreen）。
+  // 浏览器：Fullscreen API（无用户手势或 API 不可用时退级为 CSS 态，视觉一致）；
+  // Esc 退出全屏回到大图页（不直接回画廊）：真全屏的 Esc 由浏览器消费后经
+  // fullscreenchange 同步落类；CSS 态由应用级 Escape 分支兜底。退出后的一小段
+  // 宽限防止「退全屏的 Esc」在事件时序里落到气泡链，把整个查看模式一起关掉。
+  // 桌面（任务 96）：注入 desktopFullscreen 桥后，查看器全屏不再叠加元素全屏，
+  // 而是直接驱动窗口系统全屏（setWindowFullScreen）；菜单/绿色按钮/⌃⌘F/系统 Esc
+  // 造成的窗口全屏变化经 handleWindowFullScreenChange 回流——双向同步，纯判定
+  // 在导出的 assetViewFullscreenTransition（不回写窗口，防两源互触成环）。
+  let assetViewFullscreenFallback = false;
+  let assetViewFullscreenExitedAt = 0;
+  const ASSET_VIEW_FULLSCREEN_SETTLE_MS = 350;
+
+  function isAssetViewFullscreen() {
+    return assetViewFullscreenFallback || document.fullscreenElement === els.assetView;
+  }
+
+  function isAssetViewFullscreenSettling() {
+    return Date.now() - assetViewFullscreenExitedAt < ASSET_VIEW_FULLSCREEN_SETTLE_MS;
+  }
+
+  function syncAssetViewFullscreenClass() {
+    const active = isAssetViewFullscreen();
+    if (!active && els.assetView?.classList.contains("is-fullscreen")) {
+      assetViewFullscreenExitedAt = Date.now();
+    }
+    els.assetView?.classList.toggle("is-fullscreen", active);
+    return active;
+  }
+
+  // 桌面桥写入（无桥时 no-op，浏览器行为不变）。
+  function notifyAssetViewWindowFullScreen(flag) {
+    desktopFullscreen?.setWindowFullScreen?.(flag === true);
+  }
+
+  // 状态机结果落地：翻查看器 CSS 态 + 按需写窗口系统全屏。
+  function applyAssetViewFullscreenState(transition) {
+    if (!transition) return false;
+    assetViewFullscreenFallback = transition.fullscreen;
+    syncAssetViewFullscreenClass();
+    if (transition.notifyWindow) notifyAssetViewWindowFullScreen(transition.fullscreen);
+    return true;
+  }
+
+  // 桌面窗口系统全屏变化入口（app.mjs 经 preload 桥订阅）。
+  function handleWindowFullScreenChange(active) {
+    return applyAssetViewFullscreenState(assetViewFullscreenTransition(
+      { fullscreen: isAssetViewFullscreen(), inAssetView: state.viewMode === "asset" },
+      { type: "window-change", active: active === true },
+    ));
+  }
+
+  function exitAssetViewFullscreen() {
+    if (assetViewFullscreenFallback) {
+      assetViewFullscreenFallback = false;
+      syncAssetViewFullscreenClass();
+      // 桌面（任务 96）：查看器退出「只剩图片」时窗口一并退出系统全屏；
+      // 随后的 leave-full-screen 回声经状态机判为 no-op。
+      notifyAssetViewWindowFullScreen(false);
+      return Promise.resolve();
+    }
+    if (document.fullscreenElement) return document.exitFullscreen().catch(() => {});
+    return Promise.resolve();
+  }
+
+  async function toggleAssetViewFullscreen() {
+    if (state.viewMode !== "asset" || !els.assetView) return;
+    if (isAssetViewFullscreen()) {
+      await exitAssetViewFullscreen();
+      return;
+    }
+    if (typeof desktopFullscreen?.setWindowFullScreen === "function") {
+      // 桌面：窗口系统全屏即「只剩图片」，不叠加元素全屏。
+      applyAssetViewFullscreenState({ fullscreen: true, notifyWindow: true });
+      return;
+    }
+    try {
+      if (typeof els.assetView.requestFullscreen !== "function") throw new Error("Fullscreen API unavailable");
+      await els.assetView.requestFullscreen();
+    } catch {
+      // 合成点击/无手势/权限拒绝：退级 CSS 态，交互语义不变。
+      assetViewFullscreenFallback = true;
+    }
+    syncAssetViewFullscreenClass();
   }
 
   // 主图异步竞态防护（Phase 3C）：快速连续导航时旧图片 load/error 可能晚到。dataset.assetId
@@ -1022,6 +1179,15 @@ export function createAssetViewer({
     setViewMode, renderAssetView, openAssetView, returnToLibrary, resetAssetViewTransform,
     handleAssetViewImageLoad, handleAssetViewImageError, canNavigateAssetView, navigateAssetView,
     zoomAssetViewBy, fitAssetView, resetAssetViewToHundred, updateAssetViewNav, ASSET_VIEW_ZOOM_STEP,
+    // 任务 90：删除后的自动落点 / 撤销删除回图 / 全屏态。
+    advanceAfterViewerDelete, showAssetInView,
+    isAssetViewFullscreen, isAssetViewFullscreenSettling, syncAssetViewFullscreenClass,
+    exitAssetViewFullscreen, toggleAssetViewFullscreen,
+    // 任务 96：桌面窗口系统全屏变化 → 查看器全屏态同步入口。
+    handleWindowFullScreenChange,
+    // 任务 96 返工 1：当前显示素材 id（舞台锚点，切换素材即更新）。selectedId 被
+    // 后台刷新竞态洗掉时，删除等操作用它恢复锚。
+    currentViewedAssetId() { return assetViewStageAssetId || ""; },
     // 库同步在 Viewer 打开期间改动了画廊数据时标记；返回 Library 时补一次渲染。
     markGalleryDirty() { assetViewGalleryDirty = true; },
   };

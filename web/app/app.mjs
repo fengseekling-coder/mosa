@@ -6,26 +6,83 @@ import {
 } from "./config.mjs";
 import {
   cardShortTitle, debounce, displayAssetTitle, escapeHtml, formatDate, normalizeSort, safeStorageGet, safeStorageSet,
+  CONFIRM_MOVE_TO_TRASH_KEY, moveToTrashConfirmSuppressed, setMoveToTrashConfirmSuppressed,
 } from "./utils.mjs";
 import { createToastManager } from "./toast-manager.mjs";
 import { createApiClient, mosaMutationHeaders } from "./api-client.mjs";
 import { createConfirmDialog } from "./confirm-dialog.mjs";
 import { createImagePreviewViewer } from "./image-preview.mjs";
 import { createAssetViewer } from "./asset-view.mjs";
-import { createInspectorMarkup, DETAIL_TAGS_VISIBLE_LIMIT } from "./inspector-markup.mjs";
+import { createInspectorMarkup, DETAIL_TAGS_VISIBLE_LIMIT, inspectorPaletteSwatches, generationContextRows } from "./inspector-markup.mjs";
+import { createInspectorOverlay } from "./inspector-overlay.mjs";
 import { assetTags, derivePromptTags, uniqueTags } from "./tag-utils.mjs";
 import { createContextMenu } from "./context-menu.mjs";
 import { createContextMenuActions } from "./context-menu-actions.mjs";
 import { bindContextMenuEvents } from "./context-menu-bindings.mjs";
 import { createGallerySelection } from "./gallery-selection.mjs";
 import { createAssetStackController } from "./asset-stacks.mjs";
+import { createCutPasteController } from "./cut-paste.mjs";
 import { createLibraryReconciler } from "./library-reconciliation.mjs";
+import { createNavigationHistory } from "./navigation-history.mjs";
 import { collectDroppedFiles, createBatchImporter, dropErrorMessage } from "./batch-import.mjs";
 import { createNativeAssetDrag } from "./native-asset-drag.mjs";
 let libraryRefreshTimer = null;
 let settingsSyncTimer = null;
 let settingsSyncScheduled = false;
 const TRASH_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+
+// ===== GravityPort A3：缩略图大小滑杆与画廊列数（任务 70）=====
+// 目标卡宽 120–400px、步长 20、默认 200（1440 宽、检视器关闭时约 5 列）；
+// 列数 = max(1, min(上限, floor((内容宽 + 列间距) / (目标宽 + 列间距))))。
+// 独立导出供契约测试直接求值。
+const GALLERY_SIZE_STORAGE_KEY = "mosa.gallery-card-size";
+const GALLERY_SIZE_MIN = 120;
+const GALLERY_SIZE_MAX = 400;
+const GALLERY_SIZE_STEP = 20;
+const GALLERY_SIZE_DEFAULT = 200;
+const GALLERY_MAX_COLUMNS = 10;
+
+export function computeGalleryColumnCount(contentWidth, targetCardWidth, gap, maxColumns = GALLERY_MAX_COLUMNS) {
+  const width = Number(contentWidth);
+  const target = Number(targetCardWidth);
+  const gapValue = Number(gap) || 0;
+  if (!Number.isFinite(width) || width <= 0) return 1;
+  if (!Number.isFinite(target) || target <= 0) return 1;
+  const cap = Number.isFinite(maxColumns) && maxColumns >= 1 ? Math.floor(maxColumns) : GALLERY_MAX_COLUMNS;
+  return Math.max(1, Math.min(cap, Math.floor((width + gapValue) / (target + gapValue))));
+}
+
+// 滑杆组三态判定（任务 70 返工 1，用户 10-06 拍板）：能放下时滑杆组中心对准
+// 整个窗口的中线（centerX = 窗口中线换算到顶栏坐标系，检视器开关都一样）；
+// 放不下（与左右两组各留 12px 呼吸边距）时退让到左组右缘与右组左缘之间的
+// 空白里居中；连空白都放不下（空白 < 组宽 + 24）才隐藏。坐标一律是顶栏
+// border-box 内的 px：centered/recentered 都返回行内 left（CSS 的 50% 是顶栏
+// 中线、不等于窗口中线，只作 JS 跑起来前的兜底），hidden 返回 null（删行内
+// 值）。独立导出供契约测试直接求值。
+export const TOPBAR_SIZE_GROUP_MARGIN = 12;
+
+export function computeTopbarSizeGroupPlacement(centerX, leftGroupRight, rightGroupLeft, groupWidth, margin = TOPBAR_SIZE_GROUP_MARGIN) {
+  if (!Number.isFinite(centerX) || !Number.isFinite(groupWidth) || groupWidth <= 0
+    || !Number.isFinite(leftGroupRight) || !Number.isFinite(rightGroupLeft) || rightGroupLeft < leftGroupRight) {
+    return { mode: "hidden", left: null };
+  }
+  if (centerX - groupWidth / 2 >= leftGroupRight + margin && centerX + groupWidth / 2 <= rightGroupLeft - margin) {
+    return { mode: "centered", left: centerX };
+  }
+  if (rightGroupLeft - leftGroupRight - margin * 2 >= groupWidth) {
+    return { mode: "recentered", left: (leftGroupRight + rightGroupLeft) / 2 };
+  }
+  return { mode: "hidden", left: null };
+}
+
+function clampGalleryCardSize(value) {
+  const raw = Number(value);
+  if (!Number.isFinite(raw) || raw <= 0) return GALLERY_SIZE_DEFAULT;
+  const stepped = Math.round((raw - GALLERY_SIZE_MIN) / GALLERY_SIZE_STEP) * GALLERY_SIZE_STEP + GALLERY_SIZE_MIN;
+  return Math.min(GALLERY_SIZE_MAX, Math.max(GALLERY_SIZE_MIN, stepped));
+}
+
+let galleryTargetCardWidth = clampGalleryCardSize(safeStorageGet(GALLERY_SIZE_STORAGE_KEY));
 
 function trashRemainingDays(deletedAt) {
   const deletedAtMs = Date.parse(String(deletedAt || ""));
@@ -46,6 +103,30 @@ function sourceTypeLabel(type) {
   return SOURCE_LABEL_KEYS[cleanType] ? t(SOURCE_LABEL_KEYS[cleanType]) : (cleanType || t("sourceUnknown"));
 }
 
+// 用户中心头像字母：取安装 ID 里第一个英文字母转大写（安装 ID 是 UUID，十六进制
+// 字母都落在 a–f）。拿不到 ID（浏览器版、接口缺失、返回空、无字母）一律回落 G。
+// 独立导出供契约测试直接求值。
+export function userCenterInitial(userId) {
+  const match = String(userId ?? "").match(/[a-zA-Z]/);
+  return match ? match[0].toUpperCase() : "G";
+}
+
+// 桌面版启动后异步取安装 ID：不阻塞启动，先显示 G，拿到后更新头像字母并记忆到
+// state（设置「关于」页的用户 ID 行据此渲染；打开着设置弹窗时原地重建一次）。
+async function hydrateUserCenter() {
+  if (!window.electronAPI?.getUserProfile || !els.userCenterAvatar) return;
+  try {
+    const profile = await window.electronAPI.getUserProfile();
+    const userId = String(profile?.userId || "").trim();
+    if (!userId) return;
+    state.userProfileId = userId;
+    els.userCenterAvatar.textContent = userCenterInitial(userId);
+    if (els.settingsMenu && !els.settingsMenu.hidden) renderSettingsMenu({ force: true });
+  } catch {
+    // 取不到就保持 G；「关于」页不出现用户 ID 行。
+  }
+}
+
 const preference = safeStorageGet("mosa.ui-language") || "system";
 // The inspector docks as a fixed right column only where the desktop layout
 // applies. This must match the ≤767px drawer breakpoint (MOBILE_NAVIGATION_QUERY
@@ -57,6 +138,36 @@ const INSPECTOR_DOCKED_MEDIA = "(min-width: 768px)";
 function isInspectorDocked() {
   return typeof window.matchMedia === "function" && window.matchMedia(INSPECTOR_DOCKED_MEDIA).matches;
 }
+
+// ===== 任务 81 返工 1：主题三态（跟随系统 / 浅色 / 深色）。 =====
+// 存储沿用 mosa-dark-mode：历史取值 "true"=深色、"false"=浅色 原样有效；
+// "system"、缺失或未知值都按「跟随系统」处理（新用户默认跟随系统）。
+// state.darkMode 保留为「实际生效的深浅」（跟随系统时由系统外观推导），
+// 其余读主题的代码（data-theme、深色专用样式）拿到的永远是 light/dark。
+const THEME_SYSTEM = "system";
+const systemDarkQuery = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+
+function resolveThemeSetting(raw) {
+  if (raw === "true") return "dark";
+  if (raw === "false") return "light";
+  return THEME_SYSTEM;
+}
+
+function themeSettingStorageValue(setting) {
+  if (setting === "dark") return "true";
+  if (setting === "light") return "false";
+  return THEME_SYSTEM;
+}
+
+function systemPrefersDark() {
+  return Boolean(systemDarkQuery?.matches);
+}
+
+function effectiveDarkMode(setting) {
+  return setting === "dark" || (setting === THEME_SYSTEM && systemPrefersDark());
+}
+
+const initialThemeSetting = resolveThemeSetting(safeStorageGet("mosa-dark-mode"));
 
 const state = {
   project: "default", assets: [], pageTotal: 0, nextCursor: null, loadedPageCount: 0, loadedAssetCount: 0, selectedId: null, selectedIds: new Set(), selectedStackNodes: new Map(), selectionProject: "default", selectionRequestKey: "", detailAsset: null, detailStack: null, versionHistory: null, recipeHistory: null, generationHistory: null, detailOpen: false, detailManuallyClosed: false, detailDirty: false, detailReturnFocus: null, imagePreviewId: null, previewReturnFocus: null, query: "",
@@ -75,7 +186,12 @@ const state = {
   updateCanInstallInApp: false,
   updateDownloadPercent: 0,
   visualModelStatus: null,
-  darkMode: safeStorageGet("mosa-dark-mode") === "true", settingsReturnFocus: null,
+  darkMode: effectiveDarkMode(initialThemeSetting), settingsReturnFocus: null,
+  // 任务 81 返工 1：主题设置三态（system/light/dark，跟随系统为默认）。darkMode
+  // 是它推导出的「实际生效」值；系统外观变化时由 matchMedia 监听实时更新。
+  themeSetting: initialThemeSetting,
+  // 用户中心：安装 ID（桌面版经 user-profile IPC 取得，浏览器版恒空）。
+  userProfileId: "",
   // 设置弹窗当前分类（两栏标签页）。仅会话内记忆，不写本地存储；重建后停留原分类。
   settingsPage: "general",
   sidebarSmartCollapsed: safeStorageGet("mosa.sidebar-smart-collapsed") === "true",
@@ -92,6 +208,9 @@ const state = {
   viewMode: "library", libraryReturnSnapshot: null,
   activeStackId: "", activeStackSummary: null, stackReturnSnapshot: null,
   assetStackDragCandidate: false,
+  // 任务 93：剪切粘贴状态。cutAssetIds 是待移动集合（卡片变淡），cutProjectId
+  // 是发起剪切时的项目口径（项目变化即视为取消）；两者都由 cut-paste.mjs 维护。
+  cutAssetIds: new Set(), cutProjectId: "",
 };
 
 // ===== i18n 运行时（resolveLocale/t/applyLanguage 已提取至 i18n-runtime.mjs）=====
@@ -118,10 +237,12 @@ const applyLanguage = createLanguageApplier({
 const els = {
   searchInput: document.querySelector("#searchInput"), quickFilters: document.querySelector("#quickFilters"),
   typeFilters: document.querySelector(".topbar-type-filters"),
+  navHistoryBack: document.querySelector("#navHistoryBack"), navHistoryForward: document.querySelector("#navHistoryForward"),
+  topbarSizeGroup: document.querySelector("#topbarSizeGroup"), gallerySizeSlider: document.querySelector("#gallerySizeSlider"), gallerySizeMinus: document.querySelector("#gallerySizeMinus"), gallerySizePlus: document.querySelector("#gallerySizePlus"),
   sidebar: document.querySelector("#appSidebar"), mobileNavToggle: document.querySelector("#mobileNavToggle"), mobileNavClose: document.querySelector("#mobileNavClose"), mobileNavScrim: document.querySelector("#mobileNavScrim"),
   sortSelect: document.querySelector("#sortSelect"),
   categorySelect: document.querySelector("#categorySelect"),
-  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), openInspectorBtn: document.querySelector("#openInspectorBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), stackRenameModal: document.querySelector("#stackRenameModal"), stackRenameModalTitle: document.querySelector("#stackRenameModalTitle"), stackRenameModalInput: document.querySelector("#stackRenameInput"), stackRenameModalClose: document.querySelector("#stackRenameModalClose"), cancelStackRenameBtn: document.querySelector("#cancelStackRenameBtn"), saveStackRenameBtn: document.querySelector("#saveStackRenameBtn"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"),
+  settingsToggle: document.querySelector("#settingsToggle"), settingsMenu: document.querySelector("#settingsMenu"), userCenterAvatar: document.querySelector("#userCenterAvatar"), sidebarGroupList: document.querySelector("#sidebarGroupList"), sidebarManualGroupList: document.querySelector("#sidebarManualGroupList"), smartGroupsToggle: document.querySelector("#smartGroupsToggle"), assetCategoriesToggle: document.querySelector("#assetCategoriesToggle"), addGroupBtn: document.querySelector("#addGroupBtn"), openInspectorBtn: document.querySelector("#openInspectorBtn"), groupModal: document.querySelector("#groupModal"), closeGroupModal: document.querySelector("#closeGroupModal"), cancelGroupBtn: document.querySelector("#cancelGroupBtn"), saveGroupBtn: document.querySelector("#saveGroupBtn"), groupNameInput: document.querySelector("#groupNameInput"), stackRenameModal: document.querySelector("#stackRenameModal"), stackRenameModalTitle: document.querySelector("#stackRenameModalTitle"), stackRenameModalInput: document.querySelector("#stackRenameInput"), stackRenameModalClose: document.querySelector("#stackRenameModalClose"), cancelStackRenameBtn: document.querySelector("#cancelStackRenameBtn"), saveStackRenameBtn: document.querySelector("#saveStackRenameBtn"), groupStatsModal: document.querySelector("#groupStatsModal"), closeGroupStatsModal: document.querySelector("#closeGroupStatsModal"), groupStatsCloseBtn: document.querySelector("#groupStatsCloseBtn"), groupStatsBody: document.querySelector("#groupStatsBody"), imagePreviewModal: document.querySelector("#imagePreviewModal"), imagePreviewStage: document.querySelector("#imagePreviewStage"), imagePreviewImage: document.querySelector("#imagePreviewImage"), imagePreviewVideo: document.querySelector("#imagePreviewVideo"), imagePreviewTitle: document.querySelector("#imagePreviewTitle"), closeImagePreview: document.querySelector("#closeImagePreview"),
   viewTitle: document.querySelector("#viewTitle"), statusText: document.querySelector("#statusText"), bridgeStatus: document.querySelector("#bridgeStatus"), bridgeStatusLabel: document.querySelector("#bridgeStatusLabel"), bridgeStatusMeta: document.querySelector("#bridgeStatusMeta"), appShell: document.querySelector("#appShell"), assetGrid: document.querySelector("#assetGrid"), detailPanel: document.querySelector("#detailPanel"), toastContainer: document.querySelector("#toastContainer"), toastErrorContainer: document.querySelector("#toastErrorContainer")
 };
 
@@ -200,6 +321,9 @@ Object.assign(els, {
   assetZoomOut: document.querySelector("#assetZoomOut"),
   assetZoomIn: document.querySelector("#assetZoomIn"),
   assetZoomFit: document.querySelector("#assetZoomFit"),
+  // GravityPort A4c（任务 90）：右上「删除 / 全屏」；适合窗口沿用 #assetZoomFit。
+  assetViewDelete: document.querySelector("#assetViewDelete"),
+  assetViewFullscreen: document.querySelector("#assetViewFullscreen"),
   stackBack: document.querySelector("#stackBack"),
   emptyTrashBtn: document.querySelector("#emptyTrashBtn"),
   assetZoomValue: document.querySelector("#assetZoomValue"),
@@ -214,6 +338,8 @@ Object.assign(els, {
   confirmDialogDescription: document.querySelector("#confirmDialogDescription"),
   confirmDialogCancel: document.querySelector("#confirmDialogCancel"),
   confirmDialogConfirm: document.querySelector("#confirmDialogConfirm"),
+  confirmDialogDontAsk: document.querySelector("#confirmDialogDontAsk"),
+  confirmDialogDontAskCheckbox: document.querySelector("#confirmDialogDontAskCheckbox"),
 });
 
 function gallerySelectionRects() {
@@ -368,12 +494,22 @@ const assetStacks = createAssetStackController({
 function applyDarkMode() {
   const appearance = state.darkMode ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", appearance);
+  // 三态下选中态跟 themeSetting 走（跟随系统选中时，生效外观可能是浅色或深色），
+  // 生效外观仍由上面的 data-theme 表达。
   els.settingsMenu?.querySelectorAll("[data-appearance-opt]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.appearanceOpt === appearance);
+    button.classList.toggle("active", button.dataset.appearanceOpt === state.themeSetting);
   });
   // Phase 5A / F-12：aria-checked 与 roving tabindex 必须跟随 .active 视觉态同步。
   syncSegmentedRadios(els.settingsMenu);
 }
+
+// 任务 81 返工 1：跟随系统——OS 外观切换时立即跟着变（Electron 的 matchMedia
+// 跟随 nativeTheme，浏览器跟随系统），不刷新页面；未选「跟随系统」时不动作。
+systemDarkQuery?.addEventListener?.("change", () => {
+  if (state.themeSetting !== THEME_SYSTEM) return;
+  state.darkMode = systemPrefersDark();
+  applyDarkMode();
+});
 
 // Phase 5A / F-12：segmented radiogroup 状态同步——aria-checked/tabindex 跟随 .active class，
 // 颜色不是唯一选中表达；组内永远保留恰好一个 Tab 停靠点。
@@ -668,6 +804,15 @@ function setupPasteImport() {
       || !els.imagePreviewModal?.hidden
       || els.groupModal?.classList.contains("open")
       || hasBlockingOverlay()) return;
+    // 任务 93：⌘V 分流。剪切状态活着即代表系统剪贴板里仍是本次剪切写入的
+    // 内容（失焦/应用内再写剪贴板都会取消剪切，见 cut-paste.mjs），此时 ⌘V
+    // 执行「移动」：堆叠内 → 移进当前堆叠，非堆叠画廊视图 → 移出成散图；
+    // 回收站在上方守卫直接返回，不会走到这里。没有剪切状态时照旧导入。
+    if (cutPaste.isCutActive()) {
+      event.preventDefault();
+      void cutPaste.pasteCut({});
+      return;
+    }
     const items = event.clipboardData?.items;
     if (!items) return;
     const files = [];
@@ -804,6 +949,25 @@ function isImeComposing(event) {
 }
 
 // ===== Keyboard Shortcuts =====
+// 任务 93：⌘/Ctrl+X 剪切当前选区（或大图页/检视器当前素材）。折叠 Stack 节点
+// 不可剪切——与右键菜单的置灰口径一致，⌘X 直接不动作。
+function cutFromKeyboard() {
+  if (state.scope === "trash") return;
+  const selectedIds = state.selectedIds instanceof Set && state.selectedIds.size ? [...state.selectedIds] : [];
+  const rootStackNodeGuard = (ids) => state.viewMode === "library"
+    && !state.activeStackId
+    && (state.assets || []).some((asset) => asset.stack?.id && ids.includes(asset.id));
+  if (selectedIds.length) {
+    if (rootStackNodeGuard(selectedIds)) return;
+    void cutPaste.cutAssetIds(selectedIds);
+    return;
+  }
+  const asset = selectedAsset();
+  if (!asset || !(state.viewMode === "asset" || state.detailOpen || state.viewMode === "library")) return;
+  if (rootStackNodeGuard([asset.id])) return;
+  void cutPaste.cutAssetIds([asset.id]);
+}
+
 function setupKeyboardShortcuts() {
   document.addEventListener("keydown", (event) => {
     // Phase 5B：ConfirmDialog 打开时页面背景不接收任何键盘操作（Escape 由
@@ -824,7 +988,8 @@ function setupKeyboardShortcuts() {
     // The gallery owns ⌘/Ctrl+A now that marquee selection is available. Paste
     // is let through in both modes: the document paste handler imports
     // clipboard images, so preventDefault() here would suppress it entirely.
-    if ((event.metaKey || event.ctrlKey) && (event.key === "a" || event.key === "A" || event.key === "v" || event.key === "V")) {
+    // 任务 93：⌘/Ctrl+X 走剪切（与右键菜单同一动作）；输入控件不拦截。
+    if ((event.metaKey || event.ctrlKey) && (event.key === "a" || event.key === "A" || event.key === "v" || event.key === "V" || event.key === "x" || event.key === "X")) {
       if (event.target.matches?.("input, textarea, select, [contenteditable]")) return;
       if (hasBlockingOverlay()) return;
       if ((event.key === "a" || event.key === "A") && state.viewMode === "library" && state.assets.length) {
@@ -833,6 +998,11 @@ function setupKeyboardShortcuts() {
         return;
       }
       if (event.key === "v" || event.key === "V") return;
+      if (event.key === "x" || event.key === "X") {
+        event.preventDefault();
+        void cutFromKeyboard();
+        return;
+      }
       event.preventDefault();
       return;
     }
@@ -856,6 +1026,14 @@ function setupKeyboardShortcuts() {
       else els.assetGrid?.focus({ preventScroll: true });
       return;
     }
+    // GravityPort A3：后退/前进（任务 70）。macOS ⌘[ / ⌘]，其他平台 Alt+← / Alt+→；
+    // 输入控件已被上方守卫拦截，contenteditable 在 resolveNavHistoryShortcut 里排除。
+    const navHistoryDirection = resolveNavHistoryShortcut(event);
+    if (navHistoryDirection !== 0 && !hasBlockingOverlay()) {
+      event.preventDefault();
+      void navigateGalleryHistory(navHistoryDirection);
+      return;
+    }
     if (event.key === "/" && state.viewMode === "library" && !hasBlockingOverlay()) { event.preventDefault(); els.searchInput?.focus(); return; }
     if (event.key === "Escape") {
       // Phase 3A 运行时修复：bindEvents 先行注册的 Modal 焦点陷阱已消费本次 Escape
@@ -866,6 +1044,17 @@ function setupKeyboardShortcuts() {
       if (els.stackRenameModal?.classList.contains("open")) { closeStackRenameModal(); event.preventDefault(); return; }
       // Escape 先关最上层 Modal，再退出查看模式，不得穿透。
       if (!els.settingsMenu?.hidden) { closePanel(els.settingsMenu, els.settingsToggle); event.preventDefault(); return; }
+      // GravityPort A4a：检视器浮层打开时 Esc 只关浮层（焦点回「查看」），不动检视器。
+      if (inspectorOverlay.isOpen()) { event.preventDefault(); inspectorOverlay.close(); return; }
+      // 任务 93：Esc 优先级是 菜单 > 全屏 > 剪切 > 其他。菜单已在函数开头被
+      // 消费；全屏态放行给下方全屏分支；其余情况下有剪切先取消剪切（卡片
+      // 恢复正常），再轮到清选区/退层级等既有行为。
+      if (cutPaste.isCutActive()
+        && !(state.viewMode === "asset" && (assetViewer.isAssetViewFullscreen() || assetViewer.isAssetViewFullscreenSettling()))) {
+        event.preventDefault();
+        cutPaste.cancelCut({ announce: true });
+        return;
+      }
       if (state.viewMode === "library" && state.selectedIds?.size) {
         gallerySelection.clear({ announce: true });
         event.preventDefault();
@@ -874,6 +1063,14 @@ function setupKeyboardShortcuts() {
       if (state.viewMode === "library" && state.detailOpen && isInspectorDocked() && state.activeStackId) {
         event.preventDefault();
         void assetStacks.exitStack();
+        return;
+      }
+      // GravityPort A4c（任务 90）：全屏态 Esc 只退全屏、回到大图页（不直接回画廊）。
+      // 真全屏的 Esc 由浏览器消费并经 fullscreenchange 落类；此处兜底 CSS 回退态与
+      // 事件时序——退出后的一小段宽限同样吞掉迟到的 Esc，防止连带关掉查看模式。
+      if (state.viewMode === "asset" && (assetViewer.isAssetViewFullscreen() || assetViewer.isAssetViewFullscreenSettling())) {
+        event.preventDefault();
+        void assetViewer.exitAssetViewFullscreen();
         return;
       }
       if (state.viewMode === "asset" || state.detailOpen) { event.preventDefault(); void closeDetailSurface(); return; }
@@ -951,16 +1148,28 @@ const { resetImageZoom, zoomImage, panImagePreview, setupImageZoomPan,
   IMAGE_PREVIEW_ZOOM_STEP, IMAGE_PREVIEW_PAN_STEP } = imagePreview;
 // ===== Inspector markup（检视器区块 markup helper，已提取至 inspector-markup.mjs，R1 批次 4）=====
 const inspectorMarkup = createInspectorMarkup({ state, t, referenceRightsMarkup });
-const { detailFileSectionMarkup, detailPromptSectionMarkup, detailSourceSectionMarkup,
-  detailVersionSectionMarkup, detailGroupSectionMarkup, detailTagsSectionMarkup,
-  detailMoreSectionMarkup, versionPickerMarkup, versionCompareMarkup, versionHistoryMarkup,
-  generationHistoryMarkup, recipeHistoryMarkup, sourceCopyValue, isVideoAsset,
+const { detailFileSectionMarkup, detailPromptSectionMarkup,
+  detailPaletteSectionMarkup, detailReferenceSectionMarkup, detailVersionContextSectionMarkup,
+  generationContextBoxMarkup, detailVersionSectionMarkup, detailTagsSectionMarkup, versionPickerMarkup, versionCompareMarkup, versionHistoryMarkup,
+  generationHistoryMarkup, recipeHistoryMarkup, isVideoAsset,
   assetMediaPreviewMarkup, stackInspectorMarkup, promptReferencesMarkup } = inspectorMarkup;
+// ===== Inspector overlay（GravityPort A4a：参考图 / 版本树浮层控制器）=====
+// 任务 73 返工 1：isSuspended 按 hasBlockingOverlay 的既有清单判断「浮层上面还有
+// 更高层的弹窗」（确认框、图片预览、建组/分组统计、堆叠重命名、设置——即
+// hasBlockingOverlay 排除浮层自身后的全部成员）；为真时浮层的 keydown/pointerdown
+// 完全让位，Esc/Tab/点击由上层弹窗自己处理。
+const inspectorOverlay = createInspectorOverlay({ panel: els.detailPanel, t, isSuspended: () => hasBlockingOverlay("gpOverlay") });
 
 // ===== Asset view（大图查看器，已提取至 asset-view.mjs，R1 批次 4）=====
+// 任务 96（A6）：桌面环境注入窗口系统全屏桥（electronAPI 存在才注入）——大图页
+// 「全屏」与窗口系统全屏双向同步；浏览器无桥，沿用 Fullscreen API 行为。
+const desktopFullscreenBridge = typeof window.electronAPI?.setWindowFullScreen === "function"
+  ? { setWindowFullScreen: (flag) => window.electronAPI.setWindowFullScreen(flag === true) }
+  : null;
 const assetViewer = createAssetViewer({ els, state, t, announceGalleryStatus, selectedAsset, isVideoAsset,
   confirmDetailNavigation, discardDetailDraft, isCurrentDetailSelection, assetRequestKey, currentAssetRequest, requestAssetPage,
-  renderGrid, updateViewTitle, showToast, renderDetail, updateSelectedCard, setDetailOpen, setupMasonryLayout });
+  renderGrid, updateViewTitle, showToast, renderDetail, updateSelectedCard, setDetailOpen, setupMasonryLayout,
+  desktopFullscreen: desktopFullscreenBridge });
 const { renderAssetView, openAssetView, returnToLibrary,
   handleAssetViewImageLoad, handleAssetViewImageError, canNavigateAssetView, navigateAssetView,
   zoomAssetViewBy, fitAssetView, resetAssetViewToHundred, ASSET_VIEW_ZOOM_STEP } = assetViewer;
@@ -1032,6 +1241,7 @@ async function resetLibraryRefinements() {
   if (state.viewMode === "asset") returnToLibrary();
   clearDetailSelection();
   renderQuickFilters(); renderTypeFilters(); renderCategoryFilter();
+  recordNavigationPosition();
   announceGalleryStatus(t("statusRefinementsCleared"));
   void loadAssets().then((applied) => {
     if (!applied) return;
@@ -1045,9 +1255,12 @@ async function resetLibraryRefinements() {
 async function init() {
     applyLanguage();
     applyDarkMode();
+    // 用户中心头像：异步取安装 ID，不阻塞启动（先显示 G）。
+    void hydrateUserCenter();
     nativeAssetDrag.bind();
     assetStacks.bind();
     gallerySelection.bind();
+    cutPaste.bind();
     bindEvents();
     setupDragDrop();
     setupSidebarGroupDropImport();
@@ -1055,6 +1268,13 @@ async function init() {
     setupPasteImport();
     setupKeyboardShortcuts();
     setupImageZoomPan();
+    // GravityPort A3：初始浏览位置入历史（后退到头=启动时的范围）；滑杆恢复
+    // 本地存储值并首次计算列数/滑杆组可见性。
+    navHistory.clear();
+    navHistory.push(captureNavigationSnapshot());
+    syncNavHistoryButtons();
+    applyGalleryCardSize(galleryTargetCardWidth);
+    syncGallerySizeGroupVisibility();
     renderGrid();
     // Desktop V2 starts with the Inspector as the third column. Calling the
     // existing state transition before data loading prevents a visible
@@ -1281,11 +1501,12 @@ function syncSettingsMenuView() {
   if (menu.hidden) return;
   const setRadioState = (selector, selectedValue) => {
     menu.querySelectorAll(selector).forEach((button) => {
-      button.classList.toggle("active", button.value === selectedValue || button.dataset.appearanceOpt === selectedValue || button.dataset.cardInfoOpt === selectedValue || button.dataset.locale === selectedValue);
+      button.classList.toggle("active", button.value === selectedValue || button.dataset.appearanceOpt === selectedValue || button.dataset.cardInfoOpt === selectedValue || button.dataset.confirmTrashOpt === selectedValue || button.dataset.locale === selectedValue);
     });
   };
-  setRadioState("[data-appearance-opt]", state.darkMode ? "dark" : "light");
+  setRadioState("[data-appearance-opt]", state.themeSetting);
   setRadioState("[data-card-info-opt]", state.showCardInfo ? "show" : "hide");
+  setRadioState("[data-confirm-trash-opt]", moveToTrashConfirmSuppressed() ? "off" : "on");
   setRadioState("[data-locale]", state.locale === "en" ? "en" : "zh");
 
   const libraryPath = state.libraryRoot || state.libraryPath || state.codexImagesDir || "—";
@@ -1333,46 +1554,67 @@ function renderSettingsMenu({ force = false } = {}) {
     const buttons = options.map((option) => radio(option.value === selectedValue, attribute, option.value, option.label)).join("");
     return `<div class="segmented" role="radiogroup" aria-label="${escapeHtml(ariaLabel)}" data-active-index="${activeIndex}"><span class="segmented-thumb" aria-hidden="true"></span>${buttons}</div>`;
   };
-  // 任务 42：主题行改为 R21 预览卡（只有浅色/深色两张；设计稿的「跟随系统」MOSA
-  // 无此模式，不渲染）。语义与分段按钮一致：radiogroup + radio + aria-checked +
-  // roving tabindex + data-appearance-opt，状态同步复用 syncSegmentedRadios（组选择
-  // 器扩到 .settings-theme-choices，不另立第二套）。预览图 aria-hidden，卡的可访问
-  // 名称来自可见标签（浅色/深色）；选中除颜色外还有右上角勾号徽章这个非颜色标志。
-  const themeChoiceCard = (selected, attribute, value, label) => `<button class="settings-theme-card${selected ? " active" : ""}" type="button" role="radio" aria-checked="${selected}" tabindex="${selected ? 0 : -1}" ${attribute}="${value}"><span class="settings-theme-preview" aria-hidden="true"><span class="settings-theme-chrome"><i></i><i></i><i></i></span><span class="settings-theme-body"><span class="settings-theme-nav"><i></i><i></i></span><span class="settings-theme-canvas"><span class="settings-theme-grid"><i></i><i></i><i></i><i></i><i></i><i></i></span></span><span class="settings-theme-aside"></span></span><span class="settings-theme-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span></span><span class="settings-theme-label">${label}</span></button>`;
+  // 任务 42：主题行是 R21 预览卡。语义与分段按钮一致：radiogroup + radio +
+  // aria-checked + roving tabindex + data-appearance-opt，状态同步复用
+  // syncSegmentedRadios（组选择器扩到 .settings-theme-choices，不另立第二套）。
+  // 预览图 aria-hidden，卡的可访问名称来自可见标签；选中除颜色外还有右上角勾号
+  // 徽章这个非颜色标志。任务 81 返工 1：三张卡——跟随系统（左半浅色右半深色
+  // 预览）/浅色/深色，顺序照稿子，跟随系统在最左。
+  const themePreviewInnards = () => `<span class="settings-theme-chrome"><i></i><i></i><i></i></span><span class="settings-theme-body"><span class="settings-theme-nav"><i></i><i></i></span><span class="settings-theme-canvas"><span class="settings-theme-grid"><i></i><i></i><i></i><i></i><i></i><i></i></span></span><span class="settings-theme-aside"></span></span>`;
+  const themeChoiceCard = (selected, attribute, value, label) => `<button class="settings-theme-card${selected ? " active" : ""}" type="button" role="radio" aria-checked="${selected}" tabindex="${selected ? 0 : -1}" ${attribute}="${value}">${value === "system"
+    ? `<span class="settings-theme-preview settings-theme-preview-system" aria-hidden="true"><span class="settings-theme-half settings-theme-half-light">${themePreviewInnards()}</span><span class="settings-theme-half settings-theme-half-dark">${themePreviewInnards()}</span><span class="settings-theme-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span></span>`
+    : `<span class="settings-theme-preview" aria-hidden="true">${themePreviewInnards()}<span class="settings-theme-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span></span>`}<span class="settings-theme-label">${label}</span></button>`;
   const themeChoices = (ariaLabel, attribute, selectedValue, options) => `<div class="settings-theme-choices" role="radiogroup" aria-label="${escapeHtml(ariaLabel)}">${options.map((option) => themeChoiceCard(option.value === selectedValue, attribute, option.value, option.label)).join("")}</div>`;
-  const row = (icon, title, subtitle, control = "", extraClass = "") => `<div class="settings-modal-row${extraClass ? ` ${extraClass}` : ""}"><div class="settings-row-icon" aria-hidden="true">${icon}</div><div class="settings-row-copy"><h4>${title}</h4>${subtitle ? `<p>${subtitle}</p>` : ""}</div>${control ? `<div class="settings-row-control">${control}</div>` : ""}</div>`;
+  // 任务 81：设置行照稿子改为「左名称（可带一行内联小字说明），右控件」，行之间
+  // 分隔线；行首图标位按稿子去掉（图标只保留在左栏导航上）。
+  const row = (title, subtitle, control = "", extraClass = "") => `<div class="settings-modal-row${extraClass ? ` ${extraClass}` : ""}"><div class="settings-row-copy"><h4>${title}</h4>${subtitle ? `<p>${subtitle}</p>` : ""}</div>${control ? `<div class="settings-row-control">${control}</div>` : ""}</div>`;
   const visualLocale = state.locale === "en" ? "en" : "zh";
   const path = escapeHtml(state.libraryRoot || state.libraryPath || state.codexImagesDir || "—");
   const closeIcon = settingIcon("m6 6 12 12M18 6 6 18");
   const storageLabel = state.storageKind === "sqlite" ? t("storageEngineValue") : (state.storageKind && state.storageKind !== "unknown" ? state.storageKind : "—");
+  // 任务 81：稿子把素材库行画成「只读路径框 + 框尾内嵌打开按钮」；「更改位置」
+  // 稿子没画，按既定决定保留（桌面版渲染在路径框右侧），浏览器版仍只有打开。
+  const libraryPathBox = `<div class="settings-path-box"><span class="settings-path" data-settings-library-path title="${path}">${path}</span><button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button></div>`;
   const changeLibraryControl = window.electronAPI?.changeLibraryLocation
-    ? `<div class="settings-inline-actions"><button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button><button class="settings-text-action" type="button" data-change-library${state.libraryMoveInProgress ? " disabled" : ""}>${state.libraryMoveInProgress ? t("changingLocation") : t("change")}</button></div>`
-    : `<button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button>`;
+    ? `<button class="settings-text-action" type="button" data-change-library${state.libraryMoveInProgress ? " disabled" : ""}>${state.libraryMoveInProgress ? t("changingLocation") : t("change")}</button>`
+    : "";
+  // 任务 81：主题行照稿子只放预览卡（沿用任务 42 的两卡结构与 radio 语义）；
+  // 卡片信息、界面语言保持二选一分段按钮，选项顺序照稿子（隐藏｜显示、中文｜EN）。
+  const themeRow = `<div class="settings-modal-row settings-theme-row"><div class="settings-row-control">${themeChoices(t("themeMode"), "data-appearance-opt", state.themeSetting, [{ value: "system", label: t("themeSystem") }, { value: "light", label: t("themeLight") }, { value: "dark", label: t("themeDark") }])}</div></div>`;
   const appearanceRows = [
-    row(settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0"), t("themeMode"), "", themeChoices(t("themeMode"), "data-appearance-opt", state.darkMode ? "dark" : "light", [{ value: "light", label: t("themeLight") }, { value: "dark", label: t("themeDark") }]), "settings-theme-row"),
-    row(settingIcon("M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"), t("cardInfo"), "", segmented(t("cardInfo"), "data-card-info-opt", state.showCardInfo ? "show" : "hide", [{ value: "show", label: t("cardInfoShow") }, { value: "hide", label: t("cardInfoHide") }])),
-    row(settingIcon("M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("interfaceLanguage"), "", segmented(t("interfaceLanguage"), "data-locale", visualLocale, [{ value: "zh", label: "中文" }, { value: "en", label: "EN" }]))
+    themeRow,
+    row(t("cardInfo"), "", segmented(t("cardInfo"), "data-card-info-opt", state.showCardInfo ? "show" : "hide", [{ value: "hide", label: t("cardInfoHide") }, { value: "show", label: t("cardInfoShow") }])),
+    // 任务 94（A4f）：「不再提醒」的找回入口。读写同一个存储键（mosa.confirm-move-to-trash），
+    // 渲染时现读现显——确认框里勾选写入后，打开设置即显示「关闭」。
+    row(t("confirmMoveToTrashSetting"), "", segmented(t("confirmMoveToTrashSetting"), "data-confirm-trash-opt", moveToTrashConfirmSuppressed() ? "off" : "on", [{ value: "off", label: t("confirmTrashOff") }, { value: "on", label: t("confirmTrashOn") }])),
+    row(t("interfaceLanguage"), "", segmented(t("interfaceLanguage"), "data-locale", visualLocale, [{ value: "zh", label: "中文" }, { value: "en", label: "EN" }]))
   ].join("");
   const storageRows = [
-    row(settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z"), t("libraryPath"), `<span class="settings-path" data-settings-library-path title="${path}">${path}</span>`, changeLibraryControl, "settings-library-row"),
-    row(settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6"), t("storageEngine"), "", `<span class="settings-static-value" data-settings-storage-engine>${escapeHtml(storageLabel)}</span>`),
+    row(t("libraryPath"), "", `${libraryPathBox}${changeLibraryControl}`, "settings-library-row"),
+    row(t("storageEngine"), "", `<span class="settings-static-value" data-settings-storage-engine>${escapeHtml(storageLabel)}</span>`),
   ].join("");
   const visualRows = row(
-    settingIcon("M5 7h14M7 4v6M17 4v6M6 14h12M8 11v6M16 11v6M5 20h14"),
     t("visualModelTitle"),
     t("visualModelDescription"),
     `<div data-settings-visual-model>${visualModelStatusMarkup()}</div>`,
     "settings-visual-model-row",
   );
-  const aboutRow = row(settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0"), t("version"), `<span data-settings-version>${escapeHtml(updateVersionSummary())}</span>`, `<div data-settings-update-action>${updateVersionControlMarkup()}</div>`, "settings-about-row");
+  const aboutRow = row(t("version"), `<span data-settings-version>${escapeHtml(updateVersionSummary())}</span>`, `<div data-settings-update-action>${updateVersionControlMarkup()}</div>`, "settings-about-row");
+  // 用户 ID 行（任务 69）：只在拿到安装 ID 时渲染（浏览器版没有这一行）。
+  // 值复用 .settings-path（等宽 + 省略号截断 + title 悬停看全量）；复制复用
+  // settings-text-action 与 writeClipboardText，成功提示走既有 toast。
+  const userIdRow = state.userProfileId
+    ? row(t("userId"), `<span class="settings-path" data-settings-user-id title="${escapeHtml(state.userProfileId)}">${escapeHtml(state.userProfileId)}</span>`, `<button class="settings-text-action" type="button" data-copy-user-id>${escapeHtml(t("copyAction"))}</button>`)
+    : "";
 
-  // R21 两栏设置：左栏品牌 + 分类导航 + 本地优先说明，右栏标题栏 + 四个分类页。
-  // 行内容复用既有 row()，控件与 data-* 属性不变；分类只在会话内记忆。
+  // R21 两栏设置 + 任务 81 GravityPort 重排：左栏大标题 + 分类导航（+ 本地优先
+  // 说明），右栏标题栏 + 四个分类页。行内容复用 row()，控件与 data-* 属性不变；
+  // 稿子每页只有标题和行，页内不再重复渲染页标题与说明（文案保留在 i18n）。
   const settingsPages = [
-    { id: "general", label: t("settingsPageGeneral"), description: t("settingsPageGeneralDesc"), rows: appearanceRows, icon: settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0") },
-    { id: "library", label: t("settingsPageLibrary"), description: t("settingsPageLibraryDesc"), rows: storageRows, icon: settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z") },
-    { id: "visual", label: t("settingsPageVisual"), description: t("settingsPageVisualDesc"), rows: visualRows, icon: settingIcon("M5 7h14M7 4v6M17 4v6M6 14h12M8 11v6M16 11v6M5 20h14") },
-    { id: "about", label: t("settingsPageAbout"), description: t("settingsPageAboutDesc"), rows: aboutRow, icon: settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0") },
+    { id: "general", label: t("settingsPageGeneral"), rows: appearanceRows, icon: settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0") },
+    { id: "library", label: t("settingsPageLibrary"), rows: storageRows, icon: settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z") },
+    { id: "visual", label: t("settingsPageVisual"), rows: visualRows, icon: settingIcon("M5 7h14M7 4v6M17 4v6M6 14h12M8 11v6M16 11v6M5 20h14") },
+    { id: "about", label: t("settingsPageAbout"), rows: aboutRow + userIdRow, icon: settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0") },
   ];
   if (!settingsPages.some((page) => page.id === state.settingsPage)) state.settingsPage = "general";
   const activePage = state.settingsPage;
@@ -1380,7 +1622,7 @@ function renderSettingsMenu({ force = false } = {}) {
     const active = page.id === activePage;
     return `<button class="settings-nav-tab${active ? " active" : ""}" type="button" role="tab" id="settings-tab-${page.id}" aria-selected="${active}" aria-controls="settings-page-${page.id}" data-settings-page="${page.id}" tabindex="${active ? 0 : -1}">${page.icon}<span class="settings-nav-tab-label">${page.label}</span></button>`;
   }).join("");
-  const panels = settingsPages.map((page) => `<section class="settings-page" role="tabpanel" id="settings-page-${page.id}" aria-labelledby="settings-tab-${page.id}" data-settings-panel="${page.id}"${page.id === activePage ? "" : " hidden"}><div class="settings-page-head"><h3 class="settings-page-title">${page.label}</h3><p class="settings-page-desc">${page.description}</p></div><div class="settings-group">${page.rows}</div></section>`).join("");
+  const panels = settingsPages.map((page) => `<section class="settings-page" role="tabpanel" id="settings-page-${page.id}" aria-labelledby="settings-tab-${page.id}" data-settings-panel="${page.id}"${page.id === activePage ? "" : " hidden"}><div class="settings-group">${page.rows}</div></section>`).join("");
   const activeLabel = settingsPages.find((page) => page.id === activePage)?.label || "";
 
   els.settingsMenu.innerHTML = `<div class="settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" tabindex="-1"><aside class="settings-modal-sidebar"><div class="settings-modal-brand"><h2 id="settingsModalTitle">${t("settings")}</h2></div><nav class="settings-modal-nav" role="tablist" aria-orientation="vertical" aria-label="${escapeHtml(t("settings"))}">${nav}</nav><div class="settings-modal-foot"><div class="settings-local-first">${settingIcon("M5.5 5.5C5.5 4.1 8.4 3 12 3s6.5 1.1 6.5 2.5S15.6 8 12 8 5.5 6.9 5.5 5.5ZM5.5 5.5v6C5.5 12.9 8.4 14 12 14s6.5-1.1 6.5-2.5v-6M5.5 11.5v6C5.5 18.9 8.4 20 12 20s6.5-1.1 6.5-2.5v-6")}<div class="settings-local-first-copy"><strong>${t("settingsLocalFirst")}</strong><p>${t("settingsLocalFirstDesc")}</p></div></div></div></aside><div class="settings-modal-main"><header class="settings-modal-header"><h2 class="settings-modal-title" data-settings-active-title>${activeLabel}</h2><button class="settings-modal-close" type="button" data-settings-close aria-label="${escapeHtml(t("closeSettings"))}">${closeIcon}</button></header><div class="settings-modal-body">${panels}</div></div></div>`;
@@ -1397,7 +1639,7 @@ function describeSettingsFocus(element) {
   if (!(element instanceof HTMLElement) || !els.settingsMenu?.contains(element)) return null;
   const tab = element.closest("[data-settings-page]");
   if (tab) return { page: tab.dataset.settingsPage, control: null };
-  const attributes = ["data-appearance-opt", "data-card-info-opt", "data-locale", "data-open-library", "data-change-library", "data-check-updates", "data-cancel-update", "data-install-update", "data-download-latest", "data-visual-model-toggle", "data-visual-pack-install", "data-visual-pack-cancel", "data-visual-pack-remove", "data-settings-close"];
+  const attributes = ["data-appearance-opt", "data-card-info-opt", "data-confirm-trash-opt", "data-locale", "data-open-library", "data-copy-user-id", "data-change-library", "data-check-updates", "data-cancel-update", "data-install-update", "data-download-latest", "data-visual-model-toggle", "data-visual-pack-install", "data-visual-pack-cancel", "data-visual-pack-remove", "data-settings-close"];
   for (const attribute of attributes) {
     const value = element.getAttribute(attribute);
     if (value !== null) return { page: state.settingsPage, control: `[${attribute}="${CSS.escape(value)}"]` };
@@ -1522,8 +1764,10 @@ const confirmDialog = createConfirmDialog({ els, state, t, closePanel });
 const { requestConfirmation, requestFollowupConfirmation, closeConfirmDialog, trapConfirmDialogFocus, isConfirmFocusTarget, confirmDialogState } = confirmDialog;
 
 const toastManager = createToastManager({ els, state, t, isConfirmFocusTarget });
-function showToast(message, type = "default") { return toastManager.show(message, type); }
+function showToast(message, type = "default", options = {}) { return toastManager.show(message, type, options); }
 async function writeClipboardText(value) {
+  // 任务 93：应用内写剪贴板会使剪切状态失效（剪贴板不再是被剪切的内容）。
+  cutPaste?.noteClipboardWrite?.();
   const text = String(value ?? "");
   if (window.electronAPI?.writeClipboardText) {
     const result = await window.electronAPI.writeClipboardText(text);
@@ -1556,7 +1800,10 @@ async function clipboardPngBlob(blob) {
   }
 }
 
-async function writeClipboardImage(asset = {}) {
+async function writeClipboardImage(asset = {}, options = {}) {
+  // 任务 93：「复制图片」取消剪切状态；剪切自身的原图写入（skipCutInvalidation）
+  // 不算「再次写剪贴板」。
+  if (options.skipCutInvalidation !== true) cutPaste?.noteClipboardWrite?.();
   if (isVideoAsset(asset)) throw new Error(t("copyImageFailed"));
   const imagePath = String(asset.image_path || "").trim();
   if (window.electronAPI?.writeClipboardImage && imagePath) {
@@ -1585,6 +1832,18 @@ window.__mosaToastDebug = () => toastManager.snapshot();
 
 // ===== Context Menu =====
 const contextMenu = createContextMenu();
+// 任务 93：剪切粘贴控制器（状态、变淡渲染、移动接口、失焦取消都在 cut-paste.mjs）。
+const cutPaste = createCutPasteController({
+  state,
+  els,
+  t,
+  apiFetch,
+  showToast,
+  announceGalleryStatus,
+  librarySync,
+  loadStats,
+  copyOriginalImage: writeClipboardImage,
+});
 const contextMenuActions = createContextMenuActions({
   state,
   els,
@@ -1606,6 +1865,7 @@ const contextMenuActions = createContextMenuActions({
   isVideoAsset,
   pasteClipboardImage: window.electronAPI?.pasteImage ? pasteClipboardImage : null,
   assetStacks,
+  cutPaste,
   emptyTrash: emptyTrashWithConfirmation,
   gallerySelection,
 });
@@ -1654,6 +1914,101 @@ async function releaseAssetMediaForDeletion(assets = []) {
     });
   }
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 0));
+}
+
+// ===== 大图页删除（GravityPort A4c，任务 90） =====
+// 右上「删除」：确认框照既有回收站语义弹；成功后自动落到下一张（末端落上一张、
+// 删光回画廊），并弹带「撤销」的 toast——撤销调用现有 restore 端点并回到这张图。
+// 翻页/回画廊由 assetViewer.advanceAfterViewerDelete 负责（序列语义与导航同源）；
+// 本地对账直接走 librarySync（可 await），撤销回图前 state.assets 已含恢复行。
+async function deleteCurrentAssetFromViewer() {
+  if (state.viewMode !== "asset") return;
+  // 任务 96 返工 1：selectedId 可能被后台刷新竞态洗掉（loadAssets 的过期响应晚于
+  // 撤销完成）。删除以「舞台当前显示的图」为准：先从本地列表恢复锚；本地没有
+  // （列表整体过期）再回源查一次；确实不在库才提示，绝不静默无反应。
+  let asset = selectedAsset();
+  if (!asset) {
+    const viewedId = assetViewer.currentViewedAssetId();
+    if (viewedId) {
+      asset = state.assets.find((candidate) => candidate.id === viewedId) || null;
+      if (asset) state.selectedId = viewedId;
+    }
+  }
+  if (!asset) {
+    const viewedId = assetViewer.currentViewedAssetId();
+    const fresh = viewedId
+      ? await apiFetch("/api/assets/" + encodeURIComponent(state.project) + "/" + encodeURIComponent(viewedId)).catch(() => null)
+      : null;
+    asset = fresh?.asset || null;
+    if (asset) {
+      if (!state.assets.some((candidate) => candidate.id === asset.id)) state.assets = [...state.assets, asset];
+      state.selectedId = asset.id;
+    }
+  }
+  if (!asset) {
+    showToast(t("assetNoLongerAvailable"), "error");
+    return;
+  }
+  if (!await confirmDetailNavigation()) return;
+  // 任务 94（A4f）：勾过「不再提醒」后大图页删除不再弹确认框（草稿守卫照旧在前）。
+  if (!moveToTrashConfirmSuppressed()) {
+    const confirmed = await requestConfirmation({
+      title: t("moveToTrashTitle"),
+      description: t("moveToTrashDescription"),
+      confirmLabel: t("yes"),
+      cancelLabel: t("no"),
+      tone: "danger",
+      dontAskAgainKey: CONFIRM_MOVE_TO_TRASH_KEY,
+    });
+    if (!confirmed) return;
+  }
+  const projectId = asset.project_id || state.project;
+  const deletedId = asset.id;
+  let response = null;
+  try {
+    response = await apiFetch("/api/assets/batch", {
+      method: "POST",
+      body: { action: "trash", projectId, assetIds: [deletedId] },
+    });
+  } catch (error) {
+    showToast(error.message, "error");
+    return;
+  }
+  const failed = Boolean(response?.partial) && Array.isArray(response.results)
+    && response.results.some((result) => String(result?.id || "") === String(deletedId) && result?.ok === false);
+  if (failed) {
+    showToast(t("batchPartialResult", { succeeded: 0, failed: 1 }), "error");
+    return;
+  }
+  if (state.detailDirty) discardDetailDraft();
+  await releaseAssetMediaForDeletion([asset]);
+  assetViewer.advanceAfterViewerDelete();
+  await librarySync.applyLocalChanges([{ kind: "asset-deleted", entityType: "asset", entityId: String(deletedId) }]).catch(() => {});
+  void loadStats({ background: true }).catch(() => {});
+  showToast(t("assetMovedToTrash"), "success", {
+    actionLabel: t("undo"),
+    duration: 6000,
+    onAction: () => { void restoreTrashedAssetFromViewer(projectId, deletedId); },
+  });
+}
+
+async function restoreTrashedAssetFromViewer(projectId, assetId) {
+  try {
+    await apiFetch(`/api/assets/${encodeURIComponent(projectId)}/${encodeURIComponent(assetId)}/restore`, { method: "POST" });
+  } catch (error) {
+    showToast(error.message, "error");
+    return;
+  }
+  await librarySync.applyLocalChanges([{ kind: "asset-restored", entityType: "asset", entityId: String(assetId) }]).catch(() => {});
+  void loadStats({ background: true }).catch(() => {});
+  if (state.viewMode === "asset") {
+    // 大图页内：切回这张图（草稿确认与 openAssetView 同一套语义）。
+    if (!await confirmDetailNavigation()) return;
+    assetViewer.showAssetInView(assetId);
+    return;
+  }
+  // 已回画廊（删除时删光了序列）：直接在大图页打开这张图。
+  void openAssetView(assetId);
 }
 
 function isDetailEditorActive() {
@@ -1837,6 +2192,10 @@ function updateViewTitle() {
             : t("searchAll");
   }
   if (els.emptyTrashBtn) els.emptyTrashBtn.hidden = state.scope !== "trash" || Number(state.groups?.trash || 0) === 0;
+  // GravityPort A3：范围变化总会经过这里（渲染/进出堆叠/语言切换），历史按钮
+  // 的 disabled 态与滑杆组的重叠隐藏随之同步。
+  syncNavHistoryButtons();
+  syncGallerySizeGroupVisibility();
 }
 
 async function clearSearchQuery() {
@@ -1846,6 +2205,7 @@ async function clearSearchQuery() {
   discardDetailDraft();
   state.query = "";
   if (els.searchInput) els.searchInput.value = "";
+  recordNavigationPosition();
   applyFilterChange();
   return true;
 }
@@ -1870,12 +2230,154 @@ async function authorizeNavigationIntent(intent) {
   return isNavigationIntentCurrent(intent);
 }
 
+// ===== GravityPort A3：浏览位置历史（任务 70）=====
+// 记录范围/来源/分组/分类/搜索的位置变化；排序不算位置。恢复走现有
+// applyFilterChange 流程且不产生新记录；在中间位置的新导航由 navigation-history
+// 模块截断前进记录。只存内存，上限 50，不写本地存储。
+const navHistory = createNavigationHistory();
+
+function captureNavigationSnapshot() {
+  return {
+    scope: state.scope,
+    facets: { ...state.facets },
+    mediaKind: state.mediaKind,
+    query: state.query,
+  };
+}
+
+function navigationSnapshotsEqual(a, b) {
+  if (!a || !b) return false;
+  return a.scope === b.scope
+    && a.mediaKind === b.mediaKind
+    && a.query === b.query
+    && FACET_KEYS.every((key) => (a.facets?.[key] || "") === (b.facets?.[key] || ""));
+}
+
+// 堆叠内部不是画廊浏览位置：进出堆叠走 #stackBack，历史按钮在堆叠里禁用。
+function recordNavigationPosition() {
+  if (state.activeStackId) return;
+  const snapshot = captureNavigationSnapshot();
+  if (navigationSnapshotsEqual(navHistory.current(), snapshot)) return;
+  navHistory.push(snapshot);
+  syncNavHistoryButtons();
+}
+
+function syncNavHistoryButtons() {
+  const inStack = Boolean(state.activeStackId);
+  if (els.navHistoryBack) els.navHistoryBack.disabled = inStack || !navHistory.canBack();
+  if (els.navHistoryForward) els.navHistoryForward.disabled = inStack || !navHistory.canForward();
+}
+
+function restoreNavigationSnapshot(entry) {
+  discardDetailDraft();
+  state.scope = entry.scope || "all";
+  state.facets = Object.fromEntries(FACET_KEYS.map((key) => [key, String(entry.facets?.[key] || "")]));
+  state.mediaKind = entry.mediaKind || "all";
+  state.query = entry.query || "";
+  state.nextCursor = null;
+  if (els.searchInput) els.searchInput.value = state.query;
+  if (state.viewMode === "asset") returnToLibrary();
+  clearDetailSelection();
+  syncNavHistoryButtons();
+  applyFilterChange();
+}
+
+// 先 peek 再过未保存编辑确认（authorizeNavigationIntent），确认通过才消费光标：
+// 取消确认时光标不能已经移动。
+async function navigateGalleryHistory(direction) {
+  if (state.activeStackId) return false;
+  const entry = direction < 0 ? navHistory.peekBack() : navHistory.peekForward();
+  if (!entry) return false;
+  const intent = beginNavigationIntent();
+  if (!await authorizeNavigationIntent(intent)) return false;
+  if (direction < 0) navHistory.back();
+  else navHistory.forward();
+  restoreNavigationSnapshot(entry);
+  return true;
+}
+
+function resolveNavHistoryShortcut(event) {
+  if (event.target.closest?.("[contenteditable], video")) return 0;
+  const isMac = /Mac/i.test(navigator.platform || navigator.userAgent || "");
+  if (isMac) {
+    if ((event.metaKey || event.ctrlKey) && event.key === "[") return -1;
+    if ((event.metaKey || event.ctrlKey) && event.key === "]") return 1;
+    return 0;
+  }
+  if (event.altKey && !event.ctrlKey && !event.metaKey) {
+    if (event.key === "ArrowLeft") return -1;
+    if (event.key === "ArrowRight") return 1;
+  }
+  return 0;
+}
+
+// ===== GravityPort A3：缩略图大小滑杆 → 画廊列数（任务 70）=====
+// --gallery-columns 写在 #assetGrid 行内；≤767px 的固定 2 列媒体查询不受它影响。
+// 列数变化后走 scheduleMasonryLayout()（全量重放置：瀑布流几何、框选命中、
+// 虚拟窗口同步都由既有管线接管）。
+function syncGalleryColumns() {
+  const grid = els.assetGrid;
+  if (!grid) return;
+  const styles = getComputedStyle(grid);
+  const gap = Number.parseFloat(styles.getPropertyValue("--gallery-gap")) || Number.parseFloat(styles.columnGap) || 0;
+  const paddingX = (Number.parseFloat(styles.paddingLeft) || 0) + (Number.parseFloat(styles.paddingRight) || 0);
+  const next = computeGalleryColumnCount(grid.clientWidth - paddingX, galleryTargetCardWidth, gap);
+  if (grid.style.getPropertyValue("--gallery-columns") === String(next)) return;
+  grid.style.setProperty("--gallery-columns", String(next));
+  scheduleMasonryLayout();
+}
+
+function applyGalleryCardSize(value, { persist = false } = {}) {
+  galleryTargetCardWidth = clampGalleryCardSize(value);
+  if (els.gallerySizeSlider) els.gallerySizeSlider.value = String(galleryTargetCardWidth);
+  if (persist) safeStorageSet(GALLERY_SIZE_STORAGE_KEY, String(galleryTargetCardWidth));
+  syncGalleryColumns();
+}
+
+// 滑杆组三态（居中 / 退让居中 / 隐藏）由 computeTopbarSizeGroupPlacement 判定，
+// 居中 = 窗口中线（检视器开关都一样），不挤压右侧控件。hidden（display:none）
+// 量不到宽度：先临时摆回布局再量，全程同步、不经过绘制帧，三种状态切换不闪
+// 烁。居中/退让都写行内 left（hidden 删掉行内值，不留旧位置）。≤767px 档 CSS
+// 直接隐藏，JS 只负责维持 hidden 一致。
+function syncGallerySizeGroupVisibility() {
+  const group = els.topbarSizeGroup;
+  if (!group) return;
+  if (isMobileNavigationViewport()) {
+    group.hidden = true;
+    group.style.removeProperty("left");
+    return;
+  }
+  const wasHidden = group.hidden;
+  if (wasHidden) group.hidden = false;
+  const barRect = group.parentElement?.getBoundingClientRect();
+  // 左右各量「实际内容组」：.topbar-context 是 flex:1 的占位容器（撑满剩余
+  // 空间），量它会永远判重叠；.topbar-nav-group 才是按钮簇的真实宽度。
+  const leftRect = els.navHistoryBack?.closest(".topbar-nav-group")?.getBoundingClientRect();
+  const rightRect = els.searchInput?.closest(".topbar-actions")?.getBoundingClientRect();
+  const groupWidth = group.offsetWidth;
+  const placement = computeTopbarSizeGroupPlacement(
+    barRect ? window.innerWidth / 2 - barRect.left : NaN,
+    leftRect && barRect ? leftRect.right - barRect.left : NaN,
+    rightRect && barRect ? rightRect.left - barRect.left : NaN,
+    groupWidth,
+  );
+  if (placement.left === null) group.style.removeProperty("left");
+  else group.style.left = `${placement.left}px`;
+  group.hidden = placement.mode === "hidden";
+}
+
 function bindEvents() {
   syncMobileNavigation();
   syncSidebarSectionVisibility();
   els.mobileNavToggle?.addEventListener("click", () => setMobileNavOpen(true));
   els.mobileNavClose?.addEventListener("click", () => setMobileNavOpen(false, { restoreFocus: true }));
   els.mobileNavScrim?.addEventListener("click", () => setMobileNavOpen(false, { restoreFocus: true }));
+  // GravityPort A3：后退/前进按钮与缩略图大小滑杆（任务 70）。
+  els.navHistoryBack?.addEventListener("click", () => { void navigateGalleryHistory(-1); });
+  els.navHistoryForward?.addEventListener("click", () => { void navigateGalleryHistory(1); });
+  els.gallerySizeSlider?.addEventListener("input", (event) => applyGalleryCardSize(event.target.value, { persist: true }));
+  els.gallerySizeMinus?.addEventListener("click", () => applyGalleryCardSize(galleryTargetCardWidth - GALLERY_SIZE_STEP, { persist: true }));
+  els.gallerySizePlus?.addEventListener("click", () => applyGalleryCardSize(galleryTargetCardWidth + GALLERY_SIZE_STEP, { persist: true }));
   els.sidebar?.addEventListener("click", (event) => {
     if (!isMobileNavigationViewport()) return;
     if (event.target.closest(".nav-item, .settings-trigger")) setMobileNavOpen(false);
@@ -1890,6 +2392,7 @@ function bindEvents() {
     discardDetailDraft();
     state.query = nextQuery;
     state.nextCursor = null;
+    recordNavigationPosition();
     // Phase 3A：结果集语义已变化，退出查看模式（快照 requestKey 随之失效，恢复自动降级）。
     if (state.viewMode === "asset") returnToLibrary();
     clearDetailSelection();
@@ -2073,6 +2576,7 @@ function bindEvents() {
     }
     discardDetailDraft();
     state.facets.category = nextCategory;
+    recordNavigationPosition();
     applyFilterChange();
   });
   els.settingsToggle?.addEventListener("click", toggleSettingsModal);
@@ -2105,6 +2609,10 @@ function bindEvents() {
       clearDetailSelection();
       gallerySelection.clear();
       if (els.searchInput) els.searchInput.value = "";
+      // 项目切换是新的工作区：浏览位置历史随之清空（快照不跨项目恢复）。
+      navHistory.clear();
+      navHistory.push(captureNavigationSnapshot());
+      syncNavHistoryButtons();
       // switchProjectWorkspace 已把 facets 清空，下拉框同步回「全部分类」。
       renderCategoryFilter();
       if (state.viewMode === "asset") returnToLibrary();
@@ -2123,8 +2631,10 @@ function bindEvents() {
     // Theme segmented buttons
     if (button?.dataset.appearanceOpt) {
       const newTheme = button.dataset.appearanceOpt;
-      state.darkMode = newTheme === "dark";
-      safeStorageSet("mosa-dark-mode", String(state.darkMode));
+      // 任务 81 返工 1：三态——system/light/dark；darkMode 只存「实际生效」值。
+      state.themeSetting = newTheme === "light" || newTheme === "dark" ? newTheme : THEME_SYSTEM;
+      state.darkMode = effectiveDarkMode(state.themeSetting);
+      safeStorageSet("mosa-dark-mode", themeSettingStorageValue(state.themeSetting));
       applyDarkMode(); // 同步 .active 视觉态与 aria-checked/roving tabindex（Phase 5A / F-12）
       showToast(t("darkModeChanged"), "success");
       return;
@@ -2142,6 +2652,15 @@ function bindEvents() {
       return;
     }
 
+    // 任务 94：「移至回收站前确认」分段按钮（关闭 = 不再提醒，写入同一存储键）。
+    if (button?.dataset.confirmTrashOpt) {
+      setMoveToTrashConfirmSuppressed(button.dataset.confirmTrashOpt === "off");
+      button.parentElement.querySelectorAll(".segmented-btn").forEach((b) => b.classList.remove("active"));
+      button.classList.add("active");
+      syncSegmentedRadios(els.settingsMenu);
+      return;
+    }
+
     const localeButton = event.target.closest("[data-locale]");
     if (localeButton) {
       return setLanguage(localeButton.dataset.locale);
@@ -2153,6 +2672,14 @@ function bindEvents() {
       await apiFetch("/api/open-folder", { method: "POST", body: { path } });
       showToast(t("openInFinder"), "success");
     });
+    const copyUserIdButton = event.target.closest("[data-copy-user-id]");
+    if (copyUserIdButton && state.userProfileId) {
+      runAction(async () => {
+        await writeClipboardText(state.userProfileId);
+        showToast(t("userIdCopied"), "success");
+      });
+      return;
+    }
     const changeLibraryButton = event.target.closest("[data-change-library]");
     if (changeLibraryButton && window.electronAPI?.changeLibraryLocation && !state.libraryMoveInProgress) {
       void (async () => {
@@ -2333,10 +2860,17 @@ function bindEvents() {
   // Phase 3C：唯一一套上一张/下一张（全应用无第二套导航控件）。
   els.assetViewPrev?.addEventListener("click", () => navigateAssetView(-1));
   els.assetViewNext?.addEventListener("click", () => navigateAssetView(1));
+  // GravityPort A4c（任务 90）：右上「删除 / 全屏」与全屏态同步。
+  els.assetViewDelete?.addEventListener("click", () => { void deleteCurrentAssetFromViewer(); });
+  els.assetViewFullscreen?.addEventListener("click", () => { void assetViewer.toggleAssetViewFullscreen(); });
+  document.addEventListener("fullscreenchange", () => assetViewer.syncAssetViewFullscreenClass());
+  // 任务 96（A6）：桌面窗口系统全屏变化 → 大图页全屏态跟随（菜单/绿按钮/⌃⌘F/
+  // 系统 Esc 退出时查看器一并退出；浏览器无此桥，走上面的 fullscreenchange）。
+  window.electronAPI?.onWindowFullScreenChange?.((active) => assetViewer.handleWindowFullScreenChange(active));
   // Settings 的 segmented radiogroup 在持久根节点上统一处理方向键。
   // 绑定在持久的 #settingsMenu 元素上：innerHTML 重建不会叠加监听器（全应用唯一一套）。
   els.settingsMenu?.addEventListener("keydown", handleSettingsMenuKeydown);
-  window.addEventListener("resize", () => { syncMobileNavigation(); if (state.imagePreviewId) fitImagePreview(); });
+  window.addEventListener("resize", () => { syncMobileNavigation(); syncGallerySizeGroupVisibility(); if (state.imagePreviewId) fitImagePreview(); });
 
   bindContextMenuEvents({
     state,
@@ -2349,6 +2883,8 @@ function bindEvents() {
     selectAsset,
     openAssetView,
     gallerySelection,
+    // 任务 91：大图页右键菜单的当前素材（selectedAsset 兼顾版本切换中的行）。
+    getViewerAsset: selectedAsset,
   });
   // Phase 5B：ConfirmDialog 陷阱先于其余陷阱注册——Escape 优先级链最前（preventDefault +
   // stopPropagation，不穿透 Viewer/既有 Modal）；ConfirmDialog 未打开时后续陷阱照常工作。
@@ -2501,6 +3037,7 @@ async function setFilter(type, value = "", intent = beginNavigationIntent()) {
   if (!await authorizeNavigationIntent(intent)) return;
   discardDetailDraft();
   if (!setSidebarNavigationState(type, value)) return;
+  recordNavigationPosition();
   applyFilterChange();
 }
 
@@ -2529,6 +3066,7 @@ async function showRelatedGenerations(asset, mode) {
   clearFacets();
   state.facets.conversation = conversationId;
   if (mode === "batch") state.facets.generationBatch = messageId;
+  recordNavigationPosition();
   applyFilterChange();
 }
 
@@ -2615,7 +3153,7 @@ function renderSidebarGroups() {
     const active = isSidebarNavigationActive("source", sourceType);
     const label = sourceTypeLabel(sourceType);
     const color = deterministicGroupColor(sourceType);
-    return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="source" data-value="${escapeHtml(sourceType)}" type="button" aria-pressed="${active}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(label)}">${escapeHtml(label)}</span><span class="nav-count">${count}</span></button></li>`;
+    return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="source" data-value="${escapeHtml(sourceType)}" type="button" aria-pressed="${active}" title="${escapeHtml(label)}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(label)}">${escapeHtml(label)}</span><span class="nav-count">${count}</span></button></li>`;
   }).join("");
   els.sidebarGroupList.innerHTML = items;
 
@@ -2628,7 +3166,7 @@ function renderSidebarGroups() {
     }
     const active = isSidebarNavigationActive("group", groupName);
     const color = colorForGroup(groupName);
-    return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="group" data-value="${escapeHtml(groupName)}" type="button" aria-pressed="${active}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(groupName)}">${escapeHtml(groupName)}</span><span class="nav-count">${Number(count || 0)}</span></button></li>`;
+    return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="group" data-value="${escapeHtml(groupName)}" type="button" aria-pressed="${active}" title="${escapeHtml(groupName)}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(groupName)}">${escapeHtml(groupName)}</span><span class="nav-count">${Number(count || 0)}</span></button></li>`;
   }).join("");
   const createEditor = sidebarGroupEdit?.mode === "create"
     ? sidebarGroupEditorMarkup("", sidebarGroupEdit.value, sidebarGroupEdit.color)
@@ -3628,6 +4166,9 @@ function setupMasonryLayout(options = {}) {
       const width = entries[0]?.contentRect?.width ?? grid.clientWidth;
       if (Math.abs(width - masonryObservedWidth) < 0.5) return;
       masonryObservedWidth = width;
+      // GravityPort A3：画廊宽度变化先重算列数（滑杆目标宽不变、内容宽变了），
+      // 列数真的变了时 syncGalleryColumns 自己会再排一次 masonry。
+      syncGalleryColumns();
       scheduleMasonryLayout();
     });
     masonryResizeObserver.observe(grid);
@@ -3765,6 +4306,7 @@ function assetCardRenderKey(asset, selected) {
     asset.stack?.count || "",
     asset.stack?.name || "",
     asset.stack?.match_count || "",
+    state.cutAssetIds instanceof Set && state.cutAssetIds.has(asset.id) ? "1" : "0",
     state.locale,
   ].join("\u001f");
 }
@@ -4085,12 +4627,14 @@ function buildGalleryCardEntry(asset, ordinal, animateCard) {
   const trashBadge = state.scope === "trash" && asset.deleted_at
     ? `<span class="trash-countdown">${escapeHtml(t("trashDaysRemaining", { count: trashRemainingDays(asset.deleted_at) }))}</span>`
     : "";
+  // 任务 93：剪切中的卡片变淡。renderKey 含剪切标记，任何一次重建都会带上。
+  const isCut = state.cutAssetIds instanceof Set && state.cutAssetIds.has(asset.id);
   const entry = {
     id: asset.id,
     asset,
     renderKey: assetCardRenderKey(asset, selected),
     animateCard,
-    markup: `<article class="asset-card${selected ? " selected" : ""}${isStack ? " is-stack" : ""}${state.scope === "trash" ? " is-trash" : ""}${isVideoAsset(asset) ? " is-video" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}"${isStack ? ` data-stack-id="${escapeHtml(asset.stack.id)}"` : ""} title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}"${stackDescription}>${media}${stackBadge}${trashBadge}<span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`,
+    markup: `<article class="asset-card${selected ? " selected" : ""}${isStack ? " is-stack" : ""}${state.scope === "trash" ? " is-trash" : ""}${isVideoAsset(asset) ? " is-video" : ""}${isCut ? " is-cut" : ""}${animateCard ? " card-enter" : ""}" data-id="${escapeHtml(asset.id)}"${isStack ? ` data-stack-id="${escapeHtml(asset.stack.id)}"` : ""} title="${escapeHtml(cardShortTitle(asset))}"><button class="asset-card-select" type="button" aria-pressed="${selected}" aria-label="${escapeHtml(label)}"${stackDescription}>${media}${stackBadge}${trashBadge}<span class="card-check" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 12.5 5 5 10-11"/></svg></span></button>${info}${cardActions}</article>`,
   };
   galleryCardVirtualEntries.set(entry.id, entry);
   return entry;
@@ -4557,6 +5101,13 @@ function setDetailOpen(open, { allowDockedClose = false } = {}) {
   // never replays a full-panel fade/translate animation.
   els.detailPanel?.classList.toggle("detail-entering", state.detailOpen && !wasOpen);
   if (state.detailOpen) setMobileNavOpen(false);
+  // GravityPort A3：检视器开关改变画廊内容宽 → 列数与滑杆组可见性都要重算。
+  syncGalleryColumns();
+  syncGallerySizeGroupVisibility();
+  // 任务 96 返工 2：隐藏窗口（e2e/CI）把 rAF 攒帧批量执行，开合引发的列数/
+  // masonry/滚动条变化可能分多帧落地；行内 left 在两帧后再幂等重算一次（值
+  // 不变时零副作用），保证收尾几何下滑杆组必在正确位置，不押任何单次帧回调。
+  requestAnimationFrame(() => requestAnimationFrame(syncGallerySizeGroupVisibility));
   if (state.detailOpen) {
     if (!wasOpen) {
       const activeEl = document.activeElement;
@@ -4573,6 +5124,9 @@ function setDetailOpen(open, { allowDockedClose = false } = {}) {
     // runs while the window is hidden or frame-throttled.
     if (!wasOpen) els.detailPanel?.querySelector("#detailTitle")?.focus();
   } else {
+    // GravityPort A4a：检视器关闭时浮层一并关闭（不还焦点给「查看」——焦点走
+    // 检视器既有的 detailReturnFocus 链）。
+    inspectorOverlay.close({ restoreFocus: false });
     const returnEl = state.detailReturnFocus;
     const returnAssetId = state.detailReturnFocusAssetId;
     state.detailReturnFocus = null;
@@ -4601,6 +5155,8 @@ function hasBlockingOverlay(except = "") {
     ["rename", Boolean(els.stackRenameModal?.classList.contains("open"))],
     ["settings", Boolean(els.settingsMenu && !els.settingsMenu.hidden)],
     ["preview", Boolean(els.imagePreviewModal && !els.imagePreviewModal.hidden)],
+    // GravityPort A4a：检视器浮层（参考图/版本树）打开时全局快捷键一并静默。
+    ["gpOverlay", inspectorOverlay.isOpen()],
   ].some(([name, open]) => name !== except && open);
 }
 function openSettingsModal() {
@@ -5044,14 +5600,25 @@ let detailRenderedAssetId = null;
 function ensureDetailInspectorShell() {
   let inspector = els.detailPanel?.querySelector(":scope > .detail-inspector");
   if (!inspector && els.detailPanel) {
-    els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span data-detail-header-label></span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll"></div></div>`;
+    // GravityPort A4a：外壳追加两个持久槽——底部「素材路径」胶囊（不随内容滚动，
+    // 内容由 renderDetailPathbar 按素材填充）与浮层容器（参考图 / 版本树共用，
+    // 内容由 renderDetailOverlays 填充；hidden 切换开合，见 inspector-overlay.mjs）。
+    els.detailPanel.innerHTML = `<div class="detail-inspector"><div class="detail-inspector-header"><span data-detail-header-label></span><button class="detail-close" type="button" data-action="close-detail" aria-label="${t("close")}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="detail-inspector-scroll"></div><div class="detail-pathbar" data-detail-pathbar hidden></div><div class="gp-inspector-overlay" data-gp-overlay role="dialog" aria-modal="true" aria-labelledby="gpInspectorOverlayTitle" tabindex="-1" hidden><div class="gp-inspector-overlay-card"><div class="gp-inspector-overlay-head"><h3 id="gpInspectorOverlayTitle" data-gp-overlay-title></h3><button class="gp-inspector-overlay-close" type="button" data-action="close-inspector-overlay" aria-label="${t("close")}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div><div class="gp-inspector-overlay-body" data-gp-overlay-body="reference" hidden></div><div class="gp-inspector-overlay-body" data-gp-overlay-body="version" hidden></div></div></div></div>`;
     inspector = els.detailPanel.querySelector(":scope > .detail-inspector");
     inspector?.querySelector('[data-action="close-detail"]')?.addEventListener("click", () => { void closeDetailSurface(); });
+    inspector?.querySelector("[data-detail-pathbar]")?.addEventListener("click", (event) => {
+      const button = event.target.closest?.('[data-action="open-asset-location"]');
+      if (button) revealAssetAtPath(button.dataset.assetPath || "");
+    });
+    inspector?.querySelector("[data-gp-overlay]")?.addEventListener("click", (event) => {
+      if (event.target.closest?.("[data-action='close-inspector-overlay']")) inspectorOverlay.close();
+    });
   }
   const scroller = inspector?.querySelector(".detail-inspector-scroll") || null;
   const headerLabel = inspector?.querySelector("[data-detail-header-label]") || null;
   const closeButton = inspector?.querySelector('[data-action="close-detail"]') || null;
-  return { inspector, scroller, headerLabel, closeButton };
+  const pathbar = inspector?.querySelector("[data-detail-pathbar]") || null;
+  return { inspector, scroller, headerLabel, closeButton, pathbar };
 }
 
 function renderDetailInspectorContent(headerText, markup) {
@@ -5085,6 +5652,10 @@ function renderDetail({ syncAssetView = true } = {}) {
   if (stackDetail) {
     const previousRenderedId = detailRenderedAssetId;
     detailRenderedAssetId = `stack:${stackDetail.id}`;
+    // 堆叠检视器不带素材路径栏；素材浮层随进出堆叠自动关闭。
+    inspectorOverlay.close({ restoreFocus: false });
+    const { pathbar } = ensureDetailInspectorShell();
+    if (pathbar) pathbar.hidden = true;
     const scroller = renderDetailInspectorContent(t("stackInspectorTitle"), stackInspectorMarkup(stackDetail));
     if (scroller && previousRenderedId !== detailRenderedAssetId) scroller.scrollTop = 0;
     bindStackInspectorMediaFallbacks(els.detailPanel);
@@ -5095,18 +5666,31 @@ function renderDetail({ syncAssetView = true } = {}) {
     : null;
   if (!asset) {
     detailRenderedAssetId = null;
+    inspectorOverlay.close({ restoreFocus: false });
+    const { pathbar } = ensureDetailInspectorShell();
+    if (pathbar) pathbar.hidden = true;
     const scroller = renderDetailInspectorContent(t("assetInspector"), `<div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t(state.assets.length ? "noSelection" : "noAssets")}</p><span>${t(state.assets.length ? "noSelectionHint" : "noAssetsHint")}</span></div>`);
     if (scroller) scroller.scrollTop = 0;
     return;
   }
   // 任务 35：「+N」展开状态只跟随当前素材——换素材渲染（首次打开/从别的素材或空态
   // 切回来）回到折叠；同素材重渲染（detailRenderedAssetId === asset.id）保留现状。
-  if (detailRenderedAssetId !== asset.id) state.detailTagsExpanded = false;
+  if (detailRenderedAssetId !== asset.id) {
+    state.detailTagsExpanded = false;
+    // GravityPort A4a：切换素材时浮层自动关闭（同素材重渲染——收藏/自动保存刷新
+    // ——不打断，浮层内容随本次渲染整体重建）。
+    inspectorOverlay.close({ restoreFocus: false });
+  }
   const cachedHistory = versionHistoryForAsset(asset);
   const cachedRecipeHistory = recipeHistoryForAsset(asset) || recipeHistoryFromAsset(asset);
   const cachedGenerationHistory = generationHistoryForAsset(asset);
   // Library v2 保持单层详情容器：语义区块直接进入唯一滚动列，不再额外包卡片壳。
-  const scroller = renderDetailInspectorContent(t("assetInspector"), `${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailSourceSectionMarkup(asset)}${detailVersionSectionMarkup(asset, cachedHistory, cachedRecipeHistory, cachedGenerationHistory)}${detailGroupSectionMarkup(asset)}${detailMoreSectionMarkup(asset)}`);
+  // GravityPort A4a 区块序：头部(file) → 标签(tags) → 色板(palette) → 提示词(prompt)
+  // → 参考图(reference) → 版本树与上下文(version)。配方编辑/来源信息/独立分组/
+  // 图片位置/独立版本区块已从界面拿掉（helper 保留实现）。
+  const scroller = renderDetailInspectorContent(t("assetInspector"), `${detailFileSectionMarkup(asset)}${detailTagsSectionMarkup(asset)}${detailPaletteSectionMarkup(asset)}${detailPromptSectionMarkup(asset)}${detailReferenceSectionMarkup(asset)}${detailVersionContextSectionMarkup(asset, cachedGenerationHistory)}`);
+  renderDetailPathbar(asset);
+  renderDetailOverlays(asset, cachedHistory, cachedGenerationHistory);
   const previewAspect = els.detailPanel.querySelector("[data-detail-preview-aspect]");
   if (previewAspect?.dataset.detailPreviewAspect) {
     previewAspect.style.setProperty("--detail-preview-aspect", previewAspect.dataset.detailPreviewAspect);
@@ -5134,6 +5718,7 @@ function renderDetail({ syncAssetView = true } = {}) {
   // so they need their listeners again (not only after /versions loads).
   bindVersionCompareEvents(cachedHistory, asset.id);
   bindGenerationHistoryEvents(cachedGenerationHistory, asset.id);
+  bindGenerationContextEvents();
   bindRecipeHistoryEvents(cachedRecipeHistory, asset);
   detailRenderedAssetId = asset.id;
   if (hadPanelFocus) els.detailPanel.querySelector("#detailTitle")?.focus();
@@ -5144,6 +5729,59 @@ function renderDetail({ syncAssetView = true } = {}) {
   if (!cachedHistory) void loadVersionHistory(asset);
   if (!cachedRecipeHistory) void loadRecipeHistory(asset);
   if (!cachedGenerationHistory) void loadGenerationHistory(asset);
+}
+
+// GravityPort A4a：底部固定「素材路径」胶囊——左边标签、中间单行省略路径（悬停
+// title 展示全路径）、右边「打开」（与右键菜单「在 Finder 中显示」同一动作）。
+// 堆叠检视器与空态不渲染（renderDetail 的对应分支里 hidden）。路径不存在时「打开」禁用。
+function renderDetailPathbar(asset) {
+  const { pathbar } = ensureDetailInspectorShell();
+  if (!pathbar) return;
+  const imagePath = String(asset.image_path || "").trim();
+  pathbar.hidden = false;
+  pathbar.innerHTML = `<div class="detail-pathbar-pill"><span class="detail-pathbar-label">${escapeHtml(t("assetPathLabel"))}</span><span class="detail-pathbar-path"${imagePath ? ` title="${escapeHtml(imagePath)}"` : ""}>${imagePath ? escapeHtml(imagePath) : `<span class="empty-copy">${escapeHtml(t("notRecorded"))}</span>`}</span><button class="detail-pathbar-open" type="button" data-action="open-asset-location" data-asset-path="${escapeHtml(imagePath)}"${imagePath ? "" : " disabled"} aria-label="${escapeHtml(t("openPathAction"))}">${escapeHtml(t("openPathAction"))}</button></div>`;
+}
+
+// 「打开」与右键菜单「在 Finder 中显示」完全同源：同一 /api/open-folder 端点、
+// 同样的错误映射与成功提示，不另写打开逻辑（桌面端落到 shell.showItemInFolder，
+// 浏览器端走同一服务端行为）。
+async function revealAssetAtPath(imagePath) {
+  const path = String(imagePath || "").trim();
+  if (!path) return;
+  await runAction(async () => {
+    try {
+      await apiFetch("/api/open-folder", {
+        method: "POST",
+        body: { path, reveal: true },
+      });
+    } catch (error) {
+      if (error.message.includes("Path not allowed")) throw new Error(t("showInFinderPathNotAllowed"));
+      if (error.message.includes("does not exist")) throw new Error(t("showInFinderNotFound"));
+      throw new Error(t("showInFinderFailed"));
+    }
+    showToast(t("shownInFinder"), "success");
+  });
+}
+
+// GravityPort A4a：填充两个浮层主体。参考图浮层 = 参考图权利编辑器（原来源区块
+// 内的 data-reference-rights / data-reference-rights-section 结构原样搬入，行为
+// 不变）；版本树浮层 = 版本选择器 + 生成树 + 版本对比 + 版本历史（原独立版本区块
+// 内容，行为不变）。事件绑定不用在这里做——renderDetail 随后的 panel 级
+// bind* 调用按 els.detailPanel 全面板查询，天然覆盖浮层内的 region。每次
+// renderDetail 整体重建——浮层打开且焦点在浮层里时，回落到浮层卡片。
+function renderDetailOverlays(asset, cachedHistory, cachedGenerationHistory) {
+  const referenceBody = inspectorOverlay.body("reference");
+  if (referenceBody) {
+    referenceBody.innerHTML = `<div class="detail-reference-overlay" data-reference-rights-section><div data-reference-rights>${referenceRightsMarkup(asset)}</div></div>`;
+  }
+  const versionBody = inspectorOverlay.body("version");
+  if (versionBody) {
+    versionBody.innerHTML = detailVersionSectionMarkup(asset, cachedHistory, null, cachedGenerationHistory);
+  }
+  const overlayRoot = els.detailPanel.querySelector("[data-gp-overlay]");
+  if (inspectorOverlay.isOpen() && overlayRoot?.contains(document.activeElement)) {
+    overlayRoot.focus({ preventScroll: true });
+  }
 }
 
 function bindDetailHeaderContext(asset) {
@@ -5175,10 +5813,36 @@ async function loadGenerationHistory(asset, options = {}) {
     if (requestId !== generationHistoryRequestSequence || `${state.project}\u0000${state.selectedId}` !== selectedKey) return;
     state.generationHistory = result.history;
     renderGenerationHistoryRegion(result.history, asset.id, null, options);
+    // GravityPort A4a：检视器「版本树与上下文」盒与浮层树共用一次请求，各自刷新。
+    renderGenerationContextRegion(result.history, asset.id);
   } catch (error) {
     if (requestId !== generationHistoryRequestSequence || `${state.project}\u0000${state.selectedId}` !== selectedKey) return;
     renderGenerationHistoryRegion(null, asset.id, error);
+    renderGenerationContextRegion(null, asset.id, error);
   }
+}
+// GravityPort A4a：版本树与上下文盒的异步刷新（markup 与区块渲染共用
+// generationContextBoxMarkup，保证两处一致；出错时按空态处理）。
+function renderGenerationContextRegion(history, selectedId, error = null) {
+  const region = els.detailPanel?.querySelector("[data-generation-context]");
+  if (!region || state.selectedId !== selectedId) return;
+  region.innerHTML = error
+    ? `<p class="empty-copy detail-version-context-empty">${escapeHtml(t("generationHistoryEmpty"))}</p>`
+    : generationContextBoxMarkup(history, selectedId);
+}
+// 任务 75：版本树与上下文的行是「打开这条生成的输出素材」按钮，复用生成树同一
+// 动作（openGenerationOutputAsset），不另写切换逻辑；键盘经原生 button 激活。
+// 盒的 innerHTML 会被异步刷新整段替换而 region 元素只在 renderDetail 重建，
+// 所以在 region 上做一次事件委托（幂等标记防重复绑定）。
+function bindGenerationContextEvents() {
+  const region = els.detailPanel?.querySelector("[data-generation-context]");
+  if (!region || region.dataset.generationContextRowsBound === "true") return;
+  region.dataset.generationContextRowsBound = "true";
+  region.addEventListener("click", (event) => {
+    const button = event.target.closest?.('button[data-action="open-generation-output"]');
+    if (!button || button.disabled || !region.contains(button)) return;
+    runAction(() => openGenerationOutputAsset(button.dataset.outputAssetId));
+  });
 }
 function renderGenerationHistoryRegion(history, selectedId, error = null, options = {}) {
   const region = els.detailPanel?.querySelector("[data-generation-history]");
@@ -5424,7 +6088,12 @@ function bindGenerationHistoryEvents(history, selectedAssetId) {
           tone: "warning",
           returnFocus: button,
         });
-        if (!confirmed || !isCurrentDetailSelection(originProjectId, activeSelectedAssetId)) return;
+        if (!confirmed || !isCurrentDetailSelection(originProjectId, activeSelectedAssetId)) {
+          // 任务 73 返工 1：取消时确认框已把焦点还给浮层里的删除按钮；确认后生成树
+          // 整段重建、原按钮被替换——确认框的兜底焦点会落到浮层外，拉回浮层容器。
+          inspectorOverlay.restoreFocusInside();
+          return;
+        }
         button.disabled = true;
         try {
           await apiFetch("/api/generation-relations", {
@@ -5436,6 +6105,8 @@ function bindGenerationHistoryEvents(history, selectedAssetId) {
           if (current?.id === activeSelectedAssetId) await loadGenerationHistory(current, { openGenerationIds: openGenerationNodeIds(region) });
         } finally {
           if (button.isConnected) button.disabled = false;
+          // 同上：确认路径在重建后把焦点拉回浮层（浮层仍开着，绝不落到 body）。
+          inspectorOverlay.restoreFocusInside();
         }
       });
     }
@@ -5576,15 +6247,19 @@ async function loadRecipeHistory(asset) {
 }
 function renderRecipeHistoryRegion(history, asset, error = null) {
   const region = els.detailPanel?.querySelector("[data-recipe-history]");
-  if (!region || !isCurrentDetailSelection(asset.project_id, asset.id)) return;
-  region.innerHTML = error
-    ? `<p class="recipe-history-status error" role="status">${escapeHtml(t("recipeSnapshotLoadFailed"))}: ${escapeHtml(error.message)}</p>`
-    : recipeHistoryMarkup(history);
-  bindRecipeHistoryEvents(history, asset);
+  if (region) {
+    if (!isCurrentDetailSelection(asset.project_id, asset.id)) return;
+    region.innerHTML = error
+      ? `<p class="recipe-history-status error" role="status">${escapeHtml(t("recipeSnapshotLoadFailed"))}: ${escapeHtml(error.message)}</p>`
+      : recipeHistoryMarkup(history);
+    bindRecipeHistoryEvents(history, asset);
+  }
   // The rights editor reads the active snapshot's references, and the panel is
   // built before this history arrives. Gallery rows deliberately omit recipe
   // relations, so without redrawing here the editor stays empty on first open
   // even when the asset has references.
+  // GravityPort A4a：配方快照历史不再有独立界面 region（函数体保留），但参考图
+  // 权利编辑器与参考图缩略图盒仍依赖配方历史到位后的这次刷新。
   renderReferenceRightsRegion(asset);
   renderPromptReferencesRegion(asset, error);
 }
@@ -5595,6 +6270,20 @@ function renderPromptReferencesRegion(asset, error = null) {
     ? `<div class="detail-reference-row detail-reference-error" role="status"><span class="detail-reference-label">${escapeHtml(t("referenceImage"))}</span><span class="detail-reference-value">${escapeHtml(t("referenceLoadFailed"))}</span></div>`
     : promptReferencesMarkup(asset);
   bindReferenceThumbnailFallbacks(region);
+  // GravityPort A4a：整块重建把「查看」按钮换成了新节点，重绑浮层入口。
+  bindInspectorOverlayTriggers(els.detailPanel);
+}
+// GravityPort A4a：浮层「查看」入口的绑定（逐按钮直绑；幂等——重复调用只对
+// 尚未绑定的按钮生效）。
+function bindInspectorOverlayTriggers(panel) {
+  panel?.querySelector('[data-action="open-reference-overlay"]:not([data-overlay-bound])')?.addEventListener("click", (event) => {
+    inspectorOverlay.open("reference", t("referenceImage"), event.currentTarget);
+  });
+  panel?.querySelector('[data-action="open-reference-overlay"]')?.setAttribute("data-overlay-bound", "true");
+  panel?.querySelector('[data-action="open-version-overlay"]:not([data-overlay-bound])')?.addEventListener("click", (event) => {
+    inspectorOverlay.open("version", t("versionTreeTitle"), event.currentTarget);
+  });
+  panel?.querySelector('[data-action="open-version-overlay"]')?.setAttribute("data-overlay-bound", "true");
 }
 function bindReferenceThumbnailFallbacks(root) {
   root?.querySelectorAll?.("[data-reference-thumb-img]").forEach((image) => {
@@ -5665,9 +6354,20 @@ function bindDetailEvents(asset, renderId) {
     button.addEventListener("click", () => removeDetailTag(panel, button, asset, renderId));
   });
   panel.querySelector('[data-action="toggle-tags"]')?.addEventListener("click", () => toggleDetailTagsExpanded(asset, renderId));
-  panel.querySelector('[data-action="copy-source"]')?.addEventListener("click", () => runAction(async () => { await writeClipboardText(sourceCopyValue(asset.source)); showToast(t("originalPathCopied"), "success"); }));
-  panel.querySelector('[data-action="view-generation-session"]')?.addEventListener("click", () => { void showRelatedGenerations(asset, "session"); });
-  panel.querySelector('[data-action="view-generation-batch"]')?.addEventListener("click", () => { void showRelatedGenerations(asset, "batch"); });
+  // GravityPort A4a：色块点击复制 hex（aria-label「复制颜色 #…」由 markup 提供）。
+  // 数据上色经 CSSOM 写入（markup 无内联 style，沿用既有卫生约束）。
+  panel.querySelectorAll('[data-action="copy-swatch"]').forEach((button) => {
+    button.style.background = String(button.dataset.swatchColor || "transparent");
+    button.addEventListener("click", () => runAction(async () => {
+      await writeClipboardText(String(button.dataset.swatchColor || ""));
+      showToast(t("copySuccess"), "success");
+    }));
+  });
+  // GravityPort A4a：「查看」打开浮层（参考图 / 版本树与上下文，同一时间只开一个；
+  // Esc / 点外面 / 关闭按钮都走 inspector-overlay 控制器，焦点回到触发按钮）。
+  // 绑定在 bindInspectorOverlayTriggers：renderPromptReferencesRegion 整块重建
+  // 参考图区块后也要重绑（那里不含版本树入口，重复调用无副作用）。
+  bindInspectorOverlayTriggers(panel);
   if (!isVideoAsset(asset)) {
     // 任务 36：预览入口是 button（inspector-markup assetMediaPreviewMarkup 的
     // detail 分支），关闭弹窗时 openImagePreview 记录的 returnFocus 就是它，

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MOSA — 创作资产库</title>
+    <title>GravityPort</title>
     <!-- Blocking, same-origin theme bootstrap: runs before the stylesheet so a
          saved dark-mode preference is applied before first paint (no FOUC).
          Kept as an external file to satisfy the runtime CSP (script-src 'self'). -->
@@ -83,14 +83,22 @@
     <!-- Phase 5B / F-15：全应用唯一 ConfirmDialog——替换 window.confirm 的四条业务确认
          （批量归档、单素材归档、放弃未保存修改、受限参考图再生）。标题/说明/确认按钮文案
          由 requestConfirmation 动态填充；Cancel 固定复用 cancel。tone 切换确认按钮原语：
-         danger→btn-danger（DestructiveButton 红色 outline），warning→btn-primary（品牌蓝）。 -->
+         danger→btn-danger（DestructiveButton 红色 outline），warning→btn-primary（品牌蓝）。
+         任务 94（A4f）：底行左侧是「不再提醒」勾选框（仅 requestConfirmation 传入
+         dontAskAgainKey 的调用显示，每次打开默认未勾选），右侧否/取消 + 是/确认按钮。 -->
     <div class="modal-overlay confirm-dialog-overlay" id="confirmDialog" aria-hidden="true">
       <div class="modal-card confirm-dialog-card" id="confirmDialogCard" role="dialog" aria-modal="true" aria-labelledby="confirmDialogTitle" aria-describedby="confirmDialogDescription" tabindex="-1">
         <div class="confirm-dialog-copy">
           <h3 id="confirmDialogTitle"></h3>
           <p id="confirmDialogDescription"></p>
         </div>
-        <div class="modal-footer"><button class="btn-secondary" id="confirmDialogCancel" type="button" data-i18n="cancel">取消</button><button class="btn-danger" id="confirmDialogConfirm" type="button"></button></div>
+        <div class="confirm-dialog-footer">
+          <label class="confirm-dialog-dont-ask" id="confirmDialogDontAsk" hidden>
+            <input type="checkbox" id="confirmDialogDontAskCheckbox" />
+            <span data-i18n="dontAskAgain">不再提醒</span>
+          </label>
+          <div class="confirm-dialog-actions"><button class="btn-secondary" id="confirmDialogCancel" type="button" data-i18n="cancel">取消</button><button class="btn-danger" id="confirmDialogConfirm" type="button"></button></div>
+        </div>
       </div>
     </div>
 
@@ -111,23 +119,23 @@
     <button class="mobile-nav-scrim" id="mobileNavScrim" type="button" data-i18n-aria-label="closeNavigation" aria-label="关闭导航" hidden></button>
 
     <div class="shell" id="appShell">
-      <aside class="sidebar" id="appSidebar" aria-label="MOSA">
+      <aside class="sidebar" id="appSidebar" aria-label="GravityPort">
         <button class="mobile-nav-close" id="mobileNavClose" type="button" data-i18n-aria-label="closeNavigation" aria-label="关闭导航">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
         </button>
         <div class="brand">
           <div class="brand-info">
-            <h1>MOSA</h1>
+            <h1>GravityPort</h1>
             <p class="sidebar-library-title" data-i18n="brandSubtitle">创作资产库</p>
           </div>
         </div>
 
         <nav class="primary-nav" data-i18n-aria-label="library" aria-label="素材库">
           <ul class="nav-list" id="quickFilters">
-            <li><button class="nav-item active" data-filter="all" type="button" aria-pressed="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span class="nav-item-text" data-i18n="allAssets">全部素材</span><span class="nav-count">—</span></button></li>
-            <li><button class="nav-item" data-filter="favorite" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg><span class="nav-item-text" data-i18n="favorites">收藏</span><span class="nav-count">—</span></button></li>
-            <li><button class="nav-item" data-filter="unorganized" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16l-2 14H6L4 5Z"/><path d="M7 12h3l2 2 2-2h3"/></svg><span class="nav-item-text" data-i18n="unorganized">待整理</span><span class="nav-count">—</span></button></li>
-            <li><button class="nav-item" data-filter="trash" type="button" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg><span class="nav-item-text" data-i18n="trash">回收站</span><span class="nav-count">—</span></button></li>
+            <li><button class="nav-item active" data-filter="all" type="button" aria-pressed="true" data-i18n-title="allAssets" title="全部素材"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span class="nav-item-text" data-i18n="allAssets">全部素材</span><span class="nav-count">—</span></button></li>
+            <li><button class="nav-item" data-filter="unorganized" type="button" aria-pressed="false" data-i18n-title="unorganized" title="待整理"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16l-2 14H6L4 5Z"/><path d="M7 12h3l2 2 2-2h3"/></svg><span class="nav-item-text" data-i18n="unorganized">待整理</span><span class="nav-count">—</span></button></li>
+            <li><button class="nav-item" data-filter="favorite" type="button" aria-pressed="false" data-i18n-title="favorites" title="收藏"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/></svg><span class="nav-item-text" data-i18n="favorites">收藏</span><span class="nav-count">—</span></button></li>
+            <li><button class="nav-item" data-filter="trash" type="button" aria-pressed="false" data-i18n-title="trash" title="回收站"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg><span class="nav-item-text" data-i18n="trash">回收站</span><span class="nav-count">—</span></button></li>
           </ul>
           <div class="sidebar-group-heading">
             <button class="sidebar-section-toggle" id="smartGroupsToggle" type="button" aria-expanded="true" aria-controls="sidebarGroupList">
@@ -151,7 +159,7 @@
         <div class="sidebar-spacer"></div>
         <div class="sidebar-footer">
           <div class="settings-wrap">
-            <button class="settings-trigger" id="settingsToggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="settingsMenu"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06-2.15 2.15-.06-.06A1.7 1.7 0 0 0 15.72 18a1.7 1.7 0 0 0-1.02 1.55V20h-3v-.45A1.7 1.7 0 0 0 10.68 18a1.7 1.7 0 0 0-1.87 1.02l-.06.06-2.15-2.15.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.02H5v-3h.45A1.7 1.7 0 0 0 7 9.96a1.7 1.7 0 0 0-1.02-1.87l-.06-.06 2.15-2.15.06.06A1.7 1.7 0 0 0 10 6.28a1.7 1.7 0 0 0 1.02-1.55V4.3h3v.45A1.7 1.7 0 0 0 15.04 6.3a1.7 1.7 0 0 0 1.87-1.02l.06-.06 2.15 2.15-.06.06A1.7 1.7 0 0 0 18.72 9.3a1.7 1.7 0 0 0 1.55 1.02h.45v3h-.45A1.7 1.7 0 0 0 19.4 15Z"/></svg><span data-i18n="settings">设置</span></button>
+            <button class="settings-trigger" id="settingsToggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="settingsMenu" data-i18n-aria-label="userCenterOpenSettings" data-i18n-title="userCenter" aria-label="用户中心，打开设置" title="用户中心"><span class="user-center-avatar" id="userCenterAvatar" aria-hidden="true">G</span><span class="settings-trigger-label" data-i18n="userCenter">用户中心</span></button>
           </div>
         </div>
       </aside>
@@ -161,14 +169,17 @@
              asset-view（专用大图查看模式）。app.js setViewMode 以 hidden + inert + aria-hidden
              组合切换：退出布局、Tab 顺序与辅助技术树；既有内容保持原缩进以最小化 diff。 -->
         <section class="library-view" id="libraryView">
-        <!-- V2 FilterBar 顶栏：左=.topbar-context（范围标题+类型筛选），右=.topbar-actions
-             work 组只保留排序与搜索框；
-             utility 组只保留不可见的桥接状态语义；主题切换统一收敛到设置面板，primary 组提供按需显示的资产监视器入口。
-             顶栏不再重复提供主题按钮；无隐藏复制控件、无溢出菜单。#bridgeStatusMeta 全档位
-             visually-hidden（降噪）：不占可见布局但保留辅助技术语义；
-             #statusText 独立于被隐藏的 utility 组，持续保留 aria-live 播报。 -->
+        <!-- GravityPort A3 顶栏三段（任务 70，按稿子精简）：左=.topbar-context 内
+             .topbar-nav-group（后退/前进 + 堆叠返回），中=.topbar-size-group 缩略图大小
+             滑杆（绝对居中，与左右重叠时由 JS 隐藏），右=.topbar-actions（分类、排序、
+             搜索框；utility 组只保留不可见的桥接状态语义，primary 组是清空回收站 /
+             打开检视器）。类型筛选（全部/图片/视频）从顶栏移除：mediaKind 状态与
+             后端语义保留，renderTypeFilters 容忍容器不存在。范围标题 #viewTitle 连同
+             .title-row 一起视觉隐藏（读屏仍能读到当前范围）。#statusText 独立于被隐藏的
+             utility 组，持续保留 aria-live 播报。 -->
         <header class="topbar">
-          <div class="topbar-context"><div class="title-row"><button class="stack-back" id="stackBack" type="button" hidden data-i18n-aria-label="backToStackLibrary" aria-label="返回素材库"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button><h2 id="viewTitle">全部素材</h2></div><div class="topbar-type-filters" role="group" data-i18n-aria-label="typeFilter" aria-label="类型筛选"><button class="type-filter active" type="button" data-type="all" aria-pressed="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="3.5" width="6" height="6" rx="1"/><rect x="14.5" y="14.5" width="6" height="6" rx="1"/><rect x="3.5" y="14.5" width="6" height="6" rx="1"/></svg><span data-i18n="allTypes">全部</span></button><button class="type-filter" type="button" data-type="img" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m4 18 5.5-5 3.5 3 2.5-2.5L20 18"/></svg><span data-i18n="typeImages">图片</span></button><button class="type-filter" type="button" data-type="video" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3Z"/></svg><span data-i18n="typeVideos">视频</span></button></div></div>
+          <div class="topbar-context"><div class="topbar-nav-group"><button class="toolbar-icon nav-history-button" id="navHistoryBack" type="button" disabled data-i18n-aria-label="navHistoryBack" aria-label="后退"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button><button class="toolbar-icon nav-history-button" id="navHistoryForward" type="button" disabled data-i18n-aria-label="navHistoryForward" aria-label="前进"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button><button class="stack-back" id="stackBack" type="button" hidden data-i18n-aria-label="backToStackLibrary" aria-label="返回素材库"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button></div><div class="title-row visually-hidden"><h2 id="viewTitle">全部素材</h2></div></div>
+          <div class="topbar-size-group" id="topbarSizeGroup" hidden><button class="toolbar-icon" id="gallerySizeMinus" type="button" data-i18n-aria-label="thumbSizeDecrease" aria-label="缩小缩略图"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14"/></svg></button><input class="topbar-size-slider" id="gallerySizeSlider" type="range" min="120" max="400" step="20" value="200" data-i18n-aria-label="thumbSize" aria-label="缩略图大小" /><button class="toolbar-icon" id="gallerySizePlus" type="button" data-i18n-aria-label="thumbSizeIncrease" aria-label="放大缩略图"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button></div>
           <div class="topbar-actions">
             <span class="visually-hidden" id="statusText" role="status" aria-live="polite" aria-relevant="text" aria-atomic="true"></span>
             <div class="topbar-utility-group">
@@ -187,46 +198,34 @@
         </header>
         <section class="grid" id="assetGrid" data-i18n-aria-label="assetList" aria-label="素材列表" aria-busy="true" tabindex="-1"></section>
         </section>
-        <!-- 专用大图查看模式骨架（Phase 3A）：单一返回操作（可见文本=返回语义+范围名，
-             accessible name 即可见文本拼接，天然满足 Label in Name）+ 中性舞台（唯一主图）。
-             Phase 3C / F-04：头部右侧单一素材导航组（位置 output + 上一张/下一张，批准稿右上
-             箭头位）；无缩略图条/相关素材/底部素材列表。 -->
+        <!-- 专用大图查看模式骨架（GravityPort A4c，任务 90）：头部浮在舞台之上（不占布局、
+             不拦舞台指针，子按钮恢复接收）——左上「< 返回」，右上「删除 / 适合窗口 / 全屏」；
+             舞台占满整个主区，媒体按比例适合、竖直居中，左右两侧大箭头浮在舞台上。
+             位置计数、上一张/下一张按钮组、缩放控制条、返回键里的范围名按稿子从界面拿掉
+             （JS 引用、i18n 键与禁用语义保留，元素缺省时走既有空值守卫）。 -->
         <section class="asset-view" id="assetView" aria-labelledby="assetViewTitle" hidden inert aria-hidden="true">
           <header class="asset-view-header">
-            <button class="toolbar-filter asset-view-back" id="assetViewBack" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="asset-view-back-label" data-i18n="backToLibrary">返回素材库</span><span class="asset-view-back-scope" id="assetViewScope">全部素材</span></button>
+            <button class="toolbar-filter asset-view-back" id="assetViewBack" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="asset-view-back-label" data-i18n="assetViewBack">返回</span></button>
             <h2 class="visually-hidden" id="assetViewTitle"></h2>
-            <!-- Phase 3C / F-04：单一素材导航组。原生 button + type="button" + native disabled；
-                 位置为 output 语义（aria-live=polite），图标按钮以 aria-label 命名（不依赖 title）。 -->
-            <div class="asset-view-nav" id="assetViewNav" role="group" data-i18n-aria-label="assetNavControls" aria-label="素材导航">
-              <output class="asset-view-position" id="assetViewPosition" data-i18n-aria-label="assetPosition" aria-label="素材位置" aria-live="polite">—</output>
-              <button class="asset-view-nav-btn" id="assetViewPrev" type="button" data-i18n-aria-label="assetNavPrev" aria-label="上一张素材" disabled>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
-              </button>
-              <button class="asset-view-nav-btn" id="assetViewNext" type="button" data-i18n-aria-label="assetNavNext" aria-label="下一张素材" disabled>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-              </button>
+            <div class="asset-view-actions" role="group" data-i18n-aria-label="assetViewActions" aria-label="大图操作">
+              <button class="asset-view-action" id="assetViewDelete" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14Z"/></svg><span data-i18n="delete">删除</span></button>
+              <button class="asset-view-action" id="assetZoomFit" type="button" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg><span data-i18n="zoomFit">适合窗口</span></button>
+              <button class="asset-view-action" id="assetViewFullscreen" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/></svg><span data-i18n="fullscreen">全屏</span></button>
             </div>
           </header>
           <div class="asset-view-stage" id="assetViewStage">
             <img class="asset-view-image" id="assetViewImage" alt="" draggable="false" hidden />
             <video class="asset-view-video" id="assetViewVideo" controls playsinline hidden></video>
             <p class="asset-view-error" id="assetViewError" role="status" hidden></p>
-            <!-- Phase 3B / F-03：单一缩放控制条，舞台内部底部居中浮动（批准稿位置）。
-                 原生 button + output 语义；− / + 为图标按钮（aria-label 命名，不依赖 title），
-                 Fit 带可见文字；无上一张/下一张、无缩略图、无下载分享。 -->
-            <div class="asset-view-controls" id="assetViewControls" role="group" data-i18n-aria-label="zoomControls" aria-label="图像缩放控制">
-              <button class="asset-view-control" id="assetZoomOut" type="button" data-i18n-aria-label="zoomOut" aria-label="缩小" disabled>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14"/></svg>
-              </button>
-              <output class="asset-view-zoom-value" id="assetZoomValue" data-i18n-aria-label="zoomLevel" aria-label="当前缩放比例" aria-live="off">—</output>
-              <button class="asset-view-control" id="assetZoomIn" type="button" data-i18n-aria-label="zoomIn" aria-label="放大" disabled>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-              </button>
-              <button class="asset-view-fit" id="assetZoomFit" type="button" disabled>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-                <span data-i18n="zoomFit">适合窗口</span>
-              </button>
-            </div>
+            <!-- 左右翻页箭头（GravityPort A4c）：沿用 assetViewPrev/Next 的既有绑定、
+                 焦点兜底与禁用语义（到头禁用，样式走现有 disabled token）；
+                 键盘左右方向键照旧，箭头本身只补指针入口。 -->
+            <button class="asset-view-arrow asset-view-arrow-prev" id="assetViewPrev" type="button" data-i18n-aria-label="assetNavPrev" aria-label="上一张素材" disabled>
+              <svg width="18" height="36" viewBox="0 0 18 36" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 2 2 18l14 16"/></svg>
+            </button>
+            <button class="asset-view-arrow asset-view-arrow-next" id="assetViewNext" type="button" data-i18n-aria-label="assetNavNext" aria-label="下一张素材" disabled>
+              <svg width="18" height="36" viewBox="0 0 18 36" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 2 14 16L2 34"/></svg>
+            </button>
           </div>
         </section>
       </main>

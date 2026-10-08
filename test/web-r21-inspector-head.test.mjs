@@ -1,5 +1,5 @@
 // R21（Web 端）检视器外框与头部契约：只读 web/app/styles.css、
-// web/app/inspector-markup.mjs、web/app/i18n.mjs。锁定：344 宽度 token、
+// web/app/inspector-markup.mjs、web/app/i18n.mjs。锁定：320 宽度 token（GravityPort）、
 // 头部 14px/640、两栏头部（132px 左栏预览）、e2e 必需元素仍在
 // detailFileSectionMarkup 输出里、五个事实键名、「素材详情」文案、
 // 新增字号下限 10px（R21 的 8.5～9.5px 一律抬到 10px）。
@@ -24,23 +24,24 @@ function functionSlice(source, name) {
   return source.slice(start, next === -1 ? source.length : next);
 }
 
-test("R21 inspector frame: 344px width token, light panel colours, 28px scroll-end padding", async () => {
+test("R21 inspector frame: 320px width token, light panel colours, 28px scroll-end padding", async () => {
   const css = await readWebCss();
-  assert.match(css, /--inspector-width: 344px;/, "--inspector-width must be the R21 344px");
-  // 外框新颜色只覆盖浅色；深色继续走既有 token 规则。
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \{ background: #fbfbfc; border-left-color: #e7e7ea; \}/);
+  assert.match(css, /--inspector-width: 320px;/, "--inspector-width must be the GravityPort 320px");
+  // GravityPort A1 去掉检视器左边线：外框新颜色只覆盖浅色底色；深色继续走既有 token 规则。
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \{ background: #fbfbfc; \}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail-inspector-header \{ border-bottom-color: #e7e7ea; \}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail-inspector-scroll \{ background: #fbfbfc; \}/);
   // 底部留白 28（滚动列的内边距，符合外框规格）。
   assert.match(css, /\.mosa-v2 \.detail-inspector-scroll \{[\s\S]*?padding: 0 0 var\(--r21-s7\);/);
 });
 
-test("R21 inspector header: 64px height, 14px/640 title, 28x28 round close button", async () => {
+test("R21 inspector header: 64px height, 16px title (A4a 返工 1), 28x28 round close button", async () => {
   const css = await readWebCss();
   const header = /\.mosa-v2 \.detail-inspector-header \{[^}]*\}/.exec(css)?.[0];
   assert.ok(header, "the V2 header rule must exist");
   assert.match(header, /min-height: var\(--topbar-height\);/, "the header must share the 64px topbar token");
-  assert.match(header, /padding: 0 24px;/);
+  // 稿子标题 16px(V2 基础块仍写 14px,A4a 后置覆盖块抬到 16)。
+  assert.match(css, /\.mosa-v2 \.detail \.detail-inspector-header > span \{ font-size: 16px; \}/);
   assert.match(header, /font-size: 14px;/);
   assert.match(header, /font-weight: 640;/);
   const close = /\.mosa-v2 \.detail-inspector-header \.detail-close \{[^}]*\}/.exec(css)?.[0];
@@ -49,26 +50,36 @@ test("R21 inspector header: 64px height, 14px/640 title, 28x28 round close butto
   assert.match(close, /border-radius: var\(--radius-card\);/, "the close button must use the 8px radius");
 });
 
-test("R21 head layout: 132px square preview left, meta column right", async () => {
+test("A4a head layout: 130px square preview left, meta column right, icon-only star", async () => {
   const css = await readWebCss();
-  assert.match(css, /\.mosa-v2 \.detail \.detail-overview \{[^}]*padding: var\(--inspector-space-5\) 24px 0;/,
-    "the file section must sit 20px below the header with 24px side padding");
-  assert.match(css, /\.mosa-v2 \.detail \.asset-head \{ display: grid; grid-template-columns: 132px minmax\(0, 1fr\); gap: var\(--inspector-space-4\); align-items: start; \}/);
-  assert.match(css, /\.mosa-v2 \.detail \.asset-mini \{ position: relative; width: 132px; aspect-ratio: 1 \/ 1;[^}]*border-radius: var\(--radius-card\);/);
+  // GravityPort A4a：缩略图 130×130 无圆角（量数）；左右内边距 20；名称 17px。
+  const headerBlocks = css.match(/\.mosa-v2 \.detail-inspector-header \{[^}]*\}/g) || [];
+  assert.ok(headerBlocks.at(-1).includes("padding: 0 20px;"), "the last header rule carries the 20px A4a side padding");
+  assert.match(css, /\.mosa-v2 \.detail \.detail-overview \{ padding: 0 20px 10px; \}/,
+    "the file section hugs the header with the 20px side padding");
+  assert.match(css, /\.mosa-v2 \.detail \.asset-head \{ grid-template-columns: 130px minmax\(0, 1fr\); \}/);
+  const mini = /\.mosa-v2 \.detail \.asset-mini \{[^}]*\}/g;
+  const miniBlocks = css.match(mini) || [];
+  assert.ok(miniBlocks.at(-1).includes("width: 130px;"), "the preview tile is 130px wide");
+  assert.ok(miniBlocks.at(-1).includes("border-radius: 0;"), "the design preview has no corner radius");
   assert.match(css, /\.mosa-v2 \.detail \.asset-mini img\.detail-image,\n\.mosa-v2 \.detail \.asset-mini video\.detail-image \{ object-fit: cover; \}/);
-  assert.match(css, /\.mosa-v2 \.detail \.asset-name-row h3 \{[^}]*font-size: 14px;[^}]*font-weight: 650;[^}]*-webkit-line-clamp: 2;/);
-  assert.match(css, /\.mosa-v2 \.detail \.asset-name-row \.detail-overview-open \{ display: inline-grid; width: 28px; height: 28px;/);
+  // A4a：字号抬到 17px 在后置覆盖块里，650 字重与两行截断仍在基础块。
+  assert.match(css, /\.mosa-v2 \.detail \.asset-name-row h3 \{[^}]*font-weight: 650;[^}]*-webkit-line-clamp: 2;/);
+  assert.match(css, /\.mosa-v2 \.detail \.asset-name-row h3 \{ font-size: 16px; line-height: 20px; \}/);
+  // A4a：头部「打开原始对话」按钮随来源信息区块一并拿掉。
+  assert.doesNotMatch(css, /\.detail-overview-open/, "the head open-conversation button style must not come back");
 });
 
 test("detailFileSectionMarkup keeps every e2e-critical anchor and the five fact keys", async () => {
   const markup = await readWebMarkup();
   const section = functionSlice(markup, "detailFileSectionMarkup");
-  // e2e 依赖：区块标识、焦点标题、预览图、收藏按钮、打开原始会话按钮。
+  // e2e 依赖：区块标识、焦点标题、预览图、收藏按钮。
   assert.match(section, /data-inspector-section="file"/);
   assert.match(section, /<h3 id="detailTitle" tabindex="-1"/);
   assert.match(section, /\$\{assetMediaPreviewMarkup\(asset, "detail"\)\}/);
   assert.match(section, /\$\{detailFavoriteButtonMarkup\(asset\)\}/);
-  assert.match(section, /data-action="view-generation-session"/);
+  // GravityPort A4a：「打开原始对话」按钮不再输出（showRelatedGenerations 保留实现）。
+  assert.doesNotMatch(section, /data-action="view-generation-session"|detail-overview-open/);
   // 隐藏的小标题（aria-labelledby 指向它），用现成的 visually-hidden 类。
   assert.match(section, /<h3 id="assetOverviewTitle" class="visually-hidden">/);
   // 五个事实键名与取值函数保持不变（标签改为键值行）。
@@ -90,7 +101,7 @@ test("every font size added by this task stays at or above the 10px floor", asyn
   const css = await readWebCss();
   const rules = {
     "header title": /\.mosa-v2 \.detail-inspector-header \{[^}]*font-size: (\d+(?:\.\d+)?)px;/,
-    "head title": /\.mosa-v2 \.detail \.asset-name-row h3 \{[^}]*font-size: (\d+(?:\.\d+)?)px;/,
+    "head title": /\.mosa-v2 \.detail \.asset-name-row h3 \{ font-size: (\d+(?:\.\d+)?)px; line-height: \d+px; \}/,
     "source line": /\.mosa-v2 \.detail \.asset-kind \{[^}]*font-size: (\d+(?:\.\d+)?)px;/,
     "fact key": /\.mosa-v2 \.detail \.head-facts \.meta-key \{[^}]*font-size: (\d+(?:\.\d+)?)px;/,
     "fact value": /\.mosa-v2 \.detail \.head-facts \.meta-val \{[^}]*font-size: (\d+(?:\.\d+)?)px;/,
@@ -112,8 +123,8 @@ test("the last-declared header rules carry the R21 values (cascade order)", asyn
     return blocks.at(-1);
   };
   const header = lastBlock(".mosa-v2 .detail-inspector-header");
-  assert.match(header, /padding: 0 var\(--r21-s6\);/);
-  assert.match(header, /background: transparent;/);
+  assert.match(header, /padding: 0 20px;/, "the last header rule carries the A4a 20px side padding");
+  assert.match(css, /\.mosa-v2 \.detail-inspector-header \{[^}]*background: transparent;/, "the V2 base keeps the transparent header background");
   const title = lastBlock(".mosa-v2 .detail-inspector-header > span");
   assert.match(title, /font-size: 14px;/);
   assert.match(title, /font-weight: 640;/);
@@ -121,8 +132,10 @@ test("the last-declared header rules carry the R21 values (cascade order)", asyn
   assert.match(close, /width: 28px;/);
   assert.match(close, /height: 28px;/);
   // 标题行里的收藏按钮只显示图标（按钮自带 aria-label），把宽度让给两行标题。
+  // GravityPort A4a：按钮本身也改成纯图标（markup 不再输出文字 span），这条
+  // CSS 兜底规则保留，防止未来文字 span 回归时破坏布局。
   assert.match(css, /\.mosa-v2 \.asset-name-row \.detail-fav-btn \{ width: 28px;[^}]*\}/);
   assert.match(css, /\.mosa-v2 \.asset-name-row \.detail-fav-btn > span:not\(\[aria-hidden\]\) \{ display: none; \}/);
-  // 头部区块是检视器的第一个区块，它与头部的距离照 R21 是 20（原来被 :first-child 规则压成 16）。
-  assert.match(css, /\.mosa-v2 \.detail \.inspector-section:first-child \{ padding-top: var\(--r21-s5\); \}/);
+  // A4a：头部区块紧贴 64px 头部（量数：缩略图 y=64），first-child 顶距归零。
+  assert.match(css, /\.mosa-v2 \.detail \.inspector-section:first-child \{ padding-top: 0; \}/);
 });

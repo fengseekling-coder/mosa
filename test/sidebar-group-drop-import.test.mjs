@@ -127,8 +127,8 @@ test("09 trash scope blocks paste import on both the shared handler and the Elec
 test("10 trash scope hides the clipboard paste context-menu item", async () => {
   const actions = await readWebActions();
   const emptyMenu = sliceBetween(actions, "function getEmptyGridMenu()", "return {\n    getNavItemMenu,");
-  assert.match(emptyMenu, /const pasteItem = state\.scope === "trash" \? \[\] : \[\{/,
-    "the paste item is excluded from the empty-grid menu in the read-only trash scope");
+  assert.match(emptyMenu, /const pasteItem = state\.scope === "trash" \? \[\] : \(cutPaste\?\.isCutActive\?\.\(\) \? \[\{/,
+    "the paste item is excluded from the empty-grid menu in the read-only trash scope (任务 93：非回收站范围按剪切状态分流粘贴项)");
   assert.match(emptyMenu, /\.\.\.pasteItem,/,
     "the gallery and stack-interior blank menus keep the paste entry");
   // 回收站空白分支（全选、刷新 ｜ 清空回收站）整段不得出现粘贴或分组入口。

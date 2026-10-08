@@ -3,9 +3,9 @@
  * Defines all context menu items and their actions
  */
 
-import { sanitizeAssetForExport } from "./utils.mjs";
+import { sanitizeAssetForExport, moveToTrashConfirmSuppressed, CONFIRM_MOVE_TO_TRASH_KEY } from "./utils.mjs";
 
-export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, openStackRenameModal, loadAssets, getGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, assetStacks, emptyTrash, gallerySelection }) {
+export function createContextMenuActions({ state, els, t, apiClient, showToast, runAction, requestConfirmation, requestFollowupConfirmation, confirmDetailNavigation, discardDetailDraft, releaseAssetMedia, openGroupModal, openStackRenameModal, loadAssets, getGroupColor, writeClipboardText, copyOriginalImage, isVideoAsset, pasteClipboardImage, assetStacks, cutPaste, emptyTrash, gallerySelection }) {
   const { apiFetch } = apiClient;
   // getGroupColor falls back to the deterministic palette so call sites can rely
   // on a single source of truth for group colors (mirrors app.mjs colorForGroup).
@@ -63,6 +63,27 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
       else failed.push(asset);
     }
     return { succeeded, failed };
+  }
+
+  // 任务 94（A4f）：撤销右键移入回收站——只恢复这次成功移走的那几张，逐张走
+  // 现有 restore 端点（与回收站范围「还原」菜单同一事件面：refresh-assets 带
+  // restoredAssetIds）。全成功不再追加提示（撤销动作本身就是反馈）；有失败照
+  // 既有批量口径提示 batchPartialResult。
+  async function restoreTrashedSelection(projectId, ids = []) {
+    const restored = [];
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        await apiFetch(`/api/assets/${encodeURIComponent(projectId)}/${encodeURIComponent(id)}/restore`, { method: "POST" });
+        restored.push(id);
+      } catch {
+        failed += 1;
+      }
+    }
+    if (failed) showToast(t("batchPartialResult", { succeeded: restored.length, failed }), "error");
+    if (restored.length) {
+      window.dispatchEvent(new CustomEvent("mosa:refresh-assets", { detail: { restoredAssetIds: restored } }));
+    }
   }
 
   function logicalSelectionCount(selectedAssets = [], options = {}) {
@@ -416,6 +437,33 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     };
   }
 
+  // 任务 93：剪切（91 的占位项启用）。单张、多选都能用；多选里混有折叠
+  // Stack 节点时置灰（堆叠卡片本身不可剪切——要搬里面的图先进堆叠再剪）。
+  // 动作与 ⌘/Ctrl+X 走同一控制器入口（cut-paste.mjs cutAssetIds）。
+  function cutMenuItem(contextAsset, contextSelectedAssets, contextOptions, { disabled = false } = {}) {
+    return {
+      label: t("cut"),
+      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></svg>',
+      disabled: disabled || typeof cutPaste?.cutAssetIds !== "function",
+      action: async () => {
+        const context = await selectedMutationContext(contextAsset, contextSelectedAssets, contextOptions);
+        if (!context) return;
+        await cutPaste.cutAssetIds(context.ids, { projectId: context.projectId });
+      },
+    };
+  }
+
+  // 任务 93：剪切内容就绪时，堆叠卡片菜单最前面的「粘贴到此堆叠」（自成一组）。
+  function pasteIntoStackMenuItem(stackId, stackName) {
+    return {
+      label: t("pasteIntoStack"),
+      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+      action: async () => {
+        await cutPaste.pasteCut({ stackId, stackName });
+      },
+    };
+  }
+
   // ===== 堆叠卡片菜单与堆叠内部空白处菜单共用的堆叠操作 =====
   // 重命名：确认弹窗由共享 rename modal 收集，持久化与刷新只有这一份。
   function openStackRenameDialog({ stackId, initialName, onRenamed } = {}) {
@@ -573,7 +621,9 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           }));
         });
       };
+      // 任务 93：剪切内容就绪时，菜单最前面多一段「粘贴到此堆叠」（移进这个堆叠）。
       return buildSectionedMenu([
+        ...(cutPaste?.isCutActive?.() ? [[pasteIntoStackMenuItem(stackId, asset.stack.name)]] : []),
         [
           {
             label: t("openStack"),
@@ -585,45 +635,47 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         ],
         [
           {
+            label: t("addToGroup"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
+            submenu: [
+              {
+                label: t("createGroupWithSelection"),
+                action: async () => {
+                  const projectId = state.project;
+                  openGroupModal?.({
+                    onCreated: async (groupName) => {
+                      if (projectId !== state.project) return;
+                      const response = await applyStackGroupMutation(projectId, stackId, groupName);
+                      const assetIds = Array.isArray(response?.stack?.assetIds) ? response.stack.assetIds : [];
+                      showToast(t("stackMovedToGroup", { group: groupName }), "success");
+                      window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
+                        detail: { projectId, updatedAssetIds: assetIds, groupChanged: true },
+                      }));
+                    },
+                  });
+                },
+              },
+              { separator: true },
+              ...(Array.isArray(state.groups.groups) ? state.groups.groups : []).map((group) => ({
+                label: group.name,
+                icon: `<svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="${resolveGroupColor(group.name)}"/></svg>`,
+                action: moveStackToGroup(group.name),
+              })),
+            ],
+          },
+          {
+            label: t("removeFromGroup"),
+            icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="m9 12 6 0"/></svg>',
+            action: moveStackToGroup(""),
+          },
+        ],
+        [
+          {
             label: t("renameStack"),
             icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>',
             disabled: typeof openStackRenameModal !== "function",
             action: () => openStackRenameDialog({ stackId, initialName: asset.stack.name }),
           },
-        {
-          label: t("moveToGroup"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
-          submenu: [
-            {
-              label: t("createGroupWithSelection"),
-              action: async () => {
-                const projectId = state.project;
-                openGroupModal?.({
-                  onCreated: async (groupName) => {
-                    if (projectId !== state.project) return;
-                    const response = await applyStackGroupMutation(projectId, stackId, groupName);
-                    const assetIds = Array.isArray(response?.stack?.assetIds) ? response.stack.assetIds : [];
-                    showToast(t("stackMovedToGroup", { group: groupName }), "success");
-                    window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
-                      detail: { projectId, updatedAssetIds: assetIds, groupChanged: true },
-                    }));
-                  },
-                });
-              },
-            },
-            {
-              label: t("removeFromGroup"),
-              icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="m9 12 6 0"/></svg>',
-              action: moveStackToGroup(""),
-            },
-            { separator: true },
-            ...(Array.isArray(state.groups.groups) ? state.groups.groups : []).map((group) => ({
-              label: group.name,
-              icon: `<svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="${resolveGroupColor(group.name)}"/></svg>`,
-              action: moveStackToGroup(group.name),
-            })),
-          ],
-        },
           {
             label: t("dissolveStack"),
             icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 7h8M8 12h8M8 17h8"/><path d="M4 7h.01M4 12h.01M4 17h.01"/></svg>',
@@ -743,6 +795,9 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         ]
       : null;
 
+    // 任务 93：复制段。单张保持「复制图片/剪切/复制提示词/复制路径」（剪切
+    // 从占位转正）；多选整段只有「剪切」——多选也能剪切，但选区含折叠 Stack
+    // 节点时置灰（堆叠卡片不可剪切）。
     const copySection = !isMultiple
       ? [
           {
@@ -758,6 +813,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
               }
             },
           },
+          cutMenuItem(asset, selectedAssets, options),
           {
             label: t("copyPrompt"),
             icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
@@ -786,7 +842,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             },
           },
         ]
-      : null;
+      : [cutMenuItem(asset, selectedAssets, options, { disabled: includesStackNodes })];
 
     // Favorite toggle（整选区方向：全已收藏 → 取消收藏，否则 → 添加到收藏）
     const favoriteItem = {
@@ -831,7 +887,8 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
       },
     };
 
-    // Move to group submenu
+    // Add to group submenu（任务 91：文案照稿子改「添加分组」，子菜单沿用；
+    // 「移除分组」按稿子提为顶层项，移出分组的动作与置灰口径不变。）
     const moveSelectionToGroup = (groupName) => async () => {
       const context = await selectedMutationContext(asset, selectedAssets, options);
       if (!context || !mutationContextIsCurrent(context)) return;
@@ -855,7 +912,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
     const organizeSection = [
       favoriteItem,
       {
-      label: t("moveToGroup"),
+      label: t("addToGroup"),
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
       submenu: [
         {
@@ -882,13 +939,6 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             });
           },
         },
-        {
-          // 移出分组：后端批量接口传空分组名即解除归属，这里补上唯一缺失的入口。
-          label: t("removeFromGroup"),
-          icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="m9 12 6 0"/></svg>',
-          disabled: !selectionHasGroupedAsset(asset, selectedAssets, options),
-          action: moveSelectionToGroup(""),
-        },
         { separator: true },
         ...(Array.isArray(state.groups.groups) ? state.groups.groups : []).map((group) => {
           const groupName = group.name;
@@ -903,45 +953,46 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         }),
       ],
       },
+      {
+        // 移出分组：后端批量接口传空分组名即解除归属。任务 91 把它从子菜单
+        // 提为顶层项（稿子分组 3 的第三项），置灰口径沿用原子菜单项。
+        label: t("removeFromGroup"),
+        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="m9 12 6 0"/></svg>',
+        disabled: !selectionHasGroupedAsset(asset, selectedAssets, options),
+        action: moveSelectionToGroup(""),
+      },
     ];
-    // 堆叠整理项：堆叠内部是“移出堆叠”（单/多选都有），根画廊多选是“堆叠所选”。
-    // 选区含折叠 Stack 节点时“堆叠所选”不出现（不支持堆叠套堆叠）。
+    // 任务 91：右键专属的堆叠操作（全应用仅此入口）照稿子 5 组之后、「移至
+    // 回收站」之前自成一组，只在用得上时出现：堆叠内部是「移出堆叠」（单/
+    // 多选都有），根画廊多选是「堆叠所选」。选区含折叠 Stack 节点时两者都不
+    // 出现（不支持堆叠套堆叠）。
+    let stackSection = null;
     if (state.activeStackId) {
-      organizeSection.push({
+      stackSection = [{
         label: t("removeFromStack"),
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M4.5 17.5h5"/></svg>',
         disabled: stackMutationInFlight(),
         action: async () => {
           await assetStacks?.removeSelectedFromStack?.();
         },
-      });
+      }];
     } else if (isMultiple && !includesStackNodes) {
-      organizeSection.push({
+      stackSection = [{
         label: t("stackSelected"),
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></svg>',
         disabled: state.storageKind !== "sqlite" || stackMutationInFlight(),
         action: async () => {
           await assetStacks?.createStackFromSelection?.();
         },
-      });
+      }];
     }
 
-    // 历史与导出分区：单张=版本历史+导出；多选=仅导出。选区含折叠 Stack 节点
-    // 时导出整段不出现（不支持导出堆叠），不再置灰。
-    const historyExportSection = [];
-    if (!isMultiple) {
-      // 历史与导出分区（单张）：查看版本历史与导出同组。
-      historyExportSection.push({
-        label: t("viewVersionHistory"),
-        icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
-        action: async () => {
-          window.dispatchEvent(new CustomEvent("mosa:select-asset", { detail: { assetId: asset.id } }));
-        },
-      });
-    }
-    if (!includesStackNodes) {
-      historyExportSection.push({
-        label: t("exportAsset"),
+    // 任务 91：导出自成一组（稿子「导出至」）。「查看版本历史」从菜单拿掉：
+    // 检视器（点卡片 / 卡片「查看」）就是版本树入口，代码与 i18n key 保留。
+    // 选区含折叠 Stack 节点时导出整段不出现（不支持导出堆叠），不再置灰。
+    const exportSection = includesStackNodes ? null : [
+      {
+        label: t("exportTo"),
         icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5-5 5 5"/><path d="M12 5v12"/></svg>',
         disabled: isMultiple && selectedAssets.length !== selectionCount,
         action: async () => {
@@ -953,8 +1004,8 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             showToast(isMultiple ? t("exportStartedMultiple") : t("exportStarted"), "success");
           });
         },
-      });
-    }
+      },
+    ];
 
     // Danger zone
     const moveToTrashItem =
@@ -967,13 +1018,19 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           if (!context || !mutationContextIsCurrent(context)) return;
           const { ids, projectId } = context;
           const assets = mutationAssetsForIds(ids, projectId);
-          const confirmed = await requestConfirmation({
-            title: ids.length > 1 ? t("moveAssetsToTrashTitle", { count: ids.length }) : t("moveToTrashTitle"),
-            description: t("moveToTrashDescription"),
-            confirmLabel: t("moveToTrash"),
-            tone: "danger",
-          });
-          if (!confirmed || !mutationContextIsCurrent(context)) return;
+          // 任务 94（A4f）：勾过「不再提醒」后右键单张/多选直接移入回收站；整组
+          // 堆叠的「移至回收站」不走这里（永远确认）。其余守卫照旧。
+          if (!moveToTrashConfirmSuppressed()) {
+            const confirmed = await requestConfirmation({
+              title: ids.length > 1 ? t("moveAssetsToTrashTitle", { count: ids.length }) : t("moveToTrashTitle"),
+              description: t("moveToTrashDescription"),
+              confirmLabel: t("yes"),
+              cancelLabel: t("no"),
+              tone: "danger",
+              dontAskAgainKey: CONFIRM_MOVE_TO_TRASH_KEY,
+            });
+            if (!confirmed || !mutationContextIsCurrent(context)) return;
+          }
           if (!await confirmSelectedAssetMutation(assets)) return;
           if (!mutationContextIsCurrent(context)) return;
 
@@ -990,9 +1047,20 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
             const outcome = reconcileBatchMutation(assets, response);
             commitSelectedAssetMutation(outcome.succeeded);
             if (outcome.failed.length) {
-              showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error");
+              // 部分失败：成功移走的那几张同样可以撤销。
+              showToast(t("batchPartialResult", { succeeded: outcome.succeeded.length, failed: outcome.failed.length }), "error", outcome.succeeded.length ? {
+                actionLabel: t("undo"),
+                duration: 6000,
+                onAction: () => { void restoreTrashedSelection(projectId, outcome.succeeded.map((entry) => entry.id)); },
+              } : undefined);
             } else {
-              showToast(isMultiple ? t("assetsMovedToTrash", { count: assets.length }) : t("assetMovedToTrash"), "success");
+              // 任务 94：与大图页删除同样的「已移至回收站 · 撤销」toast（6 秒），
+              // 不论这次有没有弹确认框都弹；撤销只恢复本次成功移走的。
+              showToast(isMultiple ? t("assetsMovedToTrash", { count: assets.length }) : t("assetMovedToTrash"), "success", {
+                actionLabel: t("undo"),
+                duration: 6000,
+                onAction: () => { void restoreTrashedSelection(projectId, outcome.succeeded.map((entry) => entry.id)); },
+              });
             }
             window.dispatchEvent(new CustomEvent("mosa:refresh-assets", {
               detail: { removedAssetIds: outcome.succeeded.map((entry) => entry.id) },
@@ -1001,14 +1069,16 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         },
       };
 
-    // 统一分区：选区信息 → 打开 → 复制 → 整理 → 历史与导出 → 选择 → 危险。
+    // 统一分区（任务 91 稿子顺序）：选区信息 → 打开 → 复制 → 收藏与分组 →
+    // 导出 → 堆叠（仅适用时）→ 危险。全选/取消选择从素材菜单拿掉（⌘A / Esc
+    // 键盘入口保留）；「查看版本历史」同批拿掉（检视器有版本树入口）。
     return buildSectionedMenu([
       isMultiple ? [selectionHeadingItem(selectionCount)] : null,
       openSection,
       copySection,
       organizeSection,
-      historyExportSection.length ? historyExportSection : null,
-      isMultiple ? [selectAllMenuItem(), deselectAllMenuItem()] : null,
+      exportSection,
+      stackSection,
       [moveToTrashItem],
     ]);
   }
@@ -1018,8 +1088,17 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
    * 画廊空白 / 堆叠内部空白 / 回收站空白，各自只保留适用分区。
    */
   function getEmptyGridMenu() {
-    // 回收站是只读范围：不提供粘贴导入（拖拽与 Ctrl/Cmd+V 导入同样被禁用）。
-    const pasteItem = state.scope === "trash" ? [] : [{
+    // 空白处粘贴项（任务 93 分流）：剪切内容就绪 → 「粘贴」执行移动（堆叠内
+    // 进当前堆叠；非堆叠画廊视图移出成散图，目标判定与 ⌘V 同一入口）；
+    // 没有剪切内容 → 原有「从剪贴板粘贴」导入。回收站是只读范围：两者都不
+    // 提供（拖拽与 Ctrl/Cmd+V 导入同样被禁用）。
+    const pasteItem = state.scope === "trash" ? [] : (cutPaste?.isCutActive?.() ? [{
+      label: t("pasteCut"),
+      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+      action: async () => {
+        await cutPaste.pasteCut({});
+      },
+    }] : [{
       label: t("pasteFromClipboard"),
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
       disabled: typeof pasteClipboardImage !== "function",
@@ -1027,7 +1106,7 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
         const pasted = await pasteClipboardImage?.();
         if (pasted === false) showToast(t("clipboardNoImage"), "default");
       },
-    }];
+    }]);
     const refreshItem = {
       label: t("refreshLibrary"),
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6m12-4a9 9 0 0 1-15 6.7L3 16"/></svg>',

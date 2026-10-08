@@ -10,6 +10,26 @@
         using, so the whole file resolves to a single visual.
    ============================================================ */
 
+/* ===== GravityPort 字体：Lexend Deca（可变字重 100–900，本地打包，离线可用） =====
+   文件来自 @fontsource-variable/lexend-deca（SIL OFL 1.1，许可证见 fonts/OFL.txt）。
+   unicode-range 照抄 fontsource 自带的 latin / latin-ext 子集定义。 */
+@font-face {
+  font-family: "Lexend Deca";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/lexend-deca-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Lexend Deca";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/lexend-deca-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* ===== 设计令牌：浅色 ===== */
 :root[data-theme="light"] {
   color-scheme: light;
@@ -154,7 +174,7 @@
 
 /* ===== 共享 Token（无主题） ===== */
 :root {
-  --font-family-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-family-ui: "Lexend Deca", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-family-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   /* --- 字号（V2 13px body baseline） --- */
@@ -165,7 +185,9 @@
   --space-2: 16px;
   --space-3: 24px;
   /* R21：画廊横竖间距共用一个值（瀑布流高度估算与框选命中都只读它）。 */
-  --gallery-gap: 16px;
+  /* R21：画廊横竖间距共用一个值（瀑布流高度估算与框选命中都只读它）。
+     任务 70 返工 1（设计稿还原）：16 → 4。 */
+  --gallery-gap: 4px;
 
   /* --- R21 4px 结构网格阶梯（命名照 R21 设计稿的 --mosa-s*，前缀 --r21-） --- */
   --r21-s1: 4px;
@@ -184,11 +206,11 @@
   /* --- 控件尺寸 --- */
   --control-sm: 32px;
   --control-md: 40px;
-  --sidebar-width: 216px;
-  --sidebar-width-narrow: 208px;
+  --sidebar-width: 280px;
+  --sidebar-width-narrow: 240px;
   --sidebar-width-compact: 56px;
-  --inspector-width: 344px;
-  --inspector-width-compact: 340px;
+  --inspector-width: 320px;
+  --inspector-width-compact: 320px;
   --topbar-height: 64px;
   --statusbar-height: 48px;
 
@@ -198,6 +220,8 @@
   --radius-panel: 16px;
   --radius-modal: 16px;
   --radius-pill: 999px;
+  /* GravityPort A1：检视器圆角卡片的外壳圆角。 */
+  --radius-shell-card: 32px;
   --border-width: 1px;
 
   /* --- 运行时注入 token 的兜底值 ---
@@ -247,7 +271,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .shell.details-open { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--inspector-width); }
 
 /* ===== 侧边栏 ===== */
-.sidebar { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; background: var(--app-sidebar); border-right: var(--border-width) solid var(--color-border-subtle); user-select: none; }
+.sidebar { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; background: var(--app-sidebar); user-select: none; }
 .brand { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; height: var(--topbar-height); padding: 0 16px; }
 .brand-info { min-width: 0; }
 .brand-info h1 { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
@@ -272,7 +296,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .add-group-button { display: flex; width: 100%; min-width: 0; height: 28px; align-items: center; gap: 8px; margin-top: 2px; padding: 0 8px; border: 0; border-radius: var(--radius-control); color: var(--color-accent-active); background: transparent; cursor: pointer; font-size: 13px; text-align: left; }
 .add-group-button svg { flex: 0 0 auto; }
 .sidebar-spacer { display: none; }
-.sidebar-footer { flex: 0 0 auto; padding: 8px; border-top: 1px solid var(--color-border-subtle); }
+.sidebar-footer { flex: 0 0 auto; padding: 8px; }
 .settings-wrap { position: relative; }
 .settings-trigger { display: flex; width: 100%; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: 13px; text-align: left; }
 .settings-trigger[aria-expanded="true"] { color: var(--color-text-primary); background: var(--app-hover); }
@@ -297,15 +321,27 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
    bar must be draggable; every interactive child opts out. No-op on Windows,
    which keeps its native title bar. */
 .topbar { -webkit-app-region: drag; }
-.topbar button, .topbar input, .topbar select, .topbar a, .topbar label, .topbar .type-filter, .topbar .topbar-search, .topbar .topbar-utility-group, .topbar .topbar-work-group { -webkit-app-region: no-drag; }
-/* Phase 2B / F-18：顶栏语义分组。context=范围标题+类型筛选（占据剩余空间，可截断）；
-   actions 内 utility/work/primary 三个操作组，组间 --space-1，组内 6px（延续既有 .topbar-right 运行值）；
+.topbar button, .topbar input, .topbar select, .topbar a, .topbar label, .topbar .topbar-search, .topbar .topbar-utility-group, .topbar .topbar-work-group { -webkit-app-region: no-drag; }
+/* Phase 2B / F-18：顶栏语义分组。context=后退/前进导航组+视觉隐藏的范围标题
+   （占据剩余空间）；GravityPort A3 起中间是绝对居中的 .topbar-size-group 缩略图
+   滑杆；actions 内 utility/work/primary 三个操作组，组间 --space-1，组内 6px；
    primary 前一道细分隔线（Border Token）标出唯一主操作，无卡片容器/阴影/渐变。 */
 .topbar-context { display: flex; min-width: 0; flex: 1 1 auto; align-items: baseline; }
-/* V2 FilterBar：类型筛选（全部/图片/视频）位于范围标题右侧，安静中性。 */
-.topbar-type-filters { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; margin-left: var(--space-2); }
-.type-filter { display: inline-flex; align-items: center; gap: 6px; height: var(--control-sm); padding: 0 12px; border: 0; border-radius: 6px; color: var(--color-text-secondary); background: transparent; font-size: 12px; cursor: pointer; }
-.type-filter.active { color: var(--color-text-primary); background: var(--app-chip-active); font-weight: 500; }
+/* GravityPort A3（任务 70）：左侧后退/前进按钮组（样式沿用 .toolbar-icon，
+   28×28 / 16px 图标），按钮间距 4px；#stackBack 显示时排在前进按钮右边。 */
+.topbar-nav-group { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; }
+/* GravityPort A3（任务 70 返工 1，设计稿还原）：滑杆组居中 = 窗口中线（检视器
+   开关都一样，app.mjs 写行内 left）；放不下时退让到左右两组之间的空白居中，
+   都放不下才写 hidden。display:none 的组量不到宽度，三态判定由 app.mjs 全程
+   同步完成；这里的 50% 只是 JS 跑起来前的兜底。 */
+.topbar-size-group { position: absolute; top: 50%; left: 50%; display: flex; align-items: center; gap: 8px; transform: translate(-50%, -50%); }
+.topbar-size-group[hidden] { display: none; }
+/* 设计稿对照（任务 70 返工 1）：滑轨 2px 高 / 圆角 1；滑块 24×12 横向胶囊
+   （圆角 6，margin-top 把 12px 滑块压回 2px 滑轨正中）。颜色沿用现有 token：
+   轨道 --color-border-subtle（明暗自适应），滑块 --color-accent。 */
+.topbar-size-slider { box-sizing: border-box; width: 120px; height: 28px; margin: 0; padding: 0; border: 0; accent-color: var(--color-accent); -webkit-appearance: none; appearance: none; background: transparent; }
+.topbar-size-slider::-webkit-slider-runnable-track { height: 2px; border-radius: 1px; background: var(--color-border-subtle); }
+.topbar-size-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 24px; height: 12px; margin-top: -5px; border-radius: 6px; background: var(--color-accent); }
 /* V2 FilterBar：唯一搜索框位于顶栏右侧（筛选之后），256px 定宽、32px 高；
    图标装饰（aria-hidden），accessible name 由 input aria-label 提供；
    清除沿用原生 type="search"；焦点态只改变底色，不增加外扩描边或光晕。 */
@@ -378,6 +414,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .asset-card.card-enter { animation: card-in .25s ease backwards; }
 @keyframes card-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+/* 任务 93：剪切中的卡片整卡变淡（沿用既有禁用 token 的 opacity .48）。 */
+.asset-card.is-cut { opacity: .48; }
 .asset-card-select { position: relative; display: block; width: 100%; padding: 0; border: 0; overflow: hidden; border-radius: var(--radius-card); background: var(--app-sidebar); cursor: pointer; text-align: left; }
 .asset-card-select, .asset-card-select .thumb { user-select: none; -webkit-user-drag: none; }
 .asset-card-select::after { content: ""; position: absolute; inset: 0; border-radius: var(--radius-card); box-shadow: inset 0 0 0 1px rgb(28 25 23 / 0.06); pointer-events: none; }
@@ -488,33 +526,44 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .error-state span { max-width: 360px; margin-top: 5px; font-size: 12px; }
 .error-state button { height: 30px; margin-top: 16px; padding: 0 12px; border: 1px solid var(--color-accent); border-radius: var(--radius-control); color: var(--color-accent-contrast); background: var(--color-accent); cursor: pointer; font-size: 12px; font-weight: 550; }
 
-/* ===== 专用大图查看模式（Phase 3A / D4 / F-01） =====
+/* ===== 专用大图查看模式（Phase 3A / D4 / F-01；GravityPort A4c 任务 90 改版） =====
    主区内两个互斥 UI 状态：.library-view（画廊）与 .asset-view（专用大图），均由 app.js
    setViewMode 以 hidden + inert + aria-hidden 组合驱动——退出布局、Tab 顺序与辅助技术树。
    终态结构 = 左侧 Sidebar + 中央专用大图工作区 + 右侧素材信息面板（详情面板复用，
    .details-open 语义转为专用查看模式）；不显示画廊网格、无缩略图条、无相关素材。
-   舞台为中性安静 Surface：object-fit:contain 居中、不裁切不拉伸、消费剩余高度、无横向滚动；
-   无渐变/纹理/毛玻璃/动效；缩放、平移、上一张/下一张属 Phase 3B/3C，此处不预留控件。 */
+   A4c：头部浮在舞台之上（左上「< 返回」，右上「删除 / 适合窗口 / 全屏」），舞台占满
+   整个主区（媒体按比例适合、竖直居中的基准=主区全高），左右两侧大箭头浮在舞台上；
+   位置计数、上一张/下一张按钮组、缩放控制条、返回键范围名按稿子移除（JS 引用保留，
+   元素缺省走空值守卫）；滚轮/双指缩放/拖拽平移照旧，不是界面元素。 */
 .library-view { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
 /* hidden-attribute-contract：每个 hidden 切换类的 display 守卫须独立成规（非合写选择器）。 */
 .library-view[hidden] { display: none; }
 .asset-view[hidden] { display: none; }
-.asset-view { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; background: var(--app-bg); }
-/* 查看模式头部与全局顶栏同高同 Token（--topbar-height / --space-2），全档只有这一条工具栏；
-   返回按钮消费 ToolbarButton 契约（.toolbar-filter），可见文本=返回语义+范围名（可截断）。 */
-.asset-view-header { display: flex; flex: 0 0 auto; align-items: center; gap: var(--space-2); height: var(--topbar-height); padding: 0 var(--space-2); border-bottom: var(--border-width) solid var(--color-border-subtle); background: var(--app-bg); }
-.asset-view-back { min-width: 0; max-width: min(420px, 70%); flex: 0 1 auto; }
+.asset-view { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; background: var(--app-bg); position: relative; }
+/* 头部浮层（--topbar-height 同高）：容器不接收指针（空档处滚轮/平移穿透到舞台），
+   子按钮恢复接收；左右内边距 20，与 toast 右缘同一条 20px 竖轨（稿子右缘 1580）。 */
+.asset-view-header { position: absolute; z-index: var(--z-popover); top: 0; right: 0; left: 0; display: flex; align-items: center; gap: var(--space-2); height: var(--topbar-height); padding: 0 20px; pointer-events: none; }
+.asset-view-header > * { pointer-events: auto; }
+.asset-view-back { min-width: 0; max-width: min(420px, 70%); flex: 0 1 auto; padding-left: 0; }
 .asset-view-back svg { flex: 0 0 auto; }
 .asset-view-back-label { flex: 0 0 auto; }
-.asset-view-back-scope { min-width: 0; overflow: hidden; color: var(--color-text-tertiary); text-overflow: ellipsis; white-space: nowrap; }
-/* Phase 3C / F-04：头部右侧单一素材导航组（批准稿右上箭头位）。导航按钮为 quiet
-   幽灵样式——视觉权重低于返回按钮（带边框的 toolbar-filter）与主图；40×40px 点击
-   区域与 16px 图标视觉尺寸分离；位置 output 紧凑、三级文字色、等宽数字，不与标题竞争。 */
-.asset-view-nav { display: flex; flex: 0 0 auto; align-items: center; gap: var(--space-1); margin-inline-start: auto; }
-.asset-view-position { display: inline-flex; min-width: 48px; align-items: center; justify-content: center; color: var(--color-text-tertiary); font-size: var(--font-size-body-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.asset-view-nav-btn { display: inline-flex; width: 40px; height: 40px; flex: 0 0 auto; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
-.asset-view-nav-btn:disabled, .asset-view-nav-btn[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
-.asset-view-stage { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; align-items: center; justify-content: center; overflow: hidden; padding: var(--space-3); background: var(--app-sidebar); /* This stage owns complete pan/pinch input, so preventing browser scrolling keeps two-pointer geometry stable; other surfaces retain native scrolling. */ touch-action: none; }
+/* 右上动作组（删除 / 适合窗口 / 全屏）：24px 高、radius 8、组内间距 4、右缘贴 20px 轨
+   （稿子：y 19–43、rx 7.9、间距 4.2、右缘 1577.9）。适合窗口沿用 #assetZoomFit 的
+   既有禁用语义（未就绪/已 fit/视频禁用）。 */
+.asset-view-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; margin-left: auto; }
+.asset-view-action { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; height: 24px; padding: 0 8px; border: 0; border-radius: var(--radius-control); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: var(--font-size-body-sm); font-weight: 500; white-space: nowrap; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
+.asset-view-action:disabled, .asset-view-action[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
+/* 左右翻页箭头：44×44 点击区域、18×36 圆帽箭头图形（稿子 18×36、stroke 2）、
+   竖直居中于主区全高、按钮距主区左右缘 8px（图形落点 ≈ 稿子的 20–21px）。
+   到头禁用沿用现有 disabled token（opacity .48 + not-allowed）。 */
+.asset-view-arrow { position: absolute; z-index: var(--z-popover); top: calc(50% - 22px); display: inline-flex; width: 44px; height: 44px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--radius-pill); color: var(--color-text-secondary); background: transparent; cursor: pointer; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
+.asset-view-arrow-prev { left: 8px; }
+.asset-view-arrow-next { right: 8px; }
+.asset-view-arrow:disabled, .asset-view-arrow[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
+/* 任务 96（A6）：图片可用区左右各让出翻页箭头一栏（按钮 44 + 距缘 8 = 52），
+   任何比例的横图都不与箭头重叠；竖图受高度约束，视觉不变。fit/平移/钳制几何
+   经 refreshAssetViewStageGeometry 读 content box，自动跟随这组 padding。 */
+.asset-view-stage { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; align-items: center; justify-content: center; overflow: hidden; padding: var(--space-3) 52px; background: var(--app-sidebar); /* This stage owns complete pan/pinch input, so preventing browser scrolling keeps two-pointer geometry stable; other surfaces retain native scrolling. */ touch-action: none; }
 /* Phase 3B：主图几何由 JS 显式接管——元素宽高=自然尺寸（load 后写入），transform
    translate+scale 承载全部缩放/平移，transform-origin 为图片中心；不再用 max-width/
    max-height/object-fit 的 CSS contain（避免与 transform scale 基准冲突）。 */
@@ -527,22 +576,28 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .asset-view-error[hidden] { display: none; }
 .asset-view-error { margin: 0; color: var(--color-text-secondary); font-size: 12px; }
 
-/* Phase 3B / F-03：缩放控制条——舞台内部底部居中紧凑浮动工具条（批准稿位置）。
-   全部消费现有语义 Token（surface-raised / border / shadow-popover / spacing / radius-pill /
-   z-popover / duration-fast）；无渐变、无毛玻璃、无新圆角体系、无随机 rgba；绝对定位
-   不推动三栏布局、不改变舞台可用高度。 */
-.asset-view-controls { position: absolute; z-index: var(--z-popover); bottom: var(--space-3); left: 50%; display: flex; align-items: center; gap: 4px; padding: 4px; transform: translateX(-50%); border: var(--border-width) solid var(--color-border-default); border-radius: var(--radius-pill); background: var(--color-surface-raised); box-shadow: var(--shadow-popover); }
-.asset-view-control { display: inline-flex; width: var(--control-sm); height: var(--control-sm); flex: 0 0 auto; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--radius-pill); color: var(--color-text-secondary); background: transparent; cursor: pointer; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
-.asset-view-fit { display: inline-flex; height: var(--control-sm); flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 var(--space-1); border: 0; border-radius: var(--radius-pill); color: var(--color-text-secondary); background: transparent; cursor: pointer; font-size: var(--font-size-body-sm); font-weight: 500; white-space: nowrap; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
-.asset-view-zoom-value { display: inline-flex; min-width: 48px; align-items: center; justify-content: center; color: var(--color-text-primary); font-size: var(--font-size-body-sm); font-variant-numeric: tabular-nums; }
-/* 控制条 hover 规则合入下方 Phase 1B 统一 hover media 块（保持全站唯一
-   hover media 入口；触摸设备不粘住 hover，与按钮族契约一致）。 */
-.asset-view-control:disabled, .asset-view-control[aria-disabled="true"], .asset-view-fit:disabled, .asset-view-fit[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
+/* A4c 全屏（任务 90）：只剩媒体——头部与箭头全部隐藏，黑底铺满；滚轮缩放/拖拽
+   平移/左右方向键翻页照旧，Esc 退全屏回到大图页。真全屏由 UA :fullscreen 铺满；
+   CSS 回退态（无手势/API 不可用）以 fixed + z-overlay 兜底。
+   黑底复用 --color-media-backdrop 的 :root 基值 #0b0b0d（既有色值，非新增）：
+   body.mosa-v2 作用域把该 token 改成了半透明遮罩（0.85/0.92，供图片预览压暗
+   下层内容），全屏背后没有内容，半透明会漏白，故用基值。 */
+.asset-view.is-fullscreen { background: #0b0b0d; }
+.asset-view.is-fullscreen:not(:fullscreen) { position: fixed; z-index: var(--z-overlay); inset: 0; }
+/* 舞台自身有 --app-sidebar 底色,会盖住全屏黑底——全屏态透明化,黑底由 .asset-view 提供。
+   全屏只剩图片、箭头隐藏（下两行），让出的 52px 箭头栏随之收回。 */
+.asset-view.is-fullscreen .asset-view-stage { background: transparent; padding: var(--space-3); }
+.asset-view.is-fullscreen .asset-view-header,
+.asset-view.is-fullscreen .asset-view-arrow { display: none; }
+
+/* 稿子里没有的旧控件（位置计数 / 上一张下一张按钮组 / 缩放控制条）已按 A4c 从界面
+   与样式移除；JS 侧 updateAssetViewNav / updateAssetViewControls 的引用经空值守卫
+   保留，元素重新补回时样式需一并恢复。 */
 
 /* ===== 详情面板 ===== */
 /* Phase 4A 单栏检视器滚动架构：.detail 自身不滚动；.detail-inspector-scroll 是右栏
    唯一纵向滚动容器；header 为实心固定区（无 sticky、无半透明毛玻璃）。 */
-.detail { display: none; min-width: 0; min-height: 0; overflow: hidden; background: var(--app-bg); border-left: var(--border-width) solid var(--color-border-subtle); }
+.detail { display: none; min-width: 0; min-height: 0; overflow: hidden; background: var(--app-bg); }
 .shell.details-open .detail { display: block; }
 .detail-inspector { display: flex; height: 100%; min-height: 0; flex-direction: column; }
 .detail-inspector-header { display: flex; min-height: var(--topbar-height); flex: 0 0 auto; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--color-border-subtle); color: var(--color-text-primary); background: var(--app-bg); font-size: 13px; font-weight: 600; }
@@ -824,13 +879,30 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   .modal-overlay.open > .modal-card { opacity: 0; transform: translateY(8px) scale(.97); }
 }
 .group-modal-card { width: 386px; }
-/* ===== ConfirmDialog（Phase 5B / F-15） =====
-   全应用唯一确认弹窗：复用 modal-overlay / modal-card / modal-footer 壳，不新增遮罩、
-   不新增圆角与阴影体系；宽度收窄适配 960×640，文案区允许换行（大 count/长中文不撑破）。 */
-.confirm-dialog-card { width: 400px; }
-.confirm-dialog-copy { padding: 20px 20px 16px; overflow-wrap: break-word; }
-.confirm-dialog-copy h3 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.35; }
-.confirm-dialog-copy p { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; overflow-wrap: break-word; }
+/* ===== ConfirmDialog（Phase 5B / F-15；任务 94 / GravityPort A4f 稿子改版） =====
+   全应用唯一确认弹窗：复用 modal-overlay / modal-card 壳，不新增遮罩与阴影体系。
+   稿子量数（SVG 596,2666 起）：卡 640×240 圆角 16（圆角沿用 .mosa-v2 .modal-card 的 16），
+   内边距 40；文案两行同字号同字重（24/30）；底行左侧「不再提醒」（16px，勾选框
+   16×16 圆角 4，与按钮垂直居中），右侧 80×40 圆角 8 按钮，间距 8。文案区
+   flex:1 撑开短文案场景的固定高度；长说明卡随之长高（min-height 兜底）。 */
+.confirm-dialog-card { box-sizing: border-box; width: 640px; min-height: 240px; }
+.confirm-dialog-copy { flex: 1 1 auto; padding: 40px 40px 0; overflow-wrap: break-word; }
+.confirm-dialog-copy h3 { margin: 0; font-size: 24px; font-weight: 400; letter-spacing: 0; line-height: 30px; }
+.confirm-dialog-copy p { margin: 0; color: var(--color-text-secondary); font-size: 24px; font-weight: 400; line-height: 30px; overflow-wrap: break-word; }
+.confirm-dialog-footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; padding: 24px 40px 40px; }
+.confirm-dialog-dont-ask { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 8px; font-size: 16px; cursor: pointer; }
+.confirm-dialog-dont-ask[hidden] { display: none; }
+.confirm-dialog-dont-ask input {
+  box-sizing: border-box; flex: 0 0 auto; width: 16px; height: 16px; margin: 0; padding: 0;
+  border: 1px solid var(--color-border-subtle); border-radius: 4px; background: var(--app-card);
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+}
+.confirm-dialog-dont-ask input:checked {
+  border-color: var(--color-accent);
+  background: var(--color-accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / 10px 10px no-repeat;
+}
+.confirm-dialog-actions { display: flex; flex: 0 0 auto; gap: 8px; margin-left: auto; }
+.confirm-dialog-actions .btn-secondary, .confirm-dialog-actions .btn-danger, .confirm-dialog-actions .btn-primary { min-width: 80px; height: 40px; padding: 0 14px; border-radius: 8px; font-size: 24px; font-weight: 400; }
 .modal-header { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--color-border-subtle); }
 .modal-header h3 { margin-top: 1px; font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }
 .modal-body { flex: 1; overflow: auto; padding: 18px 20px; }
@@ -878,16 +950,31 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
    下方点击，仅 Toast 自身可接收指针。 */
 .toast-stack { position: fixed; z-index: var(--z-toast); right: 20px; bottom: 20px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; }
 .toast-stack-polite { bottom: calc(20px + var(--toast-error-stack-height, 0px)); }
-.toast { display: flex; align-items: flex-start; gap: 8px; max-width: min(330px, calc(100vw - 40px)); padding: 8px 14px; border-radius: var(--radius-control); color: var(--app-bg); background: var(--color-text-primary); box-shadow: var(--shadow-panel); font-size: 12px; font-weight: 500; pointer-events: auto; opacity: 0; transform: translateY(4px); transition: opacity .18s ease, transform .18s ease; }
+/* 任务 90（GravityPort A4c）：检视器打开（docked 档）时 toast 栈右边距 = 检视器宽度 + 20，
+   弹窗落在中间区域右下、不盖住检视器（稿子「弹窗提示」位 x 1460–1580 = 检视器左缘 −20）；
+   检视器关闭与窄屏回退档（≤700px 详情下折、非右侧停靠）照旧贴窗口右下。
+   全局生效（画廊页/大图页同一条规则）；宽度消费现有检视器宽度 token，不写死。 */
+@media (min-width: 701px) {
+  body.detail-open .toast-stack { right: calc(var(--inspector-width) + 20px); }
+}
+/* 任务 96（A6）：toast 按稿子「弹窗提示」改药丸形（圆角=高一半，画框 ② 量得
+   120×36、r17.9→999px 钳半高；图标 12、距左缘 16、字 16px 由字符步进 16.08 折算），
+   左侧类型图标区分 success/error/default（由 Manager 渲染），彩色左边取消（V2 层）。
+   颜色沿用现有 token，不照稿子改白底。 */
+.toast { display: flex; align-items: center; gap: 8px; max-width: min(330px, calc(100vw - 40px)); padding: 6px 16px; border-radius: var(--radius-pill); color: var(--app-bg); background: var(--color-text-primary); box-shadow: var(--shadow-panel); font-size: 16px; line-height: 24px; font-weight: 500; pointer-events: auto; opacity: 0; transform: translateY(4px); transition: opacity .18s ease, transform .18s ease; }
 .toast.is-visible { opacity: 1; transform: translateY(0); }
 .toast.is-leaving { opacity: 0; transform: translateY(4px); }
 .toast.success { border-left: 3px solid var(--color-success); }
 .toast.error { border-left: 3px solid var(--color-danger); }
 .toast.default { border-left: 3px solid var(--color-border-strong); }
-.toast-icon { flex: none; margin-top: 1px; }
+.toast-icon { flex: none; }
 .toast-message { overflow-wrap: anywhere; }
-.toast-dismiss { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin: -2px -6px -2px 0; padding: 0; border: none; border-radius: 4px; background: transparent; color: inherit; opacity: .7; cursor: pointer; }
+.toast-dismiss { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin: 0 -2px 0 0; padding: 0; border: none; border-radius: var(--radius-pill); background: transparent; color: inherit; opacity: .7; cursor: pointer; }
 .toast-dismiss:hover { opacity: 1; background: color-mix(in srgb, var(--app-bg) 14%, transparent); }
+/* 操作按钮（任务 90，如「撤销」）：可见文本即 accessible name，继承 toast 文字色与
+   字号，药丸内靠右、键盘可激活；hover 复用关闭按钮同一档底色（不新增颜色值）。 */
+.toast-action { flex: none; margin: 0; padding: 2px 8px; border: none; border-radius: var(--radius-pill); background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+.toast-action:hover { background: color-mix(in srgb, var(--app-bg) 14%, transparent); }
 
 /* ===== 按钮原语契约（Phase 1B） =====
    六个原语与当前控件类共享同一状态契约：
@@ -925,10 +1012,6 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   :where(.icon-button.quiet, .section-head-copy):not(:disabled):not([aria-disabled="true"]):hover {
     color: var(--color-text-primary); background: var(--app-hover);
   }
-  /* V2 FilterBar 类型筛选：未选中项 hover 加底色（选中态由 .active 守卫排除）。 */
-  .type-filter:not(.active):not(:disabled):not([aria-disabled="true"]):hover {
-    color: var(--color-text-primary); background: var(--app-chip);
-  }
   /* MenuItem：bg-3 填充（选中态由 .active/.selected 守卫排除） */
   :where(.nav-item:not(.active), .settings-trigger, .settings-menu button, .version-timeline-item:not(.selected) > button):not(:disabled):not([aria-disabled="true"]):hover {
     color: var(--color-text-primary); background: var(--app-hover);
@@ -947,8 +1030,8 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   .image-preview-header .icon-button:not(:disabled):not([aria-disabled="true"]):hover {
     color: var(--color-media-text); border-color: color-mix(in srgb, var(--color-media-text) 50%, transparent); background: color-mix(in srgb, var(--color-media-text) 16%, transparent);
   }
-  /* 大图舞台缩放控制条（Phase 3B）与素材导航按钮（Phase 3C）：仅加底色与文字强调，不改变几何 */
-  .asset-view-control:not(:disabled):not([aria-disabled="true"]):hover, .asset-view-fit:not(:disabled):not([aria-disabled="true"]):hover, .asset-view-nav-btn:not(:disabled):not([aria-disabled="true"]):hover { color: var(--color-text-primary); background: var(--color-surface-subtle); }
+  /* 大图舞台动作按钮与翻页箭头（A4c）：仅加底色与文字强调，不改变几何 */
+  .asset-view-action:not(:disabled):not([aria-disabled="true"]):hover, .asset-view-arrow:not(:disabled):not([aria-disabled="true"]):hover { color: var(--color-text-primary); background: var(--color-surface-subtle); }
 }
 
 /* --- Active：明确按压反馈；只改颜色，不改尺寸、不产生位移、不加动画 --- */
@@ -958,7 +1041,7 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 :where(.icon-button.quiet, .section-head-copy):not(:disabled):not([aria-disabled="true"]):active {
   color: var(--color-text-primary); background: var(--color-border-default);
 }
-.asset-view-nav-btn:not(:disabled):not([aria-disabled="true"]):active { color: var(--color-text-primary); background: var(--color-surface-subtle); }
+.asset-view-action:not(:disabled):not([aria-disabled="true"]):active, .asset-view-arrow:not(:disabled):not([aria-disabled="true"]):active { color: var(--color-text-primary); background: var(--color-surface-subtle); }
 :where(.nav-item:not(.active), .settings-trigger, .settings-menu button, .version-timeline-item:not(.selected) > button, .add-group-button):not(:disabled):not([aria-disabled="true"]):active {
   background: var(--color-border-subtle);
 }
@@ -1056,10 +1139,11 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   .shell.details-open .nav-item,
   .shell.details-open .add-group-button,
   .shell.details-open .settings-trigger { position: relative; justify-content: center; gap: 0; padding-right: 0; padding-left: 0; }
-  /* Keep the visible labels available to assistive technology in rail mode. */
+  /* Keep the visible labels available to assistive technology in rail mode.
+     用户中心头像例外：紧凑图标栏下头像（带字母圆点）就是按钮的可见图标。 */
   .shell.details-open .nav-item-text,
   .shell.details-open .add-group-button span,
-  .shell.details-open .settings-trigger span { position: absolute; overflow: hidden; width: 1px; height: 1px; padding: 0; margin: -1px; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  .shell.details-open .settings-trigger span:not(.user-center-avatar) { position: absolute; overflow: hidden; width: 1px; height: 1px; padding: 0; margin: -1px; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   .shell.details-open .sidebar-group-list { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--color-border-subtle); }
 }
 
@@ -1101,9 +1185,9 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
   .asset-card:hover { transform: none; }
   .card-actions, .card-action-btn { transition: none; }
   .asset-skeleton { animation: none; background: var(--app-hover); }
-  .nav-item, .type-filter, .topbar-search { transition: none; }
+  .nav-item, .topbar-search { transition: none; }
   .toast { transition: none; transform: none; }
-  .asset-view-control, .asset-view-fit, .asset-view-nav-btn { transition: none; }
+  .asset-view-action, .asset-view-arrow { transition: none; }
   .segmented-btn, .segmented-thumb, .toolbar-icon, .toolbar-filter, .create-button, .icon-button,
   .action-btn, .mini-btn, .prompt-text, input, textarea, select,
   .btn-primary, .btn-secondary, .btn-danger { transition: none; }
@@ -1123,6 +1207,9 @@ body.mosa-v2 {
   --color-media-surface: rgb(28 28 30 / 0.82);
   --color-media-border: rgb(255 255 255 / 0.18);
   --color-media-text: #ffffff;
+  /* GravityPort A3：画廊列数由 JS 按「滑杆目标宽 + 画廊内容宽」算出后写进
+     #assetGrid 的行内 --gallery-columns；这里只是 CSS 默认值（首帧/JS 未跑时）。 */
+  --gallery-columns: 5;
   background: var(--app-bg);
   color: var(--color-text-primary);
   font-family: var(--font-family-ui);
@@ -1131,58 +1218,123 @@ body.mosa-v2 {
 :root[data-theme="dark"] body.mosa-v2 { --color-focus-ring: #8ab4ff; }
 .mosa-v2 .shell { grid-template-columns: var(--sidebar-width) minmax(0, 1fr); width: 100%; height: 100%; margin: 0; overflow: hidden; border: 0; border-radius: 0; background: var(--app-bg); box-shadow: none; }
 .mosa-v2 .shell.details-open { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--inspector-width); }
-.mosa-v2 .sidebar { position: relative; z-index: 2; overflow: visible; background: rgb(from var(--app-sidebar) r g b / .95); border-right: 1px solid var(--color-border-subtle); backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%); }
+.mosa-v2 .sidebar { position: relative; z-index: 2; overflow: visible; background: rgb(from var(--app-sidebar) r g b / .95); backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%); }
 .mosa-v2 .brand {
-  /* Electron 的原生 macOS 三色按钮占用左上角（trafficLightPosition: 16, 18）。
-     品牌主副标题收进同一个与顶栏同高的顶部区域，避免侧栏头部比主工具栏多占一行。 */
+  /* GravityPort A2：品牌行与顶栏同高，文字靠右对齐（右内边距 20px）。
+     Electron 的原生 macOS 三色按钮占用左上角（trafficLightPosition: 16, 18），
+     靠右排版后文字远离左上角安全区，最窄档也不与三色按钮重叠。 */
   box-sizing: border-box;
+  justify-content: flex-end;
   gap: 10px;
   height: var(--topbar-height);
-  padding: 0 24px;
+  padding: 0 20px;
 }
 .mosa-v2 .brand { position: relative; }
 .mosa-v2 .brand-info { display: flex; min-width: 0; flex-direction: column; justify-content: center; }
-.mosa-v2 .brand-info h1 { color: var(--color-text-primary); font-size: 16px; font-weight: 700; line-height: 20px; letter-spacing: 0; }
-html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
-.mosa-v2 .brand .sidebar-library-title { margin: 0; padding: 0; color: var(--color-text-tertiary); font-size: 10px; font-weight: 400; line-height: 12px; letter-spacing: .04em; text-transform: uppercase; }
-.mosa-v2 .primary-nav { padding: 16px 12px 10px; }.mosa-v2 .nav-list { gap: var(--r21-s1); }
-.mosa-v2 .nav-item, .mosa-v2 .add-group-button, .mosa-v2 .settings-trigger { min-height: 32px; border-radius: 8px; color: var(--color-text-secondary); font-size: 13px; font-weight: 400; }
-.mosa-v2 .nav-item { padding: 0 12px; }
+.mosa-v2 .brand-info h1 { color: var(--color-text-primary); font-size: 18px; font-weight: 500; line-height: 20px; letter-spacing: 0; }
+/* 副标题（创作资产库）在 GravityPort 品牌行中不再展示；元素与 i18n 键保留。 */
+.mosa-v2 .brand .sidebar-library-title { display: none; }
+.mosa-v2 .primary-nav { padding: 16px 20px 10px; }.mosa-v2 .nav-list { gap: var(--r21-s1); }
+/* 导航项（固定入口 + 两组分组项 + 底部用户中心）共用 36px 高 / 8px 圆角 / 字重 400。
+   字号按区块区分：固定入口与用户中心 14px，分组项 13px（见下）。 */
+.mosa-v2 .nav-item, .mosa-v2 .add-group-button, .mosa-v2 .settings-trigger { min-height: 36px; border-radius: 8px; color: var(--color-text-secondary); font-weight: 400; letter-spacing: 0; }
+.mosa-v2 .nav-item { padding: 0 12px; font-size: 13px; }
+.mosa-v2 .nav-list .nav-item { font-size: 14px; }
+/* 固定入口/用户中心文字仅中文界面加 0.2em 字距（html lang 由 applyLanguage 写入 zh-CN/en）。 */
+html[lang^="zh"] .mosa-v2 .nav-list .nav-item .nav-item-text { letter-spacing: .2em; }
 .mosa-v2 .nav-item.active { color: var(--color-text-primary); background: var(--app-chip-active); font-weight: 570; }.mosa-v2 .nav-item.active::before { display: none; }
-.mosa-v2 .nav-count { color: var(--color-text-tertiary); font-size: 10px; }.mosa-v2 .nav-label { margin: 18px 0 6px; padding: 0 12px; color: var(--color-text-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
-.mosa-v2 .sidebar-group-list { gap: 0; }.mosa-v2 .sidebar-group-list[hidden] { display: none; }.mosa-v2 .sidebar-group-list .nav-item { padding-left: 12px; }.mosa-v2 .add-group-button { justify-content: flex-start; gap: 8px; padding: 0 10px; }
-.mosa-v2 .sidebar-footer { padding: 12px; border-top: 0; }.mosa-v2 .settings-trigger { width: 100%; justify-content: flex-start; gap: 8px; padding: 0 12px; }
+.mosa-v2 .nav-count { color: var(--color-text-tertiary); font-size: 12px; font-weight: 300; }.mosa-v2 .nav-label { margin: 18px 0 6px; padding: 0 12px; color: var(--color-text-tertiary); font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.mosa-v2 .sidebar-group-list { gap: var(--r21-s1); }.mosa-v2 .sidebar-group-list[hidden] { display: none; }.mosa-v2 .sidebar-group-list .nav-item { padding-left: 12px; }.mosa-v2 .add-group-button { justify-content: flex-start; gap: 8px; padding: 0 10px; }
+.mosa-v2 .sidebar-footer { padding: 12px 20px; border-top: 0; }.mosa-v2 .settings-trigger { width: 100%; justify-content: flex-start; gap: 8px; padding: 0 12px; font-size: 14px; }
+html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spacing: .2em; }
+/* 用户中心 24px 字母头像：底色/字色用现有强调色 token（subtle 底 + accent 字）。
+   字母由 userCenterInitial() 写入，启动默认 G，拿到安装 ID 后异步更新。 */
+.mosa-v2 .settings-trigger .user-center-avatar { display: inline-flex; width: 24px; height: 24px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 50%; color: var(--color-accent); background: var(--color-accent-subtle); font-size: 12px; font-weight: 600; line-height: 1; }
 .mosa-v2 .topbar-context { align-items: center; gap: 12px; }
 .mosa-v2 .title-row { align-items: center; }
-.mosa-v2 .topbar-type-filters { margin-left: 0; gap: 4px; }
-.mosa-v2 .type-filter { height: 28px; gap: 6px; padding: 0 12px; border-radius: 8px; font-size: 10.5px; }
-/* R21：类型筛选是纯文字分段，Web 端用 CSS 隐藏按钮里的图标。 */
-.mosa-v2 .type-filter svg { display: none; }
-.mosa-v2 .type-filter.active { background: var(--app-chip-active); font-weight: 580; }
-.mosa-v2 .topbar-search { flex: 0 1 152px; width: 152px; }
+.mosa-v2 .topbar-search { flex: 0 1 144px; width: 144px; }
+/* 任务 96（A6）：详情打开时（701–1120 档，≥768 实际生效）顶栏右侧控件过订——900
+   实测搜索框右缘越出主区 83px、被检视器盖住。让动作组/搜索框可收缩（select 有
+   min-width 88 保持不动），搜索框缩到剩余空间、最小只剩图标；获焦后浮成 fixed
+   面板（同该档 D3/O2 思路：脱离顶栏裁切、覆盖主内容、不推布局、不产生横向滚动），
+   同一个 #searchInput，失焦即回紧凑态。放在 V2 层以赢过上面的 144px 定宽。 */
+@media (min-width: 701px) and (max-width: 1120px) {
+  /* 任务 96 返工 1：V2 层 1220 行的 `.mosa-v2 .shell.details-open`（特异性同级后写）
+     盖掉了上方 1110 行的紧凑列，详情打开时侧栏收成图标栏却仍占 280 宽——布局
+     意图（布局骨架 B 模式，≈265 行注释）本来就该是 56 图标栏 + 320 检视器。 */
+  .mosa-v2 .shell.details-open { grid-template-columns: var(--sidebar-width-compact) minmax(0, 1fr) var(--inspector-width-compact); }
+  /* 图标在 56 宽栏里水平居中：V2 的 nav-item 分组覆盖（.sidebar-group-list .nav-item
+     padding-left 12、primary-nav/footer 左右 20）比上方 1139 行的居中规则更晚写，
+     在 .mosa-v2 下重申一次。 */
+  .mosa-v2 .shell.details-open .nav-item,
+  .mosa-v2 .shell.details-open .add-group-button,
+  .mosa-v2 .shell.details-open .settings-trigger { padding-right: 0; padding-left: 0; }
+  .mosa-v2 .shell.details-open .primary-nav,
+  .mosa-v2 .shell.details-open .sidebar-footer { padding-right: 12px; padding-left: 12px; }
+  .mosa-v2 .shell.details-open .topbar-actions,
+  .mosa-v2 .shell.details-open .topbar-work-group { flex: 0 1 auto; min-width: 0; }
+  /* 排序/分类 label 收缩、select 填满 label：88 下限正好容纳四字文案
+     （select 88 − padding 38 = 50px ≈ 4×12px），label 缩而 select 不外溢。 */
+  .mosa-v2 .shell.details-open .sort-control { flex: 0 1 auto; min-width: 100px; }
+  .mosa-v2 .shell.details-open .sort-control select { width: 100%; min-width: 0; }
+  .mosa-v2 .shell.details-open .topbar-search { flex: 0 1 144px; width: auto; min-width: 38px; position: relative; }
+  /* 输入框透明覆盖整个入口（D3/O2 口径）：紧凑态盒子里只剩图标也能点中、聚焦。
+     紧凑态藏 placeholder（38px 里只留图标，避免「搜」字残影）；浮层面板里恢复。 */
+  .mosa-v2 .shell.details-open .topbar-search input { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .mosa-v2 .shell.details-open .topbar-search input::placeholder { color: transparent; }
+  .mosa-v2 .shell.details-open .topbar-search:focus-within {
+    position: fixed;
+    z-index: var(--z-popover);
+    top: 16px;
+    right: calc(var(--inspector-width-compact) + 16px);
+    left: auto;
+    flex: 0 0 auto;
+    min-width: 0;
+    width: 280px;
+    background: var(--app-bg);
+    box-shadow: var(--shadow-panel);
+  }
+  .mosa-v2 .shell.details-open .topbar-search:focus-within input::placeholder { color: var(--color-text-tertiary); }
+}
 .mosa-v2 .topbar-search input { box-sizing: border-box; border: 0; background: transparent; font-size: 12px; }
 .mosa-v2 .topbar-search input:focus, .mosa-v2 .topbar-search input:focus-visible { border-color: transparent; box-shadow: none; outline: 0; }
 
 /* R21 新颜色（仅浅色；R21 无深色规格，深色保持现状）。
    只覆盖浅色主题下的取值，深色继续走上面规则里的 token。 */
-:root[data-theme="light"] .mosa-v2 .sidebar { background: #fbfbfc; border-right-color: #e7e7ea; }
+:root[data-theme="light"] .mosa-v2 .sidebar { background: #fbfbfc; }
 :root[data-theme="light"] .mosa-v2 .nav-item, :root[data-theme="light"] .mosa-v2 .settings-trigger { color: #55555a; }
 :root[data-theme="light"] .mosa-v2 .nav-item.active { background: #ececef; color: var(--color-text-primary); }
-:root[data-theme="light"] .mosa-v2 .type-filter.active { background: #f0f0f2; color: #303034; }
 :root[data-theme="light"] .mosa-v2 .sort-control select { background: #f4f4f5; }
 :root[data-theme="light"] .mosa-v2 .topbar-search { background: #f4f4f5; }
 :root[data-theme="light"] .mosa-v2 .topbar-search:focus-within { background: var(--app-search-focus); }
 
 .mosa-v2 .library { background: var(--app-bg); }
-.mosa-v2 .topbar { box-sizing: border-box; gap: 8px; height: var(--topbar-height); min-height: var(--topbar-height); padding: 0 24px; border: 0; background: transparent; }
+/* GravityPort A3：滑杆组绝对定位于顶栏，topbar 自己成为包含块。任务 70 返工 1
+   （设计稿还原）：滑杆组居中对准「窗口中线」由 app.mjs 写行内 left（检视器
+   开关都一样），这里的 50% 只是 JS 跑起来前的兜底。 */
+.mosa-v2 .topbar { position: relative; box-sizing: border-box; gap: 8px; height: var(--topbar-height); min-height: var(--topbar-height); padding: 0 20px; border: 0; background: transparent; }
 .mosa-v2 .topbar-context { flex: 1 1 auto; align-items: center; }.mosa-v2 .title-row { display: flex; align-items: baseline; gap: 8px; }
 .mosa-v2 .title-row h2 { color: var(--color-text-primary); font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+/* GravityPort A3：后退/前进与滑杆两侧按钮回到 28×28 无边框安静档
+   （.toolbar-icon 的 mosa-v2 32px 带边框外观只属于右侧工作区控件）。 */
+.mosa-v2 .topbar-nav-group .toolbar-icon, .mosa-v2 .topbar-size-group .toolbar-icon { width: 28px; height: 28px; flex: 0 0 auto; border: 0; border-radius: var(--radius-control); background: transparent; }
 .mosa-v2 .topbar-actions { gap: 8px; }.mosa-v2 .topbar-utility-group { display: contents; }.mosa-v2 .topbar-work-group { gap: 4px; }.mosa-v2 .topbar-primary-group { display: flex; }
 .mosa-v2 .toolbar-filter, .mosa-v2 .toolbar-icon, .mosa-v2 .sort-control select { height: 32px; border: 1px solid var(--color-border-subtle); border-radius: 8px; color: var(--color-text-secondary); background: var(--app-input); box-shadow: none; font-size: 12px; }
 .mosa-v2 .toolbar-filter { gap: 6px; padding: 0 10px; }.mosa-v2 .toolbar-filter[aria-pressed="true"] { color: var(--color-text-primary); background: var(--app-chip-active); }
-.mosa-v2 .sort-control select { min-width: 96px; padding: 0 26px 0 12px; }
+/* 任务 90（A4c）：大图页返回按钮在稿子里是纯「< 返回」幽灵态（无底无框），不吃
+   上一条 V2 toolbar-filter 的 32 高/描边/底色；padding-left 由浮层头部 20px 轨承担。 */
+.mosa-v2 .asset-view-back { height: 28px; border: 0; background: transparent; padding-left: 0; }
+.mosa-v2 .sort-control select { min-width: 88px; padding: 0 26px 0 12px; }
+/* 任务 70 返工 1（设计稿还原）：顶栏右侧控件 24 高、在 64 高顶栏里竖向居中
+   （y20–44）。共用 32px 规则不动，只用 .topbar-actions 限定范围，顶栏以外
+   用到这些类的地方不受影响；搜索框 input 是 height:100% 跟随盒子。点击区域
+   变小是「先还原」的拍板，不在本单里自作主张加大。 */
+.mosa-v2 .topbar-actions .toolbar-filter, .mosa-v2 .topbar-actions .toolbar-icon, .mosa-v2 .topbar-actions .sort-control select, .mosa-v2 .topbar-actions .topbar-search { height: 24px; }
 .mosa-v2 .create-button { height: 32px; gap: 6px; padding: 0 12px; border-radius: 8px; color: #fff; background: #2424ff; box-shadow: 0 4px 8px -3px rgb(36 36 255 / .28); font-size: 12px; }
-.mosa-v2 .grid { grid-template-columns: repeat(5, minmax(0, 1fr)); column-gap: var(--gallery-gap); row-gap: 0; padding: var(--r21-s5) var(--r21-s6) var(--r21-s8); background: transparent; }
+/* GravityPort A3：列数由 --gallery-columns 驱动（app.mjs 按「滑杆目标宽 +
+   画廊内容宽」计算后写在 #assetGrid 行内，上限 10；≤767px 档固定 2 列不变，
+   写在下方 max-width:767px 媒体查询里，行内变量改变不了它）。 */
+.mosa-v2 .grid { grid-template-columns: repeat(var(--gallery-columns), minmax(0, 1fr)); column-gap: var(--gallery-gap); row-gap: 0; padding: 0 20px var(--r21-s8); background: transparent; }
 .mosa-v2 #assetGrid:focus-visible { outline: none; }
 .mosa-v2 .asset-card { margin-bottom: 0; transition: transform 200ms var(--ease-standard), box-shadow 200ms var(--ease-standard); }
 .mosa-v2 .asset-card-select { border-radius: var(--radius-card); background: var(--app-card); box-shadow: none; }.mosa-v2 .asset-card-select::after { border-radius: var(--radius-card); box-shadow: inset 0 0 0 1px rgb(0 0 0 / .04); }.mosa-v2 .asset-card.selected .asset-card-select::after, .mosa-v2 .asset-card.multi-selected .asset-card-select::after { box-shadow: none; }.mosa-v2 .asset-card.selected::after, .mosa-v2 .asset-card.multi-selected::after { content: ""; position: absolute; z-index: 4; inset: -1px; box-sizing: border-box; border: 1.5px solid var(--color-accent); border-radius: calc(var(--radius-card) + 1px); pointer-events: none; }
@@ -1213,13 +1365,18 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .card-favorite:not(.is-fav):hover { color: rgb(255 255 255 / .88); background: transparent; opacity: 1; }
   .mosa-v2 .card-favorite.is-fav:hover { color: var(--color-danger); background: transparent; opacity: .82; }
 }
-.mosa-v2 .gallery-skeleton { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--gallery-gap); padding: 0; }.mosa-v2 .asset-skeleton { border-radius: 8px; background: linear-gradient(100deg, var(--app-search) 30%, var(--app-search-focus) 45%, var(--app-search) 60%); }.mosa-v2 .gallery-empty-state, .mosa-v2 .error-state { color: var(--color-text-tertiary); }.mosa-v2 .empty-state-actions .btn-primary { background: #2424ff; }
+.mosa-v2 .gallery-skeleton { grid-template-columns: repeat(var(--gallery-columns), minmax(0, 1fr)); gap: var(--gallery-gap); padding: 0; }.mosa-v2 .asset-skeleton { border-radius: 8px; background: linear-gradient(100deg, var(--app-search) 30%, var(--app-search-focus) 45%, var(--app-search) 60%); }.mosa-v2 .gallery-empty-state, .mosa-v2 .error-state { color: var(--color-text-tertiary); }.mosa-v2 .empty-state-actions .btn-primary { background: #2424ff; }
 
 .mosa-v2 .settings-menu { border: 1px solid rgb(255 255 255 / .68); border-radius: 16px; background: rgb(from var(--app-menu) r g b / .92); box-shadow: 0 18px 42px -10px rgb(0 0 0 / .16); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); }
 
-.mosa-v2 .detail { display: none; min-width: 0; min-height: 0; overflow: auto; border-left: 1px solid var(--color-border-subtle); color: #1d1d1f; background: var(--app-bg); }
+.mosa-v2 .detail { display: none; min-width: 0; min-height: 0; overflow: auto; color: #1d1d1f; background: var(--app-bg); }
+/* GravityPort A1：桌面检视器圆角卡片（32px，--radius-shell-card）。刻意
+   放在下方 max-width:767px 媒体查询之前：≤767px 的既有 24px 浮层卡规格
+   （同特异性、靠后生效）继续赢，窄档行为不变；>767px 走 32px 卡片。
+   内容由 .detail 自身的 overflow:hidden 裁进圆角，滚动仍在 .detail-inspector-scroll 内。 */
+.mosa-v2 .detail { border-radius: var(--radius-shell-card); }
 .mosa-v2 .shell.details-open .detail { display: block; }
-:root[data-theme="dark"] .mosa-v2 .detail { color: #f5f5f7; border-left-color: rgb(255 255 255 / .10); background: var(--app-bg); }
+:root[data-theme="dark"] .mosa-v2 .detail { color: #f5f5f7; background: var(--app-bg); }
 :root[data-theme="dark"] body.mosa-v2 {
   --color-media-backdrop: rgb(0 0 0 / 0.92);
   --color-media-surface: rgb(28 28 30 / 0.85);
@@ -1258,7 +1415,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .asset-meta-wrap { min-width: 0; display: flex; flex-direction: column; }
 .mosa-v2 .detail .asset-name-row { display: flex; min-width: 0; align-items: flex-start; gap: var(--inspector-space-2); }
 .mosa-v2 .detail .asset-name-row h3 { min-width: 0; flex: 1 1 auto; margin: 0; overflow: hidden; color: var(--color-text-primary); font-size: 14px; font-weight: 650; letter-spacing: -.1px; line-height: 20px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: ellipsis; word-break: break-all; }
-.mosa-v2 .detail .asset-name-row .detail-overview-open { display: inline-grid; width: 28px; height: 28px; min-width: 28px; min-height: 28px; flex: 0 0 28px; padding: 0; place-items: center; border: 0; border-radius: var(--inspector-radius-sm); color: var(--color-text-secondary); background: transparent; cursor: pointer; transition: background-color var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard); }
+/* GravityPort A4a：头部「打开原始对话」按钮随来源信息区块一并拿掉，其样式规则随之删除。 */
 .mosa-v2 .detail .asset-kind { min-width: 0; margin: var(--inspector-space-1) 0 0; overflow: hidden; color: var(--color-text-tertiary); font-size: 10px; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .mosa-v2 .detail .head-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--inspector-space-2); row-gap: var(--inspector-space-1); margin-top: var(--inspector-space-2); }
 .mosa-v2 .detail .head-facts .meta-row { display: contents; }
@@ -1284,7 +1441,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-tags-add { display: inline-flex; height: 24px; min-height: 24px; flex: 0 0 auto; align-items: center; gap: 4px; padding: 0 8px; border: 1px dashed var(--color-border-default); border-radius: 999px; color: var(--color-accent); background: transparent; font-size: 11px; white-space: nowrap; }
 :root[data-theme="dark"] .mosa-v2 .detail-inspector-header { color: #f5f5f7; }
 :root[data-theme="dark"] .mosa-v2 .detail-inspector-header .detail-close, :root[data-theme="dark"] .mosa-v2 .detail .detail-fav-btn { color: #d1d1d6; background: rgb(255 255 255 / .10); }
-:root[data-theme="dark"] .mosa-v2 .detail .asset-name-row .detail-overview-open { color: #a1a1a6; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-fav-btn.is-fav { color: #7e7eff; background: rgb(126 126 255 / .18); }
 
 /* V2 Inspector section headers: compact 13px/18px row with copy icon */
@@ -1305,7 +1461,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-reference-row { display: flex; height: 36px; flex: 0 0 36px; align-items: center; justify-content: space-between; gap: 8px; overflow: hidden; padding: 0 12px; border: 0; border-radius: 10px; background: rgb(242 242 247 / .76); font-size: 12px; font-weight: 500; line-height: 18px; }
 .mosa-v2 .detail .detail-reference-label { display: flex; min-width: 0; align-items: center; gap: 4px; overflow: hidden; color: #6e6e73; }
 .mosa-v2 .detail .detail-reference-value { flex: 0 0 auto; color: #8e8e93; }
-.mosa-v2 .detail .detail-reference-block { display: grid; gap: 8px; padding: 10px 12px 12px; border-radius: 12px; background: rgb(242 242 247 / .76); }
 .mosa-v2 .detail .detail-reference-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 500; line-height: 18px; }
 .mosa-v2 .detail .detail-reference-thumbnails { display: flex; min-width: 0; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
 .mosa-v2 .detail .detail-reference-thumb { width: 52px; height: 52px; flex: 0 0 52px; overflow: hidden; border: 1px solid rgb(60 60 67 / .12); border-radius: 9px; background: rgb(255 255 255 / .7); }
@@ -1336,12 +1491,10 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail-group-section { order: 6; }
 .mosa-v2 .detail [data-inspector-section="more"] { order: 7; }
 
-/* The V2 FilterBar begins with type filters; the retained heading is still
-   present for accessibility and runtime state, but is not a second visual
-   toolbar title. */
-.mosa-v2 .title-row { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
-.mosa-v2 .title-row:has(#stackBack:not([hidden])) { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal; display: flex; }
-.mosa-v2 .title-row:has(#stackBack:not([hidden])) h2 { display: none; }
+/* GravityPort A3：范围标题（#viewTitle）恒为视觉隐藏——元素与内容保留，
+   读屏仍能读到当前范围；隐藏由 index.html 里的 .visually-hidden 类承担
+   （堆叠返回按钮 #stackBack 已移入左侧 .topbar-nav-group，原 :has 解除隐藏
+   的例外规则随之删除）。 */
 
 /* V2 Gallery's neutral zero-result recovery state. */
 .mosa-v2 .grid:has(.gallery-empty-state) { display: flex; }
@@ -1354,9 +1507,9 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 
 /* Manual asset categories live directly below Smart groups. Creation is an
    inline sidebar action rather than a modal detour. */
-.mosa-v2 .sidebar-group-heading { display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin: var(--r21-s5) 10px 2px; }
+.mosa-v2 .sidebar-group-heading { display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin: var(--r21-s6) 10px 2px; }
 .mosa-v2 .sidebar-group-heading .nav-label { margin: 0; padding: 0; }
-.mosa-v2 .sidebar-manual-group-heading { margin-top: var(--r21-s5); }
+.mosa-v2 .sidebar-manual-group-heading { margin-top: var(--r21-s6); }
 .mosa-v2 .sidebar-section-toggle { display: flex; min-width: 0; flex: 1; align-items: center; justify-content: space-between; gap: 6px; height: 28px; padding: 0; border: 0; border-radius: 5px; color: inherit; background: transparent; cursor: pointer; text-align: left; }
 .mosa-v2 .sidebar-section-toggle .nav-label { flex: 1; }
 .mosa-v2 .sidebar-section-chevron { flex: 0 0 auto; color: var(--color-text-tertiary); transition: transform .14s var(--ease-standard); }
@@ -1412,7 +1565,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box, :root[data-theme="dark"] .mosa-v2 .detail .detail-instruction-box { border-color: rgb(255 255 255 / .10); color: #f5f5f7; background: rgb(255 255 255 / .06); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box .empty-copy { color: #6e6e73; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-row { background: rgb(255 255 255 / .08); }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-reference-block { background: rgb(255 255 255 / .08); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-thumb { border-color: rgb(255 255 255 / .10); background: rgb(255 255 255 / .06); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-label { color: #d1d1d6; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-value { color: #6e6e73; }
@@ -1438,11 +1590,14 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   }
 }
 
-.mosa-v2 .toast { border-left: 0; border-radius: 12px; color: #fff; background: rgb(28 28 30 / .94); box-shadow: 0 10px 28px rgb(0 0 0 / .22); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }.mosa-v2 .toast.success { box-shadow: inset 3px 0 0 #34c759, 0 10px 28px rgb(0 0 0 / .22); }.mosa-v2 .toast.error { box-shadow: inset 3px 0 0 #ff453a, 0 10px 28px rgb(0 0 0 / .22); }
+/* 任务 96（A6）：V2 toast = 深色药丸（类型靠左侧图标区分，彩色边取消；颜色不照稿子）。 */
+.mosa-v2 .toast { border-left: 0; border-radius: var(--radius-pill); color: #fff; background: rgb(28 28 30 / .94); box-shadow: 0 10px 28px rgb(0 0 0 / .22); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
 @keyframes v2-detail-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
-@media (max-width: 1400px) { .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-@media (max-width: 900px) { .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(3, minmax(0, 1fr)); }.mosa-v2 .topbar-search { width: 180px; } }
+/* GravityPort A3：>767px 的画廊列数由 --gallery-columns 计算接管，按宽度减列的
+   mosa-v2 媒体查询（原 ≤1400→4 列、≤900→3 列、≥1280→5 列、≤1279→3 列）移除；
+   ≤767px 档保持固定 2 列（见下方各窄档媒体查询）。 */
+@media (max-width: 900px) { .mosa-v2 .topbar-search { width: 180px; } }
 @media (max-width: 700px) {
   .mosa-v2 .shell { width: 100%; height: 100%; margin: 0; border: 0; border-radius: 0; grid-template-columns: 64px minmax(0, 1fr); }
   .mosa-v2 .brand { justify-content: center; padding: 0; }
@@ -1527,15 +1682,12 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .settings-modal-close:active { transform: scale(.94); }
 .mosa-v2 .settings-modal-close svg { display: block; flex-shrink: 0; }
 .mosa-v2 .settings-modal-body { min-height: 0; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; padding: 0 24px 20px; scrollbar-gutter: stable; }
-.mosa-v2 .settings-modal-row { position: relative; box-sizing: border-box; display: grid; grid-template-columns: 24px minmax(0, 1fr) 164px; align-items: center; column-gap: 12px; min-height: 52px; padding: 8px 0; }
-.mosa-v2 .settings-row-icon { display: grid; width: 24px; height: 24px; place-items: center; color: var(--color-text-secondary); }
-.mosa-v2 .settings-row-icon svg { width: 16px; height: 16px; }
-.mosa-v2 .settings-row-copy { min-width: 0; }
+.mosa-v2 .settings-modal-row { position: relative; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 24px; min-height: 52px; padding: 8px 0; }
+.mosa-v2 .settings-row-copy { display: flex; min-width: 0; align-items: baseline; gap: 8px; }
 .mosa-v2 .settings-row-copy h4 { margin: 0; color: var(--color-text-primary); font-size: 12px; font-weight: 560; line-height: 18px; }
-.mosa-v2 .settings-row-copy p { min-width: 0; margin: 1px 0 0; overflow: hidden; color: var(--color-text-tertiary); font-size: 10px; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .settings-row-copy p { min-width: 0; margin: 0; overflow: hidden; color: var(--color-text-tertiary); font-size: 10px; line-height: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .mosa-v2 .settings-path { display: block; max-width: 220px; font-family: var(--font-family-mono); font-size: 9px; letter-spacing: 0; }
-.mosa-v2 .settings-row-control { display: flex; width: 164px; min-width: 0; align-items: center; justify-content: flex-end; }
-.mosa-v2 .settings-inline-actions { display: flex; width: 100%; align-items: center; justify-content: flex-end; gap: 2px; }
+.mosa-v2 .settings-row-control { display: flex; width: auto; min-width: 0; align-items: center; justify-content: flex-end; }
 .mosa-v2 .settings-static-value { width: 100%; color: var(--color-text-secondary); font-size: 11px; line-height: 16px; text-align: right; }
 .mosa-v2 .visual-model-status { display: grid; justify-items: end; gap: 3px; min-width: 180px; text-align: right; }
 .mosa-v2 .visual-model-status strong { color: var(--color-text-secondary); font-size: 11px; font-weight: 600; }
@@ -1572,10 +1724,10 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 @media (max-width: 480px) {
   .mosa-v2 .settings-menu { padding: 12px; }
   .mosa-v2 .settings-modal-card { max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); border-radius: 16px; }
-  .mosa-v2 .settings-modal-row { grid-template-columns: 24px minmax(0, 1fr); row-gap: 6px; padding: 8px 0; }
-  .mosa-v2 .settings-row-control { grid-column: 2; width: auto; justify-content: flex-start; }
-  .mosa-v2 .settings-inline-actions { flex-wrap: wrap; }
-  .mosa-v2 .settings-library-row .settings-row-control { margin-top: 2px; }
+  .mosa-v2 .settings-modal-row { grid-template-columns: minmax(0, 1fr); row-gap: 8px; padding: 12px 0; }
+  .mosa-v2 .settings-row-control { grid-column: 1; width: auto; justify-content: flex-start; }
+  .mosa-v2 .settings-library-row .settings-row-control { flex-wrap: wrap; }
+  .mosa-v2 .settings-path-box { width: 100%; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .mosa-v2 .settings-menu,
@@ -1612,7 +1764,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .group-modal-card .modal-footer { justify-content: flex-end; padding: 12px 20px 20px; border-top: 0; }
 .mosa-v2 .group-modal-card .btn-primary, .mosa-v2 .group-modal-card .btn-secondary { min-width: 76px; height: 34px; border-radius: 8px; }
 .mosa-v2 .nav-group-item { gap: 8px; }
-.mosa-v2 .nav-group-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--group-color); }
+.mosa-v2 .nav-group-dot { width: 12px; height: 12px; flex: 0 0 12px; border-radius: 50%; background: var(--group-color); }
 
 @media (hover: hover) and (pointer: fine) {
   .mosa-v2 .group-color-swatch:not(.selected):hover { transform: scale(1.08); }
@@ -1632,15 +1784,12 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
    icon-rail behaviour; no desktop control is merely squeezed into mobile. */
 .mobile-nav-toggle, .mobile-nav-close, .mobile-nav-scrim { display: none; }
 
-@media (min-width: 1280px) {
-  .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-}
-
-@media (max-width: 1279px) {
-  .mosa-v2 .grid, .mosa-v2 .gallery-skeleton { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
+/* GravityPort A3：>767px 列数交给 --gallery-columns（原 1280/1279 两档减列
+   媒体查询移除，断点登记表保持不变）。 */
 
 @media (max-width: 767px) {
+  /* 任务 94：确认弹窗窄屏不超过视口减两侧 16（宽卡照稿子只在桌面态给 640）。 */
+  .confirm-dialog-overlay { padding: 16px; }
   .mosa-v2 .shell, .mosa-v2 .shell.details-open {
     display: block;
     width: 100%;
@@ -1730,6 +1879,10 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
     gap: 10px;
     padding: 12px 16px;
   }
+  /* GravityPort A3（任务 70 返工）：窄档只隐藏前进/后退（.nav-history-button）
+     与缩略图滑杆；同在 .topbar-nav-group 里的 #stackBack 不在隐藏名单，进堆叠
+     后照常可见可点。 */
+  .mosa-v2 .topbar-nav-group .nav-history-button, .mosa-v2 .topbar-size-group { display: none; }
   .mosa-v2 .topbar-context, .mosa-v2 .topbar-actions, .mosa-v2 .topbar-work-group { box-sizing: border-box; width: 100%; }
   .mosa-v2 .topbar-context { flex: 0 0 auto; padding-left: 52px; }
   .mosa-v2 .topbar-actions { display: block; }
@@ -1753,18 +1906,22 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 }
 
 /* ===== Context Menu ===== */
+/* 任务 91（GravityPort A4d）：几何照稿子量取——菜单宽 240、圆角 8、内边距 8、
+   行高 32（图标 24 + 上下 4）、组内行距 2、组间距 12（分隔线改为纯留白）。 */
 .context-menu {
   position: fixed;
   z-index: 10000;
-  min-width: 220px;
+  /* 稿子的 240 是含内边距与描边的外宽：min-width 走 border-box 才量得准。 */
+  box-sizing: border-box;
+  min-width: 240px;
   max-width: 320px;
   /* M4：超高菜单（如几十个分组的“移动到分组”子菜单）在视口内自行滚动，
      底部项不再溢出不可达；positionMenu 的钳位将其钉在距顶 8px 处。 */
   max-height: calc(100vh - 16px);
-  padding: 6px;
+  padding: 8px;
   background: var(--app-menu);
   border: 1px solid var(--border-menu);
-  border-radius: 12px;
+  border-radius: 8px;
   box-shadow: var(--shadow-popover);
   outline: none;
   overflow-y: auto;
@@ -1775,9 +1932,9 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
   width: 100%;
-  padding: 8px 12px;
+  padding: 4px 12px 4px 4px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -1789,6 +1946,12 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   text-align: left;
   cursor: pointer;
   transition: background 0.15s ease;
+}
+
+/* 组内行距（稿子行节距 34 = 行 32 + 2）。分隔线打断相邻关系，组间只有分隔
+   自身的 12px 留白，不再叠加行距。 */
+.context-menu-item + .context-menu-item {
+  margin-top: 2px;
 }
 
 .context-menu-item:focus {
@@ -1827,8 +1990,8 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
   color: currentColor;
 }
@@ -1865,10 +2028,12 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   flex-shrink: 0;
 }
 
+/* 任务 91：稿子的分组间隔是纯留白（无分隔线）——分隔元素保留语义
+   （role=separator 与键盘/读屏结构不变），视觉上只承担 12px 组间距。 */
 .context-menu-separator {
-  height: 1px;
-  margin: 6px 0;
-  background: var(--color-border-subtle);
+  height: 12px;
+  margin: 0;
+  background: none;
 }
 
 .context-menu-submenu {
@@ -1894,7 +2059,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 }
 
 .mosa-v2 .detail {
-  border-left-color: var(--inspector-divider);
   background: var(--app-card);
 }
 .mosa-v2 .detail-inspector {
@@ -1947,7 +2111,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   background: var(--app-card);
 }
 /* R21 检视器外框新颜色（仅浅色；深色保持现状）：面板底色与左右边线。 */
-:root[data-theme="light"] .mosa-v2 .detail { background: #fbfbfc; border-left-color: #e7e7ea; }
+:root[data-theme="light"] .mosa-v2 .detail { background: #fbfbfc; }
 :root[data-theme="light"] .mosa-v2 .detail-inspector-header { border-bottom-color: #e7e7ea; }
 :root[data-theme="light"] .mosa-v2 .detail-inspector-scroll { background: #fbfbfc; }
 .mosa-v2 .detail-inspector-scroll > .inspector-section {
@@ -2278,7 +2442,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 @media (hover: hover) and (pointer: fine) {
   .mosa-v2 .detail-inspector-header .detail-close:hover,
   .mosa-v2 .detail .detail-fav-btn:hover,
-  .mosa-v2 .detail .asset-name-row .detail-overview-open:hover,
   .mosa-v2 .detail .detail-prompt-head .section-head-copy:hover,
   .mosa-v2 .detail .detail-source-copy .section-head-copy:hover,
   .mosa-v2 .detail .detail-copy-sub:hover,
@@ -2289,7 +2452,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 }
 .mosa-v2 .detail-inspector-header .detail-close:active,
 .mosa-v2 .detail .detail-fav-btn:active,
-.mosa-v2 .detail .asset-name-row .detail-overview-open:active,
 .mosa-v2 .detail .detail-source-copy .section-head-copy:active,
 .mosa-v2 .detail .section-head-copy:active,
 .mosa-v2 .detail .detail-tags-add:active {
@@ -2318,7 +2480,8 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .asset-card,
   .card-action-btn,
   .toast,
-  .asset-view-control,
+  .asset-view-action,
+  .asset-view-arrow,
   .nav-item,
   .icon-button,
   .segmented-btn,
@@ -2348,8 +2511,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   }
   .mosa-v2 .detail-inspector-header .detail-close:active,
   .mosa-v2 .detail .detail-fav-btn:active,
-  .mosa-v2 .detail .asset-name-row .detail-overview-open:active,
-  .mosa-v2 .detail .section-head-copy:active,
+    .mosa-v2 .detail .section-head-copy:active,
   .mosa-v2 .detail .detail-tags-add:active,
   .mosa-v2 .settings-modal-close:active,
   .mosa-v2 .settings-menu .segmented-btn:active,
@@ -2460,7 +2622,7 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   gap: var(--r21-s1);
   align-items: center;
   padding: 0 var(--inspector-space-2);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 450;
 }
 
@@ -2537,8 +2699,8 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .detail .detail-instruction-box {
   padding: var(--r21-s3);
   border-radius: var(--inspector-radius-sm);
-  font-size: 10.5px;
-  line-height: 1.58;
+  font-size: 10px;
+  line-height: 14px;
 }
 :root[data-theme="light"] .mosa-v2 .detail .detail-prompt-box,
 :root[data-theme="light"] .mosa-v2 .detail .detail-instruction-box {
@@ -2555,11 +2717,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 
 /* —— 参考图（R21 .ref-grid / .ref-thumb / .ref-count）：3 列网格、间距 8、
    每格 1.3:1、圆角 8；浅色边 #e4e4e7、底 #ededf0；无参考图那一行文字 10.5px 灰。 —— */
-.mosa-v2 .detail .detail-reference-block {
-  gap: var(--r21-s2);
-  padding: var(--r21-s3);
-  border-radius: var(--inspector-radius-sm);
-}
 .mosa-v2 .detail .detail-reference-summary {
   font-size: 10.5px;
 }
@@ -2590,9 +2747,6 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   padding: var(--r21-s3);
   border-radius: var(--inspector-radius-sm);
   font-size: 10.5px;
-}
-:root[data-theme="light"] .mosa-v2 .detail .detail-reference-block {
-  background: #f3f3f5;
 }
 :root[data-theme="light"] .mosa-v2 .detail .detail-reference-thumb {
   border-color: #e4e4e7;
@@ -2919,52 +3073,51 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   color: #26262b;
 }
 
-/* ===== R21 设置弹窗（任务 25）：单栏改两栏（168px 分类导航 + 1fr 内容页）。 =====
+/* ===== R21 设置弹窗（任务 25）：单栏改两栏（168px 分类导航 + 1fr 内容页）。
+   任务 81（GravityPort A5）按设计稿重排：弹窗 960×728 圆角 32、左栏 240 白底、
+   右栏 720 灰底、导航 36 高、行 72 高带通栏分隔线、主题卡 186×90、分段按钮
+   128×32、素材库路径框 320×32 内嵌打开按钮；页内不再渲染重复的页标题/说明。
    结构类名见 app.mjs renderSettingsMenu：.settings-modal-sidebar / -brand /
    -nav（role="tablist"）/ .settings-nav-tab / -foot / .settings-local-first /
-   .settings-modal-main / .settings-page(-head/-title/-desc) / .settings-group。
+   .settings-modal-main / .settings-page / .settings-group。
    本块追加在文件末尾：同选择器以上面几组旧规则为准的地方，这里最后生效；
-   新颜色只写 :root[data-theme="light"] 作用域，深色沿用既有 token；新加字号 ≥10px。 */
+   颜色全部沿用既有 token 与既有浅/深色值；新加字号 ≥10px。 */
 
 .mosa-v2 .settings-modal-card {
   display: grid;
-  grid-template-columns: 168px minmax(0, 1fr);
-  width: 792px;
-  height: 592px;
+  grid-template-columns: 240px minmax(0, 1fr);
+  width: min(960px, 100%);
+  height: min(728px, calc(100vh - 48px));
+  height: min(728px, calc(100dvh - 48px));
+  /* 基础段还有一条 max-height: min(560px, …) 的旧上限，必须在此归零，
+     否则 728 高的稿子弹窗会被压回 560。 */
   max-height: none;
-  border-radius: 16px;
+  border-radius: 32px;
 }
 .mosa-v2 .settings-modal-sidebar {
   display: flex;
   min-height: 0;
   flex-direction: column;
-  padding: 0 12px 16px;
-  border-right: 1px solid transparent;
-}
-:root[data-theme="light"] .mosa-v2 .settings-modal-sidebar {
-  border-right-color: #e7e7ea;
-  background: #fbfbfc;
+  padding: 0 20px 20px;
+  border-right: 1px solid var(--color-border-subtle);
+  background: var(--app-sidebar);
 }
 .mosa-v2 .settings-modal-brand {
   display: flex;
-  height: 56px;
-  flex: 0 0 56px;
+  height: 60px;
+  flex: 0 0 60px;
   align-items: center;
-  margin: 0 -12px 8px;
-  padding: 0 16px;
-  border-bottom: 1px solid transparent;
-}
-:root[data-theme="light"] .mosa-v2 .settings-modal-brand {
-  border-bottom-color: #e7e7ea;
+  margin: 0;
+  padding: 0;
 }
 .mosa-v2 .settings-modal-brand h2 {
   margin: 0;
   overflow: hidden;
   color: var(--color-text-primary);
-  font-size: 14px;
+  font-size: 22px;
   font-weight: 650;
   letter-spacing: -.01em;
-  line-height: 20px;
+  line-height: 28px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2978,18 +3131,18 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .settings-nav-tab {
   display: flex;
   width: 100%;
-  height: 32px;
-  flex: 0 0 32px;
+  height: 36px;
+  flex: 0 0 36px;
   align-items: center;
   justify-content: flex-start;
   gap: var(--r21-s2);
-  padding: 0 12px;
+  padding: 0 8px;
   border: 0;
   border-radius: var(--inspector-radius-sm);
   color: var(--color-text-secondary);
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 500;
   text-align: left;
 }
@@ -3064,22 +3217,22 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   min-width: 0;
   min-height: 0;
   flex-direction: column;
+  background: var(--app-bg);
 }
 .mosa-v2 .settings-modal-header {
-  height: 56px;
-  flex: 0 0 56px;
+  height: 60px;
+  flex: 0 0 60px;
   align-items: center;
-  padding: 0 20px;
-  border-bottom: 1px solid transparent;
-}
-:root[data-theme="light"] .mosa-v2 .settings-modal-header {
-  border-bottom-color: #e7e7ea;
+  margin: 0 40px;
+  padding: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 .mosa-v2 .settings-modal-header h2 {
   color: var(--color-text-primary);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 650;
   letter-spacing: -.01em;
+  line-height: 22px;
 }
 .mosa-v2 .settings-modal-close {
   width: 28px;
@@ -3087,67 +3240,72 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   flex: 0 0 28px;
 }
 .mosa-v2 .settings-modal-body {
-  padding: 20px 24px 28px;
-}
-.mosa-v2 .settings-page-head {
-  margin-bottom: 16px;
-}
-.mosa-v2 .settings-page-title {
-  margin: 0;
-  color: var(--color-text-primary);
-  font-size: 17px;
-  font-weight: 660;
-  letter-spacing: -.01em;
-  line-height: 24px;
-}
-.mosa-v2 .settings-page-desc {
-  margin: 6px 0 0;
-  padding: 0;
-  color: var(--color-text-tertiary);
-  font-size: 10.5px;
-  line-height: 15px;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 40px 24px;
+  scrollbar-gutter: stable;
 }
 .mosa-v2 .settings-group {
-  overflow: hidden;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--inspector-radius-md);
-}
-:root[data-theme="light"] .mosa-v2 .settings-group {
-  border-color: #e7e7ea;
+  min-width: 0;
 }
 .mosa-v2 .settings-group .settings-modal-row {
-  min-height: 56px;
-  padding: 12px 16px;
+  min-height: 72px;
+  padding: 20px 0;
 }
-.mosa-v2 .settings-group .settings-modal-row:not(:last-child)::after {
-  position: absolute;
-  right: 16px;
-  bottom: 0;
-  left: 52px;
-  height: 1px;
-  background: var(--color-border-subtle);
-  content: "";
-}
-:root[data-theme="light"] .mosa-v2 .settings-group .settings-modal-row:not(:last-child)::after {
-  background: #efeff1;
+.mosa-v2 .settings-group .settings-modal-row:not(:last-child) {
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 .mosa-v2 .settings-row-copy h4 {
   color: var(--color-text-primary);
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 580;
-  line-height: 18px;
+  line-height: 22px;
 }
 .mosa-v2 .settings-row-copy p {
+  flex: 0 1 auto;
   padding: 0;
   color: var(--color-text-tertiary);
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 11px;
+  line-height: 16px;
+}
+/* 任务 81：素材库行 = 只读路径框（320×32，超长末尾省略）+ 框尾内嵌打开按钮；
+   桌面版的「更改位置」文字按钮排在路径框右侧。 */
+.mosa-v2 .settings-library-row .settings-row-control {
+  width: auto;
+  gap: 8px;
+}
+.mosa-v2 .settings-path-box {
+  display: flex;
+  box-sizing: border-box;
+  width: 320px;
+  height: 32px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--app-sidebar);
+}
+.mosa-v2 .settings-path-box .settings-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.mosa-v2 .settings-path-box .settings-text-action {
+  /* 旧版 .settings-menu button 的 width:100% 会把框撑满、挤掉路径文字。 */
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
 }
 .mosa-v2 .settings-path {
-  max-width: 352px;
+  max-width: 100%;
   overflow: hidden;
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 11px;
+  line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3157,30 +3315,32 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .settings-text-action {
   box-sizing: border-box;
   min-height: 32px;
-  padding: 0 12px;
+  padding: 0 16px;
   border-radius: var(--inspector-radius-sm);
+  font-size: 16px;
 }
 .mosa-v2 .settings-menu .segmented {
   box-sizing: border-box;
-  width: 156px;
+  width: 128px;
   height: 32px;
-  padding: 4px;
+  padding: 0;
   border: 0;
   border-radius: var(--inspector-radius-sm);
 }
 .mosa-v2 .settings-menu .segmented-thumb {
-  top: 4px;
-  bottom: 4px;
-  left: 4px;
-  width: calc((100% - 8px) / 2);
-  border-radius: 6px;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(100% / 2);
+  border-radius: var(--inspector-radius-sm);
 }
 .mosa-v2 .settings-menu .segmented-btn {
-  height: 24px;
-  border-radius: 6px;
-  font-size: 10px;
+  height: 32px;
+  border-radius: var(--inspector-radius-sm);
+  font-size: 16px;
 }
 :root[data-theme="light"] .mosa-v2 .settings-menu .segmented {
+  border: 1px solid #e2e2e5;
   background: #f1f1f3;
 }
 :root[data-theme="light"] .mosa-v2 .settings-menu .segmented-thumb {
@@ -3199,9 +3359,10 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
    结构色不写主题作用域；标签文字与选中环走主题 token（新文字色只在浅色作用域），
    选中环用 accent 的 color-mix（设计稿 rgba(90,90,255,.12) 的 token 化，深色同样可辨）。
    选中除颜色外有右上角勾号徽章（非颜色标志）；悬停上移 1px，减少动效时不位移。 —— */
-.mosa-v2 .settings-modal-row.settings-theme-row {
-  row-gap: 12px;
-}
+/* —— 任务 81：主题行照稿子只放预览卡（卡 186×90 圆角 8、间距 40、名称居中
+   在卡下方）。三卡等宽固定 186；预览图仍是"画出来的图"，配色固定不随主题。
+   布局：间距 40（--r21-s10）。任务 81 返工 1：三张卡——跟随系统在左，其预览
+   左半浅色右半深色（.settings-theme-half 复用下面两套固定配色，不引入新颜色）。 —— */
 .mosa-v2 .settings-theme-row .settings-row-control {
   grid-column: 1 / -1;
   width: auto;
@@ -3209,24 +3370,26 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 .mosa-v2 .settings-theme-choices {
   display: grid;
   width: 100%;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--r21-s3);
+  grid-template-columns: repeat(3, 186px);
+  gap: var(--r21-s10);
+  justify-content: start;
 }
 .mosa-v2 .settings-theme-card {
   display: block;
+  width: 186px;
   padding: 0;
   border: 0;
   background: transparent;
   cursor: pointer;
-  text-align: left;
+  text-align: center;
 }
 .mosa-v2 .settings-theme-preview {
   position: relative;
   display: grid;
-  height: 72px;
+  height: 90px;
   grid-template-rows: 16px minmax(0, 1fr);
   border: 1px solid;
-  border-radius: 12px;
+  border-radius: 8px;
   overflow: hidden;
   transition: border-color 120ms var(--ease-standard), box-shadow 120ms var(--ease-standard), transform 120ms var(--ease-standard);
 }
@@ -3234,6 +3397,22 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .settings-theme-card:hover .settings-theme-preview {
     transform: translateY(-1px);
   }
+}
+/* 任务 81 返工 1：「跟随系统」预览 = 左半浅色缩略 + 右半深色缩略。外框只负责
+   选中环和两半的裁切；两半各自的配色复用下面 light/dark 两套固定规则。
+   行必须显式占满（半幅里全是绝对定位内容，行高否则塌成 chrome 的 16px）。 */
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+  border-color: var(--color-border-subtle);
+}
+.mosa-v2 .settings-theme-half {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  grid-template-rows: 16px minmax(0, 1fr);
+  overflow: hidden;
 }
 .mosa-v2 .settings-theme-chrome {
   position: relative;
@@ -3302,81 +3481,104 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
 }
 .mosa-v2 .settings-theme-label {
   display: block;
-  margin-top: 8px;
+  margin-top: 10px;
   color: var(--color-text-primary);
-  font-size: 11px;
+  font-size: 16px;
   font-weight: 600;
-  line-height: 16px;
+  line-height: 22px;
+  text-align: center;
 }
 :root[data-theme="light"] .mosa-v2 .settings-theme-label {
   color: #2a2a2e;
 }
 /* 浅色卡（固定配色，照 R21 .theme-choice.light）。 */
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-preview {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-preview,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light {
   border-color: #d8d8dd;
   background: #f6f6f7;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-chrome {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-chrome,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-chrome {
   border-bottom-color: #d8d8dd;
   background: #ededf0;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-chrome i {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-chrome i,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-chrome i {
   background: #c3c3c9;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-nav {
   background: #efeff1;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-canvas {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-canvas,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-canvas {
   background: #f9f9fa;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-aside {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-aside,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-aside {
   background: #f2f2f4;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav i:nth-child(1) {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav i:nth-child(1),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-nav i:nth-child(1) {
   background: #bdbdc4;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav i:nth-child(2) {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-nav i:nth-child(2),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-nav i:nth-child(2) {
   background: #c4c4cb;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-grid i {
   background: #dbdbe0;
 }
 .mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i:nth-child(2),
-.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i:nth-child(5) {
+.mosa-v2 .settings-theme-card[data-appearance-opt="light"] .settings-theme-grid i:nth-child(5),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-grid i:nth-child(2),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-light .settings-theme-grid i:nth-child(5) {
   background: #c8c8cf;
 }
 /* 深色卡（固定配色，照 R21 .theme-choice.dark）。 */
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-preview {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-preview,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark {
   border-color: #303036;
   background: #151518;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-chrome {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-chrome,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-chrome {
   border-bottom-color: #303036;
   background: #1d1d21;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-chrome i {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-chrome i,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-chrome i {
   background: #595960;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-nav {
   background: #18181c;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-canvas {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-canvas,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-canvas {
   background: #101013;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-aside {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-aside,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-aside {
   background: #17171a;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav i:nth-child(1) {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav i:nth-child(1),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-nav i:nth-child(1) {
   background: #55555c;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav i:nth-child(2) {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-nav i:nth-child(2),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-nav i:nth-child(2) {
   background: #44444b;
 }
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i,
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-grid i {
   background: #313138;
 }
 .mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i:nth-child(2),
-.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i:nth-child(5) {
+.mosa-v2 .settings-theme-card[data-appearance-opt="dark"] .settings-theme-grid i:nth-child(5),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-grid i:nth-child(2),
+.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-half-dark .settings-theme-grid i:nth-child(5) {
   background: #505058;
 }
 /* 选中态写在两套固定配色之后：上面的配色块与它同特异性（都含
@@ -3441,4 +3643,144 @@ html.electron-shell body.mosa-v2 .brand-info h1 { margin-left: 76px; }
   .mosa-v2 .settings-modal-body {
     padding: 16px 16px 24px;
   }
+  /* 三张 186 固定宽的预览卡在窄窗口放不下：允许收缩，内部预览按比例缩。 */
+  .mosa-v2 .settings-theme-choices {
+    grid-template-columns: repeat(3, minmax(0, 186px));
+  }
 }
+
+/* ======================================================================
+   GravityPort A4a（任务 73）：素材检视器重排。本块追加在文件末尾，同名选择器
+   以这里为准（覆盖上方 R21/V2 规则）。数值来源：tasks/设计稿/检视器-量数.md
+   （卡片 320、左右内边距 20、区块纵向间距 20、区块头 16 + 4、缩略图 130×130、
+   标签胶囊 20 高圆角 4 间距 4、色块 24×12 间距 2、提示词/指令框固定 120 高
+   圆角 4、参考图盒 64 高内缩略图 56×56、版本树行 40 高、底部胶囊 280×36
+   圆角 18）。颜色/描边全部沿用既有 token 与既有浅/深色值，不引入新颜色；
+   色块行的 background 按素材 palette 数据上色（全界面唯一按数据上色处）。
+   ====================================================================== */
+
+/* —— 头部：标题行左右内边距 20；缩略图 130×130 无圆角；名称大字；星标改纯图标 ——
+   返工 1：字号照稿（下限 10px）——标题 16、名称 16、来源行 10、键值 10 —— */
+.mosa-v2 .detail .detail-inspector-header > span { font-size: 16px; }
+.mosa-v2 .detail-inspector-header { padding: 0 20px; }
+.mosa-v2 .detail .inspector-section:first-child { padding-top: 0; }
+.mosa-v2 .detail .detail-overview { padding: 0 20px 10px; }
+.mosa-v2 .detail .asset-head { grid-template-columns: 130px minmax(0, 1fr); }
+.mosa-v2 .detail .asset-mini { width: 130px; border-radius: 0; }
+.mosa-v2 .detail .asset-name-row h3 { font-size: 16px; line-height: 20px; }
+.mosa-v2 .detail .asset-kind { font-size: 10px; line-height: 14px; }
+.mosa-v2 .detail .head-facts .meta-key,
+.mosa-v2 .detail .head-facts .meta-val { font-size: 10px; line-height: 14px; }
+.mosa-v2 .detail .asset-name-row .detail-fav-btn { border: 0; background: transparent; font-size: 18px; line-height: 1; }
+.mosa-v2 .detail .asset-name-row .detail-fav-btn.is-fav { border: 0; color: var(--color-favorite); background: transparent; }
+:root[data-theme="dark"] .mosa-v2 .detail .asset-name-row .detail-fav-btn { color: #d1d1d6; background: transparent; }
+:root[data-theme="dark"] .mosa-v2 .detail .asset-name-row .detail-fav-btn.is-fav { color: var(--color-favorite); background: transparent; }
+
+/* —— 区块次序与间距（DOM 序即视觉序；order 兜住旧 order 规则）—— */
+.mosa-v2 .detail-overview { order: 1; }
+.mosa-v2 .detail-tags-section { order: 2; }
+.mosa-v2 .detail-palette-section { order: 3; }
+.mosa-v2 .detail-prompt-section { order: 4; }
+.mosa-v2 .detail-reference-section { order: 5; }
+.mosa-v2 .detail-version-context { order: 6; }
+
+/* —— 区块头（标题 + 右侧「查看」/复制）：高 16、下距 4 —— */
+.mosa-v2 .detail .detail-prompt-head { height: 16px; min-height: 16px; margin-bottom: 4px; }
+.mosa-v2 .detail .detail-prompt-head h3 { font-size: 10px; line-height: 16px; }
+.mosa-v2 .detail .detail-prompt-subhead h4 { font-size: 10px; }
+.mosa-v2 .detail .detail-section-view { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 20px; padding: 0 4px; border: 0; border-radius: 4px; color: #6e6e73; background: transparent; font-size: 10px; white-space: nowrap; cursor: pointer; }
+@media (hover: hover) and (pointer: fine) {
+  .mosa-v2 .detail .detail-section-view:hover { color: var(--color-text-primary); }
+}
+:root[data-theme="dark"] .mosa-v2 .detail .detail-section-view { color: #d1d1d6; }
+
+/* —— 标签行：胶囊 20 高、圆角 4、间距 4（间距含「添加标签」与「+N」）—— */
+.mosa-v2 .detail .detail-tags-section { padding: 10px 20px 0; }
+/* 任务 73：折叠按个数（DETAIL_TAGS_VISIBLE_LIMIT）而不是按高度。这里 overflow 是
+   visible，设上限反而会让展开后多出来的行盖到色块和提示词上，所以不设上限。 */
+.mosa-v2 .detail .detail-tags-row { gap: 4px; max-height: none; }
+.mosa-v2 .detail .detail-tag,
+.mosa-v2 .detail .detail-tags-add,
+.mosa-v2 .detail .detail-tags-toggle { min-height: 20px; height: 20px; padding: 0 8px; border-radius: 4px; }
+
+/* —— 色块行：24×12 圆角 4 间距 2；按 palette 数据上色 —— */
+.mosa-v2 .detail .detail-palette-section { padding: var(--r21-s3) 20px 0; }
+.mosa-v2 .detail .detail-palette-row { display: flex; flex: 0 0 auto; gap: 2px; min-height: 12px; }
+.mosa-v2 .detail .detail-palette-swatch { width: 24px; height: 12px; flex: 0 0 auto; padding: 0; border: 0; border-radius: 4px; cursor: pointer; }
+.mosa-v2 .detail .detail-palette-swatch:focus-visible { outline: 2px solid var(--color-focus-ring, #0a84ff); outline-offset: 1px; }
+
+/* —— 提示词：区块上距 20；页签胶囊（40×12 圆角 2 间距 4）；框固定 120 高圆角 4；
+      用户指令子标题上距 20；指令框同 120 —— */
+.mosa-v2 .detail .detail-prompt-section { gap: 0; min-height: 0; padding: var(--r21-s5) 20px 0; }
+.mosa-v2 .detail .detail-prompt-head .detail-prompt-switch { gap: 4px; }
+.mosa-v2 .detail .detail-prompt-head .detail-prompt-toggle { display: inline-flex; height: 12px; align-items: center; padding: 0 5px; border: 1px solid var(--color-border-default); border-radius: 2px; font-size: 10px; line-height: 1; }
+.mosa-v2 .detail .detail-prompt-head .detail-prompt-toggle.is-active { border-color: var(--color-text-primary); }
+.mosa-v2 .detail .prompt-provenance { margin: 4px 0 0; }
+.mosa-v2 .detail .detail-prompt-box { height: 120px; min-height: 120px; max-height: 120px; flex: 0 0 auto; border-radius: 4px; }
+.mosa-v2 .detail .detail-prompt-subhead { height: 16px; min-height: 16px; margin-top: var(--r21-s5); }
+.mosa-v2 .detail .detail-instruction-box { height: 120px; min-height: 120px; max-height: 120px; flex: 0 0 auto; margin-top: 4px; border-radius: 4px; }
+
+/* —— 参考图：盒 64 高、内边距 4、缩略图 56×56 一排放不下截断不换行 —— */
+.mosa-v2 .detail .detail-reference-section { padding: var(--r21-s5) 20px 0; }
+.mosa-v2 .detail .detail-reference-box { display: flex; box-sizing: border-box; height: 64px; align-items: center; overflow: hidden; padding: 4px; border: 1px solid var(--color-border-subtle); border-radius: 4px; }
+.mosa-v2 .detail .detail-reference-box .detail-reference-thumbnails { display: flex; gap: 4px; min-width: 0; overflow: hidden; padding-bottom: 0; }
+.mosa-v2 .detail .detail-reference-box .detail-reference-thumb { width: 56px; height: 56px; flex: 0 0 56px; aspect-ratio: auto; border-radius: 4px; }
+.mosa-v2 .detail .detail-reference-empty { padding: 0 8px; font-size: 12px; }
+:root[data-theme="light"] .mosa-v2 .detail .detail-reference-box { border-color: #e7e7ea; background: #f3f3f5; }
+:root[data-theme="light"] .mosa-v2 .detail .detail-reference-empty { color: #6e6e73; }
+
+/* —— 版本树与上下文：盒内最多 3 行，每行 40 高、内边距 4、行距 4；
+      行首 40×40 缩略图。任务 75：行是复用 open-generation-output 的按钮；
+      对话行内三行小字（模型 / 轮次 / 合计，行距 13×3=39 装满 40 高，与稿子
+      一致），无对话行保持 73 的单行（模型 + 当前素材标记并排）。 —— */
+.mosa-v2 .detail .detail-version-context { padding: var(--r21-s5) 20px; }
+.mosa-v2 .detail .detail-version-context-box { display: grid; gap: 4px; box-sizing: border-box; align-content: start; padding: 4px; border: 1px solid var(--color-border-subtle); border-radius: 4px; }
+.mosa-v2 .detail .detail-version-context-row { display: flex; box-sizing: border-box; height: 40px; align-items: center; gap: 8px; min-width: 0; padding: 4px; border: 0; border-radius: 4px; background: rgb(242 242 247 / .76); font: inherit; text-align: left; cursor: pointer; }
+.mosa-v2 .detail .detail-version-context-row:disabled { cursor: default; }
+.mosa-v2 .detail .detail-version-context-row:focus-visible { outline: 2px solid var(--color-focus-ring, #0a84ff); outline-offset: 1px; }
+.mosa-v2 .detail .detail-version-context-row .generation-output-thumb { width: 40px; height: 40px; flex: 0 0 40px; overflow: hidden; border: 0; border-radius: 4px; }
+.mosa-v2 .detail .detail-version-context-row .generation-output-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.mosa-v2 .detail .detail-version-context-line { display: flex; flex: 1 1 auto; min-width: 0; align-items: center; gap: 6px; }
+.mosa-v2 .detail .detail-version-context-lines { display: flex; flex: 1 1 auto; min-width: 0; flex-direction: column; justify-content: center; }
+.mosa-v2 .detail .detail-version-context-model { min-width: 0; flex: 0 1 auto; overflow: hidden; color: var(--color-text-secondary); font-size: 10px; line-height: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .detail .detail-version-context-lines .detail-version-context-model { flex: 0 0 auto; width: 100%; }
+.mosa-v2 .detail .detail-version-context-turn,
+.mosa-v2 .detail .detail-version-context-total { flex: 0 0 auto; width: 100%; overflow: hidden; color: var(--color-text-secondary); font-size: 10px; line-height: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .detail .detail-version-context-current { flex: 0 0 auto; color: var(--color-accent); font-size: 10px; line-height: 13px; font-weight: 550; }
+.mosa-v2 .detail .detail-version-context-empty { padding: 0 8px; font-size: 12px; }
+:root[data-theme="light"] .mosa-v2 .detail .detail-version-context-box { border-color: #e7e7ea; background: #f3f3f5; }
+:root[data-theme="light"] .mosa-v2 .detail .detail-version-context-row { background: rgb(255 255 255 / .7); }
+:root[data-theme="light"] .mosa-v2 .detail .detail-version-context-model { color: #636369; }
+:root[data-theme="light"] .mosa-v2 .detail .detail-version-context-turn:not(.detail-version-context-current),
+:root[data-theme="light"] .mosa-v2 .detail .detail-version-context-total { color: #636369; }
+:root[data-theme="light"] .mosa-v2 .detail .detail-version-context-empty { color: #6e6e73; }
+:root[data-theme="dark"] .mosa-v2 .detail .detail-version-context-box { border-color: rgb(255 255 255 / .10); background: rgb(255 255 255 / .06); }
+:root[data-theme="dark"] .mosa-v2 .detail .detail-version-context-row { background: rgb(255 255 255 / .08); }
+
+/* —— 底部固定「素材路径」胶囊：280×36 圆角 18（内容宽 280），不随内容滚动 —— */
+.mosa-v2 .detail .detail-pathbar { flex: 0 0 auto; padding: 12px 20px 20px; }
+.mosa-v2 .detail .detail-pathbar[hidden] { display: none; }
+.mosa-v2 .detail .detail-pathbar-pill { display: flex; box-sizing: border-box; height: 36px; align-items: center; gap: 8px; padding: 0 6px 0 14px; border: 1px solid var(--color-border-subtle); border-radius: 18px; background: var(--app-card); }
+.mosa-v2 .detail .detail-pathbar-label { flex: 0 0 auto; color: #6e6e73; font-size: 14px; font-weight: 500; }
+.mosa-v2 .detail .detail-pathbar-path { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden; color: #8e8e93; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .detail .detail-pathbar-open { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 24px; padding: 0 8px; border: 0; border-radius: 12px; color: var(--color-text-primary); background: transparent; font-size: 12px; cursor: pointer; }
+.mosa-v2 .detail .detail-pathbar-open:disabled { opacity: .4; cursor: default; }
+@media (hover: hover) and (pointer: fine) {
+  .mosa-v2 .detail .detail-pathbar-open:not(:disabled):hover { background: var(--app-hover); }
+}
+:root[data-theme="dark"] .mosa-v2 .detail .detail-pathbar-label { color: #d1d1d6; }
+:root[data-theme="dark"] .mosa-v2 .detail .detail-pathbar-path { color: #6e6e73; }
+
+/* —— 检视器浮层（参考图 / 版本树共用）：位置由 inspector-overlay.mjs 写内联
+      left/top/width/max-height；卡片外观沿用设置弹窗（.settings-modal-card）的
+      圆角/背景/阴影/描边/模糊 token，不引入新值。≤1120px 时 JS 改为盖在检视器上。 —— */
+.mosa-v2 .gp-inspector-overlay { position: fixed; z-index: var(--z-overlay); display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; border: 1px solid rgb(255 255 255 / .78); border-radius: 20px; background: rgb(from var(--app-modal) r g b / .98); box-shadow: 0 28px 76px -28px rgb(0 0 0 / .5), 0 1px 1px rgb(0 0 0 / .04), inset 0 0 0 1px rgb(255 255 255 / .22); backdrop-filter: blur(28px) saturate(130%); -webkit-backdrop-filter: blur(28px) saturate(130%); }
+.mosa-v2 .gp-inspector-overlay[hidden] { display: none; }
+.mosa-v2 .gp-inspector-overlay:focus { outline: 0; }
+.mosa-v2 .gp-inspector-overlay-card { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; overflow: hidden; }
+.mosa-v2 .gp-inspector-overlay-head { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; padding: 16px 16px 12px; }
+.mosa-v2 .gp-inspector-overlay-head h3 { margin: 0; overflow: hidden; color: var(--color-text-primary); font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.mosa-v2 .gp-inspector-overlay-close { display: flex; width: 28px; height: 28px; min-height: 28px; flex: 0 0 28px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--radius-card); color: #6e6e73; background: rgb(242 242 247 / .92); cursor: pointer; }
+:root[data-theme="dark"] .mosa-v2 .gp-inspector-overlay-close { color: #d1d1d6; background: rgb(255 255 255 / .10); }
+.mosa-v2 .gp-inspector-overlay-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px 16px; }
+.mosa-v2 .gp-inspector-overlay-body .inspector-section { padding: 0; border-top: 0; }

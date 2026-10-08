@@ -123,7 +123,8 @@ test("22-23. focus restoration with safe fallbacks", async () => {
   const confirmDialog = await readConfirmDialog();
   const restore = functionSlice(confirmDialog, "restoreConfirmDialogFocus");
   const target = functionSlice(confirmDialog, "isConfirmFocusTarget");
-  assert.match(restore, /requestAnimationFrame\(/, "restoration is deferred through rAF");
+  assert.match(restore, /if \(restoreFocusInto\(returnFocus, triggerElement\)\) return;/, "restoration is attempted synchronously first — CI hidden windows throttle rAF to seconds (task 96 rework 2)");
+  assert.match(restore, /requestAnimationFrame\(/, "a deferred rAF pass remains as the fallback for targets that are mid-rebuild");
   assert.match(restore, /for \(const candidate of \[returnFocus, triggerElement\]\)/, "priority 1 returnFocus, priority 2 pre-open activeElement");
   // 2026-09-04: the single-asset archive entry retired, so its requery branch went with it.
   assert.doesNotMatch(restore, /data-action="archive-asset"/, "no requery entry for the retired archive action");
@@ -287,8 +288,8 @@ test("51-54. anchored overlay, viewer escape, version workflow, and return snaps
 test("55. showToast keeps its signature and only delegates to the Toast Manager", async () => {
   const app = await readApp();
   const toast = functionSlice(app, "showToast");
-  assert.match(toast, /function showToast\(message, type = "default"\)/, "existing call sites keep the (message, type) signature");
-  assert.match(toast, /return toastManager\.show\(message, type\);/, "showToast only delegates to the manager — no duplicated queue logic");
+  assert.match(toast, /function showToast\(message, type = "default", options = \{\}\)/, "existing call sites keep the (message, type) signature; options is the task-90 action-toast passthrough");
+  assert.match(toast, /return toastManager\.show\(message, type, options\);/, "showToast only delegates to the manager — no duplicated queue logic");
   assert.doesNotMatch(app, /\btoastTimer\b/, "the legacy global single timer is gone");
 });
 
@@ -313,8 +314,18 @@ test("58. dialog styles without !important", async () => {
   const css = await readCss();
   const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(withoutComments, /!important/, "stylesheet must stay free of !important");
-  assert.match(css, /\.confirm-dialog-card \{ width: 400px; \}/, "dialog width suits 960×640");
-  assert.match(css, /\.confirm-dialog-copy \{ padding: 20px 20px 16px; overflow-wrap: break-word; \}/, "copy wraps instead of overflowing");
+  // 任务 94（A4f）：稿子量数——卡 640 宽 / 最小高 240（短文案由文案区 flex:1 撑到稿子高度，
+  // 长说明卡随之长高）、文案区上内边距 40；底行独立于 .modal-footer（无分隔线），
+  // 左「不再提醒」右按钮组。
+  assert.match(css, /\.confirm-dialog-card \{ box-sizing: border-box; width: 640px; min-height: 240px; \}/, "dialog geometry follows the A4f mock (640×240 outer, border-box)");
+  assert.match(css, /\.confirm-dialog-copy \{ flex: 1 1 auto; padding: 40px 40px 0; overflow-wrap: break-word; \}/, "copy wraps instead of overflowing");
+  assert.match(css, /\.confirm-dialog-copy h3 \{ margin: 0; font-size: 24px; font-weight: 400; letter-spacing: 0; line-height: 30px; \}/, "title typography from the mock (24/30)");
+  assert.match(css, /\.confirm-dialog-footer \{ display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; padding: 24px 40px 40px; \}/, "footer keeps the mock 40px side/bottom insets with checkbox left and buttons right");
+  assert.match(css, /\.confirm-dialog-dont-ask input \{[^}]*width: 16px; height: 16px[^}]*border-radius: 4px/, "the dont-ask checkbox is a 16×16 rounded-4 control");
+  assert.match(css, /\.confirm-dialog-actions \.btn-secondary, \.confirm-dialog-actions \.btn-danger, \.confirm-dialog-actions \.btn-primary \{ min-width: 80px; height: 40px; padding: 0 14px; border-radius: 8px; font-size: 24px; font-weight: 400; \}/, "footer buttons are the mock 80×40 rounded-8");
+  assert.match(css, /\.confirm-dialog-actions \{[^}]*margin-left: auto;/, "buttons stay right-aligned when the dont-ask row is hidden");
+  assert.match(css, /@media \(max-width: 767px\) \{\s*\/\* 任务 94：确认弹窗窄屏不超过视口减两侧 16（宽卡照稿子只在桌面态给 640）。 \*\/\s*\.confirm-dialog-overlay \{ padding: 16px; \}/,
+    "narrow viewports cap the dialog at viewport minus 16 per side inside the registered ≤767 block");
   assert.match(css, /\.btn-danger \{ border: 1px solid var\(--color-danger\); color: var\(--color-danger\); background: var\(--app-card\); \}/,
     "the danger confirm button consumes the approved DestructiveButton recipe");
   assert.doesNotMatch(css, /\.btn-danger-solid\b/, "ConfirmDialog does not carry a third destructive-button recipe");

@@ -140,17 +140,20 @@ test("package metadata stays frozen and the runtime preload preserves its approv
     "onMenuSearch",
     "onUpdateDownloadProgress",
     "onVisualPackProgress",
+    "onWindowFullScreenChange",
     "openDownloadPage",
     "pasteImage",
     "removeVisualPack",
     "reportRendererReady",
     "setLocale",
     "setVisualModelEnabled",
+    "setWindowFullScreen",
     "startNativeDrag",
     "writeClipboardImage",
     "writeClipboardText",
   ]);
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 17, "preload keeps the seventeen approved invoke channels");
+  // 任务 96（A6）：第 18 条批准通道 set-window-full-screen（大图页全屏与窗口系统全屏同步）。
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 18, "preload keeps the approved invoke channels");
   assert.match(preload, /checkForUpdates: \(notify = false\) =>[\s\S]*?ipcRenderer\.invoke\("check-for-updates", notify === true\)/);
   assert.doesNotMatch(preload, /shell\s*[:.]/, "renderer still receives no generic shell capability");
   // R1 isolation fix (2026-08-09, approved scope) added qa:web/qa:electron/

@@ -964,6 +964,14 @@ function registerIPC() {
     return { ok: true, restarting: true };
   });
 
+  // 任务 96（A6）：渲染层写窗口系统全屏（大图页「全屏」双向同步）。只接受主窗口
+  // 自己的调用；flag 不是 true 就退全屏（与 preload 的 `flag === true` 归一口径一致）。
+  ipcMain.handle("set-window-full-screen", (event, flag) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return { ok: false };
+    mainWindow.setFullScreen(flag === true);
+    return { ok: true, isFullScreen: mainWindow.isFullScreen() };
+  });
+
 }
 
 function runAnonymousUsageReport() {
@@ -1148,6 +1156,16 @@ async function createMainWindow() {
   mainWindow.on("closed", () => {
     mainWindow = null;
     stopBridgeNotificationPoll();
+  });
+  // 任务 96（A6）：窗口系统全屏变化广播给渲染层——大图页「全屏」与窗口全屏
+  // 双向同步（菜单/绿色按钮/⌃⌘F/系统 Esc 的任何进出都要让大图页跟随）。
+  mainWindow.on("enter-full-screen", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send("window-full-screen-change", true);
+  });
+  mainWindow.on("leave-full-screen", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send("window-full-screen-change", false);
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 

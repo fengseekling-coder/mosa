@@ -133,7 +133,7 @@ test("copy buttons carry a text label while keeping the full accessible name", a
 
 test("textful copy buttons adopt the R21 .copy metrics", async () => {
   const css = await readWebCss();
-  assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-head \.section-head-copy,\n\.mosa-v2 \.detail \.detail-copy-sub,\n\.mosa-v2 \.detail \.detail-source-copy \.section-head-copy \{\n  display: inline-flex;\n  width: auto;\n  min-width: 0;\n  flex: 0 0 auto;\n  gap: var\(--r21-s1\);\n  align-items: center;\n  padding: 0 var\(--inspector-space-2\);\n  font-size: 10\.5px;\n  font-weight: 450;\n\}/);
+  assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-head \.section-head-copy,\n\.mosa-v2 \.detail \.detail-copy-sub,\n\.mosa-v2 \.detail \.detail-source-copy \.section-head-copy \{\n  display: inline-flex;\n  width: auto;\n  min-width: 0;\n  flex: 0 0 auto;\n  gap: var\(--r21-s1\);\n  align-items: center;\n  padding: 0 var\(--inspector-space-2\);\n  font-size: 10px;\n  font-weight: 450;\n\}/);
   const svg = lastBlock(css, ".mosa-v2 .detail .detail-prompt-head .section-head-copy svg");
   assert.match(svg, /flex: 0 0 auto;/);
   // 浅色文字 AA（#6e6e73，4.90:1 于 #fbfbfc）——由 web-r21-inspector-body 锁同一规则块。
