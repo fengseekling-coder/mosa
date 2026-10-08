@@ -9,6 +9,7 @@ import Database from "better-sqlite3";
 
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
 import { repairCaptureHistory } from "../lib/repair-capture-history.mjs";
+import { CLEARED_PROMPT_REPAIR_MARKER_KEY } from "../lib/repair-cleared-prompts.mjs";
 import { GENERATION_MESSAGE_BACKFILL_MARKER_KEY } from "../lib/generation-message-binding.mjs";
 import { deferTestPathRemoval } from "./test-cleanup.mjs";
 
@@ -155,12 +156,15 @@ function insertGenerationEvent(database, { id, assetId, conversationId = "", mes
 
 // --- immediate transactions ---
 
-// Chosen assertion method for "the four transactions are BEGIN IMMEDIATE":
+// Chosen assertion method for "the five transactions are BEGIN IMMEDIATE":
 // source assertion (the first option in the task). The up-front-lock test at
 // the bottom exercises the behavior end to end on top.
 test("the one-time and read-then-write transactions are BEGIN IMMEDIATE (source assertion)", () => {
   const repair = readFileSync(join(LIB_DIR, "repair-capture-history.mjs"), "utf8");
   assert.equal((repair.match(/\.immediate\(\)/g) || []).length, 1, "repair-capture-history runs its single transaction with .immediate()");
+
+  const cleared = readFileSync(join(LIB_DIR, "repair-cleared-prompts.mjs"), "utf8");
+  assert.equal((cleared.match(/\.immediate\(\)/g) || []).length, 1, "repair-cleared-prompts runs its single transaction with .immediate()");
 
   const binding = readFileSync(join(LIB_DIR, "generation-message-binding.mjs"), "utf8");
   assert.equal((binding.match(/\.immediate\(\)/g) || []).length, 2, "generation-message-binding runs both transactions (backfill, applyGenerationMessageBindings) with .immediate()");
@@ -257,6 +261,63 @@ test("a BUSY failure in the message-id backfill transaction is one warning and t
   const backfilled = await reopened.listGenerationEvents("default", {});
   assert.deepEqual(backfilled.map((event) => event.message_id), ["msg-9"], "the backfill ran on the next open");
   assert.ok(markerValue(libraryDir, GENERATION_MESSAGE_BACKFILL_MARKER_KEY), "the marker is written on the next open");
+});
+
+function insertClearedCaptureEvent(database, { id, assetId, createdAt = DEFAULT_CREATED }) {
+  database.prepare(`
+    INSERT INTO generation_events (
+      project_id, id, output_asset_id, provider, capture_context_id, provider_generation_call_id,
+      provider_asset_id, conversation_id, message_id, model, user_prompt, effective_prompt, prompt_status,
+      generation_status, capture_channel, verification_level, evidence_json, created_at
+    ) VALUES (
+      'default', @id, @assetId, 'chatgpt', '', '',
+      '', '', '', '', '', '', 'not-available',
+      'unknown', 'chrome-extension', 'observed', '{"source":"web-capture"}', @createdAt
+    )
+  `).run({ id, assetId, createdAt });
+}
+
+test("a BUSY failure in the cleared-prompt repair transaction is one warning and the open still succeeds; the next open repairs", async (t) => {
+  const { projectRoot, libraryDir } = await createLibraryRoot(t);
+  withRawDatabase(libraryDir, (database) => {
+    database.transaction(() => {
+      insertChatgptAsset(database, {
+        id: "cp-a",
+        prompt: "Model caption: A neon-lit city skyline reflected in a rainy street.",
+        source: { type: "web-chatgpt", conversation_id: "conv-cp" },
+      });
+      insertClearedCaptureEvent(database, { id: "e-cp-a", assetId: "cp-a" });
+    })();
+  });
+  clearMarker(libraryDir, CLEARED_PROMPT_REPAIR_MARKER_KEY);
+
+  let store;
+  let stub;
+  const warns = captureWarns(() => {
+    stub = failOneTimeStepTransactionWithBusy("CLEARED_PROMPT_REPAIR_MARKER_KEY");
+    try {
+      store = createSqliteAssetStore({ projectRoot, managerDir: join(projectRoot, "mosa"), libraryDir });
+    } finally {
+      stub.restore();
+    }
+  });
+  t.after(() => store.close());
+
+  assert.ok(stub.intercepted, "the stub actually failed the repair's transaction");
+  assert.ok(store, "createSqliteAssetStore returned despite the BUSY repair");
+  assert.equal(store.storageKind, "sqlite");
+  assert.equal(warns.length, 1, "exactly one warning line");
+  assert.match(warns[0], /cleared-prompt repair skipped/);
+  assert.match(warns[0], /SQLITE_BUSY/);
+  assert.equal(markerValue(libraryDir, CLEARED_PROMPT_REPAIR_MARKER_KEY), null, "the marker rolled back with the data");
+  const events = await store.listGenerationEvents("default", { assetId: "cp-a" });
+  assert.deepEqual(events.map((event) => event.effective_prompt), [""], "the repair wrote nothing");
+
+  const reopened = openStore(t, projectRoot, libraryDir);
+  const restored = await reopened.listGenerationEvents("default", { assetId: "cp-a" });
+  assert.equal(restored[0].effective_prompt, "Model caption: A neon-lit city skyline reflected in a rainy street.", "the repair ran on the next open");
+  assert.equal(restored[0].prompt_status, "visible-caption");
+  assert.ok(markerValue(libraryDir, CLEARED_PROMPT_REPAIR_MARKER_KEY), "the marker is written on the next open");
 });
 
 // --- the repair transaction really holds the write lock up front ---
