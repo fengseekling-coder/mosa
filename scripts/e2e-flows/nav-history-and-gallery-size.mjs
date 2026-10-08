@@ -240,7 +240,7 @@ function sessionOneSource(expect) {
       await waitFor(() => document.querySelector('#detailPanel')?.getAttribute('aria-hidden') === 'true', 'inspector closes with rAF frozen');
       const frozen = sizeGroupState();
       if (frozen.hidden === true || Math.abs(Number.parseFloat(frozen.left || 'NaN') - frozen.centerInBar) > 0.75) {
-        throw new Error('window-centered left must land synchronously with rAF frozen: ' + JSON.stringify({ before, frozen }));
+        throw new Error('window-centered left must land synchronously with rAF frozen: ' + JSON.stringify({ before, frozen, diagnostic: pageDiagnostic() }));
       }
     } finally {
       window.requestAnimationFrame = realRaf;
