@@ -77,7 +77,8 @@ test("10-11. 退役 Finder IPC 保持移除且其余 Desktop IPC 不变", async 
     assert.match(main, new RegExp(`ipcMain\\.handle\\("${channel}"`));
   }
   // 更新检查、下载安装都不接受 renderer 提供的 URL；其余能力仍保持封闭。
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 17, "no invoke channel beyond the currently approved narrow requests, including the Visual Pack lifecycle");
+  // 任务 96（A6）：第 18 条批准通道 set-window-full-screen（大图页全屏与窗口系统全屏同步）。
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 18, "no invoke channel beyond the currently approved narrow requests, including the Visual Pack lifecycle");
 });
 
 test("12-14. 960 下 Sidebar 批准收敛规则与搜索可达", async () => {
@@ -225,9 +226,9 @@ test("32-34. Phase 5 Confirm / Toast 契约测试文件不退化", async () => {
   const toast = await source("test/toast-manager-contract.test.mjs");
   assert.match(confirm, /confirmDialog/);
   assert.match(toast, /createToastManager/);
-  // Phase 5C 校正登记：18 个 test block 覆盖 60/60 契约点，不是 18 项契约。
+  // Phase 5C 校正登记：test block 覆盖全部契约点（任务 96 追加类型图标点后 19 块）。
   const toastBlocks = toast.split(/test\(/).length - 1;
-  assert.equal(toastBlocks, 18, "toast contract keeps its 18 test blocks (covering 60 contract points)");
+  assert.equal(toastBlocks, 19, "toast contract keeps its test blocks (60 Phase 5C points + task 96 per-type icon)");
 });
 
 test("35-37. Viewer Navigation / Transform / Return Snapshot 不退化", async () => {
@@ -276,4 +277,28 @@ test("40-41. package 与 lockfile 不变、无新依赖", async () => {
   assert.equal(sha256(JSON.stringify(manifest.dependencies)), "709481475dca249e75c25f9e0b5e93a685b92cfada8e7e7ab0db8a33653c1843");
   assert.equal(sha256(JSON.stringify(manifest.devDependencies)), "11f67ce00f34b4d3dfb9b9ed0dfb428b0368ad5e0a17bd3bafaa40e3c2124fac");
   assertPackageLockMatchesManifest(lock, manifest);
+});
+
+// 42. 任务 96（A6）：701–1120 详情打开时顶栏过订修复——动作组/排序下拉/搜索框可收缩
+// （select 88 下限、搜索框 38 图标入口下限），聚焦浮成 fixed 面板且右缘让开检视器。
+test("42. 紧凑档详情打开时顶栏搜索收缩与浮动面板", async () => {
+  const styles = await source("web/app/styles.css");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.topbar-actions,\n  \.mosa-v2 \.shell\.details-open \.topbar-work-group \{ flex: 0 1 auto; min-width: 0; \}/, "action groups participate in shrinking");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.sort-control \{ flex: 0 1 auto; min-width: 100px; \}/, "select labels shrink with a 100px floor so four CJK characters stay readable");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.sort-control select \{ width: 100%; min-width: 0; \}/, "selects fill their label so they never spill over neighbours");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.topbar-search \{ flex: 0 1 144px; width: auto; min-width: 38px; position: relative; \}/, "search shrinks to a 38px icon entry at worst");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.topbar-search input \{ position: absolute; inset: 0; width: 100%; height: 100%; \}/, "input covers the collapsed entry so the panel is reachable by click");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.topbar-search input::placeholder \{ color: transparent; \}/, "collapsed entry hides the placeholder fragment next to the icon");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.topbar-search:focus-within input::placeholder \{ color: var\(--color-text-tertiary\); \}/, "floating panel restores the placeholder hint");
+  const focusPanel = styles.slice(styles.indexOf(".mosa-v2 .shell.details-open .topbar-search:focus-within"));
+  assert.match(focusPanel, /position: fixed;/, "focused search floats above the topbar clip");
+  assert.match(focusPanel, /right: calc\(var\(--inspector-width-compact\) \+ 16px\);/, "floating panel stays clear of the docked inspector");
+});
+
+// 43. 任务 96 返工 1：701–1120 档详情打开时 V2 网格第一列收成 56 图标栏
+// （.mosa-v2 层的全宽规则曾盖掉布局骨架 B 模式的紧凑列）。
+test("43. 紧凑档详情打开时 V2 网格侧栏为图标栏宽度", async () => {
+  const styles = await source("web/app/styles.css");
+  assert.match(styles, /\/\* 任务 96 返工 1[\s\S]*?\.mosa-v2 \.shell\.details-open \{ grid-template-columns: var\(--sidebar-width-compact\) minmax\(0, 1fr\) var\(--inspector-width-compact\); \}/, "V2 grid collapses the sidebar to the icon rail with the compact inspector");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.primary-nav,\n  \.mosa-v2 \.shell\.details-open \.sidebar-footer \{ padding-right: 12px; padding-left: 12px; \}/, "icon rail paddings shrink so icons center in 56px");
 });

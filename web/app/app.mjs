@@ -1161,9 +1161,15 @@ const { detailFileSectionMarkup, detailPromptSectionMarkup,
 const inspectorOverlay = createInspectorOverlay({ panel: els.detailPanel, t, isSuspended: () => hasBlockingOverlay("gpOverlay") });
 
 // ===== Asset view（大图查看器，已提取至 asset-view.mjs，R1 批次 4）=====
+// 任务 96（A6）：桌面环境注入窗口系统全屏桥（electronAPI 存在才注入）——大图页
+// 「全屏」与窗口系统全屏双向同步；浏览器无桥，沿用 Fullscreen API 行为。
+const desktopFullscreenBridge = typeof window.electronAPI?.setWindowFullScreen === "function"
+  ? { setWindowFullScreen: (flag) => window.electronAPI.setWindowFullScreen(flag === true) }
+  : null;
 const assetViewer = createAssetViewer({ els, state, t, announceGalleryStatus, selectedAsset, isVideoAsset,
   confirmDetailNavigation, discardDetailDraft, isCurrentDetailSelection, assetRequestKey, currentAssetRequest, requestAssetPage,
-  renderGrid, updateViewTitle, showToast, renderDetail, updateSelectedCard, setDetailOpen, setupMasonryLayout });
+  renderGrid, updateViewTitle, showToast, renderDetail, updateSelectedCard, setDetailOpen, setupMasonryLayout,
+  desktopFullscreen: desktopFullscreenBridge });
 const { renderAssetView, openAssetView, returnToLibrary,
   handleAssetViewImageLoad, handleAssetViewImageError, canNavigateAssetView, navigateAssetView,
   zoomAssetViewBy, fitAssetView, resetAssetViewToHundred, ASSET_VIEW_ZOOM_STEP } = assetViewer;
@@ -1917,8 +1923,32 @@ async function releaseAssetMediaForDeletion(assets = []) {
 // 本地对账直接走 librarySync（可 await），撤销回图前 state.assets 已含恢复行。
 async function deleteCurrentAssetFromViewer() {
   if (state.viewMode !== "asset") return;
-  const asset = selectedAsset();
-  if (!asset) return;
+  // 任务 96 返工 1：selectedId 可能被后台刷新竞态洗掉（loadAssets 的过期响应晚于
+  // 撤销完成）。删除以「舞台当前显示的图」为准：先从本地列表恢复锚；本地没有
+  // （列表整体过期）再回源查一次；确实不在库才提示，绝不静默无反应。
+  let asset = selectedAsset();
+  if (!asset) {
+    const viewedId = assetViewer.currentViewedAssetId();
+    if (viewedId) {
+      asset = state.assets.find((candidate) => candidate.id === viewedId) || null;
+      if (asset) state.selectedId = viewedId;
+    }
+  }
+  if (!asset) {
+    const viewedId = assetViewer.currentViewedAssetId();
+    const fresh = viewedId
+      ? await apiFetch("/api/assets/" + encodeURIComponent(state.project) + "/" + encodeURIComponent(viewedId)).catch(() => null)
+      : null;
+    asset = fresh?.asset || null;
+    if (asset) {
+      if (!state.assets.some((candidate) => candidate.id === asset.id)) state.assets = [...state.assets, asset];
+      state.selectedId = asset.id;
+    }
+  }
+  if (!asset) {
+    showToast(t("assetNoLongerAvailable"), "error");
+    return;
+  }
   if (!await confirmDetailNavigation()) return;
   // 任务 94（A4f）：勾过「不再提醒」后大图页删除不再弹确认框（草稿守卫照旧在前）。
   if (!moveToTrashConfirmSuppressed()) {
@@ -2834,6 +2864,9 @@ function bindEvents() {
   els.assetViewDelete?.addEventListener("click", () => { void deleteCurrentAssetFromViewer(); });
   els.assetViewFullscreen?.addEventListener("click", () => { void assetViewer.toggleAssetViewFullscreen(); });
   document.addEventListener("fullscreenchange", () => assetViewer.syncAssetViewFullscreenClass());
+  // 任务 96（A6）：桌面窗口系统全屏变化 → 大图页全屏态跟随（菜单/绿按钮/⌃⌘F/
+  // 系统 Esc 退出时查看器一并退出；浏览器无此桥，走上面的 fullscreenchange）。
+  window.electronAPI?.onWindowFullScreenChange?.((active) => assetViewer.handleWindowFullScreenChange(active));
   // Settings 的 segmented radiogroup 在持久根节点上统一处理方向键。
   // 绑定在持久的 #settingsMenu 元素上：innerHTML 重建不会叠加监听器（全应用唯一一套）。
   els.settingsMenu?.addEventListener("keydown", handleSettingsMenuKeydown);
@@ -3120,7 +3153,7 @@ function renderSidebarGroups() {
     const active = isSidebarNavigationActive("source", sourceType);
     const label = sourceTypeLabel(sourceType);
     const color = deterministicGroupColor(sourceType);
-    return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="source" data-value="${escapeHtml(sourceType)}" type="button" aria-pressed="${active}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(label)}">${escapeHtml(label)}</span><span class="nav-count">${count}</span></button></li>`;
+    return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="source" data-value="${escapeHtml(sourceType)}" type="button" aria-pressed="${active}" title="${escapeHtml(label)}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(label)}">${escapeHtml(label)}</span><span class="nav-count">${count}</span></button></li>`;
   }).join("");
   els.sidebarGroupList.innerHTML = items;
 
@@ -3133,7 +3166,7 @@ function renderSidebarGroups() {
     }
     const active = isSidebarNavigationActive("group", groupName);
     const color = colorForGroup(groupName);
-    return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="group" data-value="${escapeHtml(groupName)}" type="button" aria-pressed="${active}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(groupName)}">${escapeHtml(groupName)}</span><span class="nav-count">${Number(count || 0)}</span></button></li>`;
+    return `<li><button class="nav-item nav-group-item${active ? " active" : ""}" data-filter="group" data-value="${escapeHtml(groupName)}" type="button" aria-pressed="${active}" title="${escapeHtml(groupName)}"><span class="nav-group-dot" data-group-color="${escapeHtml(color)}" aria-hidden="true"></span><span class="nav-item-text" title="${escapeHtml(groupName)}">${escapeHtml(groupName)}</span><span class="nav-count">${Number(count || 0)}</span></button></li>`;
   }).join("");
   const createEditor = sidebarGroupEdit?.mode === "create"
     ? sidebarGroupEditorMarkup("", sidebarGroupEdit.value, sidebarGroupEdit.color)

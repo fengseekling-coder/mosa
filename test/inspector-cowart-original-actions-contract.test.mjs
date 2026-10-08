@@ -52,7 +52,8 @@ test("29-35. retired show-item-in-folder IPC stays removed", async () => {
 
   assert.doesNotMatch(preload, /showItemInFolder|show-item-in-folder/);
   assert.doesNotMatch(main, /ipcMain\.handle\("show-item-in-folder"/);
-  assert.equal(count(preload, "ipcRenderer.invoke"), 17, "preload exposes only the approved narrow invoke channels, including the Visual Pack lifecycle");
+  // 任务 96（A6）：第 18 条批准通道 set-window-full-screen（大图页全屏与窗口系统全屏同步）。
+  assert.equal(count(preload, "ipcRenderer.invoke"), 18, "preload exposes only the approved narrow invoke channels, including the Visual Pack lifecycle");
   assert.doesNotMatch(preload, /shell\s*[:.]/, "the renderer never receives a shell object");
 });
 

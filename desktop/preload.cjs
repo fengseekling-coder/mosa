@@ -24,4 +24,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openDownloadPage: () => ipcRenderer.invoke("open-download-page"),
   changeLibraryLocation: () => ipcRenderer.invoke("change-library-location"),
   onMenuSearch: (callback) => ipcRenderer.on("menu-search", (_event, ...args) => callback(...args)),
+  // 任务 96（A6）：大图页「全屏」与窗口系统全屏双向同步——渲染层写窗口全屏态、
+  // 订阅主进程广播的 enter/leave-full-screen 变化。
+  setWindowFullScreen: (flag) => ipcRenderer.invoke("set-window-full-screen", flag === true),
+  onWindowFullScreenChange: (callback) =>
+    ipcRenderer.on("window-full-screen-change", (_event, isFullScreen) => callback(isFullScreen === true)),
 });

@@ -560,7 +560,10 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .asset-view-arrow-prev { left: 8px; }
 .asset-view-arrow-next { right: 8px; }
 .asset-view-arrow:disabled, .asset-view-arrow[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
-.asset-view-stage { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; align-items: center; justify-content: center; overflow: hidden; padding: var(--space-3); background: var(--app-sidebar); /* This stage owns complete pan/pinch input, so preventing browser scrolling keeps two-pointer geometry stable; other surfaces retain native scrolling. */ touch-action: none; }
+/* 任务 96（A6）：图片可用区左右各让出翻页箭头一栏（按钮 44 + 距缘 8 = 52），
+   任何比例的横图都不与箭头重叠；竖图受高度约束，视觉不变。fit/平移/钳制几何
+   经 refreshAssetViewStageGeometry 读 content box，自动跟随这组 padding。 */
+.asset-view-stage { position: relative; display: flex; min-width: 0; min-height: 0; flex: 1; align-items: center; justify-content: center; overflow: hidden; padding: var(--space-3) 52px; background: var(--app-sidebar); /* This stage owns complete pan/pinch input, so preventing browser scrolling keeps two-pointer geometry stable; other surfaces retain native scrolling. */ touch-action: none; }
 /* Phase 3B：主图几何由 JS 显式接管——元素宽高=自然尺寸（load 后写入），transform
    translate+scale 承载全部缩放/平移，transform-origin 为图片中心；不再用 max-width/
    max-height/object-fit 的 CSS contain（避免与 transform scale 基准冲突）。 */
@@ -581,8 +584,9 @@ body.marquee-selecting .grid { cursor: crosshair; }
    下层内容），全屏背后没有内容，半透明会漏白，故用基值。 */
 .asset-view.is-fullscreen { background: #0b0b0d; }
 .asset-view.is-fullscreen:not(:fullscreen) { position: fixed; z-index: var(--z-overlay); inset: 0; }
-/* 舞台自身有 --app-sidebar 底色,会盖住全屏黑底——全屏态透明化,黑底由 .asset-view 提供。 */
-.asset-view.is-fullscreen .asset-view-stage { background: transparent; }
+/* 舞台自身有 --app-sidebar 底色,会盖住全屏黑底——全屏态透明化,黑底由 .asset-view 提供。
+   全屏只剩图片、箭头隐藏（下两行），让出的 52px 箭头栏随之收回。 */
+.asset-view.is-fullscreen .asset-view-stage { background: transparent; padding: var(--space-3); }
 .asset-view.is-fullscreen .asset-view-header,
 .asset-view.is-fullscreen .asset-view-arrow { display: none; }
 
@@ -953,19 +957,23 @@ input::placeholder, textarea::placeholder { color: var(--color-text-tertiary); }
 @media (min-width: 701px) {
   body.detail-open .toast-stack { right: calc(var(--inspector-width) + 20px); }
 }
-.toast { display: flex; align-items: flex-start; gap: 8px; max-width: min(330px, calc(100vw - 40px)); padding: 8px 14px; border-radius: var(--radius-control); color: var(--app-bg); background: var(--color-text-primary); box-shadow: var(--shadow-panel); font-size: 12px; font-weight: 500; pointer-events: auto; opacity: 0; transform: translateY(4px); transition: opacity .18s ease, transform .18s ease; }
+/* 任务 96（A6）：toast 按稿子「弹窗提示」改药丸形（圆角=高一半，画框 ② 量得
+   120×36、r17.9→999px 钳半高；图标 12、距左缘 16、字 16px 由字符步进 16.08 折算），
+   左侧类型图标区分 success/error/default（由 Manager 渲染），彩色左边取消（V2 层）。
+   颜色沿用现有 token，不照稿子改白底。 */
+.toast { display: flex; align-items: center; gap: 8px; max-width: min(330px, calc(100vw - 40px)); padding: 6px 16px; border-radius: var(--radius-pill); color: var(--app-bg); background: var(--color-text-primary); box-shadow: var(--shadow-panel); font-size: 16px; line-height: 24px; font-weight: 500; pointer-events: auto; opacity: 0; transform: translateY(4px); transition: opacity .18s ease, transform .18s ease; }
 .toast.is-visible { opacity: 1; transform: translateY(0); }
 .toast.is-leaving { opacity: 0; transform: translateY(4px); }
 .toast.success { border-left: 3px solid var(--color-success); }
 .toast.error { border-left: 3px solid var(--color-danger); }
 .toast.default { border-left: 3px solid var(--color-border-strong); }
-.toast-icon { flex: none; margin-top: 1px; }
+.toast-icon { flex: none; }
 .toast-message { overflow-wrap: anywhere; }
-.toast-dismiss { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin: -2px -6px -2px 0; padding: 0; border: none; border-radius: 4px; background: transparent; color: inherit; opacity: .7; cursor: pointer; }
+.toast-dismiss { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin: 0 -2px 0 0; padding: 0; border: none; border-radius: var(--radius-pill); background: transparent; color: inherit; opacity: .7; cursor: pointer; }
 .toast-dismiss:hover { opacity: 1; background: color-mix(in srgb, var(--app-bg) 14%, transparent); }
 /* 操作按钮（任务 90，如「撤销」）：可见文本即 accessible name，继承 toast 文字色与
-   字号；hover 复用关闭按钮同一档底色（不新增颜色值）。 */
-.toast-action { flex: none; margin: -2px -4px -2px 0; padding: 2px 4px; border: none; border-radius: 4px; background: transparent; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+   字号，药丸内靠右、键盘可激活；hover 复用关闭按钮同一档底色（不新增颜色值）。 */
+.toast-action { flex: none; margin: 0; padding: 2px 8px; border: none; border-radius: var(--radius-pill); background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
 .toast-action:hover { background: color-mix(in srgb, var(--app-bg) 14%, transparent); }
 
 /* ===== 按钮原语契约（Phase 1B） =====
@@ -1245,6 +1253,49 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .topbar-context { align-items: center; gap: 12px; }
 .mosa-v2 .title-row { align-items: center; }
 .mosa-v2 .topbar-search { flex: 0 1 144px; width: 144px; }
+/* 任务 96（A6）：详情打开时（701–1120 档，≥768 实际生效）顶栏右侧控件过订——900
+   实测搜索框右缘越出主区 83px、被检视器盖住。让动作组/搜索框可收缩（select 有
+   min-width 88 保持不动），搜索框缩到剩余空间、最小只剩图标；获焦后浮成 fixed
+   面板（同该档 D3/O2 思路：脱离顶栏裁切、覆盖主内容、不推布局、不产生横向滚动），
+   同一个 #searchInput，失焦即回紧凑态。放在 V2 层以赢过上面的 144px 定宽。 */
+@media (min-width: 701px) and (max-width: 1120px) {
+  /* 任务 96 返工 1：V2 层 1220 行的 `.mosa-v2 .shell.details-open`（特异性同级后写）
+     盖掉了上方 1110 行的紧凑列，详情打开时侧栏收成图标栏却仍占 280 宽——布局
+     意图（布局骨架 B 模式，≈265 行注释）本来就该是 56 图标栏 + 320 检视器。 */
+  .mosa-v2 .shell.details-open { grid-template-columns: var(--sidebar-width-compact) minmax(0, 1fr) var(--inspector-width-compact); }
+  /* 图标在 56 宽栏里水平居中：V2 的 nav-item 分组覆盖（.sidebar-group-list .nav-item
+     padding-left 12、primary-nav/footer 左右 20）比上方 1139 行的居中规则更晚写，
+     在 .mosa-v2 下重申一次。 */
+  .mosa-v2 .shell.details-open .nav-item,
+  .mosa-v2 .shell.details-open .add-group-button,
+  .mosa-v2 .shell.details-open .settings-trigger { padding-right: 0; padding-left: 0; }
+  .mosa-v2 .shell.details-open .primary-nav,
+  .mosa-v2 .shell.details-open .sidebar-footer { padding-right: 12px; padding-left: 12px; }
+  .mosa-v2 .shell.details-open .topbar-actions,
+  .mosa-v2 .shell.details-open .topbar-work-group { flex: 0 1 auto; min-width: 0; }
+  /* 排序/分类 label 收缩、select 填满 label：88 下限正好容纳四字文案
+     （select 88 − padding 38 = 50px ≈ 4×12px），label 缩而 select 不外溢。 */
+  .mosa-v2 .shell.details-open .sort-control { flex: 0 1 auto; min-width: 100px; }
+  .mosa-v2 .shell.details-open .sort-control select { width: 100%; min-width: 0; }
+  .mosa-v2 .shell.details-open .topbar-search { flex: 0 1 144px; width: auto; min-width: 38px; position: relative; }
+  /* 输入框透明覆盖整个入口（D3/O2 口径）：紧凑态盒子里只剩图标也能点中、聚焦。
+     紧凑态藏 placeholder（38px 里只留图标，避免「搜」字残影）；浮层面板里恢复。 */
+  .mosa-v2 .shell.details-open .topbar-search input { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .mosa-v2 .shell.details-open .topbar-search input::placeholder { color: transparent; }
+  .mosa-v2 .shell.details-open .topbar-search:focus-within {
+    position: fixed;
+    z-index: var(--z-popover);
+    top: 16px;
+    right: calc(var(--inspector-width-compact) + 16px);
+    left: auto;
+    flex: 0 0 auto;
+    min-width: 0;
+    width: 280px;
+    background: var(--app-bg);
+    box-shadow: var(--shadow-panel);
+  }
+  .mosa-v2 .shell.details-open .topbar-search:focus-within input::placeholder { color: var(--color-text-tertiary); }
+}
 .mosa-v2 .topbar-search input { box-sizing: border-box; border: 0; background: transparent; font-size: 12px; }
 .mosa-v2 .topbar-search input:focus, .mosa-v2 .topbar-search input:focus-visible { border-color: transparent; box-shadow: none; outline: 0; }
 
@@ -1539,7 +1590,8 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   }
 }
 
-.mosa-v2 .toast { border-left: 0; border-radius: 12px; color: #fff; background: rgb(28 28 30 / .94); box-shadow: 0 10px 28px rgb(0 0 0 / .22); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }.mosa-v2 .toast.success { box-shadow: inset 3px 0 0 #34c759, 0 10px 28px rgb(0 0 0 / .22); }.mosa-v2 .toast.error { box-shadow: inset 3px 0 0 #ff453a, 0 10px 28px rgb(0 0 0 / .22); }
+/* 任务 96（A6）：V2 toast = 深色药丸（类型靠左侧图标区分，彩色边取消；颜色不照稿子）。 */
+.mosa-v2 .toast { border-left: 0; border-radius: var(--radius-pill); color: #fff; background: rgb(28 28 30 / .94); box-shadow: 0 10px 28px rgb(0 0 0 / .22); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
 @keyframes v2-detail-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
 /* GravityPort A3：>767px 的画廊列数由 --gallery-columns 计算接管，按宽度减列的

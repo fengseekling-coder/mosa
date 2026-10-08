@@ -83,6 +83,11 @@
   "shell.navLabelColor": "#67676d",
   "shell.sidebarWidth": 280,
   "shell.topbarHeight": 64,
+  "toast.font": 16,
+  "toast.iconInset": 16,
+  "toast.iconSide": 12,
+  "toast.pillHeight": 36,
+  "toast.pillRadius": 999,
   "toast.stackBottomInset": 20,
   "toast.stackRightInsetClosed": 20,
   "toast.stackRightInsetOpen": 340,
@@ -116,5 +121,6 @@
   "viewer.imageCenterOffsetY": 0,
   "viewer.imageHeight": 64,
   "viewer.imageWidth": 96,
-  "viewer.stagePaddingTop": 24
+  "viewer.stagePaddingTop": 24,
+  "viewer.stagePaddingX": 52
 }

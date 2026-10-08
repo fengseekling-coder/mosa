@@ -14,7 +14,9 @@ export const name = "asset-viewer";
 export const description = "context-menu open -> arrow/key prev-next boundaries -> keyboard zoom + fit button -> delete auto-advance + undo restore -> back + Escape -> group scope isolation -> missing managed original shows error state";
 
 const GROUP_NAME = "V-Group";
-const EXPECTED_ROOT_COUNT = 7;
+// 任务 96（A6）：新增 V6 宽图 3000×600（根序最后一张），断言任何比例横图都不与
+// 翻页箭头重叠；根序总数从 7 变 8。
+const EXPECTED_ROOT_COUNT = 8;
 
 export async function run(ctx) {
   await ctx.prepare();
@@ -51,10 +53,11 @@ async function seedAssets(ctx, origin) {
   const v3 = await create("viewer-v3.png", [58, 138, 87], { size: [2400, 1600] });
   await create("viewer-v4.png", [138, 90, 47]);
   await create("viewer-v5.png", [96, 74, 155]);
+  const v6 = await create("viewer-v6-wide.png", [200, 160, 60], { size: [3000, 600] });
   const groupA = await create("viewer-group-a.png", [66, 165, 245], { group: GROUP_NAME });
   const groupB = await create("viewer-group-b.png", [240, 98, 146], { group: GROUP_NAME });
   if (new Set(created).size !== EXPECTED_ROOT_COUNT) throw new Error("Asset viewer seed produced duplicate asset ids.");
-  return { v3: v3.id, groupA: groupA.id, groupB: groupB.id, expectedRootCount: EXPECTED_ROOT_COUNT, groupName: GROUP_NAME };
+  return { v3: v3.id, v6: v6.id, groupA: groupA.id, groupB: groupB.id, expectedRootCount: EXPECTED_ROOT_COUNT, groupName: GROUP_NAME };
 }
 
 function rootViewerSource(config) {
@@ -111,6 +114,45 @@ function rootViewerSource(config) {
       scopeGone: !document.querySelector('#assetViewScope'),
       arrowsPresent: Boolean(document.querySelector('#assetViewPrev') && document.querySelector('#assetViewNext')),
     };
+
+    // 任务 96（A6）：宽图（3000×600）不压箭头——舞台左右各让出 52px（按钮 44+距缘 8），
+    // 图片可用区从 content box 起算。走到末端的 v6 量几何，再走回 v3 继续原有断言。
+    // 走位用键盘（任何位置都可用，按钮到边界会 disabled）；v6/v3 的相对位置随
+    // 画廊排序变化，按目标方向走（recenterToV3 同款）。失败时限内到不了即抛错。
+    const recenterTo96 = async (target) => {
+      let guard = 0;
+      while (currentId() !== target && guard++ < rootIds.length + 1) {
+        await navStep(posOf(currentId()) < posOf(target) ? 1 : -1, 'key');
+      }
+      if (currentId() !== target) throw new Error('asset ' + target + ' not reachable by key navigation');
+    };
+    await recenterTo96(config.v6);
+    await waitFor(() => !image().hidden && image().complete && image().naturalWidth > 0 && image().dataset.assetId === config.v6, 'wide image loaded');
+    const rectOf96 = (el) => el.getBoundingClientRect();
+    const wideImageRect = rectOf96(image());
+    const prevArrowRect = rectOf96(document.querySelector('#assetViewPrev'));
+    const nextArrowRect = rectOf96(document.querySelector('#assetViewNext'));
+    const wide = {
+      stagePaddingX: getComputedStyle(document.querySelector('#assetViewStage')).paddingLeft,
+      imageLeft: Math.round(wideImageRect.left * 2) / 2,
+      prevArrowRight: Math.round(prevArrowRect.right * 2) / 2,
+      imageRight: Math.round(wideImageRect.right * 2) / 2,
+      nextArrowLeft: Math.round(nextArrowRect.left * 2) / 2,
+      noLeftOverlap: wideImageRect.left >= prevArrowRect.right - 0.5,
+      noRightOverlap: wideImageRect.right <= nextArrowRect.left + 0.5,
+    };
+    // 任务 96（A6）：浏览器回退路径（驱动无桌面桥，合成点击无用户手势 →
+    // requestFullscreen 拒绝 → CSS 态）：全屏类切换、Esc 退回大图页不关查看器。
+    // 元素全屏/退出的窗口收尾有跨时段的时序副作用，曾与「undo → 立即删除」
+    // 的竞态窗口相撞（返工 1：根因是 loadAssets 过期响应洗掉 selectedId，
+    // 已在产品侧修复），全屏段保留在原位置。
+    click('#assetViewFullscreen');
+    await waitFor(() => view().classList.contains('is-fullscreen'), 'viewer fullscreen class on');
+    pressKey('Escape');
+    await waitFor(() => !view().classList.contains('is-fullscreen'), 'viewer fullscreen class off');
+    await sleep(500);
+    const fullscreen = { viewStillOpen: !view().hidden };
+    await recenterTo96(config.v3);
 
     const steps = {};
     if (!document.querySelector('#assetViewNext').disabled) steps.buttonNext = await navStep(1, 'button');
@@ -180,6 +222,7 @@ function rootViewerSource(config) {
 
     await openViewer(config.v3);
 
+    const confirmDialog = () => document.querySelector('#confirmDialog');
     // 任务 90：右上「删除」→ 确认框 → 自动落下一张 → toast 带撤销 → 撤销后回到这张图。
     // 删除/恢复会让后台对账与 SSE 事件在返回画廊后仍在途（卡片节点会被增量提交
     // 替换），所以本段自己的断言只看查看器内的落点；焦点恢复断言走上面那条干净路径。
@@ -197,9 +240,19 @@ function rootViewerSource(config) {
     await waitFor(() => currentId() === deletedId, 'undo shows the restored asset again');
     const deleted = { confirmDescription, nextId, deletedToast, afterUndoId: currentId() };
 
+    // 任务 96 返工 1：撤销后立即再删（不做任何渲染等待）——后台刷新的过期响应
+    // 曾把 selectedId 洗掉，让这次点击静默失效。修复后确认框必须照常出现。
+    click('#assetViewDelete');
+    await waitFor(() => confirmDialog()?.classList.contains('open'), 're-delete confirm opens right after undo');
+    await answerConfirmDialog({ confirm: true });
+    await waitFor(() => currentId() === nextId, 'immediate re-delete advances to the next asset');
+    await waitFor(() => Boolean(document.querySelector('#toastContainer .toast.is-visible .toast-action')), 'immediate re-delete raises the undo toast');
+    document.querySelector('#toastContainer .toast.is-visible .toast-action').click();
+    await waitFor(() => currentId() === deletedId, 'immediate re-delete undo returns to the asset');
+    const reDelete = { confirmOpenedRightAfterUndo: true };
+
     // 任务 94（A4f）：第二次删除勾「不再提醒」→ 是 → 存储 'off'；第三次删除
     // 不再弹框直接删；两次都弹带撤销的 toast，撤销都回到被删的那张。
-    const confirmDialog = () => document.querySelector('#confirmDialog');
     click('#assetViewDelete');
     await waitFor(() => confirmDialog()?.classList.contains('open'), 'trash confirm opens for the dont-ask run');
     const dontAskRun = {
@@ -241,6 +294,7 @@ function rootViewerSource(config) {
     pressKey('Escape');
     await waitFor(() => view().hidden === true, 'asset view hidden after Escape');
     await waitFor(() => rootCardIds().includes(deletedId), 'restored asset card is back in the gallery');
+
     const afterEscape = {
       viewHidden: view().hidden,
       selectedCardId: selectedCardId(),
@@ -248,7 +302,7 @@ function rootViewerSource(config) {
       multiSelectedCount: document.querySelectorAll('.asset-card.multi-selected').length,
     };
     await sleep(300);
-    return { rootIds, v3Position, opened, removedControls, steps, endState, endKeyNoop, firstState, firstKeyNoop, zoom, deleted, dontAskRun, suppressedRun, storedAfterCleanup, afterBack, afterEscape, rendererErrors };
+    return { rootIds, v3Position, opened, removedControls, wide, fullscreen, steps, endState, endKeyNoop, firstState, firstKeyNoop, zoom, deleted, reDelete, dontAskRun, suppressedRun, storedAfterCleanup, afterBack, afterEscape, rendererErrors };
   })()`;
 }
 
@@ -271,6 +325,14 @@ function assertRootViewerPhase(result, seed) {
   for (const [key, expected] of [["positionGone", true], ["zoomBarGone", true], ["scopeGone", true], ["arrowsPresent", true]]) {
     if (removed[key] !== expected) problems.push(`removed-controls ${key}: ${String(removed[key])}`);
   }
+
+  // 任务 96（A6）：宽图不压箭头 + 舞台让出 52px 箭头栏 + 回退全屏 Esc 可退。
+  const wide = result.wide || {};
+  if (wide.stagePaddingX !== "52px") problems.push(`stage padding-x ${JSON.stringify(wide.stagePaddingX)}`);
+  if (wide.noLeftOverlap !== true) problems.push(`wide image overlaps prev arrow: ${JSON.stringify(wide)}`);
+  if (wide.noRightOverlap !== true) problems.push(`wide image overlaps next arrow: ${JSON.stringify(wide)}`);
+  const fullscreen = result.fullscreen || {};
+  if (fullscreen.viewStillOpen !== true) problems.push("asset view closed by the fullscreen Esc (must return to the viewer page)");
 
   // V3 在序列中点附近，四个翻页步都应发生；键盘步在任何位置都可用（见源码注释）。
   for (const [key, direction] of [["buttonNext", 1], ["buttonPrev", -1], ["keyNext", 1], ["keyPrev", -1]]) {
@@ -308,6 +370,9 @@ function assertRootViewerPhase(result, seed) {
   // 任务 90：删除落点 + 撤销回图。
   const deleted = result.deleted || {};
   if (!deleted.confirmDescription) problems.push("delete confirm dialog did not surface a description");
+  // 任务 96 返工 1：撤销后立即删除必须照常弹确认框。
+  const reDelete = result.reDelete || {};
+  if (reDelete.confirmOpenedRightAfterUndo !== true) problems.push("re-delete right after undo did not open the confirm dialog");
   if (deleted.nextId !== at(v3Position + 1)) problems.push(`delete auto-advance target ${deleted.nextId}, expected ${at(v3Position + 1)}`);
   if (!deleted.deletedToast?.message) problems.push("delete toast message empty");
   if (deleted.deletedToast?.actionLabel !== "撤销") problems.push(`delete toast action label ${JSON.stringify(deleted.deletedToast?.actionLabel)}`);

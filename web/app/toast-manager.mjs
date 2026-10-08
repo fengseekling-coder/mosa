@@ -22,20 +22,30 @@ function normalizeToastMessage(message) {
   return text === "[object Object]" ? "" : text;
 }
 
-function toastSvgIcon(className) {
+// 任务 96（A6）：toast 类型图标——线性 SVG（stroke currentColor / fill none，与右键
+// 菜单图标同一写法，不引入图标库）。三种类型各一个，图标区分类型后左侧彩色边取消。
+// 路径都在 24 viewBox 圆圈轮廓族内：success 勾、error 叹号、default 信息点。
+const TOAST_TYPE_ICON_PATHS = {
+  success: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-4.4 9.3 3 3 6.8-7.2",
+  error: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 4.5V13m0 3.5v.01",
+  default: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 4.6v.01M12 10.8V17",
+};
+const TOAST_DISMISS_ICON_PATH = "m6 6 12 12M18 6 6 18";
+
+function toastSvgIcon(className, type = "") {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", className);
   svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("width", "14");
-  svg.setAttribute("height", "14");
+  svg.setAttribute("width", "12");
+  svg.setAttribute("height", "12");
   svg.setAttribute("fill", "none");
   svg.setAttribute("stroke", "currentColor");
   svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
   svg.setAttribute("aria-hidden", "true");
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", className === "toast-icon"
-    ? "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 4.5V13m0 3.5v.01"
-    : "m6 6 12 12M18 6 6 18");
+  path.setAttribute("d", TOAST_TYPE_ICON_PATHS[type] || TOAST_DISMISS_ICON_PATH);
   svg.appendChild(path);
   return svg;
 }
@@ -79,10 +89,10 @@ export function createToastManager(deps) {
     const element = document.createElement("div");
     element.className = `toast ${entry.type}`;
     element.dataset.toastId = entry.id;
-    if (entry.type === "error") {
-      element.setAttribute("role", "alert");
-      element.appendChild(toastSvgIcon("toast-icon"));
-    }
+    if (entry.type === "error") element.setAttribute("role", "alert");
+    // 任务 96（A6）：每条 toast 左侧带类型图标（success/error/default 各一），
+    // 类型由图标区分，V2 样式层的彩色左边已取消。
+    element.appendChild(toastSvgIcon("toast-icon", entry.type));
     const message = document.createElement("span");
     message.className = "toast-message";
     // Include polite text in the live-region insertion. VoiceOver can otherwise

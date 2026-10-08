@@ -18,12 +18,30 @@ export function assetViewLandingIndexAfterDeletion(ids, currentIndex, hasAsset) 
   return -1;
 }
 
+// 任务 96（A6）：大图页「全屏」与窗口系统全屏双向同步的纯状态机（导出供单测）。
+// 输入：fullscreen=查看器「只剩图片」态；inAssetView=是否处于大图页。事件：
+// - { type: "toggle" }：用户手势发起（大图页「全屏」按钮 / Esc 退出）——查看器翻转，
+//   且桌面桥需把窗口系统全屏写成同一状态（notifyWindow=true）。
+// - { type: "window-change", active }：窗口系统全屏变化（菜单 / 绿色按钮 / ⌃⌘F /
+//   系统 Esc）——查看器跟随，但一律不回写窗口（notifyWindow=false）：自己动作的
+//   回声与外部动作都不再触发第二次写入，两个来源不会互触成环。
+// 不在大图页时窗口全屏照旧与查看器无关（返回 null）。无法识别的事件返回 null。
+export function assetViewFullscreenTransition({ fullscreen, inAssetView }, event) {
+  if (!inAssetView) return null;
+  if (event?.type === "toggle") return { fullscreen: !fullscreen, notifyWindow: true };
+  if (event?.type === "window-change") {
+    if (Boolean(event.active) === fullscreen) return null;
+    return { fullscreen: Boolean(event.active), notifyWindow: false };
+  }
+  return null;
+}
+
 export function createAssetViewer({
   els, state, t,
   announceGalleryStatus, selectedAsset, isVideoAsset, confirmDetailNavigation, discardDetailDraft,
   isCurrentDetailSelection, assetRequestKey, currentAssetRequest, requestAssetPage,
   renderGrid, updateViewTitle, showToast, renderDetail, updateSelectedCard,
-  setDetailOpen, setupMasonryLayout,
+  setDetailOpen, setupMasonryLayout, desktopFullscreen,
 }) {
   // ===== 专用大图查看模式（Phase 3A / D4 / F-01） =====
   // 终态结构：左侧 Sidebar + 中央专用大图工作区 + 右侧素材信息面板（既有详情面板复用，
@@ -1051,13 +1069,16 @@ export function createAssetViewer({
     return true;
   }
 
-  // ===== 全屏（GravityPort A4c，任务 90） =====
-  // 全屏 = 只剩媒体：头部按钮、翻页箭头全部隐藏，黑底铺满（.is-fullscreen）。桌面
-  // preload 无窗口全屏接口（任务单：不改 desktop/），双端统一走 Fullscreen API；
-  // 无用户手势或 API 不可用时退级为 CSS 态（fixed 铺满窗口，视觉一致）。Esc 退出
-  // 全屏回到大图页（不直接回画廊）：真全屏的 Esc 由浏览器消费后经 fullscreenchange
-  // 同步落类；CSS 态由应用级 Escape 分支兜底。退出后的一小段宽限防止「退全屏的
-  // Esc」在事件时序里落到气泡链，把整个查看模式一起关掉。
+  // ===== 全屏（GravityPort A4c，任务 90；桌面窗口同步任务 96） =====
+  // 全屏 = 只剩媒体：头部按钮、翻页箭头全部隐藏，黑底铺满（.is-fullscreen）。
+  // 浏览器：Fullscreen API（无用户手势或 API 不可用时退级为 CSS 态，视觉一致）；
+  // Esc 退出全屏回到大图页（不直接回画廊）：真全屏的 Esc 由浏览器消费后经
+  // fullscreenchange 同步落类；CSS 态由应用级 Escape 分支兜底。退出后的一小段
+  // 宽限防止「退全屏的 Esc」在事件时序里落到气泡链，把整个查看模式一起关掉。
+  // 桌面（任务 96）：注入 desktopFullscreen 桥后，查看器全屏不再叠加元素全屏，
+  // 而是直接驱动窗口系统全屏（setWindowFullScreen）；菜单/绿色按钮/⌃⌘F/系统 Esc
+  // 造成的窗口全屏变化经 handleWindowFullScreenChange 回流——双向同步，纯判定
+  // 在导出的 assetViewFullscreenTransition（不回写窗口，防两源互触成环）。
   let assetViewFullscreenFallback = false;
   let assetViewFullscreenExitedAt = 0;
   const ASSET_VIEW_FULLSCREEN_SETTLE_MS = 350;
@@ -1079,10 +1100,35 @@ export function createAssetViewer({
     return active;
   }
 
+  // 桌面桥写入（无桥时 no-op，浏览器行为不变）。
+  function notifyAssetViewWindowFullScreen(flag) {
+    desktopFullscreen?.setWindowFullScreen?.(flag === true);
+  }
+
+  // 状态机结果落地：翻查看器 CSS 态 + 按需写窗口系统全屏。
+  function applyAssetViewFullscreenState(transition) {
+    if (!transition) return false;
+    assetViewFullscreenFallback = transition.fullscreen;
+    syncAssetViewFullscreenClass();
+    if (transition.notifyWindow) notifyAssetViewWindowFullScreen(transition.fullscreen);
+    return true;
+  }
+
+  // 桌面窗口系统全屏变化入口（app.mjs 经 preload 桥订阅）。
+  function handleWindowFullScreenChange(active) {
+    return applyAssetViewFullscreenState(assetViewFullscreenTransition(
+      { fullscreen: isAssetViewFullscreen(), inAssetView: state.viewMode === "asset" },
+      { type: "window-change", active: active === true },
+    ));
+  }
+
   function exitAssetViewFullscreen() {
     if (assetViewFullscreenFallback) {
       assetViewFullscreenFallback = false;
       syncAssetViewFullscreenClass();
+      // 桌面（任务 96）：查看器退出「只剩图片」时窗口一并退出系统全屏；
+      // 随后的 leave-full-screen 回声经状态机判为 no-op。
+      notifyAssetViewWindowFullScreen(false);
       return Promise.resolve();
     }
     if (document.fullscreenElement) return document.exitFullscreen().catch(() => {});
@@ -1093,6 +1139,11 @@ export function createAssetViewer({
     if (state.viewMode !== "asset" || !els.assetView) return;
     if (isAssetViewFullscreen()) {
       await exitAssetViewFullscreen();
+      return;
+    }
+    if (typeof desktopFullscreen?.setWindowFullScreen === "function") {
+      // 桌面：窗口系统全屏即「只剩图片」，不叠加元素全屏。
+      applyAssetViewFullscreenState({ fullscreen: true, notifyWindow: true });
       return;
     }
     try {
@@ -1132,6 +1183,11 @@ export function createAssetViewer({
     advanceAfterViewerDelete, showAssetInView,
     isAssetViewFullscreen, isAssetViewFullscreenSettling, syncAssetViewFullscreenClass,
     exitAssetViewFullscreen, toggleAssetViewFullscreen,
+    // 任务 96：桌面窗口系统全屏变化 → 查看器全屏态同步入口。
+    handleWindowFullScreenChange,
+    // 任务 96 返工 1：当前显示素材 id（舞台锚点，切换素材即更新）。selectedId 被
+    // 后台刷新竞态洗掉时，删除等操作用它恢复锚。
+    currentViewedAssetId() { return assetViewStageAssetId || ""; },
     // 库同步在 Viewer 打开期间改动了画廊数据时标记；返回 Library 时补一次渲染。
     markGalleryDirty() { assetViewGalleryDirty = true; },
   };

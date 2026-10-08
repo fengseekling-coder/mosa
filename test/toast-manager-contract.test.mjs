@@ -88,7 +88,8 @@ test("6-9. live region split — status container vs per-toast alerts", async ()
   assert.match(polite, /aria-atomic="false"/, "each addition announced individually");
   assert.doesNotMatch(assertive, /aria-live|role="status"/, "assertive container carries no second polite live region");
   const present = managerInnerSlice(await managerSourceOf(), "present");
-  assert.match(present, /if \(entry\.type === "error"\) \{\s*\n\s*element\.setAttribute\("role", "alert"\);/, "every error toast is itself role=alert");
+  // 任务 96（A6）：present() 重排后 role=alert 改单行守卫（类型图标对所有 toast 前置渲染）。
+  assert.match(present, /if \(entry\.type === "error"\) element\.setAttribute\("role", "alert"\);/, "every error toast is itself role=alert");
   assert.ok(present.indexOf("message.textContent = entry.message") < present.indexOf("container.appendChild(element)"), "polite toast text is inserted with the status-region addition");
   assert.doesNotMatch(present, /announceTimer|setTimeout\(\(\) =>[\s\S]*message\.textContent/, "polite announcements do not depend on a delayed text mutation");
 });
@@ -318,4 +319,21 @@ test("60. no second toast manager", async () => {
   assert.equal(count(html, "toast-stack"), 4, "exactly two toast stacks in the DOM (class mentions in markup/comments)");
   assert.equal(count(html, 'role="status" aria-live="polite" aria-relevant="additions text"'), 1, "only one toast live region exists");
   assert.equal(count(toast, "TOAST_DURATIONS"), 2, "duration table referenced only inside the one manager (definition + default-duration fallback; task 90 added the options.duration override)");
+});
+
+// 61. 任务 96（A6）：每条 toast 左侧带类型图标——success/error/default 各一条线性
+// 路径（同一圆圈轮廓族，与右键菜单图标同写法、不引入图标库），present() 对所有
+// 类型渲染 toast-icon；关闭按钮的 X 路径独立于类型表。
+test("61. per-type left icon on every toast (pill redesign)", async () => {
+  const toast = await readToast();
+  assert.match(toast, /const TOAST_TYPE_ICON_PATHS = \{/, "type icon path table exists");
+  for (const type of ["success", "error", "default"]) {
+    const table = toast.slice(toast.indexOf("const TOAST_TYPE_ICON_PATHS = {"), toast.indexOf("};", toast.indexOf("const TOAST_TYPE_ICON_PATHS = {")));
+    assert.match(table, new RegExp(`${type}: "`), `${type} has its own icon path`);
+  }
+  assert.match(toast, /TOAST_TYPE_ICON_PATHS\[type\] \|\| TOAST_DISMISS_ICON_PATH/, "unknown types fall through to the dismiss glyph, dismiss keeps its own path");
+  const present = managerInnerSlice(toast, "present");
+  assert.match(present, /element\.appendChild\(toastSvgIcon\("toast-icon", entry\.type\)\);/, "every toast renders its type icon before the message");
+  assert.match(toast, /svg\.setAttribute\("width", "12"\);/, "icon renders at the 12px draft geometry");
+  assert.match(toast, /svg\.setAttribute\("stroke-linecap", "round"\);/, "icons keep the linear line-cap style");
 });

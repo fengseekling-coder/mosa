@@ -123,9 +123,18 @@ const KEY_KINDS = {
   "viewer.imageCenterOffsetX": "px",
   "viewer.imageCenterOffsetY": "px",
   "viewer.stagePaddingTop": "px",
+  // 任务 96（A6）：舞台左右各让出 52px 翻页箭头栏（44 按钮 + 8 距缘）。
+  "viewer.stagePaddingX": "px",
   "toast.stackRightInsetOpen": "px",
   "toast.stackRightInsetClosed": "px",
   "toast.stackBottomInset": "px",
+  // 任务 96（A6）：toast 药丸几何（稿子「弹窗提示」120×36、r=半高、图标 12、
+  // 距左缘 16、字 16px 由字符步进折算）。
+  "toast.pillHeight": "px",
+  "toast.pillRadius": "px",
+  "toast.font": "font",
+  "toast.iconSide": "px",
+  "toast.iconInset": "px",
   // 设置弹窗
   "settings.cardWidth": "px",
   "settings.cardHeight": "px",
@@ -611,6 +620,7 @@ function measurementSource({ plainAssetId }) {
     R['viewer.imageCenterOffsetX'] = Math.abs((viewerImageRect.left + viewerImageRect.width / 2) - (stageRect.left + stageRect.width / 2));
     R['viewer.imageCenterOffsetY'] = Math.abs((viewerImageRect.top + viewerImageRect.height / 2) - (stageRect.top + stageRect.height / 2));
     R['viewer.stagePaddingTop'] = styleOf(viewerStage).paddingTop;
+    R['viewer.stagePaddingX'] = styleOf(viewerStage).paddingLeft;
     // 检视器开着：toast 栈右边距 = 检视器宽 + 20；底边距恒 20。
     const toastStack = pick('#toastContainer');
     await waitStable(() => [Math.round(rectOf(toastStack).right * 2)], 'toast stack right (inspector open)');
@@ -662,6 +672,34 @@ function measurementSource({ plainAssetId }) {
     await waitFor(() => selectButtonAfterDialog()?.isConnected, 'card select button back after the dialog');
     selectButtonAfterDialog().click();
     await waitFor(() => document.querySelector('.asset-card.selected'), 'single selection restored after the dialog');
+
+    // ---- 4d) toast 药丸（任务 96 / A6）：经真实入口（右键 → 复制提示词）触发一条
+    // toast 后量药丸几何。剪贴板在合成点击下成功或失败都会弹 toast（success/error
+    // 通道不同、图标不同），但药丸高度/圆角/字号/图标尺寸与左缘内距是类型无关的。
+    // 量完等 toast 完全离场再进深色段，避免影响后续测量的栈高度变量。
+    // 右键会把 .selected 转成多选（任务 94 同款残留）：4d 后按同一手法
+    // Esc 清多选、重选恢复单选，深色段的选中环断言才保持原口径。
+    const copyMenuItemForToast = await openContextMenu(cardSelector(seed.plainAssetId), '复制提示词');
+    copyMenuItemForToast.click();
+    await waitFor(() => Boolean(document.querySelector('#toastContainer .toast.is-visible, #toastErrorContainer .toast.is-visible')), 'a toast appears for the pill keys');
+    const pillToast = document.querySelector('#toastContainer .toast.is-visible, #toastErrorContainer .toast.is-visible');
+    const pillRect = rectOf(pillToast);
+    R['toast.pillHeight'] = pillRect.height;
+    R['toast.pillRadius'] = styleOf(pillToast).borderTopLeftRadius;
+    R['toast.font'] = styleOf(pillToast.querySelector('.toast-message')).fontSize;
+    const pillIcon = pillToast.querySelector('.toast-icon');
+    R['toast.iconSide'] = rectOf(pillIcon).width;
+    R['toast.iconInset'] = rectOf(pillIcon).left - pillRect.left;
+    // error 通道带关闭按钮：点掉加速离场；polite 通道等自然超时。
+    const pillDismiss = pillToast.querySelector('.toast-dismiss');
+    if (pillDismiss) pillDismiss.click();
+    await waitFor(() => !document.querySelector('#toastContainer .toast, #toastErrorContainer .toast'), 'toast fully left before the dark section', 10000);
+    document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' }));
+    await waitFor(() => !document.querySelector('.asset-card.multi-selected'), 'multi-selection cleared after the pill toast');
+    const selectButtonAfterPill = () => document.querySelector('[data-id="' + CSS.escape(seed.plainAssetId) + '"] .asset-card-select');
+    await waitFor(() => selectButtonAfterPill()?.isConnected, 'card select button back after the pill toast');
+    selectButtonAfterPill().click();
+    await waitFor(() => document.querySelector('.asset-card.selected'), 'single selection restored after the pill toast');
 
     // ---- 5) 深色主题关键颜色（设置里的真实入口切换）----
     await openSettings('dark');

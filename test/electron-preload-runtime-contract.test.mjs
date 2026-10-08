@@ -28,12 +28,14 @@ const EXPECTED_API_KEYS = [
   "onMenuSearch",
   "onUpdateDownloadProgress",
   "onVisualPackProgress",
+  "onWindowFullScreenChange",
   "openDownloadPage",
   "pasteImage",
   "removeVisualPack",
   "reportRendererReady",
   "setLocale",
   "setVisualModelEnabled",
+  "setWindowFullScreen",
   "startNativeDrag",
   "writeClipboardImage",
   "writeClipboardText",
@@ -81,8 +83,13 @@ test("preload path, module format, security settings, and API surface are stable
   assert.doesNotMatch(preload, /openExternal|sendSync|\.send\(/, "generic IPC is not exposed");
   // The preload exposes only narrow, named request channels. Update actions
   // accept no URL from the renderer; the main process owns the fixed website.
-  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 17, "only the seventeen approved invoke channels remain");
+  // 任务 96（A6）：第 18 条批准通道 set-window-full-screen（大图页全屏与窗口
+  // 系统全屏双向同步）；window-full-screen-change 是 ipcRenderer.on 单向广播，
+  // 不在 invoke 计数内。
+  assert.equal(preload.split("ipcRenderer.invoke").length - 1, 18, "only the eighteen approved invoke channels remain");
   assert.deepEqual(sortedApiKeys(preload), EXPECTED_API_KEYS);
+  assert.match(preload, /setWindowFullScreen: \(flag\) => ipcRenderer\.invoke\("set-window-full-screen", flag === true\)/);
+  assert.match(preload, /onWindowFullScreenChange: \(callback\) =>[\s\S]*?ipcRenderer\.on\("window-full-screen-change"/);
   assert.match(preload, /startNativeDrag: \(paths\) => ipcRenderer\.invoke\("start-native-file-drag", paths\)/);
   assert.match(preload, /getUserProfile: \(\) => ipcRenderer\.invoke\("user-profile"\)/);
   assert.match(preload, /writeClipboardImage: \(path\) => ipcRenderer\.invoke\("write-clipboard-image", path\)/);
@@ -113,6 +120,15 @@ test("preload path, module format, security settings, and API surface are stable
   assert.match(main, /ipcMain\.handle\("visual-pack-install"/);
   assert.match(main, /ipcMain\.handle\("visual-pack-cancel"/);
   assert.match(main, /ipcMain\.handle\("visual-pack-remove"/);
+  // 任务 96（A6）：窗口系统全屏双向同步——渲染层写入通道带主窗口 sender 守卫，
+  // enter/leave-full-screen 广播回渲染层。
+  assert.match(main, /ipcMain\.handle\("set-window-full-screen"/);
+  const windowFullScreenHandler = main.slice(main.indexOf('ipcMain.handle("set-window-full-screen"'), main.indexOf("\n  });", main.indexOf('ipcMain.handle("set-window-full-screen"')));
+  assert.match(windowFullScreenHandler, /event\.sender !== mainWindow\.webContents/);
+  assert.match(windowFullScreenHandler, /mainWindow\.setFullScreen\(flag === true\)/);
+  assert.match(main, /mainWindow\.on\("enter-full-screen"/);
+  assert.match(main, /mainWindow\.on\("leave-full-screen"/);
+  assert.equal((main.match(/window-full-screen-change/g) || []).length, 2, "enter/leave-full-screen both broadcast the same channel");
   const relocationHandler = main.slice(main.indexOf('ipcMain.handle("change-library-location"'), main.indexOf('\n\n  // Phase 4C', main.indexOf('ipcMain.handle("change-library-location"')));
   assert.match(relocationHandler, /event\.sender !== mainWindow\.webContents/, "library relocation validates the sender");
   assert.match(relocationHandler, /process\.env\.MOSA_LIBRARY_DIR/, "an explicit environment-managed library cannot be overridden in-app");

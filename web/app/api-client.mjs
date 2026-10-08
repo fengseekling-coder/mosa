@@ -490,7 +490,11 @@ export function createApiClient(deps) {
     if (preserveDirtySelection) state.detailAsset = previousSelected;
     if (state.detailAsset?.project_id !== request.project) state.detailAsset = null;
     if (state.detailAsset && state.assets.some((asset) => asset.id === state.detailAsset.id && asset.project_id === state.detailAsset.project_id)) state.detailAsset = null;
-    if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)
+    // 任务 96 返工 1：大图页打开期间不按结果集剪选中——后台刷新的响应可能晚于
+    // 撤销完成（请求发出时图还在回收站），列表不含它只是过期快照，洗掉 selectedId
+    // 会让大图页当前图失锚（再点删除/检视器静默失效）。选中图真正被删的场景走
+    // applyChangesInner 的 postReconcileActive 剪枝，不经这里。
+    if (state.selectedId && state.viewMode !== "asset" && !state.assets.some((asset) => asset.id === state.selectedId)
       && !(state.detailAsset?.id === state.selectedId && state.detailAsset.project_id === request.project)
       && !(state.detailStack && state.assets.some((asset) => asset.stack?.id === state.detailStack.id))) state.selectedId = null;
     if (!options.background || assetsChanged) {
@@ -645,7 +649,11 @@ export function createApiClient(deps) {
     if (preserveDirtySelection) state.detailAsset = previousSelected;
     if (state.detailAsset?.project_id !== request.project) state.detailAsset = null;
     if (state.detailAsset && state.assets.some((asset) => asset.id === state.detailAsset.id && asset.project_id === state.detailAsset.project_id)) state.detailAsset = null;
-    if (state.selectedId && !state.assets.some((asset) => asset.id === state.selectedId)
+    // 任务 96 返工 1：大图页打开期间不按结果集剪选中——后台刷新的响应可能晚于
+    // 撤销完成（请求发出时图还在回收站），列表不含它只是过期快照，洗掉 selectedId
+    // 会让大图页当前图失锚（再点删除/检视器静默失效）。选中图真正被删的场景走
+    // applyChangesInner 的 postReconcileActive 剪枝，不经这里。
+    if (state.selectedId && state.viewMode !== "asset" && !state.assets.some((asset) => asset.id === state.selectedId)
       && !(state.detailAsset?.id === state.selectedId && state.detailAsset.project_id === request.project)
       && !(state.detailStack && state.assets.some((asset) => asset.stack?.id === state.detailStack.id))) state.selectedId = null;
 
