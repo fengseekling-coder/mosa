@@ -1923,7 +1923,7 @@
     const mapping = tree?.mapping && typeof tree.mapping === "object" && !Array.isArray(tree.mapping)
       ? tree.mapping
       : null;
-    if (!mapping) return null;
+    if (!mapping) return extractMessagesConversationTurnBindings(tree);
     const conversationId = typeof tree.conversation_id === "string" ? tree.conversation_id.trim() : "";
     if (!conversationId) return null;
     const branch = [];
@@ -1949,6 +1949,86 @@
       }
       const messageKey = (typeof message.id === "string" && message.id.trim())
         || (typeof node.id === "string" ? node.id : "");
+      for (const assetId of conversationGenerationAssets(message)) {
+        const entry = outputs.get(assetId);
+        if (entry) entry.messages.add(messageKey);
+        else outputs.set(assetId, { messages: new Set([messageKey]), turnIndex: turnCount, turnMessageId });
+      }
+    }
+    if (!turnCount) return null;
+    const bindings = [];
+    for (const [assetId, entry] of outputs) {
+      if (entry.messages.size !== 1 || !entry.turnIndex) continue;
+      bindings.push({
+        provider_asset_id: assetId,
+        message_id: entry.turnMessageId,
+        turn_index: entry.turnIndex,
+      });
+    }
+    if (!bindings.length) return null;
+    bindings.sort((a, b) => (
+      a.turn_index - b.turn_index
+      || (a.provider_asset_id < b.provider_asset_id ? -1 : a.provider_asset_id > b.provider_asset_id ? 1 : 0)
+    ));
+    if (bindings.length > MAX_CONVERSATION_TURN_BINDINGS) {
+      return { conversationId, turnCount, bindings: [], overLimit: true };
+    }
+    return { conversationId, turnCount, bindings };
+  }
+
+  /**
+   * Same contract as extractConversationTurnBindings, for the newer
+   * conversation read: instead of a mapping tree the page gets the displayed
+   * branch as a flat `messages` list (oldest first) plus `page_info` paging.
+   * Turn numbers are only trustworthy when the read holds the whole
+   * conversation, so anything but `page_info.has_previous_page === false` is
+   * dropped — while older pages exist every count would come out too low, and
+   * a wrong turn number is worse than none. Stitching those older pages into
+   * one report is future work (paged reads simply report nothing today).
+   * Structural gates before counting: the list must end at current_node and
+   * stay in order. ChatGPT leaves internal nodes (tool-call steps and the
+   * like) out of the list, so a metadata.parent_id may name a node that is
+   * not there — that is a skipped internal node and is allowed. A parent_id
+   * that names a message which IS in the list must name an earlier one; a
+   * parent at or after its child means the list is not one ordered branch,
+   * and the whole batch is dropped.
+   */
+  function extractMessagesConversationTurnBindings(tree) {
+    const messages = Array.isArray(tree?.messages) ? tree.messages : null;
+    if (!messages?.length) return null;
+    const pageInfo = tree.page_info && typeof tree.page_info === "object" && !Array.isArray(tree.page_info)
+      ? tree.page_info
+      : null;
+    if (pageInfo?.has_previous_page !== false) return null;
+    const conversationId = typeof tree.conversation_id === "string" ? tree.conversation_id.trim() : "";
+    if (!conversationId) return null;
+    for (const message of messages) {
+      if (!message || typeof message !== "object" || Array.isArray(message)) return null;
+    }
+    const lastMessage = messages[messages.length - 1];
+    if (typeof lastMessage.id !== "string" || lastMessage.id !== tree.current_node) return null;
+    const positionById = new Map();
+    messages.forEach((message, index) => {
+      if (typeof message.id === "string" && message.id) positionById.set(message.id, index);
+    });
+    for (let index = 0; index < messages.length; index += 1) {
+      const parentId = messages[index]?.metadata?.parent_id;
+      if (parentId == null || !positionById.has(parentId)) continue;
+      if (positionById.get(parentId) >= index) return null;
+    }
+    // Identical counting rules as the mapping branch above, only over an
+    // already-flattened branch: the helpers carry the rules, never a second
+    // copy of them.
+    let turnCount = 0;
+    let turnMessageId = "";
+    const outputs = new Map();
+    for (const message of messages) {
+      if (isConversationUserMessage(message)) {
+        turnCount += 1;
+        turnMessageId = typeof message.id === "string" ? message.id.trim() : "";
+        continue;
+      }
+      const messageKey = typeof message.id === "string" ? message.id.trim() : "";
       for (const assetId of conversationGenerationAssets(message)) {
         const entry = outputs.get(assetId);
         if (entry) entry.messages.add(messageKey);

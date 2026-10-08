@@ -273,7 +273,7 @@ test("installs the page hook in the main world before ChatGPT page scripts", () 
 });
 
 test("declares the supported Google media sites and provider content script", () => {
-  assert.equal(manifest.version, "0.15.25");
+  assert.equal(manifest.version, "0.15.27");
   assert.deepEqual(
     manifest.content_scripts.find((entry) => entry.js?.includes("provider-sites.js"))?.matches,
     ["https://gemini.google.com/*", "https://labs.google/*", "https://flow.google.com/*", "https://aistudio.google.com/*"],
@@ -2036,7 +2036,7 @@ test("binds prompt and asset when one image call splits them across nested reque
 });
 
 test("uses only a same-message Model caption when conversation metadata is cached", () => {
-  assert.equal(manifest.version, "0.15.25");
+  assert.equal(manifest.version, "0.15.27");
   assert.match(contentSource, /function messageScopeForCandidate\(candidate\)/);
   assert.match(contentSource, /function domCaptionForCandidate\(candidate\)/);
   assert.match(contentSource, /model caption\\s\*:\\s\*\(\.\+\)\$/i);
@@ -4515,6 +4515,7 @@ function conversationBindingsContext() {
     "isConversationUserMessage",
     "conversationGenerationAssets",
     "extractConversationTurnBindings",
+    "extractMessagesConversationTurnBindings",
   ];
   const pieces = [/const MAX_CONVERSATION_TURN_BINDINGS = [^;]+;/.exec(hookSource)?.[0]];
   for (const name of names) {
@@ -4670,6 +4671,222 @@ test("conversations without user messages, images, a mapping, or an id report no
   assert.equal(extract(noId), null);
 });
 
+// --- Flat messages format (0.15.26): ChatGPT also serves the open
+// --- conversation as a pre-flattened branch with page_info paging.
+
+function turnBindingsFlatUserMessage({ id, parentId, hidden = false, uploads = [] } = {}) {
+  return {
+    id,
+    author: { role: "user" },
+    content: {
+      content_type: "text",
+      parts: [
+        "MOSA turn-bindings fixture instruction",
+        ...uploads.map((fileId) => ({ content_type: "image_asset_pointer", asset_pointer: `file-service://${fileId}` })),
+      ],
+    },
+    metadata: {
+      ...(hidden ? { is_visually_hidden_from_conversation: true } : {}),
+      ...(parentId !== undefined ? { parent_id: parentId } : {}),
+    },
+  };
+}
+
+function turnBindingsFlatSystemMessage({ id, parentId } = {}) {
+  return {
+    id,
+    author: { role: "system" },
+    content: { content_type: "text", parts: ["MOSA turn-bindings fixture system message"] },
+    metadata: parentId !== undefined ? { parent_id: parentId } : {},
+  };
+}
+
+function turnBindingsFlatAssistantMessage({ id, parentId } = {}) {
+  return {
+    id,
+    author: { role: "assistant" },
+    content: { content_type: "text", parts: ["MOSA turn-bindings fixture reply"] },
+    metadata: parentId !== undefined ? { parent_id: parentId } : {},
+    status: "finished_successfully",
+  };
+}
+
+function turnBindingsFlatGenerationMessage({ id, parentId, scheme = "file-service", files = [], role = "tool" } = {}) {
+  return {
+    id,
+    author: { role, name: "image_gen" },
+    recipient: role === "tool" ? "assistant" : "all",
+    content: {
+      content_type: "multimodal_text",
+      parts: files.map((fileId) => ({
+        content_type: "image_asset_pointer",
+        asset_pointer: `${scheme}://${fileId}`,
+        metadata: { dalle: { gen_id: `gen-${fileId}` } },
+      })),
+    },
+    metadata: parentId !== undefined ? { parent_id: parentId } : {},
+    status: "finished_successfully",
+  };
+}
+
+function turnBindingsFlatConversation(messages, { currentNode, hasPreviousPage = false, withPageInfo = true } = {}) {
+  const conversation = {
+    conversation_id: "conversation-test",
+    current_node: currentNode !== undefined ? currentNode : messages[messages.length - 1]?.id,
+    messages,
+  };
+  if (withPageInfo) {
+    conversation.page_info = {
+      start_cursor: "cursor-older",
+      end_cursor: "cursor-newest",
+      has_previous_page: hasPreviousPage,
+      has_next_page: false,
+    };
+  }
+  return conversation;
+}
+
+function turnBindingsFlatThreeTurnConversation() {
+  return turnBindingsFlatConversation([
+    // The first message may name a parent outside the list; it is not checked.
+    turnBindingsFlatUserMessage({ id: "flat-u1", parentId: "flat-root-outside-list" }),
+    turnBindingsFlatGenerationMessage({ id: "flat-g1", parentId: "flat-u1", files: ["file_flat1"] }),
+    turnBindingsFlatAssistantMessage({ id: "flat-a1", parentId: "flat-g1" }),
+    turnBindingsFlatUserMessage({ id: "flat-u2", parentId: "flat-a1" }),
+    turnBindingsFlatGenerationMessage({ id: "flat-g2", parentId: "flat-u2", files: ["file_flat2a", "file_flat2b"] }),
+    turnBindingsFlatAssistantMessage({ id: "flat-a2", parentId: "flat-g2" }),
+    turnBindingsFlatUserMessage({ id: "flat-u3", parentId: "flat-a2" }),
+    turnBindingsFlatAssistantMessage({ id: "flat-a3", parentId: "flat-u3" }),
+  ]);
+}
+
+test("flat messages conversations bind each generated file to its turn", () => {
+  const { extract } = conversationBindingsContext();
+  const report = extract(turnBindingsFlatThreeTurnConversation());
+  assert.ok(report, "a complete flat read must produce a report");
+  assert.equal(report.conversationId, "conversation-test");
+  assert.equal(report.turnCount, 3);
+  assert.deepEqual(report.bindings, [
+    { provider_asset_id: "file_flat1", message_id: "flat-u1", turn_index: 1 },
+    { provider_asset_id: "file_flat2a", message_id: "flat-u2", turn_index: 2 },
+    { provider_asset_id: "file_flat2b", message_id: "flat-u2", turn_index: 2 },
+  ]);
+});
+
+test("flat conversations with older pages outstanding report nothing", () => {
+  const { extract } = conversationBindingsContext();
+  const paged = turnBindingsFlatThreeTurnConversation();
+  paged.page_info.has_previous_page = true;
+  assert.equal(extract(paged), null, "an older page exists, so the turn count would come out too low");
+});
+
+test("flat conversations without page_info report nothing", () => {
+  const { extract } = conversationBindingsContext();
+  const noPageInfo = turnBindingsFlatThreeTurnConversation();
+  delete noPageInfo.page_info;
+  assert.equal(extract(noPageInfo), null);
+  const nullPageInfo = turnBindingsFlatThreeTurnConversation();
+  nullPageInfo.page_info = null;
+  assert.equal(extract(nullPageInfo), null);
+});
+
+test("flat conversations whose list does not end at current_node report nothing", () => {
+  const { extract } = conversationBindingsContext();
+  const wrongTail = turnBindingsFlatThreeTurnConversation();
+  wrongTail.current_node = "flat-not-the-last-message";
+  assert.equal(extract(wrongTail), null);
+  const missingTail = turnBindingsFlatThreeTurnConversation();
+  missingTail.current_node = undefined;
+  assert.equal(extract(missingTail), null);
+});
+
+test("flat conversations whose parent link points forward report nothing", () => {
+  const { extract } = conversationBindingsContext();
+  const outOfOrder = turnBindingsFlatThreeTurnConversation();
+  const laterId = outOfOrder.messages[outOfOrder.messages.length - 1].id;
+  outOfOrder.messages[4].metadata.parent_id = laterId;
+  assert.equal(extract(outOfOrder), null, "a parent after its child fails the whole batch");
+  const selfParent = turnBindingsFlatThreeTurnConversation();
+  selfParent.messages[4].metadata.parent_id = selfParent.messages[4].id;
+  assert.equal(extract(selfParent), null, "a message cannot be its own parent");
+});
+
+test("flat conversations tolerate parent links to internal nodes left out of the list", () => {
+  // Shape seen on chatgpt.com (10-07, structure only): two hidden system
+  // messages, the user turn with uploads, the image tool output, then two
+  // assistant messages whose parent_id names tool-call nodes ChatGPT omits.
+  const { extract } = conversationBindingsContext();
+  const conversation = turnBindingsFlatConversation([
+    turnBindingsFlatSystemMessage({ id: "flat-real-sys0" }),
+    turnBindingsFlatSystemMessage({ id: "flat-real-sys1" }),
+    turnBindingsFlatUserMessage({ id: "flat-real-u1", uploads: ["file_upload_a", "file_upload_b"] }),
+    turnBindingsFlatGenerationMessage({ id: "flat-real-tool", parentId: "flat-real-u1", scheme: "sediment", files: ["file_generated_1"] }),
+    turnBindingsFlatAssistantMessage({ id: "flat-real-a1", parentId: "flat-omitted-call-1" }),
+    turnBindingsFlatAssistantMessage({ id: "flat-real-a2", parentId: "flat-omitted-call-2" }),
+  ]);
+  const result = extract(conversation);
+  assert.ok(result, "omitted internal parents must not drop the batch");
+  assert.equal(result.turnCount, 1);
+  assert.equal(JSON.stringify(result.bindings), JSON.stringify([
+    { provider_asset_id: "file_generated_1", message_id: "flat-real-u1", turn_index: 1 },
+  ]));
+});
+
+test("hidden user messages and system messages do not count as turns in flat conversations", () => {
+  const { extract } = conversationBindingsContext();
+  const conversation = turnBindingsFlatConversation([
+    turnBindingsFlatSystemMessage({ id: "flat-sys0", parentId: "flat-root-outside-list" }),
+    turnBindingsFlatUserMessage({ id: "flat-hidden0", parentId: "flat-sys0", hidden: true }),
+    turnBindingsFlatAssistantMessage({ id: "flat-a0", parentId: "flat-hidden0" }),
+    turnBindingsFlatUserMessage({ id: "flat-u1", parentId: "flat-a0" }),
+    turnBindingsFlatGenerationMessage({ id: "flat-g1", parentId: "flat-u1", files: ["file_flat_hidden"] }),
+    turnBindingsFlatAssistantMessage({ id: "flat-a1", parentId: "flat-g1" }),
+  ]);
+  const report = extract(conversation);
+  assert.ok(report);
+  assert.equal(report.turnCount, 1, "hidden and system messages must not raise the turn count");
+  assert.deepEqual(report.bindings, [
+    { provider_asset_id: "file_flat_hidden", message_id: "flat-u1", turn_index: 1 },
+  ]);
+});
+
+test("a file two flat messages both present as a generation output is omitted, the rest still report", () => {
+  const { extract } = conversationBindingsContext();
+  const conversation = turnBindingsFlatConversation([
+    turnBindingsFlatUserMessage({ id: "flat-u1", parentId: "flat-root-outside-list" }),
+    turnBindingsFlatGenerationMessage({ id: "flat-g1", parentId: "flat-u1", files: ["file_dup_flat", "file_solo_flat"] }),
+    turnBindingsFlatAssistantMessage({ id: "flat-a1", parentId: "flat-g1" }),
+    turnBindingsFlatUserMessage({ id: "flat-u2", parentId: "flat-a1" }),
+    turnBindingsFlatGenerationMessage({ id: "flat-g2", parentId: "flat-u2", files: ["file_dup_flat"] }),
+    turnBindingsFlatAssistantMessage({ id: "flat-a2", parentId: "flat-g2" }),
+  ]);
+  const report = extract(conversation);
+  assert.ok(report);
+  assert.deepEqual(report.bindings, [
+    { provider_asset_id: "file_solo_flat", message_id: "flat-u1", turn_index: 1 },
+  ]);
+});
+
+test("flat conversations keep uploads out of the generation outputs", () => {
+  const { extract } = conversationBindingsContext();
+  const conversation = turnBindingsFlatConversation([
+    turnBindingsFlatUserMessage({ id: "flat-u1", parentId: "flat-root-outside-list", uploads: ["file_upload_flat"] }),
+    turnBindingsFlatGenerationMessage({ id: "flat-g1", parentId: "flat-u1", files: ["file_gen_flat"] }),
+    turnBindingsFlatAssistantMessage({ id: "flat-a1", parentId: "flat-g1" }),
+  ]);
+  const report = extract(conversation);
+  assert.ok(report);
+  assert.deepEqual(report.bindings.map((binding) => binding.provider_asset_id), ["file_gen_flat"]);
+});
+
+test("conversations with neither a mapping nor a messages list report nothing", () => {
+  const { extract } = conversationBindingsContext();
+  assert.equal(extract({}), null);
+  assert.equal(extract({ messages: [] }), null);
+  assert.equal(extract({ messages: "not-an-array" }), null);
+  assert.equal(extract({ messages: [null, "junk", 42], page_info: { has_previous_page: false }, current_node: "42" }), null);
+});
+
 function jsonResponsePayload(payload) {
   return {
     ok: true,
@@ -4732,6 +4949,38 @@ test("an over-ceiling conversation read is dropped with one debug line and no re
   assert.equal(harness.events.some((item) => item.type === "conversation-turn-bindings"), false);
   assert.equal(harness.consoleDebugs.length, 1, "the drop must leave exactly one debug line");
   assert.match(harness.consoleDebugs[0], /2000/);
+});
+
+test("the plural conversations URL reports flat-format turn bindings over the private page channel", async () => {
+  const conversation = turnBindingsFlatThreeTurnConversation();
+  const harness = createHookHarness(undefined, "conversation-test", {
+    respond: (url) => (url.includes("/backend-api/conversations/conversation-test") ? jsonResponsePayload(conversation) : null),
+  });
+  await harness.harvest(null, "https://chatgpt.com/backend-api/conversations/conversation-test?num_turns=10&include_has_versions=true");
+  const event = harness.events.find((item) => item.type === "conversation-turn-bindings");
+  assert.ok(event, "the flat-format snapshot should ride the private page channel");
+  const payload = JSON.parse(JSON.stringify(event.payload));
+  assert.equal(payload.conversationId, "conversation-test");
+  assert.equal(payload.turnCount, 3);
+  assert.deepEqual(payload.bindings, [
+    { provider_asset_id: "file_flat1", message_id: "flat-u1", turn_index: 1 },
+    { provider_asset_id: "file_flat2a", message_id: "flat-u2", turn_index: 2 },
+    { provider_asset_id: "file_flat2b", message_id: "flat-u2", turn_index: 2 },
+  ]);
+});
+
+test("a flat conversation read that still has older pages is never reported over the channel", async () => {
+  const conversation = turnBindingsFlatThreeTurnConversation();
+  conversation.page_info.has_previous_page = true;
+  const harness = createHookHarness(undefined, "conversation-test", {
+    respond: (url) => (url.includes("/backend-api/conversations/conversation-test") ? jsonResponsePayload(conversation) : null),
+  });
+  await harness.harvest(null, "https://chatgpt.com/backend-api/conversations/conversation-test?num_turns=10&include_has_versions=true");
+  assert.equal(
+    harness.events.some((item) => item.type === "conversation-turn-bindings"),
+    false,
+    "a paged read must not produce turn numbers",
+  );
 });
 
 test("the XHR conversation path reports turn bindings under the same open-conversation gate", () => {
