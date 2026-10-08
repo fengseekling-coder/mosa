@@ -2,13 +2,20 @@ const DEFAULTS = {
   mosaBaseUrl: "http://127.0.0.1:43517",
   mosaToken: "",
   autoCapture: false,
+  captureDiagnostics: false,
 };
+const DIAGNOSTIC_DEFAULT_DESCRIPTION = "默认关闭。开启后仅在插件拿到图但没有拿到 Prompt 时，把这一轮看到的流量结构（字段路径、长度、模型名）记录到本机用于排查。";
 const LEGACY_DEV_TOKEN = "mosa-web-capture-dev";
 
 const statusEl = document.getElementById("status");
 const baseUrlEl = document.getElementById("mosaBaseUrl");
 const tokenEl = document.getElementById("mosaToken");
 const autoCaptureEl = document.getElementById("autoCapture");
+const diagnosticsEnabledEl = document.getElementById("diagnosticsEnabled");
+const diagnosticsCountEl = document.getElementById("diagnosticsCount");
+const diagnosticsStatusEl = document.getElementById("diagnosticsStatus");
+const diagnosticsExportEl = document.getElementById("diagnosticsExport");
+const diagnosticsClearEl = document.getElementById("diagnosticsClear");
 
 function normalizeBaseUrl(value) {
   let url;
@@ -40,11 +47,14 @@ async function load() {
     baseUrlEl.value = settings.mosaBaseUrl || DEFAULTS.mosaBaseUrl;
     tokenEl.value = settings.mosaToken || "";
     autoCaptureEl.checked = settings.autoCapture !== false;
+    diagnosticsEnabledEl.checked = settings.captureDiagnostics === true;
+    await refreshDiagnosticsCount();
   } catch (error) {
     const settings = await chrome.storage.local.get(DEFAULTS).catch(() => DEFAULTS);
     baseUrlEl.value = settings.mosaBaseUrl || DEFAULTS.mosaBaseUrl;
     tokenEl.value = settings.mosaToken || "";
     autoCaptureEl.checked = settings.autoCapture !== false;
+    diagnosticsEnabledEl.checked = settings.captureDiagnostics === true;
     setStatus(`设置读取失败：${error instanceof Error ? error.message : String(error)}`, "error");
   }
 }
@@ -66,8 +76,67 @@ document.getElementById("save").addEventListener("click", async () => {
     mosaBaseUrl: baseUrl,
     mosaToken: token,
     autoCapture: autoCaptureEl.checked,
+    captureDiagnostics: diagnosticsEnabledEl.checked === true,
   });
   setStatus("已保存。请刷新支持的网页使内容脚本生效。", "success");
+});
+
+function setDiagnosticsStatus(message, kind = "") {
+  diagnosticsStatusEl.textContent = message;
+  diagnosticsStatusEl.style.color = kind === "error" ? "var(--mosa-error)" : "var(--mosa-success)";
+}
+
+async function refreshDiagnosticsCount() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "mosa.diagnosticsCount" });
+    const count = response?.ok ? Number(response.count) || 0 : 0;
+    diagnosticsCountEl.textContent = `当前已记录 ${count} / 50 条`;
+    diagnosticsExportEl.disabled = count === 0;
+  } catch {
+    diagnosticsCountEl.textContent = "当前已记录 (读取失败)";
+    diagnosticsExportEl.disabled = true;
+  }
+}
+
+diagnosticsEnabledEl.addEventListener("change", async () => {
+  await chrome.storage.local.set({ captureDiagnostics: diagnosticsEnabledEl.checked === true });
+  setDiagnosticsStatus(diagnosticsEnabledEl.checked
+    ? "诊断记录已开启。下次发现没有提示词的出图时会自动收集。"
+    : "诊断记录已关闭。现有记录仍保留，可手动清空。");
+  refreshDiagnosticsCount();
+});
+
+diagnosticsExportEl.addEventListener("click", async () => {
+  setDiagnosticsStatus("导出中…");
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "mosa.exportDiagnostics" });
+    if (!response?.ok) throw new Error(response?.error || "导出失败");
+    const blob = new Blob([JSON.stringify(response.payload, null, 2)], { type: "application/json" });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = response.filename || "mosa-capture-diagnostics.json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+    setDiagnosticsStatus(`已导出：${link.download}`);
+  } catch (error) {
+    setDiagnosticsStatus(error instanceof Error ? error.message : String(error), "error");
+  }
+});
+
+diagnosticsClearEl.addEventListener("click", async () => {
+  if (!window.confirm("确认清空所有诊断记录？此操作不可撤销。")) return;
+  setDiagnosticsStatus("清空中…");
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "mosa.clearDiagnostics" });
+    if (!response?.ok) throw new Error(response?.error || "清空失败");
+    setDiagnosticsStatus("已清空。");
+  } catch (error) {
+    setDiagnosticsStatus(error instanceof Error ? error.message : String(error), "error");
+  }
+  refreshDiagnosticsCount();
 });
 
 // "未发现正在运行的 MOSA" lumps three very different failures together: the

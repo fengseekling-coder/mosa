@@ -2366,6 +2366,7 @@
         autoCapture = response.settings.autoCapture !== false;
         pageHookCaptureAck = null;
         syncPageHookCaptureEnabled();
+        syncPageHookDiagnostics(response.settings);
         return;
       }
     } catch {
@@ -2375,13 +2376,21 @@
     // The background owns defaults and migration. A temporary messaging failure
     // must never overwrite an explicit local "off" preference.
     try {
-      const stored = await chrome.storage?.local?.get?.({ autoCapture });
-      if (stored) autoCapture = stored.autoCapture !== false;
+      const stored = await chrome.storage?.local?.get?.({ autoCapture, captureDiagnostics: false });
+      if (stored) {
+        autoCapture = stored.autoCapture !== false;
+        syncPageHookDiagnostics({ captureDiagnostics: stored.captureDiagnostics === true });
+      }
     } catch {
       // Keep the in-memory value when both settings paths are unavailable.
     }
     pageHookCaptureAck = null;
     syncPageHookCaptureEnabled();
+  }
+
+  function syncPageHookDiagnostics(settings) {
+    const enabled = settings?.captureDiagnostics === true;
+    postToPageHook("set-diagnostics-enabled", { enabled });
   }
 
   function handlePageHookEvent(data) {
@@ -2417,6 +2426,22 @@
       captureDebugEvents.push(data.payload);
       while (captureDebugEvents.length > 24) captureDebugEvents.shift();
       renderControlPanel();
+      return;
+    }
+
+    // One record per prompt-less capture. The hook reduced the record to
+    // safe fields before sending it; the content script forwards it to the
+    // background for retention only. The page hook never blocks on this.
+    if (data.type === "capture-diagnostic" && data.payload) {
+      if (extensionAlive()) {
+        Promise.resolve(runtimeSend({
+          type: "mosa.recordDiagnostic",
+          payload: {
+            ...data.payload,
+            recordedAtIso: new Date().toISOString(),
+          },
+        })).catch(() => {});
+      }
       return;
     }
 
