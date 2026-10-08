@@ -6,6 +6,47 @@
   if (window.__mosaPageHookInstalled) return;
   window.__mosaPageHookInstalled = true;
   let captureEnabled = false;
+  // Capture diagnostics: optional structural log of every traffic fragment
+  // observed while a prompt-less capture is being collected. Disabled by
+  // default; switched on through options.html. The recorder only stores paths,
+  // types, lengths, and a small allowlist of primitive values, so the module
+  // can never leak conversation text into chrome.storage.local.
+  const captureDiagnostics = (window.MosaCaptureDiagnostics && window.MosaCaptureDiagnostics.__mosaInstalled)
+    ? window.MosaCaptureDiagnostics
+    : null;
+  const DIAGNOSTIC_FINALIZE_DELAY_MS = 30_000;
+  const DIAGNOSTIC_PRE_WINDOW_MS = 5_000;
+  // recordSseLine / recordWsFrame / recordHttpResponse accept any string; the
+  // helper collapses failures to a single null path so this guard never throws.
+  function diagnosticsRecordFrame(conversationId, summary) {
+    try {
+      if (!captureDiagnostics || !captureDiagnostics.isEnabled()) return;
+      captureDiagnostics.recordFrame(conversationId, summary);
+    } catch {
+      // diagnostics must never affect page hooks
+    }
+  }
+  function diagnosticsSummarizeSse(line) {
+    try {
+      return captureDiagnostics ? captureDiagnostics.summarizeSseLine(line) : null;
+    } catch {
+      return null;
+    }
+  }
+  function diagnosticsSummarizeWs(text) {
+    try {
+      return captureDiagnostics ? captureDiagnostics.summarizeWsFrame(text) : null;
+    } catch {
+      return null;
+    }
+  }
+  function diagnosticsSummarizeHttp(url, contentType, parsed) {
+    try {
+      return captureDiagnostics ? captureDiagnostics.summarizeHttpResponse(url, contentType, parsed) : null;
+    } catch {
+      return null;
+    }
+  }
   // Threat model: injected page scripts that run after document_start must
   // neither learn the bridge identity nor forge capture events. Publishing a
   // channel name in the DOM failed the first half, and every window message
@@ -27,6 +68,15 @@
     if (data.type === "set-capture-enabled") {
       captureEnabled = data.payload?.enabled === true;
       post("capture-state", { enabled: captureEnabled });
+      return;
+    }
+    if (data.type === "set-diagnostics-enabled") {
+      // Diagnostics recording is opt-in from the options page and is set
+      // independently of captureEnabled. Auto-capture being on or off must
+      // never flip the diagnostics switch — the recorder only ever sees
+      // structural summaries, never the raw payload.
+      const diagnosticsEnabled = data.payload?.enabled === true;
+      if (captureDiagnostics) captureDiagnostics.setEnabled(diagnosticsEnabled);
       return;
     }
     if (data.type === "refresh-current-conversation") refreshCurrentConversation().catch(() => {});
@@ -637,6 +687,71 @@
     });
     post("generation-meta", payload);
     if (url && payload.isGeneration) post("auto-image", payload);
+    scheduleCaptureDiagnostic(payload);
+  }
+  // Capture diagnostics trigger: every emitted (prompt, image) pair is tagged
+  // so the recorder can snapshot the traffic that surrounded it 30 seconds
+  // later. markCapture(...) is idempotent per (conversation, message, asset);
+  // scheduleFinalizeAndReport keeps the snapshot job off the harvest path.
+  function scheduleCaptureDiagnostic(payload) {
+    if (!captureDiagnostics || !captureDiagnostics.isEnabled() || !payload) return;
+    const conversationId = String(payload.conversationId || "");
+    const messageId = String(payload.messageId || "");
+    const assetId = String(payload.assetId || "");
+    const generationId = String(payload.generationId || payload.providerGenerationCallId || "");
+    if (!conversationId && !messageId && !assetId) return;
+    const captureKey = `${conversationId}:${messageId}:${assetId}`;
+    const hasPrompt = Boolean(payload.prompt) || payload.promptStatus === "generation-tool-prompt"
+      || payload.promptStatus === "visible-caption";
+    // markCapture() always registers the capture. finalizeCapture() is the
+    // single point that decides whether a record is actually written, and
+    // it is responsible for the 1/10 control sampling — we no longer short
+    // circuit here based on hasPrompt.
+    captureDiagnostics.markCapture(captureKey, conversationId, messageId, hasPrompt, generationId);
+    setTimeout(() => {
+      try {
+        const finished = captureDiagnostics.finalizeCapture(conversationId, captureKey);
+        if (!finished) return;
+        if (finished.snapshot) {
+          // Run the storage-bound scrubber one last time before the record
+          // crosses into the content script. If anything in the buffer
+          // slipped past the page-world sanitizers we drop the whole record
+          // and tick the reject counter.
+          const scrubbed = captureDiagnostics.sanitizeRecordForStorage({
+            conversationId,
+            messageId: messageId.slice(0, 8),
+            generationId: generationId.slice(0, 8),
+            version: "0.15.28",
+            control: finished.control === true,
+            firstAt: finished.snapshot.firstAt,
+            lastAt: finished.snapshot.lastAt,
+            models: finished.snapshot.models,
+            frames: finished.snapshot.frames,
+          });
+          if (scrubbed === "leak") {
+            // surface the reject count in the background for the options UI
+            post("capture-diagnostic-rejected", { captureKey });
+            return;
+          }
+          post("capture-diagnostic", {
+            captureKey,
+            record: scrubbed,
+            promptStatus: payload.promptStatus,
+            control: scrubbed.control === true,
+            frameCount: scrubbed.frames.length,
+          });
+        }
+      } catch {
+        // diagnostics must never throw into the capture path
+      }
+    }, DIAGNOSTIC_FINALIZE_DELAY_MS);
+  }
+
+  function parseDiagnosticJson(value) {
+    if (typeof value !== "string" || value.length < 2 || value.length > 32_000_000) return null;
+    const trimmed = value.trim();
+    if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) return null;
+    try { return JSON.parse(trimmed); } catch { return null; }
   }
 
   function emitMessageBindings(node, inherited) {
@@ -1576,6 +1691,12 @@
       const payload = line.slice(5).trim();
       if (!payload) return;
       state.sawDataLine = true;
+      // Diagnostics recorder wants the structure, not the text. Summarize in
+      // the page world here, then continue with the normal SSE handling.
+      const summary = diagnosticsSummarizeSse(line);
+      if (summary) {
+        diagnosticsRecordFrame(state.conversationId || conversationIdFromLocation(), summary);
+      }
       if (payload === "[DONE]") {
         // The page aborts the request right after this marker; bind whatever
         // the stream has rebuilt so far.
@@ -2116,16 +2237,50 @@
           if (isSseStream && clone.body && typeof clone.body.getReader === "function") {
             // Streamed reply: parse while it arrives so the page aborting the
             // finished request keeps every binding already delivered.
+            // Diagnostics gets its own clone because the SSE stream is consumed
+            // by harvestResponseStream and cannot be reread.
+            try { response.clone().text().then((text) => {
+              try {
+                const parsed = parseDiagnosticJson(text);
+                if (parsed) {
+                  const summary = diagnosticsSummarizeHttp(url, contentType, parsed);
+                  if (summary) diagnosticsRecordFrame(conversationIdFromLocation(), { source: "http", ...summary });
+                }
+              } catch {
+                // diagnostics never throws into the harness
+              }
+            }).catch(() => {}); } catch {
+              // diagnostics never throws into the harness
+            }
             harvestResponseStream(clone, "fetch-sse").catch(() => {});
           } else if (/json/.test(contentType) && /\/backend-api\/(?:f\/)?conversations?\//i.test(String(url))) {
+            // Read once: the JSON body feeds the diagnostics recorder and the
+            // existing harness path, so cloning again would lose the body.
             clone.json()
               .then((payload) => {
+                try {
+                  const summary = diagnosticsSummarizeHttp(url, contentType, payload);
+                  if (summary) diagnosticsRecordFrame(conversationIdFromLocation(), { source: "http", ...summary });
+                } catch {
+                  // diagnostics never throws into the harness
+                }
                 walkObject(payload, { conversationId: conversationIdFromLocation() });
                 if (isCurrentConversationItemUrl(url)) reportConversationTurnBindings(payload);
               })
               .catch(() => {});
           } else {
-            clone.text().then((text) => harvest(text, "fetch")).catch(() => {});
+            clone.text().then((text) => {
+              try {
+                const parsed = parseDiagnosticJson(text);
+                if (parsed) {
+                  const summary = diagnosticsSummarizeHttp(url, contentType, parsed);
+                  if (summary) diagnosticsRecordFrame(conversationIdFromLocation(), { source: "http", ...summary });
+                }
+              } catch {
+                // diagnostics never throws into the harness
+              }
+              harvest(text, "fetch");
+            }).catch(() => {});
           }
         }
       }
@@ -2156,7 +2311,18 @@
               : responseType === "json" && this.response
                 ? JSON.stringify(this.response)
                 : "";
-            if (text) harvest(text, "xhr");
+            if (text) {
+              try {
+                const parsed = parseDiagnosticJson(text);
+                if (parsed) {
+                  const summary = diagnosticsSummarizeHttp(url, contentType, parsed);
+                  if (summary) diagnosticsRecordFrame(conversationIdFromLocation(), { source: "http", ...summary });
+                }
+              } catch {
+                // diagnostics must never affect the XHR path
+              }
+              harvest(text, "xhr");
+            }
             if (isCurrentConversationItemUrl(url)) reportConversationTurnBindingsFromText(text);
           }
         }
@@ -2199,6 +2365,13 @@
 
   function harvestSocketText(text) {
     if (!text || typeof text !== "string") return;
+    // Diagnostics recorder wants every frame's structure, not just the
+    // image-bearing ones the harvester cares about. Summarize in the page
+    // world here so raw bytes never reach the recorder.
+    const summary = diagnosticsSummarizeWs(text);
+    if (summary) {
+      diagnosticsRecordFrame(conversationIdFromLocation(), { source: "ws", ...summary });
+    }
     // Token-by-token deltas dominate the stream. Parse only image-bearing frames.
     if (WS_INTEREST.test(text) || hasConversationMessageShape(text)) harvest(text, "websocket");
     // Skip anything that is not a JSON envelope carrying a base64 body, so a
