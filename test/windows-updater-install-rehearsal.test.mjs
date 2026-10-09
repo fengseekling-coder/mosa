@@ -222,26 +222,39 @@ async function launchHelper({ root, signatureProbe = "", installDir, zipPath, cu
   // The helper only waits for this PID to exit; a real update quits the app,
   // which the rehearsal simulates with a short-lived Node child.
   const target = spawn(process.execPath, ["-e", "setTimeout(() => {}, 400)"], { stdio: "ignore" });
-  return launchWindowsUpdateHelper({
-    zipPath,
-    installDir,
-    currentExeName,
-    payloadExeName,
-    signerThumbprint,
-    signatureProbe,
-    version: VERSION,
-    expectedIdentity: identity(distribution),
-    processId: target.pid,
-  });
+  try {
+    return await launchWindowsUpdateHelper({
+      zipPath,
+      installDir,
+      currentExeName,
+      payloadExeName,
+      signerThumbprint,
+      signatureProbe,
+      version: VERSION,
+      expectedIdentity: identity(distribution),
+      processId: target.pid,
+    });
+  } catch (error) {
+    // The launcher and the helper each write their own failure log beside the
+    // staged zip; surface both so a CI failure explains itself.
+    throw new Error(`${error.message}\n${stagingLogs(zipPath)}`, { cause: error });
+  }
 }
 
-async function waitFor(predicate, { timeoutMs = 45_000, stepMs = 150, label } = {}) {
+function stagingLogs(zipPath) {
+  return ["helper-launch-error.log", "apply-update-error.log"].map((name) => {
+    const path = join(dirname(zipPath), name);
+    return existsSync(path) ? `--- ${name} ---\n${readFileSync(path, "utf8")}` : `--- ${name}: (none) ---`;
+  }).join("\n");
+}
+
+async function waitFor(predicate, { timeoutMs = 45_000, stepMs = 150, label, logsFor = "" } = {}) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
     await new Promise((resolveStep) => setTimeout(resolveStep, stepMs));
   }
-  throw new Error(`Rehearsal timed out waiting for ${label}`);
+  throw new Error(`Rehearsal timed out waiting for ${label}${logsFor ? `\n${stagingLogs(logsFor)}` : ""}`);
 }
 
 function markerOf(installDir) {
@@ -277,7 +290,7 @@ scope("rehearsal: same-name preview update installs the flat payload in place", 
       payloadExeName: "MOSA.exe",
     });
 
-    await waitFor(() => markerOf(installDir) === "new", { label: "same-name success (replacement installed)" });
+    await waitFor(() => markerOf(installDir) === "new", { label: "same-name success (replacement installed)", logsFor: zipPath });
     assert.equal(existsSync(join(installDir, "MOSA.exe")), true);
     assert.equal(existsSync(join(installDir, "GravityPort.exe")), false);
     assert.equal(existsSync(logPath), false, `helper failure log must be absent, got: ${existsSync(logPath) ? readFileSync(logPath, "utf8") : ""}`);
@@ -307,7 +320,7 @@ scope("rehearsal: cross-name preview update renames the nested GravityPort paylo
       payloadExeName: "GravityPort.exe",
     });
 
-    await waitFor(() => markerOf(installDir) === "new", { label: "cross-name success (replacement installed)" });
+    await waitFor(() => markerOf(installDir) === "new", { label: "cross-name success (replacement installed)", logsFor: zipPath });
     // The old user's folder name and exe name both survive the update; only
     // the content changed.
     assert.equal(installDir, join(root, "install", "MOSA-win32-x64"));
@@ -396,7 +409,7 @@ scope("rehearsal: production signer rules anchor trust to the manifest thumbprin
   {
     const { root, installDir, readyFile, logPath } = await scenario("old-none", { manifestThumbprint: THUMBPRINT_RENEWED });
     try {
-      await waitFor(() => markerOf(installDir) === "new", { label: "old-none production success (replacement installed)" });
+      await waitFor(() => markerOf(installDir) === "new", { label: "old-none production success (replacement installed)", logsFor: zipPath });
       assert.equal(existsSync(logPath), false, `helper failure log must be absent, got: ${existsSync(logPath) ? readFileSync(logPath, "utf8") : ""}`);
       assert.equal(existsSync(readyFile), true);
     } finally {
@@ -412,7 +425,7 @@ scope("rehearsal: production signer rules anchor trust to the manifest thumbprin
       manifestThumbprint: THUMBPRINT_RENEWED,
     });
     try {
-      await waitFor(() => markerOf(installDir) === "new", { label: "renewal production success (replacement installed)" });
+      await waitFor(() => markerOf(installDir) === "new", { label: "renewal production success (replacement installed)", logsFor: zipPath });
       assert.equal(existsSync(logPath), false);
       assert.equal(existsSync(readyFile), true);
     } finally {
