@@ -30,6 +30,30 @@ function normalizeMacosTeamIdentifier(value) {
   return teamIdentifier;
 }
 
+export const WINDOWS_UPDATE_EXE_NAMES = Object.freeze(["MOSA.exe", "GravityPort.exe"]);
+export const WINDOWS_SIGNER_THUMBPRINT_PATTERN = /^[0-9A-F]{40}$/;
+
+// The manifest payload executable is bound to the update package filename:
+// MOSA.exe ships as MOSA-win32-x64-<version>.zip and GravityPort.exe ships as
+// GravityPort-win32-x64-<version>.zip. Anything else is rejected.
+export function windowsUpdateFileNameForPayloadExeName(payloadExeName, version) {
+  if (!WINDOWS_UPDATE_EXE_NAMES.includes(payloadExeName)) throw new Error("Invalid Windows update payload executable name.");
+  return `${payloadExeName.slice(0, -4)}-win32-x64-${version}.zip`;
+}
+
+export function normalizeWindowsUpdatePayloadExeName(value) {
+  const exeName = value == null || String(value).trim() === "" ? "MOSA.exe" : String(value).trim();
+  if (!WINDOWS_UPDATE_EXE_NAMES.includes(exeName)) throw new Error("Invalid Windows update payload executable name.");
+  return exeName;
+}
+
+function normalizeWindowsSignerThumbprint(value) {
+  const thumbprint = typeof value === "string" ? value.trim().toUpperCase() : "";
+  if (!thumbprint) return "";
+  if (!WINDOWS_SIGNER_THUMBPRINT_PATTERN.test(thumbprint)) throw new Error("Invalid Windows release signer thumbprint.");
+  return thumbprint;
+}
+
 function parseVersion(value) {
   const match = VERSION_PATTERN.exec(String(value || "").trim());
   if (!match) return null;
@@ -107,10 +131,12 @@ function parseBuildIdentity(value) {
 function parseWindowsArtifact(value, version) {
   if (value == null) return null;
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid Windows update artifact.");
-  const expectedFile = `MOSA-win32-x64-${version}.zip`;
+  const payloadExeName = normalizeWindowsUpdatePayloadExeName(value.payloadExeName);
+  const expectedFile = windowsUpdateFileNameForPayloadExeName(payloadExeName, version);
   const file = typeof value.file === "string" ? value.file.trim() : "";
   const size = Number(value.size);
   const sha256 = typeof value.sha256 === "string" ? value.sha256.trim().toLowerCase() : "";
+  const signerThumbprint = normalizeWindowsSignerThumbprint(value.signerThumbprint);
   if (value.platform !== "Windows" || value.arch !== "x64" || file !== expectedFile) {
     throw new Error("Invalid Windows update artifact identity.");
   }
@@ -118,7 +144,15 @@ function parseWindowsArtifact(value, version) {
     throw new Error("Invalid Windows update artifact size.");
   }
   if (!/^[0-9a-f]{64}$/.test(sha256)) throw new Error("Invalid Windows update artifact digest.");
-  return { platform: "Windows", arch: "x64", file, size, sha256 };
+  return {
+    platform: "Windows",
+    arch: "x64",
+    payloadExeName,
+    file,
+    size,
+    sha256,
+    ...(signerThumbprint ? { signerThumbprint } : {}),
+  };
 }
 
 function parseMacArtifact(value, version) {
@@ -173,6 +207,12 @@ export function parseUpdateManifest(input) {
   // it because those builds are ad-hoc signed.
   if (buildIdentity?.distribution === "production" && macArtifact && !macArtifact.teamIdentifier) {
     throw new Error("Production macOS releases require a release team identifier.");
+  }
+  // Windows production trust mirrors macOS: the pinned signer thumbprint is
+  // what the installer verifies every payload signature against. Preview may
+  // omit it because those builds ship unsigned.
+  if (buildIdentity?.distribution === "production" && windowsArtifact && !windowsArtifact.signerThumbprint) {
+    throw new Error("Production Windows releases require a release signer thumbprint.");
   }
   return {
     version: parsedVersion.version,

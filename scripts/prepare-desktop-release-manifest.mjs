@@ -6,7 +6,7 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { parseUpdateManifest, macosUpdateFileNameForAppName, MACOS_TEAM_IDENTIFIER_PATTERN, MACOS_UPDATE_APP_NAMES } from "../desktop/update-service.mjs";
+import { parseUpdateManifest, macosUpdateFileNameForAppName, windowsUpdateFileNameForPayloadExeName, MACOS_TEAM_IDENTIFIER_PATTERN, MACOS_UPDATE_APP_NAMES, WINDOWS_UPDATE_EXE_NAMES, WINDOWS_SIGNER_THUMBPRINT_PATTERN } from "../desktop/update-service.mjs";
 import { normalizeDesktopDistribution } from "../lib/release-distribution.mjs";
 import {
   normalizeReleaseManifestTrust,
@@ -23,6 +23,8 @@ export async function prepareDesktopReleaseManifest({
   macAppName = "MOSA.app",
   macTeamIdentifier = "",
   windowsArtifactPath = "",
+  windowsPayloadExeName = "MOSA.exe",
+  windowsSignerThumbprint = "",
   buildIdentity = null,
   signingPrivateKey = null,
   previousManifest = null,
@@ -38,6 +40,14 @@ export async function prepareDesktopReleaseManifest({
   const cleanMacTeamIdentifier = String(macTeamIdentifier || "").trim().toUpperCase();
   if (cleanMacTeamIdentifier && !MACOS_TEAM_IDENTIFIER_PATTERN.test(cleanMacTeamIdentifier)) {
     throw new Error("Release macOS teamIdentifier is invalid.");
+  }
+  const cleanWindowsPayloadExeName = String(windowsPayloadExeName || "").trim();
+  if (!WINDOWS_UPDATE_EXE_NAMES.includes(cleanWindowsPayloadExeName)) {
+    throw new Error("Invalid Windows release payload executable name.");
+  }
+  const cleanWindowsSignerThumbprint = String(windowsSignerThumbprint || "").trim().toUpperCase();
+  if (cleanWindowsSignerThumbprint && !WINDOWS_SIGNER_THUMBPRINT_PATTERN.test(cleanWindowsSignerThumbprint)) {
+    throw new Error("Release Windows signerThumbprint is invalid.");
   }
 
   const macos = macArtifactPath
@@ -58,11 +68,18 @@ export async function prepareDesktopReleaseManifest({
   const windows = windowsArtifactPath
     ? await artifactMetadata({
         path: windowsArtifactPath,
-        expectedFile: `MOSA-win32-x64-${cleanVersion}.zip`,
+        expectedFile: windowsUpdateFileNameForPayloadExeName(cleanWindowsPayloadExeName, cleanVersion),
         platform: "Windows",
         arch: "x64",
+        payloadExeName: cleanWindowsPayloadExeName,
+        ...(cleanWindowsSignerThumbprint ? { signerThumbprint: cleanWindowsSignerThumbprint } : {}),
       })
     : null;
+  // The Desktop reader enforces the same rule; fail here with the publishing
+  // context so a production Windows release can never leave unpinned.
+  if (normalizedBuildIdentity.distribution === "production" && windows && !windows.signerThumbprint) {
+    throw new Error("Production Windows releases require a platforms.windows signerThumbprint.");
+  }
 
   const previous = previousManifest && typeof previousManifest === "object" && !Array.isArray(previousManifest)
     ? previousManifest
@@ -171,7 +188,7 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.version || !args.output) {
-    throw new Error("Usage: prepare-desktop-release-manifest.mjs --version <version> --output <latest.json> [--previous <latest.json>] [--mac <zip>] [--mac-app-name <MOSA.app|GravityPort.app>] [--mac-team-identifier <10-char id>] [--windows <zip>] [--published-at <ISO>] [--notes-zh <text>] [--notes-en <text>]");
+    throw new Error("Usage: prepare-desktop-release-manifest.mjs --version <version> --output <latest.json> [--previous <latest.json>] [--mac <zip>] [--mac-app-name <MOSA.app|GravityPort.app>] [--mac-team-identifier <10-char id>] [--windows <zip>] [--windows-payload-exe-name <MOSA.exe|GravityPort.exe>] [--windows-signer-thumbprint <40-char id>] [--published-at <ISO>] [--notes-zh <text>] [--notes-en <text>]");
   }
   const previousManifest = args.previous ? JSON.parse(await readFile(resolve(args.previous), "utf8")) : null;
   const projectRoot = new URL("..", import.meta.url);
@@ -183,6 +200,8 @@ async function main() {
     macAppName: args["mac-app-name"] || "MOSA.app",
     macTeamIdentifier: args["mac-team-identifier"] || "",
     windowsArtifactPath: args.windows || "",
+    windowsPayloadExeName: args["windows-payload-exe-name"] || "MOSA.exe",
+    windowsSignerThumbprint: args["windows-signer-thumbprint"] || "",
     buildIdentity,
     signingPrivateKey,
     previousManifest,

@@ -6,6 +6,14 @@ import { dirname, isAbsolute, join, relative, resolve, win32 } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { normalizeDesktopDistribution } from "../lib/release-distribution.mjs";
+import {
+  WINDOWS_SIGNER_THUMBPRINT_PATTERN,
+  WINDOWS_UPDATE_EXE_NAMES,
+  normalizeWindowsUpdatePayloadExeName,
+  windowsUpdateFileNameForPayloadExeName,
+} from "./update-service.mjs";
+
+export { WINDOWS_UPDATE_EXE_NAMES };
 
 export const MOSA_WINDOWS_DOWNLOAD_BASE_URL = "https://mosa.azhuilab.com/downloads/";
 const MAX_WINDOWS_UPDATE_BYTES = 1_500_000_000;
@@ -20,6 +28,15 @@ function safeVersion(value) {
     throw new Error("Invalid Windows update version.");
   }
   return version;
+}
+
+function safeSignerThumbprint(value) {
+  const thumbprint = String(value || "").trim().toUpperCase();
+  if (!thumbprint) return "";
+  if (!WINDOWS_SIGNER_THUMBPRINT_PATTERN.test(thumbprint)) {
+    throw new Error("Invalid Windows release signer thumbprint.");
+  }
+  return thumbprint;
 }
 
 function safeBuildIdentity(value) {
@@ -39,10 +56,12 @@ export function validateWindowsUpdateArtifact(input, version) {
     throw new Error("Windows update artifact is missing.");
   }
   const normalizedVersion = safeVersion(version);
-  const expectedFile = `MOSA-win32-x64-${normalizedVersion}.zip`;
+  const payloadExeName = normalizeWindowsUpdatePayloadExeName(input.payloadExeName);
+  const expectedFile = windowsUpdateFileNameForPayloadExeName(payloadExeName, normalizedVersion);
   const file = String(input.file || "").trim();
   const size = Number(input.size);
   const sha256 = String(input.sha256 || "").trim().toLowerCase();
+  const signerThumbprint = safeSignerThumbprint(input.signerThumbprint);
   if (String(input.platform || "").trim() !== "Windows") {
     throw new Error("Windows update artifact has an unexpected platform.");
   }
@@ -58,15 +77,32 @@ export function validateWindowsUpdateArtifact(input, version) {
   if (!SHA256_PATTERN.test(sha256)) {
     throw new Error("Windows update artifact has an invalid SHA-256 digest.");
   }
-  return { platform: "Windows", arch: "x64", file, size, sha256 };
+  return {
+    platform: "Windows",
+    arch: "x64",
+    payloadExeName,
+    file,
+    size,
+    sha256,
+    ...(signerThumbprint ? { signerThumbprint } : {}),
+  };
 }
 
 export function windowsUpdateDownloadUrl(artifact) {
   const file = String(artifact?.file || "").trim();
-  if (!/^MOSA-win32-x64-[0-9A-Za-z.-]+\.zip$/.test(file)) {
+  if (!/^(?:MOSA|GravityPort)-win32-x64-[0-9A-Za-z.-]+\.zip$/.test(file)) {
     throw new Error("Unsafe Windows update filename.");
   }
   return new URL(encodeURIComponent(file), MOSA_WINDOWS_DOWNLOAD_BASE_URL).toString();
+}
+
+// The portable install keeps its on-disk exe name across updates (old users
+// stay on MOSA.exe, new installs on GravityPort.exe), so the updater installs
+// under whichever name is currently running. An unrecognized executable name
+// must stop the update instead of guessing.
+export function windowsInstalledExeName(execPath = process.execPath) {
+  const exeName = win32.basename(String(execPath || ""));
+  return WINDOWS_UPDATE_EXE_NAMES.includes(exeName) ? exeName : null;
 }
 
 function readableBody(body) {
@@ -277,7 +313,9 @@ export function windowsUpdateHelperScript() {
   [Parameter(Mandatory=$true)][int]$TargetPid,
   [Parameter(Mandatory=$true)][string]$ZipPath,
   [Parameter(Mandatory=$true)][string]$InstallDir,
-  [Parameter(Mandatory=$true)][string]$ExeName,
+  [Parameter(Mandatory=$true)][string]$CurrentExeName,
+  [Parameter(Mandatory=$true)][string]$PayloadExeName,
+  [Parameter(Mandatory=$true)][AllowEmptyString()][string]$ExpectedSignerThumbprint,
   [Parameter(Mandatory=$true)][string]$ExpectedVersion,
   [Parameter(Mandatory=$true)][string]$ExpectedGitSha,
   [Parameter(Mandatory=$true)][string]$ExpectedUiFingerprint,
@@ -298,31 +336,86 @@ $transactionRoot = Join-Path $parentDir (".MOSA-update-" + [Guid]::NewGuid().ToS
 $extractDir = Join-Path $transactionRoot "extracted"
 $payloadDir = $null
 $backupDir = Join-Path $transactionRoot "previous"
-$oldExe = Join-Path $InstallDir $ExeName
+$oldExe = Join-Path $InstallDir $CurrentExeName
 $newProcess = $null
 $movedOriginal = $false
 
+# Installation-rehearsal tests override this to run signature verification
+# against a stub probe that answers Status/Thumbprint/Subject lines. The
+# default is the real cmdlet; nothing else may customize it, and the Node
+# launcher strips this variable from the app's own environment so it can
+# never leak into a packaged update.
+function Get-MosaSignatureInfo {
+  param([Parameter(Mandatory=$true)][string]$LiteralPath)
+  $probe = $env:MOSA_UPDATE_SIGNATURE_PROBE
+  if ($probe) {
+    $raw = (& $probe $LiteralPath) -join [Environment]::NewLine
+    $values = @{}
+    foreach ($line in ($raw -split '\r?\n')) {
+      $trimmed = $line.Trim()
+      $separator = $trimmed.IndexOf('=')
+      if ($trimmed -and $separator -gt 0) {
+        $values[$trimmed.Substring(0, $separator)] = $trimmed.Substring($separator + 1)
+      }
+    }
+    return [pscustomobject]@{
+      Status = [string]$values['Status']
+      Thumbprint = [string]$values['Thumbprint']
+      Subject = [string]$values['Subject']
+    }
+  }
+  $signature = Get-AuthenticodeSignature -LiteralPath $LiteralPath
+  $thumbprint = ''
+  $subject = ''
+  if ($signature -and $signature.SignerCertificate) {
+    $thumbprint = [string]$signature.SignerCertificate.Thumbprint
+    $subject = [string]$signature.SignerCertificate.Subject
+  }
+  return [pscustomobject]@{
+    Status = [string]$signature.Status
+    Thumbprint = $thumbprint
+    Subject = $subject
+  }
+}
+
 try {
   [string]$PID | Set-Content -LiteralPath $StartedFile -Encoding ASCII
-  $expectedSignerThumbprint = $null
+  if ($ExpectedDistribution -eq 'production' -and -not $ExpectedSignerThumbprint) {
+    throw "Production Windows updates require the release signer thumbprint."
+  }
+  # Production trust is anchored to the signed manifest's thumbprint, never to
+  # the previous install alone. An installed exe that already carries a valid
+  # signature pins the payload's publisher subject: certificate renewals
+  # rotate thumbprints, so comparing subjects (not thumbprints) is what keeps
+  # a renewed certificate updating. An unsigned (preview) install crosses
+  # into production exactly once, checked only against the manifest below.
+  $oldSignerSubject = ''
   if ($ExpectedDistribution -eq 'production') {
-    $oldSignature = Get-AuthenticodeSignature -LiteralPath $oldExe
-    if ($oldSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or -not $oldSignature.SignerCertificate) {
-      throw "Installed MOSA does not have a valid Authenticode signature."
+    $oldSignature = Get-MosaSignatureInfo -LiteralPath $oldExe
+    if ($oldSignature.Status -eq 'Valid' -and $oldSignature.Thumbprint) {
+      $oldSignerSubject = [string]$oldSignature.Subject
     }
-    $expectedSignerThumbprint = $oldSignature.SignerCertificate.Thumbprint
   }
   Wait-Process -Id $TargetPid -ErrorAction SilentlyContinue
   Wait-MosaInstallProcessesExit -InstallDir $InstallDir
   New-Item -ItemType Directory -Path $transactionRoot -Force | Out-Null
   Expand-Archive -LiteralPath $ZipPath -DestinationPath $extractDir -Force
-  $flatPayloadExe = Join-Path $extractDir $ExeName
-  $nestedPayloadDir = Join-Path $extractDir "MOSA-win32-x64"
-  $nestedPayloadExe = Join-Path $nestedPayloadDir $ExeName
+  $flatPayloadExe = Join-Path $extractDir $PayloadExeName
+  $nestedPayloadDir = $null
+  $nestedPayloadExe = $null
+  foreach ($nestedDirName in @("MOSA-win32-x64", "GravityPort-win32-x64")) {
+    $candidateDir = Join-Path $extractDir $nestedDirName
+    $candidateExe = Join-Path $candidateDir $PayloadExeName
+    if (Test-Path -LiteralPath $candidateExe -PathType Leaf) {
+      $nestedPayloadDir = $candidateDir
+      $nestedPayloadExe = $candidateExe
+      break
+    }
+  }
   if (Test-Path -LiteralPath $flatPayloadExe -PathType Leaf) {
     $payloadDir = $extractDir
     $payloadExe = $flatPayloadExe
-  } elseif (Test-Path -LiteralPath $nestedPayloadExe -PathType Leaf) {
+  } elseif (($null -ne $nestedPayloadExe) -and (Test-Path -LiteralPath $nestedPayloadExe -PathType Leaf)) {
     $payloadDir = $nestedPayloadDir
     $payloadExe = $nestedPayloadExe
   } else {
@@ -334,21 +427,32 @@ try {
       throw "Downloaded MOSA package contains no signable executable payload."
     }
     foreach ($file in $signableFiles) {
-      $payloadSignature = Get-AuthenticodeSignature -LiteralPath $file.FullName
-      if ($payloadSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or -not $payloadSignature.SignerCertificate) {
+      $payloadSignature = Get-MosaSignatureInfo -LiteralPath $file.FullName
+      if ($payloadSignature.Status -ne 'Valid' -or -not $payloadSignature.Thumbprint) {
         throw "Downloaded MOSA payload contains an invalid Authenticode signature: $($file.FullName)"
       }
-      if ($payloadSignature.SignerCertificate.Thumbprint -ne $expectedSignerThumbprint) {
+      if ($payloadSignature.Thumbprint -ne $ExpectedSignerThumbprint) {
         throw "Downloaded MOSA payload is signed by a different publisher: $($file.FullName)"
       }
+      if ($oldSignerSubject -and ([string]$payloadSignature.Subject -ne $oldSignerSubject)) {
+        throw "Downloaded MOSA payload publisher changed between releases: $($file.FullName)"
+      }
     }
+  }
+  # A cross-name update (the payload ships the other whitelisted exe name)
+  # keeps the installed file name: rename the payload executable before
+  # anything moves, so the portable directory and every relaunch path stay on
+  # the current name. A failed rename throws while the original install is
+  # still untouched, so the rollback below only has to relaunch it.
+  if ($PayloadExeName -ne $CurrentExeName) {
+    Rename-Item -LiteralPath $payloadExe -NewName $CurrentExeName -ErrorAction Stop
   }
 
   Move-MosaDirectoryWithRetry -LiteralPath $InstallDir -Destination $backupDir
   $movedOriginal = $true
   try {
     Move-MosaDirectoryWithRetry -LiteralPath $payloadDir -Destination $InstallDir
-    $newExe = Join-Path $InstallDir $ExeName
+    $newExe = Join-Path $InstallDir $CurrentExeName
     if (-not (Test-Path -LiteralPath $newExe -PathType Leaf)) {
       throw "Updated MOSA executable is missing after replacement."
     }
@@ -457,7 +561,9 @@ export function windowsUpdateDetachedLauncherCommand({
   processId,
   zipPath,
   installDir,
-  exeName,
+  currentExeName,
+  payloadExeName,
+  signerThumbprint = "",
   version,
   expectedIdentity,
   logPath,
@@ -467,12 +573,20 @@ export function windowsUpdateDetachedLauncherCommand({
 } = {}) {
   const identity = safeBuildIdentity(expectedIdentity);
   const normalizedVersion = safeVersion(version);
+  const safeCurrentExeName = String(currentExeName || "");
+  if (!WINDOWS_UPDATE_EXE_NAMES.includes(safeCurrentExeName)) {
+    throw new Error("Invalid Windows update current executable name.");
+  }
+  const safePayloadExeName = normalizeWindowsUpdatePayloadExeName(payloadExeName);
+  const safeSignerThumbprintValue = safeSignerThumbprint(signerThumbprint);
   const helperCommand = [
     `& ${powershellLiteral(scriptPath)}`,
     `-TargetPid ${Number(processId)}`,
     `-ZipPath ${powershellLiteral(zipPath)}`,
     `-InstallDir ${powershellLiteral(installDir)}`,
-    `-ExeName ${powershellLiteral(exeName)}`,
+    `-CurrentExeName ${powershellLiteral(safeCurrentExeName)}`,
+    `-PayloadExeName ${powershellLiteral(safePayloadExeName)}`,
+    `-ExpectedSignerThumbprint ${powershellLiteral(safeSignerThumbprintValue)}`,
     `-ExpectedVersion ${powershellLiteral(normalizedVersion)}`,
     `-ExpectedGitSha ${powershellLiteral(identity.gitSha)}`,
     `-ExpectedUiFingerprint ${powershellLiteral(identity.uiFingerprint)}`,
@@ -502,26 +616,50 @@ export function windowsUpdateDetachedLauncherCommand({
   ].join("; ");
 }
 
+const HELPER_ENV_OVERRIDE_KEYS = Object.freeze([
+  "MOSA_UPDATE_SIGNATURE_PROBE",
+]);
+
+// The helper's signature-probe override exists only for installation-rehearsal
+// tests, which pass it explicitly. Never let it leak in from the app's own
+// environment, or a stray variable could swap out signature verification.
+export function windowsUpdateHelperEnv(helperEnv = null, baseEnv = process.env) {
+  const env = { ...baseEnv };
+  for (const key of HELPER_ENV_OVERRIDE_KEYS) delete env[key];
+  return helperEnv ? { ...env, ...helperEnv } : env;
+}
+
 export async function launchWindowsUpdateHelper({
   zipPath,
   installDir,
-  exeName,
+  currentExeName,
+  payloadExeName,
+  signerThumbprint = "",
   version,
   expectedIdentity,
   processId,
   spawnImpl = spawn,
   helperStartTimeoutMs = DEFAULT_WINDOWS_HELPER_START_TIMEOUT_MS,
+  helperEnv = null,
 } = {}) {
   const identity = safeBuildIdentity(expectedIdentity);
   const normalizedVersion = safeVersion(version);
-  if (!zipPath || !installDir || !exeName || !Number.isSafeInteger(processId) || processId <= 0) {
+  const safeCurrentExeName = windowsInstalledExeName(currentExeName);
+  const safePayloadExeName = normalizeWindowsUpdatePayloadExeName(payloadExeName);
+  const expectedSignerThumbprint = safeSignerThumbprint(signerThumbprint);
+  if (!zipPath || !installDir || !safeCurrentExeName || !Number.isSafeInteger(processId) || processId <= 0) {
     throw new Error("Invalid Windows update helper arguments.");
+  }
+  if (identity.distribution === "production" && !expectedSignerThumbprint) {
+    throw new Error("Windows production updates require a release signer thumbprint.");
   }
   const stagingDir = dirname(zipPath);
   const scriptPath = join(stagingDir, "apply-update.ps1");
   const logPath = join(stagingDir, "apply-update-error.log");
   const launcherLogPath = join(stagingDir, "helper-launch-error.log");
   const startedFile = join(stagingDir, "helper-started.txt");
+  // The readiness file lives in the updater staging root under Electron
+  // userData, so its path never depends on the installed exe's name.
   const readyFile = join(stagingDir, "update-ready.json");
   await Promise.all([
     rm(startedFile, { force: true }),
@@ -533,7 +671,9 @@ export async function launchWindowsUpdateHelper({
     processId,
     zipPath,
     installDir,
-    exeName,
+    currentExeName: safeCurrentExeName,
+    payloadExeName: safePayloadExeName,
+    signerThumbprint: expectedSignerThumbprint,
     version: normalizedVersion,
     expectedIdentity: identity,
     logPath,
@@ -549,6 +689,7 @@ export async function launchWindowsUpdateHelper({
   ], {
     stdio: "ignore",
     windowsHide: true,
+    env: windowsUpdateHelperEnv(helperEnv),
   });
   await new Promise((resolveSpawn, rejectSpawn) => {
     child.once("spawn", resolveSpawn);
