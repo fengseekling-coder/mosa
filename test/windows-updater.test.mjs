@@ -17,6 +17,7 @@ import {
   windowsUpdateDetachedLauncherCommand,
   windowsUpdateDownloadUrl,
   windowsUpdateHelperScript,
+  windowsInstalledExeName,
   windowsInstallProcessDrainScript,
   windowsMoveDirectoryRetryScript,
   windowsUpdateTransactionParentDir,
@@ -33,13 +34,15 @@ function powershellLiteral(value) {
   return `'${String(value ?? "").replaceAll("'", "''")}'`;
 }
 
-function artifactFor(bytes, version = "0.3.0") {
+function artifactFor(bytes, version = "0.3.0", { payloadExeName = "MOSA.exe", signerThumbprint = "" } = {}) {
   return {
     platform: "Windows",
     arch: "x64",
-    file: `MOSA-win32-x64-${version}.zip`,
+    payloadExeName,
+    file: `${payloadExeName.slice(0, -4)}-win32-x64-${version}.zip`,
     size: bytes.length,
     sha256: createHash("sha256").update(bytes).digest("hex"),
+    ...(signerThumbprint ? { signerThumbprint } : {}),
   };
 }
 
@@ -53,12 +56,39 @@ const EXPECTED_IDENTITY = Object.freeze({
 test("Windows update artifacts are pinned to the official filename and HTTPS download origin", () => {
   const artifact = artifactFor(Buffer.from("zip"));
   assert.deepEqual(validateWindowsUpdateArtifact(artifact, "0.3.0"), artifact);
+  const gravity = artifactFor(Buffer.from("zip"), "0.3.0", { payloadExeName: "GravityPort.exe" });
+  assert.deepEqual(validateWindowsUpdateArtifact(gravity, "0.3.0"), gravity);
   assert.equal(
     windowsUpdateDownloadUrl(artifact),
     "https://mosa.azhuilab.com/downloads/MOSA-win32-x64-0.3.0.zip",
   );
+  assert.equal(
+    windowsUpdateDownloadUrl(gravity),
+    "https://mosa.azhuilab.com/downloads/GravityPort-win32-x64-0.3.0.zip",
+  );
   assert.throws(() => validateWindowsUpdateArtifact({ ...artifact, file: "other.zip" }, "0.3.0"), /filename/);
   assert.throws(() => validateWindowsUpdateArtifact({ ...artifact, sha256: "bad" }, "0.3.0"), /SHA-256/);
+  // The payload exe name is whitelisted, rejects path separators and unknown
+  // values, and is bound to the package filename prefix.
+  assert.throws(() => validateWindowsUpdateArtifact({ ...artifact, payloadExeName: "Evil.exe" }, "0.3.0"), /payload executable/);
+  assert.throws(() => validateWindowsUpdateArtifact({ ...artifact, payloadExeName: "sub/MOSA.exe" }, "0.3.0"), /payload executable/);
+  assert.throws(() => validateWindowsUpdateArtifact({ ...artifact, payloadExeName: "sub\\MOSA.exe" }, "0.3.0"), /payload executable/);
+  assert.throws(() => validateWindowsUpdateArtifact({ ...artifact, payloadExeName: "GravityPort.exe" }, "0.3.0"), /filename/);
+  assert.equal(validateWindowsUpdateArtifact({ ...artifact, payloadExeName: " " }, "0.3.0").payloadExeName, "MOSA.exe");
+  // A signer thumbprint must be 40 hex digits; the manifest's casing is
+  // normalized so the helper compares consistently.
+  assert.equal(validateWindowsUpdateArtifact({ ...artifact, signerThumbprint: "ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34" }, "0.3.0").signerThumbprint, "AB12CD34AB12CD34AB12CD34AB12CD34AB12CD34");
+  assert.throws(() => validateWindowsUpdateArtifact({ ...artifact, signerThumbprint: "nothex" }, "0.3.0"), /thumbprint/);
+  assert.throws(() => windowsUpdateDownloadUrl({ file: "Evil-win32-x64-0.3.0.zip" }), /Unsafe/);
+});
+
+test("the installed exe name is whitelisted and anything else stops the update", () => {
+  assert.equal(windowsInstalledExeName("C:\\Users\\Example\\MOSA-win32-x64\\MOSA.exe"), "MOSA.exe");
+  assert.equal(windowsInstalledExeName("C:\\Users\\Example\\GravityPort\\GravityPort.exe"), "GravityPort.exe");
+  assert.equal(windowsInstalledExeName("C:\\Users\\Example\\MOSA-win32-x64\\Other.exe"), null);
+  assert.equal(windowsInstalledExeName("C:\\Users\\Example\\MOSA"), null);
+  assert.equal(windowsInstalledExeName(""), null);
+  assert.equal(windowsInstalledExeName("MOSA.exe"), "MOSA.exe");
 });
 
 test("Windows updater downloads to userData staging and verifies exact size plus SHA-256", async () => {
@@ -105,16 +135,33 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   assert.match(script, /Get-CimInstance -ClassName Win32_Process/);
   assert.match(script, /ExecutablePath/);
   assert.match(script, /\$transactionRoot = Join-Path \$parentDir/);
-  assert.match(script, /\$flatPayloadExe = Join-Path \$extractDir \$ExeName/);
-  assert.match(script, /\$nestedPayloadDir = Join-Path \$extractDir "MOSA-win32-x64"/);
+  // The current exe name and the payload exe name are modeled separately so a
+  // cross-name update can rename the payload while every relaunch path keeps
+  // the installed name.
+  assert.match(script, /\$oldExe = Join-Path \$InstallDir \$CurrentExeName/);
+  assert.match(script, /\$flatPayloadExe = Join-Path \$extractDir \$PayloadExeName/);
+  assert.match(script, /foreach \(\$nestedDirName in @\("MOSA-win32-x64", "GravityPort-win32-x64"\)\)/);
+  assert.match(script, /\$candidateExe = Join-Path \$candidateDir \$PayloadExeName/);
   assert.match(script, /if \(Test-Path -LiteralPath \$flatPayloadExe -PathType Leaf\)/);
-  assert.match(script, /elseif \(Test-Path -LiteralPath \$nestedPayloadExe -PathType Leaf\)/);
-  assert.match(script, /Get-AuthenticodeSignature -LiteralPath \$oldExe/);
+  assert.match(script, /elseif \(\(\$null -ne \$nestedPayloadExe\) -and \(Test-Path -LiteralPath \$nestedPayloadExe -PathType Leaf\)\)/);
+  assert.match(script, /if \(\$PayloadExeName -ne \$CurrentExeName\) \{/);
+  assert.match(script, /Rename-Item -LiteralPath \$payloadExe -NewName \$CurrentExeName -ErrorAction Stop/);
+  // Production trust is anchored to the manifest thumbprint; the installed
+  // signature only pins the publisher subject so renewed certificates keep
+  // updating, and an unsigned preview install may cross into production.
+  assert.match(script, /Production Windows updates require the release signer thumbprint\./);
+  assert.match(script, /function Get-MosaSignatureInfo \{/);
+  assert.match(script, /if \(\$SignatureProbe\) \{/);
+  assert.match(script, /& \$SignatureProbe \$LiteralPath/);
+  assert.match(script, /Get-AuthenticodeSignature -LiteralPath \$LiteralPath/);
+  assert.match(script, /Get-MosaSignatureInfo -LiteralPath \$oldExe/);
+  assert.match(script, /\$oldSignerSubject = \[string\]\$oldSignature\.Subject/);
   assert.match(script, /if \(\$ExpectedDistribution -eq 'production'\)/);
   assert.match(script, /\$signableFiles = @\(Get-ChildItem -LiteralPath \$payloadDir -Recurse -File/);
   assert.match(script, /foreach \(\$file in \$signableFiles\)/);
-  assert.match(script, /Get-AuthenticodeSignature -LiteralPath \$file\.FullName/);
+  assert.match(script, /Get-MosaSignatureInfo -LiteralPath \$file\.FullName/);
   assert.match(script, /signed by a different publisher/);
+  assert.match(script, /publisher changed between releases/);
   assert.match(script, /Move-MosaDirectoryWithRetry -LiteralPath \$InstallDir -Destination \$backupDir/);
   assert.match(script, /Move-MosaDirectoryWithRetry -LiteralPath \$payloadDir -Destination \$InstallDir/);
   assert.match(script, /Move-MosaDirectoryWithRetry -LiteralPath \$backupDir -Destination \$InstallDir/);
@@ -126,6 +173,7 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   assert.match(script, /nativeCode=\$nativeCode/);
   assert.match(script, /errorId=\$errorId/);
   assert.match(script, /--mosa-update-ready-file=/);
+  assert.match(script, /\$newExe = Join-Path \$InstallDir \$CurrentExeName/);
   assert.match(script, /Start-Process -FilePath \$newExe -WorkingDirectory \$InstallDir -ArgumentList @\(\$readyArgument\) -PassThru/);
   assert.doesNotMatch(script, /Start-Process -FilePath \$newExe[^\n]*-WindowStyle Hidden/);
   assert.doesNotMatch(script, /Start-Process -FilePath \$oldExe[^\n]*-WindowStyle Hidden/);
@@ -155,7 +203,8 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
     await launchWindowsUpdateHelper({
       zipPath,
       installDir: "C:\\Users\\Example\\MOSA-win32-x64",
-      exeName: "MOSA.exe",
+      currentExeName: "MOSA.exe",
+      payloadExeName: "MOSA.exe",
       version: "0.3.0",
       expectedIdentity: EXPECTED_IDENTITY,
       processId: 1234,
@@ -274,7 +323,8 @@ test("Windows update helper rejects when PowerShell cannot spawn", async () => {
     await assert.rejects(launchWindowsUpdateHelper({
       zipPath: join(root, "MOSA-win32-x64-0.3.0.zip"),
       installDir: "C:\\Users\\Example\\MOSA-win32-x64",
-      exeName: "MOSA.exe",
+      currentExeName: "MOSA.exe",
+      payloadExeName: "MOSA.exe",
       version: "0.3.0",
       expectedIdentity: EXPECTED_IDENTITY,
       processId: 1234,
@@ -297,7 +347,8 @@ test("Windows update helper handoff fails closed when PowerShell spawns but the 
     await assert.rejects(launchWindowsUpdateHelper({
       zipPath: join(root, "MOSA-win32-x64-0.3.0.zip"),
       installDir: "C:\\Users\\Example\\MOSA-win32-x64",
-      exeName: "MOSA.exe",
+      currentExeName: "MOSA.exe",
+      payloadExeName: "MOSA.exe",
       version: "0.3.0",
       expectedIdentity: EXPECTED_IDENTITY,
       processId: 1234,
@@ -322,7 +373,8 @@ test("Windows detached launcher creates the real updater through Win32_Process",
     processId: 1234,
     zipPath: "C:\\Users\\Example\\AppData\\Roaming\\mosa\\updates\\windows\\0.3.0\\MOSA-win32-x64-0.3.0.zip",
     installDir: "C:\\Users\\Example\\MOSA-win32-x64",
-    exeName: "MOSA.exe",
+    currentExeName: "MOSA.exe",
+    payloadExeName: "MOSA.exe",
     version: "0.3.0",
     expectedIdentity: EXPECTED_IDENTITY,
     logPath: "C:\\Users\\Example\\AppData\\Roaming\\mosa\\updates\\windows\\0.3.0\\apply-update-error.log",
@@ -334,11 +386,170 @@ test("Windows detached launcher creates the real updater through Win32_Process",
   assert.match(command, /Win32_Process\.Create failed with return value/);
   assert.match(command, /helper-launch-error\.log/);
   assert.match(command, /powershell\.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand/);
-  assert.match(command, /New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly/);
-  assert.match(command, /\$startup\.CreateFlags = \[uint32\]0x08000000/);
-  assert.match(command, /\$startup\.ShowWindow = 0/);
+  // The startup info must be passed at creation: a -ClientOnly instance
+  // rejects later property assignment (the rc.33/rc.34 launcher failed there).
+  // WMI rejects the undocumented CREATE_NO_WINDOW flag with return value 21.
+  assert.match(command, /New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @\{ ShowWindow = \[uint16\]0 \}/);
+  assert.doesNotMatch(command, /CreateFlags/);
+  assert.doesNotMatch(command, /\$startup\.ShowWindow =/);
   assert.match(command, /ProcessStartupInformation = \$startup/);
   assert.doesNotMatch(command, /Start-Process/);
+});
+
+test("the detached launcher passes the current and payload exe names plus the signer thumbprint", () => {
+  const command = windowsUpdateDetachedLauncherCommand({
+    scriptPath: "C:\\staging\\apply-update.ps1",
+    processId: 1234,
+    zipPath: "C:\\staging\\GravityPort-win32-x64-0.3.0.zip",
+    installDir: "C:\\Users\\Example\\MOSA-win32-x64",
+    currentExeName: "MOSA.exe",
+    payloadExeName: "GravityPort.exe",
+    signerThumbprint: "ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34",
+    signatureProbe: "C:\\test\\probe.ps1",
+    version: "0.3.0",
+    expectedIdentity: EXPECTED_IDENTITY,
+    logPath: "C:\\staging\\apply-update-error.log",
+    startedFile: "C:\\staging\\helper-started.txt",
+    readyFile: "C:\\staging\\update-ready.json",
+    launcherLogPath: "C:\\staging\\helper-launch-error.log",
+  });
+  // The helper arguments ride inside the -EncodedCommand payload, so decode
+  // before matching.
+  const encoded = command.match(/-EncodedCommand ([A-Za-z0-9+/=]+)/)[1];
+  const helperCommand = Buffer.from(encoded, "base64").toString("utf16le");
+  assert.match(helperCommand, /-CurrentExeName 'MOSA\.exe'/);
+  assert.match(helperCommand, /-PayloadExeName 'GravityPort\.exe'/);
+  assert.match(helperCommand, /-ExpectedSignerThumbprint 'AB12CD34AB12CD34AB12CD34AB12CD34AB12CD34'/);
+  assert.match(helperCommand, /-SignatureProbe 'C:\\test\\probe\.ps1'/);
+  // Packaged updates omit the option entirely instead of passing an empty one.
+  const packaged = windowsUpdateDetachedLauncherCommand({
+    scriptPath: "C:\\staging\\apply-update.ps1",
+    processId: 1234,
+    zipPath: "C:\\staging\\MOSA-win32-x64-0.3.0.zip",
+    installDir: "C:\\Users\\Example\\MOSA-win32-x64",
+    currentExeName: "MOSA.exe",
+    payloadExeName: "MOSA.exe",
+    version: "0.3.0",
+    expectedIdentity: EXPECTED_IDENTITY,
+    logPath: "C:\\staging\\apply-update-error.log",
+    startedFile: "C:\\staging\\helper-started.txt",
+    readyFile: "C:\\staging\\update-ready.json",
+    launcherLogPath: "C:\\staging\\helper-launch-error.log",
+  });
+  const packagedEncoded = packaged.match(/-EncodedCommand ([A-Za-z0-9+/=]+)/)[1];
+  assert.doesNotMatch(Buffer.from(packagedEncoded, "base64").toString("utf16le"), /-SignatureProbe/);
+  assert.throws(() => windowsUpdateDetachedLauncherCommand({
+    scriptPath: "C:\\staging\\apply-update.ps1",
+    processId: 1234,
+    zipPath: "C:\\staging\\MOSA-win32-x64-0.3.0.zip",
+    installDir: "C:\\Users\\Example\\MOSA-win32-x64",
+    currentExeName: "Evil.exe",
+    payloadExeName: "MOSA.exe",
+    version: "0.3.0",
+    expectedIdentity: EXPECTED_IDENTITY,
+    logPath: "C:\\staging\\apply-update-error.log",
+    startedFile: "C:\\staging\\helper-started.txt",
+    readyFile: "C:\\staging\\update-ready.json",
+    launcherLogPath: "C:\\staging\\helper-launch-error.log",
+  }), /current executable name/);
+});
+
+test("production updates require the manifest signer thumbprint before anything starts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-win-helper-prod-"));
+  try {
+    await assert.rejects(launchWindowsUpdateHelper({
+      zipPath: join(root, "MOSA-win32-x64-0.3.0.zip"),
+      installDir: "C:\\Users\\Example\\MOSA-win32-x64",
+      currentExeName: "MOSA.exe",
+      payloadExeName: "MOSA.exe",
+      version: "0.3.0",
+      expectedIdentity: { ...EXPECTED_IDENTITY, distribution: "production" },
+      processId: 1234,
+      spawnImpl: () => {
+        throw new Error("the helper must be rejected before any PowerShell spawn");
+      },
+    }), /require a release signer thumbprint/);
+    await assert.rejects(launchWindowsUpdateHelper({
+      zipPath: join(root, "MOSA-win32-x64-0.3.0.zip"),
+      installDir: "C:\\Users\\Example\\MOSA-win32-x64",
+      currentExeName: "MOSA.exe",
+      payloadExeName: "MOSA.exe",
+      signerThumbprint: "nothex",
+      version: "0.3.0",
+      expectedIdentity: { ...EXPECTED_IDENTITY, distribution: "production" },
+      processId: 1234,
+      spawnImpl: () => {
+        throw new Error("the helper must be rejected before any PowerShell spawn");
+      },
+    }), /thumbprint/);
+    // Preview updates keep working without a thumbprint.
+    await launchWindowsUpdateHelper({
+      zipPath: join(root, "MOSA-win32-x64-0.3.0.zip"),
+      installDir: "C:\\Users\\Example\\MOSA-win32-x64",
+      currentExeName: "MOSA.exe",
+      payloadExeName: "MOSA.exe",
+      version: "0.3.0",
+      expectedIdentity: EXPECTED_IDENTITY,
+      processId: 1234,
+      spawnImpl: () => {
+        const child = new EventEmitter();
+        child.unref = () => {};
+        child.kill = () => {};
+        queueMicrotask(() => child.emit("spawn"));
+        queueMicrotask(() => writeFile(join(root, "helper-started.txt"), "1\n"));
+        return child;
+      },
+    });
+  } finally {
+    await removeTestPath(root, { recursive: true, force: true });
+  }
+});
+
+test("the readiness file path never depends on the installed exe name", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mosa-win-helper-ready-"));
+  const launches = [];
+  try {
+    for (const currentExeName of ["MOSA.exe", "GravityPort.exe"]) {
+      launches.push(await launchWindowsUpdateHelper({
+        zipPath: join(root, "MOSA-win32-x64-0.3.0.zip"),
+        installDir: "C:\\Users\\Example\\MOSA-win32-x64",
+        currentExeName,
+        payloadExeName: "GravityPort.exe",
+        version: "0.3.0",
+        expectedIdentity: EXPECTED_IDENTITY,
+        processId: 1234,
+        spawnImpl: () => {
+          const child = new EventEmitter();
+          child.unref = () => {};
+          child.kill = () => {};
+          queueMicrotask(() => child.emit("spawn"));
+          queueMicrotask(() => writeFile(join(root, "helper-started.txt"), "1\n"));
+          return child;
+        },
+      }));
+    }
+    assert.equal(launches[0].readyFile, launches[1].readyFile);
+    assert.equal(launches[0].readyFile, join(root, "update-ready.json"));
+  } finally {
+    await removeTestPath(root, { recursive: true, force: true });
+  }
+});
+
+test("the packaged app never passes the signature-probe option", async () => {
+  const main = await readFile(new URL("../desktop/main.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(main, /signatureProbe/);
+  assert.doesNotMatch(main, /MOSA_UPDATE_SIGNATURE_PROBE/);
+});
+
+test("the apply script receives the probe as a parameter and never reads environment variables", () => {
+  const script = windowsUpdateHelperScript();
+  // The probe must arrive as a script parameter: the helper is started through
+  // Win32_Process.Create, which builds the environment from the registry, so
+  // an environment variable would both miss in tests and leak in from a
+  // user's machine settings.
+  assert.match(script, /\[AllowEmptyString\(\)\]\[string\]\$SignatureProbe = ''/);
+  assert.doesNotMatch(script, /MOSA_UPDATE_SIGNATURE_PROBE/);
+  assert.doesNotMatch(script, /\$env:/);
 });
 
 test("Windows helper handoff tolerates bootstrap exit zero while waiting for detached helper marker", async () => {
@@ -347,7 +558,8 @@ test("Windows helper handoff tolerates bootstrap exit zero while waiting for det
     await launchWindowsUpdateHelper({
       zipPath: join(root, "MOSA-win32-x64-0.3.0.zip"),
       installDir: "C:\\Users\\Example\\MOSA-win32-x64",
-      exeName: "MOSA.exe",
+      currentExeName: "MOSA.exe",
+      payloadExeName: "MOSA.exe",
       version: "0.3.0",
       expectedIdentity: EXPECTED_IDENTITY,
       processId: 1234,

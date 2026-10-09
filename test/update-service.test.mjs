@@ -170,6 +170,7 @@ test("update check compares the fixed HTTPS feed against the installed version",
   assert.deepEqual(result.windowsArtifact, {
     platform: "Windows",
     arch: "x64",
+    payloadExeName: "MOSA.exe",
     file: "MOSA-win32-x64-0.2.1.zip",
     size: 123456,
     sha256: "a".repeat(64),
@@ -189,6 +190,85 @@ test("update manifest rejects a Windows artifact that is not bound to the releas
       },
     },
   }), /artifact identity/);
+});
+
+test("Windows artifacts declare their payload executable name bound to the package prefix", () => {
+  const manifestFor = (file, payloadExeName) => parseUpdateManifest({
+    version: "0.3.0",
+    build: {
+      gitSha: "c".repeat(40),
+      uiFingerprint: "d".repeat(64),
+      runtimeFingerprint: "e".repeat(64),
+      distribution: "preview",
+    },
+    platforms: {
+      windows: {
+        platform: "Windows",
+        arch: "x64",
+        ...(payloadExeName ? { payloadExeName } : {}),
+        file,
+        size: 123,
+        sha256: "b".repeat(64),
+      },
+    },
+  }).windowsArtifact;
+
+  assert.deepEqual(manifestFor("MOSA-win32-x64-0.3.0.zip"), {
+    platform: "Windows",
+    arch: "x64",
+    payloadExeName: "MOSA.exe",
+    file: "MOSA-win32-x64-0.3.0.zip",
+    size: 123,
+    sha256: "b".repeat(64),
+  });
+  assert.deepEqual(manifestFor("GravityPort-win32-x64-0.3.0.zip", "GravityPort.exe"), {
+    platform: "Windows",
+    arch: "x64",
+    payloadExeName: "GravityPort.exe",
+    file: "GravityPort-win32-x64-0.3.0.zip",
+    size: 123,
+    sha256: "b".repeat(64),
+  });
+  // A payload exe name that disagrees with the filename prefix is refused, as
+  // are values outside the two-name whitelist and anything carrying a path
+  // separator.
+  assert.throws(() => manifestFor("GravityPort-win32-x64-0.3.0.zip"), /artifact identity/);
+  assert.throws(() => manifestFor("MOSA-win32-x64-0.3.0.zip", "Evil.exe"), /payload executable/);
+  assert.throws(() => manifestFor("MOSA-win32-x64-0.3.0.zip", "../MOSA.exe"), /payload executable/);
+  assert.throws(() => manifestFor("MOSA-win32-x64-0.3.0.zip", "sub/MOSA.exe"), /payload executable/);
+  assert.throws(() => manifestFor("MOSA-win32-x64-0.3.0.zip", "sub\\MOSA.exe"), /payload executable/);
+});
+
+test("Windows production manifests pin a signer thumbprint and preview may omit it", () => {
+  const manifestFor = (distribution, signerThumbprint) => parseUpdateManifest({
+    version: "0.3.0",
+    build: {
+      gitSha: "c".repeat(40),
+      uiFingerprint: "d".repeat(64),
+      runtimeFingerprint: "e".repeat(64),
+      distribution,
+    },
+    platforms: {
+      windows: {
+        platform: "Windows",
+        arch: "x64",
+        file: "MOSA-win32-x64-0.3.0.zip",
+        size: 123,
+        sha256: "b".repeat(64),
+        ...(signerThumbprint ? { signerThumbprint } : {}),
+      },
+    },
+  });
+
+  const production = manifestFor("production", "ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34");
+  assert.equal(production.buildIdentity.distribution, "production");
+  assert.equal(production.windowsArtifact.signerThumbprint, "AB12CD34AB12CD34AB12CD34AB12CD34AB12CD34");
+  assert.throws(() => manifestFor("production", ""), /signer thumbprint/);
+  assert.throws(() => manifestFor("production", undefined), /signer thumbprint/);
+  assert.throws(() => manifestFor("production", "nothex"), /signer thumbprint/);
+  assert.throws(() => manifestFor("production", "Z".repeat(40)), /signer thumbprint/);
+  assert.equal(manifestFor("preview", "").windowsArtifact.signerThumbprint, undefined);
+  assert.equal(manifestFor("preview", "AB12CD34AB12CD34AB12CD34AB12CD34AB12CD34").windowsArtifact.signerThumbprint, "AB12CD34AB12CD34AB12CD34AB12CD34AB12CD34");
 });
 
 test("update manifest rejects a macOS artifact that is not bound to the release version", () => {
