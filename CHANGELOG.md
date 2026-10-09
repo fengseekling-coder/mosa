@@ -4,6 +4,7 @@ This file records user-visible changes. Internal deployment notes, local paths, 
 
 ## Unreleased
 
+- New installations start their library in `~/GravityPort Library`; existing libraries keep their current location untouched (`~/MOSA Library` stays in use, and a library you moved via Settings → Storage & data keeps its saved location). When the recorded library location is broken, or the library it points to can't be found, the app now shows an error and stops instead of silently falling back to a default and creating an empty library.
 - Very wide images in the image viewer no longer cover the previous/next arrows: the picture area now keeps one arrow column clear on each side (44px button plus its 8px edge inset) at every aspect ratio, while portrait images look unchanged. Fullscreen reclaims the space since the arrows are hidden there.
 - Toast notifications are pill-shaped with a small icon on the left that tells the kind apart (success, error, plain info) instead of a colored edge, matching the new design's geometry (36px tall, fully rounded). Colors follow the existing theme tokens. Toasts with an "撤销" button keep working and are keyboard-operable.
 - The image viewer's fullscreen and the desktop window fullscreen are now the same thing: entering fullscreen from the viewer — or leaving window fullscreen with Esc, the menu, the green button, or ⌃⌘F — keeps both sides in sync; the window follows the viewer and the viewer follows the window. Outside the image viewer the menu's "进入全屏" still only fullscreens the window.

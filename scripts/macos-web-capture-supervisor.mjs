@@ -8,6 +8,9 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DEFAULT_MOSA_DESKTOP_PORT, normalizeMosaPort } from "../lib/runtime-defaults.mjs";
 import { probeMosaDesktopStartupHandoff } from "../lib/runtime-handoff.mjs";
+import { safeCanonical } from "../lib/runtime-isolation-guard.mjs";
+import { pathsEqual } from "../lib/path-safety.mjs";
+import { resolveLibraryLocation } from "../lib/library-location.mjs";
 import { verifyMosaRuntimeLockProcessIdentity } from "../lib/runtime-lock.js";
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -73,14 +76,14 @@ export function watchOwnedRuntimeSources({
 
 export async function probeMosaOwner({
   port = process.env.MOSA_PORT || DEFAULT_MOSA_DESKTOP_PORT,
-  libraryDir = process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"),
+  libraryDir = resolveLibraryLocation({ homeDir: homedir(), envLibraryDir: process.env.MOSA_LIBRARY_DIR }).libraryDir,
   fetchImpl = globalThis.fetch,
   timeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
   leaseProbe = () => probeRuntimeLease({ libraryDir }),
   handoffProbe = () => probeMosaDesktopStartupHandoff({ libraryDir }),
 } = {}) {
   const normalizedPort = normalizeMosaPort(port, { label: "MOSA supervisor port" });
-  const expectedLibraryDir = resolve(libraryDir);
+  const expectedLibraryDir = safeCanonical(libraryDir);
   const handoff = await handoffProbe().catch(() => ({ state: "unavailable" }));
   if (handoff.state === "handoff") return handoff;
   const controller = new AbortController();
@@ -97,7 +100,9 @@ export async function probeMosaOwner({
     if (health?.product !== "mosa" || typeof health.libraryDir !== "string") {
       return { state: "conflict", reason: "non-mosa-listener" };
     }
-    if (resolve(health.libraryDir) !== expectedLibraryDir) {
+    // Canonical comparison so a symlinked alias of the running library still
+    // matches (same semantics as the isolation guard).
+    if (!pathsEqual(safeCanonical(health.libraryDir), expectedLibraryDir)) {
       return { state: "conflict", reason: "different-library" };
     }
     return { state: "attached", health };
@@ -114,7 +119,7 @@ export async function probeMosaOwner({
 }
 
 export async function probeRuntimeLease({
-  libraryDir = process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"),
+  libraryDir = resolveLibraryLocation({ homeDir: homedir(), envLibraryDir: process.env.MOSA_LIBRARY_DIR }).libraryDir,
   readFileImpl = readFile,
   isProcessAlive = defaultIsProcessAlive,
   verifyProcessIdentity = verifyMosaRuntimeLockProcessIdentity,
@@ -136,7 +141,7 @@ export async function probeRuntimeLease({
 
 export function watchDesktopStartupHandoff({
   probe = () => probeMosaDesktopStartupHandoff({
-    libraryDir: process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library"),
+    libraryDir: resolveLibraryLocation({ homeDir: homedir(), envLibraryDir: process.env.MOSA_LIBRARY_DIR }).libraryDir,
   }),
   pollMs = DEFAULT_HANDOFF_POLL_MS,
 } = {}) {

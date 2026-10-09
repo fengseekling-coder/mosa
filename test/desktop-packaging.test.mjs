@@ -437,7 +437,17 @@ test("keeps the desktop window single-instance and sandboxed", async () => {
   assert.match(source, /startMosaService/);
   assert.match(source, /DEFAULT_MOSA_DESKTOP_PORT/);
   assert.match(source, /const desktopDataDir = app\.getPath\("userData"\)/);
-  assert.match(source, /const defaultLibraryDir = join\(userInfo\(\)\.homedir, "MOSA Library"\)/);
+  // Library location resolution moved into lib/library-location.mjs; the
+  // desktop shell passes userInfo().homedir (not homedir()) so sandboxed
+  // HOME rewrites cannot fork an empty library, and it must never spell a
+  // default folder itself. A location file that cannot be honored stops the
+  // app with the localized error dialog instead of silently falling back.
+  assert.match(source, /const homeDir = userInfo\(\)\.homedir;/);
+  assert.match(source, /resolveLibraryLocation\(\{[\s\S]*?homeDir,[\s\S]*?envLibraryDir: process\.env\.MOSA_LIBRARY_DIR,[\s\S]*?locationFile: LIBRARY_LOCATION_PATH/);
+  assert.doesNotMatch(source, /join\(userInfo\(\)\.homedir, "MOSA Library"\)/);
+  assert.doesNotMatch(source, /loadSavedLibraryDir/);
+  assert.match(source, /showLibraryLocationErrorAndExit/);
+  assert.match(source, /MOSA_LIBRARY_NOT_FOUND/);
   assert.doesNotMatch(source, /homedir\(\).*MOSA Library/);
   assert.match(source, /failOnPrimaryLibraryMismatch: true/);
   assert.match(source, /cowartProjectDir: desktopDataDir/);

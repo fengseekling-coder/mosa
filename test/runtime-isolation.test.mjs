@@ -251,8 +251,9 @@ describe("environment-only server startup isolation", () => {
     // Canonical assets/default hash before: we expect no writes on startup
     const managerAssetsBefore = await snapshotDirectory(join(repositoryRoot, "assets", "default"));
 
-    // Spawn server.mjs WITHOUT MOSA_LIBRARY_DIR. A fresh install should create
-    // SQLite under <temp>/MOSA Library rather than falling back to manager JSON.
+    // Spawn server.mjs WITHOUT MOSA_LIBRARY_DIR. A machine without any library
+    // starts fresh: the isolated home has neither default folder, so the new
+    // GravityPort Library is created (lib/library-location.mjs rules 3–5).
     const child = spawn(process.execPath, ["server.mjs"], {
       cwd: repositoryRoot,
       env: {
@@ -287,11 +288,11 @@ describe("environment-only server startup isolation", () => {
       library.libraryDir,
       "health.libraryDir must equal library-path.libraryDir",
     );
-    const expectedEffectiveLibraryDir = join(tempHome, "MOSA Library");
+    const expectedEffectiveLibraryDir = join(tempHome, "GravityPort Library");
     assert.equal(
       health.libraryDir,
       expectedEffectiveLibraryDir,
-      "fresh default library must live under the isolated home",
+      "a machine without any library must start fresh in the new default under the isolated home",
     );
     assert.equal(health.storage, "sqlite");
     assert.equal(library.storage, "sqlite");

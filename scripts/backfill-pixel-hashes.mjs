@@ -8,8 +8,9 @@
  *   node scripts/backfill-pixel-hashes.mjs [--apply] [--library <path>] [--project <id>]
  */
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
+import { resolveLibraryLocation } from "../lib/library-location.mjs";
 import { PIXEL_HASH_VERSION, safePixelDigest } from "../lib/image-pixel-hash.js";
 
 const options = parseArgs(process.argv.slice(2));
@@ -94,7 +95,7 @@ async function pixelDigest(imagePath) {
 function parseArgs(argv) {
   const parsed = {
     apply: false,
-    library: resolve(process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library")),
+    library: resolveLibraryLocation({ homeDir: homedir(), envLibraryDir: process.env.MOSA_LIBRARY_DIR }).libraryDir,
     project: process.env.MOSA_PROJECT_ID || "default",
   };
   const values = [...argv];
