@@ -51,7 +51,8 @@ test("R21 light-theme tokens and the shared shell sizes land in web styles", asy
     assert.match(css, new RegExp(`${name.replace(/-/g, "\\-")}: ${value.replace(".", "\\.")};`), `${name} must be ${value}`);
   }
   // 基础字号 12px。
-  assert.match(css, /body \{ overflow: hidden;[^}]*font: 12px\/1\.5 var\(--font-family-ui\)/, "body base font-size must be the R21 12px");
+  assert.match(css, /body \{ overflow: hidden;[^}]*font: var\(--text-sm\)\/1\.5 var\(--font-family-ui\)/, "body base font-size must come from the spec v1 --text-sm token");
+  assert.match(css, /--text-sm: 12px;/, "body base font-size must stay 12px");
 });
 
 test("R21 sidebar: light background, brand, nav items and group headings", async () => {
