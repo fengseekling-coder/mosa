@@ -8,6 +8,11 @@ export const PAGE_HELPERS = String.raw`
   const rendererErrors = [];
   window.addEventListener('error', (event) => rendererErrors.push(String(event.error?.stack || event.message || event.error || 'renderer error')));
   window.addEventListener('unhandledrejection', (event) => rendererErrors.push(String(event.reason?.stack || event.reason || 'unhandled rejection')));
+  // CI 诊断：记录窗口尺寸变化（Windows 跑器疑似中途把窗口压到屏幕宽）。
+  const viewportChanges = [];
+  window.addEventListener('resize', () => {
+    if (viewportChanges.length < 12) viewportChanges.push([Math.round(performance.now()), window.innerWidth, window.innerHeight]);
+  });
   function pageDiagnostic() {
     return {
       cardCount: document.querySelectorAll('.asset-card').length,
@@ -19,6 +24,18 @@ export const PAGE_HELPERS = String.raw`
       toast: document.querySelector('.toast-message, .toast')?.textContent || '',
       statusText: document.querySelector('#statusText')?.textContent || '',
       rendererErrors: rendererErrors.slice(0, 3),
+      viewport: {
+        inner: [window.innerWidth, window.innerHeight],
+        outer: [window.outerWidth, window.outerHeight],
+        screen: [window.screen?.width, window.screen?.height],
+        avail: [window.screen?.availWidth, window.screen?.availHeight],
+        visibility: document.visibilityState,
+        focused: document.hasFocus(),
+        changes: viewportChanges,
+      },
+      toastQueue: (() => {
+        try { return window.__mosaToastDebug?.() ?? null; } catch { return null; }
+      })(),
     };
   }
   async function waitFor(check, label, timeoutMs = 15000) {
@@ -37,7 +54,12 @@ export const PAGE_HELPERS = String.raw`
   }
   function click(selector) {
     const element = document.querySelector(selector);
-    if (!element) throw new Error('Missing control ' + selector);
+    if (!element) {
+      // 任务 100：browse-sort-filter 在 macOS CI 偶发找不到侧栏来源项，带上侧栏现状。
+      const sidebarItems = [...document.querySelectorAll('#sidebarGroupList .nav-item')]
+        .map((item) => (item.dataset.filter || '') + ':' + (item.dataset.value || '')).slice(0, 20);
+      throw new Error('Missing control ' + selector + ' diagnostic=' + JSON.stringify({ ...pageDiagnostic(), sidebarItems }));
+    }
     if (element.disabled) throw new Error('Disabled control ' + selector);
     element.click();
     return element;

@@ -240,7 +240,7 @@ function sessionOneSource(expect) {
       await waitFor(() => document.querySelector('#detailPanel')?.getAttribute('aria-hidden') === 'true', 'inspector closes with rAF frozen');
       const frozen = sizeGroupState();
       if (frozen.hidden === true || Math.abs(Number.parseFloat(frozen.left || 'NaN') - frozen.centerInBar) > 0.75) {
-        throw new Error('window-centered left must land synchronously with rAF frozen: ' + JSON.stringify({ before, frozen }));
+        throw new Error('window-centered left must land synchronously with rAF frozen: ' + JSON.stringify({ before, frozen, diagnostic: pageDiagnostic() }));
       }
     } finally {
       window.requestAnimationFrame = realRaf;
@@ -252,6 +252,12 @@ function sessionOneSource(expect) {
     const trackCount = () => getComputedStyle(gridElement()).gridTemplateColumns.split(/\\s+/).filter(Boolean).length;
     // 布局稳定门：连续两次采样的卡片几何一致（瀑布流重排在 rAF 里落地）。
     async function waitForCardLayoutStable(label) {
+      // 任务 100：瀑布流重排排在下一帧（scheduleMasonryLayout）。先等两帧真的跑完再
+      // 采样——Windows CI 的隐藏窗口会把帧攒着，只等 120ms 会把旧布局误判成稳定。
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('nav-history-and-gallery-size: no animation frame ran within 10s after ' + label)), 10000);
+        requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(timer); resolve(); }));
+      });
       let previous = '';
       for (let attempt = 0; attempt < 40; attempt += 1) {
         await sleep(120);
@@ -294,6 +300,15 @@ function sessionOneSource(expect) {
         overlaps,
         sliderValue: document.querySelector('#gallerySizeSlider').value,
       };
+      // CI 诊断：行不完整时带回首行几何、轨道和滚动条占位，区分「少卡」和「间距不对」。
+      if (!rowComplete) {
+        step.firstRow = firstRow.map((rect) => [rect.left, rect.right, rect.top].map((n) => Math.round(n * 100) / 100));
+        step.tracks = getComputedStyle(grid).gridTemplateColumns;
+        step.gridWidths = [grid.offsetWidth, grid.clientWidth, grid.scrollWidth];
+        step.scroller = (() => { const el = grid.closest('.gallery-scroll, .main-content, main') || document.scrollingElement; return el ? [el.className || el.tagName, el.offsetWidth, el.clientWidth] : null; })();
+        step.cardCount = rects.length;
+        step.innerWidth = window.innerWidth;
+      }
       facts.sliderSteps.push(step);
       return step;
     }
