@@ -341,8 +341,8 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
 test("styles. picker and recipe-change styling stay within the Phase 4B boundary", async () => {
   const css = await readCss();
 
-  assert.match(css, /\.version-picker \{ display: grid; gap: 8px; margin-bottom: 10px; \}/, "picker layout uses the 8px grid");
-  assert.match(css, /\.recipe-change-field \{ margin-top: 8px; \}/, "recipe-change field matches version-change spacing");
+  assert.match(css, /\.version-picker \{ display: grid; gap: var\(--sp-2\); margin-bottom: var\(--sp-2\); \}/, "picker layout uses the 8px grid");
+  assert.match(css, /\.recipe-change-field \{ margin-top: var\(--sp-2\); \}/, "recipe-change field matches version-change spacing");
   assert.match(css, /\.version-current, \.version-archived \{[^}]*font-size: var\(--text-xs\);/, "version badges stay at the 11px --text-xs floor (was 9px type)");
   assert.match(css, /\.version-content time \{ color: var\(--color-text-tertiary\); font-size: var\(--text-xs\); \}/, "version timestamps stay at the 11px --text-xs floor (was 9px type)");
   const versionArea = sliceBetween(css, "/* 版本历史 */", "/* 配方快照 */");

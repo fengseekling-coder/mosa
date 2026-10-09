@@ -170,7 +170,7 @@ test("15-18. overlay levels and retired selection-bar residue", async () => {
   assert.match(css, /\.selection-active \.asset-card \.card-action-btn/,
     "selection-active keeps its surviving duty: hiding card action buttons during multi-select");
   // Off-state keeps only the regular breathing room — no residual selection padding.
-  assert.match(blockAfter(css, ".grid {"), /padding: var\(--space-2\) 20px var\(--space-3\)/);
+  assert.match(blockAfter(css, ".grid {"), /padding: var\(--sp-4\) var\(--sp-5\) var\(--sp-6\)/);
   assert.doesNotMatch(css, /\.grid\.batch-active\b|\.batch-bar\b/,
     "retired batch-bar states must not survive beside selection-active");
 });

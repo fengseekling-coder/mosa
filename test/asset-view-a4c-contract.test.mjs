@@ -102,8 +102,8 @@ test("3. viewer action buttons and stage arrows follow the mock geometry", async
   assert.match(slice, /<button class="asset-view-action" id="assetViewFullscreen" type="button">/, "fullscreen action button");
   const actions = blockAfter(css, ".asset-view-action {");
   assert.match(actions, /height: 24px/, "mock button height 24");
-  assert.match(actions, /border-radius: var\(--radius-control\)/, "mock radius 8 via token");
-  assert.match(blockAfter(css, ".asset-view-actions {"), /gap: 4px/, "mock inter-button gap 4");
+  assert.match(actions, /border-radius: var\(--radius-md\)/, "mock radius 8 via token");
+  assert.match(blockAfter(css, ".asset-view-actions {"), /gap: var\(--sp-1\)/, "mock inter-button gap 4");
   // 左右箭头：沿用 prev/next id（绑定/焦点兜底/禁用语义全保留），44×44 命中区。
   assert.match(slice, /class="asset-view-arrow asset-view-arrow-prev" id="assetViewPrev" type="button"/, "prev arrow keeps its id");
   assert.match(slice, /class="asset-view-arrow asset-view-arrow-next" id="assetViewNext" type="button"/, "next arrow keeps its id");

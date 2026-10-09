@@ -185,7 +185,7 @@ test("settings dialog keeps scroll containment, thumb mechanics and material fal
   // web-r21-settings 锁定；这里只锁与几何无关的结构行为，全部取 web 现值。
   const css = await readFile(resolve(root, "web/app/styles.css"), "utf8");
 
-  assert.match(css, /\.mosa-v2 \.settings-menu \{[\s\S]*?padding: 24px;[\s\S]*?backdrop-filter: blur\(18px\)/,
+  assert.match(css, /\.mosa-v2 \.settings-menu \{[\s\S]*?padding: var\(--sp-6\);[\s\S]*?backdrop-filter: blur\(18px\)/,
     "the modal scrim uses grid-aligned padding and a restrained material blur");
   assert.match(css, /\.mosa-v2 \.settings-modal-body \{ min-height: 0; flex: 1 1 auto; overflow-y: auto;/,
     "the settings body scrolls within the card so the final About and update controls remain reachable");
