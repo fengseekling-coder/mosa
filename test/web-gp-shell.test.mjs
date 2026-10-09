@@ -16,10 +16,10 @@ const readWebCss = () => readFile(resolve(repositoryRoot, "web/app/styles.css"),
 
 test("GravityPort shell width tokens land in web styles", async () => {
   const css = await readWebCss();
-  assert.match(css, /--sidebar-width: 280px;/, "--sidebar-width must be the GravityPort 280px");
-  assert.match(css, /--sidebar-width-narrow: 240px;/, "--sidebar-width-narrow must be the GravityPort 240px");
-  assert.match(css, /--inspector-width: 320px;/, "--inspector-width must be the GravityPort 320px");
-  assert.match(css, /--inspector-width-compact: 320px;/, "--inspector-width-compact must be the GravityPort 320px");
+  assert.match(css, /--sidebar-width: 220px;/, "--sidebar-width must be the spec-table v1 220px (was GravityPort 280px)");
+  assert.match(css, /--sidebar-width-narrow: 200px;/, "--sidebar-width-narrow must be the spec-table v1 200px (was GravityPort 240px)");
+  assert.match(css, /--inspector-width: 280px;/, "--inspector-width must be the spec-table v1 280px (was GravityPort 320px)");
+  assert.match(css, /--inspector-width-compact: 280px;/, "--inspector-width-compact must be the spec-table v1 280px (was GravityPort 320px)");
   // 旧宽度不允许再出现在任何 token 赋值里。
   assert.doesNotMatch(css, /--sidebar-width:\s*216px|--sidebar-width-narrow:\s*208px|--inspector-width:\s*344px|--inspector-width-compact:\s*340px;/);
 });

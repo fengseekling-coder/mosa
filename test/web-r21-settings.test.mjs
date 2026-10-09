@@ -140,7 +140,7 @@ test("A5 settings geometry: 960x728 card, 240px sidebar, 36px tabs and rows at 7
   assert.match(header, /height: 60px;/);
   assert.match(header, /margin: 0 40px;/);
   const title = lastBlock(css, ".mosa-v2 .settings-modal-header h2");
-  assert.match(title, /font-size: 16px;/);
+  assert.match(title, /font-size: var\(--text-xl\);/, "「设置」大标题归 --text-xl（规范表 v1，16px 原值升 18px 档）");
   const main = lastBlock(css, ".mosa-v2 .settings-modal-main");
   assert.match(main, /background: var\(--app-bg\);/);
   const close = lastBlock(css, ".mosa-v2 .settings-modal-close");
@@ -150,7 +150,7 @@ test("A5 settings geometry: 960x728 card, 240px sidebar, 36px tabs and rows at 7
   assert.match(tab, /height: 36px;/);
   assert.match(tab, /padding: 0 8px;/);
   assert.match(tab, /border-radius: var\(--inspector-radius-sm\);/);
-  assert.match(tab, /font-size: 16px;/);
+  assert.match(tab, /font-size: var\(--text-md\);/);
   const row = lastBlock(css, ".mosa-v2 .settings-group .settings-modal-row");
   assert.match(row, /min-height: 72px;/);
   assert.match(row, /padding: 20px 0;/);
@@ -163,7 +163,7 @@ test("A5 settings geometry: 960x728 card, 240px sidebar, 36px tabs and rows at 7
   const body_ = lastBlock(css, ".mosa-v2 .settings-modal-body");
   assert.match(body_, /padding: 0 40px 24px;/);
   const rowTitle = lastBlock(css, ".mosa-v2 .settings-row-copy h4");
-  assert.match(rowTitle, /font-size: 16px;/);
+  assert.match(rowTitle, /font-size: var\(--text-md\);/);
   const textAction = lastBlock(css, ".mosa-v2 .settings-text-action");
   assert.match(textAction, /min-height: 32px;/);
   assert.match(textAction, /padding: 0 16px;/);
@@ -172,7 +172,7 @@ test("A5 settings geometry: 960x728 card, 240px sidebar, 36px tabs and rows at 7
   assert.match(pathBox, /height: 32px;/);
   assert.match(pathBox, /border-radius: 8px;/);
   const path = lastBlock(css, ".mosa-v2 .settings-path");
-  assert.match(path, /font-size: 11px;/);
+  assert.match(path, /font-size: var\(--text-xs\);/);
   assert.match(path, /max-width: 100%;/);
   assert.match(path, /text-overflow: ellipsis;/);
 });
@@ -186,7 +186,7 @@ test("new surface split and segmented track use tokens or already-existing light
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.settings-nav-tab\.active \{\n  color: #202024;\n  background: #ececef;\n\}/);
   // 灰底上的分段轨道：沿用既有浅色值，补既有值 #e2e2e5 的描边让轨道在灰底可辨。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.settings-menu \.segmented \{\n  border: 1px solid #e2e2e5;\n  background: #f1f1f3;\n\}/);
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.settings-menu \.segmented-btn\.active \{[^}]*color: #303035;[^}]*background: #fff;[^}]*font-weight: 590;[^}]*box-shadow: 0 0 0 1px #e2e2e5 inset;/);
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.settings-menu \.segmented-btn\.active \{[^}]*color: #303035;[^}]*background: #fff;[^}]*font-weight: var\(--weight-medium\);[^}]*box-shadow: 0 0 0 1px #e2e2e5 inset;/);
   // 深色不得出现这些浅色值。
   assert.doesNotMatch(css, /\[data-theme="dark"\][^\n]*#f1f1f3/);
 });
@@ -209,7 +209,12 @@ test("every font size added by this task stays at or above the 10px floor", asyn
   const marker = css.indexOf("R21 设置弹窗");
   assert.notEqual(marker, -1, "the task 25 block must exist");
   const added = css.slice(marker);
-  const sizes = [...added.matchAll(/font-size: (\d+(?:\.\d+)?)px/g)].map((match) => Number(match[1]));
+  // 规范表 v1（任务 104）后字号走 :root 变量，这里解析 token 实际值再做下限校验。
+  const tokens = new Map([...css.matchAll(/(--text-(?:xs|sm|md|lg|xl)):\s*(\d+(?:\.\d+)?)px/g)].map((m) => [m[1], Number(m[2])]));
+  const sizes = [
+    ...[...added.matchAll(/font-size: (\d+(?:\.\d+)?)px/g)].map((match) => Number(match[1])),
+    ...[...added.matchAll(/font-size: var\((--text-(?:xs|sm|md|lg|xl))\)/g)].map((match) => tokens.get(match[1])),
+  ];
   assert.ok(sizes.length >= 10, `expected the task's font sizes to be pinned (got ${sizes.length})`);
   for (const size of sizes) {
     assert.ok(size >= 10, `every added font-size must stay >= 10px (got ${size}px)`);
@@ -373,16 +378,21 @@ test("theme preview cards lock the R21 swatches, hover lift and the check-mark s
   assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-nav,\n\.mosa-v2 \.settings-theme-card\[data-appearance-opt="system"\] \.settings-theme-half-dark \.settings-theme-nav \{\n  background: #18181c;\n\}/);
   assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-canvas,\n\.mosa-v2 \.settings-theme-card\[data-appearance-opt="system"\] \.settings-theme-half-dark \.settings-theme-canvas \{\n  background: #101013;\n\}/);
   assert.match(css, /\.mosa-v2 \.settings-theme-card\[data-appearance-opt="dark"\] \.settings-theme-grid i,\n\.mosa-v2 \.settings-theme-card\[data-appearance-opt="system"\] \.settings-theme-half-dark \.settings-theme-grid i \{\n  background: #313138;\n\}/);
-  // 标签 16px/600 居中（任务 81 稿子）；文字色只在浅色作用域；新字号 ≥10px。
+  // 标签 13px（--text-md）/600（--weight-semibold）居中（任务 81 稿子 + 规范表 v1）；文字色只在浅色作用域；新字号 ≥10px。
   const label = lastBlock(css, ".mosa-v2 .settings-theme-label");
-  assert.match(label, /font-size: 16px;/);
-  assert.match(label, /font-weight: 600;/);
+  assert.match(label, /font-size: var\(--text-md\);/);
+  assert.match(label, /font-weight: var\(--weight-semibold\);/);
   assert.match(label, /text-align: center;/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.settings-theme-label \{\n  color: #2a2a2e;\n\}/);
   const marker = css.indexOf("任务 42");
   assert.notEqual(marker, -1, "the task 42 block must exist");
   const added = css.slice(marker);
-  const sizes = [...added.matchAll(/font-size: (\d+(?:\.\d+)?)px/g)].map((match) => Number(match[1]));
+  // 规范表 v1（任务 104）后字号走 :root 变量，这里解析 token 实际值再做下限校验。
+  const tokens = new Map([...css.matchAll(/(--text-(?:xs|sm|md|lg|xl)):\s*(\d+(?:\.\d+)?)px/g)].map((m) => [m[1], Number(m[2])]));
+  const sizes = [
+    ...[...added.matchAll(/font-size: (\d+(?:\.\d+)?)px/g)].map((match) => Number(match[1])),
+    ...[...added.matchAll(/font-size: var\((--text-(?:xs|sm|md|lg|xl))\)/g)].map((match) => tokens.get(match[1])),
+  ];
   assert.ok(sizes.length >= 1, "expected task 42 font sizes to be pinned");
   for (const size of sizes) {
     assert.ok(size >= 10, `task 42 font sizes must stay >= 10px (got ${size}px)`);

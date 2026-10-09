@@ -47,18 +47,18 @@ test("section titles read as 12px/16 heads with copy buttons in .copy grey", asy
   const head = lastBlock(css, ".mosa-v2 .detail .detail-prompt-head");
   assert.match(head, /height: 16px;/);
   assert.match(head, /margin-bottom: 4px;/);
-  // 返工 1:区块小标题照稿 10px(区块头高度 16 保持不变)。
+  // 返工 1:区块小标题照稿 10px(区块头高度 16 保持不变)；规范表 v1 收敛到 --text-xs(11px)。
   const title = lastBlock(css, ".mosa-v2 .detail .detail-prompt-head h3");
-  assert.match(title, /font-size: 10px;/);
-  assert.match(title, /line-height: 16px;/);
+  assert.match(title, /font-size: var\(--text-xs\);/);
+  assert.match(title, /line-height: var\(--text-xs-lh\);/);
   const subhead = lastBlock(css, ".mosa-v2 .detail .detail-prompt-subhead");
   assert.match(subhead, /height: 16px;/);
   assert.match(subhead, /margin-top: var\(--r21-s5\);/);
   const subheadTitle = lastBlock(css, ".mosa-v2 .detail .detail-prompt-subhead h4");
-  assert.match(subheadTitle, /font-size: 10px;/);
+  assert.match(subheadTitle, /font-size: var\(--text-xs\);/);
   const disclosure = lastBlock(css, ".mosa-v2 .detail .detail-disclosure > summary");
-  assert.match(disclosure, /font-size: 10\.5px;/);
-  assert.match(disclosure, /font-weight: 590;/);
+  assert.match(disclosure, /font-size: var\(--text-xs\);/);
+  assert.match(disclosure, /font-weight: var\(--weight-medium\);/);
   // 任务 43：小标题随 AA 加深 #8d8d93 → #707076（面板 #fbfbfc 上 4.76:1）。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-prompt-head h3, \.detail-prompt-subhead h4, \.detail-source-summary > span, \.detail-disclosure > summary, \.detail-fields \.field > span\) \{\n  color: #707076;\n\}/);
   // 任务 41：复制按钮带文字后按 AA 校色——R21 稿 #929297 只有 2.99:1，加深为 #6e6e73
@@ -69,7 +69,7 @@ test("section titles read as 12px/16 heads with copy buttons in .copy grey", asy
   assert.match(icon, /height: 12px;/);
   // A4a：区块头右侧「查看」按钮沿用复制按钮的浅/深色。
   const view = lastBlock(css, ".mosa-v2 .detail .detail-section-view");
-  assert.match(view, /font-size: 10px;/, "查看 follows the 10px floor (返工 1)");
+  assert.match(view, /font-size: var\(--text-xs\);/, "查看 follows the --text-xs floor (返工 1, 规范表 v1)");
   assert.match(css, /:root\[data-theme="dark"\] \.mosa-v2 \.detail \.detail-section-view \{ color: #d1d1d6; \}/);
 });
 
@@ -97,7 +97,7 @@ test("prompt tabs render as 40×12-class chips with the 2px radius and 4px gap",
   assert.match(toggle, /height: 12px;/);
   assert.match(toggle, /padding: 0 5px;/);
   assert.match(toggle, /border-radius: 2px;/);
-  assert.match(toggle, /font-size: 10px;/);
+  assert.match(toggle, /font-size: var\(--text-xs\);/);
   const active = lastBlock(css, ".mosa-v2 .detail .detail-prompt-head .detail-prompt-toggle.is-active");
   assert.match(active, /border-color: var\(--color-text-primary\);/, "the active tab keeps a token border");
 });
@@ -110,11 +110,11 @@ test("prompt and instruction boxes are fixed 120px tall with the 4px radius", as
   const instruction = lastBlock(css, ".mosa-v2 .detail .detail-instruction-box");
   assert.match(instruction, /height: 120px; min-height: 120px; max-height: 120px;/);
   assert.match(instruction, /margin-top: 4px;/);
-  // 返工 1：照稿字号 10px、行高 14px（内边距 12 沿用）。
+  // 返工 1：照稿字号 10px、行高 14px（内边距 12 沿用）；规范表 v1 收敛到 --text-xs/--text-xs-lh（值仍 11/14）。
   const typography = lastBlock(css, ".mosa-v2 .detail .detail-prompt-box,\n.mosa-v2 .detail .detail-instruction-box");
   assert.match(typography, /padding: var\(--r21-s3\);/);
-  assert.match(typography, /font-size: 10px;/);
-  assert.match(typography, /line-height: 14px;/);
+  assert.match(typography, /font-size: var\(--text-xs\);/);
+  assert.match(typography, /line-height: var\(--text-xs-lh\);/);
   const light = /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-prompt-box,\n:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-instruction-box \{[^}]*\}/.exec(css)?.[0];
   assert.match(light, /border-color: transparent;/);
   assert.match(light, /background: #f3f3f5;/);
@@ -172,16 +172,16 @@ test("version context rows are 40px tall with 40×40 thumbnails and 4px rhythm",
   assert.match(thumb, /border-radius: 4px;/);
   assert.match(thumb, /border: 0;/, "the thumb is a true 40×40 (the shared class's 1px border is reset in this box)");
   const model = lastBlock(css, ".mosa-v2 .detail .detail-version-context-model");
-  assert.match(model, /font-size: 10px;/, "version context rows follow the 10px floor (返工 1)");
+  assert.match(model, /font-size: var\(--text-xs\);/, "version context rows follow the --text-xs floor (返工 1, 规范表 v1)");
   assert.match(model, /text-overflow: ellipsis;/);
-  assert.match(model, /line-height: 13px;/, "13px line pitch ×3 fills the 40px row for the conversation lines");
-  // 任务 75：对话模式的三行小字列与轮次/合计行（同 10px 字号下限、省略号截断）。
+  assert.match(model, /line-height: var\(--text-xs-lh\);/, "14px line pitch ×3 fills the 40px row for the conversation lines");
+  // 任务 75：对话模式的三行小字列与轮次/合计行（同 --text-xs 字号下限、省略号截断）。
   const lines = lastBlock(css, ".mosa-v2 .detail .detail-version-context-lines");
   assert.match(lines, /flex-direction: column;/);
   assert.match(lines, /justify-content: center;/);
   const turn = lastBlock(css, ".mosa-v2 .detail .detail-version-context-turn,\n.mosa-v2 .detail .detail-version-context-total");
-  assert.match(turn, /font-size: 10px;/);
-  assert.match(turn, /line-height: 13px;/);
+  assert.match(turn, /font-size: var\(--text-xs\);/);
+  assert.match(turn, /line-height: var\(--text-xs-lh\);/);
   assert.match(turn, /text-overflow: ellipsis;/);
   const current = lastBlock(css, ".mosa-v2 .detail .detail-version-context-current");
   assert.match(current, /color: var\(--color-accent\);/, "the current-asset marker uses the accent token");
@@ -206,7 +206,7 @@ test("source facts render as an R21 context card with an equal-split action row"
   assert.match(tableLight, /border-color: #e7e7ea;/);
   assert.match(tableLight, /background: #fafafa;/);
   const metaKey = lastBlock(css, ".mosa-v2 .detail .detail-source-content .meta-key");
-  assert.match(metaKey, /font-size: 10px;/);
+  assert.match(metaKey, /font-size: var\(--text-xs\);/);
   const metaVal = lastBlock(css, ".mosa-v2 .detail .detail-source-content .meta-val");
   assert.match(metaVal, /text-align: right;/, "source values must right-align like R21 context-facts");
   assert.match(metaVal, /overflow-wrap: normal;/, "source values must stay single-line with ellipsis");
@@ -223,7 +223,7 @@ test("source facts render as an R21 context card with an equal-split action row"
   const navBtn = lastBlock(css, ".mosa-v2 .detail .generation-navigation .action-btn");
   assert.match(navBtn, /min-height: 28px;/);
   assert.match(navBtn, /border-radius: var\(--inspector-radius-sm\);/);
-  assert.match(navBtn, /font-size: 10px;/);
+  assert.match(navBtn, /font-size: var\(--text-xs\);/);
   const navBtnLight = /:root\[data-theme="light"\] \.mosa-v2 \.detail \.generation-navigation \.action-btn \{[^}]*\}/.exec(css)?.[0];
   assert.match(navBtnLight, /background: #ececef;/);
   assert.match(navBtnLight, /color: #606066;/);
@@ -234,27 +234,27 @@ test("version area unifies to the 10-10.5px scale with 12px row pitch and 8px ra
   const timeline = lastBlock(css, ".mosa-v2 .detail .version-timeline");
   assert.match(timeline, /gap: var\(--r21-s3\);/, "version rows must sit 12px apart");
   const single = lastBlock(css, ".mosa-v2 .detail .version-single strong");
-  assert.match(single, /font-size: 10\.5px;/);
+  assert.match(single, /font-size: var\(--text-xs\);/);
   const picker = lastBlock(css, ".mosa-v2 .detail .version-picker select");
   assert.match(picker, /border-radius: var\(--inspector-radius-sm\);/);
-  assert.match(picker, /font-size: 10\.5px;/);
+  assert.match(picker, /font-size: var\(--text-xs\);/);
   const compareSelect = lastBlock(css, ".mosa-v2 .detail .version-compare-controls select");
   assert.match(compareSelect, /height: 32px;/);
   assert.match(compareSelect, /border-radius: var\(--inspector-radius-sm\);/);
   const compareGrid = lastBlock(css, ".mosa-v2 .detail .version-compare-grid");
   assert.match(compareGrid, /border-radius: var\(--inspector-radius-sm\);/);
   const compareHead = lastBlock(css, ".mosa-v2 .detail .version-compare-head strong");
-  assert.match(compareHead, /font-size: 10px;/);
+  assert.match(compareHead, /font-size: var\(--text-xs\);/);
   const compareRow = lastBlock(css, ".mosa-v2 .detail .version-compare-row > span");
-  assert.match(compareRow, /font-size: 10px;/);
+  assert.match(compareRow, /font-size: var\(--text-xs\);/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.version-single strong, \.version-summary-label strong\) \{\n  color: var\(--color-accent\);\n\}/);
 });
 
 test("recipe form controls are 32px tall, 8px radii, borderless in light mode", async () => {
   const css = await readWebCss();
   const label = lastBlock(css, ".mosa-v2 .detail .detail-fields .field > span");
-  assert.match(label, /font-size: 10\.5px;/);
-  assert.match(label, /font-weight: 590;/);
+  assert.match(label, /font-size: var\(--text-xs\);/);
+  assert.match(label, /font-weight: var\(--weight-medium\);/);
   const input = lastBlock(css, ".mosa-v2 .detail .detail-fields input");
   assert.match(input, /height: 32px;/);
   assert.match(input, /padding: 0 var\(--r21-s3\);/);
@@ -278,12 +278,12 @@ test("the pathbar pill is 36px tall with an 18px radius and token chrome", async
   const path = lastBlock(css, ".mosa-v2 .detail .detail-pathbar-path");
   assert.match(path, /text-overflow: ellipsis;/);
   assert.match(path, /white-space: nowrap;/);
-  // 返工 1:胶囊文字照稿——「素材路径」14px、路径 10px、「打开」12px。
+  // 返工 1:胶囊文字照稿——「素材路径」14px、路径 10px、「打开」12px；规范表 v1 归档为 md/xs/sm。
   const label = lastBlock(css, ".mosa-v2 .detail .detail-pathbar-label");
-  assert.match(label, /font-size: 14px;/);
-  assert.match(path, /font-size: 10px;/);
+  assert.match(label, /font-size: var\(--text-md\);/);
+  assert.match(path, /font-size: var\(--text-xs\);/);
   const openBtn = lastBlock(css, ".mosa-v2 .detail .detail-pathbar-open");
-  assert.match(openBtn, /font-size: 12px;/);
+  assert.match(openBtn, /font-size: var\(--text-sm\);/);
   const open = lastBlock(css, ".mosa-v2 .detail .detail-pathbar-open");
   assert.match(open, /min-height: 24px;/);
   assert.match(css, /\.mosa-v2 \.detail \.detail-pathbar-open:disabled \{ opacity: \.4; cursor: default; \}/);
@@ -318,7 +318,13 @@ test("every font size added by this task stays at or above the 10px floor", asyn
   const marker = css.indexOf("R21 检视器主体");
   assert.notEqual(marker, -1, "the task 24 block must exist");
   const added = css.slice(marker);
-  const sizes = [...added.matchAll(/font-size: (\d+(?:\.\d+)?)px/g)].map((match) => Number(match[1]));
+  // 规范表 v1（任务 104）后字号走 :root 变量，这里解析 token 实际值再做下限校验。
+  const tokens = new Map([...css.matchAll(/--text-(?:xs|sm|md|lg|xl):\s*(\d+(?:\.\d+)?)px/g)].map((m) => [m[0].match(/--text-[\w-]+/)[0], Number(m[1])]));
+  assert.ok(tokens.size >= 5, `the spec-table font tokens must exist (got ${tokens.size})`);
+  const sizes = [
+    ...[...added.matchAll(/font-size: (\d+(?:\.\d+)?)px/g)].map((match) => Number(match[1])),
+    ...[...added.matchAll(/font-size: var\((--text-(?:xs|sm|md|lg|xl))\)/g)].map((match) => tokens.get(match[1])),
+  ];
   assert.ok(sizes.length >= 20, `expected the task's font sizes to be pinned (got ${sizes.length})`);
   for (const size of sizes) {
     assert.ok(size >= 10, `every added font-size must stay >= 10px (got ${size}px)`);

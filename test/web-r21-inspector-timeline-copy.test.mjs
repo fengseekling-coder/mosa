@@ -93,18 +93,18 @@ test("timeline dots, three-column grid and per-column type are locked", async ()
 
   const strong = lastBlock(css, ".mosa-v2 .detail .version-title strong");
   assert.match(strong, /font-family: var\(--font-family-mono\);/);
-  assert.match(strong, /font-weight: 650;/);
+  assert.match(strong, /font-weight: var\(--weight-semibold\);/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \.version-title strong \{\n  color: #58585e;\n\}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \.version-timeline-item\.selected \.version-title strong \{\n  color: var\(--color-accent\);\n\}/);
 
   const change = lastBlock(css, ".mosa-v2 .detail .version-change");
   assert.match(change, /display: flex;/);
   assert.match(change, /flex-wrap: wrap;/, "the description must wrap, badges riding along");
-  assert.match(change, /line-height: 1\.4;/);
+  assert.match(change, /line-height: var\(--text-xs-lh\);/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \.version-change \{\n  color: #64646a;\n\}/);
 
   const time = lastBlock(css, ".mosa-v2 .detail .version-content time");
-  assert.match(time, /font-size: 10px;/);
+  assert.match(time, /font-size: var\(--text-xs\);/);
   assert.match(time, /white-space: nowrap;/);
   assert.match(time, /text-align: right;/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \.version-content time \{\n  color: #67676d;\n\}/);
@@ -133,7 +133,7 @@ test("copy buttons carry a text label while keeping the full accessible name", a
 
 test("textful copy buttons adopt the R21 .copy metrics", async () => {
   const css = await readWebCss();
-  assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-head \.section-head-copy,\n\.mosa-v2 \.detail \.detail-copy-sub,\n\.mosa-v2 \.detail \.detail-source-copy \.section-head-copy \{\n  display: inline-flex;\n  width: auto;\n  min-width: 0;\n  flex: 0 0 auto;\n  gap: var\(--r21-s1\);\n  align-items: center;\n  padding: 0 var\(--inspector-space-2\);\n  font-size: 10px;\n  font-weight: 450;\n\}/);
+  assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-head \.section-head-copy,\n\.mosa-v2 \.detail \.detail-copy-sub,\n\.mosa-v2 \.detail \.detail-source-copy \.section-head-copy \{\n  display: inline-flex;\n  width: auto;\n  min-width: 0;\n  flex: 0 0 auto;\n  gap: var\(--r21-s1\);\n  align-items: center;\n  padding: 0 var\(--inspector-space-2\);\n  font-size: var\(--text-xs\);\n  font-weight: var\(--weight-regular\);\n\}/);
   const svg = lastBlock(css, ".mosa-v2 .detail .detail-prompt-head .section-head-copy svg");
   assert.match(svg, /flex: 0 0 auto;/);
   // 浅色文字 AA（#6e6e73，4.90:1 于 #fbfbfc）——由 web-r21-inspector-body 锁同一规则块。
@@ -161,7 +161,12 @@ test("task-41 colours stay in the light scope and new font sizes stay at or abov
   assert.notEqual(start, -1, "the task 41 blocks must exist");
   assert.ok(start < end, "the task 41 blocks must precede the settings block");
   const added = css.slice(start, end);
-  const sizes = [...added.matchAll(/font-size: (\d+(?:\.\d+)?)px/g)].map((match) => Number(match[1]));
+  // 规范表 v1（任务 104）后字号走 :root 变量，这里解析 token 实际值再做下限校验。
+  const tokens = new Map([...css.matchAll(/(--text-(?:xs|sm|md|lg|xl)):\s*(\d+(?:\.\d+)?)px/g)].map((m) => [m[1], Number(m[2])]));
+  const sizes = [
+    ...[...added.matchAll(/font-size: (\d+(?:\.\d+)?)px/g)].map((match) => Number(match[1])),
+    ...[...added.matchAll(/font-size: var\((--text-(?:xs|sm|md|lg|xl))\)/g)].map((match) => tokens.get(match[1])),
+  ];
   assert.ok(sizes.length >= 4, `expected the task's font sizes to be pinned (got ${sizes.length})`);
   for (const size of sizes) {
     assert.ok(size >= 10, `every font-size in the task 41 range must stay >= 10px (got ${size}px)`);

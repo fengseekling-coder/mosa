@@ -24,9 +24,9 @@ function functionSlice(source, name) {
   return source.slice(start, next === -1 ? source.length : next);
 }
 
-test("R21 inspector frame: 320px width token, light panel colours, 28px scroll-end padding", async () => {
+test("R21 inspector frame: 280px width token, light panel colours, 28px scroll-end padding", async () => {
   const css = await readWebCss();
-  assert.match(css, /--inspector-width: 320px;/, "--inspector-width must be the GravityPort 320px");
+  assert.match(css, /--inspector-width: 280px;/, "--inspector-width must be the spec-table v1 280px (was GravityPort 320px)");
   // GravityPort A1 去掉检视器左边线：外框新颜色只覆盖浅色底色；深色继续走既有 token 规则。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \{ background: #fbfbfc; \}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail-inspector-header \{ border-bottom-color: #e7e7ea; \}/);
@@ -35,15 +35,15 @@ test("R21 inspector frame: 320px width token, light panel colours, 28px scroll-e
   assert.match(css, /\.mosa-v2 \.detail-inspector-scroll \{[\s\S]*?padding: 0 0 var\(--r21-s7\);/);
 });
 
-test("R21 inspector header: 64px height, 16px title (A4a 返工 1), 28x28 round close button", async () => {
+test("R21 inspector header: topbar token height, 15px title (A4a 返工 1 + 规范表 v1), 28x28 round close button", async () => {
   const css = await readWebCss();
   const header = /\.mosa-v2 \.detail-inspector-header \{[^}]*\}/.exec(css)?.[0];
   assert.ok(header, "the V2 header rule must exist");
-  assert.match(header, /min-height: var\(--topbar-height\);/, "the header must share the 64px topbar token");
-  // 稿子标题 16px(V2 基础块仍写 14px,A4a 后置覆盖块抬到 16)。
-  assert.match(css, /\.mosa-v2 \.detail \.detail-inspector-header > span \{ font-size: 16px; \}/);
-  assert.match(header, /font-size: 14px;/);
-  assert.match(header, /font-weight: 640;/);
+  assert.match(header, /min-height: var\(--topbar-height\);/, "the header must share the topbar token (48px, 规范表 v1)");
+  // 稿子标题 16px(V2 基础块仍写 14px,A4a 后置覆盖块抬到 16)；规范表 v1 归 lg(15px)。
+  assert.match(css, /\.mosa-v2 \.detail \.detail-inspector-header > span \{ font-size: var\(--text-lg\); \}/);
+  assert.match(header, /font-size: var\(--text-md\);/);
+  assert.match(header, /font-weight: var\(--weight-semibold\);/);
   const close = /\.mosa-v2 \.detail-inspector-header \.detail-close \{[^}]*\}/.exec(css)?.[0];
   assert.match(close, /width: 28px;/);
   assert.match(close, /height: 28px;/);
@@ -63,9 +63,9 @@ test("A4a head layout: 130px square preview left, meta column right, icon-only s
   assert.ok(miniBlocks.at(-1).includes("width: 130px;"), "the preview tile is 130px wide");
   assert.ok(miniBlocks.at(-1).includes("border-radius: 0;"), "the design preview has no corner radius");
   assert.match(css, /\.mosa-v2 \.detail \.asset-mini img\.detail-image,\n\.mosa-v2 \.detail \.asset-mini video\.detail-image \{ object-fit: cover; \}/);
-  // A4a：字号抬到 17px 在后置覆盖块里，650 字重与两行截断仍在基础块。
-  assert.match(css, /\.mosa-v2 \.detail \.asset-name-row h3 \{[^}]*font-weight: 650;[^}]*-webkit-line-clamp: 2;/);
-  assert.match(css, /\.mosa-v2 \.detail \.asset-name-row h3 \{ font-size: 16px; line-height: 20px; \}/);
+  // A4a：字号抬到 17px 在后置覆盖块里，650 字重与两行截断仍在基础块；规范表 v1 归 lg/semibold。
+  assert.match(css, /\.mosa-v2 \.detail \.asset-name-row h3 \{[^}]*font-weight: var\(--weight-semibold\);[^}]*-webkit-line-clamp: 2;/);
+  assert.match(css, /\.mosa-v2 \.detail \.asset-name-row h3 \{ font-size: var\(--text-lg\); line-height: var\(--text-lg-lh\); \}/);
   // A4a：头部「打开原始对话」按钮随来源信息区块一并拿掉。
   assert.doesNotMatch(css, /\.detail-overview-open/, "the head open-conversation button style must not come back");
 });
@@ -99,16 +99,22 @@ test("web title copy is 素材详情 / Asset details", async () => {
 
 test("every font size added by this task stays at or above the 10px floor", async () => {
   const css = await readWebCss();
-  const rules = {
-    "header title": /\.mosa-v2 \.detail-inspector-header \{[^}]*font-size: (\d+(?:\.\d+)?)px;/,
-    "head title": /\.mosa-v2 \.detail \.asset-name-row h3 \{ font-size: (\d+(?:\.\d+)?)px; line-height: \d+px; \}/,
-    "source line": /\.mosa-v2 \.detail \.asset-kind \{[^}]*font-size: (\d+(?:\.\d+)?)px;/,
-    "fact key": /\.mosa-v2 \.detail \.head-facts \.meta-key \{[^}]*font-size: (\d+(?:\.\d+)?)px;/,
-    "fact value": /\.mosa-v2 \.detail \.head-facts \.meta-val \{[^}]*font-size: (\d+(?:\.\d+)?)px;/,
-  };
-  for (const [label, pattern] of Object.entries(rules)) {
-    const size = Number(pattern.exec(css)?.[1]);
-    assert.ok(size >= 10, `${label} font-size must stay >= 10px (got ${size}px)`);
+  // 规范表 v1（任务 104）后字号走 :root 变量，这里解析 token 实际值再做下限校验。
+  const tokens = new Map([...css.matchAll(/(--text-(?:xs|sm|md|lg|xl)):\s*(\d+(?:\.\d+)?)px/g)].map((m) => [m[1], Number(m[2])]));
+  assert.ok(tokens.size >= 5, `the spec-table font tokens must exist (got ${tokens.size})`);
+  const pxOf = (raw) => (raw.startsWith("var(") ? tokens.get(raw.match(/--text-[\w-]+/)[0]) : Number(raw.replace("px", "")));
+  const rules = [
+    ["header title", /\.mosa-v2 \.detail-inspector-header \{[^}]*font-size: ((?:var\(--text-(?:xs|sm|md|lg|xl)\))|(?:\d+(?:\.\d+)?px));/],
+    ["head title", /\.mosa-v2 \.detail \.asset-name-row h3 \{ font-size: ((?:var\(--text-(?:xs|sm|md|lg|xl)\))|(?:\d+(?:\.\d+)?px)); line-height: /],
+    ["source line", /\.mosa-v2 \.detail \.asset-kind \{[^}]*font-size: ((?:var\(--text-(?:xs|sm|md|lg|xl)\))|(?:\d+(?:\.\d+)?px));/],
+    ["fact key", /\.mosa-v2 \.detail \.head-facts \.meta-key \{[^}]*font-size: ((?:var\(--text-(?:xs|sm|md|lg|xl)\))|(?:\d+(?:\.\d+)?px));/],
+    ["fact value", /\.mosa-v2 \.detail \.head-facts \.meta-val \{[^}]*font-size: ((?:var\(--text-(?:xs|sm|md|lg|xl)\))|(?:\d+(?:\.\d+)?px));/],
+  ];
+  for (const [label, pattern] of rules) {
+    const raw = pattern.exec(css)?.[1];
+    assert.ok(raw, `${label} rule must exist`);
+    const px = pxOf(raw);
+    assert.ok(px >= 10, `${label} font-size must stay >= 10px (got ${px}px)`);
   }
 });
 
@@ -126,8 +132,8 @@ test("the last-declared header rules carry the R21 values (cascade order)", asyn
   assert.match(header, /padding: 0 20px;/, "the last header rule carries the A4a 20px side padding");
   assert.match(css, /\.mosa-v2 \.detail-inspector-header \{[^}]*background: transparent;/, "the V2 base keeps the transparent header background");
   const title = lastBlock(".mosa-v2 .detail-inspector-header > span");
-  assert.match(title, /font-size: 14px;/);
-  assert.match(title, /font-weight: 640;/);
+  assert.match(title, /font-size: var\(--text-md\);/);
+  assert.match(title, /font-weight: var\(--weight-semibold\);/);
   const close = lastBlock(".mosa-v2 .detail-inspector-header .detail-close");
   assert.match(close, /width: 28px;/);
   assert.match(close, /height: 28px;/);
