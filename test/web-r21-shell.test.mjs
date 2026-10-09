@@ -39,9 +39,9 @@ test("R21 light-theme tokens and the shared shell sizes land in web styles", asy
   const dark = css.slice(darkStart, darkEnd);
   assert.match(dark, /--app-bg: #1c1c1e;/, "dark --app-bg must stay untouched");
   assert.match(dark, /--color-text-primary: #f5f5f7;/, "dark --color-text-primary must stay untouched");
-  // 共享 shell 尺寸 token。
-  assert.match(css, /--topbar-height: 64px;/, "--topbar-height must be the R21 64px");
-  assert.match(css, /--sidebar-width: 280px;/, "--sidebar-width must be the GravityPort 280px");
+  // 共享 shell 尺寸 token（规范表 v1：顶栏 64→48、侧栏 280→220）。
+  assert.match(css, /--topbar-height: 48px;/, "--topbar-height must be the spec-table v1 48px");
+  assert.match(css, /--sidebar-width: 220px;/, "--sidebar-width must be the spec-table v1 220px");
   // R21 4px 结构网格阶梯（--mosa-s* 改名 --r21-*）。
   for (const [name, value] of [
     ["--r21-s1", "4px"], ["--r21-s2", "8px"], ["--r21-s3", "12px"], ["--r21-s4", "16px"],
@@ -59,26 +59,26 @@ test("R21 sidebar: light background, brand, nav items and group headings", async
   // GravityPort A1 去掉侧栏右边线：浅色只覆盖背景；深色继续走 .mosa-v2 .sidebar 里的 token。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.sidebar \{ background: #fbfbfc; \}/);
   assert.match(css, /\.mosa-v2 \.sidebar \{[^}]*background: rgb\(from var\(--app-sidebar\)/, "the dark fallback must keep the token-driven background");
-  // 品牌区：与顶栏同高（token=64）、GravityPort A2 起文字靠右（右内边距 20）、
-  // 名称 18px / 字重 500。
+  // 品牌区：与顶栏同高（token=48，规范表 v1）、GravityPort A2 起文字靠右（右内边距 20）、
+  // 名称 15px（--text-lg）/ 字重 500（--weight-medium）。
   const brand = blockAfter(css, ".mosa-v2 .brand {");
   assert.match(brand, /height: var\(--topbar-height\);/);
   assert.match(brand, /justify-content: flex-end;/);
   assert.match(brand, /padding: 0 20px;/);
-  assert.match(css, /\.mosa-v2 \.brand-info h1 \{ color: var\(--color-text-primary\); font-size: 18px; font-weight: 500;/);
-  // 导航区：上下结构不变，左右 20（GravityPort A2，项宽 280−40=240），品牌区到第一项 16；导航项间距 4。
+  assert.match(css, /\.mosa-v2 \.brand-info h1 \{ color: var\(--color-text-primary\); font-size: var\(--text-lg\); font-weight: var\(--weight-medium\);/);
+  // 导航区：上下结构不变，左右 20（GravityPort A2，项宽 220−40=180），品牌区到第一项 16；导航项间距 4。
   assert.match(css, /\.mosa-v2 \.primary-nav \{ padding: 16px 20px 10px; \}/);
   assert.match(css, /\.mosa-v2 \.nav-list \{ gap: var\(--r21-s1\); \}/);
-  // 导航项：高 36、圆角 8、内边距 0 12（设置按钮与加号按钮共用这条圆角）。
-  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 36px; border-radius: 8px;/);
-  assert.match(css, /\.mosa-v2 \.nav-item \{ padding: 0 12px; font-size: 13px; \}/);
-  assert.match(css, /\.mosa-v2 \.settings-trigger \{ width: 100%; justify-content: flex-start; gap: 8px; padding: 0 12px; font-size: 14px; \}/);
-  // 选中导航项：字重 570，浅色底 #ececef。
-  assert.match(css, /\.mosa-v2 \.nav-item\.active \{ color: var\(--color-text-primary\); background: var\(--app-chip-active\); font-weight: 570; \}/);
+  // 导航项：高 28（规范表 v1 36→28）、圆角 8、内边距 0 12（设置按钮与加号按钮共用这条圆角）。
+  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 28px; border-radius: 8px;/);
+  assert.match(css, /\.mosa-v2 \.nav-item \{ padding: 0 12px; font-size: var\(--text-md\); \}/);
+  assert.match(css, /\.mosa-v2 \.settings-trigger \{ width: 100%; justify-content: flex-start; gap: 8px; padding: 0 12px; font-size: var\(--text-md\); \}/);
+  // 选中导航项：字重 500（570 归档 --weight-medium），浅色底 #ececef。
+  assert.match(css, /\.mosa-v2 \.nav-item\.active \{ color: var\(--color-text-primary\); background: var\(--app-chip-active\); font-weight: var\(--weight-medium\); \}/);
   // 浅色的灰色字色规则特异性高于 .nav-item.active，选中项必须在同一特异性下把字色改回主文字色。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.nav-item\.active \{ background: #ececef; color: var\(--color-text-primary\); \}/);
-  // 分组标题：12px / 600（GravityPort A2）；浅色不再有写死字色（任务 50 删除），回落到基础规则的 tertiary token。
-  assert.match(css, /\.mosa-v2 \.nav-label \{ margin: 18px 0 6px; padding: 0 12px; color: var\(--color-text-tertiary\); font-size: 12px; font-weight: 600;/);
+  // 分组标题：12px（--text-sm）/ 600（--weight-semibold）（GravityPort A2）；浅色不再有写死字色（任务 50 删除），回落到基础规则的 tertiary token。
+  assert.match(css, /\.mosa-v2 \.nav-label \{ margin: 18px 0 6px; padding: 0 12px; color: var\(--color-text-tertiary\); font-size: var\(--text-sm\); font-weight: var\(--weight-semibold\);/);
   assert.doesNotMatch(css, /:root\[data-theme="light"\] \.mosa-v2 \.nav-label \{/);
   // 分组之间的间距 24（GravityPort A2）。
   assert.match(css, /\.mosa-v2 \.sidebar-group-heading \{ display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin: var\(--r21-s6\) 10px 2px; \}/);
@@ -128,9 +128,9 @@ test("R21 topbar: nav history buttons, size slider, sort control and search box"
   // 范围，共用 32px 规则和顶栏以外用到这些类的地方不动。
   assert.match(css, /\.mosa-v2 \.topbar-actions \.toolbar-filter, \.mosa-v2 \.topbar-actions \.toolbar-icon, \.mosa-v2 \.topbar-actions \.sort-control select, \.mosa-v2 \.topbar-actions \.topbar-search \{ height: 24px; \}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.sort-control select \{ background: #f4f4f5; \}/);
-  // 搜索框：宽 152、高 32（--control-sm）、浅色底 #f4f4f5。
+  // 搜索框：宽 152、高 24（--control-sm，规范表 v1 32→24）、浅色底 #f4f4f5。
   assert.match(css, /\.mosa-v2 \.topbar-search \{ flex: 0 1 144px; width: 144px; \}/);
   assert.match(css, /\.topbar-search \{ display: flex; box-sizing: border-box; min-width: 0; flex: 0 1 256px; align-items: center; gap: 8px; width: 256px; height: var\(--control-sm\);/);
-  assert.match(css, /--control-sm: 32px;/);
+  assert.match(css, /--control-sm: 24px;/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.topbar-search \{ background: #f4f4f5; \}/);
 });
