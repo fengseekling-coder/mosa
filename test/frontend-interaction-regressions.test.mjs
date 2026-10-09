@@ -209,7 +209,7 @@ test("sidebar smart and manual groups collapse independently and keep compact na
   assert.match(app, /function setSidebarSectionCollapsed\(section, collapsed\)/);
   assert.match(app, /function startSidebarGroupCreate\(\) \{[\s\S]*?setSidebarSectionCollapsed\("manual", false\)/);
   assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 28px;/);
-  assert.match(css, /\.mosa-v2 \.sidebar-group-list \{ gap: var\(--r21-s1\);/);
+  assert.match(css, /\.mosa-v2 \.sidebar-group-list \{ gap: var\(--sp-1\);/);
   assert.match(css, /\.mosa-v2 \.sidebar-section-toggle\[aria-expanded="false"\] \.sidebar-section-chevron \{ transform: rotate\(-90deg\); \}/);
 });
 

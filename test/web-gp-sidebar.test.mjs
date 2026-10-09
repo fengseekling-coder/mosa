@@ -40,7 +40,7 @@ test("brand row: GravityPort in h1, sidebar aria-label and <title>; subtitle kep
   // 品牌行与顶栏同高、靠右、右内边距 20px；文字 18px / 500 / 字距 0。
   const brand = blockAfter(css, ".mosa-v2 .brand {");
   assert.match(brand, /justify-content: flex-end;/, "brand content must right-align");
-  assert.match(brand, /padding: 0 20px;/, "brand right padding must be 20px");
+  assert.match(brand, /padding: 0 var\(--sp-5\);/, "brand right padding must be 20px");
   assert.match(brand, /height: var\(--topbar-height\);/, "brand row height must stay the topbar token");
   assert.match(css, /\.mosa-v2 \.brand-info h1 \{ color: var\(--color-text-primary\); font-size: var\(--text-lg\); font-weight: var\(--weight-medium\); line-height: var\(--text-lg-lh\); letter-spacing: 0; \}/);
   // 靠右之后不再需要为三色按钮让位：margin-left 补偿规则必须删干净。
@@ -56,25 +56,25 @@ test("primary navigation order: all → unorganized → favorite → trash", asy
 
 test("nav items: 28px height, 8px radius, 4px gap, 20px nav side padding, 12px item padding", async () => {
   const css = await readCss();
-  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 28px; border-radius: 8px;/);
-  assert.match(css, /\.mosa-v2 \.primary-nav \{ padding: 16px 20px 10px; \}/, "nav side padding must be 20px (item width 220 − 40 = 180)");
-  assert.match(css, /\.mosa-v2 \.nav-list \{ gap: var\(--r21-s1\); \}/, "fixed-entry gap must stay the 4px step");
-  assert.match(css, /\.mosa-v2 \.sidebar-group-list \{ gap: var\(--r21-s1\);/, "group item gap must be the 4px step too");
-  assert.match(css, /\.mosa-v2 \.nav-item \{ padding: 0 12px; font-size: var\(--text-md\); \}/, "nav items keep 12px inner padding; all nav rows read 13px (--text-md)");
+  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 28px; border-radius: var\(--radius-md\);/);
+  assert.match(css, /\.mosa-v2 \.primary-nav \{ padding: var\(--sp-4\) var\(--sp-5\) var\(--sp-2\); \}/, "nav side padding must be 20px (item width 220 − 40 = 180)");
+  assert.match(css, /\.mosa-v2 \.nav-list \{ gap: var\(--sp-1\); \}/, "fixed-entry gap must stay the 4px step");
+  assert.match(css, /\.mosa-v2 \.sidebar-group-list \{ gap: var\(--sp-1\);/, "group item gap must be the 4px step too");
+  assert.match(css, /\.mosa-v2 \.nav-item \{ padding: 0 var\(--sp-3\); font-size: var\(--text-md\); \}/, "nav items keep 12px inner padding; all nav rows read 13px (--text-md)");
   assert.match(css, /\.mosa-v2 \.nav-list \.nav-item \{ font-size: var\(--text-md\); \}/, "fixed entries read 13px too (--text-md, 规范表 v1 统一导航字号)");
   assert.match(css, /\.mosa-v2 \.nav-count \{ color: var\(--color-text-tertiary\); font-size: var\(--text-sm\); font-weight: var\(--weight-regular\);/, "counts read 12px / weight 400 (was 300, 规范表 v1 字重归档)");
   // 选中态底色与左侧 2px 指示条规则保留（v2 中维持现状隐藏）。
   assert.match(css, /\.nav-item\.active::before \{ content: ""; position: absolute; top: 6px; left: 0; width: 2px;/, "the 2px active indicator rule must survive");
   // 底部不再有分隔线。
   assert.doesNotMatch(css, /^\.sidebar-footer \{[^}]*border-top/m, "the base sidebar footer must not draw a top border");
-  assert.match(css, /\.mosa-v2 \.sidebar-footer \{ padding: 12px 20px; border-top: 0; \}/, "the footer must keep the 20px side padding and no border");
+  assert.match(css, /\.mosa-v2 \.sidebar-footer \{ padding: var\(--sp-3\) var\(--sp-5\); border-top: 0; \}/, "the footer must keep the 20px side padding and no border");
 });
 
 test("group headings: 12px/600 labels and 24px space above heading rows", async () => {
   const css = await readCss();
-  assert.match(css, /\.mosa-v2 \.nav-label \{ margin: 18px 0 6px; padding: 0 12px; color: var\(--color-text-tertiary\); font-size: var\(--text-sm\); font-weight: var\(--weight-semibold\);/);
-  assert.match(css, /\.mosa-v2 \.sidebar-group-heading \{ display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin: var\(--r21-s6\) 10px 2px; \}/, "heading rows sit 24px (--r21-s6) below the previous block");
-  assert.match(css, /\.mosa-v2 \.sidebar-manual-group-heading \{ margin-top: var\(--r21-s6\); \}/);
+  assert.match(css, /\.mosa-v2 \.nav-label \{ margin: var\(--sp-4\) 0 var\(--sp-1h\); padding: 0 var\(--sp-3\); color: var\(--color-text-tertiary\); font-size: var\(--text-sm\); font-weight: var\(--weight-semibold\);/);
+  assert.match(css, /\.mosa-v2 \.sidebar-group-heading \{ display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin: var\(--sp-6\) var\(--sp-2\) var\(--sp-half\); \}/, "heading rows sit 24px (--sp-6) below the previous block");
+  assert.match(css, /\.mosa-v2 \.sidebar-manual-group-heading \{ margin-top: var\(--sp-6\); \}/);
 });
 
 test("Chinese letter-spacing applies only under html[lang^=zh]; English stays 0", async () => {

@@ -130,15 +130,15 @@ test("A5 settings geometry: 960x728 card, 240px sidebar, 36px tabs and rows at 7
   assert.match(card, /grid-template-columns: 240px minmax\(0, 1fr\);/);
   assert.match(card, /width: min\(960px, 100%\);/);
   assert.match(card, /height: min\(728px, calc\(100dvh - 48px\)\);/);
-  assert.match(card, /border-radius: 32px;/);
+  assert.match(card, /border-radius: var\(--radius-lg\);/);
   const sidebar = lastBlock(css, ".mosa-v2 .settings-modal-sidebar");
-  assert.match(sidebar, /padding: 0 20px 20px;/);
+  assert.match(sidebar, /padding: 0 var\(--sp-5\) var\(--sp-5\);/);
   assert.match(sidebar, /background: var\(--app-sidebar\);/);
   const brand = lastBlock(css, ".mosa-v2 .settings-modal-brand");
   assert.match(brand, /height: 60px;/);
   const header = lastBlock(css, ".mosa-v2 .settings-modal-header");
   assert.match(header, /height: 60px;/);
-  assert.match(header, /margin: 0 40px;/);
+  assert.match(header, /margin: 0 var\(--sp-10\);/);
   const title = lastBlock(css, ".mosa-v2 .settings-modal-header h2");
   assert.match(title, /font-size: var\(--text-xl\);/, "「设置」大标题归 --text-xl（规范表 v1，16px 原值升 18px 档）");
   const main = lastBlock(css, ".mosa-v2 .settings-modal-main");
@@ -148,12 +148,12 @@ test("A5 settings geometry: 960x728 card, 240px sidebar, 36px tabs and rows at 7
   assert.match(close, /height: 28px;/);
   const tab = lastBlock(css, ".mosa-v2 .settings-nav-tab");
   assert.match(tab, /height: 36px;/);
-  assert.match(tab, /padding: 0 8px;/);
-  assert.match(tab, /border-radius: var\(--inspector-radius-sm\);/);
+  assert.match(tab, /padding: 0 var\(--sp-2\);/);
+  assert.match(tab, /border-radius: var\(--radius-md\);/);
   assert.match(tab, /font-size: var\(--text-md\);/);
   const row = lastBlock(css, ".mosa-v2 .settings-group .settings-modal-row");
   assert.match(row, /min-height: 72px;/);
-  assert.match(row, /padding: 20px 0;/);
+  assert.match(row, /padding: var\(--sp-5\) 0;/);
   const rowSeparator = lastBlock(css, ".mosa-v2 .settings-group .settings-modal-row:not(:last-child)");
   assert.match(rowSeparator, /border-bottom: 1px solid var\(--color-border-subtle\);/);
   const segmented = lastBlock(css, ".mosa-v2 .settings-menu .segmented");
@@ -161,16 +161,16 @@ test("A5 settings geometry: 960x728 card, 240px sidebar, 36px tabs and rows at 7
   assert.match(segmented, /height: 32px;/);
   assert.match(segmented, /padding: 0;/);
   const body_ = lastBlock(css, ".mosa-v2 .settings-modal-body");
-  assert.match(body_, /padding: 0 40px 24px;/);
+  assert.match(body_, /padding: 0 var\(--sp-10\) var\(--sp-6\);/);
   const rowTitle = lastBlock(css, ".mosa-v2 .settings-row-copy h4");
   assert.match(rowTitle, /font-size: var\(--text-md\);/);
   const textAction = lastBlock(css, ".mosa-v2 .settings-text-action");
   assert.match(textAction, /min-height: 32px;/);
-  assert.match(textAction, /padding: 0 16px;/);
+  assert.match(textAction, /padding: 0 var\(--sp-4\);/);
   const pathBox = lastBlock(css, ".mosa-v2 .settings-path-box");
   assert.match(pathBox, /width: 320px;/);
   assert.match(pathBox, /height: 32px;/);
-  assert.match(pathBox, /border-radius: 8px;/);
+  assert.match(pathBox, /border-radius: var\(--radius-md\);/);
   const path = lastBlock(css, ".mosa-v2 .settings-path");
   assert.match(path, /font-size: var\(--text-xs\);/);
   assert.match(path, /max-width: 100%;/);
@@ -332,7 +332,7 @@ test("theme preview cards lock the R21 swatches, hover lift and the check-mark s
   // 标题栏、8 圆角；名称居中在卡下方。
   const choices = lastBlock(css, ".mosa-v2 .settings-theme-choices");
   assert.match(choices, /grid-template-columns: repeat\(3, 186px\);/);
-  assert.match(choices, /gap: var\(--r21-s10\);/);
+  assert.match(choices, /gap: var\(--sp-10\);/);
   assert.match(choices, /justify-content: start;/);
   // 任务 81 返工 1：三张卡；窄窗口（既有 ≤839 块内）允许收缩防溢出。
   assert.match(choices, /grid-template-columns: repeat\(3, 186px\);/);
@@ -342,7 +342,7 @@ test("theme preview cards lock the R21 swatches, hover lift and the check-mark s
   const preview = lastBlock(css, ".mosa-v2 .settings-theme-preview");
   assert.match(preview, /height: 90px;/);
   assert.match(preview, /grid-template-rows: 16px minmax\(0, 1fr\);/);
-  assert.match(preview, /border-radius: 8px;/);
+  assert.match(preview, /border-radius: var\(--radius-md\);/);
   // 「跟随系统」预览：左右两半，配色复用既有浅/深两套固定值。
   const systemPreview = lastBlock(css, '.mosa-v2 .settings-theme-card[data-appearance-opt="system"] .settings-theme-preview');
   assert.match(systemPreview, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);

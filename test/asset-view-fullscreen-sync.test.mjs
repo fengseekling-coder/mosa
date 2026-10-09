@@ -63,7 +63,7 @@ test("接线面：桥仅在桌面 electronAPI 存在时注入，窗口事件订�
 
 test("样式面：舞台左右各让出 52px 箭头栏（44 按钮 + 8 距缘），全屏收回", async () => {
   const css = await readCss();
-  assert.match(css, /\.asset-view-stage \{[^}]*padding: var\(--space-3\) 52px;/, "stage reserves one arrow column on each side");
-  assert.match(css, /\.asset-view\.is-fullscreen \.asset-view-stage \{ background: transparent; padding: var\(--space-3\); \}/, "fullscreen hides the arrows and reclaims the reserved columns");
+  assert.match(css, /\.asset-view-stage \{[^}]*padding: var\(--sp-6\) 52px;/, "stage reserves one arrow column on each side");
+  assert.match(css, /\.asset-view\.is-fullscreen \.asset-view-stage \{ background: transparent; padding: var\(--sp-6\); \}/, "fullscreen hides the arrows and reclaims the reserved columns");
   assert.match(css, /\.asset-view-arrow-prev \{ left: 8px; \}/, "arrow inset stays 8px so the reserved column is 44+8");
 });

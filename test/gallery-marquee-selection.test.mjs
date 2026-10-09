@@ -543,7 +543,7 @@ test("gallery marquee selection is wired into shared web/app renderer", async ()
   assert.match(css, /\.mosa-v2 \.asset-card\.selected \.asset-card-select::after, \.mosa-v2 \.asset-card\.multi-selected \.asset-card-select::after \{ box-shadow: none; \}/,
     "selected cards suppress the thumbnail hairline so the selection state never reads as a double ring");
   // R21（web-r21-gallery「R21 card radius」）把选中环改为 1.5px、圆角跟随
-  // --radius-card（8+1px），并把网格 padding 换成 20/24/32 阶梯；旧的
+  // --radius-md（8+1px，派生 1px 走 --border-width），网格 padding 阶梯值不变；旧的
   // var(--border-width)/13px 圆角与 1px 顶部防裁切断言随之退役，由该契约覆盖。
   assert.match(css, /\.asset-card\.masonry-content-virtualized\.selected,\s*\.asset-card\.masonry-content-virtualized\.multi-selected \{[\s\S]*?content-visibility: visible;/,
     "selected virtualized cards must not paint-contain the external selection ring");

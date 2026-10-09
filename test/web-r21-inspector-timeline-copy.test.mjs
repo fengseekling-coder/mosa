@@ -63,7 +63,7 @@ test("timeline draws the per-row 1px rail that stops at the end dots", async () 
   const css = await readWebCss();
   const line = lastBlock(css, ".mosa-v2 .detail .version-timeline-item::before");
   assert.match(line, /position: absolute;/);
-  assert.match(line, /top: calc\(-1 \* var\(--r21-s3\)\);/, "the rail must cross the 12px row gap");
+  assert.match(line, /top: calc\(-1 \* var\(--sp-3\)\);/, "the rail must cross the 12px row gap");
   assert.match(line, /bottom: 0;/);
   assert.match(line, /left: 12px;/, "the rail sits on the marker's x centre (8px padding + 4px half dot)");
   assert.match(line, /width: 1px;/);
@@ -88,7 +88,7 @@ test("timeline dots, three-column grid and per-column type are locked", async ()
 
   const content = lastBlock(css, ".mosa-v2 .detail .version-content");
   assert.match(content, /grid-template-columns: auto minmax\(0, 1fr\) auto;/);
-  assert.match(content, /column-gap: var\(--r21-s2\);/, "8px between the three columns");
+  assert.match(content, /column-gap: var\(--sp-2\);/, "8px between the three columns");
   assert.match(content, /align-items: baseline;/);
 
   const strong = lastBlock(css, ".mosa-v2 .detail .version-title strong");
@@ -133,7 +133,7 @@ test("copy buttons carry a text label while keeping the full accessible name", a
 
 test("textful copy buttons adopt the R21 .copy metrics", async () => {
   const css = await readWebCss();
-  assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-head \.section-head-copy,\n\.mosa-v2 \.detail \.detail-copy-sub,\n\.mosa-v2 \.detail \.detail-source-copy \.section-head-copy \{\n  display: inline-flex;\n  width: auto;\n  min-width: 0;\n  flex: 0 0 auto;\n  gap: var\(--r21-s1\);\n  align-items: center;\n  padding: 0 var\(--inspector-space-2\);\n  font-size: var\(--text-xs\);\n  font-weight: var\(--weight-regular\);\n\}/);
+  assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-head \.section-head-copy,\n\.mosa-v2 \.detail \.detail-copy-sub,\n\.mosa-v2 \.detail \.detail-source-copy \.section-head-copy \{\n  display: inline-flex;\n  width: auto;\n  min-width: 0;\n  flex: 0 0 auto;\n  gap: var\(--sp-1\);\n  align-items: center;\n  padding: 0 var\(--sp-2\);\n  font-size: var\(--text-xs\);\n  font-weight: var\(--weight-regular\);\n\}/);
   const svg = lastBlock(css, ".mosa-v2 .detail .detail-prompt-head .section-head-copy svg");
   assert.match(svg, /flex: 0 0 auto;/);
   // 浅色文字 AA（#6e6e73，4.90:1 于 #fbfbfc）——由 web-r21-inspector-body 锁同一规则块。

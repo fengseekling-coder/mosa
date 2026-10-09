@@ -24,20 +24,22 @@ test("GravityPort shell width tokens land in web styles", async () => {
   assert.doesNotMatch(css, /--sidebar-width:\s*216px|--sidebar-width-narrow:\s*208px|--inspector-width:\s*344px|--inspector-width-compact:\s*340px;/);
 });
 
-test("GravityPort inspector shell card: 32px radius token consumed by .mosa-v2 .detail", async () => {
+test("GravityPort inspector shell card: radius token consumed by .mosa-v2 .detail", async () => {
   const css = await readWebCss();
-  assert.match(css, /--radius-shell-card: 32px;/, "--radius-shell-card must be 32px");
-  // 检视器卡片：四角 32px 圆角，圆角由 .detail 自身的 overflow:hidden 裁住内容。
-  // 卡片规则刻意放在 max-width:767px 媒体查询之前——≤767px 的既有 24px 浮层卡
-  // 规格（同特异性、靠后生效）继续赢，窄档行为不变。
-  assert.match(css, /\.mosa-v2 \.detail \{ border-radius: var\(--radius-shell-card\); \}/, "the inspector card must consume --radius-shell-card");
+  // （旧 --radius-shell-card=32px 已并入 --radius-lg，任务 107）解析 :root 实际值，
+  // 守卫语义保留：检视器卡片圆角走统一 lg 档（12px），不许被悄悄改动。
+  assert.equal([...css.matchAll(/--radius-lg\s*:\s*(\d+)px\s*;/g)][0]?.[1], "12", "--radius-lg (merged --radius-shell-card) must be 12px");
+  // 检视器卡片：圆角由 .detail 自身的 overflow:hidden 裁住内容。
+  // 卡片规则刻意放在 max-width:767px 媒体查询之前——≤767px 浮层卡规格
+  // （同特异性、靠后生效）继续赢，窄档行为不变。
+  assert.match(css, /\.mosa-v2 \.detail \{ border-radius: var\(--radius-lg\); \}/, "the inspector card must consume --radius-lg");
   assert.ok(
-    css.indexOf(".mosa-v2 .detail { border-radius: var(--radius-shell-card); }")
+    css.indexOf(".mosa-v2 .detail { border-radius: var(--radius-lg); }")
     < css.indexOf("@media (max-width: 767px)"),
-    "the 32px card rule must precede the ≤767px media query so the 24px floating card keeps winning there",
+    "the card rule must precede the ≤767px media query so the floating-card overrides keep winning there",
   );
   assert.match(css, /\.mosa-v2 \.detail \{ overflow: hidden; \}/, "card content must clip inside the radius");
-  assert.match(css, /\.mosa-v2 \.detail \{ top: 12px; right: 12px; bottom: 12px; width: min\(360px, calc\(100vw - 24px\)\); border-radius: 24px; \}/, "the ≤767px floating card keeps its 24px radius");
+  assert.match(css, /\.mosa-v2 \.detail \{ top: 12px; right: 12px; bottom: 12px; width: min\(360px, calc\(100vw - 24px\)\); border-radius: var\(--radius-lg\); \}/, "the ≤767px floating card uses the same merged --radius-lg");
 });
 
 test("GravityPort shell drops the sidebar and inspector separator lines", async () => {

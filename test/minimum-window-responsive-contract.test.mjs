@@ -205,10 +205,10 @@ test("28-30. Surface max-height / ConfirmDialog viewport-safe / Toast fixed 栈�
   assert.doesNotMatch(styles, /\.anchored-overlay/);
   // ConfirmDialog：modal-overlay padding 20px + modal-card max-width/max-height 保证视口安全；
   // 任务 94 后桌面态宽卡 640，≤767 由 overlay padding 16 收口（视口减两侧 16）。
-  assert.match(styles, /\.modal-overlay \{ position: fixed;[^}]*padding: 20px;/);
+  assert.match(styles, /\.modal-overlay \{ position: fixed;[^}]*padding: var\(--sp-5\);/);
   assert.match(styles, /\.modal-card \{[^}]*max-width: 100%; max-height: min\(760px, 88vh\)/);
   assert.match(styles, /\.confirm-dialog-card \{ box-sizing: border-box; width: 640px; min-height: 240px; \}/);
-  assert.match(styles, /@media \(max-width: 767px\) \{[^]*?\.confirm-dialog-overlay \{ padding: 16px; \}/);
+  assert.match(styles, /@media \(max-width: 767px\) \{[^]*?\.confirm-dialog-overlay \{ padding: var\(--sp-4\); \}/);
   // Toast：fixed 栈不扩展文档布局。
   assert.match(styles, /\.toast-stack \{ position: fixed; z-index: var\(--z-toast\);/);
   assert.match(styles, /\.toast-stack-polite \{ bottom: calc\(20px \+ var\(--toast-error-stack-height, 0px\)\); \}/);
@@ -300,5 +300,5 @@ test("42. 紧凑档详情打开时顶栏搜索收缩与浮动面板", async () =
 test("43. 紧凑档详情打开时 V2 网格侧栏为图标栏宽度", async () => {
   const styles = await source("web/app/styles.css");
   assert.match(styles, /\/\* 任务 96 返工 1[\s\S]*?\.mosa-v2 \.shell\.details-open \{ grid-template-columns: var\(--sidebar-width-compact\) minmax\(0, 1fr\) var\(--inspector-width-compact\); \}/, "V2 grid collapses the sidebar to the icon rail with the compact inspector");
-  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.primary-nav,\n  \.mosa-v2 \.shell\.details-open \.sidebar-footer \{ padding-right: 12px; padding-left: 12px; \}/, "icon rail paddings shrink so icons center in 56px");
+  assert.match(styles, /\.mosa-v2 \.shell\.details-open \.primary-nav,\n  \.mosa-v2 \.shell\.details-open \.sidebar-footer \{ padding-right: var\(--sp-3\); padding-left: var\(--sp-3\); \}/, "icon rail paddings shrink so icons center in 56px");
 });

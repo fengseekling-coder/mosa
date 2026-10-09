@@ -32,7 +32,7 @@ test("R21 inspector frame: 280px width token, light panel colours, 28px scroll-e
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail-inspector-header \{ border-bottom-color: #e7e7ea; \}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail-inspector-scroll \{ background: #fbfbfc; \}/);
   // 底部留白 28（滚动列的内边距，符合外框规格）。
-  assert.match(css, /\.mosa-v2 \.detail-inspector-scroll \{[\s\S]*?padding: 0 0 var\(--r21-s7\);/);
+  assert.match(css, /\.mosa-v2 \.detail-inspector-scroll \{[\s\S]*?padding: 0 0 var\(--sp-6\);/);
 });
 
 test("R21 inspector header: topbar token height, 15px title (A4a 返工 1 + 规范表 v1), 28x28 round close button", async () => {
@@ -47,15 +47,15 @@ test("R21 inspector header: topbar token height, 15px title (A4a 返工 1 + 规�
   const close = /\.mosa-v2 \.detail-inspector-header \.detail-close \{[^}]*\}/.exec(css)?.[0];
   assert.match(close, /width: 28px;/);
   assert.match(close, /height: 28px;/);
-  assert.match(close, /border-radius: var\(--radius-card\);/, "the close button must use the 8px radius");
+  assert.match(close, /border-radius: var\(--radius-md\);/, "the close button must use the 8px radius");
 });
 
 test("A4a head layout: 130px square preview left, meta column right, icon-only star", async () => {
   const css = await readWebCss();
   // GravityPort A4a：缩略图 130×130 无圆角（量数）；左右内边距 20；名称 17px。
   const headerBlocks = css.match(/\.mosa-v2 \.detail-inspector-header \{[^}]*\}/g) || [];
-  assert.ok(headerBlocks.at(-1).includes("padding: 0 20px;"), "the last header rule carries the 20px A4a side padding");
-  assert.match(css, /\.mosa-v2 \.detail \.detail-overview \{ padding: 0 20px 10px; \}/,
+  assert.ok(headerBlocks.at(-1).includes("padding: 0 var(--sp-5);"), "the last header rule carries the 20px A4a side padding");
+  assert.match(css, /\.mosa-v2 \.detail \.detail-overview \{ padding: 0 var\(--sp-5\) var\(--sp-2\); \}/,
     "the file section hugs the header with the 20px side padding");
   assert.match(css, /\.mosa-v2 \.detail \.asset-head \{ grid-template-columns: 130px minmax\(0, 1fr\); \}/);
   const mini = /\.mosa-v2 \.detail \.asset-mini \{[^}]*\}/g;
@@ -129,7 +129,7 @@ test("the last-declared header rules carry the R21 values (cascade order)", asyn
     return blocks.at(-1);
   };
   const header = lastBlock(".mosa-v2 .detail-inspector-header");
-  assert.match(header, /padding: 0 20px;/, "the last header rule carries the A4a 20px side padding");
+  assert.match(header, /padding: 0 var\(--sp-5\);/, "the last header rule carries the A4a 20px side padding");
   assert.match(css, /\.mosa-v2 \.detail-inspector-header \{[^}]*background: transparent;/, "the V2 base keeps the transparent header background");
   const title = lastBlock(".mosa-v2 .detail-inspector-header > span");
   assert.match(title, /font-size: var\(--text-md\);/);
