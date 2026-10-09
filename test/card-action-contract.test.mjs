@@ -264,7 +264,7 @@ test("20. no undefined CSS tokens are consumed", async () => {
   }
   assert.deepEqual([...missing], [], `undefined tokens referenced: ${[...missing].join(", ")}`);
   // Every token the card contract consumes is explicitly defined.
-  for (const token of ["--z-card-overlay", "--space-1", "--color-border-default", "--radius-control", "--color-text-primary", "--color-surface", "--shadow-card", "--duration-fast", "--duration-normal", "--ease-standard", "--color-favorite"]) {
+  for (const token of ["--z-card-overlay", "--sp-2", "--color-border-default", "--radius-md", "--color-text-primary", "--color-surface", "--shadow-card", "--duration-fast", "--duration-normal", "--ease-standard", "--color-favorite"]) {
     assert.ok(defined.has(token), `card contract token must be defined: ${token}`);
   }
 });

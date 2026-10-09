@@ -102,7 +102,8 @@ function assertDrawerJourney(r, seed, width) {
   eq(r?.overlay?.bodyDetailOpen, true, "overlay: body.detail-open");
   eq(r?.overlay?.detailAriaHidden, "false", "overlay: inspector visible");
   eq(r?.overlay?.dockedQuery, false, "overlay: matchMedia(min-width:768px) false");
-  eq(r?.overlay?.detailBorderRadius, "24px", "overlay: inspector floating radius");
+  // 任务 107：≤767px 浮层检视器圆角 24px 按规范表 v1 归档到 --radius-lg（12px）。
+  eq(r?.overlay?.detailBorderRadius, "12px", "overlay: inspector floating radius");
   eq(r?.overlay?.detailPosition, "static", "overlay: inspector not fixed/docked");
   eq(r?.overlay?.detailTop > 0, true, "overlay: inspector below the fold (not a docked column)");
   eq(r?.overlay?.drawerStillClosed, true, "overlay: drawer stayed closed");

@@ -119,10 +119,13 @@ test("1-6. single-column architecture, tab roles removed, V2 sections in approve
   // 6. The renderDetail composition concatenates the V2 helpers in the
   // approved order — this string is the single source of the section order.
   assert.ok(app.includes(COMPOSITION), "renderDetail must compose the V2 sections in the approved order");
-  assert.match(css, /--inspector-unit:\s*4px/);
+  // （旧 --inspector-unit=4px 已并入规范表 v1 的 --sp-*，任务 107）解析 :root 实际值，
+  // 守卫语义保留：检视器空间标尺的 4px 基准单位仍然存在。
+  assert.equal([...css.matchAll(/--sp-1\s*:\s*(\d+)px\s*;/g)][0]?.[1], "4", "--sp-1 (merged --inspector-unit) must stay 4px");
   assert.doesNotMatch(app, /detail-overview-card/, "the inspector must not add an extra outer card wrapper around overview content");
   assert.match(css, /\.mosa-v2 \.detail-inspector-scroll > \.inspector-section \{[\s\S]*?flex: 0 0 auto;/, "semantic sections must not shrink out of the flex scroll column");
-  // R21（web-r21-inspector-head）把滚动列的底部留白换成 28px 的 --r21-s7，
+  // R21（web-r21-inspector-head）把滚动列的底部留白定在滚动列 padding 的
+  // 末档（--r21-s7=28px，任务 107 并入 --sp-* 时按两档中间取小档归 24=--sp-6），
   // 由该契约锁定；这里继续锁区块之间不留缝（gap: 0）。
   assert.match(css, /\.mosa-v2 \.detail-inspector-scroll \{[^}]*gap: 0;/);
   assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-section \{[\s\S]*?border-top: 1px solid var\(--inspector-divider\);[\s\S]*?border-radius: 0;[\s\S]*?background: transparent;/);
@@ -378,7 +381,7 @@ test("25-28. tags section renders user chips and add action (D3)", async () => {
   assert.doesNotMatch(tagsSection, /asset-curation|curationMarkup|toggle-curated|copy-context-package|export-context-package/,
     "curation and context-package controls stay out of the asset inspector");
   const css = await readCss();
-  assert.match(css, /\.mosa-v2 \.detail \.detail-tags-row \{ gap: 4px; max-height: none; \}/);
+  assert.match(css, /\.mosa-v2 \.detail \.detail-tags-row \{ gap: var\(--sp-1\); max-height: none; \}/);
   assert.doesNotMatch(css, /asset-curation|context-package-actions/,
     "retired curation/context-package layout styles stay removed");
   assert.match(i18n, /addTag: "添加标签"/);

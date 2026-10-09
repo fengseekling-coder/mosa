@@ -324,7 +324,7 @@ test("out-of-scope files stay locked and the Phase 1C card contract is stable", 
   // `.mosa-v2` cascade.
   const css = await readCss();
   for (const rule of [
-    ".card-actions { position: absolute; z-index: var(--z-card-overlay); top: var(--space-1); right: var(--space-1); display: flex; gap: var(--space-1); pointer-events: none; }",
+    ".card-actions { position: absolute; z-index: var(--z-card-overlay); top: var(--sp-2); right: var(--sp-2); display: flex; gap: var(--sp-2); pointer-events: none; }",
     ".mosa-v2 .card-actions { top: 8px; right: 8px; gap: 0; opacity: 1; }",
     ".selection-active .asset-card .card-action-btn, .selection-active .asset-card:hover .card-action-btn, .selection-active .asset-card:focus-within .card-action-btn, .selection-active .asset-card.selected .card-action-btn { opacity: 0; pointer-events: none; }",
   ]) {

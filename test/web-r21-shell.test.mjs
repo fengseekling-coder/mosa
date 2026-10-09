@@ -42,13 +42,15 @@ test("R21 light-theme tokens and the shared shell sizes land in web styles", asy
   // 共享 shell 尺寸 token（规范表 v1：顶栏 64→48、侧栏 280→220）。
   assert.match(css, /--topbar-height: 48px;/, "--topbar-height must be the spec-table v1 48px");
   assert.match(css, /--sidebar-width: 220px;/, "--sidebar-width must be the spec-table v1 220px");
-  // R21 4px 结构网格阶梯（--mosa-s* 改名 --r21-*）。
+  // 4px 结构网格阶梯（旧 --r21-s* 已并入规范表 v1 的 --sp-*，任务 107）。
+  // 解析 :root 实际值逐档核对，阶梯本身不许被悄悄改动。
+  const ladderValues = new Map([...css.matchAll(/(--sp-[a-z0-9]+)\s*:\s*(\d+)px\s*;/g)].map((m) => [m[1], m[2]]));
   for (const [name, value] of [
-    ["--r21-s1", "4px"], ["--r21-s2", "8px"], ["--r21-s3", "12px"], ["--r21-s4", "16px"],
-    ["--r21-s5", "20px"], ["--r21-s6", "24px"], ["--r21-s7", "28px"], ["--r21-s8", "32px"],
-    ["--r21-s10", "40px"], ["--r21-s12", "48px"], ["--r21-s14", "56px"], ["--r21-s16", "64px"],
+    ["--sp-1", "4"], ["--sp-2", "8"], ["--sp-3", "12"], ["--sp-4", "16"],
+    ["--sp-5", "20"], ["--sp-6", "24"], ["--sp-8", "32"],
+    ["--sp-10", "40"], ["--sp-12", "48"],
   ]) {
-    assert.match(css, new RegExp(`${name.replace(/-/g, "\\-")}: ${value.replace(".", "\\.")};`), `${name} must be ${value}`);
+    assert.equal(ladderValues.get(name), value, `${name} must be ${value}px`);
   }
   // 基础字号 12px。
   assert.match(css, /body \{ overflow: hidden;[^}]*font: var\(--text-sm\)\/1\.5 var\(--font-family-ui\)/, "body base font-size must come from the spec v1 --text-sm token");
@@ -65,25 +67,25 @@ test("R21 sidebar: light background, brand, nav items and group headings", async
   const brand = blockAfter(css, ".mosa-v2 .brand {");
   assert.match(brand, /height: var\(--topbar-height\);/);
   assert.match(brand, /justify-content: flex-end;/);
-  assert.match(brand, /padding: 0 20px;/);
+  assert.match(brand, /padding: 0 var\(--sp-5\);/);
   assert.match(css, /\.mosa-v2 \.brand-info h1 \{ color: var\(--color-text-primary\); font-size: var\(--text-lg\); font-weight: var\(--weight-medium\);/);
   // 导航区：上下结构不变，左右 20（GravityPort A2，项宽 220−40=180），品牌区到第一项 16；导航项间距 4。
-  assert.match(css, /\.mosa-v2 \.primary-nav \{ padding: 16px 20px 10px; \}/);
-  assert.match(css, /\.mosa-v2 \.nav-list \{ gap: var\(--r21-s1\); \}/);
+  assert.match(css, /\.mosa-v2 \.primary-nav \{ padding: var\(--sp-4\) var\(--sp-5\) var\(--sp-2\); \}/);
+  assert.match(css, /\.mosa-v2 \.nav-list \{ gap: var\(--sp-1\); \}/);
   // 导航项：高 28（规范表 v1 36→28）、圆角 8、内边距 0 12（设置按钮与加号按钮共用这条圆角）。
-  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 28px; border-radius: 8px;/);
-  assert.match(css, /\.mosa-v2 \.nav-item \{ padding: 0 12px; font-size: var\(--text-md\); \}/);
-  assert.match(css, /\.mosa-v2 \.settings-trigger \{ width: 100%; justify-content: flex-start; gap: 8px; padding: 0 12px; font-size: var\(--text-md\); \}/);
+  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 28px; border-radius: var\(--radius-md\);/);
+  assert.match(css, /\.mosa-v2 \.nav-item \{ padding: 0 var\(--sp-3\); font-size: var\(--text-md\); \}/);
+  assert.match(css, /\.mosa-v2 \.settings-trigger \{ width: 100%; justify-content: flex-start; gap: var\(--sp-2\); padding: 0 var\(--sp-3\); font-size: var\(--text-md\); \}/);
   // 选中导航项：字重 500（570 归档 --weight-medium），浅色底 #ececef。
   assert.match(css, /\.mosa-v2 \.nav-item\.active \{ color: var\(--color-text-primary\); background: var\(--app-chip-active\); font-weight: var\(--weight-medium\); \}/);
   // 浅色的灰色字色规则特异性高于 .nav-item.active，选中项必须在同一特异性下把字色改回主文字色。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.nav-item\.active \{ background: #ececef; color: var\(--color-text-primary\); \}/);
   // 分组标题：12px（--text-sm）/ 600（--weight-semibold）（GravityPort A2）；浅色不再有写死字色（任务 50 删除），回落到基础规则的 tertiary token。
-  assert.match(css, /\.mosa-v2 \.nav-label \{ margin: 18px 0 6px; padding: 0 12px; color: var\(--color-text-tertiary\); font-size: var\(--text-sm\); font-weight: var\(--weight-semibold\);/);
+  assert.match(css, /\.mosa-v2 \.nav-label \{ margin: var\(--sp-4\) 0 var\(--sp-1h\); padding: 0 var\(--sp-3\); color: var\(--color-text-tertiary\); font-size: var\(--text-sm\); font-weight: var\(--weight-semibold\);/);
   assert.doesNotMatch(css, /:root\[data-theme="light"\] \.mosa-v2 \.nav-label \{/);
   // 分组之间的间距 24（GravityPort A2）。
-  assert.match(css, /\.mosa-v2 \.sidebar-group-heading \{ display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin: var\(--r21-s6\) 10px 2px; \}/);
-  assert.match(css, /\.mosa-v2 \.sidebar-manual-group-heading \{ margin-top: var\(--r21-s6\); \}/);
+  assert.match(css, /\.mosa-v2 \.sidebar-group-heading \{ display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin: var\(--sp-6\) var\(--sp-2\) var\(--sp-half\); \}/);
+  assert.match(css, /\.mosa-v2 \.sidebar-manual-group-heading \{ margin-top: var\(--sp-6\); \}/);
   // 导航项字色：浅色 #55555a。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.nav-item, :root\[data-theme="light"\] \.mosa-v2 \.settings-trigger \{ color: #55555a; \}/);
 });
@@ -97,14 +99,14 @@ test("R21 topbar: nav history buttons, size slider, sort control and search box"
   assert.doesNotMatch(css, /\.type-filter|\.topbar-type-filters/, "the retired type-filter rules must not come back");
   // 后退/前进与滑杆两侧按钮：28×28 / 16px 图标（.toolbar-icon 基类）、圆角 8
   // （--radius-control）、无边框透明底；mosa-v2 的 32px 带边框外观只属于右侧控件。
-  assert.match(css, /\.topbar-nav-group \{ display: flex; flex: 0 0 auto; align-items: center; gap: 4px; \}/);
-  assert.match(css, /\.mosa-v2 \.topbar-nav-group \.toolbar-icon, \.mosa-v2 \.topbar-size-group \.toolbar-icon \{ width: 28px; height: 28px; flex: 0 0 auto; border: 0; border-radius: var\(--radius-control\); background: transparent; \}/);
+  assert.match(css, /\.topbar-nav-group \{ display: flex; flex: 0 0 auto; align-items: center; gap: var\(--sp-1\); \}/);
+  assert.match(css, /\.mosa-v2 \.topbar-nav-group \.toolbar-icon, \.mosa-v2 \.topbar-size-group \.toolbar-icon \{ width: 28px; height: 28px; flex: 0 0 auto; border: 0; border-radius: var\(--radius-md\); background: transparent; \}/);
   // 缩略图大小滑杆：相对顶栏绝对居中，滑轨宽 120，accent 走既有 token。
-  assert.match(css, /\.topbar-size-group \{ position: absolute; top: 50%; left: 50%; display: flex; align-items: center; gap: 8px; transform: translate\(-50%, -50%\); \}/);
+  assert.match(css, /\.topbar-size-group \{ position: absolute; top: 50%; left: 50%; display: flex; align-items: center; gap: var\(--sp-2\); transform: translate\(-50%, -50%\); \}/);
   assert.match(css, /\.topbar-size-slider \{ box-sizing: border-box; width: 120px; height: 28px; margin: 0; padding: 0; border: 0; accent-color: var\(--color-accent\); -webkit-appearance: none; appearance: none; background: transparent; \}/);
   // 返工 1 对照稿子：轨道 2px 高/圆角 1，滑块 24×12 横向胶囊圆角 6，颜色走 token。
-  assert.match(css, /\.topbar-size-slider::-\webkit-slider-runnable-track \{ height: 2px; border-radius: 1px; background: var\(--color-border-subtle\); \}/);
-  assert.match(css, /\.topbar-size-slider::-\webkit-slider-thumb \{ -webkit-appearance: none; appearance: none; width: 24px; height: 12px; margin-top: -5px; border-radius: 6px; background: var\(--color-accent\); \}/);
+  assert.match(css, /\.topbar-size-slider::-\webkit-slider-runnable-track \{ height: 2px; border-radius: var\(--radius-xs\); background: var\(--color-border-subtle\); \}/);
+  assert.match(css, /\.topbar-size-slider::-\webkit-slider-thumb \{ -webkit-appearance: none; appearance: none; width: 24px; height: 12px; margin-top: calc\(var\(--sp-1\) \* -1\); border-radius: var\(--radius-sm\); background: var\(--color-accent\); \}/);
   // 窄档（≤767px）只隐藏前进/后退与滑杆（任务 70 返工：不再整组隐藏）。
   assert.match(css, /@media \(max-width: 767px\) \{[\s\S]*?\.mosa-v2 \.topbar-nav-group \.nav-history-button, \.mosa-v2 \.topbar-size-group \{ display: none; \}/);
   // 窄屏规则不得隐藏 #stackBack：进堆叠后返回按钮窄屏可见可点（剥掉注释
@@ -123,7 +125,7 @@ test("R21 topbar: nav history buttons, size slider, sort control and search box"
   const narrowRules = css.slice(narrowAt, narrowEnd).replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(narrowRules, /#stackBack/, "the narrow-screen rules must not hide #stackBack");
   // 排序框：约 96 宽、高 32（既有规则）、左内边距 12、浅色底 #f4f4f5。
-  assert.match(css, /\.mosa-v2 \.sort-control select \{ min-width: 88px; padding: 0 26px 0 12px; \}/);
+  assert.match(css, /\.mosa-v2 \.sort-control select \{ min-width: 88px; padding: 0 var\(--sp-6\) 0 var\(--sp-3\); \}/);
   assert.match(css, /\.mosa-v2 \.toolbar-filter, \.mosa-v2 \.toolbar-icon, \.mosa-v2 \.sort-control select \{ height: 32px;/);
   // 任务 70 返工 1（设计稿还原）：顶栏右侧控件压到 24 高——只限 .topbar-actions
   // 范围，共用 32px 规则和顶栏以外用到这些类的地方不动。
@@ -131,7 +133,18 @@ test("R21 topbar: nav history buttons, size slider, sort control and search box"
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.sort-control select \{ background: #f4f4f5; \}/);
   // 搜索框：宽 152、高 24（--control-sm，规范表 v1 32→24）、浅色底 #f4f4f5。
   assert.match(css, /\.mosa-v2 \.topbar-search \{ flex: 0 1 144px; width: 144px; \}/);
-  assert.match(css, /\.topbar-search \{ display: flex; box-sizing: border-box; min-width: 0; flex: 0 1 256px; align-items: center; gap: 8px; width: 256px; height: var\(--control-sm\);/);
+  assert.match(css, /\.topbar-search \{ display: flex; box-sizing: border-box; min-width: 0; flex: 0 1 256px; align-items: center; gap: var\(--sp-2\); width: 256px; height: var\(--control-sm\);/);
   assert.match(css, /--control-sm: 24px;/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.topbar-search \{ background: #f4f4f5; \}/);
+});
+
+test("no comment in web styles closes early and swallows the next rule", async () => {
+  // A comment like "/* … --sp-*/--radius-* */" ends at the first "*/" and turns
+  // the rest into a selector that drops the following rule (task 107 lost the
+  // Inspector colour tokens this way). Strip comments the way CSS does and
+  // require that no stray closer is left behind.
+  const css = await readWebCss();
+  const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const stray = stripped.indexOf("*/");
+  assert.equal(stray, -1, `stray comment closer near: ${JSON.stringify(stripped.slice(Math.max(0, stray - 60), stray + 4))}`);
 });

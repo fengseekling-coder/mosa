@@ -136,7 +136,7 @@ test("9. compact 960–1120 keeps three columns (no detail drop)", async () => {
   const compact = blockAfter(css, "@media (max-width: 1120px) {");
   assert.match(compact, /\.shell\.details-open \{ grid-template-columns: var\(--sidebar-width-compact\) minmax\(0, 1fr\) var\(--inspector-width-compact\); \}/,
     "compact details-open keeps sidebar-rail + stage + inspector columns");
-  assert.match(compact, /\.asset-view-header \{ gap: var\(--space-1\); padding: 0 var\(--space-1\); \}/,
+  assert.match(compact, /\.asset-view-header \{ gap: var\(--sp-2\); padding: 0 var\(--sp-2\); \}/,
     "asset-view header follows the same compact padding as the topbar");
   const rail = blockAfter(css, "@media (min-width: 701px) and (max-width: 1120px) {");
   assert.doesNotMatch(rail, /\.detail \{[^}]*position: static/, "detail must not re-enter the document flow in the rail band");

@@ -152,7 +152,7 @@ test("styles. Phase 4C additions reuse tokens and stay within the boundary", asy
   assert.doesNotMatch(css, /\.original-media-action|\.original-media-link|\.original-media-unavailable/, "no original-media styles survive");
   // 2026-09-04: the location row lays the path box inline after the label,
   // single line, overflow hidden (ellipsis) instead of the stacked grid.
-  assert.match(css, /\.more-location \{ display: flex; align-items: center; gap: 6px; margin-top: 8px; \}/, "the location row keeps the 8px rhythm");
+  assert.match(css, /\.more-location \{ display: flex; align-items: center; gap: var\(--sp-1h\); margin-top: var\(--sp-2\); \}/, "the location row keeps the 8px rhythm");
   assert.match(css, /\.more-location \.path-box \{ flex: 1 1 auto; min-width: 0; overflow: hidden;/, "the path box fills the row, single line, clipped");
   const cssDeclarations = css.replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(cssDeclarations, /!important/, "no !important in any CSS declaration");
