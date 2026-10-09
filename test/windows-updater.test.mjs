@@ -16,7 +16,6 @@ import {
   validateWindowsUpdateArtifact,
   windowsUpdateDetachedLauncherCommand,
   windowsUpdateDownloadUrl,
-  windowsUpdateHelperEnv,
   windowsUpdateHelperScript,
   windowsInstalledExeName,
   windowsInstallProcessDrainScript,
@@ -152,7 +151,8 @@ test("Windows apply helper waits for MOSA, replaces the whole portable directory
   // updating, and an unsigned preview install may cross into production.
   assert.match(script, /Production Windows updates require the release signer thumbprint\./);
   assert.match(script, /function Get-MosaSignatureInfo \{/);
-  assert.match(script, /\$probe = \$env:MOSA_UPDATE_SIGNATURE_PROBE/);
+  assert.match(script, /if \(\$SignatureProbe\) \{/);
+  assert.match(script, /& \$SignatureProbe \$LiteralPath/);
   assert.match(script, /Get-AuthenticodeSignature -LiteralPath \$LiteralPath/);
   assert.match(script, /Get-MosaSignatureInfo -LiteralPath \$oldExe/);
   assert.match(script, /\$oldSignerSubject = \[string\]\$oldSignature\.Subject/);
@@ -402,6 +402,7 @@ test("the detached launcher passes the current and payload exe names plus the si
     currentExeName: "MOSA.exe",
     payloadExeName: "GravityPort.exe",
     signerThumbprint: "ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34",
+    signatureProbe: "C:\\test\\probe.ps1",
     version: "0.3.0",
     expectedIdentity: EXPECTED_IDENTITY,
     logPath: "C:\\staging\\apply-update-error.log",
@@ -416,6 +417,24 @@ test("the detached launcher passes the current and payload exe names plus the si
   assert.match(helperCommand, /-CurrentExeName 'MOSA\.exe'/);
   assert.match(helperCommand, /-PayloadExeName 'GravityPort\.exe'/);
   assert.match(helperCommand, /-ExpectedSignerThumbprint 'AB12CD34AB12CD34AB12CD34AB12CD34AB12CD34'/);
+  assert.match(helperCommand, /-SignatureProbe 'C:\\test\\probe\.ps1'/);
+  // Packaged updates omit the option entirely instead of passing an empty one.
+  const packaged = windowsUpdateDetachedLauncherCommand({
+    scriptPath: "C:\\staging\\apply-update.ps1",
+    processId: 1234,
+    zipPath: "C:\\staging\\MOSA-win32-x64-0.3.0.zip",
+    installDir: "C:\\Users\\Example\\MOSA-win32-x64",
+    currentExeName: "MOSA.exe",
+    payloadExeName: "MOSA.exe",
+    version: "0.3.0",
+    expectedIdentity: EXPECTED_IDENTITY,
+    logPath: "C:\\staging\\apply-update-error.log",
+    startedFile: "C:\\staging\\helper-started.txt",
+    readyFile: "C:\\staging\\update-ready.json",
+    launcherLogPath: "C:\\staging\\helper-launch-error.log",
+  });
+  const packagedEncoded = packaged.match(/-EncodedCommand ([A-Za-z0-9+/=]+)/)[1];
+  assert.doesNotMatch(Buffer.from(packagedEncoded, "base64").toString("utf16le"), /-SignatureProbe/);
   assert.throws(() => windowsUpdateDetachedLauncherCommand({
     scriptPath: "C:\\staging\\apply-update.ps1",
     processId: 1234,
@@ -513,13 +532,21 @@ test("the readiness file path never depends on the installed exe name", async ()
   }
 });
 
-test("the signature-probe override is stripped from ambient env and only honored when passed explicitly", () => {
-  const ambient = { PATH: "/usr/bin", MOSA_UPDATE_SIGNATURE_PROBE: "C:\\stray\\probe.ps1" };
-  assert.deepEqual(windowsUpdateHelperEnv(null, ambient), { PATH: "/usr/bin" });
-  assert.deepEqual(
-    windowsUpdateHelperEnv({ MOSA_UPDATE_SIGNATURE_PROBE: "C:\\test\\probe.ps1" }, ambient),
-    { PATH: "/usr/bin", MOSA_UPDATE_SIGNATURE_PROBE: "C:\\test\\probe.ps1" },
-  );
+test("the packaged app never passes the signature-probe option", async () => {
+  const main = await readFile(new URL("../desktop/main.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(main, /signatureProbe/);
+  assert.doesNotMatch(main, /MOSA_UPDATE_SIGNATURE_PROBE/);
+});
+
+test("the apply script receives the probe as a parameter and never reads environment variables", () => {
+  const script = windowsUpdateHelperScript();
+  // The probe must arrive as a script parameter: the helper is started through
+  // Win32_Process.Create, which builds the environment from the registry, so
+  // an environment variable would both miss in tests and leak in from a
+  // user's machine settings.
+  assert.match(script, /\[AllowEmptyString\(\)\]\[string\]\$SignatureProbe = ''/);
+  assert.doesNotMatch(script, /MOSA_UPDATE_SIGNATURE_PROBE/);
+  assert.doesNotMatch(script, /\$env:/);
 });
 
 test("Windows helper handoff tolerates bootstrap exit zero while waiting for detached helper marker", async () => {

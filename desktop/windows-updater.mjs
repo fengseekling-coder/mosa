@@ -321,6 +321,7 @@ export function windowsUpdateHelperScript() {
   [Parameter(Mandatory=$true)][string]$ExpectedUiFingerprint,
   [Parameter(Mandatory=$true)][string]$ExpectedRuntimeFingerprint,
   [Parameter(Mandatory=$true)][ValidateSet('preview','production')][string]$ExpectedDistribution,
+  [AllowEmptyString()][string]$SignatureProbe = '',
   [Parameter(Mandatory=$true)][string]$LogPath,
   [Parameter(Mandatory=$true)][string]$StartedFile,
   [Parameter(Mandatory=$true)][string]$ReadyFile
@@ -340,16 +341,17 @@ $oldExe = Join-Path $InstallDir $CurrentExeName
 $newProcess = $null
 $movedOriginal = $false
 
-# Installation-rehearsal tests override this to run signature verification
-# against a stub probe that answers Status/Thumbprint/Subject lines. The
-# default is the real cmdlet; nothing else may customize it, and the Node
-# launcher strips this variable from the app's own environment so it can
-# never leak into a packaged update.
+# Installation-rehearsal tests pass this probe as a script parameter to run
+# signature verification against a stub that answers Status/Thumbprint/Subject
+# lines. The default is the real cmdlet; nothing else may customize it. It is
+# deliberately NOT read from the environment: this helper is started through
+# Win32_Process.Create, which builds the environment from the registry rather
+# than inheriting the caller's, so an environment variable would both fail to
+# reach the script in tests and leak in from a user's machine settings.
 function Get-MosaSignatureInfo {
   param([Parameter(Mandatory=$true)][string]$LiteralPath)
-  $probe = $env:MOSA_UPDATE_SIGNATURE_PROBE
-  if ($probe) {
-    $raw = (& $probe $LiteralPath) -join [Environment]::NewLine
+  if ($SignatureProbe) {
+    $raw = (& $SignatureProbe $LiteralPath) -join [Environment]::NewLine
     $values = @{}
     foreach ($line in ($raw -split '\r?\n')) {
       $trimmed = $line.Trim()
@@ -564,6 +566,7 @@ export function windowsUpdateDetachedLauncherCommand({
   currentExeName,
   payloadExeName,
   signerThumbprint = "",
+  signatureProbe = "",
   version,
   expectedIdentity,
   logPath,
@@ -587,6 +590,7 @@ export function windowsUpdateDetachedLauncherCommand({
     `-CurrentExeName ${powershellLiteral(safeCurrentExeName)}`,
     `-PayloadExeName ${powershellLiteral(safePayloadExeName)}`,
     `-ExpectedSignerThumbprint ${powershellLiteral(safeSignerThumbprintValue)}`,
+    ...(String(signatureProbe || "") ? [`-SignatureProbe ${powershellLiteral(signatureProbe)}`] : []),
     `-ExpectedVersion ${powershellLiteral(normalizedVersion)}`,
     `-ExpectedGitSha ${powershellLiteral(identity.gitSha)}`,
     `-ExpectedUiFingerprint ${powershellLiteral(identity.uiFingerprint)}`,
@@ -616,31 +620,18 @@ export function windowsUpdateDetachedLauncherCommand({
   ].join("; ");
 }
 
-const HELPER_ENV_OVERRIDE_KEYS = Object.freeze([
-  "MOSA_UPDATE_SIGNATURE_PROBE",
-]);
-
-// The helper's signature-probe override exists only for installation-rehearsal
-// tests, which pass it explicitly. Never let it leak in from the app's own
-// environment, or a stray variable could swap out signature verification.
-export function windowsUpdateHelperEnv(helperEnv = null, baseEnv = process.env) {
-  const env = { ...baseEnv };
-  for (const key of HELPER_ENV_OVERRIDE_KEYS) delete env[key];
-  return helperEnv ? { ...env, ...helperEnv } : env;
-}
-
 export async function launchWindowsUpdateHelper({
   zipPath,
   installDir,
   currentExeName,
   payloadExeName,
   signerThumbprint = "",
+  signatureProbe = "",
   version,
   expectedIdentity,
   processId,
   spawnImpl = spawn,
   helperStartTimeoutMs = DEFAULT_WINDOWS_HELPER_START_TIMEOUT_MS,
-  helperEnv = null,
 } = {}) {
   const identity = safeBuildIdentity(expectedIdentity);
   const normalizedVersion = safeVersion(version);
@@ -674,6 +665,7 @@ export async function launchWindowsUpdateHelper({
     currentExeName: safeCurrentExeName,
     payloadExeName: safePayloadExeName,
     signerThumbprint: expectedSignerThumbprint,
+    signatureProbe,
     version: normalizedVersion,
     expectedIdentity: identity,
     logPath,
@@ -689,7 +681,6 @@ export async function launchWindowsUpdateHelper({
   ], {
     stdio: "ignore",
     windowsHide: true,
-    env: windowsUpdateHelperEnv(helperEnv),
   });
   await new Promise((resolveSpawn, rejectSpawn) => {
     child.once("spawn", resolveSpawn);

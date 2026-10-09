@@ -2,14 +2,18 @@
 // test/macos-updater-install-rehearsal.test.mjs. They build fake portable
 // installs and update ZIPs (the payload executable is a tiny C# binary
 // compiled on the fly with Add-Type), and run the generated apply-update.ps1
-// end-to-end. Authenticode verification runs against a stub probe passed via
-// MOSA_UPDATE_SIGNATURE_PROBE — the launcher strips that variable from ambient
-// environments, so it only exists inside these rehearsals. Everything lives in
-// per-test temp directories; no real install, library, or userData is touched.
+// end-to-end. Authenticode verification runs against a stub probe passed to
+// launchWindowsUpdateHelper as the signatureProbe option, which becomes the
+// -SignatureProbe script parameter — deliberately not an environment variable,
+// because the helper is started through Win32_Process.Create and inherits the
+// registry environment, not the caller's. The fake binary reads its behavior
+// (readyJson / launchLog) from a mosa-fake-config.json next to itself for the
+// same reason. Everything lives in per-test temp directories; no real install,
+// library, or userData is touched.
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { copyFile, existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -34,17 +38,57 @@ const THUMBPRINT_OTHER = "FEDCBA9876543210FEDCBA9876543210FEDCBA98";
 const SUBJECT_PUBLISHER = "CN=MOSA Publisher, O=MOSA, C=DE";
 const SUBJECT_OTHER = "CN=Other Publisher, O=Other, C=DE";
 
-// A tiny console app: it logs every launch (launch-log entries are the
+const FAKE_CONFIG_NAME = "mosa-fake-config.json";
+
+// A tiny console app. It logs every launch (launch-log entries are the
 // bracketed argument list, so a relaunch without arguments shows as "[]") and,
-// when MOSA_FAKE_READY_JSON is set, writes that JSON into the file given by
-// the --mosa-update-ready-file argument. Without the env var it stays silent,
-// which is how the rollback path is exercised.
+// when its config carries a non-null readyJson, writes that JSON into the file
+// given by the --mosa-update-ready-file argument. All behavior comes from
+// mosa-fake-config.json next to the executable — never from environment
+// variables, which a Start-Process-launched GUI child would inherit from the
+// helper's registry-built environment rather than the test's.
 const FAKE_EXE_SOURCE = [
   "using System;",
   "using System.IO;",
+  "using System.Text;",
   "public static class MosaFakeApp {",
+  "  public static string ExtractJsonString(string json, string field) {",
+  "    string key = \"\\\"\" + field + \"\\\"\";",
+  "    int keyIdx = json.IndexOf(key, StringComparison.Ordinal);",
+  "    if (keyIdx < 0) return null;",
+  "    int i = json.IndexOf(':', keyIdx + key.Length);",
+  "    if (i < 0) return null;",
+  "    i++;",
+  "    while (i < json.Length && char.IsWhiteSpace(json[i])) i++;",
+  "    if (i >= json.Length || json[i] != '\"') return null;",
+  "    i++;",
+  "    StringBuilder sb = new StringBuilder();",
+  "    while (i < json.Length && json[i] != '\"') {",
+  "      if (json[i] == '\\\\' && i + 1 < json.Length) {",
+  "        char c = json[i + 1];",
+  "        if (c == '\"') sb.Append('\"');",
+  "        else if (c == '\\\\') sb.Append('\\\\');",
+  "        else if (c == 'n') sb.Append('\\n');",
+  "        else if (c == 'r') sb.Append('\\r');",
+  "        else if (c == 't') sb.Append('\\t');",
+  "        else sb.Append(c);",
+  "        i += 2;",
+  "      } else {",
+  "        sb.Append(json[i]);",
+  "        i++;",
+  "      }",
+  "    }",
+  "    return sb.ToString();",
+  "  }",
   "  public static int Main(string[] args) {",
-  "    string launchLog = Environment.GetEnvironmentVariable(\"MOSA_FAKE_LAUNCH_LOG\");",
+  "    string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, \"" + FAKE_CONFIG_NAME + "\");",
+  "    string readyBody = null;",
+  "    string launchLog = null;",
+  "    if (File.Exists(configPath)) {",
+  "      string json = File.ReadAllText(configPath);",
+  "      readyBody = ExtractJsonString(json, \"readyJson\");",
+  "      launchLog = ExtractJsonString(json, \"launchLog\");",
+  "    }",
   "    if (!string.IsNullOrEmpty(launchLog)) {",
   "      try { File.AppendAllText(launchLog, \"[\" + String.Join(\"|\", args) + \"]\" + Environment.NewLine); } catch {}",
   "    }",
@@ -55,9 +99,8 @@ const FAKE_EXE_SOURCE = [
   "        ready = a.Substring(prefix.Length).Trim('\"');",
   "      }",
   "    }",
-  "    string body = Environment.GetEnvironmentVariable(\"MOSA_FAKE_READY_JSON\");",
-  "    if (ready != null && !string.IsNullOrEmpty(body)) {",
-  "      File.WriteAllText(ready, body);",
+  "    if (ready != null && !string.IsNullOrEmpty(readyBody)) {",
+  "      File.WriteAllText(ready, readyBody);",
   "    }",
   "    return 0;",
   "  }",
@@ -108,22 +151,29 @@ if (MAY_RUN_HERE) {
   });
 }
 
-async function makeInstallDir({ root, exeSource, name = "MOSA.exe", marker }) {
+// The install carries its own fake config: the previous app logs relaunches
+// (that is how the rollback path proves it reopened the old exe) and never
+// reports readiness itself (readyJson: null).
+async function makeInstallDir({ root, exeSource, name = "MOSA.exe", marker, launchLog = null }) {
   const installDir = join(root, "install", "MOSA-win32-x64");
   await mkdir(join(installDir, "resources"), { recursive: true });
   await copyFile(exeSource, join(installDir, name));
   await writeFile(join(installDir, "resources", "version-marker"), marker, "utf8");
+  await writeFile(join(installDir, FAKE_CONFIG_NAME), JSON.stringify({ readyJson: null, launchLog }), "utf8");
   return installDir;
 }
 
 // layout "flat" zips the payload contents at the archive root; layout "nested"
 // wraps them in a <stem>\ directory the way the real update ZIPs are built.
-async function makePayloadZip({ root, exeSource, stem, payloadExeName, marker, layout, extraFiles = [] }) {
+// The payload's fake config travels inside the package (readyJson decides
+// whether the replacement reports readiness; null exercises the rollback).
+async function makePayloadZip({ root, exeSource, stem, payloadExeName, marker, layout, readyBody = null, launchLog = null, extraFiles = [] }) {
   const payloadRoot = join(root, "payload");
   const contentRoot = layout === "nested" ? join(payloadRoot, stem) : payloadRoot;
   await mkdir(join(contentRoot, "resources"), { recursive: true });
   await copyFile(exeSource, join(contentRoot, payloadExeName));
   await writeFile(join(contentRoot, "resources", "version-marker"), marker, "utf8");
+  await writeFile(join(contentRoot, FAKE_CONFIG_NAME), JSON.stringify({ readyJson: readyBody, launchLog }), "utf8");
   for (const extra of extraFiles) {
     await writeFile(join(contentRoot, extra.name), extra.body, "utf8");
   }
@@ -168,11 +218,7 @@ function readyJson(distribution) {
   return JSON.stringify({ version: VERSION, gitSha: GIT_SHA, uiFingerprint: UI_FINGERPRINT, runtimeFingerprint: RUNTIME_FINGERPRINT, distribution });
 }
 
-async function launchHelper({ root, probe, installDir, zipPath, currentExeName, payloadExeName, signerThumbprint = "", distribution = "preview", readyBody = readyJson("preview"), launchLog = null }) {
-  const helperEnv = {};
-  if (probe) helperEnv.MOSA_UPDATE_SIGNATURE_PROBE = probe;
-  if (readyBody) helperEnv.MOSA_FAKE_READY_JSON = readyBody;
-  if (launchLog) helperEnv.MOSA_FAKE_LAUNCH_LOG = launchLog;
+async function launchHelper({ root, signatureProbe = "", installDir, zipPath, currentExeName, payloadExeName, signerThumbprint = "", distribution = "preview" }) {
   // The helper only waits for this PID to exit; a real update quits the app,
   // which the rehearsal simulates with a short-lived Node child.
   const target = spawn(process.execPath, ["-e", "setTimeout(() => {}, 400)"], { stdio: "ignore" });
@@ -182,10 +228,10 @@ async function launchHelper({ root, probe, installDir, zipPath, currentExeName, 
     currentExeName,
     payloadExeName,
     signerThumbprint,
+    signatureProbe,
     version: VERSION,
     expectedIdentity: identity(distribution),
     processId: target.pid,
-    helperEnv,
   });
 }
 
@@ -220,16 +266,15 @@ scope("rehearsal: same-name preview update installs the flat payload in place", 
   const root = await mkdtemp(join(tmpdir(), "mosa-rehearsal-win-same-"));
   const exeSource = await sharedFakeExe();
   try {
-    const installDir = await makeInstallDir({ root, exeSource, marker: "old" });
-    const zipPath = await makePayloadZip({ root, exeSource, stem: "MOSA-win32-x64", payloadExeName: "MOSA.exe", marker: "new", layout: "flat" });
     const launchLog = join(root, "launch.log");
+    const installDir = await makeInstallDir({ root, exeSource, marker: "old", launchLog });
+    const zipPath = await makePayloadZip({ root, exeSource, stem: "MOSA-win32-x64", payloadExeName: "MOSA.exe", marker: "new", layout: "flat", readyBody: readyJson("preview"), launchLog });
     const { readyFile, logPath } = await launchHelper({
       root,
       installDir,
       zipPath,
       currentExeName: "MOSA.exe",
       payloadExeName: "MOSA.exe",
-      launchLog,
     });
 
     await waitFor(() => markerOf(installDir) === "new", { label: "same-name success (replacement installed)" });
@@ -253,7 +298,7 @@ scope("rehearsal: cross-name preview update renames the nested GravityPort paylo
   const exeSource = await sharedFakeExe();
   try {
     const installDir = await makeInstallDir({ root, exeSource, marker: "old" });
-    const zipPath = await makePayloadZip({ root, exeSource, stem: "GravityPort-win32-x64", payloadExeName: "GravityPort.exe", marker: "new", layout: "nested" });
+    const zipPath = await makePayloadZip({ root, exeSource, stem: "GravityPort-win32-x64", payloadExeName: "GravityPort.exe", marker: "new", layout: "nested", readyBody: readyJson("preview") });
     const { readyFile, logPath } = await launchHelper({
       root,
       installDir,
@@ -279,19 +324,17 @@ scope("rehearsal: cross-name update with a silent payload rolls back and relaunc
   const root = await mkdtemp(join(tmpdir(), "mosa-rehearsal-win-fail-"));
   const exeSource = await sharedFakeExe();
   try {
-    const installDir = await makeInstallDir({ root, exeSource, marker: "old" });
-    const zipPath = await makePayloadZip({ root, exeSource, stem: "GravityPort-win32-x64", payloadExeName: "GravityPort.exe", marker: "new", layout: "nested" });
     const launchLog = join(root, "launch.log");
+    const installDir = await makeInstallDir({ root, exeSource, marker: "old", launchLog });
+    // readyJson null in the package config: the replacement launches but never
+    // reports readiness, which drives the helper into its rollback path.
+    const zipPath = await makePayloadZip({ root, exeSource, stem: "GravityPort-win32-x64", payloadExeName: "GravityPort.exe", marker: "new", layout: "nested", readyBody: null, launchLog });
     const { logPath } = await launchHelper({
       root,
       installDir,
       zipPath,
       currentExeName: "MOSA.exe",
       payloadExeName: "GravityPort.exe",
-      // No MOSA_FAKE_READY_JSON: the replacement launches but never reports
-      // readiness, which drives the helper into its rollback path.
-      readyBody: null,
-      launchLog,
     });
 
     await waitFor(() => existsSync(logPath), { label: "helper failure log" });
@@ -327,13 +370,13 @@ scope("rehearsal: production signer rules anchor trust to the manifest thumbprin
     const root = await mkdtemp(join(tmpdir(), `mosa-rehearsal-win-prod-${name}-`));
     try {
       const installDir = await makeInstallDir({ root, exeSource, marker: "old" });
-      const zipPath = await makePayloadZip({ root, exeSource, stem: "MOSA-win32-x64", payloadExeName: "MOSA.exe", marker: "new", layout: "nested", extraFiles: signableExtra });
+      const zipPath = await makePayloadZip({ root, exeSource, stem: "MOSA-win32-x64", payloadExeName: "MOSA.exe", marker: "new", layout: "nested", readyBody: readyJson("production"), extraFiles: signableExtra });
       const rules = [payloadRule(expectedPayload.thumbprint, expectedPayload.subject)];
       if (oldSignature) rules.push(oldRule(installDir, oldSignature.thumbprint, oldSignature.subject));
-      const probe = await writeSignatureProbe(root, rules);
+      const signatureProbe = await writeSignatureProbe(root, rules);
       const { readyFile, logPath } = await launchHelper({
         root,
-        probe,
+        signatureProbe,
         installDir,
         zipPath,
         currentExeName: "MOSA.exe",
