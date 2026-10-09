@@ -16,6 +16,13 @@ import { ensureInstallationId, prepareAnonymousUsage } from "./anonymous-usage.m
 import { mosaClientTokenFingerprint, resolveAllowedFolderPath } from "../lib/server-security.js";
 import { isUrlLikePath } from "../lib/path-safety.mjs";
 import { copyLibraryForRelocation, validateRelocationTarget } from "../lib/library-relocation.mjs";
+import {
+  defaultLibraryDir,
+  legacyDefaultLibraryDir,
+  MOSA_LIBRARY_LOCATION_FILE_UNREADABLE,
+  MOSA_LIBRARY_NOT_FOUND,
+  resolveLibraryLocation,
+} from "../lib/library-location.mjs";
 import { getBuildIdentity } from "../lib/build-identity.mjs";
 import { MOSA_SERVICE_PROTOCOL_VERSION } from "../lib/version-identities.mjs";
 import {
@@ -58,8 +65,12 @@ const expectedServiceIdentity = Object.freeze({
 // --user-data-dir override (if any). It is deliberately NOT the production
 // default: Electron rewrites userData before any JS runs, so the un-overridden
 // default must be reconstructed from appData + app.name, which the switch
-// never touches. Dev (`npx electron`) reads the name from package.json
-// ("mosa"); the packaged app carries the forge packagerConfig name ("MOSA").
+// never touches. The name comes from the package.json bundled into the app
+// (productName if present, otherwise name — both "mosa" today), which is why
+// dev and the packaged app share ~/Library/Application Support/mosa. It does
+// NOT follow the forge packagerConfig name, so renaming the packaged app
+// never moves userData; that package.json name/productName must never change
+// (see the contract in test/library-location.test.mjs).
 const desktopDataDir = app.getPath("userData");
 // Runtime availability is measured against the active verified Visual Pack.
 // The pack owns its optional ONNX/tokenizer runtime, so MOSA.app itself does
@@ -84,16 +95,11 @@ const LIBRARY_LOCATION_PATH = join(desktopDataDir, "library-location.json");
 // `homedir()` follows HOME on macOS, and tool sandboxes may intentionally
 // rewrite HOME to a temporary directory. userInfo().homedir comes from the OS
 // account record instead, so source desktop launches still resolve the signed-
-// in user's real MOSA Library instead of forking a sandbox-only empty library.
-const defaultLibraryDir = join(userInfo().homedir, "MOSA Library");
-
-function loadSavedLibraryDir() {
-  try {
-    const value = JSON.parse(readFileSync(LIBRARY_LOCATION_PATH, "utf8"));
-    if (typeof value?.path === "string" && isAbsolute(value.path)) return resolve(value.path);
-  } catch {}
-  return null;
-}
+// in user's real library instead of forking a sandbox-only empty library.
+const homeDir = userInfo().homedir;
+// Both default folders count as production libraries for the isolation guard:
+// a QA instance must never write into the legacy or the new default folder.
+const productionLibraryDirs = [legacyDefaultLibraryDir(homeDir), defaultLibraryDir(homeDir)];
 
 function saveLibraryDir(nextLibraryDir) {
   mkdirSync(dirname(LIBRARY_LOCATION_PATH), { recursive: true });
@@ -104,7 +110,43 @@ function saveLibraryDir(nextLibraryDir) {
   renameSync(temporaryPath, LIBRARY_LOCATION_PATH);
 }
 
-let libraryDir = resolve(process.env.MOSA_LIBRARY_DIR || loadSavedLibraryDir() || defaultLibraryDir);
+// Locale at startup-failure time. The renderer has not run yet when the
+// library location is resolved below, so this stays the "zh" default here —
+// the same trade-off reportStartupFailure() makes. Declared above that
+// resolution because the error path reads it during module evaluation.
+let currentLocale = "zh"; // safe default matching original Chinese-only notifications
+
+function showLibraryLocationErrorAndExit(error) {
+  const english = currentLocale === "en";
+  const title = english ? "Can't open your library" : "无法打开素材库";
+  const body = error?.code === MOSA_LIBRARY_NOT_FOUND
+    ? (english
+      ? `Your library was last at ${error.libraryDir} and can't be found. If it's on an external drive, connect it and open the app again.`
+      : `上次使用的素材库在 ${error.libraryDir}，现在找不到了。如果它在外接硬盘上，请接好后重新打开。`)
+    : (english
+      ? `The file that records your library location can't be read: ${error.locationFile}. The app stopped so it doesn't create an empty library.`
+      : `记录素材库位置的文件读不出来：${error.locationFile}。为了不新建一个空库，App 已停止启动。`);
+  dialog.showErrorBox(title, body);
+  // Nothing has started yet, so exit synchronously: app.exit() does not halt
+  // module evaluation, and a rethrow would surface a second "JavaScript error
+  // in the main process" dialog on top of the one the user just dismissed.
+  process.exit(1);
+}
+
+let libraryDir;
+try {
+  libraryDir = resolveLibraryLocation({
+    homeDir,
+    envLibraryDir: process.env.MOSA_LIBRARY_DIR,
+    locationFile: LIBRARY_LOCATION_PATH,
+    log: (line) => console.info(`[MOSA] ${line}`),
+  }).libraryDir;
+} catch (error) {
+  if (error?.code === MOSA_LIBRARY_NOT_FOUND || error?.code === MOSA_LIBRARY_LOCATION_FILE_UNREADABLE) {
+    showLibraryLocationErrorAndExit(error);
+  }
+  throw error;
+}
 
 // ---- Runtime isolation context (single source of truth, three layers) ----
 // The same context object is passed explicitly through validateRuntimeIsolation,
@@ -140,7 +182,7 @@ const guard = validateRuntimeIsolation({
   defaultUserData: isolationContext.productionDefaultUserData,
   argv: isolationContext.argv,
   runtimeKind: isolationContext.runtimeKind,
-  productionLibraryDir: defaultLibraryDir,
+  productionLibraryDir: productionLibraryDirs,
   productionPorts: MOSA_RESERVED_PRODUCTION_PORTS,
 });
 if (!guard.ok) {
@@ -176,7 +218,6 @@ let shutdownPromise = null;
 let windowPromise = null;
 let windowOpenRequested = false;
 let ipcRegistered = false;
-let currentLocale = "zh"; // safe default matching original Chinese-only notifications
 let updateCheckPromise = null;
 let macosUpdateInstallPromise = null;
 let macosUpdateDownloadController = null;

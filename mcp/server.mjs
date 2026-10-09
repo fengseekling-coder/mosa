@@ -1,11 +1,12 @@
 import readline from "node:readline";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssetStore } from "../lib/asset-store.mjs";
 import { assertExternalVerificationLevel } from "../lib/generation-history.mjs";
 import { searchMcpAssets } from "../lib/mcp-asset-search.mjs";
 import { buildAssetProvenanceBundle } from "../lib/provenance-bundle.mjs";
+import { resolveLibraryLocation } from "../lib/library-location.mjs";
 import { acquireMosaRuntimeLock } from "../lib/runtime-lock.js";
 import { MCP_SERVER_VERSION } from "../lib/version-identities.mjs";
 
@@ -13,8 +14,10 @@ const managerDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const projectRoot = resolve(process.env.MOSA_PROJECT_DIR || process.cwd());
 // The default library location still participates in SQLite detection, but the JSON
 // store only reroots its assets into it when MOSA_LIBRARY_DIR was explicitly set.
+// No location file and no log sink here: the MCP stdio protocol owns stdout, and
+// MCP keeps ignoring the desktop's library-location.json.
 const explicitLibraryDir = process.env.MOSA_LIBRARY_DIR ? resolve(process.env.MOSA_LIBRARY_DIR) : null;
-const libraryDir = explicitLibraryDir || resolve(join(homedir(), "MOSA Library"));
+const libraryDir = resolveLibraryLocation({ homeDir: homedir(), envLibraryDir: process.env.MOSA_LIBRARY_DIR }).libraryDir;
 const store = createAssetStore({ projectRoot, managerDir, libraryDir, explicitLibraryDir });
 // SQLite uses WAL plus insert-only managed filenames for safe App+MCP coexistence.
 //

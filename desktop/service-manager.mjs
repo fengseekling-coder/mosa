@@ -8,7 +8,9 @@ import {
   MOSA_RESERVED_PRODUCTION_PORTS,
   normalizeMosaPort,
 } from "../lib/runtime-defaults.mjs";
-import { validateRuntimeIsolation } from "../lib/runtime-isolation-guard.mjs";
+import { validateRuntimeIsolation, safeCanonical } from "../lib/runtime-isolation-guard.mjs";
+import { pathsEqual } from "../lib/path-safety.mjs";
+import { defaultLibraryDir, legacyDefaultLibraryDir, resolveLibraryLocation } from "../lib/library-location.mjs";
 import { verifyMosaRuntimeLockProcessIdentity } from "../lib/runtime-lock.js";
 
 const DEFAULT_HOST = "127.0.0.1";
@@ -79,7 +81,9 @@ export function shouldAllowSameVersionServiceReplacement({ isPackaged, qaRun, ex
 export async function startMosaService(options = {}) {
   const host = options.host || DEFAULT_HOST;
   const port = normalizeMosaPort(options.port ?? DEFAULT_MOSA_DESKTOP_PORT, { label: "MOSA desktop port" });
-  const libraryDir = resolve(options.libraryDir || join(homedir(), "MOSA Library"));
+  const libraryDir = options.libraryDir
+    ? resolve(options.libraryDir)
+    : resolveLibraryLocation({ homeDir: homedir() }).libraryDir;
   const isolation = options.isolationContext || {};
 
   // ---- Runtime isolation guard: fail closed before any production write ----
@@ -93,7 +97,7 @@ export async function startMosaService(options = {}) {
     argv: isolation.argv ?? options.argv ?? process.argv,
     defaultUserData: isolation.productionDefaultUserData,
     runtimeKind: isolation.runtimeKind,
-    productionLibraryDir: join(homedir(), "MOSA Library"),
+    productionLibraryDir: [legacyDefaultLibraryDir(homedir()), defaultLibraryDir(homedir())],
     productionPorts: MOSA_RESERVED_PRODUCTION_PORTS,
   });
   if (!guard.ok) {
@@ -257,7 +261,9 @@ export async function startMosaService(options = {}) {
 export async function probeMosaService(options = {}) {
   const host = options.host || DEFAULT_HOST;
   const port = normalizeMosaPort(options.port ?? DEFAULT_MOSA_DESKTOP_PORT, { label: "MOSA desktop port" });
-  const libraryDir = resolve(options.libraryDir || join(homedir(), "MOSA Library"));
+  const libraryDir = options.libraryDir
+    ? resolve(options.libraryDir)
+    : resolveLibraryLocation({ homeDir: homedir() }).libraryDir;
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const timeoutMs = Number.isFinite(options.timeoutMs)
     ? Math.max(100, Number(options.timeoutMs))
@@ -279,7 +285,9 @@ export async function probeMosaService(options = {}) {
     if (health?.product !== "mosa" || typeof health.libraryDir !== "string") {
       return conflict(`Port ${port} is occupied by a service that is not MOSA.`);
     }
-    if (resolve(health.libraryDir) !== libraryDir) {
+    // Compare canonicalized paths so a symlinked alias of the running
+    // library still matches (same semantics as the isolation guard).
+    if (!pathsEqual(safeCanonical(health.libraryDir), safeCanonical(libraryDir))) {
       return {
         state: "conflict",
         error: new MosaServiceLibraryMismatchError({

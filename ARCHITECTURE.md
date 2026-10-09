@@ -211,8 +211,13 @@ Web UI 启动时同时读取 `/api/health` 与静态 `build-identity.json`，在
 数据前校验 product/UI/runtime fingerprint。长生命周期旧 Runtime 即使从磁盘
 读到了新版静态文件，也不能继续以旧 API 契约驱动新版界面。
 
-桌面默认使用 `127.0.0.1:43517` 和 `$HOME/MOSA Library`；如需独立运行时，
-使用 `MOSA_DESKTOP_PORT` 和 `MOSA_LIBRARY_DIR` 明确指定。
+桌面默认使用 `127.0.0.1:43517`；默认库目录统一由 `lib/library-location.mjs` 的
+`resolveLibraryLocation()` 解析：`MOSA_LIBRARY_DIR` 优先；其次桌面版的
+`library-location.json`（记录损坏或记录的库不存在时报错退出，不退回默认、
+不新建库）；否则 `$HOME/MOSA Library` 里有库就用它，`$HOME/GravityPort Library`
+里有库就用它，两处都没有才在 `$HOME/GravityPort Library` 新建（只有这一条
+允许指向不存在的目录）。如需独立运行时，使用 `MOSA_DESKTOP_PORT` 和
+`MOSA_LIBRARY_DIR` 明确指定。
 
 ## 5. 存储与媒体处理
 
@@ -225,8 +230,8 @@ SQLite 迁移：
 - 新库或迁移尚未完成时，保留 JSON 兼容存储，以便先检查再迁移；不会因为
   升级程序而自动删除旧数据。
 
-SQLite 数据库路径为 `$HOME/MOSA Library/mosa.db`（也可由
-`MOSA_LIBRARY_DIR` 指定）。SQLite schema 版本以
+SQLite 数据库路径为 `<库目录>/mosa.db`（默认库目录按上文
+`resolveLibraryLocation()` 解析，也可由 `MOSA_LIBRARY_DIR` 指定）。SQLite schema 版本以
 `lib/sqlite-asset-store.mjs` 导出的 `CURRENT_SCHEMA_VERSION` 为唯一权威；不要在
 运维或架构文档中复制一个容易随迁移失效的数字。数据库启用 WAL、外键和 busy timeout。主要表和索引包括：
 

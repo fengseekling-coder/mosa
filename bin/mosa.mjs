@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { createSqliteAssetStore } from "../lib/sqlite-asset-store.mjs";
+import { resolveLibraryLocation } from "../lib/library-location.mjs";
 import { createDerivativeWorker } from "../lib/derivative-worker.js";
 import { assertExistingSqliteLibrary, migrateLegacyLibrary, verifySqliteLibrary } from "../lib/library-migration.js";
 import { createLibraryBackup, restoreLibraryBackup, verifyLibraryBackup } from "../lib/library-backup.js";
@@ -149,7 +150,7 @@ async function runThumbnails(values) {
 
 function parseOptions(values) {
   const options = {
-    library: resolve(process.env.MOSA_LIBRARY_DIR || join(homedir(), "MOSA Library")),
+    library: resolveLibraryLocation({ homeDir: homedir(), envLibraryDir: process.env.MOSA_LIBRARY_DIR }).libraryDir,
     from: join(managerDir, "assets"),
     explicitFrom: false,
     to: "",
