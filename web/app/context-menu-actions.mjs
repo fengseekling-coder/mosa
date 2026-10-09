@@ -1043,7 +1043,10 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
                 assetIds: ids,
               },
             });
-            if (!mutationContextIsCurrent(context)) return;
+            // 任务 108：服务器已经移走了，结果必须交代给用户。实时同步可能比这次
+            // 响应先到、先刷新画廊并改掉选区版本，此时选区上下文已「过期」，但撤销
+            // 提示和画廊对账仍要做；只有用户已切到别的素材库才不再交代。
+            if (context.projectId !== state.project) return;
             const outcome = reconcileBatchMutation(assets, response);
             commitSelectedAssetMutation(outcome.succeeded);
             if (outcome.failed.length) {

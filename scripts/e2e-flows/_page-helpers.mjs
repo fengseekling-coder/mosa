@@ -13,6 +13,69 @@ export const PAGE_HELPERS = String.raw`
   window.addEventListener('resize', () => {
     if (viewportChanges.length < 12) viewportChanges.push([Math.round(performance.now()), window.innerWidth, window.innerHeight]);
   });
+  // 任务 108：toast 记录器（只在测试页面里用）。撤销提示在移动请求完成那一刻
+  // 就弹出并开始 6 秒计时，画廊刷新却在这之后才结束——CI 慢跑器上测试等到画廊
+  // 再去找提示时它可能已经离场，pageDiagnostic 的瞬时快照（toast:""、队列空）
+  // 分不清「出现过又消失」和「根本没出现」。watchToasts() 用 MutationObserver
+  // 观察两条通道容器（polite #toastContainer / assertive #toastErrorContainer），
+  // 每条提示的进场、离场（is-visible 摘除）、移除各记一条：相对安装点的毫秒、
+  // 消息文本、有没有撤销按钮及按钮文案。记录经 pageDiagnostic 带出（最近 20 条）。
+  const toastWatch = { events: [], epoch: performance.now(), observer: null };
+  function watchToasts({ keepAliveActionToasts = false } = {}) {
+    toastWatch.events.length = 0;
+    toastWatch.epoch = performance.now();
+    toastWatch.observer?.disconnect();
+    const tracked = new Map(); // toast 元素 -> { visible }；只记本次观察期内出现过的
+    const record = (event, element) => {
+      const actionButton = element.querySelector('.toast-action');
+      toastWatch.events.push({
+        t: Math.round(performance.now() - toastWatch.epoch),
+        event,
+        lane: element.closest('#toastErrorContainer') ? 'assertive' : 'polite',
+        text: (element.querySelector('.toast-message')?.textContent || '').trim(),
+        hasAction: Boolean(actionButton),
+        actionLabel: (actionButton?.textContent || '').trim(),
+      });
+      if (toastWatch.events.length > 40) toastWatch.events.shift();
+      // keepAlive：带操作按钮的提示一进场就派发 pointerenter，触发 toast-manager
+      // 自带的 hover 暂停（暂停倒计时；不派发 pointerleave 就不恢复）。慢跑器上
+      // 画廊刷新可能吃掉 6 秒的大半，保活让断言走完后按钮仍然可点；点击本身照常
+      // onAction + dismiss 离场。这是产品既有行为，不经产品代码加测试后门。
+      if (event === 'appear' && keepAliveActionToasts && actionButton) {
+        element.dispatchEvent(new PointerEvent('pointerenter', { pointerId: 1, pointerType: 'mouse', isPrimary: true }));
+      }
+    };
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'childList') {
+          for (const node of mutation.addedNodes) {
+            if (node.nodeType === 1 && node.classList?.contains('toast') && !tracked.has(node)) {
+              tracked.set(node, { visible: node.classList.contains('is-visible') });
+              record('appear', node);
+            }
+          }
+          for (const node of mutation.removedNodes) {
+            if (node.nodeType === 1 && node.classList?.contains('toast') && tracked.has(node)) {
+              tracked.delete(node);
+              record('removed', node);
+            }
+          }
+        } else if (mutation.type === 'attributes' && mutation.target.classList?.contains('toast')) {
+          const state = tracked.get(mutation.target);
+          if (!state) continue;
+          const visible = mutation.target.classList.contains('is-visible');
+          if (state.visible && !visible) { state.visible = false; record('leave', mutation.target); }
+        }
+      }
+    });
+    for (const selector of ['#toastContainer', '#toastErrorContainer']) {
+      const container = document.querySelector(selector);
+      if (container) observer.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    }
+    toastWatch.observer = observer;
+  }
+  const toastClock = () => Math.round(performance.now() - toastWatch.epoch);
+  const toastEventLog = () => toastWatch.events.slice(-20);
   function pageDiagnostic() {
     return {
       cardCount: document.querySelectorAll('.asset-card').length,
@@ -36,6 +99,7 @@ export const PAGE_HELPERS = String.raw`
       toastQueue: (() => {
         try { return window.__mosaToastDebug?.() ?? null; } catch { return null; }
       })(),
+      toastEvents: toastEventLog(),
     };
   }
   async function waitFor(check, label, timeoutMs = 15000) {
