@@ -467,7 +467,11 @@ try {
     $readyDeadline = [DateTime]::UtcNow.AddSeconds(45)
     while ([DateTime]::UtcNow -lt $readyDeadline) {
       if (Test-Path -LiteralPath $ReadyFile -PathType Leaf) { break }
-      if ($newProcess.HasExited) { throw "Updated MOSA exited before reporting readiness." }
+      if ($newProcess.HasExited) {
+        # It may have written the ready file just before exiting.
+        if (Test-Path -LiteralPath $ReadyFile -PathType Leaf) { break }
+        throw "Updated MOSA exited before reporting readiness."
+      }
       Start-Sleep -Milliseconds 250
     }
     if (-not (Test-Path -LiteralPath $ReadyFile -PathType Leaf)) {
@@ -533,7 +537,9 @@ async function waitForWindowsUpdateHelperStarted({
   try {
     while (Date.now() < deadline) {
       const marker = await readFile(startedFile, "utf8").catch((error) => {
-        if (error?.code === "ENOENT") return "";
+        // Windows reports the marker as busy or locked while the helper is
+        // still writing it; that is "not yet", not a failed handoff.
+        if (["ENOENT", "EBUSY", "EPERM", "EACCES"].includes(error?.code)) return "";
         throw error;
       });
       if (String(marker || "").trim()) return true;

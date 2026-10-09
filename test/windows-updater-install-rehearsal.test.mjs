@@ -257,6 +257,12 @@ async function waitFor(predicate, { timeoutMs = 45_000, stepMs = 150, label, log
   throw new Error(`Rehearsal timed out waiting for ${label}${logsFor ? `\n${stagingLogs(logsFor)}` : ""}`);
 }
 
+// The marker flips as soon as the payload is moved in, but the relaunched
+// replacement reports readiness a moment later; wait for either outcome.
+async function waitForSettled({ readyFile, logPath, zipPath, label }) {
+  await waitFor(() => existsSync(readyFile) || existsSync(logPath), { label, logsFor: zipPath });
+}
+
 function markerOf(installDir) {
   // The replacement window briefly has no directory at the install path; the
   // polling predicates treat null as "not yet".
@@ -291,6 +297,7 @@ scope("rehearsal: same-name preview update installs the flat payload in place", 
     });
 
     await waitFor(() => markerOf(installDir) === "new", { label: "same-name success (replacement installed)", logsFor: zipPath });
+    await waitForSettled({ readyFile, logPath, zipPath, label: "same-name readiness" });
     assert.equal(existsSync(join(installDir, "MOSA.exe")), true);
     assert.equal(existsSync(join(installDir, "GravityPort.exe")), false);
     assert.equal(existsSync(logPath), false, `helper failure log must be absent, got: ${existsSync(logPath) ? readFileSync(logPath, "utf8") : ""}`);
@@ -321,6 +328,7 @@ scope("rehearsal: cross-name preview update renames the nested GravityPort paylo
     });
 
     await waitFor(() => markerOf(installDir) === "new", { label: "cross-name success (replacement installed)", logsFor: zipPath });
+    await waitForSettled({ readyFile, logPath, zipPath, label: "cross-name readiness" });
     // The old user's folder name and exe name both survive the update; only
     // the content changed.
     assert.equal(installDir, join(root, "install", "MOSA-win32-x64"));
@@ -351,7 +359,9 @@ scope("rehearsal: cross-name update with a silent payload rolls back and relaunc
     });
 
     await waitFor(() => existsSync(logPath), { label: "helper failure log" });
-    assert.match(readFileSync(logPath, "utf8"), /did not report readiness/);
+    // The fake exe exits right away without a ready file, so the helper may
+    // notice the exit before its deadline; both mean "never reported ready".
+    assert.match(readFileSync(logPath, "utf8"), /did not report readiness|exited before reporting readiness/);
     await waitFor(() => markerOf(installDir) === "old", { label: "previous install restored" });
     assert.equal(existsSync(join(installDir, "MOSA.exe")), true);
     assert.equal(existsSync(join(installDir, "GravityPort.exe")), false);
@@ -397,7 +407,7 @@ scope("rehearsal: production signer rules anchor trust to the manifest thumbprin
         signerThumbprint: manifestThumbprint,
         distribution: "production",
       });
-      return { root, installDir, readyFile, logPath };
+      return { root, installDir, zipPath, readyFile, logPath };
     } catch (error) {
       await removeTestPath(root, { recursive: true, force: true });
       throw error;
@@ -407,9 +417,10 @@ scope("rehearsal: production signer rules anchor trust to the manifest thumbprin
   // 1) Unsigned preview install crosses into production: the payload only has
   // to match the signed manifest.
   {
-    const { root, installDir, readyFile, logPath } = await scenario("old-none", { manifestThumbprint: THUMBPRINT_RENEWED });
+    const { root, installDir, zipPath, readyFile, logPath } = await scenario("old-none", { manifestThumbprint: THUMBPRINT_RENEWED });
     try {
       await waitFor(() => markerOf(installDir) === "new", { label: "old-none production success (replacement installed)", logsFor: zipPath });
+      await waitForSettled({ readyFile, logPath, zipPath, label: "old-none readiness" });
       assert.equal(existsSync(logPath), false, `helper failure log must be absent, got: ${existsSync(logPath) ? readFileSync(logPath, "utf8") : ""}`);
       assert.equal(existsSync(readyFile), true);
     } finally {
@@ -420,12 +431,13 @@ scope("rehearsal: production signer rules anchor trust to the manifest thumbprin
   // 2) Renewed certificate: the thumbprint rotated, the publisher subject did
   // not, so the update goes through.
   {
-    const { root, installDir, readyFile, logPath } = await scenario("renewal", {
+    const { root, installDir, zipPath, readyFile, logPath } = await scenario("renewal", {
       oldSignature: { thumbprint: THUMBPRINT_PREVIOUS, subject: SUBJECT_PUBLISHER },
       manifestThumbprint: THUMBPRINT_RENEWED,
     });
     try {
       await waitFor(() => markerOf(installDir) === "new", { label: "renewal production success (replacement installed)", logsFor: zipPath });
+      await waitForSettled({ readyFile, logPath, zipPath, label: "renewal readiness" });
       assert.equal(existsSync(logPath), false);
       assert.equal(existsSync(readyFile), true);
     } finally {
@@ -436,7 +448,7 @@ scope("rehearsal: production signer rules anchor trust to the manifest thumbprin
   // 3) Publisher subject changed: refused, and the previous install stays in
   // place untouched.
   {
-    const { root, installDir, readyFile, logPath } = await scenario("subject", {
+    const { root, installDir, zipPath, readyFile, logPath } = await scenario("subject", {
       oldSignature: { thumbprint: THUMBPRINT_PREVIOUS, subject: SUBJECT_PUBLISHER },
       manifestThumbprint: THUMBPRINT_RENEWED,
       expectedPayload: { thumbprint: THUMBPRINT_RENEWED, subject: SUBJECT_OTHER },
@@ -454,7 +466,7 @@ scope("rehearsal: production signer rules anchor trust to the manifest thumbprin
   // 4) Payload thumbprint disagrees with the signed manifest: refused the
   // same way — the manifest, not the old install, is the trust anchor.
   {
-    const { root, installDir, readyFile, logPath } = await scenario("manifest", {
+    const { root, installDir, zipPath, readyFile, logPath } = await scenario("manifest", {
       manifestThumbprint: THUMBPRINT_OTHER,
     });
     try {
