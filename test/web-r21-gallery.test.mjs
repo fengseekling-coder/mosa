@@ -40,24 +40,24 @@ test("R21 card radius: thumbs use --radius-card (8px) and the ring follows", asy
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.asset-card \.thumb \{ background: #ececef; \}/);
 });
 
-test("R21 card info: 12 distance, 12px/620 title, 10px non-mono meta, 12 bottom padding", async () => {
+test("R21 card info: 12 distance, 12px/500 title, 11px non-mono meta, 12 bottom padding", async () => {
   const css = await readWebCss();
   // 信息区：上下内边距 12（顶=与缩略图的距离，底=计入卡片高度的留白），左右 2 沿用。
   assert.match(css, /\.asset-card-info \{ display: none; padding: var\(--r21-s3\) 2px; \}/);
-  // 标题：12px / 620，单行省略（nowrap + ellipsis 保留）。
-  assert.match(css, /\.asset-card-title \{ overflow: hidden; color: var\(--color-text-primary\); font-size: 12px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; \}/);
+  // 标题：12px（--text-sm）/ 500（--weight-medium，620 归档），单行省略（nowrap + ellipsis 保留）。
+  assert.match(css, /\.asset-card-title \{ overflow: hidden; color: var\(--color-text-primary\); font-size: var\(--text-sm\); font-weight: var\(--weight-semibold\); text-overflow: ellipsis; white-space: nowrap; \}/);
   // 元信息：10px、与标题间距 4、普通字体（mono 移除）、单行省略。
   const meta = /(\.asset-card-meta \{[^}]*\})/.exec(css)?.[1];
   assert.ok(meta, ".asset-card-meta rule must exist");
   assert.doesNotMatch(meta, /font-family/, "the meta row must not use the mono font anymore");
   assert.match(meta, /flex-wrap: nowrap;/, "the meta row must be single-line");
   assert.match(meta, /margin-top: var\(--r21-s1\);/, "the meta row must sit 4px below the title");
-  assert.match(meta, /font-size: 10px;/);
+  assert.match(meta, /font-size: var\(--text-xs\);/);
   assert.match(meta, /overflow: hidden;/, "the meta row must clip to one line");
   // 元信息子项逐项省略。
   assert.match(css, /\.asset-card-meta > \* \{ flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; \}/);
-  // 元信息颜色：浅色 #6e6e73（在 #f6f6f7 上 4.70:1，达 AA 4.5:1），深色保持 --color-text-secondary（基规则不动）。
-  assert.match(css, /\.asset-card-meta \{ display: flex; flex-wrap: nowrap; gap: 2px 7px; margin-top: var\(--r21-s1\); overflow: hidden; color: var\(--color-text-secondary\); font-size: 10px; white-space: nowrap; \}/);
+  // 元信息颜色：浅色 #6e6e73（在 #f6f6f7 上 4.70:1，达 AA 4.5:1），深色保持 --color-text-secondary（基规则不动）；字号 11px（--text-xs，规范表 v1）。
+  assert.match(css, /\.asset-card-meta \{ display: flex; flex-wrap: nowrap; gap: 2px 7px; margin-top: var\(--r21-s1\); overflow: hidden; color: var\(--color-text-secondary\); font-size: var\(--text-xs\); white-space: nowrap; \}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.asset-card-meta \{ color: #6e6e73; \}/);
 });
 

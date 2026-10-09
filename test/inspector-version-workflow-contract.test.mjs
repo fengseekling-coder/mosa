@@ -343,8 +343,8 @@ test("styles. picker and recipe-change styling stay within the Phase 4B boundary
 
   assert.match(css, /\.version-picker \{ display: grid; gap: 8px; margin-bottom: 10px; \}/, "picker layout uses the 8px grid");
   assert.match(css, /\.recipe-change-field \{ margin-top: 8px; \}/, "recipe-change field matches version-change spacing");
-  assert.match(css, /\.version-current, \.version-archived \{[^}]*font-size: 10px;/, "version badges no longer use 9px type");
-  assert.match(css, /\.version-content time \{ color: var\(--color-text-tertiary\); font-size: 10px; \}/, "version timestamps no longer use 9px type");
+  assert.match(css, /\.version-current, \.version-archived \{[^}]*font-size: var\(--text-xs\);/, "version badges stay at the 11px --text-xs floor (was 9px type)");
+  assert.match(css, /\.version-content time \{ color: var\(--color-text-tertiary\); font-size: var\(--text-xs\); \}/, "version timestamps stay at the 11px --text-xs floor (was 9px type)");
   const versionArea = sliceBetween(css, "/* 版本历史 */", "/* 配方快照 */");
   assert.doesNotMatch(versionArea, /font-size: 9px/, "no 9px type remains in the version area");
   assert.doesNotMatch(css, /\.version-picker[^{]*\{[^}]*appearance: none/, "native select keeps the platform affordance");

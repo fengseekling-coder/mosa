@@ -42,7 +42,7 @@ test("brand row: GravityPort in h1, sidebar aria-label and <title>; subtitle kep
   assert.match(brand, /justify-content: flex-end;/, "brand content must right-align");
   assert.match(brand, /padding: 0 20px;/, "brand right padding must be 20px");
   assert.match(brand, /height: var\(--topbar-height\);/, "brand row height must stay the topbar token");
-  assert.match(css, /\.mosa-v2 \.brand-info h1 \{ color: var\(--color-text-primary\); font-size: 18px; font-weight: 500; line-height: 20px; letter-spacing: 0; \}/);
+  assert.match(css, /\.mosa-v2 \.brand-info h1 \{ color: var\(--color-text-primary\); font-size: var\(--text-lg\); font-weight: var\(--weight-medium\); line-height: var\(--text-lg-lh\); letter-spacing: 0; \}/);
   // 靠右之后不再需要为三色按钮让位：margin-left 补偿规则必须删干净。
   assert.doesNotMatch(css, /electron-shell[^{]*brand-info h1[^{]*\{[^}]*margin-left/, "the traffic-light offset rule must be gone");
 });
@@ -54,15 +54,15 @@ test("primary navigation order: all → unorganized → favorite → trash", asy
   assert.deepEqual(order, ["all", "unorganized", "favorite", "trash"], "quick filters must follow the GravityPort A2 order");
 });
 
-test("nav items: 36px height, 8px radius, 4px gap, 20px nav side padding, 12px item padding", async () => {
+test("nav items: 28px height, 8px radius, 4px gap, 20px nav side padding, 12px item padding", async () => {
   const css = await readCss();
-  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 36px; border-radius: 8px;/);
-  assert.match(css, /\.mosa-v2 \.primary-nav \{ padding: 16px 20px 10px; \}/, "nav side padding must be 20px (item width 280 − 40 = 240)");
+  assert.match(css, /\.mosa-v2 \.nav-item, \.mosa-v2 \.add-group-button, \.mosa-v2 \.settings-trigger \{ min-height: 28px; border-radius: 8px;/);
+  assert.match(css, /\.mosa-v2 \.primary-nav \{ padding: 16px 20px 10px; \}/, "nav side padding must be 20px (item width 220 − 40 = 180)");
   assert.match(css, /\.mosa-v2 \.nav-list \{ gap: var\(--r21-s1\); \}/, "fixed-entry gap must stay the 4px step");
   assert.match(css, /\.mosa-v2 \.sidebar-group-list \{ gap: var\(--r21-s1\);/, "group item gap must be the 4px step too");
-  assert.match(css, /\.mosa-v2 \.nav-item \{ padding: 0 12px; font-size: 13px; \}/, "nav items keep 12px inner padding; group items read 13px");
-  assert.match(css, /\.mosa-v2 \.nav-list \.nav-item \{ font-size: 14px; \}/, "fixed entries read 14px");
-  assert.match(css, /\.mosa-v2 \.nav-count \{ color: var\(--color-text-tertiary\); font-size: 12px; font-weight: 300;/, "counts read 12px / weight 300");
+  assert.match(css, /\.mosa-v2 \.nav-item \{ padding: 0 12px; font-size: var\(--text-md\); \}/, "nav items keep 12px inner padding; all nav rows read 13px (--text-md)");
+  assert.match(css, /\.mosa-v2 \.nav-list \.nav-item \{ font-size: var\(--text-md\); \}/, "fixed entries read 13px too (--text-md, 规范表 v1 统一导航字号)");
+  assert.match(css, /\.mosa-v2 \.nav-count \{ color: var\(--color-text-tertiary\); font-size: var\(--text-sm\); font-weight: var\(--weight-regular\);/, "counts read 12px / weight 400 (was 300, 规范表 v1 字重归档)");
   // 选中态底色与左侧 2px 指示条规则保留（v2 中维持现状隐藏）。
   assert.match(css, /\.nav-item\.active::before \{ content: ""; position: absolute; top: 6px; left: 0; width: 2px;/, "the 2px active indicator rule must survive");
   // 底部不再有分隔线。
@@ -72,7 +72,7 @@ test("nav items: 36px height, 8px radius, 4px gap, 20px nav side padding, 12px i
 
 test("group headings: 12px/600 labels and 24px space above heading rows", async () => {
   const css = await readCss();
-  assert.match(css, /\.mosa-v2 \.nav-label \{ margin: 18px 0 6px; padding: 0 12px; color: var\(--color-text-tertiary\); font-size: 12px; font-weight: 600;/);
+  assert.match(css, /\.mosa-v2 \.nav-label \{ margin: 18px 0 6px; padding: 0 12px; color: var\(--color-text-tertiary\); font-size: var\(--text-sm\); font-weight: var\(--weight-semibold\);/);
   assert.match(css, /\.mosa-v2 \.sidebar-group-heading \{ display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin: var\(--r21-s6\) 10px 2px; \}/, "heading rows sit 24px (--r21-s6) below the previous block");
   assert.match(css, /\.mosa-v2 \.sidebar-manual-group-heading \{ margin-top: var\(--r21-s6\); \}/);
 });

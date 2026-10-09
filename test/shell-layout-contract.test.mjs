@@ -62,11 +62,11 @@ test("1-7. shell regions and panel token consumption", async () => {
 
   // 3–6. Widths resolve from token definitions, and narrow/compact variants drive
   // the ≤1120px media query — never repeated literals in Shell rules.
-  // GravityPort 改版值（sidebar 280 / inspector 320 / topbar 64）分别由 web-r21-shell、
+  // 规范表 v1 改版值（sidebar 220 / inspector 280 / topbar 48）分别由 web-r21-shell、
   // web-r21-inspector-head 锁定，这里只守 token 消费与 narrow/compact 变体。
-  assert.match(css, /--sidebar-width-narrow: 240px;/);
+  assert.match(css, /--sidebar-width-narrow: 200px;/);
   assert.match(css, /--sidebar-width-compact: 56px;/);
-  assert.match(css, /--inspector-width-compact: 320px;/);
+  assert.match(css, /--inspector-width-compact: 280px;/);
   const mq1120 = blockAfter(css, "@media (max-width: 1120px)");
   assert.match(mq1120, /\.shell \{ grid-template-columns: var\(--sidebar-width-narrow\) minmax\(0, 1fr\); \}/);
   assert.match(mq1120, /\.shell\.details-open \{ grid-template-columns: var\(--sidebar-width-compact\) minmax\(0, 1fr\) var\(--inspector-width-compact\); \}/);

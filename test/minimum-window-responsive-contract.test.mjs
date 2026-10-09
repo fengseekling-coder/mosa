@@ -106,9 +106,9 @@ test("15-16. 960 下 Viewer shell 与舞台契约", async () => {
 test("17-18. Inspector 独立滚动且宽度不超批准范围", async () => {
   const styles = await source("web/app/styles.css");
   assert.match(styles, /\.detail-inspector-scroll \{ position: relative; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; \}/);
-  // 批准宽度：宽屏 320px（GravityPort，token 值由 web-r21-inspector-head 锁定）/
-  // 紧凑 320px，均来自 Token 且未出现更大值。
-  assert.match(styles, /--inspector-width-compact: 320px;/);
+  // 批准宽度：宽屏 280px（GravityPort，token 值由 web-r21-inspector-head 锁定）/
+  // 紧凑 280px，均来自 Token 且未出现更大值（规范表 v1：检视器 320→280）。
+  assert.match(styles, /--inspector-width-compact: 280px;/);
   assert.match(styles, /\.shell\.details-open \{[^}]*var\(--inspector-width\)/s);
   assert.doesNotMatch(styles, /--inspector-width[^:]*:\s*3[7-9]\dpx|--inspector-width[^:]*:\s*[4-9]\d\dpx/);
 });

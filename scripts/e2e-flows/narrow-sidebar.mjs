@@ -189,9 +189,11 @@ function drawerJourneySource(seed) {
     await openDrawerViaToggle();
     // The slide-in is a transform transition: wait for it to settle so the
     // recorded geometry is the final position, not a mid-flight frame.
+    // 任务 104：抽屉宽随 --sidebar-width（280→220），不再钉 280——「完全滑入」
+    // 改为相对自身宽度判断（右缘 ≥ 宽度且左缘贴 0），宽度本身由样式快照锁。
     await waitFor(() => {
       const rect = sidebarEl().getBoundingClientRect();
-      return rect.right >= 280 && Math.abs(rect.left) < 0.5;
+      return rect.right >= rect.width && Math.abs(rect.left) < 0.5;
     }, 'sidebar slides into viewport', FOCUS_TIMEOUT);
     const openRect = sidebarEl().getBoundingClientRect();
     const openDrawer = {
@@ -199,7 +201,7 @@ function drawerJourneySource(seed) {
       ariaExpanded: toggleEl().getAttribute('aria-expanded'),
       scrimHidden: scrimEl().hidden,
       sidebar: { inert: sidebarEl().hasAttribute('inert'), ariaHidden: sidebarEl().getAttribute('aria-hidden') },
-      sidebarEnteredViewport: openRect.right >= 280 && Math.abs(openRect.left) < 0.5,
+      sidebarEnteredViewport: openRect.right >= openRect.width && Math.abs(openRect.left) < 0.5,
       focusOnClose: document.activeElement === closeEl(),
     };
 
