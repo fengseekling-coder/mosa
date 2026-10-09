@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { chmod, mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -314,12 +314,21 @@ test("macOS app name normalization accepts only the two release names", () => {
 });
 
 test("macOS update install location stops safely on translocation and read-only directories", async () => {
-  // A normal recognized path inside a writable directory is supported.
-  assert.deepEqual(evaluateMacosInstallLocation("/Applications/MOSA.app/Contents/MacOS/MOSA"), {
-    supported: true,
-    installAppPath: "/Applications/MOSA.app",
-    reason: null,
-  });
+  // A normal recognized path inside a writable directory is supported. Use a
+  // temporary directory: CI runners (Linux, Windows) have no /Applications.
+  const writableRoot = await mkdtemp(join(tmpdir(), "mosa-mac-location-ok-"));
+  try {
+    for (const appName of ["MOSA.app", "GravityPort.app"]) {
+      const executable = appName === "MOSA.app" ? "MOSA" : "GravityPort";
+      assert.deepEqual(evaluateMacosInstallLocation(join(writableRoot, appName, "Contents", "MacOS", executable)), {
+        supported: true,
+        installAppPath: join(writableRoot, appName),
+        reason: null,
+      });
+    }
+  } finally {
+    await rm(writableRoot, { recursive: true, force: true });
+  }
   // Gatekeeper translocation paths are refused before any write attempt.
   assert.deepEqual(
     evaluateMacosInstallLocation(
