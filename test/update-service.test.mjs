@@ -162,6 +162,7 @@ test("update check compares the fixed HTTPS feed against the installed version",
   assert.deepEqual(result.macArtifact, {
     platform: "macOS",
     arch: "arm64",
+    appName: "MOSA.app",
     file: "MOSA-darwin-arm64-0.2.1.zip",
     size: 654321,
     sha256: "b".repeat(64),
@@ -262,6 +263,86 @@ test("distribution tracks stay isolated after legacy builds join preview", () =>
   assert.equal(canUpdateDistribution("development", "preview"), true);
   assert.equal(canUpdateDistribution("preview", "preview"), true);
   assert.equal(canUpdateDistribution("production", "production"), true);
-  assert.equal(canUpdateDistribution("preview", "production"), false);
+  // The transition release intentionally bridges preview users into the later
+  // Developer-ID-signed production channel; the manifest pins the team id.
+  assert.equal(canUpdateDistribution("preview", "production"), true);
   assert.equal(canUpdateDistribution("production", "preview"), false);
+});
+
+test("macOS manifests accept both app names and bind the artifact filename to them", () => {
+  const manifestFor = (file, extra = {}) => parseUpdateManifest({
+    version: "0.3.0",
+    build: {
+      gitSha: "a".repeat(40),
+      uiFingerprint: "b".repeat(64),
+      runtimeFingerprint: "c".repeat(64),
+      distribution: "preview",
+    },
+    platforms: {
+      macos: {
+        platform: "macOS",
+        arch: "arm64",
+        file,
+        size: 123,
+        sha256: "d".repeat(64),
+        ...extra,
+      },
+    },
+  });
+
+  assert.deepEqual(manifestFor("MOSA-darwin-arm64-0.3.0.zip").macArtifact, {
+    platform: "macOS",
+    arch: "arm64",
+    appName: "MOSA.app",
+    file: "MOSA-darwin-arm64-0.3.0.zip",
+    size: 123,
+    sha256: "d".repeat(64),
+  });
+  assert.deepEqual(manifestFor("GravityPort-darwin-arm64-0.3.0.zip", { appName: "GravityPort.app" }).macArtifact, {
+    platform: "macOS",
+    arch: "arm64",
+    appName: "GravityPort.app",
+    file: "GravityPort-darwin-arm64-0.3.0.zip",
+    size: 123,
+    sha256: "d".repeat(64),
+  });
+  // An appName that disagrees with the filename prefix is refused, as are
+  // unknown names and names carrying path separators.
+  assert.throws(() => manifestFor("GravityPort-darwin-arm64-0.3.0.zip"), /artifact identity/);
+  assert.throws(() => manifestFor("MOSA-darwin-arm64-0.3.0.zip", { appName: "Evil.app" }), /app name/);
+  assert.throws(() => manifestFor("MOSA-darwin-arm64-0.3.0.zip", { appName: "../Evil.app" }), /app name/);
+  assert.throws(() => manifestFor("MOSA-darwin-arm64-0.3.0.zip", { appName: "sub/MOSA.app" }), /app name/);
+});
+
+test("macOS production manifests pin a team identifier and preview may omit it", () => {
+  const manifestFor = (distribution, teamIdentifier) => parseUpdateManifest({
+    version: "0.3.0",
+    build: {
+      gitSha: "a".repeat(40),
+      uiFingerprint: "b".repeat(64),
+      runtimeFingerprint: "c".repeat(64),
+      distribution,
+    },
+    platforms: {
+      macos: {
+        platform: "macOS",
+        arch: "arm64",
+        appName: "GravityPort.app",
+        file: "GravityPort-darwin-arm64-0.3.0.zip",
+        size: 123,
+        sha256: "d".repeat(64),
+        ...(teamIdentifier ? { teamIdentifier } : {}),
+      },
+    },
+  });
+
+  const production = manifestFor("production", "ABCDEF1234");
+  assert.equal(production.buildIdentity.distribution, "production");
+  assert.equal(production.macArtifact.teamIdentifier, "ABCDEF1234");
+  assert.throws(() => manifestFor("production", ""), /team identifier/);
+  assert.throws(() => manifestFor("production", undefined), /team identifier/);
+  assert.throws(() => manifestFor("production", "tooshort"), /team identifier/);
+  assert.throws(() => manifestFor("production", "TOO_LONG_TEAM_ID"), /team identifier/);
+  assert.equal(manifestFor("preview", "").macArtifact.teamIdentifier, undefined);
+  assert.equal(manifestFor("preview", "ABCDEF1234").macArtifact.teamIdentifier, "ABCDEF1234");
 });

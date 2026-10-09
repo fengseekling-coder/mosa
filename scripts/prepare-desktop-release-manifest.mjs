@@ -6,7 +6,7 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { parseUpdateManifest } from "../desktop/update-service.mjs";
+import { parseUpdateManifest, macosUpdateFileNameForAppName, MACOS_TEAM_IDENTIFIER_PATTERN, MACOS_UPDATE_APP_NAMES } from "../desktop/update-service.mjs";
 import { normalizeDesktopDistribution } from "../lib/release-distribution.mjs";
 import {
   normalizeReleaseManifestTrust,
@@ -20,6 +20,8 @@ const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 export async function prepareDesktopReleaseManifest({
   version,
   macArtifactPath = "",
+  macAppName = "MOSA.app",
+  macTeamIdentifier = "",
   windowsArtifactPath = "",
   buildIdentity = null,
   signingPrivateKey = null,
@@ -31,14 +33,28 @@ export async function prepareDesktopReleaseManifest({
   if (!VERSION_PATTERN.test(cleanVersion)) throw new Error("Invalid MOSA release version.");
   const normalizedBuildIdentity = normalizeBuildIdentity(buildIdentity, cleanVersion);
 
+  const cleanMacAppName = String(macAppName || "").trim();
+  if (!MACOS_UPDATE_APP_NAMES.includes(cleanMacAppName)) throw new Error("Invalid macOS release app name.");
+  const cleanMacTeamIdentifier = String(macTeamIdentifier || "").trim().toUpperCase();
+  if (cleanMacTeamIdentifier && !MACOS_TEAM_IDENTIFIER_PATTERN.test(cleanMacTeamIdentifier)) {
+    throw new Error("Release macOS teamIdentifier is invalid.");
+  }
+
   const macos = macArtifactPath
     ? await artifactMetadata({
         path: macArtifactPath,
-        expectedFile: `MOSA-darwin-arm64-${cleanVersion}.zip`,
+        expectedFile: macosUpdateFileNameForAppName(cleanMacAppName, cleanVersion),
         platform: "macOS",
         arch: "arm64",
+        appName: cleanMacAppName,
+        ...(cleanMacTeamIdentifier ? { teamIdentifier: cleanMacTeamIdentifier } : {}),
       })
     : null;
+  // The Desktop reader enforces the same rule; fail here with the publishing
+  // context so a production release can never leave without its pinned team.
+  if (normalizedBuildIdentity.distribution === "production" && macos && !macos.teamIdentifier) {
+    throw new Error("Production macOS releases require a platforms.macos teamIdentifier.");
+  }
   const windows = windowsArtifactPath
     ? await artifactMetadata({
         path: windowsArtifactPath,
@@ -79,7 +95,7 @@ export async function prepareDesktopReleaseManifest({
   return manifest;
 }
 
-export async function artifactMetadata({ path, expectedFile, platform, arch }) {
+export async function artifactMetadata({ path, expectedFile, platform, arch, ...extraFields }) {
   const absolute = resolve(String(path || ""));
   if (basename(absolute) !== expectedFile) {
     throw new Error(`Release artifact filename must be ${expectedFile}.`);
@@ -96,6 +112,7 @@ export async function artifactMetadata({ path, expectedFile, platform, arch }) {
   return {
     platform,
     arch,
+    ...extraFields,
     file: expectedFile,
     size: info.size,
     sha256: hash.digest("hex"),
@@ -154,7 +171,7 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.version || !args.output) {
-    throw new Error("Usage: prepare-desktop-release-manifest.mjs --version <version> --output <latest.json> [--previous <latest.json>] [--mac <zip>] [--windows <zip>] [--published-at <ISO>] [--notes-zh <text>] [--notes-en <text>]");
+    throw new Error("Usage: prepare-desktop-release-manifest.mjs --version <version> --output <latest.json> [--previous <latest.json>] [--mac <zip>] [--mac-app-name <MOSA.app|GravityPort.app>] [--mac-team-identifier <10-char id>] [--windows <zip>] [--published-at <ISO>] [--notes-zh <text>] [--notes-en <text>]");
   }
   const previousManifest = args.previous ? JSON.parse(await readFile(resolve(args.previous), "utf8")) : null;
   const projectRoot = new URL("..", import.meta.url);
@@ -163,6 +180,8 @@ async function main() {
   const manifest = await prepareDesktopReleaseManifest({
     version: args.version,
     macArtifactPath: args.mac || "",
+    macAppName: args["mac-app-name"] || "MOSA.app",
+    macTeamIdentifier: args["mac-team-identifier"] || "",
     windowsArtifactPath: args.windows || "",
     buildIdentity,
     signingPrivateKey,

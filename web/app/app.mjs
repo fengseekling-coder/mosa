@@ -1363,6 +1363,7 @@ function updateVersionSummary() {
   }
   if (state.updateStatus === "current") return `${current} · ${t("upToDate")}`;
   if (state.updateStatus === "error") return `${current} · ${t("updateCheckFailed")}`;
+  if (state.updateStatus === "unavailable") return `${current} · ${t("updateInstallLocationUnsupported")}`;
   return current;
 }
 
@@ -1401,6 +1402,9 @@ async function checkForUpdates({ notify = false, silent = false } = {}) {
       }
     } else if (result?.status === "disabled") {
       state.updateStatus = "idle";
+    } else if (result?.status === "unavailable" && result?.reason === "install-location-unsupported") {
+      state.updateStatus = "unavailable";
+      if (!silent) showToast(t("updateInstallLocationUnsupported"), "error");
     } else {
       state.updateStatus = "error";
       if (!silent) showToast(t("updateCheckFailed"), "error");

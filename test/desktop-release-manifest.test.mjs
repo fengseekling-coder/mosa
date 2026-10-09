@@ -195,3 +195,87 @@ test("release manifest refuses missing or mismatched build identity", async () =
     await removeTestPath(files.root, { recursive: true, force: true });
   }
 });
+
+test("release manifest writes the GravityPort app name and its bound artifact filename", async () => {
+  const version = "0.3.0";
+  const files = await fixtureArtifacts(version);
+  const mac = join(files.root, `GravityPort-darwin-arm64-${version}.zip`);
+  await writeFile(mac, `mac-gravityport-${version}`);
+  try {
+    const result = await prepareDesktopReleaseManifest({
+      version,
+      macArtifactPath: mac,
+      macAppName: "GravityPort.app",
+      ...signingOptions(version),
+      publishedAt: "2026-10-09T01:00:00Z",
+      notes: { zh: "说明", en: "Notes" },
+    });
+    assert.equal(result.platforms.macos.appName, "GravityPort.app");
+    assert.equal(result.platforms.macos.file, `GravityPort-darwin-arm64-${version}.zip`);
+    assert.equal(result.platforms.macos.teamIdentifier, undefined);
+    assert.equal(verifyReleaseManifestSignature(result, RELEASE_TRUST), true);
+    const parsed = parseUpdateManifest(result);
+    assert.equal(parsed.macArtifact.appName, "GravityPort.app");
+    assert.equal(parsed.macArtifact.file, `GravityPort-darwin-arm64-${version}.zip`);
+  } finally {
+    await removeTestPath(files.root, { recursive: true, force: true });
+  }
+});
+
+test("release manifest requires and pins the production team identifier", async () => {
+  const version = "0.3.0";
+  const files = await fixtureArtifacts(version);
+  try {
+    await assert.rejects(
+      prepareDesktopReleaseManifest({
+        version,
+        macArtifactPath: files.mac,
+        ...signingOptions(version),
+        // build identity flipped to production for this call
+        buildIdentity: { ...buildIdentity(version), distribution: "production" },
+        signingPrivateKey: RELEASE_KEYS.privateKey,
+        publishedAt: "2026-10-09T01:00:00Z",
+        notes: { zh: "说明", en: "Notes" },
+      }),
+      /teamIdentifier/,
+    );
+    const result = await prepareDesktopReleaseManifest({
+      version,
+      macArtifactPath: files.mac,
+      macTeamIdentifier: "abcd1234ef",
+      buildIdentity: { ...buildIdentity(version), distribution: "production" },
+      signingPrivateKey: RELEASE_KEYS.privateKey,
+      publishedAt: "2026-10-09T01:00:00Z",
+      notes: { zh: "说明", en: "Notes" },
+    });
+    assert.equal(result.platforms.macos.teamIdentifier, "ABCD1234EF");
+    assert.equal(verifyReleaseManifestSignature(result, RELEASE_TRUST), true);
+    const parsed = parseUpdateManifest(result);
+    assert.equal(parsed.macArtifact.teamIdentifier, "ABCD1234EF");
+    await assert.rejects(
+      prepareDesktopReleaseManifest({
+        version,
+        macArtifactPath: files.mac,
+        macTeamIdentifier: "bad-team",
+        buildIdentity: { ...buildIdentity(version), distribution: "production" },
+        signingPrivateKey: RELEASE_KEYS.privateKey,
+        publishedAt: "2026-10-09T01:00:00Z",
+        notes: { zh: "说明", en: "Notes" },
+      }),
+      /teamIdentifier is invalid/,
+    );
+    await assert.rejects(
+      prepareDesktopReleaseManifest({
+        version,
+        macArtifactPath: files.mac,
+        macAppName: "Evil.app",
+        ...signingOptions(version),
+        publishedAt: "2026-10-09T01:00:00Z",
+        notes: { zh: "说明", en: "Notes" },
+      }),
+      /Invalid macOS release app name/,
+    );
+  } finally {
+    await removeTestPath(files.root, { recursive: true, force: true });
+  }
+});
