@@ -12,6 +12,23 @@ const USAGE_PLATFORMS = new Set(["macos", "windows", "other"]);
 const USAGE_TELEMETRY_VERSION = 2;
 const GIT_SHA_PATTERN = /^[0-9a-f]{40}$/i;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
+export const MACOS_TEAM_IDENTIFIER_PATTERN = /^[A-Z0-9]{10}$/;
+export const MACOS_UPDATE_APP_NAMES = Object.freeze(["MOSA.app", "GravityPort.app"]);
+
+// The manifest app name is bound to the update package filename: MOSA.app
+// ships as MOSA-darwin-arm64-<version>.zip and GravityPort.app ships as
+// GravityPort-darwin-arm64-<version>.zip. Anything else is rejected.
+export function macosUpdateFileNameForAppName(appName, version) {
+  if (!MACOS_UPDATE_APP_NAMES.includes(appName)) throw new Error("Invalid macOS update app name.");
+  return `${appName.slice(0, -4)}-darwin-arm64-${version}.zip`;
+}
+
+function normalizeMacosTeamIdentifier(value) {
+  const teamIdentifier = typeof value === "string" ? value.trim().toUpperCase() : "";
+  if (!teamIdentifier) return "";
+  if (!MACOS_TEAM_IDENTIFIER_PATTERN.test(teamIdentifier)) throw new Error("Invalid macOS release team identifier.");
+  return teamIdentifier;
+}
 
 function parseVersion(value) {
   const match = VERSION_PATTERN.exec(String(value || "").trim());
@@ -59,6 +76,14 @@ export function canUpdateDistribution(currentDistribution, targetDistribution) {
   const current = normalizeDesktopDistribution(currentDistribution);
   const target = normalizeDesktopDistribution(targetDistribution, { defaultValue: "preview", releaseOnly: true });
   if (current === target) return true;
+  // The rename ships a transition release that lets every existing preview
+  // user cross into the later Developer-ID-signed production channel in place.
+  // Trust stays anchored to the signed manifest: production manifests must pin
+  // platforms.macos.teamIdentifier and the macOS helper verifies the payload
+  // against it, so this bridge never accepts an arbitrary developer signature.
+  // The reverse direction stays closed: a production install must never
+  // silently downgrade back to preview.
+  if (current === "preview" && target === "production") return true;
   return current === "development" && target === "preview";
 }
 
@@ -99,10 +124,13 @@ function parseWindowsArtifact(value, version) {
 function parseMacArtifact(value, version) {
   if (value == null) return null;
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid macOS update artifact.");
-  const expectedFile = `MOSA-darwin-arm64-${version}.zip`;
+  const appName = typeof value.appName === "string" && value.appName.trim() ? value.appName.trim() : "MOSA.app";
+  if (appName.includes("/") || appName.includes("\\")) throw new Error("Invalid macOS update app name.");
+  const expectedFile = macosUpdateFileNameForAppName(appName, version);
   const file = typeof value.file === "string" ? value.file.trim() : "";
   const size = Number(value.size);
   const sha256 = typeof value.sha256 === "string" ? value.sha256.trim().toLowerCase() : "";
+  const teamIdentifier = normalizeMacosTeamIdentifier(value.teamIdentifier);
   if (value.platform !== "macOS" || value.arch !== "arm64" || file !== expectedFile) {
     throw new Error("Invalid macOS update artifact identity.");
   }
@@ -110,7 +138,15 @@ function parseMacArtifact(value, version) {
     throw new Error("Invalid macOS update artifact size.");
   }
   if (!/^[0-9a-f]{64}$/.test(sha256)) throw new Error("Invalid macOS update artifact digest.");
-  return { platform: "macOS", arch: "arm64", file, size, sha256 };
+  return {
+    platform: "macOS",
+    arch: "arm64",
+    appName,
+    file,
+    size,
+    sha256,
+    ...(teamIdentifier ? { teamIdentifier } : {}),
+  };
 }
 
 export function parseUpdateManifest(input) {
@@ -131,6 +167,12 @@ export function parseUpdateManifest(input) {
   const buildIdentity = parseBuildIdentity(input.build);
   if ((macArtifact || windowsArtifact) && !buildIdentity) {
     throw new Error("Update artifacts require release build identity.");
+  }
+  // Production trust is anchored to the manifest: the pinned team identifier
+  // is what the macOS installer verifies the payload against. Preview may omit
+  // it because those builds are ad-hoc signed.
+  if (buildIdentity?.distribution === "production" && macArtifact && !macArtifact.teamIdentifier) {
+    throw new Error("Production macOS releases require a release team identifier.");
   }
   return {
     version: parsedVersion.version,

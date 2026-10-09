@@ -33,6 +33,7 @@ import {
 } from "./windows-updater.mjs";
 import {
   downloadMacosUpdate,
+  evaluateMacosInstallLocation,
   launchMacosUpdateHelper,
   resolveMacosInstallAppPath,
   resolveMacosUpdateReadyFile,
@@ -821,8 +822,17 @@ function registerIPC() {
           });
           if (!release.updateAvailable) return { status: "current", currentVersion: release.currentVersion };
           if (!release.macArtifact) return { status: "unavailable", currentVersion: release.currentVersion };
-          const installAppPath = resolveMacosInstallAppPath(process.execPath);
-          if (!installAppPath) return { status: "unsupported", currentVersion: release.currentVersion };
+          const installLocation = evaluateMacosInstallLocation(process.execPath);
+          if (!installLocation.installAppPath) return { status: "unsupported", currentVersion: release.currentVersion };
+          if (!installLocation.supported) {
+            // Gatekeeper translocation or a non-writable install directory:
+            // never try an in-place replacement from there.
+            return {
+              status: "unavailable",
+              reason: "install-location-unsupported",
+              currentVersion: release.currentVersion,
+            };
+          }
           const download = await downloadMacosUpdate({
             artifact: release.macArtifact,
             version: release.latestVersion,
@@ -836,9 +846,11 @@ function registerIPC() {
           if (macosUpdateDownloadController === controller) macosUpdateDownloadController = null;
           await launchMacosUpdateHelper({
             zipPath: download.zipPath,
-            installAppPath,
+            installAppPath: installLocation.installAppPath,
             version: release.latestVersion,
             expectedIdentity: release.buildIdentity,
+            appName: release.macArtifact.appName,
+            expectedTeamIdentifier: release.macArtifact.teamIdentifier || "",
             processId: process.pid,
             libraryDir,
           });
@@ -1091,6 +1103,20 @@ function runUpdateCheck({ notify = false } = {}) {
           }
         });
         notification.show();
+      }
+      if (process.platform === "darwin" && result.updateAvailable && result.macArtifact) {
+        const installLocation = evaluateMacosInstallLocation(process.execPath);
+        if (installLocation.installAppPath && !installLocation.supported) {
+          // Report a distinct state so the renderer can ask the user to move
+          // the app into Applications instead of offering an in-place update.
+          return {
+            status: "unavailable",
+            reason: "install-location-unsupported",
+            currentVersion,
+            latestVersion: result.latestVersion,
+            updateAvailable: result.updateAvailable,
+          };
+        }
       }
       return {
         status: "ok",

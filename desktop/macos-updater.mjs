@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { accessSync, constants as fsConstants } from "node:fs";
 import { createWriteStream } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -10,6 +11,9 @@ import {
   mosaDesktopStartupHandoffPath,
 } from "../lib/runtime-handoff.mjs";
 import { normalizeDesktopDistribution } from "../lib/release-distribution.mjs";
+import { MACOS_TEAM_IDENTIFIER_PATTERN, MACOS_UPDATE_APP_NAMES } from "./update-service.mjs";
+
+export { MACOS_UPDATE_APP_NAMES };
 
 export const MOSA_MACOS_DOWNLOAD_BASE_URL = "https://mosa.azhuilab.com/downloads/";
 const MAX_MACOS_UPDATE_BYTES = 1_500_000_000;
@@ -21,6 +25,12 @@ function safeVersion(value) {
   const version = String(value || "").trim().replace(/^v/i, "");
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error("Invalid macOS update version.");
   return version;
+}
+
+export function normalizeMacosUpdateAppName(value) {
+  const appName = value == null || String(value).trim() === "" ? "MOSA.app" : String(value).trim();
+  if (!MACOS_UPDATE_APP_NAMES.includes(appName)) throw new Error("Invalid macOS update app name.");
+  return appName;
 }
 
 function safeBuildIdentity(value) {
@@ -38,7 +48,8 @@ function safeBuildIdentity(value) {
 export function validateMacosUpdateArtifact(input, version) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("macOS update artifact is missing.");
   const normalizedVersion = safeVersion(version);
-  const expectedFile = `MOSA-darwin-arm64-${normalizedVersion}.zip`;
+  const appName = normalizeMacosUpdateAppName(input.appName);
+  const expectedFile = `${appName.slice(0, -4)}-darwin-arm64-${normalizedVersion}.zip`;
   const file = String(input.file || "").trim();
   const size = Number(input.size);
   const sha256 = String(input.sha256 || "").trim().toLowerCase();
@@ -47,12 +58,24 @@ export function validateMacosUpdateArtifact(input, version) {
   if (file !== expectedFile) throw new Error("macOS update artifact filename does not match the release version.");
   if (!Number.isSafeInteger(size) || size <= 0 || size > MAX_MACOS_UPDATE_BYTES) throw new Error("macOS update artifact has an invalid size.");
   if (!SHA256_PATTERN.test(sha256)) throw new Error("macOS update artifact has an invalid SHA-256 digest.");
-  return { platform: "macOS", arch: "arm64", file, size, sha256 };
+  const teamIdentifier = String(input.teamIdentifier || "").trim().toUpperCase();
+  if (teamIdentifier && !MACOS_TEAM_IDENTIFIER_PATTERN.test(teamIdentifier)) {
+    throw new Error("macOS update artifact has an invalid team identifier.");
+  }
+  return {
+    platform: "macOS",
+    arch: "arm64",
+    appName,
+    file,
+    size,
+    sha256,
+    ...(teamIdentifier ? { teamIdentifier } : {}),
+  };
 }
 
 export function macosUpdateDownloadUrl(artifact) {
   const file = String(artifact?.file || "").trim();
-  if (!/^MOSA-darwin-arm64-[0-9A-Za-z.-]+\.zip$/.test(file)) throw new Error("Unsafe macOS update filename.");
+  if (!/^(?:MOSA|GravityPort)-darwin-arm64-[0-9A-Za-z.-]+\.zip$/.test(file)) throw new Error("Unsafe macOS update filename.");
   return new URL(encodeURIComponent(file), MOSA_MACOS_DOWNLOAD_BASE_URL).toString();
 }
 
@@ -62,7 +85,25 @@ export function resolveMacosInstallAppPath(execPath = process.execPath) {
   const index = executable.lastIndexOf(marker);
   if (index <= 0) return null;
   const appPath = executable.slice(0, index);
-  return appPath.endsWith("/MOSA.app") ? appPath : null;
+  return appPath.endsWith("/MOSA.app") || appPath.endsWith("/GravityPort.app") ? appPath : null;
+}
+
+// A packaged app that runs from a Gatekeeper translocation path, or sits in a
+// directory it cannot write to (read-only volume, lack of permission), must not
+// attempt an in-place replacement: the updater stops safely and the UI asks
+// the user to move the app into Applications first.
+export function evaluateMacosInstallLocation(execPath = process.execPath) {
+  const installAppPath = resolveMacosInstallAppPath(execPath);
+  if (!installAppPath) return { supported: false, installAppPath: null, reason: "app-bundle-unrecognized" };
+  if (installAppPath.includes("/AppTranslocation/")) {
+    return { supported: false, installAppPath, reason: "app-translocation" };
+  }
+  try {
+    accessSync(dirname(installAppPath), fsConstants.W_OK);
+  } catch {
+    return { supported: false, installAppPath, reason: "install-dir-not-writable" };
+  }
+  return { supported: true, installAppPath, reason: null };
 }
 
 export async function downloadMacosUpdate({
@@ -186,15 +227,36 @@ READY_FILE="$9"
 shift 9
 HANDOFF_FILE="$1"
 EXPECTED_DISTRIBUTION="$2"
+APP_NAME="$3"
+EXPECTED_TEAM_IDENTIFIER="$4"
+
+# Installation-rehearsal tests override these to run against stub tools in a
+# temporary directory. The defaults are the real absolute paths a packaged
+# update uses; nothing else may customize them. printenv keeps the lookups
+# safe under "set -u" in a packaged run, where none of them is set.
+OPEN_BIN="$(printenv MOSA_UPDATE_OPEN_BIN || true)"
+if [ -z "$OPEN_BIN" ]; then OPEN_BIN="/usr/bin/open"; fi
+CODESIGN_BIN="$(printenv MOSA_UPDATE_CODESIGN_BIN || true)"
+if [ -z "$CODESIGN_BIN" ]; then CODESIGN_BIN="/usr/bin/codesign"; fi
+SPCTL_BIN="$(printenv MOSA_UPDATE_SPCTL_BIN || true)"
+if [ -z "$SPCTL_BIN" ]; then SPCTL_BIN="/usr/sbin/spctl"; fi
+TRASH_DIR="$(printenv MOSA_UPDATE_TRASH_DIR || true)"
+if [ -z "$TRASH_DIR" ]; then TRASH_DIR="$HOME/.Trash"; fi
 
 PARENT_DIR="$(dirname "$INSTALL_APP")"
+CURRENT_APP_NAME="$(basename "$INSTALL_APP")"
+TARGET_APP="$PARENT_DIR/$APP_NAME"
+EXEC_NAME="$(basename "$APP_NAME" .app)"
 TRANSACTION_ROOT="$PARENT_DIR/.MOSA-update-$(date +%s)-$$"
 EXTRACT_DIR="$TRANSACTION_ROOT/extracted"
 REPLACEMENT_APP="$TRANSACTION_ROOT/replacement.app"
 BACKUP_APP="$TRANSACTION_ROOT/previous.app"
 FAILED_APP="$TRANSACTION_ROOT/failed.app"
+CROSS_NAME=0
 MOVED_ORIGINAL=0
 NEW_PID=""
+
+if [ "$CURRENT_APP_NAME" != "$APP_NAME" ]; then CROSS_NAME=1; fi
 
 rollback() {
   rm -f "$HANDOFF_FILE" 2>/dev/null || true
@@ -204,9 +266,17 @@ rollback() {
     while kill -0 "$NEW_PID" 2>/dev/null && [ "$i" -lt 40 ]; do sleep 0.25; i=$((i + 1)); done
   fi
   if [ "$MOVED_ORIGINAL" -eq 1 ] && [ -d "$BACKUP_APP" ]; then
-    if [ -e "$INSTALL_APP" ]; then mv "$INSTALL_APP" "$FAILED_APP" 2>/dev/null || rm -rf "$INSTALL_APP"; fi
+    if [ "$CROSS_NAME" -eq 1 ]; then
+      if [ -d "$TARGET_APP" ]; then rm -rf "$TARGET_APP"; fi
+    elif [ -e "$INSTALL_APP" ]; then
+      mv "$INSTALL_APP" "$FAILED_APP" 2>/dev/null || rm -rf "$INSTALL_APP"
+    fi
     mv "$BACKUP_APP" "$INSTALL_APP"
-    /usr/bin/open -n "$INSTALL_APP" >/dev/null 2>&1 || true
+    "$OPEN_BIN" -n "$INSTALL_APP" >/dev/null 2>&1 || true
+  elif [ "$MOVED_ORIGINAL" -eq 0 ] && [ -d "$INSTALL_APP" ] && ! kill -0 "$TARGET_PID" 2>/dev/null; then
+    # Failed before anything moved (refused target, bad payload): the
+    # previous app already quit for the update, so bring it back untouched.
+    "$OPEN_BIN" -n "$INSTALL_APP" >/dev/null 2>&1 || true
   fi
 }
 
@@ -214,24 +284,38 @@ trap 'code=$?; rollback; echo "macOS update helper failed (exit $code)" > "$LOG_
 
 while kill -0 "$TARGET_PID" 2>/dev/null; do sleep 0.25; done
 
+# Cross-name update (e.g. MOSA.app -> GravityPort.app): the target location
+# may already hold an app the user installed themselves. Refuse before
+# touching anything; the trap clears the handoff, logs, and reopens the
+# previous app.
+if [ "$CROSS_NAME" -eq 1 ] && [ -e "$TARGET_APP" ]; then
+  exit 33
+fi
+
 mkdir -p "$EXTRACT_DIR"
 /usr/bin/ditto -x -k "$ZIP_PATH" "$EXTRACT_DIR"
-PAYLOAD_APP="$EXTRACT_DIR/MOSA.app"
-test -x "$PAYLOAD_APP/Contents/MacOS/MOSA"
+PAYLOAD_APP="$EXTRACT_DIR/$APP_NAME"
+test -x "$PAYLOAD_APP/Contents/MacOS/$EXEC_NAME"
 
 BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PAYLOAD_APP/Contents/Info.plist")
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PAYLOAD_APP/Contents/Info.plist")
+EXECUTABLE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PAYLOAD_APP/Contents/Info.plist")
 [ "$BUNDLE_ID" = "com.azhuilab.mosa" ]
 [ "$VERSION" = "$EXPECTED_VERSION" ]
-/usr/bin/codesign --verify --deep --strict "$PAYLOAD_APP"
-PAYLOAD_CODESIGN=$(/usr/bin/codesign -dv --verbose=4 "$PAYLOAD_APP" 2>&1)
+[ "$EXECUTABLE_NAME" = "$EXEC_NAME" ]
+"$CODESIGN_BIN" --verify --deep --strict "$PAYLOAD_APP"
+PAYLOAD_CODESIGN=$("$CODESIGN_BIN" -dv --verbose=4 "$PAYLOAD_APP" 2>&1)
 if [ "$EXPECTED_DISTRIBUTION" = "production" ]; then
-  OLD_TEAM=$(/usr/bin/codesign -dv --verbose=4 "$INSTALL_APP" 2>&1 | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -n 1)
-  test -n "$OLD_TEAM"
+  OLD_TEAM=$("$CODESIGN_BIN" -dv --verbose=4 "$INSTALL_APP" 2>&1 | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -n 1)
+  if [ "$OLD_TEAM" = "not set" ]; then OLD_TEAM=""; fi
   NEW_TEAM=$(printf '%s\n' "$PAYLOAD_CODESIGN" | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -n 1)
-  [ "$NEW_TEAM" = "$OLD_TEAM" ]
+  [ -n "$EXPECTED_TEAM_IDENTIFIER" ]
+  [ "$NEW_TEAM" = "$EXPECTED_TEAM_IDENTIFIER" ]
+  if [ -n "$OLD_TEAM" ]; then
+    [ "$NEW_TEAM" = "$OLD_TEAM" ]
+  fi
   printf '%s\n' "$PAYLOAD_CODESIGN" | /usr/bin/grep -q 'flags=.*runtime'
-  /usr/sbin/spctl -a -vv --type execute "$PAYLOAD_APP"
+  "$SPCTL_BIN" -a -vv --type execute "$PAYLOAD_APP"
 else
   [ "$EXPECTED_DISTRIBUTION" = "preview" ]
 fi
@@ -239,10 +323,14 @@ fi
 /usr/bin/ditto "$PAYLOAD_APP" "$REPLACEMENT_APP"
 mv "$INSTALL_APP" "$BACKUP_APP"
 MOVED_ORIGINAL=1
-mv "$REPLACEMENT_APP" "$INSTALL_APP"
+if [ "$CROSS_NAME" -eq 1 ]; then
+  mv "$REPLACEMENT_APP" "$TARGET_APP"
+else
+  mv "$REPLACEMENT_APP" "$INSTALL_APP"
+fi
 rm -f "$READY_FILE"
 
-/usr/bin/open -n "$INSTALL_APP" --args "--mosa-update-ready-file=$READY_FILE"
+"$OPEN_BIN" -n "$TARGET_APP" --args "--mosa-update-ready-file=$READY_FILE"
 i=0
 while [ "$i" -lt 180 ]; do
   if [ -f "$READY_FILE" ]; then
@@ -256,13 +344,27 @@ while [ "$i" -lt 180 ]; do
     [ "$READY_UI_FINGERPRINT" = "$EXPECTED_UI_FINGERPRINT" ]
     [ "$READY_RUNTIME_FINGERPRINT" = "$EXPECTED_RUNTIME_FINGERPRINT" ]
     [ "$READY_DISTRIBUTION" = "$EXPECTED_DISTRIBUTION" ]
+    if [ "$CROSS_NAME" -eq 1 ]; then
+      # Only after the replacement reported ready does the previous app go to
+      # the Trash (never rm -rf). A Trash failure rolls the whole update back
+      # while the trap is still armed, so the previous app is never lost.
+      TRASH_BASE="$(basename "$CURRENT_APP_NAME" .app)"
+      TRASH_NAME="$TRASH_DIR/$CURRENT_APP_NAME"
+      if [ -e "$TRASH_NAME" ]; then
+        n=2
+        while [ -e "$TRASH_DIR/$TRASH_BASE $n.app" ]; do n=$((n + 1)); done
+        TRASH_NAME="$TRASH_DIR/$TRASH_BASE $n.app"
+      fi
+      mkdir -p "$TRASH_DIR" 2>/dev/null || true
+      mv "$BACKUP_APP" "$TRASH_NAME"
+    fi
     trap - HUP INT TERM EXIT
     rm -f "$HANDOFF_FILE" 2>/dev/null || true
     rm -rf "$TRANSACTION_ROOT"
     exit 0
   fi
   if [ -z "$NEW_PID" ]; then
-    NEW_PID=$(/usr/bin/pgrep -f "^$INSTALL_APP/Contents/MacOS/MOSA" | /usr/bin/head -n 1 || true)
+    NEW_PID=$(/usr/bin/pgrep -f "$TARGET_APP/Contents/MacOS/$EXEC_NAME --mosa-update-ready-file=" | /usr/bin/head -n 1 || true)
   elif ! kill -0 "$NEW_PID" 2>/dev/null; then
     exit 31
   fi
@@ -273,6 +375,22 @@ exit 32
 `;
 }
 
+const HELPER_TOOL_OVERRIDE_KEYS = Object.freeze([
+  "MOSA_UPDATE_OPEN_BIN",
+  "MOSA_UPDATE_CODESIGN_BIN",
+  "MOSA_UPDATE_SPCTL_BIN",
+  "MOSA_UPDATE_TRASH_DIR",
+]);
+
+// The helper's tool overrides exist only for installation-rehearsal tests,
+// which pass them explicitly. Never let them leak in from the app's own
+// environment, or a stray variable could swap out signature verification.
+export function macosUpdateHelperEnv(helperEnv = null, baseEnv = process.env) {
+  const env = { ...baseEnv };
+  for (const key of HELPER_TOOL_OVERRIDE_KEYS) delete env[key];
+  return helperEnv ? { ...env, ...helperEnv } : env;
+}
+
 export async function launchMacosUpdateHelper({
   zipPath,
   installAppPath,
@@ -280,6 +398,9 @@ export async function launchMacosUpdateHelper({
   expectedIdentity,
   processId,
   libraryDir,
+  appName = "MOSA.app",
+  expectedTeamIdentifier = "",
+  helperEnv = null,
   spawnImpl = spawn,
   createUpdateHandoff = createMosaMacosUpdateHelperHandoff,
 } = {}) {
@@ -287,9 +408,19 @@ export async function launchMacosUpdateHelper({
   if (!zipPath || !installAppPath || !safeVersion(version) || !Number.isSafeInteger(processId) || processId <= 0 || !libraryDir) {
     throw new Error("Invalid macOS update helper arguments.");
   }
+  const safeAppName = normalizeMacosUpdateAppName(appName);
+  const safeTeamIdentifier = String(expectedTeamIdentifier || "").trim().toUpperCase();
+  if (safeTeamIdentifier && !MACOS_TEAM_IDENTIFIER_PATTERN.test(safeTeamIdentifier)) {
+    throw new Error("Invalid macOS release team identifier.");
+  }
+  if (identity.distribution === "production" && !safeTeamIdentifier) {
+    throw new Error("macOS production updates require a release team identifier.");
+  }
   const stagingDir = dirname(zipPath);
   const scriptPath = join(stagingDir, "apply-update.sh");
   const logPath = join(stagingDir, "apply-update-error.log");
+  // The readiness file lives in the updater staging root under Electron
+  // userData, so its path never depends on the installed app's name.
   const readyFile = join(stagingDir, "update-ready.json");
   const handoffFile = mosaDesktopStartupHandoffPath(libraryDir);
   await writeFile(scriptPath, macosUpdateHelperScript(), { encoding: "utf8", mode: 0o700 });
@@ -306,9 +437,12 @@ export async function launchMacosUpdateHelper({
     readyFile,
     handoffFile,
     identity.distribution,
+    safeAppName,
+    safeTeamIdentifier,
   ], {
     detached: true,
     stdio: "ignore",
+    env: macosUpdateHelperEnv(helperEnv),
   });
   await new Promise((resolveSpawn, rejectSpawn) => {
     child.once("spawn", resolveSpawn);
