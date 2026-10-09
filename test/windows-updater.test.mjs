@@ -386,9 +386,10 @@ test("Windows detached launcher creates the real updater through Win32_Process",
   assert.match(command, /Win32_Process\.Create failed with return value/);
   assert.match(command, /helper-launch-error\.log/);
   assert.match(command, /powershell\.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand/);
-  assert.match(command, /New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly/);
-  assert.match(command, /\$startup\.CreateFlags = \[uint32\]0x08000000/);
-  assert.match(command, /\$startup\.ShowWindow = 0/);
+  // The startup flags must be passed at creation: a -ClientOnly instance
+  // rejects later property assignment (the rc.33/rc.34 launcher failed there).
+  assert.match(command, /New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @\{ CreateFlags = \[uint32\]0x08000000; ShowWindow = \[uint16\]0 \}/);
+  assert.doesNotMatch(command, /\$startup\.(CreateFlags|ShowWindow) =/);
   assert.match(command, /ProcessStartupInformation = \$startup/);
   assert.doesNotMatch(command, /Start-Process/);
 });

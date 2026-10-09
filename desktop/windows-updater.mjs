@@ -606,9 +606,11 @@ export function windowsUpdateDetachedLauncherCommand({
     "$ErrorActionPreference = 'Stop'",
     "try {",
     `  $commandLine = ${powershellLiteral(detachedCommandLine)}`,
-    "  $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -ErrorAction Stop",
-    "  $startup.CreateFlags = [uint32]0x08000000", // CREATE_NO_WINDOW
-    "  $startup.ShowWindow = 0", // SW_HIDE; defensive alongside CREATE_NO_WINDOW
+    // A -ClientOnly CIM instance only carries the properties it is created
+    // with; assigning CreateFlags/ShowWindow afterwards throws "property
+    // cannot be found" (shipped broken in rc.33/rc.34), so set them up front.
+    // CREATE_NO_WINDOW, plus SW_HIDE as a defensive second guard.
+    "  $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ CreateFlags = [uint32]0x08000000; ShowWindow = [uint16]0 } -ErrorAction Stop",
     "  $result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $commandLine; ProcessStartupInformation = $startup } -ErrorAction Stop",
     "  if (-not $result -or [int]$result.ReturnValue -ne 0) {",
     "    throw ('Win32_Process.Create failed with return value ' + [string]$result.ReturnValue)",
