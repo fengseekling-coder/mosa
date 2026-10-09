@@ -189,8 +189,10 @@ async function makePayloadZip({ root, exeSource, stem, payloadExeName, marker, l
 // wildcard rule because the transaction directory name contains a random GUID.
 async function writeSignatureProbe(root, rules) {
   const lines = [
+    // PowerShell rejects a trailing comma in an array literal, so the
+    // entries are joined rather than each closed with a comma.
     "$candidates = @(",
-    ...rules.map((rule) => `  @{ Like = ${psLiteral(rule.like)}; Status = ${psLiteral(rule.status || "Valid")}; Thumbprint = ${psLiteral(rule.thumbprint || "")}; Subject = ${psLiteral(rule.subject || "")} },`),
+    rules.map((rule) => `  @{ Like = ${psLiteral(rule.like)}; Status = ${psLiteral(rule.status || "Valid")}; Thumbprint = ${psLiteral(rule.thumbprint || "")}; Subject = ${psLiteral(rule.subject || "")} }`).join(",\n"),
     ")",
     "foreach ($candidate in $candidates) {",
     "  if ($args[0] -like $candidate.Like) {",
