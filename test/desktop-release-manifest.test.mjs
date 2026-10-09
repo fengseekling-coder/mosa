@@ -279,3 +279,108 @@ test("release manifest requires and pins the production team identifier", async 
     await removeTestPath(files.root, { recursive: true, force: true });
   }
 });
+
+test("release manifest writes the Windows payload exe name and its bound artifact filename", async () => {
+  const version = "0.3.0";
+  const files = await fixtureArtifacts(version);
+  const windows = join(files.root, `GravityPort-win32-x64-${version}.zip`);
+  await writeFile(windows, `windows-gravityport-${version}`);
+  try {
+    const result = await prepareDesktopReleaseManifest({
+      version,
+      macArtifactPath: files.mac,
+      windowsArtifactPath: windows,
+      windowsPayloadExeName: "GravityPort.exe",
+      ...signingOptions(version),
+      publishedAt: "2026-10-09T01:00:00Z",
+      notes: { zh: "说明", en: "Notes" },
+    });
+    assert.equal(result.platforms.windows.payloadExeName, "GravityPort.exe");
+    assert.equal(result.platforms.windows.file, `GravityPort-win32-x64-${version}.zip`);
+    assert.equal(result.platforms.windows.signerThumbprint, undefined);
+    assert.equal(verifyReleaseManifestSignature(result, RELEASE_TRUST), true);
+    const parsed = parseUpdateManifest(result);
+    assert.equal(parsed.windowsArtifact.payloadExeName, "GravityPort.exe");
+    assert.equal(parsed.windowsArtifact.file, `GravityPort-win32-x64-${version}.zip`);
+    // A payload exe name outside the whitelist is refused, and the bound
+    // filename is derived from the payload name, so a MOSA-named zip cannot
+    // ride along with a GravityPort declaration.
+    await assert.rejects(
+      prepareDesktopReleaseManifest({
+        version,
+        macArtifactPath: files.mac,
+        windowsArtifactPath: windows,
+        windowsPayloadExeName: "Evil.exe",
+        ...signingOptions(version),
+        publishedAt: "2026-10-09T01:00:00Z",
+        notes: { zh: "说明", en: "Notes" },
+      }),
+      /Invalid Windows release payload executable name/,
+    );
+    await assert.rejects(
+      prepareDesktopReleaseManifest({
+        version,
+        macArtifactPath: files.mac,
+        windowsArtifactPath: files.windows,
+        windowsPayloadExeName: "GravityPort.exe",
+        ...signingOptions(version),
+        publishedAt: "2026-10-09T01:00:00Z",
+        notes: { zh: "说明", en: "Notes" },
+      }),
+      /filename must be GravityPort-win32-x64-0\.3\.0\.zip/,
+    );
+  } finally {
+    await removeTestPath(files.root, { recursive: true, force: true });
+  }
+});
+
+test("release manifest requires and pins the production Windows signer thumbprint", async () => {
+  const version = "0.3.0";
+  const files = await fixtureArtifacts(version);
+  try {
+    await assert.rejects(
+      prepareDesktopReleaseManifest({
+        version,
+        macArtifactPath: files.mac,
+        macTeamIdentifier: "ABCD1234EF",
+        windowsArtifactPath: files.windows,
+        buildIdentity: { ...buildIdentity(version), distribution: "production" },
+        signingPrivateKey: RELEASE_KEYS.privateKey,
+        publishedAt: "2026-10-09T01:00:00Z",
+        notes: { zh: "说明", en: "Notes" },
+      }),
+      /platforms\.windows signerThumbprint/,
+    );
+    const result = await prepareDesktopReleaseManifest({
+      version,
+      macArtifactPath: files.mac,
+      macTeamIdentifier: "ABCD1234EF",
+      windowsArtifactPath: files.windows,
+      windowsSignerThumbprint: "ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34",
+      buildIdentity: { ...buildIdentity(version), distribution: "production" },
+      signingPrivateKey: RELEASE_KEYS.privateKey,
+      publishedAt: "2026-10-09T01:00:00Z",
+      notes: { zh: "说明", en: "Notes" },
+    });
+    assert.equal(result.platforms.windows.signerThumbprint, "AB12CD34AB12CD34AB12CD34AB12CD34AB12CD34");
+    assert.equal(verifyReleaseManifestSignature(result, RELEASE_TRUST), true);
+    const parsed = parseUpdateManifest(result);
+    assert.equal(parsed.windowsArtifact.signerThumbprint, "AB12CD34AB12CD34AB12CD34AB12CD34AB12CD34");
+    await assert.rejects(
+      prepareDesktopReleaseManifest({
+        version,
+        macArtifactPath: files.mac,
+        macTeamIdentifier: "ABCD1234EF",
+        windowsArtifactPath: files.windows,
+        windowsSignerThumbprint: "bad-thumbprint",
+        buildIdentity: { ...buildIdentity(version), distribution: "production" },
+        signingPrivateKey: RELEASE_KEYS.privateKey,
+        publishedAt: "2026-10-09T01:00:00Z",
+        notes: { zh: "说明", en: "Notes" },
+      }),
+      /signerThumbprint is invalid/,
+    );
+  } finally {
+    await removeTestPath(files.root, { recursive: true, force: true });
+  }
+});

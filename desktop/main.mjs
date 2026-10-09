@@ -29,6 +29,7 @@ import {
   downloadWindowsUpdate,
   launchWindowsUpdateHelper,
   resolveWindowsUpdateReadyFile,
+  windowsInstalledExeName,
   windowsUpdateTransactionParentDir,
 } from "./windows-updater.mjs";
 import {
@@ -890,6 +891,12 @@ function registerIPC() {
       });
       if (!release.updateAvailable) return { status: "current", currentVersion: release.currentVersion };
       if (!release.windowsArtifact) return { status: "unavailable", currentVersion: release.currentVersion };
+      // Old installs keep MOSA.exe, new installs keep GravityPort.exe, and
+      // every relaunch path stays on the current name. An unrecognized
+      // executable name must stop the update before anything is downloaded
+      // or replaced.
+      const installedExeName = windowsInstalledExeName();
+      if (!installedExeName) return { status: "unsupported", currentVersion: release.currentVersion };
       const download = await downloadWindowsUpdate({
         artifact: release.windowsArtifact,
         version: release.latestVersion,
@@ -904,7 +911,9 @@ function registerIPC() {
       await launchWindowsUpdateHelper({
         zipPath: download.zipPath,
         installDir: dirname(process.execPath),
-        exeName: "MOSA.exe",
+        currentExeName: installedExeName,
+        payloadExeName: release.windowsArtifact.payloadExeName,
+        signerThumbprint: release.windowsArtifact.signerThumbprint || "",
         version: release.latestVersion,
         expectedIdentity: release.buildIdentity,
         processId: process.pid,
