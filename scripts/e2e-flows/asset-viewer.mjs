@@ -385,10 +385,11 @@ function assertRootViewerPhase(result, seed) {
   if (deleted.deletedToast?.actionLabel !== "撤销") problems.push(`delete toast action label ${JSON.stringify(deleted.deletedToast?.actionLabel)}`);
   if (deleted.afterUndoId !== seed.v3) problems.push(`undo landed on ${deleted.afterUndoId}`);
 
-  // 任务 94（A4f）：勾「不再提醒」→ 是 → 存 'off'；再删不弹框直接删；撤销都在。
+  // 任务 94（A4f）：勾「不再提醒」→ 移到回收站 → 存 'off'；再删不弹框直接删；撤销都在。
+  // 任务 111：确认框标题/按钮改写动作（移到回收站？/ 取消 + 移到回收站）。
   const dontAsk = result.dontAskRun || {};
-  if (dontAsk.title !== "是否移至回收站？") problems.push(`dont-ask confirm title ${JSON.stringify(dontAsk.title)}`);
-  if (dontAsk.cancelLabel !== "否" || dontAsk.confirmLabel !== "是") problems.push(`dont-ask confirm buttons ${JSON.stringify([dontAsk.cancelLabel, dontAsk.confirmLabel])}`);
+  if (dontAsk.title !== "移到回收站？") problems.push(`dont-ask confirm title ${JSON.stringify(dontAsk.title)}`);
+  if (dontAsk.cancelLabel !== "取消" || dontAsk.confirmLabel !== "移到回收站") problems.push(`dont-ask confirm buttons ${JSON.stringify([dontAsk.cancelLabel, dontAsk.confirmLabel])}`);
   if (dontAsk.checkboxRowVisible !== true) problems.push("dont-ask checkbox row not visible");
   if (dontAsk.checkboxStartsUnchecked !== true) problems.push("dont-ask checkbox not unchecked on open");
   if (dontAsk.checkboxCheckedAfterClick !== true) problems.push("dont-ask checkbox not checkable");

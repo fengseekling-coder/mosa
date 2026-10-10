@@ -6,7 +6,8 @@ import test from "node:test";
 import { assertPackageLockMatchesManifest } from "./package-lock-contract.mjs";
 
 // F-08 守护契约：画廊空状态语义分离。
-// 真实空库 / 搜索筛选无结果 / 收藏、最近、分组范围空态严格分流；判定集中在
+// 任务 111（2026-10-10）：七档空态按固定顺序分流（无结果 / 回收站 / 收藏 /
+// 待整理 / 分组 / 空库 / 兜底），命中第一条就用它；判定集中在
 // deriveGalleryEmptyState()，清除集中在 resetLibraryRefinements()。
 // Node 标准库、零网络；helper 行为层用真实源码求值（new Function），其余为
 // 源码切片契约。不用整文件 SHA 代替行为契约（package/lockfile 除外）。
@@ -30,8 +31,8 @@ function sliceBetween(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-const FACET_KEYS = ["source", "group", "category", "style"];
-const EMPTY_FACETS = { source: "", group: "", category: "", style: "" };
+const FACET_KEYS = ["source", "group", "category", "style", "conversation", "generationBatch"];
+const EMPTY_FACETS = Object.fromEntries(FACET_KEYS.map((key) => [key, ""]));
 
 /** Evaluates the real deriveGalleryEmptyState source against a given state. */
 function makeDerive(app) {
@@ -39,24 +40,19 @@ function makeDerive(app) {
   const run = new Function("state", "FACET_KEYS", `${helperSource}\nreturn deriveGalleryEmptyState();`);
   return (overrides = {}) => run({
     galleryStatus: "ready", galleryError: null, assets: [], pageTotal: 0,
-    query: "", scope: "all", facets: { ...EMPTY_FACETS },
-    groups: { total: 0, favorites: 0, recent: 0, groups: [] },
+    query: "", scope: "all", mediaKind: "all", facets: { ...EMPTY_FACETS },
+    groups: { total: 0, favorites: 0, unorganized: 0, trash: 0, sourceTypes: [], groups: [] },
     ...overrides,
   }, FACET_KEYS);
 }
 
-const LIBRARY_STATE = { groups: { total: 9, favorites: 0, recent: 0, groups: [["concept-art", 3], ["ui-icons", 0]] } };
+const LIBRARY_STATE = { groups: { total: 9, favorites: 0, unorganized: 0, trash: 0, sourceTypes: [], groups: [["concept-art", 3], ["ui-icons", 0]] } };
 
-// 2026-08-18: V2-only token consolidation. V2 deliberately simplifies the
-// empty-state surface: deriveGalleryEmptyState returns only "none",
-// "library-empty", or "no-results"; galleryEmptyMarkup renders one neutral
-// recovery shell (icon + no-results copy + reset + import) for every
-// variant. Scoped empties ("favorites-empty", "recent-empty",
-// "group-empty") were retired alongside the legacy facet panel and
-// `.topbar-type-filters` chip strip — those kinds only survive as
-// unused i18n keys (kept for future re-introduction). The contract
-// here asserts the V2 surface verbatim.
-test("01-06. centralized helper decides; loading/error/cards precede; only a true zero total is library-empty", async () => {
+// 2026-10-10（任务 111）：空态按情况说话——deriveGalleryEmptyState 按固定顺序
+// 返回七种档位之一；galleryEmptyMarkup 每档出自己的标题/说明，只有无结果档带
+// 「清除筛选」按钮，空库档的说明就是拖入提示（emptyDropHint）。本契约断言该
+// 表面逐条成立。
+test("01-06. centralized helper decides; loading/error/cards precede the seven kinds", async () => {
   const app = await readApp();
   const derive = makeDerive(app);
 
@@ -64,74 +60,97 @@ test("01-06. centralized helper decides; loading/error/cards precede; only a tru
   const renderGrid = sliceBetween(app, "function renderGrid()", "\nfunction renderErrorState");
   assert.match(renderGrid, /els\.assetGrid\.innerHTML = galleryEmptyMarkup\(\);/, "the empty branch renders through the shared markup builder");
   assert.match(app, /function galleryEmptyMarkup\(\)[\s\S]*?deriveGalleryEmptyState\(\)/, "the markup builder asks the centralized helper");
-  // 2. The helper depends only on assets length, not on legacy refinement state.
+  // 2. The helper depends only on existing state, never on a second total.
   const helper = sliceBetween(app, "function deriveGalleryEmptyState()", "/** One shell for every empty state");
   for (const signal of ["state.galleryStatus", "state.assets"]) {
     assert.match(helper, new RegExp(signal.replace(/\./g, "\\.")), `the helper reads ${signal}`);
   }
   assert.doesNotMatch(helper, /state\.pageTotal/, "the current result total never impersonates the library total");
+  assert.match(helper, /state\.groups\?\.total/, "the whole-library total comes from state.groups.total");
   assert.doesNotMatch(helper, /fetch\(|api\(/, "the helper never sends a request");
 
-  // 3. loading precedes empty. 4. error precedes empty. 5. cards mean no empty.
+  // 3. loading precedes every empty kind. 4. error too. 5. cards mean no empty.
   assert.equal(derive({ galleryStatus: "loading", groups: { total: 0, groups: [] } }), "none");
   assert.equal(derive({ galleryStatus: "error", groups: { total: 0, groups: [] } }), "none");
   assert.equal(derive({ assets: [{ id: "a" }], ...LIBRARY_STATE }), "none");
   assert.ok(helper.indexOf('galleryStatus === "loading"') < helper.indexOf("state.assets.length"), "loading guard precedes the card guard");
   assert.ok(helper.indexOf('galleryStatus === "error"') < helper.indexOf("state.assets.length"), "error guard precedes the card guard");
-
-  // 6. The V2 helper has one return state for zero results: every zero-result
-  // scope collapses to "no-results". The legacy "library-empty" kind is
-  // preserved as a string in `announceEmptyState()` for future re-introduction
-  // but the helper never produces it in V2.
-  assert.equal(derive({ groups: { total: 0, groups: [] } }), "no-results", "no assets + no group total = no-results (V2 collapses every zero scope)");
-  assert.equal(derive({ query: "anything", groups: { total: 0, groups: [] } }), "no-results", "V2 makes no distinction between a truly empty library and any other zero-result scope");
+  // 6. The empty library only counts as such in the "all" scope.
+  assert.equal(derive({ groups: { total: 0, groups: [] } }), "library-empty");
+  assert.equal(derive({ scope: "trash", groups: { total: 0, groups: [] } }), "trash-empty", "an empty trash in an empty library still speaks as trash");
 });
 
-test("07-13. V2 collapses every zero-result scope into one no-results state", async () => {
+test("07-13. the seven kinds in their fixed order, first match wins", async () => {
   const app = await readApp();
   const derive = makeDerive(app);
 
-  // 7-13. V2 (2026-08-16) collapses every zero-result scope to "no-results";
-  // the helper no longer distinguishes "favorites-empty" / "recent-empty" /
-  // "group-empty". The V2 product copy describes the same recovery action
-  // for every query / facet / scope combination.
+  // 1. 搜索或筛选无结果：query / mediaKind / 除 group 外任何 facet。
   assert.equal(derive({ query: "zzz", ...LIBRARY_STATE }), "no-results");
+  assert.equal(derive({ mediaKind: "video", ...LIBRARY_STATE }), "no-results");
   assert.equal(derive({ facets: { ...EMPTY_FACETS, source: "codex-generated" }, ...LIBRARY_STATE }), "no-results");
-  assert.equal(derive({ query: "zzz", facets: { ...EMPTY_FACETS, style: "cyberpunk" }, ...LIBRARY_STATE }), "no-results");
-  assert.equal(derive({ scope: "favorite", query: "zzz", ...LIBRARY_STATE }), "no-results");
-  assert.equal(derive({ scope: "recent", facets: { ...EMPTY_FACETS, category: "product" }, ...LIBRARY_STATE }), "no-results");
-  assert.equal(derive({ facets: { ...EMPTY_FACETS, group: "concept-art" }, scope: "favorite", ...LIBRARY_STATE }), "no-results");
-  // Scoped empties no longer exist; the legacy states were retired.
-  assert.notEqual(derive({ scope: "favorite", groups: { total: 9, favorites: 0, groups: [] } }), "favorites-empty", "favorites-empty retired in V2 (V2 uses one neutral recovery shell)");
-  assert.notEqual(derive({ scope: "recent", groups: { total: 9, recent: 0, groups: [] } }), "recent-empty", "recent-empty retired in V2");
-  // No transient total/count race with refinements claims an empty library.
-  assert.equal(derive({ groups: { total: 3, groups: [] } }), "no-results");
+  assert.equal(derive({ facets: { ...EMPTY_FACETS, style: "cyberpunk" }, ...LIBRARY_STATE }), "no-results");
+  // 2-4. 回收站 / 收藏 / 待整理固定入口的空态（侧栏入口是「在哪儿看」，不算筛选）。
+  assert.equal(derive({ scope: "trash", ...LIBRARY_STATE }), "trash-empty");
+  assert.equal(derive({ scope: "favorite", ...LIBRARY_STATE }), "favorites-empty");
+  assert.equal(derive({ scope: "unorganized", ...LIBRARY_STATE }), "unorganized-empty");
+  // 5. 分组里本来就没图。
+  assert.equal(derive({ facets: { ...EMPTY_FACETS, group: "ui-icons" }, ...LIBRARY_STATE }), "group-empty");
+  // 6. 空库：所有素材 + 整库总数 0（groups.total 是权威值）。
+  assert.equal(derive({ groups: { total: 0, favorites: 0, unorganized: 0, trash: 0, sourceTypes: [], groups: [] } }), "library-empty");
+  // 7. 其余兜底（某来源下没有图等不出名的情形）回到无结果文案。
+  assert.equal(derive({ ...LIBRARY_STATE }), "no-results", "no assets, no refinements, non-zero library total = the no-results fallback");
+  // 边界：分组里搜不到算第 1 条；回收站里搜不到也算第 1 条。
+  assert.equal(derive({ query: "zzz", facets: { ...EMPTY_FACETS, group: "ui-icons" }, ...LIBRARY_STATE }), "no-results", "a miss inside a group is a search miss (case 1), not the group-empty copy");
+  assert.equal(derive({ scope: "trash", query: "zzz", ...LIBRARY_STATE }), "no-results", "a miss inside the trash is a search miss (case 1), not the trash-empty copy");
+  // 边界：第 1 条先于第 2 条——回收站里加了来源筛选，命中第 1 条。
+  assert.equal(derive({ scope: "trash", facets: { ...EMPTY_FACETS, source: "codex-generated" }, ...LIBRARY_STATE }), "no-results", "case 1 outranks case 2: a filter inside the trash is a search miss");
 });
 
-test("14-19. one shell, honest copy, and the right single action per kind", async () => {
+test("14-19. one shell, per-kind copy, and the single clear action on the no-results kind", async () => {
   const app = await readApp();
   const markup = sliceBetween(app, "function galleryEmptyMarkup()", "/** Reuses the existing polite live region");
 
-  // V2 (2026-08-16): one neutral shell with no-results copy, the reset action,
-  // and a drag/paste import hint. The kind is set to "no-results" via
-  // `data-empty-kind`, but the copy and actions are the same for both —
-  // a deliberate simplification from the legacy per-scope copy.
-  // 2026-09: the manual import modal was retired, so the import button became
-  // a plain hint line pointing at drag & drop / paste.
+  // 任务 111（2026-10-10）：每种档位共用同一个外壳（图标 + 标题 + 说明），文案
+  // 与按钮由 GALLERY_EMPTY_STATE_COPY 按 kind 决定；空库档的说明一句就是拖入
+  // 提示（emptyDropHint），不再单独重复渲染第二遍。
   assert.match(markup, /data-empty-kind=\\"" \+ kind/, "the shell carries its kind via data attribute (string concat in V2)");
   assert.match(markup, /<svg class=\\?"gallery-empty-icon\\?"/, "the shell uses the package glyph icon");
-  assert.match(markup, /t\("noResultsTitle"\)/, "the heading uses the V2 no-results title");
-  assert.match(markup, /t\("noResultsDescription"\)/, "the description uses the V2 no-results description");
-  assert.match(markup, /data-action=\\?"empty-clear\\?"/, "the reset action targets empty-clear");
-  assert.match(markup, /t\("emptyDropHint"\)/, "the shell explains the drag/paste import path instead of a button");
+  assert.match(markup, /GALLERY_EMPTY_STATE_COPY\[kind\]/, "the copy comes from the per-kind table");
+  assert.match(markup, /t\(copy\.titleKey\)/, "the heading uses the kind's title key");
+  assert.match(markup, /t\(copy\.descriptionKey\)/, "the description uses the kind's description key");
+  assert.match(markup, /data-action=\\?"empty-clear\\?"/, "the clear action targets empty-clear");
   assert.doesNotMatch(markup, /empty-import/, "no import button action remains");
-  // The legacy per-scope copy keys must not leak into the markup anymore.
-  assert.doesNotMatch(markup, /favoritesEmptyTitle|recentEmptyTitle|groupEmptyTitle/, "the retired scoped empty copy keys are not consumed");
-  // The single shell keeps an icon (not decorative, but functional) and never
-  // declares an alert role or hidden controls.
-  assert.match(markup, /<svg/, "the shell includes the package glyph (one icon, no large illustration)");
+  // 只有无结果档带「清除筛选」；其余档没有按钮区。拖入提示不再作为独立段落
+  // 出现在任何档位（空库档它就是说明本身）。
+  assert.doesNotMatch(markup, /emptyDropHint/, "the drop hint is a description key in the table, never a second paragraph");
+  assert.equal(count(markup, "<p>"), 1, "exactly one description <p> per kind, assembled from the table");
   assert.doesNotMatch(markup, /role="alert"/, "a static empty state is not an alert");
   assert.doesNotMatch(markup, /(<[^>]*\s|\s)hidden(\s|>|=)/, "no hidden control can leak into the tab order (aria-hidden stays allowed)");
+
+  // 每档的文案键与动作（表即真相）：六档齐全、键都存在、只有 no-results 有动作。
+  const table = sliceBetween(app, "const GALLERY_EMPTY_STATE_COPY = {", "};");
+  const kinds = {
+    "no-results": ["noResultsTitle", "noResultsDescription", true],
+    "trash-empty": ["trashEmptyTitle", "trashEmptyDescription", false],
+    "favorites-empty": ["favoritesEmptyTitle", "favoritesEmptyDescription", false],
+    "unorganized-empty": ["unorganizedEmptyTitle", "unorganizedEmptyDescription", false],
+    "group-empty": ["groupEmptyTitle", "groupEmptyDescription", false],
+    "library-empty": ["emptyLibraryTitle", "emptyDropHint", false],
+  };
+  for (const [kind, [titleKey, descriptionKey, clearAction]] of Object.entries(kinds)) {
+    const row = new RegExp(`"${kind}": \\{ titleKey: "${titleKey}", descriptionKey: "${descriptionKey}"${clearAction ? ", clearAction: true" : ""} \\}`);
+    assert.match(table, row, `the ${kind} row pins its copy keys${clearAction ? " and the clear action" : " and no action"}`);
+  }
+  const i18n = await readI18n();
+  for (const key of Object.values(kinds).flat().filter((value) => typeof value === "string")) {
+    assert.equal(count(i18n, `${key}:`), 2, `${key} exists exactly once per locale`);
+  }
+
+  // 读屏播报跟着各档标题走：announceEmptyState 查同一张表，旧的中性兜底键不再出现。
+  const announce = sliceBetween(app, "function announceEmptyState(", "\n}");
+  assert.match(announce, /GALLERY_EMPTY_STATE_COPY\[kind\]/, "the announcement reads the same per-kind table");
+  assert.match(announce, /t\(copy\.titleKey\)/, "the announcement speaks the kind's title");
+  assert.doesNotMatch(announce, /statusScopeEmpty|statusLibraryEmpty/, "the retired neutral announcements are gone");
 });
 
 test("20-32. resetLibraryRefinements is the single clear path with focus recovery", async () => {
@@ -203,22 +222,28 @@ test("33-36. import stays drag/drop-only; retry and pagination failures stay hon
 // view-mode state machine remain unchanged; those anchors are covered by
 // `confirm-dialog-contract` test 51-54 and the Phase 4C neighbour suite.
 
-test("40. V2 i18n keys for the no-results recovery shell are symmetric across zh and en", async () => {
+test("40. i18n keys for the seven empty states stay symmetric across zh and en", async () => {
   const i18n = await readI18n();
 
-  // 2026-08-18: V2-only token consolidation. The V2 design retired the
-  // legacy per-scope empty states; the surviving recovery shell consumes
-  // `noResultsTitle` / `noResultsDescription` for every zero-result
-  // variant. The legacy scoped-copy keys (`favoritesEmptyTitle`,
-  // `recentEmptyTitle`, `groupEmptyTitle`, etc.) are outside this active
-  // recovery contract and are not required by the renderer.
-  const ACTIVE_KEYS = ["noResultsTitle", "noResultsDescription", "resetFilters", "emptyDropHint", "statusRefinementsCleared"];
+  // 任务 111（2026-10-10）：七档空态各自的文案键 + 恢复动作 + 重置播报。
+  const ACTIVE_KEYS = [
+    "noResultsTitle", "noResultsDescription", "resetFilters", "emptyDropHint", "statusRefinementsCleared",
+    "trashEmptyTitle", "trashEmptyDescription",
+    "favoritesEmptyTitle", "favoritesEmptyDescription",
+    "unorganizedEmptyTitle", "unorganizedEmptyDescription",
+    "groupEmptyTitle", "groupEmptyDescription",
+    "emptyLibraryTitle",
+  ];
   for (const key of ACTIVE_KEYS) {
     assert.equal(count(i18n, `${key}:`), 2, `${key} exists exactly once per locale`);
   }
   // The empty library never borrows the no-results wording and vice versa.
   assert.match(i18n, /noResultsTitle: "没有找到匹配的素材"/);
   assert.match(i18n, /noResultsTitle: "No matching assets"/);
+  // The keys the per-kind copy retired are gone in both locales.
+  for (const retired of ["noAssets", "noAssetsHint", "statusScopeEmpty", "statusLibraryEmpty"]) {
+    assert.doesNotMatch(i18n, new RegExp(`\\b${retired}:`), `retired empty-state key ${retired} is gone`);
+  }
 });
 
 test("41-43. styles stay inside the token boundary; dependencies stay frozen", async () => {

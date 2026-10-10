@@ -9,7 +9,7 @@
 import { PAGE_HELPERS } from "./_page-helpers.mjs";
 
 export const name = "settings-and-empty-states";
-export const description = "settings modal lifecycle + theme/language persistence + read-only info -> empty-state clear + trash drop-hint rule -> card-info setting (default hidden / show / persist / hide) -> confirm-before-trash switch + right-click trash undo + stack trash still confirms";
+export const description = "settings modal lifecycle + theme/language persistence + read-only info -> empty states speak per situation (no-results / trash / favorites / group, clear button only on no-results) -> card-info setting (default hidden / show / persist / hide) -> confirm-before-trash switch + right-click trash undo + stack trash still confirms";
 
 export async function run(ctx) {
   await ctx.prepare();
@@ -24,7 +24,9 @@ export async function run(ctx) {
     const seededIds = [alpha.asset.id, beta.asset.id].sort();
     const health = await ctx.api(server.origin, "GET", "/api/health");
     const libraryPath = await ctx.api(server.origin, "GET", "/api/library-path?project=default");
-    const config = { missingTerm: `no-such-asset-${Date.now().toString(36)}` };
+    const config = { missingTerm: `no-such-asset-${Date.now().toString(36)}`, emptyGroupName: `空分组-${Date.now().toString(36)}` };
+    // 任务 111：分组空档需要一个真的空分组；在空态阶段前经 API 预建。
+    await ctx.api(server.origin, "POST", "/api/groups", { projectId: "default", name: config.emptyGroupName });
 
     const opened = await ctx.runInPage(server, settingsLifecycleSource(config));
     assertSettingsLifecycle(opened, seededIds, health, libraryPath, ctx);
@@ -177,11 +179,15 @@ async function assertEmptyStates(r, seededIds, server, ctx) {
   expect(kept?.stored === "system" && kept.effectiveValid === true && kept.matchesSystem === true,
     `跟随系统 did not survive the refresh or match the OS appearance: ${dump}`);
   const search = r?.searchEmpty;
+  // 任务 111：搜索无结果仍是 no-results 档，但说明换成新文案，且不再显示拖入提示
+  // （只有空库档把那句当说明）。
   expect(search?.kind === "no-results" && search.cardCount === 0,
     `search miss did not render the no-results empty state: ${dump}`);
+  expect(search.title === "没有找到匹配的素材" && search.lastParagraphText === "试试别的搜索词，或清除筛选条件",
+    `search miss copy wrong: ${dump}`);
   expect(search.hasClear === true, `empty-clear missing on the search empty state: ${dump}`);
-  expect(search.dropHintText === "把图片或文件夹拖进窗口，或直接粘贴剪贴板图片即可导入" && search.paragraphCount === 2,
-    `drop hint wrong/missing on the search empty state: ${dump}`);
+  expect(search.paragraphCount === 1,
+    `the search empty state must not repeat the drop hint as a second paragraph: ${dump}`);
   // Dead handlers: the click router matches empty-view-all / empty-open-library
   // (app.mjs empty-state comment "清除与查看全部共用同一个 reset helper"), but the
   // current galleryEmptyMarkup renders neither button.
@@ -191,18 +197,36 @@ async function assertEmptyStates(r, seededIds, server, ctx) {
     `empty-clear did not restore all assets: ${dump}`);
   expect(r.afterClear?.searchValue === "", `empty-clear left the query in the input: ${dump}`);
 
+  // 回收站空：自己的文案，没有「清除筛选」按钮（只读范围）。
   const trash = r?.trashEmpty;
-  expect(trash?.kind === "no-results" && trash.cardCount === 0, `empty trash view missing empty state: ${dump}`);
-  // 回收站是只读范围：galleryEmptyMarkup drops the import hint paragraph, so the
-  // copy keeps only the description <p> (paragraphCount 1) — the rule decided earlier.
-  expect(trash.paragraphCount === 1 && trash.lastParagraphText === "尝试调整搜索词或筛选条件",
-    `trash empty state must not show the drag-to-import hint (定下的规则): ${dump}`);
+  expect(trash?.kind === "trash-empty" && trash.cardCount === 0, `empty trash view missing its trash-empty state: ${dump}`);
+  expect(trash.title === "回收站是空的" && trash.lastParagraphText === "移到回收站的素材会在这里保留 90 天",
+    `trash empty copy wrong: ${dump}`);
   expect(trash.viewTitle === "回收站" && trash.emptyTrashBtnHidden === true,
     `trash header wrong for an empty trash: ${dump}`);
-  expect(trash.hasClear === true, `empty-clear missing on the trash empty state: ${dump}`);
+  expect(trash.hasClear === false && trash.paragraphCount === 1,
+    `the empty trash must not offer 清除筛选 or extra paragraphs: ${dump}`);
   expect(JSON.stringify(r.afterTrashClear?.cardIds?.slice().sort()) === JSON.stringify(seededIds),
-    `trash empty-clear did not return to all assets: ${dump}`);
-  expect(r.afterTrashClear?.viewTitle === "所有素材", `view title not reset after trash clear: ${dump}`);
+    `leaving the empty trash did not return to all assets: ${dump}`);
+  expect(r.afterTrashClear?.viewTitle === "所有素材", `view title not reset after leaving the trash: ${dump}`);
+
+  // 收藏空：两张种子图都没有星标，同样是自己的文案、没有清除按钮。
+  const favorites = r?.favoritesEmpty;
+  expect(favorites?.kind === "favorites-empty" && favorites.cardCount === 0,
+    `empty favorites view missing its favorites-empty state: ${dump}`);
+  expect(favorites.title === "还没有收藏" && favorites.lastParagraphText === "点素材上的星标，把常用的图收在这里",
+    `favorites empty copy wrong: ${dump}`);
+  expect(favorites.hasClear === false && favorites.paragraphCount === 1,
+    `the empty favorites must not offer 清除筛选 or extra paragraphs: ${dump}`);
+
+  // 分组空：API 预建的空分组，说明里的「添加分组」与右键菜单项同文案。
+  const group = r?.groupEmpty;
+  expect(group?.kind === "group-empty" && group.cardCount === 0,
+    `the empty group view missing its group-empty state: ${dump}`);
+  expect(group.title === "这个分组还没有素材" && group.lastParagraphText === "把图片拖到左侧的分组名上，或在素材上右键「添加分组」",
+    `group empty copy wrong: ${dump}`);
+  expect(group.hasClear === false && group.paragraphCount === 1,
+    `the empty group must not offer 清除筛选 or extra paragraphs: ${dump}`);
 
   // Re-check the key result through the API: the UI round must not have moved
   // anything in or out of the library or the trash.
@@ -593,16 +617,18 @@ function emptyStatesSource(config) {
     };
     await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'two cards before empty states');
 
+    // 任务 111：空态按情况说话。各档看标题、说明、有没有不该出现的「清除筛选」。
     setValue('#searchInput', config.missingTerm);
     await waitFor(() => document.querySelector('#assetGrid .gallery-empty-state'), 'empty state for the missing search');
     const searchEmpty = {
       kind: document.querySelector('#assetGrid .gallery-empty-state')?.dataset.emptyKind,
+      title: document.querySelector('#assetGrid .gallery-empty-state .empty-state-copy h2')?.textContent || '',
       cardCount: rootCardIds().length,
       hasClear: Boolean(document.querySelector('#assetGrid [data-action="empty-clear"]')),
       hasViewAll: Boolean(document.querySelector('#assetGrid [data-action="empty-view-all"]')),
       hasOpenLibrary: Boolean(document.querySelector('#assetGrid [data-action="empty-open-library"]')),
       paragraphCount: document.querySelectorAll('#assetGrid .gallery-empty-state .empty-state-copy p').length,
-      dropHintText: [...document.querySelectorAll('#assetGrid .gallery-empty-state .empty-state-copy p')].pop()?.textContent || '',
+      lastParagraphText: [...document.querySelectorAll('#assetGrid .gallery-empty-state .empty-state-copy p')].pop()?.textContent || '',
     };
     click('#assetGrid [data-action="empty-clear"]');
     await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'empty-clear restores all assets');
@@ -616,6 +642,7 @@ function emptyStatesSource(config) {
       'empty state in the trash scope');
     const trashEmpty = {
       kind: document.querySelector('#assetGrid .gallery-empty-state')?.dataset.emptyKind,
+      title: document.querySelector('#assetGrid .gallery-empty-state .empty-state-copy h2')?.textContent || '',
       cardCount: rootCardIds().length,
       hasClear: Boolean(document.querySelector('#assetGrid [data-action="empty-clear"]')),
       paragraphCount: document.querySelectorAll('#assetGrid .gallery-empty-state .empty-state-copy p').length,
@@ -623,13 +650,48 @@ function emptyStatesSource(config) {
       viewTitle: document.querySelector('#viewTitle')?.textContent || '',
       emptyTrashBtnHidden: document.querySelector('#emptyTrashBtn')?.hidden === true,
     };
-    click('#assetGrid [data-action="empty-clear"]');
-    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'trash empty-clear returns to all');
+    // 回收站空态没有「清除筛选」按钮了：回根视图走侧栏「全部素材」。
+    click('#quickFilters .nav-item[data-filter="all"]');
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'back to all assets from the empty trash');
     const afterTrashClear = {
       cardIds: rootCardIds(),
       viewTitle: document.querySelector('#viewTitle')?.textContent || '',
     };
-    return { systemThemeKept, searchEmpty, afterClear, trashEmpty, afterTrashClear };
+
+    // 收藏空：两张种子图都没有星标。
+    click('#quickFilters .nav-item[data-filter="favorite"]');
+    await waitFor(() => document.querySelector('#assetGrid .gallery-empty-state') && rootCardIds().length === 0,
+      'empty state in the favorite scope');
+    const favoritesEmpty = {
+      kind: document.querySelector('#assetGrid .gallery-empty-state')?.dataset.emptyKind,
+      title: document.querySelector('#assetGrid .gallery-empty-state .empty-state-copy h2')?.textContent || '',
+      cardCount: rootCardIds().length,
+      hasClear: Boolean(document.querySelector('#assetGrid [data-action="empty-clear"]')),
+      paragraphCount: document.querySelectorAll('#assetGrid .gallery-empty-state .empty-state-copy p').length,
+      lastParagraphText: [...document.querySelectorAll('#assetGrid .gallery-empty-state .empty-state-copy p')].pop()?.textContent || '',
+      viewTitle: document.querySelector('#viewTitle')?.textContent || '',
+    };
+    click('#quickFilters .nav-item[data-filter="all"]');
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'back to all assets from the empty favorites');
+
+    // 分组空：API 预建的空分组（侧栏项是动态渲染的，先等它出现再点）。
+    await waitFor(() => Boolean(document.querySelector('#sidebarManualGroupList [data-filter="group"][data-value="' + config.emptyGroupName + '"]')),
+      'the empty group renders in the sidebar', 20000);
+    document.querySelector('#sidebarManualGroupList [data-filter="group"][data-value="' + config.emptyGroupName + '"]').click();
+    await waitFor(() => document.querySelector('#assetGrid .gallery-empty-state') && rootCardIds().length === 0,
+      'empty state inside the empty group');
+    const groupEmpty = {
+      kind: document.querySelector('#assetGrid .gallery-empty-state')?.dataset.emptyKind,
+      title: document.querySelector('#assetGrid .gallery-empty-state .empty-state-copy h2')?.textContent || '',
+      cardCount: rootCardIds().length,
+      hasClear: Boolean(document.querySelector('#assetGrid [data-action="empty-clear"]')),
+      paragraphCount: document.querySelectorAll('#assetGrid .gallery-empty-state .empty-state-copy p').length,
+      lastParagraphText: [...document.querySelectorAll('#assetGrid .gallery-empty-state .empty-state-copy p')].pop()?.textContent || '',
+      viewTitle: document.querySelector('#viewTitle')?.textContent || '',
+    };
+    click('#quickFilters .nav-item[data-filter="all"]');
+    await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'back to all assets from the empty group');
+    return { systemThemeKept, searchEmpty, afterClear, trashEmpty, afterTrashClear, favoritesEmpty, groupEmpty };
   })()`;
 }
 
@@ -730,8 +792,8 @@ function cardInfoHideSource() {
 
 function assertConfirmTrash(r) {
   const dump = JSON.stringify(r);
-  expect(r?.defaultDialog?.title === "是否移至回收站？", `default trash confirm title: ${dump}`);
-  expect(r.defaultDialog?.cancelLabel === "否" && r.defaultDialog?.confirmLabel === "是",
+  expect(r?.defaultDialog?.title === "移到回收站？", `default trash confirm title: ${dump}`);
+  expect(r.defaultDialog?.cancelLabel === "取消" && r.defaultDialog?.confirmLabel === "移到回收站",
     `default trash confirm buttons: ${dump}`);
   expect(r.defaultDialog?.checkboxRowVisible === true, `default trash confirm shows the dont-ask box: ${dump}`);
   expect(r.switch?.onActiveBefore === true, `the trash confirm switch starts 开启: ${dump}`);

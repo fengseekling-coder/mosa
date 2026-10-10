@@ -1021,11 +1021,12 @@ export function createContextMenuActions({ state, els, t, apiClient, showToast, 
           // 任务 94（A4f）：勾过「不再提醒」后右键单张/多选直接移入回收站；整组
           // 堆叠的「移至回收站」不走这里（永远确认）。其余守卫照旧。
           if (!moveToTrashConfirmSuppressed()) {
+            // 任务 111：按钮写动作（取消 / 移到回收站），不再用「否 / 是」。
             const confirmed = await requestConfirmation({
               title: ids.length > 1 ? t("moveAssetsToTrashTitle", { count: ids.length }) : t("moveToTrashTitle"),
               description: t("moveToTrashDescription"),
-              confirmLabel: t("yes"),
-              cancelLabel: t("no"),
+              confirmLabel: t("moveToTrash"),
+              cancelLabel: t("cancel"),
               tone: "danger",
               dontAskAgainKey: CONFIRM_MOVE_TO_TRASH_KEY,
             });

@@ -1177,38 +1177,65 @@ const { renderAssetView, openAssetView, returnToLibrary,
 
 
 // ===== Gallery empty states (F-08) =====
-// 五种空态语义严格分离：真实空库 / 搜索筛选无结果 / 收藏、最近、分组范围空态。
+// 空态按情况说话（任务 111 的七档固定顺序，命中第一条就用它）。
 // 判定集中在 deriveGalleryEmptyState()，清除集中在 resetLibraryRefinements()；
 // 不发送任何请求、不复制搜索/筛选算法、不维护第二套 gallery 状态。
 
 /**
  * Centralized empty-state decision. Pure: reads existing state only, never
- * fetches. Fixed priority: loading → fatal error → cards → true empty library
- * → no results → scoped empties. `state.groups.total` is the authoritative
- * whole-library total (the same /api/groups count the sidebar shows); it is
- * loaded before assets on init, on project switch, and refreshed in the
- * background — `state.pageTotal` is only the current result total and must
- * never impersonate the library total.
+ * fetches. Fixed priority: loading → fatal error → cards → 七档按序判定：
+ * 1. 搜索或筛选无结果（query / mediaKind / 除 group 外的任何 facet——侧栏固定
+ *    入口 scope 与分组 facet 是「在哪儿看」，不算筛选，所以在分组里搜不到算
+ *    第 1 条，分组里本来就没图算第 5 条）；
+ * 2-4. 回收站 / 收藏 / 待整理固定入口的空态；
+ * 5. 当前分组里没有图；
+ * 6. 「所有素材」且整库总数为 0 的空库；
+ * 7. 其余兜底（如某来源下没有图）回到无结果文案。
+ * `state.groups.total` is the authoritative whole-library total (the same
+ * /api/groups count the sidebar shows); it is loaded before assets on init,
+ * on project switch, and refreshed in the background — `state.pageTotal` is
+ * only the current result total and must never impersonate the library total.
  */
 function deriveGalleryEmptyState() {
   if (state.galleryStatus === "loading") return "none";
   if (state.galleryStatus === "error") return "none";
   if (state.assets.length > 0) return "none";
-  // The V2 Gallery deliberately uses one neutral recovery state for every
-  // zero-result scope.  Separate favorites/recent/group states are legacy UI.
+  const hasRefinements = Boolean(state.query)
+    || (state.mediaKind && state.mediaKind !== "all")
+    || FACET_KEYS.some((key) => key !== "group" && String(state.facets?.[key] || "") !== "");
+  if (hasRefinements) return "no-results";
+  if (state.scope === "trash") return "trash-empty";
+  if (state.scope === "favorite") return "favorites-empty";
+  if (state.scope === "unorganized") return "unorganized-empty";
+  if (String(state.facets?.group || "") !== "") return "group-empty";
+  if (state.scope === "all" && Number(state.groups?.total || 0) === 0) return "library-empty";
   return "no-results";
 }
+
+/** 任务 111：每档空态的标题/说明文案键；clearAction 表示是否带「清除筛选」按钮。 */
+const GALLERY_EMPTY_STATE_COPY = {
+  "no-results": { titleKey: "noResultsTitle", descriptionKey: "noResultsDescription", clearAction: true },
+  "trash-empty": { titleKey: "trashEmptyTitle", descriptionKey: "trashEmptyDescription" },
+  "favorites-empty": { titleKey: "favoritesEmptyTitle", descriptionKey: "favoritesEmptyDescription" },
+  "unorganized-empty": { titleKey: "unorganizedEmptyTitle", descriptionKey: "unorganizedEmptyDescription" },
+  "group-empty": { titleKey: "groupEmptyTitle", descriptionKey: "groupEmptyDescription" },
+  "library-empty": { titleKey: "emptyLibraryTitle", descriptionKey: "emptyDropHint" },
+};
 
 /** One shell for every empty state; the kind only changes copy and actions. */
 function galleryEmptyMarkup() {
   const kind = deriveGalleryEmptyState();
   if (kind === "none") return "";
-  // Faithful V2 recovery shell: package glyph, neutral copy, reset action and a
-  // drag-and-drop import hint (the modal-free import path). 回收站是只读范围，
-  // 不展示导入提示。
+  // Faithful V2 recovery shell: package glyph + 按档文案（任务 111）。空库档的
+  // 说明一句就是原来的拖入提示，不再重复显示第二遍；其余档不显示拖入提示。
+  // 「清除筛选」按钮只在无结果档出现（data-action="empty-clear"，行为不变），
+  // 回收站等只读档没有按钮。
+  const copy = GALLERY_EMPTY_STATE_COPY[kind] || GALLERY_EMPTY_STATE_COPY["no-results"];
   const packageOpenIcon = "<svg class=\"gallery-empty-icon\" width=\"48\" height=\"48\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 22v-9\"/><path d=\"M15.17 2.21a1.67 1.67 0 0 1 1.63 0L21 4.57a1.93 1.93 0 0 1 0 3.36L8.82 14.79a1.66 1.66 0 0 1-1.64 0L3 12.43a1.93 1.93 0 0 1 0-3.36z\"/><path d=\"M20 13v3.87a2.06 2.06 0 0 1-1.11 1.83l-6 3.08a1.93 1.93 0 0 1-1.78 0l-6-3.08A2.06 2.06 0 0 1 4 16.87V13\"/><path d=\"M21 12.43a1.93 1.93 0 0 0 0-3.36L8.83 2.21a1.64 1.64 0 0 0-1.63 0L3 4.57a1.93 1.93 0 0 0 0 3.36l12.18 6.86a1.64 1.64 0 0 0 1.63 0z\"/></svg>";
-  const dropHint = state.scope === "trash" ? "" : "<p>" + escapeHtml(t("emptyDropHint")) + "</p>";
-  return "<div class=\"gallery-empty-state\" data-empty-kind=\"" + kind + "\">" + packageOpenIcon + "<div class=\"empty-state-copy\"><h2>" + escapeHtml(t("noResultsTitle")) + "</h2><p>" + escapeHtml(t("noResultsDescription")) + "</p>" + dropHint + "</div><div class=\"empty-state-actions\"><button class=\"btn-secondary\" type=\"button\" data-action=\"empty-clear\">" + escapeHtml(t("resetFilters")) + "</button></div></div>";
+  const clearAction = copy.clearAction
+    ? "<div class=\"empty-state-actions\"><button class=\"btn-secondary\" type=\"button\" data-action=\"empty-clear\">" + escapeHtml(t("resetFilters")) + "</button></div>"
+    : "";
+  return "<div class=\"gallery-empty-state\" data-empty-kind=\"" + kind + "\">" + packageOpenIcon + "<div class=\"empty-state-copy\"><h2>" + escapeHtml(t(copy.titleKey)) + "</h2><p>" + escapeHtml(t(copy.descriptionKey)) + "</p></div>" + clearAction + "</div>";
 }
 
 /** Reuses the existing polite live region; never a second announcement system. */
@@ -1216,9 +1243,11 @@ function announceGalleryStatus(message, { persist = false } = {}) {
   statusRegion.announce(message, { persist });
 }
 
+/** 任务 111：读屏播报跟着各档标题走（不认识档位就不播）。 */
 function announceEmptyState(kind) {
-  if (!kind) return;
-  announceGalleryStatus(kind === "library-empty" ? t("statusLibraryEmpty") : kind === "no-results" ? t("noResultsTitle") : t("statusScopeEmpty"));
+  const copy = kind ? GALLERY_EMPTY_STATE_COPY[kind] : null;
+  if (!copy) return;
+  announceGalleryStatus(t(copy.titleKey));
 }
 
 /**
@@ -1963,11 +1992,12 @@ async function deleteCurrentAssetFromViewer() {
   if (!await confirmDetailNavigation()) return;
   // 任务 94（A4f）：勾过「不再提醒」后大图页删除不再弹确认框（草稿守卫照旧在前）。
   if (!moveToTrashConfirmSuppressed()) {
+    // 任务 111：按钮写动作（取消 / 移到回收站），不再用「否 / 是」。
     const confirmed = await requestConfirmation({
       title: t("moveToTrashTitle"),
       description: t("moveToTrashDescription"),
-      confirmLabel: t("yes"),
-      cancelLabel: t("no"),
+      confirmLabel: t("moveToTrash"),
+      cancelLabel: t("cancel"),
       tone: "danger",
       dontAskAgainKey: CONFIRM_MOVE_TO_TRASH_KEY,
     });
@@ -2892,6 +2922,7 @@ function bindEvents() {
     loadStats,
     librarySync,
     selectAsset,
+    selectGalleryNode,
     openAssetView,
     gallerySelection,
     // 任务 91：大图页右键菜单的当前素材（selectedAsset 兼顾版本切换中的行）。
@@ -4898,7 +4929,10 @@ async function selectStackNode(asset, shouldScroll = false) {
   if (shouldScroll) els.assetGrid.querySelector(`.asset-card[data-id="${CSS.escape(coverAssetId)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
   if (state.detailManuallyClosed) return true;
   renderDetail();
-  return loadStackInspectorMembers(stackId, coverAssetId, { showLoading: false });
+  // 选中到这里已经完成；成员列表在后台补（它自己收错误、自己核对是否过期）。
+  // 不等它：右键选中堆叠封面（任务 111）要在选中完成后立刻弹菜单，不能被一次请求拖住。
+  void loadStackInspectorMembers(stackId, coverAssetId, { showLoading: false });
+  return true;
 }
 
 function clearDetailSelection() {
@@ -5680,7 +5714,7 @@ function renderDetail({ syncAssetView = true } = {}) {
     inspectorOverlay.close({ restoreFocus: false });
     const { pathbar } = ensureDetailInspectorShell();
     if (pathbar) pathbar.hidden = true;
-    const scroller = renderDetailInspectorContent(t("assetInspector"), `<div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t(state.assets.length ? "noSelection" : "noAssets")}</p><span>${t(state.assets.length ? "noSelectionHint" : "noAssetsHint")}</span></div>`);
+    const scroller = renderDetailInspectorContent(t("assetInspector"), `<div class="detail-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><p>${t("noSelection")}</p><span>${t("noSelectionHint")}</span></div>`);
     if (scroller) scroller.scrollTop = 0;
     return;
   }
