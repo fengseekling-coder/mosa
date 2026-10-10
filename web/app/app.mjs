@@ -16,6 +16,7 @@ import { createAssetViewer } from "./asset-view.mjs";
 import { createInspectorMarkup, DETAIL_TAGS_VISIBLE_LIMIT, inspectorPaletteSwatches, generationContextRows } from "./inspector-markup.mjs";
 import { createInspectorOverlay } from "./inspector-overlay.mjs";
 import { assetTags, derivePromptTags, uniqueTags } from "./tag-utils.mjs";
+import { pathEllipsisSegments } from "./middle-ellipsis.mjs";
 import { createContextMenu } from "./context-menu.mjs";
 import { createContextMenuActions } from "./context-menu-actions.mjs";
 import { bindContextMenuEvents } from "./context-menu-bindings.mjs";
@@ -1516,7 +1517,10 @@ function syncSettingsMenuView() {
   const libraryPath = state.libraryRoot || state.libraryPath || state.codexImagesDir || "—";
   const pathNode = menu.querySelector("[data-settings-library-path]");
   if (pathNode) {
-    pathNode.textContent = libraryPath;
+    // 任务 110：库路径改「头 + 尾」两段中间省略（末尾保留最关键的库文件夹名），
+    // textContent 拼接仍是完整路径，title 悬停显示全路径。
+    const librarySegments = pathEllipsisSegments(libraryPath);
+    pathNode.innerHTML = `<span class="me-head">${escapeHtml(librarySegments.head)}</span><span class="me-tail">${escapeHtml(librarySegments.tail)}</span>`;
     pathNode.title = libraryPath;
   }
   const storageNode = menu.querySelector("[data-settings-storage-engine]");
@@ -1573,12 +1577,15 @@ function renderSettingsMenu({ force = false } = {}) {
   // 分隔线；行首图标位按稿子去掉（图标只保留在左栏导航上）。
   const row = (title, subtitle, control = "", extraClass = "") => `<div class="settings-modal-row${extraClass ? ` ${extraClass}` : ""}"><div class="settings-row-copy"><h4>${title}</h4>${subtitle ? `<p>${subtitle}</p>` : ""}</div>${control ? `<div class="settings-row-control">${control}</div>` : ""}</div>`;
   const visualLocale = state.locale === "en" ? "en" : "zh";
-  const path = escapeHtml(state.libraryRoot || state.libraryPath || state.codexImagesDir || "—");
+  const libraryPathValue = state.libraryRoot || state.libraryPath || state.codexImagesDir || "—";
+  const libraryPathSegments = pathEllipsisSegments(libraryPathValue);
+  const path = escapeHtml(libraryPathValue);
   const closeIcon = settingIcon("m6 6 12 12M18 6 6 18");
   const storageLabel = state.storageKind === "sqlite" ? t("storageEngineValue") : (state.storageKind && state.storageKind !== "unknown" ? state.storageKind : "—");
   // 任务 81：稿子把素材库行画成「只读路径框 + 框尾内嵌打开按钮」；「更改位置」
   // 稿子没画，按既定决定保留（桌面版渲染在路径框右侧），浏览器版仍只有打开。
-  const libraryPathBox = `<div class="settings-path-box"><span class="settings-path" data-settings-library-path title="${path}">${path}</span><button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button></div>`;
+  // 任务 110：路径改「头 + 尾」两段中间省略（末尾保留库文件夹名），title 仍全路径。
+  const libraryPathBox = `<div class="settings-path-box"><span class="settings-path" data-settings-library-path title="${path}"><span class="me-head">${escapeHtml(libraryPathSegments.head)}</span><span class="me-tail">${escapeHtml(libraryPathSegments.tail)}</span></span><button class="settings-text-action" type="button" data-open-library>${t("settingsOpenLibrary")}</button></div>`;
   const changeLibraryControl = window.electronAPI?.changeLibraryLocation
     ? `<button class="settings-text-action" type="button" data-change-library${state.libraryMoveInProgress ? " disabled" : ""}>${state.libraryMoveInProgress ? t("changingLocation") : t("change")}</button>`
     : "";
@@ -5738,12 +5745,17 @@ function renderDetail({ syncAssetView = true } = {}) {
 // GravityPort A4a：底部固定「素材路径」胶囊——左边标签、中间单行省略路径（悬停
 // title 展示全路径）、右边「打开」（与右键菜单「在 Finder 中显示」同一动作）。
 // 堆叠检视器与空态不渲染（renderDetail 的对应分支里 hidden）。路径不存在时「打开」禁用。
+// 任务 110：路径改为「头 + 尾」两段中间省略，textContent 拼接仍是完整路径。胶囊里
+// 留给路径的位置只有约 116px（11px 字约 19 个字符），尾段只留 12 个字符（文件名的
+// 结尾和扩展名），剩下的位置给路径开头；完整文件名在检视器最上面已经有了。
+const DETAIL_PATHBAR_TAIL_LENGTH = 12;
 function renderDetailPathbar(asset) {
   const { pathbar } = ensureDetailInspectorShell();
   if (!pathbar) return;
   const imagePath = String(asset.image_path || "").trim();
+  const pathSegments = pathEllipsisSegments(imagePath, DETAIL_PATHBAR_TAIL_LENGTH);
   pathbar.hidden = false;
-  pathbar.innerHTML = `<div class="detail-pathbar-pill"><span class="detail-pathbar-label">${escapeHtml(t("assetPathLabel"))}</span><span class="detail-pathbar-path"${imagePath ? ` title="${escapeHtml(imagePath)}"` : ""}>${imagePath ? escapeHtml(imagePath) : `<span class="empty-copy">${escapeHtml(t("notRecorded"))}</span>`}</span><button class="detail-pathbar-open" type="button" data-action="open-asset-location" data-asset-path="${escapeHtml(imagePath)}"${imagePath ? "" : " disabled"} aria-label="${escapeHtml(t("openPathAction"))}">${escapeHtml(t("openPathAction"))}</button></div>`;
+  pathbar.innerHTML = `<div class="detail-pathbar-pill"><span class="detail-pathbar-label">${escapeHtml(t("assetPathLabel"))}</span><span class="detail-pathbar-path"${imagePath ? ` title="${escapeHtml(imagePath)}"` : ""}>${imagePath ? `<span class="me-head">${escapeHtml(pathSegments.head)}</span><span class="me-tail">${escapeHtml(pathSegments.tail)}</span>` : `<span class="empty-copy">${escapeHtml(t("notRecorded"))}</span>`}</span><button class="detail-pathbar-open" type="button" data-action="open-asset-location" data-asset-path="${escapeHtml(imagePath)}"${imagePath ? "" : " disabled"} aria-label="${escapeHtml(t("openPathAction"))}">${escapeHtml(t("openPathAction"))}</button></div>`;
 }
 
 // 「打开」与右键菜单「在 Finder 中显示」完全同源：同一 /api/open-folder 端点、

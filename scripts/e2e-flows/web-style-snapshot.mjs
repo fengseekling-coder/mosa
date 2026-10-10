@@ -111,6 +111,16 @@ const KEY_KINDS = {
   "inspector.versionContextThumbSize": "px",
   "inspector.versionContextModelFontSize": "font",
   "inspector.versionContextModelLineHeight": "px",
+  // 任务 110：头部文件名行（宽度 / 单行高）、小节标题字号字重、空提示词框与
+  // 空参考图框高度、路径胶囊高度与标签字号。
+  "inspector.nameRowWidth": "px",
+  "inspector.nameTitleHeight": "px",
+  "inspector.sectionTitleFontSize": "font",
+  "inspector.sectionTitleFontWeight": "font",
+  "inspector.promptBoxEmptyHeight": "px",
+  "inspector.referenceEmptyHeight": "px",
+  "inspector.pathbarPillHeight": "px",
+  "inspector.pathbarLabelFontSize": "font",
   // 任务 90（GravityPort A4c）：大图查看页按钮/箭头/图片区几何 + toast 避让检视器的
   // 位置（检视器打开 = 检视器宽 + 20，关闭 = 20；底部恒 20）。
   "viewer.headerHeight": "px",
@@ -199,7 +209,8 @@ export async function run(ctx) {
     // 任务 100：按页面尺寸要窗口（useContentSize）。默认 1280×800 量的是外框：
     // macOS 页面是 1280×772（基准就是这么录的），Windows 减去边框只剩 1264 宽，
     // 窗口中线差 8px，滑杆组 left 就对不上基准。
-    readings = await ctx.runInPage(server, measurementSource({ plainAssetId: (await seedAssets(ctx, server.origin)).ids[0] }), { windowSize: [1280, 772] });
+    const seeded = await seedAssets(ctx, server.origin);
+    readings = await ctx.runInPage(server, measurementSource({ plainAssetId: seeded.ids[0], emptyAssetId: seeded.emptyAssetId }), { windowSize: [1280, 772] });
   } finally {
     await server.stop();
   }
@@ -241,6 +252,8 @@ async function seedAssets(ctx, origin) {
     ["snap-c.png", [80, 80], [58, 138, 87], "snapshot charlie"],
     ["snap-d.png", [120, 60], [138, 90, 47], "snapshot delta"],
     ["snap-e.png", [72, 72], [96, 74, 155], "snapshot echo"],
+    // 任务 110：一张没有 prompt 的素材，供「空提示词框高度」测量（框随内容收缩）。
+    ["snap-empty.png", [64, 64], [128, 128, 128], null],
   ];
   const ids = [];
   for (const [index, [file, [width, height], color, prompt]] of seeds.entries()) {
@@ -248,7 +261,7 @@ async function seedAssets(ctx, origin) {
     const body = await ctx.api(origin, "POST", "/api/assets/create", {
       projectId: "default",
       imagePath,
-      prompt,
+      ...(prompt ? { prompt } : {}),
       ...(index === 2 ? { group: "样式快照分组" } : {}),
     });
     if (!body?.asset?.id) throw new Error(`样式快照预置图失败：${file}`);
@@ -270,7 +283,7 @@ async function seedAssets(ctx, origin) {
     created_at: new Date().toISOString(),
   });
   if (!generation?.event?.id) throw new Error("样式快照生成记录写入失败。");
-  return { ids };
+  return { ids, emptyAssetId: ids[5] };
 }
 
 // ===== 比对 =====
@@ -327,9 +340,9 @@ function normalizeColor(value) {
 }
 
 // ===== 页面内测量源码 =====
-function measurementSource({ plainAssetId }) {
+function measurementSource({ plainAssetId, emptyAssetId }) {
   return `(async () => {
-    const seed = { plainAssetId: ${JSON.stringify(plainAssetId)} };
+    const seed = { plainAssetId: ${JSON.stringify(plainAssetId)}, emptyAssetId: ${JSON.stringify(emptyAssetId)} };
     ${PAGE_HELPERS}
     const R = {};
     const pick = (selector) => {
@@ -597,6 +610,25 @@ function measurementSource({ plainAssetId }) {
     const versionModel = styleOf(versionRow.querySelector('.detail-version-context-model'));
     R['inspector.versionContextModelFontSize'] = versionModel.fontSize;
     R['inspector.versionContextModelLineHeight'] = versionModel.lineHeight;
+    // 任务 110：头部文件名行（单行宽高——太长时中间省略）、小节标题字号字重、
+    // 空参考图框（种子素材无参考图）、路径胶囊高度与标签字号。
+    const nameRow = pick('#detailPanel .asset-name-row');
+    R['inspector.nameRowWidth'] = rectOf(nameRow).width;
+    R['inspector.nameTitleHeight'] = rectOf(nameRow.querySelector('#detailTitle')).height;
+    const sectionTitleStyle = styleOf(pick('#detailPanel .detail-prompt-head h3'));
+    R['inspector.sectionTitleFontSize'] = sectionTitleStyle.fontSize;
+    R['inspector.sectionTitleFontWeight'] = sectionTitleStyle.fontWeight;
+    R['inspector.referenceEmptyHeight'] = rectOf(pick('#detailPanel .detail-reference-box')).height;
+    R['inspector.pathbarPillHeight'] = rectOf(pick('#detailPanel .detail-pathbar-pill')).height;
+    R['inspector.pathbarLabelFontSize'] = styleOf(pick('#detailPanel .detail-pathbar-label')).fontSize;
+    // 任务 110：空提示词框——切到没有 prompt 的种子素材量框随内容收缩，量完留在
+    // 该素材上；后面的查看页/确认框入口都用右键重新定位目标卡，不受影响。
+    const emptyCardButton = () => document.querySelector('.asset-card[data-id="' + CSS.escape(seed.emptyAssetId) + '"] .asset-card-select');
+    await waitFor(() => emptyCardButton()?.isConnected, 'empty-prompt card button');
+    emptyCardButton().click();
+    await waitFor(() => pick('#detailPanel').querySelector('.detail-prompt-box'), 'empty-prompt inspector renders');
+    await waitForMotionSettled(pick('.detail-inspector'), 'inspector (empty prompt)');
+    R['inspector.promptBoxEmptyHeight'] = rectOf(pick('#detailPanel .detail-prompt-box')).height;
     const selectedCard = pick('.asset-card.selected');
     const ring = styleOf(selectedCard, '::after');
     R['gallery.selectionRingWidth'] = ring.borderWidth;

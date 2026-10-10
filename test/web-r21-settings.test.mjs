@@ -189,7 +189,10 @@ test("A5 settings geometry: 720-wide card capped at 540, 240px sidebar, 36px tab
   const path = lastBlock(css, ".mosa-v2 .settings-path");
   assert.match(path, /font-size: var\(--text-xs\);/);
   assert.match(path, /max-width: 100%;/);
-  assert.match(path, /text-overflow: ellipsis;/);
+  // 任务 110：库路径改「头 + 尾」两段中间省略（末尾保留库文件夹名），省略号由 .me-head 画。
+  assert.match(path, /display: flex;/);
+  assert.match(css, /\.me-head \{ min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/);
+  assert.match(css, /\.me-tail \{ max-width: 100%; flex: 0 0 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/);
 });
 
 // 任务 109：模型页「标题一行；说明+状态另起一行」、状态可换行不截断；

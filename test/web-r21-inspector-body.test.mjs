@@ -47,20 +47,25 @@ test("section titles read as 12px/16 heads with copy buttons in .copy grey", asy
   const head = lastBlock(css, ".mosa-v2 .detail .detail-prompt-head");
   assert.match(head, /height: 16px;/);
   assert.match(head, /margin-bottom: var\(--sp-1\);/);
-  // 返工 1:区块小标题照稿 10px(区块头高度 16 保持不变)；规范表 v1 收敛到 --text-xs(11px)。
+  // 任务 110：小节标题提级到 --text-sm(12px)/semibold,与正文拉开层级(区块头高度 16 保持不变)。
   const title = lastBlock(css, ".mosa-v2 .detail .detail-prompt-head h3");
-  assert.match(title, /font-size: var\(--text-xs\);/);
-  assert.match(title, /line-height: var\(--text-xs-lh\);/);
+  assert.match(title, /font-size: var\(--text-sm\);/);
+  assert.match(title, /line-height: var\(--text-sm-lh\);/);
   const subhead = lastBlock(css, ".mosa-v2 .detail .detail-prompt-subhead");
   assert.match(subhead, /height: 16px;/);
   assert.match(subhead, /margin-top: var\(--sp-5\);/);
   const subheadTitle = lastBlock(css, ".mosa-v2 .detail .detail-prompt-subhead h4");
-  assert.match(subheadTitle, /font-size: var\(--text-xs\);/);
+  assert.match(subheadTitle, /font-size: var\(--text-sm\);/);
+  // 任务 110：标题字重与颜色提级（semibold / primary），来源摘要 span 不在其列。
+  assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-head h3,\n\.mosa-v2 \.detail \.detail-prompt-subhead h4 \{\n  font-size: var\(--text-sm\);\n  font-weight: var\(--weight-semibold\);\n  line-height: var\(--text-sm-lh\);\n\}/);
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-prompt-head h3, \.detail-prompt-subhead h4\) \{\n  color: var\(--color-text-primary\);\n\}/);
   const disclosure = lastBlock(css, ".mosa-v2 .detail .detail-disclosure > summary");
   assert.match(disclosure, /font-size: var\(--text-xs\);/);
   assert.match(disclosure, /font-weight: var\(--weight-medium\);/);
-  // 任务 43：小标题随 AA 加深 #8d8d93 → #707076（面板 #fbfbfc 上 4.76:1）。
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-prompt-head h3, \.detail-prompt-subhead h4, \.detail-source-summary > span, \.detail-disclosure > summary, \.detail-fields \.field > span\) \{\n  color: #707076;\n\}/);
+  // 任务 43：辅助键名随 AA 加深 #8d8d93 → #707076（面板 #fbfbfc 上 4.76:1）。
+  // 任务 110：四个小节标题（h3/h4）从这条 :is 组拆出、改回 primary（上一条断言），
+  // 其余辅助名保持 #707076。
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-source-summary > span, \.detail-disclosure > summary, \.detail-fields \.field > span\) \{\n  color: #707076;\n\}/);
   // 任务 41：复制按钮带文字后按 AA 校色——R21 稿 #929297 只有 2.99:1，加深为 #6e6e73
   // （面板 #fbfbfc 上 4.90:1）；同一 :is 块里的来源摘要 strong 一并达标。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-prompt-head \.section-head-copy, \.detail-copy-sub, \.detail-source-copy \.section-head-copy, \.detail-source-summary > strong\) \{\n  color: #6e6e73;\n\}/);
@@ -102,19 +107,21 @@ test("prompt tabs render as 40×12-class chips with the 2px radius and 4px gap",
   assert.match(active, /border-color: var\(--color-text-primary\);/, "the active tab keeps a token border");
 });
 
-test("prompt and instruction boxes are fixed 120px tall with the 4px radius", async () => {
+test("prompt and instruction boxes grow with content, cap at 120px, and scroll", async () => {
   const css = await readWebCss();
   const box = lastBlock(css, ".mosa-v2 .detail .detail-prompt-box");
-  assert.match(box, /height: 120px; min-height: 120px; max-height: 120px;/);
+  assert.match(box, /max-height: 120px;/);
+  assert.doesNotMatch(box, /(^|[^-])height: \d+px;|min-height: \d+px;/, "no fixed height or min-height: empty boxes collapse to one text line");
   assert.match(box, /border-radius: var\(--radius-xs\);/);
   const instruction = lastBlock(css, ".mosa-v2 .detail .detail-instruction-box");
-  assert.match(instruction, /height: 120px; min-height: 120px; max-height: 120px;/);
+  assert.match(instruction, /max-height: 120px;/);
+  assert.doesNotMatch(instruction, /(^|[^-])height: \d+px;|min-height: \d+px;/);
   assert.match(instruction, /margin-top: var\(--sp-1\);/);
-  // 返工 1：照稿字号 10px、行高 14px（内边距 12 沿用）；规范表 v1 收敛到 --text-xs/--text-xs-lh（值仍 11/14）。
+  // 任务 110：正文提级到 --text-sm/--text-sm-lh(12/16),与小节标题同字号、靠字重分层级。
   const typography = lastBlock(css, ".mosa-v2 .detail .detail-prompt-box,\n.mosa-v2 .detail .detail-instruction-box");
   assert.match(typography, /padding: var\(--sp-3\);/);
-  assert.match(typography, /font-size: var\(--text-xs\);/);
-  assert.match(typography, /line-height: var\(--text-xs-lh\);/);
+  assert.match(typography, /font-size: var\(--text-sm\);/);
+  assert.match(typography, /line-height: var\(--text-sm-lh\);/);
   const light = /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-prompt-box,\n:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-instruction-box \{[^}]*\}/.exec(css)?.[0];
   assert.match(light, /border-color: transparent;/);
   assert.match(light, /background: #f3f3f5;/);
@@ -139,6 +146,8 @@ test("reference thumbnails sit in a 64px box as 56×56 tiles in one clipped row"
   assert.match(box, /padding: var\(--sp-1\);/);
   assert.match(box, /border-radius: var\(--radius-xs\);/);
   assert.match(box, /overflow: hidden;/, "thumbnails clip instead of wrapping");
+  // 任务 110：没有参考图时空框收到 28px（与版本树空框一致），有图仍 64px。
+  assert.match(css, /\.mosa-v2 \.detail \.detail-reference-box:has\(> \.detail-reference-empty\) \{ height: 28px; \}/);
   const thumbs = lastBlock(css, ".mosa-v2 .detail .detail-reference-box .detail-reference-thumbnails");
   assert.match(thumbs, /display: flex;/);
   assert.match(thumbs, /gap: var\(--sp-1\);/);
@@ -268,20 +277,24 @@ test("recipe form controls are 32px tall, 8px radii, borderless in light mode", 
   assert.match(two, /gap: var\(--sp-2\);/);
 });
 
-test("the pathbar pill is 36px tall, fully rounded, with token chrome", async () => {
+test("the pathbar pill is 28px tall, fully rounded, with token chrome", async () => {
   const css = await readWebCss();
   const bar = lastBlock(css, ".mosa-v2 .detail .detail-pathbar");
   assert.match(bar, /padding: var\(--sp-3\) var\(--sp-5\) var\(--sp-5\);/, "the capsule sits 20px from the card bottom/sides");
   const pill = lastBlock(css, ".mosa-v2 .detail .detail-pathbar-pill");
-  assert.match(pill, /height: 36px;/);
-  // 稿子是半高 18px 的全圆角胶囊；规范表 v1 归 --radius-pill，不能按「12 及以上」压成 lg（任务 107 验收）。
+  // 任务 110：胶囊 36 → --control-md（28px）；圆角仍是全圆 --radius-pill。
+  assert.match(pill, /height: var\(--control-md\);/);
   assert.match(pill, /border-radius: var\(--radius-pill\);/);
   const path = lastBlock(css, ".mosa-v2 .detail .detail-pathbar-path");
-  assert.match(path, /text-overflow: ellipsis;/);
-  assert.match(path, /white-space: nowrap;/);
-  // 返工 1:胶囊文字照稿——「素材路径」14px、路径 10px、「打开」12px；规范表 v1 归档为 md/xs/sm。
+  assert.match(path, /display: flex;/);
+  assert.match(path, /min-width: 0;/);
+  // 任务 110：路径是「头 + 尾」两段中间省略——容器 flex，头段收缩画省略号、尾段不收缩。
+  assert.match(css, /\.me-head \{ min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/);
+  assert.match(css, /\.me-tail \{ max-width: 100%; flex: 0 0 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/);
+  // 返工 1:胶囊文字照稿——「素材路径」标签、路径 10px、「打开」12px；任务 110：标签收敛到 --text-sm(12px)。
   const label = lastBlock(css, ".mosa-v2 .detail .detail-pathbar-label");
-  assert.match(label, /font-size: var\(--text-md\);/);
+  assert.match(label, /font-size: var\(--text-sm\);/);
+  assert.match(label, /font-weight: var\(--weight-medium\);/);
   assert.match(path, /font-size: var\(--text-xs\);/);
   const openBtn = lastBlock(css, ".mosa-v2 .detail .detail-pathbar-open");
   assert.match(openBtn, /font-size: var\(--text-sm\);/);

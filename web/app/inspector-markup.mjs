@@ -13,6 +13,7 @@ import { SOURCE_LABEL_KEYS } from "./config.mjs";
 import { assetTags } from "./tag-utils.mjs";
 import { computeConversationRounds } from "./conversation-rounds.mjs";
 import { displayAssetTitle, escapeHtml, formatDate, formatDateTime } from "./utils.mjs";
+import { fileNameEllipsisSegments } from "./middle-ellipsis.mjs";
 import { selectVersionComparisonPair } from "./version-compare.mjs";
 
 // 任务 35：检视器用户标签的折叠阈值——超过时只渲染前 N 个并追加「+N」展开按钮。
@@ -215,9 +216,10 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
     return `<button class="detail-fav-btn${favorite ? " is-fav" : ""}" type="button" data-action="toggle-favorite" aria-pressed="${favorite}" aria-label="${escapeHtml(actionLabel)}"><span aria-hidden="true">${favorite ? "★" : "☆"}</span></button>`;
   }
 
-  // R21 头部（GravityPort A4a 调整）：左 130×130 预览小图 + 右侧信息（标题 /
-  // 收藏星标 / 来源·日期 / 五行键值事实）。原「打开原始对话」图标按钮随来源信息
-  // 区块一并从界面拿掉（用户 10-06 拍板），showRelatedGenerations 的功能代码保留。
+  // R21 头部（任务 110 重排）：文件名独占一行（太长时中间省略）、来源行整行，
+  // 再往下才是左 130×130 预览小图 + 右侧键值事实两栏。原「打开原始对话」图标按钮
+  // 随来源信息区块一并从界面拿掉（用户 10-06 拍板），showRelatedGenerations 的功能
+  // 代码保留。#detailTitle 的 textContent 仍是完整文件名（头尾两段拼接），e2e 读它。
   function detailFileSectionMarkup(asset) {
     const title = displayAssetTitle(asset);
     const source = sourceName(asset.source || {});
@@ -229,7 +231,8 @@ export function createInspectorMarkup({ state, t, referenceRightsMarkup }) {
       ["fileSize", fileSizeText(asset)],
       ["group", String(asset.group || "").trim() || t("notGrouped")],
     ].map(([key, value]) => fileFactRowMarkup(key, value)).join("");
-    return `<section class="inspector-section detail-overview" data-inspector-section="file" aria-labelledby="assetOverviewTitle"><h3 id="assetOverviewTitle" class="visually-hidden">${t("fileFacts")}</h3><div class="asset-head"><div class="asset-mini">${assetMediaPreviewMarkup(asset, "detail")}</div><div class="asset-meta-wrap"><div class="asset-name-row"><h3 id="detailTitle" tabindex="-1" title="${escapeHtml(title)}">${escapeHtml(title)}</h3>${detailFavoriteButtonMarkup(asset)}</div><p class="asset-kind" title="${sourceLine}">${sourceLine}</p><div class="head-facts" role="group" aria-label="${escapeHtml(t("assetMetadata"))}">${facts}</div></div></div></section>`;
+    const titleSegments = fileNameEllipsisSegments(title);
+    return `<section class="inspector-section detail-overview" data-inspector-section="file" aria-labelledby="assetOverviewTitle"><h3 id="assetOverviewTitle" class="visually-hidden">${t("fileFacts")}</h3><div class="asset-head"><div class="asset-name-row"><h3 id="detailTitle" tabindex="-1" title="${escapeHtml(title)}"><span class="me-head">${escapeHtml(titleSegments.head)}</span><span class="me-tail">${escapeHtml(titleSegments.tail)}</span></h3>${detailFavoriteButtonMarkup(asset)}</div><p class="asset-kind" title="${sourceLine}">${sourceLine}</p><div class="asset-body"><div class="asset-mini">${assetMediaPreviewMarkup(asset, "detail")}</div><div class="head-facts" role="group" aria-label="${escapeHtml(t("assetMetadata"))}">${facts}</div></div></div></section>`;
   }
 
   function detailTagsSectionMarkup(asset) {

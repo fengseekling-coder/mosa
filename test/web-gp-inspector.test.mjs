@@ -206,8 +206,12 @@ test("the pathbar renders the label, the ellipsed path and the open action", asy
   assert.match(withPath, /imagePath \? ` title="\$\{escapeHtml\(imagePath\)\}"` : ""/);
   assert.match(withPath, /data-asset-path="\$\{escapeHtml\(imagePath\)\}"/);
   assert.match(withPath, /imagePath \? "" : " disabled"/);
-  // 无路径：打开禁用、路径位显示「未记录」。
-  assert.match(withPath, /imagePath \? escapeHtml\(imagePath\) : `<span class="empty-copy">\$\{escapeHtml\(t\("notRecorded"\)\)\}<\/span>`/);
+  // 胶囊里路径只有约 116px：尾段限 12 个字符，否则尾段比位置还宽、开头整个被挤没。
+  assert.match(app, /const DETAIL_PATHBAR_TAIL_LENGTH = 12;/);
+  assert.match(app, /const pathSegments = pathEllipsisSegments\(imagePath, DETAIL_PATHBAR_TAIL_LENGTH\);/);
+  // 无路径：打开禁用、路径位显示「未记录」；有路径：「头 + 尾」两段中间省略
+  // （任务 110），textContent 拼接仍是完整路径。
+  assert.match(withPath, /imagePath \? `<span class="me-head">\$\{escapeHtml\(pathSegments\.head\)\}<\/span><span class="me-tail">\$\{escapeHtml\(pathSegments\.tail\)\}<\/span>` : `<span class="empty-copy">\$\{escapeHtml\(t\("notRecorded"\)\)\}<\/span>`/);
   // 「打开」复用右键菜单同一动作（/api/open-folder + reveal）。
   const reveal = app.slice(app.indexOf("async function revealAssetAtPath"));
   assert.match(reveal, /apiFetch\("\/api\/open-folder"/);
