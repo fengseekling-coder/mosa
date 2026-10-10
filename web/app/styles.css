@@ -1246,6 +1246,11 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
     box-shadow: var(--shadow-panel);
   }
   .mosa-v2 .shell.details-open .topbar-search:focus-within input::placeholder { color: var(--color-text-tertiary); }
+  /* 任务 111：浮起的面板里文字与占位文字都从放大镜右侧开始，不再压在图标上。
+     输入框仍然整面覆盖面板（点图标、点两侧留白都落在输入框上，不会失焦把
+     面板收回去），只用内边距把文字让开：左 = 容器 padding 12 + 图标 14 +
+     gap 8，文字起点距图标 8px；右 = 容器 padding 12。收起态不变。 */
+  .mosa-v2 .shell.details-open .topbar-search:focus-within input { padding: 0 var(--sp-3) 0 calc(var(--sp-3) + 14px + var(--sp-2)); }
   /* 任务 109（窄窗口 701-1120）：先缩短缩略图滑杆轨道（120 → 72），给
      「全部分类 / 最新优先」下拉让宽；滑杆组若与左右控件放不下仍由 JS 三态隐藏。 */
   .topbar-size-slider { width: 72px; }
@@ -1517,7 +1522,11 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 }
 /* Dark mode for V2 inspector sections */
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-head h3, :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-subhead h4 { color: #f5f5f7; }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-head .section-head-copy, :root[data-theme="dark"] .mosa-v2 .detail .detail-copy-sub { color: #d1d1d6; background: rgb(255 255 255 / .10); }
+/* 任务 111：深色下去掉「复制」小按钮的常驻底色（原 rgb(255 255 255 / .10)），
+   与浅色一致直接坐在面板上（#d1d1d6 对深色面板 #2c2c2e 9.16:1，原来坐在 10%
+   白底上是 6.69:1，去掉后还略有提升）；悬停底色由上方 hover 规则补回（hover
+   规则本被这条的同名背景声明以更高特异性压住，删掉声明即恢复）。 */
+:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-head .section-head-copy, :root[data-theme="dark"] .mosa-v2 .detail .detail-copy-sub { color: #d1d1d6; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box, :root[data-theme="dark"] .mosa-v2 .detail .detail-instruction-box { border-color: rgb(255 255 255 / .10); color: #f5f5f7; background: rgb(255 255 255 / .06); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box .empty-copy { color: var(--color-text-tertiary); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-row { background: rgb(255 255 255 / .08); }

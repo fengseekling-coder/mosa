@@ -14,6 +14,7 @@ export function bindContextMenuEvents(options = {}) {
     loadStats,
     librarySync,
     selectAsset,
+    selectGalleryNode,
     openAssetView,
     gallerySelection,
     getViewerAsset,
@@ -46,7 +47,7 @@ export function bindContextMenuEvents(options = {}) {
   bindGroupContextMenu(els.sidebarGroupList);
   bindGroupContextMenu(els.sidebarManualGroupList);
 
-  els.assetGrid?.addEventListener("contextmenu", (event) => {
+  els.assetGrid?.addEventListener("contextmenu", async (event) => {
     const card = event.target.closest(".asset-card");
     event.preventDefault();
 
@@ -64,6 +65,13 @@ export function bindContextMenuEvents(options = {}) {
     if (!asset) return;
     let selectedIds = state.selectedIds instanceof Set ? state.selectedIds : new Set();
     if (!selectedIds.has(asset.id)) {
+      // 任务 111：右键一张不在当前多选里的卡片，等于先左键选中它再弹菜单——
+      // 走左键同一条路（selectGalleryNode：普通素材进 selectAsset，根视图的堆叠
+      // 封面进 selectStackNode），检视器同时换成这张。检视器里有未保存修改时，
+      // 那条路会先问「放弃未保存的修改？」；用户取消就不换选中、也不弹菜单。
+      // 大图查看页（assetViewStage）有自己的监听，不受影响。
+      await selectGalleryNode(asset.id);
+      if (state.selectedId !== asset.id) return;
       gallerySelection?.replaceWith?.(asset.id);
       selectedIds = state.selectedIds instanceof Set ? state.selectedIds : new Set([asset.id]);
     }

@@ -752,8 +752,9 @@ export async function run(ctx) {
         throw new Error(error.message + ' trashTimeline=' + JSON.stringify(trashTimeline));
       }
     `));
-    expect(p9.confirm.title === "是否将 2 个素材移至回收站？", `P9 multi trash title: ${JSON.stringify(p9.confirm.title)}`);
-    expect(p9.confirm.cancelLabel === "否" && p9.confirm.confirmLabel === "是", `P9 multi trash buttons: ${JSON.stringify([p9.confirm.cancelLabel, p9.confirm.confirmLabel])}`);
+    // 任务 111：多张确认框标题「把 {count} 个素材移到回收站？」，按钮写动作。
+    expect(p9.confirm.title === "把 2 个素材移到回收站？", `P9 multi trash title: ${JSON.stringify(p9.confirm.title)}`);
+    expect(p9.confirm.cancelLabel === "取消" && p9.confirm.confirmLabel === "移到回收站", `P9 multi trash buttons: ${JSON.stringify([p9.confirm.cancelLabel, p9.confirm.confirmLabel])}`);
     expect(p9.confirm.checkboxRowVisible === true && p9.confirm.checkedAfterClick === true, `P9 dont-ask checkbox: ${JSON.stringify(p9.confirm)}`);
     expect(p9.confirm.toastMessage.includes("2"), `P9 multi trash toast mentions the count: ${JSON.stringify(p9.confirm.toastMessage)}`);
     expect(p9.confirm.toastActionLabel === "撤销", `P9 multi trash toast action: ${JSON.stringify(p9.confirm.toastActionLabel)}`);
