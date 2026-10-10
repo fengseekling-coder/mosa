@@ -314,17 +314,20 @@ test("58. dialog styles without !important", async () => {
   const css = await readCss();
   const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(withoutComments, /!important/, "stylesheet must stay free of !important");
-  // 任务 94（A4f）：稿子量数——卡 640 宽 / 最小高 240（短文案由文案区 flex:1 撑到稿子高度，
-  // 长说明卡随之长高）、文案区上内边距 40；底行独立于 .modal-footer（无分隔线），
-  // 左「不再提醒」右按钮组。
-  assert.match(css, /\.confirm-dialog-card \{ box-sizing: border-box; width: 640px; min-height: 240px; \}/, "dialog geometry follows the A4f mock (640×240 outer, border-box)");
+  // 任务 94（A4f）量数口径，任务 109（规范表 v1）收窄：卡 420 宽、高度随内容
+  // （min-height 兜底删除，文案区不再撑固定高）；底行独立于 .modal-footer（无
+  // 分隔线），左「不再提醒」右按钮组，放不下时「不再提醒」换行到按钮上面。
+  assert.match(css, /\.confirm-dialog-card \{ box-sizing: border-box; width: 420px; \}/, "dialog geometry follows 规范表 v1 (420 wide, content-driven height, border-box)");
+  assert.doesNotMatch(css, /\.confirm-dialog-card \{[^}]*min-height/);
+  assert.doesNotMatch(css, /\.confirm-dialog-card \{[^}]*640/);
   assert.match(css, /\.confirm-dialog-copy \{ flex: 1 1 auto; padding: var\(--sp-10\) var\(--sp-10\) 0; overflow-wrap: break-word; \}/, "copy wraps instead of overflowing");
-  assert.match(css, /\.confirm-dialog-copy h3 \{ margin: 0; font-size: var\(--text-lg\); font-weight: var\(--weight-regular\); letter-spacing: 0; line-height: var\(--text-lg-lh\); \}/, "title typography from the mock, retiered to 15/20 (--text-lg, 规范表 v1)");
-  assert.match(css, /\.confirm-dialog-footer \{ display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: var\(--sp-2\); padding: var\(--sp-6\) var\(--sp-10\) var\(--sp-10\); \}/, "footer keeps the mock 40px side/bottom insets with checkbox left and buttons right");
+  assert.match(css, /\.confirm-dialog-copy h3 \{ margin: 0; font-size: var\(--text-lg\); font-weight: var\(--weight-semibold\); letter-spacing: 0; line-height: var\(--text-lg-lh\); \}/, "title typography from 规范表 v1: 15px semibold (--text-lg / --weight-semibold)");
+  assert.match(css, /\.confirm-dialog-footer \{ display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var\(--sp-2\); padding: var\(--sp-6\) var\(--sp-10\) var\(--sp-10\); \}/, "footer keeps the 40px side and bottom insets, checkbox left and buttons right, wrapping the dont-ask row onto its own line when tight");
+  assert.match(css, /\.confirm-dialog-dont-ask \{ display: inline-flex; flex: 0 1 auto; align-items: center; gap: var\(--sp-2\); font-size: var\(--text-sm\); cursor: pointer; \}/, "the dont-ask row is 12px (--text-sm, 规范表 v1)");
   assert.match(css, /\.confirm-dialog-dont-ask input \{[^}]*width: 16px; height: 16px[^}]*border-radius: var\(--radius-xs\)/, "the dont-ask checkbox is a 16×16 rounded-4 control");
-  assert.match(css, /\.confirm-dialog-actions \.btn-secondary, \.confirm-dialog-actions \.btn-danger, \.confirm-dialog-actions \.btn-primary \{ min-width: 80px; height: 40px; padding: 0 var\(--sp-3\); border-radius: var\(--radius-md\); font-size: var\(--text-md\); font-weight: var\(--weight-regular\); \}/, "footer buttons are the mock 80×40 rounded-8, type retiered to 13 (--text-md, 规范表 v1)");
+  assert.match(css, /\.confirm-dialog-actions \.btn-secondary, \.confirm-dialog-actions \.btn-danger, \.confirm-dialog-actions \.btn-primary \{ min-width: 80px; height: var\(--control-md\); padding: 0 var\(--sp-3\); border-radius: var\(--radius-md\); font-size: var\(--text-md\); font-weight: var\(--weight-regular\); \}/, "footer buttons are 80 wide at the 28px control height (--control-md), type 13 (--text-md, 规范表 v1)");
   assert.match(css, /\.confirm-dialog-actions \{[^}]*margin-left: auto;/, "buttons stay right-aligned when the dont-ask row is hidden");
-  assert.match(css, /@media \(max-width: 767px\) \{\s*\/\* 任务 94：确认弹窗窄屏不超过视口减两侧 16（宽卡照稿子只在桌面态给 640）。 \*\/\s*\.confirm-dialog-overlay \{ padding: var\(--sp-4\); \}/,
+  assert.match(css, /@media \(max-width: 767px\) \{\s*\/\* 任务 94：确认弹窗窄屏不超过视口减两侧 16（420 宽卡只在桌面态给足）。 \*\/\s*\.confirm-dialog-overlay \{ padding: var\(--sp-4\); \}/,
     "narrow viewports cap the dialog at viewport minus 16 per side inside the registered ≤767 block");
   assert.match(css, /\.btn-danger \{ border: 1px solid var\(--color-danger\); color: var\(--color-danger\); background: var\(--app-card\); \}/,
     "the danger confirm button consumes the approved DestructiveButton recipe");

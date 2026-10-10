@@ -528,9 +528,12 @@ export async function run(ctx) {
     // 取堆叠非封面成员的编号（封面命中时 store 平铺路径仍会给封面行附 stack 封面
     // 注解，前端会渲染成堆叠节点——该口子已单独上报）。等待全部走 gallerySettled，
     // 输入防抖由 waitFor 轮询消化，不写固定 sleep。
+    // 搜索词用文件名主干（selection-s2 / selection-s3），不用两个字的 "S2" / "S3"：
+    // 搜索会匹配素材的原始导入路径，而导入路径在随机命名的临时目录里
+    // （mosa-critical-e2e-XXXXXX），目录名碰巧含 "S3" 时六张图全部命中（CI 上出过）。
     ids.stackCoverId = p6.nodeIdAfterBack;
     ids.searchTargetId = ids.stackCoverId === ids.s2 ? ids.s3 : ids.s2;
-    ids.searchToken = ids.searchTargetId === ids.s2 ? "S2" : "S3";
+    ids.searchToken = ids.searchTargetId === ids.s2 ? "selection-s2" : "selection-s3";
     const p65 = await ctx.runInPage(first, source(ids, `
       await waitFor(() => gallerySettled() && rootCardIds().length === 5
         && document.querySelector(stackNodeSelector(config.stackId)), 'root gallery before search flattening');

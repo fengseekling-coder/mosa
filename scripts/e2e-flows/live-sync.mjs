@@ -286,6 +286,17 @@ function pagePrelude(config) {
     // fresh recorded stream from this dance is what every later assertion and
     // the hidden-phase close check observe.
     await waitFor(() => gallerySettled() && sameIds(rootCardIds(), config.baselineIds), 'baseline gallery settled', 25000);
+    // The sidebar counts come from a separate navigation request, so a settled
+    // gallery does not mean they are rendered yet. An empty count reads as 0 and
+    // every later "count + 1" expectation is then off (seen on Windows CI:
+    // expected 1 while the UI correctly showed 4). Take the baseline only once
+    // the rendered count agrees with the server.
+    await waitForAsync(async () => {
+      if (allCount() === '' || favoriteCount() === '') return false;
+      const response = await fetch('/api/navigation?project=default', { headers: { 'x-mosa-client-token': config.clientToken } });
+      if (!response.ok) return false;
+      return Number(allCount()) === Number((await response.json())?.navigation?.total);
+    }, 'sidebar counts rendered and matching the server', 25000);
     const initialVisibilityState = document.visibilityState;
     const initialAllCount = Number(allCount());
     const initialFavoriteCount = Number(favoriteCount());
