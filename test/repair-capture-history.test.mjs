@@ -424,7 +424,6 @@ test("runs once: reopening does not repair again, notify, or invoke helpers", as
         throw new Error("must not load on an already-repaired library");
       },
       searchableText: () => "",
-      searchableObjectText: () => "",
       syncAssetFtsEntry: () => {
         throw new Error("must not touch FTS on an already-repaired library");
       },
@@ -464,7 +463,6 @@ test("returns the documented stats from a direct run", async (t) => {
         business_fields: JSON.parse(row.business_fields_json),
       }),
       searchableText: (metadata) => [metadata.prompt, ...Object.values(metadata.source || {}), ...Object.values(metadata.business_fields || {})].join(" "),
-      searchableObjectText: (value) => Object.values(value || {}).join(" "),
       syncAssetFtsEntry: () => {},
       replaceAssetShortTerms: () => {},
     });

@@ -84,19 +84,25 @@ test("SQLite materializes search and filter scalars without changing search sema
     imagePath: sourcePath,
     prompt: "minimal identity study",
     tags: ["LaunchMark"],
-    business_fields: { campaign: "AuroraCampaign" },
+    business_fields: { user_message: "AuroraCampaign" },
     group: "Brand",
     category: "identity",
     style: "minimal",
     favorite: true,
     source: {
-      type: "local-file", provider: "chatgpt", media_kind: "video", custom_label: "NebulaSource",
+      type: "local-file", provider: "chatgpt", media_kind: "video", model: "NebulaSource",
       conversation_id: "conversation-scalar", message_id: "batch-scalar",
     },
   });
   assert.deepEqual((await store.listAssets({ projectId: "default", query: "launchmark" })).map((asset) => asset.id), ["scalar-search"]);
   assert.deepEqual((await store.listAssets({ projectId: "default", query: "auroracampaign" })).map((asset) => asset.id), ["scalar-search"]);
   assert.deepEqual((await store.listAssets({ projectId: "default", query: "nebulasource" })).map((asset) => asset.id), ["scalar-search"]);
+  // Search-scope whitelist: internal source values (raw type, conversation id,
+  // message id) stay out of text search even though the structured filters
+  // below still find the row by them.
+  assert.deepEqual((await store.listAssets({ projectId: "default", query: "conversation-scalar" })).map((asset) => asset.id), []);
+  assert.deepEqual((await store.listAssets({ projectId: "default", query: "batch-scalar" })).map((asset) => asset.id), []);
+  assert.deepEqual((await store.listAssets({ projectId: "default", query: "local-file" })).map((asset) => asset.id), []);
   assert.deepEqual((await store.listAssets({ projectId: "default", source: "web-chatgpt" })).map((asset) => asset.id), ["scalar-search"]);
   assert.deepEqual((await store.listAssets({ projectId: "default", mediaKind: "video" })).map((asset) => asset.id), ["scalar-search"]);
   assert.deepEqual((await store.listAssets({ projectId: "default", conversation: "conversation-scalar" })).map((asset) => asset.id), ["scalar-search"]);
