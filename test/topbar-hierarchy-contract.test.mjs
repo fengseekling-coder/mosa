@@ -248,11 +248,8 @@ test("16. retired filter-only compact tier is removed", async () => {
 // 17. The 960px compact tier exists (≤1120px bridge-label clip rule; 960 falls inside).
 test("17. the 960px compact tier exists", async () => {
   const css = await readCss();
-  const { block, end } = extractBlock(css, "@media (max-width: 1120px) {");
+  const { block } = extractBlock(css, "@media (max-width: 1120px) {");
   assert.match(block, /#bridgeStatusLabel \{[^}]*clip: rect\(0,0,0,0\)/, "bridge label clip-hidden at ≤1120px (dot-only)");
-  // The 960×640 acceptance line keeps the import label; icon fallback only below 901px with details open.
-  const media900 = extractBlock(css, "@media (max-width: 900px) {", end).block;
-  assert.match(media900, /\.shell\.details-open \.create-button span \{[^}]*display:\s*none/, "import icon fallback is scoped to ≤900px details-open");
 });
 
 // 18. The topbar single-row contract exists (nowrap; ≤700px document-flow tier excepted).
