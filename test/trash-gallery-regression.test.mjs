@@ -38,6 +38,15 @@ test("Move to Trash uses one batch mutation and reconciles removed cards before 
     "Trash must resolve the complete logical selection through the frozen action context, including unloaded pages and Stack members");
   assert.match(actions, /if \(!context \|\| !mutationContextIsCurrent\(context\)\) return;/,
     "a stale project/query/selection context must cancel before the Trash mutation");
+  // 任务 108：实时同步可能先于响应刷新画廊、改掉选区版本；响应回来后不能再按
+  // 选区上下文放弃，否则撤销提示偶尔不出现（CI selection-and-stacks 偶发）。
+  const selectionTrash = actions.search(/action: "trash",\s*projectId,\s*assetIds: ids/);
+  assert.ok(selectionTrash > 0, "the selection Trash batch call must exist");
+  const afterResponse = actions.slice(selectionTrash, actions.indexOf("assetsMovedToTrash", selectionTrash));
+  assert.doesNotMatch(afterResponse, /mutationContextIsCurrent/,
+    "once the server has trashed the assets, the undo toast must not depend on the selection context still being current");
+  assert.match(afterResponse, /if \(context\.projectId !== state\.project\) return;/,
+    "only a project switch may skip reporting the trash outcome");
   assert.match(actions, /removedAssetIds: outcome\.succeeded\.map/,
     "partial batches must remove only server-confirmed successes from the visible gallery");
   assert.match(bindings, /kind: "asset-deleted", entityType: "asset", entityId: String\(id\)/,

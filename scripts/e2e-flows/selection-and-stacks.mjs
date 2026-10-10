@@ -667,57 +667,87 @@ export async function run(ctx) {
     // ===== Page 9 (任务 94 / A4f): 右键多选移至回收站 → 撤销 → 几张都回来 =====
     // 勾「不再提醒」后再删不弹框；每次成功移入回收站都弹带撤销的 toast；撤销
     // 经现有 restore 端点恢复本次移走的那几张。结束前清掉 localStorage 键。
+    // 任务 108：撤销提示在移动请求完成那一刻弹出并开始 6 秒计时，画廊刷新在这
+    // 之后才结束——CI 慢跑器上「先等画廊、再找提示」可能等过 6 秒（10-09 挂了
+    // 4 次）。两轮都改成点「移到回收站」之前先装 watchToasts 记录器；「出现过
+    // 撤销提示」看记录而不是看它此刻还在不在；按钮靠 toast-manager 自带的
+    // hover 暂停保活，点的时候一定还在。三个时间点记入 trashTimeline（每轮
+    // 相对各自 watchToasts 安装点），任何超时错误都带上它与 toastEvents 记录。
     const p9 = await ctx.runInPage(second, source(ids, `
       await waitFor(() => gallerySettled() && rootCardIds().length === 4, 'four root cards before the trash-undo phase');
       pressEscape();
       await waitFor(() => selectedCardIds().length === 0, 'clean selection before the trash-undo phase');
-      ctrlClickCard(config.s1);
-      await waitFor(() => selectedCardIds().length === 1, 'S1 selected for trash');
-      ctrlClickCard(config.s2);
-      await waitFor(() => selectedCardIds().length === 2, 'S1+S2 selected for trash');
-      const trashItem = await openContextMenu(cardSelector(config.s1), MENU.moveToTrash);
-      trashItem.click();
-      await waitFor(() => document.querySelector('#confirmDialog')?.classList.contains('open'), 'multi trash confirm opens');
-      const confirm = {
-        title: (document.querySelector('#confirmDialogTitle')?.textContent || '').trim(),
-        cancelLabel: (document.querySelector('#confirmDialogCancel')?.textContent || '').trim(),
-        confirmLabel: (document.querySelector('#confirmDialogConfirm')?.textContent || '').trim(),
-        checkboxRowVisible: !document.querySelector('#confirmDialogDontAsk')?.hidden,
+      const undoAppearEvent = () => toastEventLog().find((entry) => entry.event === 'appear' && entry.lane === 'polite' && entry.hasAction) || null;
+      const trashTimeline = [];
+      const trashMark = (label) => trashTimeline.push(label + '@' + toastClock() + 'ms');
+      const clickUndo = async (label) => {
+        const button = await waitFor(() => document.querySelector('#toastContainer .toast.is-visible .toast-action'), label);
+        button.click();
       };
-      document.querySelector('#confirmDialogDontAskCheckbox').click();
-      confirm.checkedAfterClick = document.querySelector('#confirmDialogDontAskCheckbox')?.checked === true;
-      document.querySelector('#confirmDialogConfirm').click();
-      await waitFor(() => !document.querySelector('#confirmDialog')?.classList.contains('open'), 'multi trash confirm closes');
-      await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'S1+S2 leave the gallery after trash');
-      await waitFor(() => Boolean(document.querySelector('#toastContainer .toast.is-visible .toast-action')), 'multi trash raises the undo toast');
-      confirm.toastMessage = (document.querySelector('#toastContainer .toast.is-visible .toast-message')?.textContent || '').trim();
-      confirm.toastActionLabel = (document.querySelector('#toastContainer .toast.is-visible .toast-action')?.textContent || '').trim();
-      document.querySelector('#toastContainer .toast.is-visible .toast-action').click();
-      await waitFor(() => gallerySettled() && rootCardIds().length === 4
-        && document.querySelector(cardSelector(config.s1)) && document.querySelector(cardSelector(config.s2)),
-        'undo restores both trashed assets');
-      confirm.storedAfterDontAsk = localStorage.getItem('mosa.confirm-move-to-trash');
+      try {
+        ctrlClickCard(config.s1);
+        await waitFor(() => selectedCardIds().length === 1, 'S1 selected for trash');
+        ctrlClickCard(config.s2);
+        await waitFor(() => selectedCardIds().length === 2, 'S1+S2 selected for trash');
+        watchToasts({ keepAliveActionToasts: true });
+        const trashItem = await openContextMenu(cardSelector(config.s1), MENU.moveToTrash);
+        trashMark('r1.menuClicked');
+        trashItem.click();
+        await waitFor(() => document.querySelector('#confirmDialog')?.classList.contains('open'), 'multi trash confirm opens');
+        const confirm = {
+          title: (document.querySelector('#confirmDialogTitle')?.textContent || '').trim(),
+          cancelLabel: (document.querySelector('#confirmDialogCancel')?.textContent || '').trim(),
+          confirmLabel: (document.querySelector('#confirmDialogConfirm')?.textContent || '').trim(),
+          checkboxRowVisible: !document.querySelector('#confirmDialogDontAsk')?.hidden,
+        };
+        document.querySelector('#confirmDialogDontAskCheckbox').click();
+        confirm.checkedAfterClick = document.querySelector('#confirmDialogDontAskCheckbox')?.checked === true;
+        document.querySelector('#confirmDialogConfirm').click();
+        await waitFor(() => !document.querySelector('#confirmDialog')?.classList.contains('open'), 'multi trash confirm closes');
+        await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'S1+S2 leave the gallery after trash');
+        trashMark('r1.galleryAtTwo');
+        // 「出现过撤销提示」看记录（记录里有首个撤销提示及其按钮文案），不要求它此刻仍在。
+        const undoSeen = await waitFor(undoAppearEvent, 'undo toast never appeared (confirm round; watching #toastContainer since before the click)');
+        trashMark('r1.undoToastSeen');
+        confirm.toastMessage = undoSeen.text;
+        confirm.toastActionLabel = undoSeen.actionLabel;
+        await clickUndo('undo toast action stays clickable after the gallery refresh (hover keep-alive)');
+        await waitFor(() => gallerySettled() && rootCardIds().length === 4
+          && document.querySelector(cardSelector(config.s1)) && document.querySelector(cardSelector(config.s2)),
+          'undo restores both trashed assets');
+        confirm.storedAfterDontAsk = localStorage.getItem('mosa.confirm-move-to-trash');
 
-      // 勾过不再提醒：再来一次不弹框直接删。
-      pressEscape();
-      await waitFor(() => selectedCardIds().length === 0, 'selection cleared before the suppressed run');
-      ctrlClickCard(config.s1);
-      await waitFor(() => selectedCardIds().length === 1, 'S1 re-selected for the suppressed run');
-      ctrlClickCard(config.s2);
-      await waitFor(() => selectedCardIds().length === 2, 'S1+S2 re-selected for the suppressed run');
-      const trashItem2 = await openContextMenu(cardSelector(config.s1), MENU.moveToTrash);
-      trashItem2.click();
-      await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'suppressed multi trash removes both without a dialog');
-      const dialogNeverOpened = !document.querySelector('#confirmDialog')?.classList.contains('open');
-      await waitFor(() => Boolean(document.querySelector('#toastContainer .toast.is-visible .toast-action')), 'suppressed multi trash still raises the undo toast');
-      document.querySelector('#toastContainer .toast.is-visible .toast-action').click();
-      await waitFor(() => gallerySettled() && rootCardIds().length === 4
-        && document.querySelector(cardSelector(config.s1)) && document.querySelector(cardSelector(config.s2)),
-        'undo restores after the suppressed run too');
-      const storedBeforeCleanup = localStorage.getItem('mosa.confirm-move-to-trash');
-      localStorage.removeItem('mosa.confirm-move-to-trash');
-      const storedAfterCleanup = localStorage.getItem('mosa.confirm-move-to-trash');
-      return { confirm, dialogNeverOpened, storedBeforeCleanup, storedAfterCleanup };
+        // 勾过不再提醒：再来一次不弹框直接删。
+        pressEscape();
+        await waitFor(() => selectedCardIds().length === 0, 'selection cleared before the suppressed run');
+        ctrlClickCard(config.s1);
+        await waitFor(() => selectedCardIds().length === 1, 'S1 re-selected for the suppressed run');
+        ctrlClickCard(config.s2);
+        await waitFor(() => selectedCardIds().length === 2, 'S1+S2 re-selected for the suppressed run');
+        watchToasts({ keepAliveActionToasts: true }); // 重置记录，第二轮从点击前重新观察
+        const trashItem2 = await openContextMenu(cardSelector(config.s1), MENU.moveToTrash);
+        trashMark('r2.menuClicked');
+        trashItem2.click();
+        await waitFor(() => gallerySettled() && rootCardIds().length === 2, 'suppressed multi trash removes both without a dialog');
+        trashMark('r2.galleryAtTwo');
+        const dialogNeverOpened = !document.querySelector('#confirmDialog')?.classList.contains('open');
+        const undoSeen2 = await waitFor(undoAppearEvent, 'undo toast never appeared (suppressed round; watching #toastContainer since before the click)');
+        trashMark('r2.undoToastSeen');
+        confirm.toastMessageSuppressed = undoSeen2.text;
+        confirm.toastActionLabelSuppressed = undoSeen2.actionLabel;
+        await clickUndo('undo toast action stays clickable after the gallery refresh (hover keep-alive, suppressed run)');
+        await waitFor(() => gallerySettled() && rootCardIds().length === 4
+          && document.querySelector(cardSelector(config.s1)) && document.querySelector(cardSelector(config.s2)),
+          'undo restores after the suppressed run too');
+        const storedBeforeCleanup = localStorage.getItem('mosa.confirm-move-to-trash');
+        localStorage.removeItem('mosa.confirm-move-to-trash');
+        const storedAfterCleanup = localStorage.getItem('mosa.confirm-move-to-trash');
+        return { confirm, dialogNeverOpened, storedBeforeCleanup, storedAfterCleanup, trashTimeline, toastEvents: toastEventLog() };
+      } catch (error) {
+        // 任务 108：超时时把三个时间点一并带出（toastEvents 已在 waitFor 的
+        // pageDiagnostic 里），「出现过又消失」与「根本没出现」由记录区分。
+        throw new Error(error.message + ' trashTimeline=' + JSON.stringify(trashTimeline));
+      }
     `));
     expect(p9.confirm.title === "是否将 2 个素材移至回收站？", `P9 multi trash title: ${JSON.stringify(p9.confirm.title)}`);
     expect(p9.confirm.cancelLabel === "否" && p9.confirm.confirmLabel === "是", `P9 multi trash buttons: ${JSON.stringify([p9.confirm.cancelLabel, p9.confirm.confirmLabel])}`);
@@ -726,6 +756,9 @@ export async function run(ctx) {
     expect(p9.confirm.toastActionLabel === "撤销", `P9 multi trash toast action: ${JSON.stringify(p9.confirm.toastActionLabel)}`);
     expect(p9.confirm.storedAfterDontAsk === "off", `P9 storage after checking dont-ask: ${JSON.stringify(p9.confirm.storedAfterDontAsk)}`);
     expect(p9.dialogNeverOpened === true, `P9 suppressed run opened the dialog: ${JSON.stringify(p9.dialogNeverOpened)}`);
+    // 任务 108：被抑制轮的撤销提示同样按记录断言（文案带数量、按钮是「撤销」）。
+    expect(p9.confirm.toastMessageSuppressed.includes("2"), `P9 suppressed undo toast mentions the count: ${JSON.stringify(p9.confirm.toastMessageSuppressed)}`);
+    expect(p9.confirm.toastActionLabelSuppressed === "撤销", `P9 suppressed undo toast action: ${JSON.stringify(p9.confirm.toastActionLabelSuppressed)}`);
     expect(p9.storedBeforeCleanup === "off" && p9.storedAfterCleanup === null, `P9 localStorage cleanup: ${JSON.stringify([p9.storedBeforeCleanup, p9.storedAfterCleanup])}`);
 
     return {
@@ -735,6 +768,10 @@ export async function run(ctx) {
       renamedTo: ids.stackName,
       dissolveToast: p7.dissolveToast,
       restarted: true,
+      // 任务 108：两轮「点击菜单 → 画廊变 2 → 记录到撤销提示」的时间点
+      // （每轮相对各自 watchToasts 安装点）与第二轮的提示事件记录。
+      trashTimeline: p9.trashTimeline,
+      undoToastEvents: p9.toastEvents,
     };
   } finally {
     await second.stop();
