@@ -361,7 +361,6 @@ test("the repair transaction takes the write lock before its reads, so a mid-tra
       return { source: {}, business_fields: {} };
     },
     searchableText: () => "open-repair-guard",
-    searchableObjectText: () => "open-repair-guard",
     syncAssetFtsEntry: () => {},
     replaceAssetShortTerms: () => {},
   });
