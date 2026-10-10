@@ -28,8 +28,9 @@ test("task-43 recolours: every AA-darkened spot carries its new value in the lig
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.version-history-status, \.generation-history-status, \.recipe-history-status\) \{\n  color: #707076;\n\}/);
   // 文件信息与来源区的「未记录」都在面板上，同用 #707076。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.head-facts, \.detail-source-content\) \.empty-copy \{\n  color: #707076;\n\}/);
-  // #f3f3f5 面上的占位与参考图行文字统一 #6e6e73（4.58:1）。
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-prompt-box \.empty-copy,\n:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-instruction-box \.empty-copy \{\n  color: #6e6e73;\n\}/);
+  // #f3f3f5 面上的占位与参考图行文字统一 #6e6e73（4.58:1）；任务 110：提示词 /
+  // 用户指令框的占位改回 token tertiary（随主题），参考图行文字保持 #6e6e73。
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-prompt-box \.empty-copy,\n:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-instruction-box \.empty-copy \{\n  color: var\(--color-text-tertiary\);\n\}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-reference-summary \.detail-reference-label, \.detail-reference-row \.detail-reference-label\) \{\n  color: #6e6e73;\n\}/);
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-reference-summary \.detail-reference-value, \.detail-reference-row \.detail-reference-value\) \{\n  color: #6e6e73;\n\}/);
 });
@@ -53,7 +54,10 @@ test("the AA greys stay in the light scope and the tertiary token keeps its valu
 
 test("the user-instruction placeholder matches the prompt placeholder in the dark theme", async () => {
   const css = await readWebCss();
-  // 深色下用户指令框「未提供用户指令」曾漏到全局 tertiary（4.43:1）；与提示词框占位同走 secondary。
+  // 深色下用户指令框「未提供用户指令」曾漏到全局 tertiary（4.43:1）；任务 43 起与
+  // 提示词框占位同走 secondary。任务 110 把浅色统一成 token tertiary，深色仍是 secondary
+  // （框底色是面板色叠 6% 白，tertiary 在上面只有 4.43:1）。
   assert.match(css, /:root\[data-theme="dark"\] \.mosa-v2 \.detail \.detail-reference-value,\n:root\[data-theme="dark"\] \.mosa-v2 \.detail \.detail-prompt-box \.empty-copy,\n:root\[data-theme="dark"\] \.mosa-v2 \.detail \.detail-instruction-box \.empty-copy \{\n  color: var\(--color-text-secondary\);\n\}/);
-  assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-box \.empty-copy,\n\.mosa-v2 \.detail \.detail-instruction-box \.empty-copy,\n/);
+  // 任务 110：主题无关组里两个占位同走 token tertiary（原 secondary 组拆出组尾）。
+  assert.match(css, /\.mosa-v2 \.detail \.detail-prompt-box \.empty-copy,\n\.mosa-v2 \.detail \.detail-instruction-box \.empty-copy \{\n  color: var\(--color-text-tertiary\);\n\}/);
 });

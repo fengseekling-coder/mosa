@@ -634,6 +634,14 @@ body.marquee-selecting .grid { cursor: crosshair; }
 .prompt-box { max-height: 154px; }
 .path-box { color: var(--color-text-secondary); font-size: var(--text-xs); }
 .empty-copy { color: var(--color-text-tertiary); font-style: italic; }
+/* 任务 110：中间省略的两段文本。宿主元素（检视器文件名 h3、素材路径、设置里的
+   素材库路径）是 flex 容器；头段可收缩、溢出时由 CSS 显示省略号，尾段不收缩。
+   两段文字由 web/app/middle-ellipsis.mjs 拆分，拼接等于原文，窗口够宽时看不到
+   任何省略号，也看不出拆成了两段（两段间没有间隙）。
+   尾段不参与收缩（哪怕只收缩零点几像素也会让它自己冒出省略号），只用 max-width
+   兜底：容器比尾段还窄时，尾段最宽占满容器并自己显示省略号，不会被直接裁掉半个字。 */
+.me-head { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me-tail { max-width: 100%; flex: 0 0 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 元信息表 */
 .meta-table { display: grid; gap: var(--sp-1); }
 .meta-row { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: var(--sp-2); align-items: baseline; }
@@ -1251,6 +1259,10 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 }
 .mosa-v2 .topbar-search input { box-sizing: border-box; border: 0; background: transparent; font-size: var(--text-sm); }
 .mosa-v2 .topbar-search input:focus, .mosa-v2 .topbar-search input:focus-visible { border-color: transparent; box-shadow: none; outline: 0; }
+/* 任务 110：搜索框获焦时整个容器显示全局同款 2px 实线焦点环（输入框自身的
+   outline 已在上面关掉）。701–1120 宽、检视器打开时容器浮成 fixed 面板，
+   outline 随盒绘制，不被顶栏裁切。 */
+.mosa-v2 .topbar-search:focus-within { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
 /* R21 新颜色（仅浅色；R21 无深色规格，深色保持现状）。
    只覆盖浅色主题下的取值，深色继续走上面规则里的 token。 */
 :root[data-theme="light"] .mosa-v2 .sidebar { background: #fbfbfc; }
@@ -1347,7 +1359,9 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 /* R21 头部区块：左 132×132 预览小图 + 右侧信息两栏。区块与头部距离 20、
    左右内边距 24、两栏间距 16，均走 4px 网格（--sp-*，规范表 v1）。 */
 .mosa-v2 .detail .detail-overview { box-sizing: border-box; display: block; min-height: 0; height: auto; padding: var(--sp-5) var(--sp-6) 0; border-top: 0; overflow: visible; }
-.mosa-v2 .detail .asset-head { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+/* 任务 110：头部重排为纵向三行——文件名行（整行）、来源行（整行）、
+   130px 缩略图 + 键值事实两栏（.asset-body 承接原两栏网格，见后置块）。 */
+.mosa-v2 .detail .asset-head { display: flex; flex-direction: column; gap: var(--sp-2); align-items: stretch; }
 .mosa-v2 .detail .asset-mini { position: relative; width: 132px; aspect-ratio: 1 / 1; align-self: start; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--inspector-divider); border-radius: var(--radius-md); background: var(--app-search); }
 .mosa-v2 .detail .asset-mini .detail-video-stack,
 .mosa-v2 .detail .asset-mini img.detail-image,
@@ -1360,12 +1374,14 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
    -2px 惯例），否则环会被瓦片的 overflow:hidden 圆角裁掉。 */
 .mosa-v2 .detail .asset-mini .detail-preview-entry { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; }
 .mosa-v2 .detail .asset-mini .detail-preview-entry:focus-visible { outline-offset: -2px; }
-.mosa-v2 .detail .asset-meta-wrap { min-width: 0; display: flex; flex-direction: column; }
-.mosa-v2 .detail .asset-name-row { display: flex; min-width: 0; align-items: flex-start; gap: var(--sp-2); }
-.mosa-v2 .detail .asset-name-row h3 { min-width: 0; flex: 1 1 auto; margin: 0; overflow: hidden; color: var(--color-text-primary); font-size: var(--text-lg); font-weight: var(--weight-semibold); letter-spacing: -.1px; line-height: var(--text-lg-lh); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: ellipsis; word-break: break-all; }
+.mosa-v2 .detail .asset-name-row { display: flex; min-width: 0; align-items: center; gap: var(--sp-2); }
+/* 任务 110：文件名单行显示，太长时中间省略——头段（.me-head）收缩并显示省略号，
+   尾段（.me-tail）不收缩；两段拼接等于完整文件名（#detailTitle 的 textContent）。 */
+.mosa-v2 .detail .asset-name-row h3 { display: flex; min-width: 0; flex: 1 1 auto; margin: 0; overflow: hidden; color: var(--color-text-primary); font-size: var(--text-lg); font-weight: var(--weight-semibold); letter-spacing: -.1px; line-height: var(--text-lg-lh); white-space: nowrap; }
 /* GravityPort A4a：头部「打开原始对话」按钮随来源信息区块一并拿掉，其样式规则随之删除。 */
-.mosa-v2 .detail .asset-kind { min-width: 0; margin: var(--sp-1) 0 0; overflow: hidden; color: var(--color-text-tertiary); font-size: var(--text-xs); line-height: var(--text-xs-lh); text-overflow: ellipsis; white-space: nowrap; }
-.mosa-v2 .detail .head-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--sp-2); row-gap: var(--sp-1); margin-top: var(--sp-2); }
+.mosa-v2 .detail .asset-kind { min-width: 0; margin: 0; overflow: hidden; color: var(--color-text-tertiary); font-size: var(--text-xs); line-height: var(--text-xs-lh); text-overflow: ellipsis; white-space: nowrap; }
+/* 任务 110：head-facts 移出 asset-meta-wrap 后与缩略图顶对齐，不再需要补偿间距。 */
+.mosa-v2 .detail .head-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--sp-2); row-gap: var(--sp-1); }
 .mosa-v2 .detail .head-facts .meta-row { display: contents; }
 .mosa-v2 .detail .head-facts .meta-key { min-width: 0; font-size: var(--text-xs); line-height: var(--text-xs-lh); }
 .mosa-v2 .detail .head-facts .meta-val { min-width: 0; overflow: hidden; font-size: var(--text-xs); line-height: var(--text-xs-lh); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
@@ -1399,13 +1415,13 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .detail .detail-prompt-head .section-head-copy:disabled { opacity: .4; cursor: default; }
 /* V2 Prompt section: content stays readable and the panel grows with it. */
 .mosa-v2 .detail .detail-prompt-section { box-sizing: border-box; display: flex; min-height: 224px; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); }
-.mosa-v2 .detail .detail-prompt-box { box-sizing: border-box; display: block; min-height: 48px; max-height: 112px; flex: 0 1 auto; overflow-y: auto; overflow-x: hidden; padding: var(--sp-2) var(--sp-3); border: 1px solid rgb(60 60 67 / .16); border-radius: var(--radius-lg); background: rgb(248 248 250 / .88); font-family: var(--font-family-ui); font-size: var(--text-sm); line-height: var(--text-sm-lh); overflow-wrap: anywhere; white-space: normal; }
-.mosa-v2 .detail .detail-prompt-box .empty-copy { color: #8e8e93; }
+.mosa-v2 .detail .detail-prompt-box { box-sizing: border-box; display: block; max-height: 112px; flex: 0 1 auto; overflow-y: auto; overflow-x: hidden; padding: var(--sp-2) var(--sp-3); border: 1px solid rgb(60 60 67 / .16); border-radius: var(--radius-lg); background: rgb(248 248 250 / .88); font-family: var(--font-family-ui); font-size: var(--text-sm); line-height: var(--text-sm-lh); overflow-wrap: anywhere; white-space: normal; }
+.mosa-v2 .detail .detail-prompt-box .empty-copy { color: var(--color-text-tertiary); }
 .mosa-v2 .detail .detail-prompt-subhead { display: flex; height: 18px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: var(--sp-2); overflow: hidden; }
 .mosa-v2 .detail .detail-prompt-subhead h4 { flex: 0 0 auto; margin: 0; color: var(--color-text-primary); font-size: var(--text-md); font-weight: var(--weight-semibold); line-height: var(--text-md-lh); }
 .mosa-v2 .detail .detail-copy-sub { display: inline-grid; min-width: 18px; min-height: 18px; flex: 0 0 18px; padding: 0; place-items: center; border: 0; border-radius: var(--radius-xs); color: #6e6e73; background: transparent; cursor: pointer; }
 .mosa-v2 .detail .detail-copy-sub:disabled { opacity: .4; cursor: default; }
-.mosa-v2 .detail .detail-instruction-box { min-height: 48px; max-height: 76px; flex: 0 1 auto; overflow-y: auto; overflow-x: hidden; padding: var(--sp-2) var(--sp-3); border: 1px solid rgb(60 60 67 / .16); border-radius: var(--radius-lg); background: rgb(248 248 250 / .88); font-size: var(--text-sm); line-height: var(--text-sm-lh); overflow-wrap: anywhere; white-space: normal; }
+.mosa-v2 .detail .detail-instruction-box { max-height: 76px; flex: 0 1 auto; overflow-y: auto; overflow-x: hidden; padding: var(--sp-2) var(--sp-3); border: 1px solid rgb(60 60 67 / .16); border-radius: var(--radius-lg); background: rgb(248 248 250 / .88); font-size: var(--text-sm); line-height: var(--text-sm-lh); overflow-wrap: anywhere; white-space: normal; }
 .mosa-v2 .detail .detail-reference-row { display: flex; height: 36px; flex: 0 0 36px; align-items: center; justify-content: space-between; gap: var(--sp-2); overflow: hidden; padding: 0 var(--sp-3); border: 0; border-radius: var(--radius-md); background: rgb(242 242 247 / .76); font-size: var(--text-sm); font-weight: var(--weight-medium); line-height: var(--text-sm-lh); }
 .mosa-v2 .detail .detail-reference-label { display: flex; min-width: 0; align-items: center; gap: var(--sp-1); overflow: hidden; color: #6e6e73; }
 .mosa-v2 .detail .detail-reference-value { flex: 0 0 auto; color: #8e8e93; }
@@ -1503,7 +1519,7 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-head h3, :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-subhead h4 { color: #f5f5f7; }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-head .section-head-copy, :root[data-theme="dark"] .mosa-v2 .detail .detail-copy-sub { color: #d1d1d6; background: rgb(255 255 255 / .10); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box, :root[data-theme="dark"] .mosa-v2 .detail .detail-instruction-box { border-color: rgb(255 255 255 / .10); color: #f5f5f7; background: rgb(255 255 255 / .06); }
-:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box .empty-copy { color: #6e6e73; }
+:root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box .empty-copy { color: var(--color-text-tertiary); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-row { background: rgb(255 255 255 / .08); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-thumb { border-color: rgb(255 255 255 / .10); background: rgb(255 255 255 / .06); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-label { color: #d1d1d6; }
@@ -1621,7 +1637,7 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .settings-row-copy { display: flex; min-width: 0; align-items: baseline; gap: var(--sp-2); }
 .mosa-v2 .settings-row-copy h4 { margin: 0; color: var(--color-text-primary); font-size: var(--text-sm); font-weight: var(--weight-medium); line-height: var(--text-sm-lh); }
 .mosa-v2 .settings-row-copy p { min-width: 0; margin: 0; overflow: hidden; color: var(--color-text-tertiary); font-size: var(--text-xs); line-height: var(--text-xs-lh); text-overflow: ellipsis; white-space: nowrap; }
-.mosa-v2 .settings-path { display: block; max-width: 220px; font-family: var(--font-family-mono); font-size: var(--text-xs); letter-spacing: 0; }
+.mosa-v2 .settings-path { display: flex; max-width: 220px; font-family: var(--font-family-mono); font-size: var(--text-xs); letter-spacing: 0; }
 .mosa-v2 .settings-row-control { display: flex; width: auto; min-width: 0; align-items: center; justify-content: flex-end; }
 .mosa-v2 .settings-static-value { width: 100%; color: var(--color-text-secondary); font-size: var(--text-xs); line-height: var(--text-xs-lh); text-align: right; }
 .mosa-v2 .visual-model-status { display: grid; justify-items: end; gap: var(--sp-half); min-width: 180px; text-align: right; }
@@ -2118,7 +2134,6 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 }
 .mosa-v2 .detail .detail-prompt-box,
 .mosa-v2 .detail .detail-instruction-box {
-  min-height: 72px;
   padding: var(--sp-3) var(--sp-4);
   border-color: var(--inspector-divider);
   border-radius: var(--radius-lg);
@@ -2131,7 +2146,6 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   max-height: 166px;
 }
 .mosa-v2 .detail .detail-instruction-box {
-  min-height: 88px;
   max-height: 120px;
 }
 .mosa-v2 .detail .detail-reference-row {
@@ -2262,18 +2276,22 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 }
 .mosa-v2 .detail .prompt-provenance,
 .mosa-v2 .detail .detail-reference-value,
-.mosa-v2 .detail .detail-prompt-box .empty-copy,
-.mosa-v2 .detail .detail-instruction-box .empty-copy,
 .mosa-v2 .detail .detail-reference-thumb-fallback,
 .mosa-v2 .detail .detail-reference-thumb-empty {
   color: var(--color-text-secondary);
+}
+/* 任务 110：提示词 / 用户指令框的「未记录 / 未提供用户指令」占位在浅色下用 token
+   tertiary，与「无参考图 / 暂无生成记录」占位同级；深色见下面的覆盖。 */
+.mosa-v2 .detail .detail-prompt-box .empty-copy,
+.mosa-v2 .detail .detail-instruction-box .empty-copy {
+  color: var(--color-text-tertiary);
 }
 .mosa-v2 .detail .prompt-provenance {
   font-size: var(--text-xs);
   line-height: var(--text-xs-lh);
 }
-/* 用户指令框的「未提供用户指令」与提示词框占位同级：此前漏在这两条规则外，
-   深色下落到全局 tertiary（4.43:1），补进来后与提示词框占位一致。 */
+/* 用户指令框的「未提供用户指令」与提示词框占位同级。深色下这两个框的底色是面板色
+   叠 6% 白，tertiary（#a0a0a6）在上面只有 4.43:1，所以深色保持 secondary。 */
 :root[data-theme="dark"] .mosa-v2 .detail .detail-reference-value,
 :root[data-theme="dark"] .mosa-v2 .detail .detail-prompt-box .empty-copy,
 :root[data-theme="dark"] .mosa-v2 .detail .detail-instruction-box .empty-copy {
@@ -2473,9 +2491,14 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 :root[data-theme="light"] .mosa-v2 .detail :is(.detail-prompt-section, .detail-source-section, .detail-version-section, .detail-group-section, .inspector-section[data-inspector-section="more"]) {
   border-top-color: #e7e7ea;
 }
-/* —— 区块小标题（R21 .sec-head：10.5px / 590）与右侧复制等操作（R21 .copy） —— */
+/* —— 区块小标题（任务 110：提级到 --text-sm / semibold / primary，与正文拉开
+   层级；来源摘要 span 不属于四个小节标题，保持原 11px/500） —— */
 .mosa-v2 .detail .detail-prompt-head h3,
-.mosa-v2 .detail .detail-prompt-subhead h4,
+.mosa-v2 .detail .detail-prompt-subhead h4 {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: var(--text-sm-lh);
+}
 .mosa-v2 .detail .detail-source-summary > span {
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
@@ -2503,8 +2526,12 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   flex: 0 0 auto;
 }
 /* 任务 43：区块小标题/字段名随键名一起加深到 AA——#8d8d93 只有 3.19:1，
-   #707076 在面板 #fbfbfc 上 4.76:1；层级仍靠 10.5px/590 与正文的字号字重区分。 */
-:root[data-theme="light"] .mosa-v2 .detail :is(.detail-prompt-head h3, .detail-prompt-subhead h4, .detail-source-summary > span, .detail-disclosure > summary, .detail-fields .field > span) {
+   #707076 在面板 #fbfbfc 上 4.76:1；任务 110：四个小节标题（提示词/用户指令/
+   参考图/版本树）改回 primary 与正文拉开层级，其余辅助名保持 #707076。 */
+:root[data-theme="light"] .mosa-v2 .detail :is(.detail-prompt-head h3, .detail-prompt-subhead h4) {
+  color: var(--color-text-primary);
+}
+:root[data-theme="light"] .mosa-v2 .detail :is(.detail-source-summary > span, .detail-disclosure > summary, .detail-fields .field > span) {
   color: #707076;
 }
 /* 任务 41：复制按钮带文字后按 AA 校色——R21 稿 .copy 的 #929297 在面板 #fbfbfc
@@ -2596,13 +2623,14 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   }
 }
 /* —— 提示词 / 用户指令框（R21 .prompt-box：距小标题 12 由区块 gap 承担，
-   内边距 12、圆角 8、10.5px、行高 1.58；浅色 #f3f3f5 / #4a4a50、无边框） —— */
+   内边距 12、圆角 8；浅色 #f3f3f5 / #4a4a50、无边框。任务 110：正文提级到
+   --text-sm（12px）+ 配套行高，与小节标题同为 12px、靠 600 字重分层级） —— */
 .mosa-v2 .detail .detail-prompt-box,
 .mosa-v2 .detail .detail-instruction-box {
   padding: var(--sp-3);
   border-radius: var(--radius-md);
-  font-size: var(--text-xs);
-  line-height: var(--text-xs-lh);
+  font-size: var(--text-sm);
+  line-height: var(--text-sm-lh);
 }
 :root[data-theme="light"] .mosa-v2 .detail .detail-prompt-box,
 :root[data-theme="light"] .mosa-v2 .detail .detail-instruction-box {
@@ -2610,11 +2638,11 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   background: #f3f3f5;
   color: #4a4a50;
 }
-/* 任务 43：框内「未记录」占位在 #f3f3f5 上要 4.5:1——复用复制按钮的 #6e6e73
-   （4.51:1），仍比框内正文 #4a4a50 淡一档。 */
+/* 任务 110：框内「未记录 / 未提供用户指令」占位统一 token tertiary（跟随主题），
+   字号随框内正文（12px）。 */
 :root[data-theme="light"] .mosa-v2 .detail .detail-prompt-box .empty-copy,
 :root[data-theme="light"] .mosa-v2 .detail .detail-instruction-box .empty-copy {
-  color: #6e6e73;
+  color: var(--color-text-tertiary);
 }
 /* —— 参考图（R21 .ref-grid / .ref-thumb / .ref-count）：3 列网格、间距 8、
    每格 1.3:1、圆角 8；浅色边 #e4e4e7、底 #ededf0；无参考图那一行文字 10.5px 灰。 —— */
@@ -3028,6 +3056,9 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   flex-direction: column;
   gap: var(--sp-1);
   overflow-y: auto;
+  /* 任务 110：内容少的分页（存储/模型/关于）弹窗矮，左栏最后一个分页与底部
+     「本地优先」上的分隔线之间至少留 12px。 */
+  margin-bottom: var(--sp-3);
 }
 .mosa-v2 .settings-nav-tab {
   display: flex;
@@ -3203,12 +3234,11 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
   border-radius: var(--radius-sm);
 }
 .mosa-v2 .settings-path {
+  display: flex;
   max-width: 100%;
   overflow: hidden;
   font-size: var(--text-xs);
   line-height: var(--text-xs-lh);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 :root[data-theme="light"] .mosa-v2 .settings-path {
   color: var(--color-text-tertiary);
@@ -3536,6 +3566,8 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
     overflow-x: auto;
     overflow-y: hidden;
     padding: var(--sp-half) 0;
+    /* 窄窗左栏压成横向一行且底部说明隐藏，桌面版的 12px 底距在这里重置。 */
+    margin-bottom: 0;
   }
   .mosa-v2 .settings-nav-tab {
     width: auto;
@@ -3566,7 +3598,12 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .detail-inspector-header { padding: 0 var(--sp-5); }
 .mosa-v2 .detail .inspector-section:first-child { padding-top: 0; }
 .mosa-v2 .detail .detail-overview { padding: 0 var(--sp-5) var(--sp-2); }
-.mosa-v2 .detail .asset-head { grid-template-columns: 130px minmax(0, 1fr); }
+/* 任务 110：头部第一行从缩略图换成了文件名，文字不能贴着面板标题下的分隔线，上边留
+   12px。要比上面 .inspector-section:first-child 的 padding-top: 0 更具体才生效。 */
+.mosa-v2 .detail .inspector-section.detail-overview { padding-top: var(--sp-3); }
+/* 任务 110：原 asset-head 的两栏网格下沉到 .asset-body（文件名行、来源行整行之后，
+   130px 缩略图与键值事实并排）。数值与旧两栏布局一致。 */
+.mosa-v2 .detail .asset-body { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
 .mosa-v2 .detail .asset-mini { width: 130px; border-radius: 0; }
 .mosa-v2 .detail .asset-name-row h3 { font-size: var(--text-lg); line-height: var(--text-lg-lh); }
 .mosa-v2 .detail .asset-kind { font-size: var(--text-xs); line-height: var(--text-xs-lh); }
@@ -3585,8 +3622,8 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .detail-version-context { order: 6; }
 /* —— 区块头（标题 + 右侧「查看」/复制）：高 16、下距 4 —— */
 .mosa-v2 .detail .detail-prompt-head { height: 16px; min-height: 16px; margin-bottom: var(--sp-1); }
-.mosa-v2 .detail .detail-prompt-head h3 { font-size: var(--text-xs); line-height: var(--text-xs-lh); }
-.mosa-v2 .detail .detail-prompt-subhead h4 { font-size: var(--text-xs); }
+.mosa-v2 .detail .detail-prompt-head h3 { font-size: var(--text-sm); line-height: var(--text-sm-lh); }
+.mosa-v2 .detail .detail-prompt-subhead h4 { font-size: var(--text-sm); }
 .mosa-v2 .detail .detail-section-view { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 20px; padding: 0 var(--sp-1); border: 0; border-radius: var(--radius-xs); color: #6e6e73; background: transparent; font-size: var(--text-xs); white-space: nowrap; cursor: pointer; }
 @media (hover: hover) and (pointer: fine) {
   .mosa-v2 .detail .detail-section-view:hover { color: var(--color-text-primary); }
@@ -3612,17 +3649,20 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 .mosa-v2 .detail .detail-prompt-head .detail-prompt-toggle { display: inline-flex; height: 12px; align-items: center; padding: 0 var(--sp-1); border: 1px solid var(--color-border-default); border-radius: var(--radius-xs); font-size: var(--text-xs); line-height: 1; }
 .mosa-v2 .detail .detail-prompt-head .detail-prompt-toggle.is-active { border-color: var(--color-text-primary); }
 .mosa-v2 .detail .prompt-provenance { margin: var(--sp-1) 0 0; }
-.mosa-v2 .detail .detail-prompt-box { height: 120px; min-height: 120px; max-height: 120px; flex: 0 0 auto; border-radius: var(--radius-xs); }
+.mosa-v2 .detail .detail-prompt-box { max-height: 120px; flex: 0 1 auto; border-radius: var(--radius-xs); }
 .mosa-v2 .detail .detail-prompt-subhead { height: 16px; min-height: 16px; margin-top: var(--sp-5); }
-.mosa-v2 .detail .detail-instruction-box { height: 120px; min-height: 120px; max-height: 120px; flex: 0 0 auto; margin-top: var(--sp-1); border-radius: var(--radius-xs); }
+.mosa-v2 .detail .detail-instruction-box { max-height: 120px; flex: 0 1 auto; margin-top: var(--sp-1); border-radius: var(--radius-xs); }
 /* —— 参考图：盒 64 高、内边距 4、缩略图 56×56 一排放不下截断不换行 —— */
 .mosa-v2 .detail .detail-reference-section { padding: var(--sp-5) var(--sp-5) 0; }
 .mosa-v2 .detail .detail-reference-box { display: flex; box-sizing: border-box; height: 64px; align-items: center; overflow: hidden; padding: var(--sp-1); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-xs); }
+/* 任务 110：没有参考图时盒子只剩「无参考图」一行，收到与版本树空框一样的
+   28px；有参考图（缩略图行）时保持 64px。 */
+.mosa-v2 .detail .detail-reference-box:has(> .detail-reference-empty) { height: 28px; }
 .mosa-v2 .detail .detail-reference-box .detail-reference-thumbnails { display: flex; gap: var(--sp-1); min-width: 0; overflow: hidden; padding-bottom: 0; }
 .mosa-v2 .detail .detail-reference-box .detail-reference-thumb { width: 56px; height: 56px; flex: 0 0 56px; aspect-ratio: auto; border-radius: var(--radius-xs); }
 .mosa-v2 .detail .detail-reference-empty { padding: 0 var(--sp-2); font-size: var(--text-sm); }
 :root[data-theme="light"] .mosa-v2 .detail .detail-reference-box { border-color: #e7e7ea; background: #f3f3f5; }
-:root[data-theme="light"] .mosa-v2 .detail .detail-reference-empty { color: #6e6e73; }
+:root[data-theme="light"] .mosa-v2 .detail .detail-reference-empty { color: var(--color-text-tertiary); }
 /* —— 版本树与上下文：盒内最多 3 行，每行 40 高、内边距 4、行距 4；
       行首 40×40 缩略图。任务 75：行是复用 open-generation-output 的按钮；
       对话行内三行小字（模型 / 轮次 / 合计，行距 13×3=39 装满 40 高，与稿子
@@ -3647,17 +3687,20 @@ html[lang^="zh"] .mosa-v2 .settings-trigger .settings-trigger-label { letter-spa
 :root[data-theme="light"] .mosa-v2 .detail .detail-version-context-model { color: #636369; }
 :root[data-theme="light"] .mosa-v2 .detail .detail-version-context-turn:not(.detail-version-context-current),
 :root[data-theme="light"] .mosa-v2 .detail .detail-version-context-total { color: #636369; }
-:root[data-theme="light"] .mosa-v2 .detail .detail-version-context-empty { color: #6e6e73; }
+:root[data-theme="light"] .mosa-v2 .detail .detail-version-context-empty { color: var(--color-text-tertiary); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-version-context-box { border-color: rgb(255 255 255 / .10); background: rgb(255 255 255 / .06); }
 :root[data-theme="dark"] .mosa-v2 .detail .detail-version-context-row { background: rgb(255 255 255 / .08); }
 /* —— 底部固定「素材路径」胶囊：280×36 圆角 18（内容宽 280），不随内容滚动 —— */
 .mosa-v2 .detail .detail-pathbar { flex: 0 0 auto; padding: var(--sp-3) var(--sp-5) var(--sp-5); }
 .mosa-v2 .detail .detail-pathbar[hidden] { display: none; }
-.mosa-v2 .detail .detail-pathbar-pill { display: flex; box-sizing: border-box; height: 36px; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-1h) 0 var(--sp-3); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-pill); background: var(--app-card); }
-.mosa-v2 .detail .detail-pathbar-label { flex: 0 0 auto; color: #6e6e73; font-size: var(--text-md); font-weight: var(--weight-medium); }
+/* 任务 110：胶囊 36 → --control-md（28px），圆角仍是全圆 --radius-pill。 */
+.mosa-v2 .detail .detail-pathbar-pill { display: flex; box-sizing: border-box; height: var(--control-md); align-items: center; gap: var(--sp-2); padding: 0 var(--sp-1h) 0 var(--sp-3); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-pill); background: var(--app-card); }
+.mosa-v2 .detail .detail-pathbar-label { flex: 0 0 auto; color: #6e6e73; font-size: var(--text-sm); font-weight: var(--weight-medium); }
 /* 任务 109（对比度）：路径文字原为字面量 #8e8e93/#6e6e73（对卡面 3.26 / 2.75:1），
    改次要文字 token——浅色 #67676d 5.6:1、深色 #a0a0a6 5.4:1；深色覆写随之删除。 */
-.mosa-v2 .detail .detail-pathbar-path { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--color-text-tertiary); font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; }
+/* 任务 110：路径改「头 + 尾」两段中间省略（头部保留开头、尾部保留最后的文件名段），
+   省略号由 .me-head 画；容器自身不再是单段文本，不直接写 text-overflow。 */
+.mosa-v2 .detail .detail-pathbar-path { display: flex; flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--color-text-tertiary); font-size: var(--text-xs); }
 .mosa-v2 .detail .detail-pathbar-open { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 24px; padding: 0 var(--sp-2); border: 0; border-radius: var(--radius-lg); color: var(--color-text-primary); background: transparent; font-size: var(--text-sm); cursor: pointer; }
 .mosa-v2 .detail .detail-pathbar-open:disabled { opacity: .4; cursor: default; }
 @media (hover: hover) and (pointer: fine) {

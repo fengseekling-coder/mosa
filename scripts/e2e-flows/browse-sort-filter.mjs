@@ -400,6 +400,10 @@ function sessionOneSource(expect) {
     await waitFor(() => gallerySettled() && rootCardIds().length === expect.initialCount, 'initial first page');
     const initialIds = rootCardIds();
     const sentinelInitially = Boolean(sentinel());
+    // The sidebar source items come from a separate navigation request, so a
+    // settled gallery does not mean they exist yet (Windows CI: 60 cards on
+    // screen, #sidebarGroupList still empty, "Missing control"). Wait for them.
+    await waitFor(() => document.querySelector(sourceSelector('codex-generated')), 'sidebar source filters rendered', 20000);
     // 任务 70：原类型筛选（img）步骤改走同结果规模的来源 facet。First-screen
     // contract regression: switching a filter on a >1-page result must keep
     // exactly one page in the DOM until the user scrolls. The old observer
@@ -477,6 +481,7 @@ function sessionTwoSource(expect) {
     };
     setValue('#sortSelect', 'newest');
     await waitFor(() => gallerySettled() && JSON.stringify(rootCardIds().slice(0, 5)) === JSON.stringify(expect.newestFirst5), 'sort back to newest');
+    await waitFor(() => sourceButton('web-chatgpt') && sourceButton('codex-generated'), 'sidebar source filters rendered after reload', 20000);
     const sourceItems = [...document.querySelectorAll('#sidebarGroupList .nav-item[data-filter="source"]')]
       .map((button) => ({ value: button.dataset.value, count: button.querySelector('.nav-count')?.textContent || '', active: button.classList.contains('active') }));
     click(sourceSelector('web-chatgpt'));

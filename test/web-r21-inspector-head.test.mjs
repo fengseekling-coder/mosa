@@ -56,16 +56,25 @@ test("A4a head layout: 130px square preview left, meta column right, icon-only s
   const headerBlocks = css.match(/\.mosa-v2 \.detail-inspector-header \{[^}]*\}/g) || [];
   assert.ok(headerBlocks.at(-1).includes("padding: 0 var(--sp-5);"), "the last header rule carries the 20px A4a side padding");
   assert.match(css, /\.mosa-v2 \.detail \.detail-overview \{ padding: 0 var\(--sp-5\) var\(--sp-2\); \}/,
-    "the file section hugs the header with the 20px side padding");
-  assert.match(css, /\.mosa-v2 \.detail \.asset-head \{ grid-template-columns: 130px minmax\(0, 1fr\); \}/);
+    "the file section keeps the 20px side padding");
+  assert.match(css, /\.mosa-v2 \.detail \.inspector-section\.detail-overview \{ padding-top: var\(--sp-3\); \}/,
+    "task 110: 12px above the name line so text does not touch the header divider (must out-specify .inspector-section:first-child)");
+  assert.match(css, /\.mosa-v2 \.detail \.asset-name-row \{ display: flex; min-width: 0; align-items: center; gap: var\(--sp-2\); \}/,
+    "the name and the star share one vertically centred line");
+  assert.match(css, /\.mosa-v2 \.detail \.asset-body \{ display: grid; grid-template-columns: 130px minmax\(0, 1fr\); gap: var\(--sp-4\); align-items: start; \}/,
+    "task 110: the 130px preview + facts columns live in .asset-body, below the full-width name and source rows");
   const mini = /\.mosa-v2 \.detail \.asset-mini \{[^}]*\}/g;
   const miniBlocks = css.match(mini) || [];
   assert.ok(miniBlocks.at(-1).includes("width: 130px;"), "the preview tile is 130px wide");
   assert.ok(miniBlocks.at(-1).includes("border-radius: 0;"), "the design preview has no corner radius");
   assert.match(css, /\.mosa-v2 \.detail \.asset-mini img\.detail-image,\n\.mosa-v2 \.detail \.asset-mini video\.detail-image \{ object-fit: cover; \}/);
-  // A4a：字号抬到 17px 在后置覆盖块里，650 字重与两行截断仍在基础块；规范表 v1 归 lg/semibold。
-  assert.match(css, /\.mosa-v2 \.detail \.asset-name-row h3 \{[^}]*font-weight: var\(--weight-semibold\);[^}]*-webkit-line-clamp: 2;/);
+  // 任务 110：文件名单行显示（不再两行截断），太长时中间省略——头段 .me-head
+  // 收缩显示省略号、尾段 .me-tail 不收缩，两段拼接仍是完整文件名；规范表 v1 归 lg/semibold。
+  assert.match(css, /\.mosa-v2 \.detail \.asset-name-row h3 \{[^}]*font-weight: var\(--weight-semibold\);[^}]*white-space: nowrap; \}/);
+  assert.doesNotMatch(css, /\.mosa-v2 \.detail \.asset-name-row h3 \{[^}]*-webkit-line-clamp/);
   assert.match(css, /\.mosa-v2 \.detail \.asset-name-row h3 \{ font-size: var\(--text-lg\); line-height: var\(--text-lg-lh\); \}/);
+  assert.match(css, /\.me-head \{ min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/);
+  assert.match(css, /\.me-tail \{ max-width: 100%; flex: 0 0 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/);
   // A4a：头部「打开原始对话」按钮随来源信息区块一并拿掉。
   assert.doesNotMatch(css, /\.detail-overview-open/, "the head open-conversation button style must not come back");
 });

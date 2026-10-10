@@ -128,6 +128,13 @@ function rootViewerSource(config) {
     };
     await recenterTo96(config.v6);
     await waitFor(() => !image().hidden && image().complete && image().naturalWidth > 0 && image().dataset.assetId === config.v6, 'wide image loaded');
+    // Loaded is not yet fitted: the fit scale comes from the stage size, and when
+    // that is still stale the image sits at its natural 3000px for a moment until
+    // the stage-resize pass refits it (seen on Windows CI, where hidden windows
+    // batch frames: imageLeft -898, imageRight 2102). Measure the arrows only once
+    // the image is no wider than the stage; an image that never fits times out here.
+    await waitFor(() => image().getBoundingClientRect().width <= document.querySelector('#assetViewStage').clientWidth + 0.5,
+      'wide image fitted inside the stage');
     const rectOf96 = (el) => el.getBoundingClientRect();
     const wideImageRect = rectOf96(image());
     const prevArrowRect = rectOf96(document.querySelector('#assetViewPrev'));
