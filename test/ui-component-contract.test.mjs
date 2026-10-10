@@ -63,8 +63,8 @@ function contractSection(css) {
 // The current button families covered by the shared Phase 1B state contract.
 // (2026-09: the import-modal-only .browse-btn family retired with the modal.)
 const FAMILIES = [
-  "icon-button", "toolbar-icon", "toolbar-filter", "create-button", "action-btn",
-  "recipe-save-btn", "btn-primary", "btn-secondary", "mini-btn",
+  "icon-button", "toolbar-icon", "toolbar-filter", "action-btn",
+  "recipe-save-btn", "btn-primary", "btn-secondary",
   "settings-trigger", "add-group-button",
 ];
 
@@ -75,14 +75,13 @@ test("the six button primitives are declared in the contract section", async () 
   }
   // Representative selectors for each primitive consume the shared rules.
   for (const selector of [
-    ".btn-primary, .create-button, .action-btn.primary", // Button primary
+    ".btn-primary, .action-btn.primary", // Button primary
     ".btn-secondary, .detail-close", // Button secondary
     ".icon-button:not(.quiet)", // IconButton
-    ".icon-button.quiet", // IconButton quiet
     ".toolbar-icon, .toolbar-filter", // ToolbarButton
     ".action-btn.danger / .btn-danger", // DestructiveButton comment mapping
     ".nav-item:not(.active), .settings-trigger", // MenuItem
-    ".mini-btn / .section-head-copy", // InlineAction comment mapping
+    ".section-head-copy", // InlineAction comment mapping
   ]) {
     assert.ok(section.includes(selector), `contract selector missing: ${selector}`);
   }

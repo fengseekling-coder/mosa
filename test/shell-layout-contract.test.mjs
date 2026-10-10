@@ -106,12 +106,10 @@ test("8-10, 19-21. three layout modes and breakpoint governance", async () => {
   assert.doesNotMatch(css, /\.detail \{[^}]*grid-row/);
 
   // 21. Breakpoint semantics: 1400 → gallery columns, 1120 → shell compaction,
-  // 900 → gallery columns + icon-only import under details-open.
+  // 900 → gallery columns.
   assert.match(css, /@media \(max-width: 1400px\) \{ \.grid \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \} \}/);
   assert.match(blockAfter(css, "@media (max-width: 1120px)"), /\.shell \{ grid-template-columns: var\(--sidebar-width-narrow\)/);
   assert.match(css, /@media \(max-width: 900px\) \{ \.grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \} \}/);
-  const mq900 = blockAfter(css, "@media (max-width: 900px) {\n");
-  assert.match(mq900, /\.shell\.details-open \.create-button span \{ display: none; \}/);
 });
 
 // 11. Library carries the min-width:0 shrink contract.

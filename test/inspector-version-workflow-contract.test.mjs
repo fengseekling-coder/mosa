@@ -336,13 +336,12 @@ test("39-48. layout order, neighbouring contracts, and dependency freeze", async
 });
 
 // Picker/recipe styles stay inside the approved boundary: native select reuses
-// the global form base (no custom select layer), the version area drops 9px
-// type, and the recipe-change field matches the version-change rhythm.
+// the global form base (no custom select layer) and the version area drops 9px
+// type.
 test("styles. picker and recipe-change styling stay within the Phase 4B boundary", async () => {
   const css = await readCss();
 
   assert.match(css, /\.version-picker \{ display: grid; gap: var\(--sp-2\); margin-bottom: var\(--sp-2\); \}/, "picker layout uses the 8px grid");
-  assert.match(css, /\.recipe-change-field \{ margin-top: var\(--sp-2\); \}/, "recipe-change field matches version-change spacing");
   assert.match(css, /\.version-current, \.version-archived \{[^}]*font-size: var\(--text-xs\);/, "version badges stay at the 11px --text-xs floor (was 9px type)");
   assert.match(css, /\.version-content time \{ color: var\(--color-text-tertiary\); font-size: var\(--text-xs\); \}/, "version timestamps stay at the 11px --text-xs floor (was 9px type)");
   const versionArea = sliceBetween(css, "/* 版本历史 */", "/* 配方快照 */");

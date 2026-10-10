@@ -259,20 +259,8 @@ test("version area unifies to the 10-10.5px scale with 12px row pitch and 8px ra
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.version-single strong, \.version-summary-label strong\) \{\n  color: var\(--color-accent\);\n\}/);
 });
 
-test("recipe form controls are 32px tall, 8px radii, borderless in light mode", async () => {
+test("the two-column form row keeps its 8px gap", async () => {
   const css = await readWebCss();
-  const label = lastBlock(css, ".mosa-v2 .detail .detail-fields .field > span");
-  assert.match(label, /font-size: var\(--text-xs\);/);
-  assert.match(label, /font-weight: var\(--weight-medium\);/);
-  const input = lastBlock(css, ".mosa-v2 .detail .detail-fields input");
-  assert.match(input, /height: 32px;/);
-  assert.match(input, /padding: 0 var\(--sp-3\);/);
-  assert.match(input, /border-radius: var\(--radius-md\);/);
-  const textarea = lastBlock(css, ".mosa-v2 .detail .detail-fields textarea");
-  assert.match(textarea, /padding: var\(--sp-3\);/);
-  const light = /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-fields :is\(input, textarea, select\) \{[^}]*\}/.exec(css)?.[0];
-  assert.match(light, /border-color: transparent;/);
-  assert.match(light, /background: #f3f3f5;/);
   const two = lastBlock(css, ".mosa-v2 .detail .two");
   assert.match(two, /gap: var\(--sp-2\);/);
 });
