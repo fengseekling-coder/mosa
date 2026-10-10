@@ -101,6 +101,9 @@ const KEY_KINDS = {
   "inspector.factKeyColor": "color",
   "inspector.factValFontSize": "font",
   "inspector.factValColor": "color",
+  // 任务 109（对比度）：「添加标签」与底部素材路径的实际字色（浅色）。
+  "inspector.tagsAddColor": "color",
+  "inspector.pathColor": "color",
   // 任务 75：版本树与上下文的行（无对话单行态）。行 40 高、40×40 缩略图、
   // 模型行 10px/13px——对话三行小字用的行距是同一个值。
   "inspector.versionContextRowHeight": "px",
@@ -135,17 +138,20 @@ const KEY_KINDS = {
   "toast.font": "font",
   "toast.iconSide": "px",
   "toast.iconInset": "px",
-  // 设置弹窗
+  // 设置弹窗（任务 109：宽 720、高随内容最高 540——cardHeight 是「常规与外观」
+  // 页的实际高度，aboutCardHeight 是「关于」页的，两页不同证明高度不写死）。
   "settings.cardWidth": "px",
+  "settings.cardMaxHeight": "px",
   "settings.cardHeight": "px",
+  "settings.aboutCardHeight": "px",
   "settings.cardRadius": "px",
   "settings.sidebarWidth": "px",
   "settings.navTabHeight": "px",
   "settings.navTabColor": "color",
   "settings.navTabActiveBackground": "color",
   "settings.navTabActiveColor": "color",
-  // 任务 91（GravityPort A4d）：右键菜单几何——宽 240、圆角 8、内边距 8、
-  // 行高 32、图标 24、组内行距 2、组间距 12（分隔线改纯留白）。
+  // 任务 91（GravityPort A4d）：右键菜单几何。任务 109（规范表 v1）：
+  // 宽 200、行高 26、图标 16；内边距 8、组内行距 2、组间距 12 不变。
   "menu.width": "px",
   "menu.radius": "px",
   "menu.padding": "px",
@@ -155,12 +161,14 @@ const KEY_KINDS = {
   "menu.groupGap": "px",
   "menu.iconSize": "px",
   "menu.iconInset": "px",
-  // 任务 94（GravityPort A4f）：确认弹窗——卡 640×240 圆角 16、标题 24/行距 30、
-  // 按钮 80×40 圆角 8 间距 8、「不再提醒」勾选框 16×16 圆角 4。
+  // 任务 94（GravityPort A4f）：确认弹窗。任务 109（规范表 v1）：卡 420 宽、
+  // 高度随内容（cardMinHeight="auto" 证明 240 下限已删）、标题 15/600、按钮 28 高。
   "confirmDialog.cardWidth": "px",
+  "confirmDialog.cardMinHeight": "str",
   "confirmDialog.cardHeight": "px",
   "confirmDialog.cardRadius": "px",
   "confirmDialog.titleFontSize": "font",
+  "confirmDialog.titleFontWeight": "font",
   "confirmDialog.titleLineSpacing": "px",
   "confirmDialog.buttonWidth": "px",
   "confirmDialog.buttonHeight": "px",
@@ -169,6 +177,7 @@ const KEY_KINDS = {
   "confirmDialog.checkboxSize": "px",
   "confirmDialog.checkboxRadius": "px",
   "confirmDialog.dontAskVisible": "str",
+  "confirmDialog.dontAskFontSize": "font",
   // 深色主题（R21 没有深色规格：只守关键颜色没被浅色规则串进去）
   "dark.bodyBackground": "color",
   "dark.bodyColor": "color",
@@ -176,6 +185,10 @@ const KEY_KINDS = {
   "dark.navLabelColor": "color",
   "dark.thumbBackground": "color",
   "dark.selectionRingColor": "color",
+  // 任务 109（对比度）：侧栏计数、「添加标签」、素材路径在深色下的实际字色。
+  "dark.navCountColor": "color",
+  "dark.tagsAddColor": "color",
+  "dark.pathColor": "color",
 };
 
 export async function run(ctx) {
@@ -505,6 +518,7 @@ function measurementSource({ plainAssetId }) {
     }, 'settings modal');
     const settingsCard = pick('.mosa-v2 .settings-modal-card');
     R['settings.cardWidth'] = rectOf(settingsCard).width;
+    R['settings.cardMaxHeight'] = styleOf(settingsCard).maxHeight;
     R['settings.cardHeight'] = rectOf(settingsCard).height;
     R['settings.cardRadius'] = styleOf(settingsCard).borderTopLeftRadius;
     R['settings.sidebarWidth'] = rectOf(pick('.mosa-v2 .settings-modal-sidebar')).width;
@@ -514,6 +528,14 @@ function measurementSource({ plainAssetId }) {
     const settingsTabActive = styleOf(pick('#settingsMenu [data-settings-page="general"]'));
     R['settings.navTabActiveBackground'] = settingsTabActive.backgroundColor;
     R['settings.navTabActiveColor'] = settingsTabActive.color;
+    // 任务 109：切到「关于」页再量卡片高度——两页高度不同 = 高度随内容，
+    // 不再写死（max-height 键另证 540 上限生效）。
+    click('#settingsMenu [data-settings-page="about"]');
+    await waitFor(() => pick('#settingsMenu [data-settings-panel="about"]').hidden === false, 'about page shown for its card height');
+    await waitStable(() => [Math.round(rectOf(settingsCard).height * 2)], 'settings modal about page');
+    R['settings.aboutCardHeight'] = rectOf(settingsCard).height;
+    click('#settingsMenu [data-settings-page="general"]');
+    await waitFor(() => pick('#settingsMenu [data-settings-panel="general"]').hidden === false, 'general page restored');
     click('#settingsMenu [data-card-info-opt="show"]');
     await waitFor(() => pick('#assetGrid').dataset.cardInfo === 'show', 'card info turns on');
     await closeSettings('after card info');
@@ -562,6 +584,10 @@ function measurementSource({ plainAssetId }) {
     const factVal = styleOf(pick('#detailPanel .head-facts .meta-val'));
     R['inspector.factValFontSize'] = factVal.fontSize;
     R['inspector.factValColor'] = factVal.color;
+    // 任务 109（对比度）：「添加标签」与底部素材路径的实际字色（浅色）。
+    await waitFor(() => pick('#detailPanel').querySelector('.detail-tags-add') && pick('#detailPanel').querySelector('.detail-pathbar-path'), 'tags row and pathbar render');
+    R['inspector.tagsAddColor'] = styleOf(pick('#detailPanel .detail-tags-add')).color;
+    R['inspector.pathColor'] = styleOf(pick('#detailPanel .detail-pathbar-path')).color;
     // 任务 75：版本树与上下文的行——生成历史异步到达后再量（无对话单行态）。
     await waitFor(() => pick('#detailPanel').querySelector('[data-generation-context] .detail-version-context-row'), 'version context row renders');
     const versionRow = pick('#detailPanel [data-generation-context] .detail-version-context-row');
@@ -649,9 +675,12 @@ function measurementSource({ plainAssetId }) {
     const dialogCard = pick('#confirmDialogCard');
     const dialogRect = rectOf(dialogCard);
     R['confirmDialog.cardWidth'] = dialogRect.width;
+    R['confirmDialog.cardMinHeight'] = styleOf(dialogCard).minHeight;
     R['confirmDialog.cardHeight'] = dialogRect.height;
     R['confirmDialog.cardRadius'] = styleOf(dialogCard).borderTopLeftRadius;
-    R['confirmDialog.titleFontSize'] = styleOf(pick('#confirmDialogTitle')).fontSize;
+    const dialogTitleStyle = styleOf(pick('#confirmDialogTitle'));
+    R['confirmDialog.titleFontSize'] = dialogTitleStyle.fontSize;
+    R['confirmDialog.titleFontWeight'] = dialogTitleStyle.fontWeight;
     R['confirmDialog.titleLineSpacing'] = rectOf(pick('#confirmDialogDescription')).top - rectOf(pick('#confirmDialogTitle')).top;
     const dialogConfirmButton = pick('#confirmDialogConfirm');
     const dialogCancelButton = pick('#confirmDialogCancel');
@@ -663,6 +692,7 @@ function measurementSource({ plainAssetId }) {
     R['confirmDialog.checkboxSize'] = rectOf(dialogCheckbox).width;
     R['confirmDialog.checkboxRadius'] = styleOf(dialogCheckbox).borderTopLeftRadius;
     R['confirmDialog.dontAskVisible'] = pick('#confirmDialogDontAsk').hidden === false ? 'yes' : 'no';
+    R['confirmDialog.dontAskFontSize'] = styleOf(pick('#confirmDialogDontAsk')).fontSize;
     click('#confirmDialogCancel');
     await waitFor(() => !pick('#confirmDialog').classList.contains('open'), 'confirm dialog cancelled after snapshot');
     // 右键把卡片从单选转成了多选、取消弹窗不会清它；按 Esc 清掉残留选区，再按
@@ -724,6 +754,14 @@ function measurementSource({ plainAssetId }) {
     R['dark.thumbBackground'] = styleOf(pick('#assetGrid .thumb')).backgroundColor;
     R['dark.selectionRingColor'] = styleOf(pick('.asset-card.selected'), '::after').borderColor;
     R['dark.navLabelColor'] = styleOf(pick('.mosa-v2 .nav-label')).color;
+    // 任务 109（对比度）：侧栏计数 + 打开检视器量「添加标签」/素材路径的深色字色。
+    R['dark.navCountColor'] = styleOf(pick('#quickFilters .nav-item[data-filter="favorite"] .nav-count')).color;
+    click('#openInspectorBtn');
+    await waitFor(() => pick('#detailPanel').getAttribute('aria-hidden') === 'false'
+      && pick('#detailPanel').querySelector('.detail-tags-add')
+      && pick('#detailPanel').querySelector('.detail-pathbar-path'), 'inspector renders for the dark colour keys');
+    R['dark.tagsAddColor'] = styleOf(pick('#detailPanel .detail-tags-add')).color;
+    R['dark.pathColor'] = styleOf(pick('#detailPanel .detail-pathbar-path')).color;
 
     return R;
   })()`;

@@ -62,7 +62,7 @@ test("nav items: 28px height, 8px radius, 4px gap, 20px nav side padding, 12px i
   assert.match(css, /\.mosa-v2 \.sidebar-group-list \{ gap: var\(--sp-1\);/, "group item gap must be the 4px step too");
   assert.match(css, /\.mosa-v2 \.nav-item \{ padding: 0 var\(--sp-3\); font-size: var\(--text-md\); \}/, "nav items keep 12px inner padding; all nav rows read 13px (--text-md)");
   assert.match(css, /\.mosa-v2 \.nav-list \.nav-item \{ font-size: var\(--text-md\); \}/, "fixed entries read 13px too (--text-md, 规范表 v1 统一导航字号)");
-  assert.match(css, /\.mosa-v2 \.nav-count \{ color: var\(--color-text-tertiary\); font-size: var\(--text-sm\); font-weight: var\(--weight-regular\);/, "counts read 12px / weight 400 (was 300, 规范表 v1 字重归档)");
+  assert.match(css, /\.mosa-v2 \.nav-count \{ color: var\(--color-text-secondary\); font-size: var\(--text-sm\); font-weight: var\(--weight-regular\);/, "counts read 12px / weight 400, color retiered to secondary for the 4.5:1 contrast floor (任务 109)");
   // 选中态底色与左侧 2px 指示条规则保留（v2 中维持现状隐藏）。
   assert.match(css, /\.nav-item\.active::before \{ content: ""; position: absolute; top: 6px; left: 0; width: 2px;/, "the 2px active indicator rule must survive");
   // 底部不再有分隔线。
@@ -75,6 +75,29 @@ test("group headings: 12px/600 labels and 24px space above heading rows", async 
   assert.match(css, /\.mosa-v2 \.nav-label \{ margin: var\(--sp-4\) 0 var\(--sp-1h\); padding: 0 var\(--sp-3\); color: var\(--color-text-tertiary\); font-size: var\(--text-sm\); font-weight: var\(--weight-semibold\);/);
   assert.match(css, /\.mosa-v2 \.sidebar-group-heading \{ display: flex; align-items: center; justify-content: space-between; min-height: 28px; margin: var\(--sp-6\) var\(--sp-2\) var\(--sp-half\); \}/, "heading rows sit 24px (--sp-6) below the previous block");
   assert.match(css, /\.mosa-v2 \.sidebar-manual-group-heading \{ margin-top: var\(--sp-6\); \}/);
+});
+
+// 任务 109：图标条（701–1120 宽、检视器打开）里分组标题的文字已收起，折叠箭头看不出
+// 含义——折叠按钮整个收起、「智能分组」标题行收起、「分组」标题行只留居中的加号；
+// 分隔线沿用分组列表的 border-top，不另画。701–767 宽侧栏是抽屉，要照常显示。
+test("task 109: the icon rail hides section toggles, keeps a centred add button, and the drawer restores them", async () => {
+  const css = await readCss();
+  const rail = blockAfter(css, "@media (min-width: 701px) and (max-width: 1120px) {\n  /* 任务 96 返工 1");
+  assert.match(rail, /\.mosa-v2 \.shell\.details-open \.sidebar-section-toggle \{ display: none; \}/);
+  assert.match(rail, /\.mosa-v2 \.shell\.details-open \.sidebar-group-heading \{ display: none; \}\n  \.mosa-v2 \.shell\.details-open \.sidebar-manual-group-heading \{ display: flex; justify-content: center; margin-right: 0; margin-left: 0; \}/);
+  assert.doesNotMatch(rail, /sidebar-group-heading::before/, "no extra divider stub: the group list border-top already draws it");
+  assert.match(css, /\.shell\.details-open \.sidebar-group-list \{ margin-top: var\(--sp-2\); padding-top: var\(--sp-2\); border-top: 1px solid var\(--color-border-subtle\); \}/);
+  const drawer = blockAfter(css, "@media (max-width: 767px) {");
+  assert.match(drawer, /\.mosa-v2 \.shell\.details-open \.sidebar-section-toggle \{ display: flex; \}/);
+  assert.match(drawer, /\.mosa-v2 \.shell\.details-open \.sidebar-group-heading \{ display: flex; justify-content: space-between; margin-right: var\(--sp-2\); margin-left: var\(--sp-2\); \}/);
+  const html = await readIndexHtml();
+  assert.match(html, /id="addGroupBtn"[^>]*data-i18n-title="addGroup"[^>]*title="添加分组"/);
+});
+
+// 任务 109：侧栏内联分组编辑框的基础规则写了 outline: none，焦点环要自己写。
+test("task 109: the inline group editor input shows the shared 2px focus ring", async () => {
+  const css = await readCss();
+  assert.match(css, /\.mosa-v2 \.sidebar-group-editor-input:focus \{ border-color: var\(--color-text-secondary\); outline: 2px solid var\(--color-focus-ring\); outline-offset: 2px; \}/);
 });
 
 test("Chinese letter-spacing applies only under html[lang^=zh]; English stays 0", async () => {

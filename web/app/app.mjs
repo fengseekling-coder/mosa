@@ -1597,12 +1597,12 @@ function renderSettingsMenu({ force = false } = {}) {
     row(t("libraryPath"), "", `${libraryPathBox}${changeLibraryControl}`, "settings-library-row"),
     row(t("storageEngine"), "", `<span class="settings-static-value" data-settings-storage-engine>${escapeHtml(storageLabel)}</span>`),
   ].join("");
-  const visualRows = row(
-    t("visualModelTitle"),
-    t("visualModelDescription"),
-    `<div data-settings-visual-model>${visualModelStatusMarkup()}</div>`,
-    "settings-visual-model-row",
-  );
+  // 任务 109：模型页改「标题一行，说明和状态在下面另起一行」——不再用 row()
+  // 的左右两栏（说明与状态此前挤在右栏被截断）；状态节点 data-settings-visual-model
+  // 保留，syncSettingsMenuView 仍按它原地刷新。
+  const visualRows = `<div class="settings-modal-row settings-visual-model-row"><div class="settings-row-copy"><h4>${t("visualModelTitle")}</h4></div><div class="settings-visual-model-detail"><p>${t("visualModelDescription")}</p><div data-settings-visual-model>${visualModelStatusMarkup()}</div></div></div>`;
+  // 任务 109：关于页在版本号上面加一行产品名（复用既有 appTitle 键，不新加文案）。
+  const aboutProductRow = `<div class="settings-modal-row settings-about-product-row"><div class="settings-row-copy"><h4 class="settings-about-product-name">${t("appTitle")}</h4></div></div>`;
   const aboutRow = row(t("version"), `<span data-settings-version>${escapeHtml(updateVersionSummary())}</span>`, `<div data-settings-update-action>${updateVersionControlMarkup()}</div>`, "settings-about-row");
   // 用户 ID 行（任务 69）：只在拿到安装 ID 时渲染（浏览器版没有这一行）。
   // 值复用 .settings-path（等宽 + 省略号截断 + title 悬停看全量）；复制复用
@@ -1618,7 +1618,7 @@ function renderSettingsMenu({ force = false } = {}) {
     { id: "general", label: t("settingsPageGeneral"), rows: appearanceRows, icon: settingIcon("M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0") },
     { id: "library", label: t("settingsPageLibrary"), rows: storageRows, icon: settingIcon("M3 7.5A2.5 2.5 0 0 1 5.5 5h4l1.7 2h7.3A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10Z") },
     { id: "visual", label: t("settingsPageVisual"), rows: visualRows, icon: settingIcon("M5 7h14M7 4v6M17 4v6M6 14h12M8 11v6M16 11v6M5 20h14") },
-    { id: "about", label: t("settingsPageAbout"), rows: aboutRow + userIdRow, icon: settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0") },
+    { id: "about", label: t("settingsPageAbout"), rows: aboutProductRow + aboutRow + userIdRow, icon: settingIcon("M12 10v5M12 7.5v.1M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0") },
   ];
   if (!settingsPages.some((page) => page.id === state.settingsPage)) state.settingsPage = "general";
   const activePage = state.settingsPage;

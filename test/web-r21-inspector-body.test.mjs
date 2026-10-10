@@ -166,7 +166,7 @@ test("version context rows are 40px tall with 40×40 thumbnails and 4px rhythm",
   assert.match(row, /text-align: left;/);
   assert.match(row, /cursor: pointer;/);
   assert.match(css, /\.mosa-v2 \.detail \.detail-version-context-row:disabled \{ cursor: default; \}/);
-  assert.match(css, /\.mosa-v2 \.detail \.detail-version-context-row:focus-visible \{ outline: 2px solid var\(--color-focus-ring, #0a84ff\); outline-offset: 1px; \}/);
+  assert.match(css, /\.mosa-v2 \.detail \.detail-version-context-row:focus-visible \{ outline: 2px solid var\(--color-focus-ring, #0a84ff\); outline-offset: 2px; \}/);
   const thumb = lastBlock(css, ".mosa-v2 .detail .detail-version-context-row .generation-output-thumb");
   assert.match(thumb, /width: 40px; height: 40px;/);
   assert.match(thumb, /border-radius: var\(--radius-xs\);/);

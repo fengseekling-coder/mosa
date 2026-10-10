@@ -66,7 +66,7 @@ test("each category page holds exactly its own rows and controls", async () => {
   assert.match(body, /\{ id: "general", label: t\("settingsPageGeneral"\), rows: appearanceRows,/);
   assert.match(body, /\{ id: "library", label: t\("settingsPageLibrary"\), rows: storageRows,/);
   assert.match(body, /\{ id: "visual", label: t\("settingsPageVisual"\), rows: visualRows,/);
-  assert.match(body, /\{ id: "about", label: t\("settingsPageAbout"\), rows: aboutRow \+ userIdRow,/);
+  assert.match(body, /\{ id: "about", label: t\("settingsPageAbout"\), rows: aboutProductRow \+ aboutRow \+ userIdRow,/);
   // 常规与外观：主题、素材卡片信息、界面语言。
   const appearanceRows = /const appearanceRows = \[([\s\S]*?)\]\.join\(""\);/.exec(body)?.[1] || "";
   assert.match(appearanceRows, /themeRow/);
@@ -87,9 +87,11 @@ test("each category page holds exactly its own rows and controls", async () => {
   const storageRows = /const storageRows = \[([\s\S]*?)\]\.join\(""\);/.exec(body)?.[1] || "";
   assert.match(storageRows, /row\(t\("libraryPath"\), "", `\$\{libraryPathBox\}\$\{changeLibraryControl\}`, "settings-library-row"\)/);
   assert.match(storageRows, /data-settings-storage-engine/);
-  // 本地视觉能力：视觉模型状态行；关于 MOSA：版本 / 更新行。
-  const visualRows = /const visualRows = row\(([\s\S]*?)\);\n  const aboutRow/.exec(body)?.[1] || "";
+  // 本地视觉能力：视觉模型状态行（任务 109 起为独立模板，不再走 row()）；
+  // 关于 MOSA：版本 / 更新行。
+  const visualRows = /const visualRows = `([\s\S]*?)`;\n  \/\/ 任务 109/.exec(body)?.[1] || "";
   assert.match(visualRows, /data-settings-visual-model/);
+  assert.match(visualRows, /<h4>\$\{t\("visualModelTitle"\)\}<\/h4>/);
   const aboutRow = /const aboutRow = row\(([\s\S]*?)\);\n  \/\/ 用户 ID 行/.exec(body)?.[1] || "";
   assert.match(aboutRow, /data-settings-version/);
   assert.match(aboutRow, /data-settings-update-action/);
@@ -123,14 +125,27 @@ test("category switching keeps the roving-tabindex keyboard contract", async () 
   assert.match(app, /restoreSettingsFocus\(previousFocus\);/);
 });
 
-test("A5 settings geometry: 960x728 card, 240px sidebar, 36px tabs and rows at 72px", async () => {
+test("A5 settings geometry: 720-wide card capped at 540, 240px sidebar, 36px tabs and rows at 72px", async () => {
   const css = await readWebCss();
   const card = lastBlock(css, ".mosa-v2 .settings-modal-card");
   assert.match(card, /display: grid;/);
   assert.match(card, /grid-template-columns: 240px minmax\(0, 1fr\);/);
-  assert.match(card, /width: min\(960px, 100%\);/);
-  assert.match(card, /height: min\(728px, calc\(100dvh - 48px\)\);/);
-  assert.match(card, /border-radius: var\(--radius-lg\);/);
+  // 任务 109：宽固定 720、最高 540；高度不写死（随内容收放），行轨道
+  // minmax(0,1fr) 把上限传导给右栏，内容超高只有 .settings-modal-body 滚动。
+  assert.match(card, /width: min\(720px, 100%\);/);
+  assert.match(card, /max-height: min\(540px, calc\(100dvh - 48px\)\);/);
+  assert.match(card, /grid-template-rows: minmax\(0, 1fr\);/);
+  assert.doesNotMatch(card, /(^|\n)\s{2}height: min\(/);
+  assert.doesNotMatch(card, /max-height: none;/);
+  // 顶边固定（用户 10-10 定）：卡片不再垂直居中，顶边钉在 540 高卡片居中时的位置，
+  // 切分页只向下伸缩；≤839 的单栏布局同样固定顶边，只是遮罩内边距换成 16。
+  assert.match(card, /align-self: start;/);
+  assert.match(card, /margin-top: max\(0px, calc\(\(100dvh - 48px - 540px\) \/ 2\)\);/);
+  assert.match(css, /@media \(max-width: 839px\) \{[\s\S]*?\.mosa-v2 \.settings-modal-card \{[^}]*margin-top: max\(0px, calc\(\(100dvh - 32px - 540px\) \/ 2\)\);/);
+  assert.doesNotMatch(css, /\.mosa-v2 \.settings-modal-card \{[^}]*align-self: center;/);
+  // 全文件不再有 960/728 写死值（不再生效的旧规则一并清掉）。
+  assert.doesNotMatch(css, /\.mosa-v2 \.settings-modal-card \{[^}]*960/);
+  assert.doesNotMatch(css, /\.mosa-v2 \.settings-modal-card \{[^}]*728/);
   const sidebar = lastBlock(css, ".mosa-v2 .settings-modal-sidebar");
   assert.match(sidebar, /padding: 0 var\(--sp-5\) var\(--sp-5\);/);
   assert.match(sidebar, /background: var\(--app-sidebar\);/);
@@ -175,6 +190,31 @@ test("A5 settings geometry: 960x728 card, 240px sidebar, 36px tabs and rows at 7
   assert.match(path, /font-size: var\(--text-xs\);/);
   assert.match(path, /max-width: 100%;/);
   assert.match(path, /text-overflow: ellipsis;/);
+});
+
+// 任务 109：模型页「标题一行；说明+状态另起一行」、状态可换行不截断；
+// 关于页在版本号上面加一行产品名（复用 appTitle，不新加文案键）。
+test("task 109: model page stacks description under the title, about page names the product first", async () => {
+  const body = await settingsRenderBody();
+  const visualRows = /const visualRows = `([\s\S]*?)`;\n  \/\/ 任务 109/.exec(body)?.[1] || "";
+  assert.ok(visualRows, "expected the task-109 visual rows template");
+  assert.match(visualRows, /class="settings-modal-row settings-visual-model-row"/);
+  assert.match(visualRows, /<h4>\$\{t\("visualModelTitle"\)\}<\/h4>/);
+  assert.match(visualRows, /class="settings-visual-model-detail"><p>\$\{t\("visualModelDescription"\)\}<\/p><div data-settings-visual-model>/);
+  const aboutProductRow = /const aboutProductRow = `([\s\S]*?)`;\n  const aboutRow/.exec(body)?.[1] || "";
+  assert.ok(aboutProductRow, "expected the task-109 about product row");
+  assert.match(aboutProductRow, /class="settings-about-product-name">\$\{t\("appTitle"\)\}</);
+  assert.match(body, /rows: aboutProductRow \+ aboutRow \+ userIdRow,/);
+  const css = await readWebCss();
+  const detail = lastBlock(css, ".mosa-v2 .settings-visual-model-row .visual-model-status span");
+  assert.match(detail, /white-space: normal;/);
+  assert.match(detail, /text-overflow: clip;/);
+  assert.doesNotMatch(detail, /ellipsis/);
+  const row = lastBlock(css, ".mosa-v2 .settings-visual-model-row");
+  assert.match(row, /grid-template-columns: minmax\(0, 1fr\);/);
+  // 说明文字和标题、状态左对齐：抵消旧规则 .settings-menu p 的内边距。
+  const description = lastBlock(css, ".mosa-v2 .settings-visual-model-detail p");
+  assert.match(description, /margin: 0; padding: 0;/);
 });
 
 test("new surface split and segmented track use tokens or already-existing light values", async () => {
@@ -329,15 +369,16 @@ test("theme setting is three-state with system following prefers-color-scheme li
 test("theme preview cards lock the R21 swatches, hover lift and the check-mark selected marker", async () => {
   const css = await readWebCss();
   // 布局（任务 81 稿子）：两列固定 186 宽、间距 40、内容左对齐；缩略框 90 高、16px
-  // 标题栏、8 圆角；名称居中在卡下方。
+  // 标题栏、8 圆角；名称居中在卡下方。任务 109：弹窗收窄到 720 后三张 186 固定宽
+  // 放不下，卡改为可收缩（minmax(0,186px) + max-width），≤839 窄窗降级随之并入基础规则。
   const choices = lastBlock(css, ".mosa-v2 .settings-theme-choices");
-  assert.match(choices, /grid-template-columns: repeat\(3, 186px\);/);
+  assert.match(choices, /grid-template-columns: repeat\(3, minmax\(0, 186px\)\);/);
   assert.match(choices, /gap: var\(--sp-10\);/);
   assert.match(choices, /justify-content: start;/);
-  // 任务 81 返工 1：三张卡；窄窗口（既有 ≤839 块内）允许收缩防溢出。
-  assert.match(choices, /grid-template-columns: repeat\(3, 186px\);/);
+  assert.doesNotMatch(css, /repeat\(3, 186px\)/);
   const card = lastBlock(css, ".mosa-v2 .settings-theme-card");
-  assert.match(card, /width: 186px;/);
+  assert.match(card, /width: 100%;/);
+  assert.match(card, /max-width: 186px;/);
   assert.match(card, /text-align: center;/);
   const preview = lastBlock(css, ".mosa-v2 .settings-theme-preview");
   assert.match(preview, /height: 90px;/);
