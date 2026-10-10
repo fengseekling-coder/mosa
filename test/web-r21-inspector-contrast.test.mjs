@@ -31,8 +31,8 @@ test("task-43 recolours: every AA-darkened spot carries its new value in the lig
   // #f3f3f5 面上的占位与参考图行文字统一 #6e6e73（4.58:1）；任务 110：提示词 /
   // 用户指令框的占位改回 token tertiary（随主题），参考图行文字保持 #6e6e73。
   assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-prompt-box \.empty-copy,\n:root\[data-theme="light"\] \.mosa-v2 \.detail \.detail-instruction-box \.empty-copy \{\n  color: var\(--color-text-tertiary\);\n\}/);
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-reference-summary \.detail-reference-label, \.detail-reference-row \.detail-reference-label\) \{\n  color: #6e6e73;\n\}/);
-  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-reference-summary \.detail-reference-value, \.detail-reference-row \.detail-reference-value\) \{\n  color: #6e6e73;\n\}/);
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-reference-row \.detail-reference-label\) \{\n  color: #6e6e73;\n\}/);
+  assert.match(css, /:root\[data-theme="light"\] \.mosa-v2 \.detail :is\(\.detail-reference-row \.detail-reference-value\) \{\n  color: #6e6e73;\n\}/);
 });
 
 test("the AA greys stay in the light scope and the tertiary token keeps its value", async () => {

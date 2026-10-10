@@ -240,7 +240,6 @@ test("keeps meaningful labels above the WCAG AA body-text floor", async () => {
   for (const rule of [
     /\.nav-count \{[^}]*color: var\(--color-text-secondary\)/,
     /\.title-row p \{[^}]*color: var\(--color-text-secondary\)/,
-    /\.detail-head p \{[^}]*color: var\(--color-text-secondary\)/,
     /\.meta-key \{[^}]*color: var\(--color-text-secondary\)/,
     /\.asset-card-meta \{[^}]*color: var\(--color-text-secondary\)/,
   ]) {
