@@ -186,8 +186,13 @@ function pageSource(config) {
     facts.selectionMovesAfterClose = true;
 
     // ===== 右键菜单：打开的同一任务里 Escape 立即关菜单 =====
+    // 任务 111：右键一张不在多选里的图会先走选中（异步），菜单不再同步打开。
+    // 这条断言要的是「菜单刚打开、关闭监听的 setTimeout(0) 还没注册」那个空窗，
+    // 所以先把这张图放进多选——右键已在多选里的图不换选中，菜单仍然同步打开。
     const plainCard = document.querySelector(cardSelector(config.plainId));
     assert(Boolean(plainCard), 'plain card exists for the context-menu Escape check');
+    plainCard.querySelector('.asset-card-select').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true, ctrlKey: true }));
+    await waitFor(() => plainCard.classList.contains('multi-selected'), 'plain card joins the multi-selection before the right-click');
     plainCard.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 320, clientY: 320 }));
     facts.menuOpenImmediately = Boolean(document.querySelector('.context-menu'));
     assert(facts.menuOpenImmediately, 'context menu opens synchronously on contextmenu');

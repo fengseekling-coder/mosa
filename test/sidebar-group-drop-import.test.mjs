@@ -142,8 +142,15 @@ test("10 trash scope hides the clipboard paste context-menu item", async () => {
 test("11 trash empty state never advertises the drag/paste import hint", async () => {
   const app = await readWebApp();
   const markup = sliceBetween(app, "function galleryEmptyMarkup()", "/** Reuses the existing polite live region");
-  assert.match(markup, /const dropHint = state\.scope === "trash" \? "" : "<p>" \+ escapeHtml\(t\("emptyDropHint"\)\) \+ "<\/p>";/,
-    "the drop hint is dropped in the read-only trash scope");
+  // 任务 111：拖入提示不再是任何档位的独立段落——空库档把它当说明
+  // （GALLERY_EMPTY_STATE_COPY 的 emptyDropHint），回收站档的说明是回收站自己的
+  // 空态文案，导入提示一次都不出现。
+  assert.doesNotMatch(markup, /emptyDropHint/, "the drop hint is not a standalone paragraph in the markup shell");
+  const table = sliceBetween(app, "const GALLERY_EMPTY_STATE_COPY = {", "};");
+  assert.match(table, /"library-empty": \{ titleKey: "emptyLibraryTitle", descriptionKey: "emptyDropHint" \}/,
+    "the empty-library description IS the drop hint, so it is never rendered twice");
+  assert.match(table, /"trash-empty": \{ titleKey: "trashEmptyTitle", descriptionKey: "trashEmptyDescription" \}/,
+    "the read-only trash scope speaks with its own empty copy");
 });
 
 test("12 the announcement copy is symmetric across locales", async () => {
